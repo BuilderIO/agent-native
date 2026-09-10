@@ -780,6 +780,7 @@ async function buildTextElements(
           length: remaining,
           color: segment.color,
           paintOrder: segment.paintOrder,
+          invisible: segment.invisible,
         });
         segmentQueue[0] = { ...segment, length: segment.length - remaining };
         consumed = item.str.length;
@@ -795,7 +796,15 @@ async function buildTextElements(
         length: item.str.length - consumed,
         color: undefined,
         paintOrder: lastPaintOrder,
+        invisible: itemSegments[itemSegments.length - 1]?.invisible ?? false,
       });
+    }
+    // An item drawn entirely in an invisible rendering mode is a text layer
+    // over a rasterized page — the words are already in the page image, so
+    // reconstructing them as visible text boxes would print everything twice.
+    // They still reach the slide through the page's extracted text.
+    if (itemSegments.length > 0 && itemSegments.every((s) => s.invisible)) {
+      return [];
     }
     return sliceTextItemBySegments(
       itemForBox,
@@ -884,6 +893,8 @@ export interface TextColorRun {
   color: string | undefined;
   /** Index in this page's real content-stream paint order, shared with image paint events. */
   paintOrder: number;
+  /** Drawn in PDF text rendering mode 3 or 7 — an OCR/accessibility layer over a rasterized page, not ink the page shows. */
+  invisible: boolean;
 }
 
 /** An image's placed rect plus its index in this page's real paint order, shared with `TextColorRun.paintOrder` so images and text can be z-ordered by how the PDF actually painted them instead of images always going first. */
@@ -936,21 +947,34 @@ export async function walkPageGraphics(
   // `fillColor` is then a stale guess, not a real reading, and must not be
   // trusted for text or background detection.
   let fillColorKnown = true;
+  // PDF text rendering mode: 0 fills, 3 draws nothing, 7 only adds to the clip
+  // path. Modes 3 and 7 are how a scanner — and this app's own PDF export —
+  // lay a searchable text layer over an already-rasterized page.
+  let textRenderingMode = 0;
   let ctm: Mat = [1, 0, 0, 1, 0, 0];
-  const stack: { ctm: Mat; fillColor: string; fillColorKnown: boolean }[] = [];
+  const stack: {
+    ctm: Mat;
+    fillColor: string;
+    fillColorKnown: boolean;
+    textRenderingMode: number;
+  }[] = [];
 
   for (let i = 0; i < opList.fnArray.length; i++) {
     const fn = opList.fnArray[i];
     const args = opList.argsArray[i] as unknown[];
     if (fn === OPS.save) {
-      stack.push({ ctm, fillColor, fillColorKnown });
+      stack.push({ ctm, fillColor, fillColorKnown, textRenderingMode });
     } else if (fn === OPS.restore) {
       const restored = stack.pop();
       if (restored) {
         ctm = restored.ctm;
         fillColor = restored.fillColor;
         fillColorKnown = restored.fillColorKnown;
+        textRenderingMode = restored.textRenderingMode;
       }
+    } else if (fn === OPS.setTextRenderingMode) {
+      const mode = args[0];
+      if (typeof mode === "number") textRenderingMode = mode;
     } else if (fn === OPS.transform) {
       ctm = Util.transform(ctm, args as Mat) as Mat;
     } else if (isImagePaintOp(fn)) {
@@ -987,6 +1011,7 @@ export async function walkPageGraphics(
           length,
           color: fillColorKnown ? fillColor : undefined,
           paintOrder: paintOrder++,
+          invisible: textRenderingMode === 3 || textRenderingMode === 7,
         });
       }
     } else if (fn === OPS.constructPath) {

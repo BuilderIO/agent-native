@@ -345,7 +345,7 @@ describe("walkPageGraphics", () => {
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.textRuns).toEqual([
-      { length: 1, color: "#0000ff", paintOrder: 0 },
+      { length: 1, color: "#0000ff", paintOrder: 0, invisible: false },
     ]);
   });
 
@@ -362,8 +362,8 @@ describe("walkPageGraphics", () => {
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.textRuns).toEqual([
-      { length: 1, color: "#ffffff", paintOrder: 0 },
-      { length: 1, color: "#18b6f6", paintOrder: 1 },
+      { length: 1, color: "#ffffff", paintOrder: 0, invisible: false },
+      { length: 1, color: "#18b6f6", paintOrder: 1, invisible: false },
     ]);
   });
 
@@ -374,7 +374,7 @@ describe("walkPageGraphics", () => {
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.textRuns).toEqual([
-      { length: 1, color: undefined, paintOrder: 0 },
+      { length: 1, color: undefined, paintOrder: 0, invisible: false },
     ]);
   });
 
@@ -385,7 +385,7 @@ describe("walkPageGraphics", () => {
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.textRuns).toEqual([
-      { length: 1, color: "#ffffff", paintOrder: 0 },
+      { length: 1, color: "#ffffff", paintOrder: 0, invisible: false },
     ]);
   });
 

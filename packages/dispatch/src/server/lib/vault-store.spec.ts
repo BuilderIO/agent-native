@@ -15,7 +15,8 @@ const mocks = vi.hoisted(() => ({
   writeAppSecret: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/secrets", () => ({
+vi.mock("@agent-native/core/secrets", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/secrets")>()),
   deleteAppSecret: mocks.deleteAppSecret,
   listAppSecretsForScope: mocks.listAppSecretsForScope,
   readAppSecret: mocks.readAppSecret,
@@ -64,6 +65,7 @@ import {
   resyncAllVaultSecretsToCredentialStore,
   syncGrantsToApp,
   syncSecretsToCredentialStore,
+  toVaultSecretMetadata,
 } from "./vault-store.js";
 
 afterEach(() => {
@@ -143,6 +145,30 @@ describe("vault authorization", () => {
 
     await expect(assertCanManageVault()).resolves.toBeUndefined();
     expect(mocks.getDbExec).not.toHaveBeenCalled();
+  });
+});
+
+describe("toVaultSecretMetadata", () => {
+  it("returns only masked metadata", () => {
+    const metadata = toVaultSecretMetadata({
+      id: "secret-1",
+      name: "Test key",
+      credentialKey: "TEST_KEY",
+      value: "sk-test-example",
+      provider: "other",
+      description: "Fake test credential",
+      createdBy: "owner@example.test",
+      createdAt: 1,
+      updatedAt: 2,
+    } as any);
+
+    expect(metadata).toMatchObject({
+      id: "secret-1",
+      credentialKey: "TEST_KEY",
+      last4: "••••mple",
+    });
+    expect(metadata).not.toHaveProperty("value");
+    expect(JSON.stringify(metadata)).not.toContain("sk-test-example");
   });
 });
 

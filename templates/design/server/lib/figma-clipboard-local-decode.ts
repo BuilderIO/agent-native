@@ -221,6 +221,20 @@ export async function importFigmaClipboardFromBuffer(options: {
       `${unresolvedRefs.length} image${unresolvedRefs.length === 1 ? "" : "s"} could not be loaded without a Figma access token. Connect Figma to fill them in.`,
     );
   }
+  // The walker records what it could not reproduce, and this is the boundary
+  // where that report was being dropped: a paste that lost visible content
+  // came back carrying only the image warning, which reads as "everything else
+  // was fine". Summarise by reason rather than per node — a design with 40
+  // boolean bubbles should say so once.
+  const approximatedByNote = new Map<string, number>();
+  for (const entry of rendered.approximatedNodes ?? []) {
+    for (const note of entry.notes) {
+      approximatedByNote.set(note, (approximatedByNote.get(note) ?? 0) + 1);
+    }
+  }
+  for (const [note, count] of approximatedByNote) {
+    warnings.push(count === 1 ? note : `${count} nodes: ${note}`);
+  }
 
   return {
     files,

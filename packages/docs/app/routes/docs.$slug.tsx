@@ -1,16 +1,22 @@
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import {
+  redirect,
+  useLoaderData,
+  type ClientLoaderFunctionArgs,
+  type LoaderFunctionArgs,
+} from "react-router";
 
 import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
   loadDocRespectingDraftVisibility,
+  preloadDocBlocksForDoc,
   type DocEntry,
 } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
-  isDocsLocale,
+  docsLocaleFromSegment,
 } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import { DOCS_SLUG_REDIRECTS } from "../components/docs-slug-redirects";
@@ -19,9 +25,10 @@ import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const slug = params.slug!;
-  if (isDocsLocale(slug)) {
+  const slugLocale = docsLocaleFromSegment(slug);
+  if (slugLocale) {
     throw withSsrHtmlContentType(
-      redirect(docsPathForSlug("getting-started", slug), 302),
+      redirect(docsPathForSlug("getting-started", slugLocale), 302),
     );
   }
 
@@ -36,6 +43,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
     throw new Response("Not Found", { status: 404 });
   }
   return doc;
+}
+
+export async function clientLoader({ serverLoader }: ClientLoaderFunctionArgs) {
+  const doc = (await serverLoader()) as DocEntry;
+  return preloadDocBlocksForDoc(doc);
 }
 
 export const meta = ({

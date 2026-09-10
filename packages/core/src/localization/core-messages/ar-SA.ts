@@ -31,6 +31,72 @@ const messages: AgentChatTranslation = {
   "commands.mention": "الإشارة إلى ملفات أو وكلاء أو موارد",
   "commands.new": "مثل /clear",
   "commands.plan": "التبديل إلى التخطيط للقراءة فقط",
+  "onboarding.back": "رجوع",
+  "onboarding.chooseRole": "اختر دورك",
+  "onboarding.customizeRole": "لنخصص هذه التجربة لك.",
+  "onboarding.roleQuestion": "ما الوصف الأفضل لدورك؟",
+  "onboarding.roleProduct": "المنتج",
+  "onboarding.roleDesign": "التصميم",
+  "onboarding.roleDeveloper": "مطور",
+  "onboarding.roleMarketing": "التسويق",
+  "onboarding.roleSales": "المبيعات",
+  "onboarding.roleOps": "العمليات",
+  "onboarding.roleIndividual": "فردي",
+  "onboarding.roleOther": "أخرى",
+  "onboarding.skipForNow": "تخطي الآن",
+  "onboarding.saveRoleError": "تعذر حفظ دورك.",
+  "onboarding.builderActivateCredits": "تفعيل أرصدة Builder.io المجانية",
+  "onboarding.builderConnectCredits": "الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderActivateDescription":
+    "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
+  "onboarding.builderActiveCredits":
+    "مضمّنة مع أرصدة Builder.io المجانية النشطة",
+  "onboarding.builderCredits": "مضمّنة مع أرصدة Builder.io المجانية",
+  "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
+  "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
+  "onboarding.builderAccountExistsDescription": "سجّل الدخول لربطه.",
+  "onboarding.builderActivationDescription":
+    "سننشئ حساب Builder.io الخاص بك تلقائيًا بنقرة واحدة.",
+  "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
+  "onboarding.builderConsentPrefix": "بمتابعة العملية، فإنك توافق على",
+  "onboarding.builderTerms": "الشروط",
+  "onboarding.builderPrivacy": "الخصوصية",
+  "onboarding.builderConsentAnd": "و",
+  "onboarding.builderExistingAccount": "لدي حساب Builder.io",
+  "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
+  "onboarding.builderConnecting": "جارٍ الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderProvisioningDescription":
+    "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
+  "onboarding.builderConnectionDescription":
+    "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
+  "onboarding.capability.llm.keySummary":
+    "اربط مزود ذكاء اصطناعي أو نموذجًا محليًا",
+  "onboarding.capability.fileStorage.keySummary":
+    "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.capability.voiceInput.label": "الإدخال الصوتي",
+  "onboarding.capability.voiceInput.keySummary":
+    "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
+  "onboarding.capability.voiceInput.why":
+    "يحوّل الإدخال الصوتي الطلبات المنطوقة إلى نص؛ وتظل الكتابة متاحة دائمًا.",
+  "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "أرصدة Builder أو مفتاح مزود صور",
+  "onboarding.capability.assetsImageGeneration.why":
+    "إنشاء الصور هو سير العمل الأساسي لإنشاء أصول متوافقة مع العلامة التجارية.",
+  "onboarding.capability.assetsVideoGeneration.label": "إنشاء الفيديو",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "مفتاح Gemini API",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "إنشاء الفيديو اختياري؛ سير العمل الأساسي في Assets هو إنشاء الصور.",
+  "onboarding.capability.clipsObjectStorage.label": "تخزين الكائنات",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "تحتاج الفيديوهات المسجلة إلى تخزين كائنات دائم قبل تشغيلها أو مشاركتها.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "مفتاح مزود تحويل الكلام إلى نص",
+  "onboarding.capability.about": "حول {{label}}",
+  "onboarding.capability.why": "لماذا نحتاج إلى {{label}}",
+  "onboarding.openAiKeySettings": "فتح إعدادات مفاتيح الذكاء الاصطناعي",
   "aboutAgentNative.title": "حول Agent-Native",
   "aboutAgentNative.version": "الإصدار",
   "aboutAgentNative.environment": "البيئة",
@@ -40,6 +106,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "الوكيل",
   "agentPanel.mode": "الوضع",
   "agentPanel.uiMode": "واجهة المستخدم",
+  "agentHostNudge.sidebarTitle": "استخدم محادثة {{agent}}",
+  "agentHostNudge.sidebarDescription":
+    "أنت تتحدث مع {{agent}} بالفعل. اطلب منه العمل مع هذا التطبيق مباشرةً.",
+  "agentHostNudge.promptTitle": "اسأل {{agent}} بدلًا من ذلك",
+  "agentHostNudge.promptDescription":
+    "يمكنك مطالبة {{agent}} بإنشاء هذا أو تغييره هنا.",
+  "agentHostNudge.useThisChat": "استخدم هذه المحادثة",
+  "agentHostNudge.useThisPrompt": "استخدم هذا الطلب",
   "common.cancel": "إلغاء",
   "common.collapse": "طي",
   "common.connect": "اتصال",
@@ -470,6 +544,23 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "انتهى تدفق الوكيل السابق أثناء استرداد التشغيل. تابع أو أعد المحاولة لإعادة الاتصال بالتشغيل.",
   "recovery.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
+  "secrets.addCustomKeyNamed": 'إضافة "{{name}}" كمفتاح مخصص',
+  "secrets.customKey": "مفتاح مخصص",
+  "secrets.customKeyHint": "أضف أي مفتاح بالاسم",
+  "secrets.fromEnvironment": "توفّره بيئة النشر.",
+  "secrets.managedInVault":
+    "تتم إدارته في Vault الخاص بمساحة العمل. يستخدم كل تطبيق في مساحة العمل هذه القيمة.",
+  "secrets.openVault": "فتح Vault",
+  "secrets.overridesVault":
+    "يتجاوز هذا المفتاح الشخصي قيمة Vault الخاصة بمساحة العمل. أزِله لاستخدام مفتاح Vault.",
+  "secrets.overridesWorkspace":
+    "يتجاوز هذا المفتاح الشخصي قيمة مساحة العمل. أزِله لاستخدام المفتاح المشترك.",
+  "secrets.setForWorkspace": "مضبوط لجميع الأشخاص في مساحة العمل هذه.",
+  "secrets.sourceEnvironment": "البيئة",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "مساحة العمل",
+  "secrets.statusUnavailable": "غير متاح",
+  "secrets.usePersonalKey": "استخدام مفتاح شخصي بدلاً من ذلك",
   "selection.attached": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_zero": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.attached_one": "تم إرفاق {{formattedCount}} حرف من التحديد",

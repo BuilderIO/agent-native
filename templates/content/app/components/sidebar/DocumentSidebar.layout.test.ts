@@ -62,7 +62,7 @@ describe("document sidebar layout", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
     expect(sidebar).toContain(
-      "agent-layout-left-drawer flex h-full w-12 flex-col",
+      "agent-layout-left-drawer flex h-full w-14 flex-col",
     );
     expect(sidebar).toContain(
       "agent-layout-left-drawer relative flex h-full min-h-0 flex-col",
@@ -74,17 +74,12 @@ describe("document sidebar layout", () => {
   it("keeps collapsed footer actions and settings at the bottom of the rail", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const collapsedBranchStart = sidebar.indexOf("if (collapsed)");
-    const expandedBranchStart = sidebar.indexOf(
-      "\n  return (",
-      collapsedBranchStart,
-    );
-    const collapsedBranch = sidebar.slice(
-      collapsedBranchStart,
-      expandedBranchStart,
-    );
+    const collapsedReturn = sidebar.indexOf("return (", collapsedBranchStart);
+    const expandedReturn = sidebar.indexOf("\n  return (", collapsedReturn + 1);
+    const collapsedBranch = sidebar.slice(collapsedBranchStart, expandedReturn);
 
-    expect(collapsedBranch).toContain('className="mt-auto"');
-    expect(collapsedBranch.indexOf("<SidebarFooterActions")).toBeLessThan(
+    expect(collapsedBranch).toContain('className="mt-auto shrink-0 w-full"');
+    expect(collapsedBranch.indexOf("<AppSidebarFooter")).toBeLessThan(
       collapsedBranch.indexOf('to="/settings"'),
     );
   });
@@ -114,7 +109,6 @@ describe("document sidebar layout", () => {
 
   it("defaults database pages to the database icon before the page icon", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const iconSource = treeItem.slice(
       treeItem.indexOf("export function getDocumentSidebarIconKind"),
       treeItem.indexOf("export function DocumentTreeItem"),
@@ -125,7 +119,6 @@ describe("document sidebar layout", () => {
     expect(iconSource.indexOf("if (document.database)")).toBeLessThan(
       iconSource.indexOf('return "page"'),
     );
-    expect(sidebar).toContain("<DocumentSidebarIcon document={doc} />");
   });
 
   it("uses the database icon as the default for database pages", () => {
@@ -166,6 +159,43 @@ describe("document sidebar layout", () => {
     );
   });
 
+  it("does not keep a hidden sidebar search query field", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).not.toContain("setSearchQuery");
+    expect(sidebar).not.toContain('placeholder={t("sidebar.search")}');
+  });
+
+  it("reveals child destinations without concurrent rollback conflicts", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const revealParentForCreation = useCallback");
+    expect(sidebar).toContain("parentCreationRevealsRef");
+    expect(sidebar).toContain("reveal.pendingCount += 1");
+    expect(sidebar).toContain("current.keepExpanded ||= succeeded");
+    expect(sidebar).toContain("settleParentExpansion(false)");
+  });
+
+  it("opens a new database immediately while persistence settles", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const handleCreateDatabase = useCallback");
+    expect(sidebar).toContain("newDocumentId: id");
+    expect(sidebar).toContain("navigateToDocument(id)");
+    expect(sidebar).toContain(
+      "rollbackOptimisticCreatedDocument(\n          queryClient,\n          id",
+    );
+    expect(sidebar).toContain("navigate(previousPath, {");
+    expect(sidebar).toContain(
+      "if (window.location.pathname === `/page/${id}`)",
+    );
+    expect(sidebar).toContain(
+      "pendingOptimisticCreationIdsRef.current.add(id)",
+    );
+    expect(sidebar).toContain("skipListDocumentsInvalidation: true");
+    expect(sidebar).toContain("settleOptimisticListRefresh(id)");
+  });
+
   it("scopes sidebar creation to the selected Content space", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
@@ -175,9 +205,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("selectedSpace?.id");
     expect(sidebar).toContain("spaceId: parentId ? undefined : rootSpaceId");
     expect(sidebar).toContain("const handleCreatePageInSpace = useCallback");
-    expect(sidebar).toContain(
-      "const renderNewButton = (space = selectedSpace) =>",
-    );
     expect(sidebar).toContain("const renderCollapsedNewButton = () =>");
     expect(sidebar).toContain('t("sidebar.newPage")');
     expect(sidebar).not.toContain(
@@ -308,11 +335,10 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       'import { OrgSwitcher } from "@agent-native/core/client/org";',
     );
-    expect(sidebar).toContain("<OrgSwitcher reserveSpace />");
+    expect(sidebar).toContain("reserveSpace");
+    expect(sidebar).toContain("<OrgSwitcher");
     expect(sidebar).not.toContain("<ExtensionsSidebarSection />");
-    expect(sidebar.indexOf("<OrgSwitcher reserveSpace />")).toBeLessThan(
-      sidebar.indexOf("{/* Footer */}"),
-    );
+    expect(sidebar).toContain("<AppSidebarFooter");
     expect(sidebar).toContain('t("sidebar.addWorkspace")');
     expect(sidebar).toContain("<WorkspaceSourceMenu");
     expect(sidebar).toContain("onCreated={handleWorkspaceCreated}");
@@ -468,7 +494,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain('toggleSection("favorites")');
     expect(sidebar).toContain("!collapsedSections.favorites &&");
     expect(sidebar).toContain("aria-expanded={!collapsedSections.favorites}");
-    expect(sidebar).toContain("<IconStar");
+    expect(sidebar).toContain("<IconPin");
     expect(sidebar).toContain("group-hover/favorites:opacity-0");
     expect(sidebar).toContain("group-hover/favorites:opacity-100");
     expect(sidebar).toContain('!collapsedSections.favorites && "rotate-90"');

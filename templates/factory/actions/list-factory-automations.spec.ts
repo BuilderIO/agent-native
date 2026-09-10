@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const listAutomationDefinitionsMock = vi.hoisted(() => vi.fn());
+const resourceListContentMock = vi.hoisted(() => vi.fn());
 const listAutomationRunsMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
@@ -10,8 +10,12 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
 }));
 
+vi.mock("@agent-native/core/resources", () => ({
+  organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
+  resourceListContentByOwnersAndPrefixes: resourceListContentMock,
+}));
+
 vi.mock("@agent-native/core/triggers", () => ({
-  listAutomationDefinitions: listAutomationDefinitionsMock,
   listAutomationRuns: listAutomationRunsMock,
 }));
 
@@ -37,36 +41,25 @@ beforeEach(() => {
   });
   readFactoryDefinitionMock.mockResolvedValue({ id: "support-triage" });
   listAutomationRunsMock.mockResolvedValue([]);
+  resourceListContentMock.mockResolvedValue([]);
 });
 
-describe("list-factory-automations", () => {
+function factoryJobResource(content: string) {
+  return {
+    id: "resource-1",
+    owner: "__organization__:org-1",
+    path: "jobs/factories/support-triage/factory-slack-feedback.md",
+    content,
+    updatedAt: 1,
+  };
+}
+
+describe("list-factory-automations", { timeout: 15_000 }, () => {
   it("lets workspace members update Factory-domain jobs", async () => {
-    listAutomationDefinitionsMock.mockResolvedValue([
-      {
-        name: "factories/support-triage/factory-slack-feedback",
-        body: "Observe Slack.",
-        canUpdate: false,
-        resource: {
-          id: "resource-1",
-          owner: "__organization__:org-1",
-          path: "jobs/factories/support-triage/factory-slack-feedback.md",
-          content:
-            "---\ndomain: factory\nfactoryId: support-triage\n---\nObserve Slack.\n",
-          updatedAt: 1,
-        },
-        meta: {
-          domain: "factory",
-          model: "claude-sonnet",
-          schedule: "*/5 * * * *",
-          enabled: true,
-          triggerType: "schedule",
-          event: null,
-          timezone: null,
-          condition: null,
-          createdBy: "alice@example.com",
-        },
-      },
-    ]);
+    const resource = factoryJobResource(
+      "---\ndomain: factory\nfactoryId: support-triage\nmodel: claude-sonnet\nschedule: '*/5 * * * *'\nenabled: true\ntriggerType: schedule\ncreatedBy: alice@example.com\n---\nObserve Slack.\n",
+    );
+    resourceListContentMock.mockResolvedValue([resource]);
 
     const { default: action } = await import("./list-factory-automations.js");
     const result = await action.run(
@@ -81,5 +74,30 @@ describe("list-factory-automations", () => {
         createdBy: "alice@example.com",
       }),
     ]);
+  });
+
+  it("lists factory-folder jobs even when domain and triggerType are missing", async () => {
+    const resource = factoryJobResource(
+      "---\nenabled: true\nlastStatus: running\nlastRun: 2026-09-01T21:45:00.000Z\n---\nObserve Slack.\n",
+    );
+    resourceListContentMock.mockResolvedValue([resource]);
+
+    const { default: action } = await import("./list-factory-automations.js");
+    const result = await action.run(
+      { factoryId: "support-triage" },
+      { userEmail: "teammate@example.com" },
+    );
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: "resource-1",
+        name: "factories/support-triage/factory-slack-feedback",
+        enabled: true,
+      }),
+    ]);
+    expect(resourceListContentMock).toHaveBeenCalledWith(
+      ["__organization__:org-1"],
+      ["jobs/factories/support-triage/"],
+    );
   });
 });

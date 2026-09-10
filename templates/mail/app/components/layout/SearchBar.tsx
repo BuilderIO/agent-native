@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage } from "@shared/types";
-import { IconLoader2, IconX } from "@tabler/icons-react";
+import { IconLoader2, IconPin, IconX } from "@tabler/icons-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import {
   useState,
@@ -12,6 +12,15 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +40,7 @@ const MIN_REMOTE_QUERY_LENGTH = 3;
 
 interface SearchBarProps {
   onClose: () => void;
+  onSaveSearch?: (query: string, name: string) => void | Promise<void>;
   initialQuery?: string;
   autoFocus?: boolean;
   hasActiveSearch?: boolean;
@@ -38,6 +48,7 @@ interface SearchBarProps {
 
 export function SearchBar({
   onClose,
+  onSaveSearch,
   initialQuery = "",
   autoFocus = true,
   hasActiveSearch = false,
@@ -51,6 +62,10 @@ export function SearchBar({
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastSyncedQueryRef = useRef(initialQuery);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [savePending, setSavePending] = useState(false);
 
   const { data: contacts = [] } = useContacts();
   const queryClient = useQueryClient();
@@ -123,7 +138,7 @@ export function SearchBar({
       const trimmed = q.trim();
       if (trimmed && trimmed !== lastSyncedQueryRef.current) {
         lastSyncedQueryRef.current = trimmed;
-        navigate(`/all?q=${encodeURIComponent(trimmed)}`);
+        void navigate(`/all?q=${encodeURIComponent(trimmed)}`);
       }
     },
     [navigate],
@@ -134,7 +149,7 @@ export function SearchBar({
       const q = contact.email;
       setQuery(q);
       lastSyncedQueryRef.current = q;
-      navigate(`/all?q=${encodeURIComponent(q)}`);
+      void navigate(`/all?q=${encodeURIComponent(q)}`);
       inputRef.current?.blur();
     },
     [navigate],
@@ -145,7 +160,7 @@ export function SearchBar({
       const email = thread.latestMessage;
       const targetThreadId = email.threadId || email.id;
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
-      navigate(`/all/${targetThreadId}`);
+      void navigate(`/all/${targetThreadId}`);
       inputRef.current?.blur();
     },
     [navigate],
@@ -234,6 +249,35 @@ export function SearchBar({
     onClose();
   }, [onClose]);
 
+  const handleSaveSearch = useCallback(() => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery || !onSaveSearch) return;
+    setSaveError("");
+    setSaveName(trimmedQuery);
+    setSaveDialogOpen(true);
+  }, [onSaveSearch, query]);
+
+  const submitSavedSearch = useCallback(async () => {
+    const trimmedQuery = query.trim();
+    const trimmedName = saveName.trim();
+    if (!trimmedQuery || !trimmedName || !onSaveSearch || savePending) return;
+    setSaveError("");
+    setSavePending(true);
+    try {
+      await onSaveSearch(trimmedQuery, trimmedName);
+      setSaveDialogOpen(false);
+      setSaveName("");
+    } catch (error) {
+      setSaveError(
+        error instanceof Error && error.message
+          ? error.message
+          : t("mail.search.saveAsTabFailed"),
+      );
+    } finally {
+      setSavePending(false);
+    }
+  }, [onSaveSearch, query, saveName, savePending, t]);
+
   return (
     <div className="relative flex items-center gap-1.5">
       <div
@@ -270,6 +314,22 @@ export function SearchBar({
             hasActiveSearch && "font-medium",
           )}
         />
+        {hasActiveSearch && onSaveSearch && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("mail.search.saveAsTab")}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleSaveSearch}
+                className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+              >
+                <IconPin className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("mail.search.saveAsTab")}</TooltipContent>
+          </Tooltip>
+        )}
         {(hasActiveSearch || query) && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -375,6 +435,57 @@ export function SearchBar({
           )}
         </div>
       )}
+
+      <Dialog
+        open={saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) {
+            setSaveName("");
+            setSaveError("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("mail.search.saveAsTab")}</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitSavedSearch();
+            }}
+            className="space-y-3"
+          >
+            <label className="text-[12px] text-muted-foreground">
+              {t("mail.search.saveAsTabPrompt")}
+              <Input
+                autoFocus
+                value={saveName}
+                onChange={(event) => setSaveName(event.target.value)}
+                className="mt-1.5"
+              />
+            </label>
+            {saveError && (
+              <p role="alert" className="text-[12px] text-destructive">
+                {saveError}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSaveDialogOpen(false)}
+              >
+                {t("mail.compose.cancel")}
+              </Button>
+              <Button type="submit" disabled={!saveName.trim() || savePending}>
+                {t("mail.integrations.save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

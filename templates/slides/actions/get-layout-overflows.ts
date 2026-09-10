@@ -2,7 +2,10 @@ import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
+import {
+  slideFitMeasurementMatchesSlide,
+  type DeckFitState,
+} from "../shared/slide-fit.js";
 import {
   readAppStateForCurrentTab,
   writeAppStateForCurrentTab,
@@ -62,7 +65,7 @@ type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
 
 function getCurrentSlideFitMeasurement(
   value: unknown,
-  slide: { id: string; content?: string },
+  slide: { id: string; content?: string; layoutFitRevision?: string },
   deckId: string,
 ): CurrentSlideFitMeasurement | null {
   if (!value || typeof value !== "object") return null;
@@ -78,13 +81,22 @@ function getCurrentSlideFitMeasurement(
   const verticalOverflow = measurement.verticalOverflow;
   const horizontalOverflow = measurement.horizontalOverflow;
   const measuredAt = measurement.measuredAt;
+  const layoutFitRevision = measurement.layoutFitRevision;
 
   if (
     typeof slideId !== "string" ||
     slideId !== slide.id ||
     (measurementDeckId !== undefined && measurementDeckId !== deckId) ||
     typeof contentHash !== "string" ||
-    contentHash !== hashSlideContent(slide.content ?? "") ||
+    (layoutFitRevision !== undefined &&
+      typeof layoutFitRevision !== "string") ||
+    !slideFitMeasurementMatchesSlide(
+      {
+        contentHash,
+        ...(typeof layoutFitRevision === "string" ? { layoutFitRevision } : {}),
+      },
+      slide,
+    ) ||
     typeof contentHeight !== "number" ||
     !Number.isFinite(contentHeight) ||
     typeof contentWidth !== "number" ||
@@ -106,6 +118,7 @@ function getCurrentSlideFitMeasurement(
   return {
     slideId,
     contentHash,
+    ...(typeof layoutFitRevision === "string" ? { layoutFitRevision } : {}),
     contentHeight,
     contentWidth,
     viewportHeight,
@@ -162,7 +175,7 @@ export default defineAction({
           : undefined);
       if (
         !measurement ||
-        measurement.contentHash !== hashSlideContent(slide.content ?? "") ||
+        !slideFitMeasurementMatchesSlide(measurement, slide) ||
         !Number.isFinite(measurement.verticalOverflow) ||
         !Number.isFinite(measurement.horizontalOverflow) ||
         !Number.isFinite(measurement.contentHeight) ||

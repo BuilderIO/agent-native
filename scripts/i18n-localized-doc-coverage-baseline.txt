@@ -42,9 +42,7 @@ ar-SA|template-dispatch-developers
 ar-SA|template-dispatch-messaging-routing
 ar-SA|template-dispatch-operations
 ar-SA|template-dispatch-vault-integrations
-ar-SA|template-forms-building-publishing
 ar-SA|template-forms-developers
-ar-SA|template-forms-responses
 ar-SA|template-mail-agent
 ar-SA|template-mail-developers
 ar-SA|template-mail-drafts-and-queue
@@ -110,9 +108,7 @@ de-DE|template-dispatch-developers
 de-DE|template-dispatch-messaging-routing
 de-DE|template-dispatch-operations
 de-DE|template-dispatch-vault-integrations
-de-DE|template-forms-building-publishing
 de-DE|template-forms-developers
-de-DE|template-forms-responses
 de-DE|template-mail-agent
 de-DE|template-mail-developers
 de-DE|template-mail-drafts-and-queue
@@ -178,9 +174,7 @@ es-ES|template-dispatch-developers
 es-ES|template-dispatch-messaging-routing
 es-ES|template-dispatch-operations
 es-ES|template-dispatch-vault-integrations
-es-ES|template-forms-building-publishing
 es-ES|template-forms-developers
-es-ES|template-forms-responses
 es-ES|template-mail-agent
 es-ES|template-mail-developers
 es-ES|template-mail-drafts-and-queue
@@ -246,9 +240,7 @@ fr-FR|template-dispatch-developers
 fr-FR|template-dispatch-messaging-routing
 fr-FR|template-dispatch-operations
 fr-FR|template-dispatch-vault-integrations
-fr-FR|template-forms-building-publishing
 fr-FR|template-forms-developers
-fr-FR|template-forms-responses
 fr-FR|template-mail-agent
 fr-FR|template-mail-developers
 fr-FR|template-mail-drafts-and-queue
@@ -314,9 +306,7 @@ hi-IN|template-dispatch-developers
 hi-IN|template-dispatch-messaging-routing
 hi-IN|template-dispatch-operations
 hi-IN|template-dispatch-vault-integrations
-hi-IN|template-forms-building-publishing
 hi-IN|template-forms-developers
-hi-IN|template-forms-responses
 hi-IN|template-mail-agent
 hi-IN|template-mail-developers
 hi-IN|template-mail-drafts-and-queue
@@ -382,9 +372,7 @@ ja-JP|template-dispatch-developers
 ja-JP|template-dispatch-messaging-routing
 ja-JP|template-dispatch-operations
 ja-JP|template-dispatch-vault-integrations
-ja-JP|template-forms-building-publishing
 ja-JP|template-forms-developers
-ja-JP|template-forms-responses
 ja-JP|template-mail-agent
 ja-JP|template-mail-developers
 ja-JP|template-mail-drafts-and-queue
@@ -450,9 +438,7 @@ ko-KR|template-dispatch-developers
 ko-KR|template-dispatch-messaging-routing
 ko-KR|template-dispatch-operations
 ko-KR|template-dispatch-vault-integrations
-ko-KR|template-forms-building-publishing
 ko-KR|template-forms-developers
-ko-KR|template-forms-responses
 ko-KR|template-mail-agent
 ko-KR|template-mail-developers
 ko-KR|template-mail-drafts-and-queue
@@ -518,9 +504,7 @@ pt-BR|template-dispatch-developers
 pt-BR|template-dispatch-messaging-routing
 pt-BR|template-dispatch-operations
 pt-BR|template-dispatch-vault-integrations
-pt-BR|template-forms-building-publishing
 pt-BR|template-forms-developers
-pt-BR|template-forms-responses
 pt-BR|template-mail-agent
 pt-BR|template-mail-developers
 pt-BR|template-mail-drafts-and-queue
@@ -586,9 +570,7 @@ zh-CN|template-dispatch-developers
 zh-CN|template-dispatch-messaging-routing
 zh-CN|template-dispatch-operations
 zh-CN|template-dispatch-vault-integrations
-zh-CN|template-forms-building-publishing
 zh-CN|template-forms-developers
-zh-CN|template-forms-responses
 zh-CN|template-mail-agent
 zh-CN|template-mail-developers
 zh-CN|template-mail-drafts-and-queue
@@ -653,9 +635,7 @@ zh-TW|template-dispatch-developers
 zh-TW|template-dispatch-messaging-routing
 zh-TW|template-dispatch-operations
 zh-TW|template-dispatch-vault-integrations
-zh-TW|template-forms-building-publishing
 zh-TW|template-forms-developers
-zh-TW|template-forms-responses
 zh-TW|template-mail-agent
 zh-TW|template-mail-developers
 zh-TW|template-mail-drafts-and-queue

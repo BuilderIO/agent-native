@@ -4,9 +4,10 @@ import {
 } from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
 import {
+  BUILDER_ASSETS_WRITE_SCOPE,
   captureRouteError,
   getRequestOrgId,
-  resolveBuilderPrivateKey,
+  resolveBuilderApiAuthorization,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { and, eq, isNull } from "drizzle-orm";
@@ -349,10 +350,9 @@ async function triggerBuilderCompression(
   durationMs?: number;
   sizeBytes?: number;
 } | null> {
-  const privateKey = await resolveBuilderPrivateKey();
-  if (!privateKey) {
-    throw new Error("Builder private key is not configured");
-  }
+  const authorization = await resolveBuilderApiAuthorization(
+    BUILDER_ASSETS_WRITE_SCOPE,
+  );
 
   const url = new URL(
     `/api/v1/compress-media/${encodeURIComponent(state.objectPath)}`,
@@ -363,7 +363,7 @@ async function triggerBuilderCompression(
 
   const res = await fetchWithTimeout(
     url.toString(),
-    { headers: { authorization: `Bearer ${privateKey}` } },
+    { headers: { authorization } },
     triggerTimeoutMs(),
     "Builder media compression trigger",
   );
@@ -949,7 +949,7 @@ export function mediaDurationsMateriallyMatch(
 export async function runBuilderMediaCompressionSweepOnce(): Promise<void> {
   const exec = getDbExec();
   const { rows } = await exec.execute({
-    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE ?`,
+    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE $1`,
     args: [`${BUILDER_MEDIA_COMPRESSION_STATE_PREFIX}%`],
   });
 
@@ -1031,7 +1031,7 @@ export async function runBuilderMediaCompressionSweepOnce(): Promise<void> {
       );
     } catch (err) {
       console.warn("[builder-media-compression] sweep item failed", {
-        key: String(row.key ?? ""),
+        key: typeof row.key === "string" ? row.key : "",
         recordingId: state.recordingId,
         error: errorMessage(err),
       });

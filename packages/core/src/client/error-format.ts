@@ -27,6 +27,28 @@ const UPGRADE_AT_BUILDER_LABEL = "Upgrade at builder.io";
 const BUILDER_AUTHENTICATION_ERROR =
   "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.";
 /**
+ * A 401 says the credential this request carried was refused. It does NOT say
+ * whose credential it was, and the reader is frequently someone with no saved
+ * key to fix: the rejected credential can be a workspace or deployment one they
+ * cannot see. The previous copy named the reader's own "saved provider key" as
+ * the cause and sent everyone to Settings, which is why one shared credential
+ * cost two days of chasing key configuration.
+ *
+ * Say only what the 401 actually proves, and name the recovery that now exists:
+ * a rejected credential is fingerprinted and skipped on the next attempt
+ * (`recordProviderCredentialAuthFailure`), so retrying reaches for a different
+ * one instead of replaying this failure.
+ */
+export const PROVIDER_CREDENTIAL_REJECTED_MESSAGE =
+  "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.";
+/**
+ * Distinctive fragment of the message above. `run-recovery` re-classifies a
+ * message this module already normalized, so the predicate must match its own
+ * output — anchoring both to one constant is what stops them drifting apart.
+ */
+const PROVIDER_CREDENTIAL_REJECTED_FRAGMENT =
+  "rejected the credential used for this request";
+/**
  * The gateway's unhandled-500 envelope is an internal correlation id and an
  * apology: nothing the reader can act on, and nothing that says whether the
  * failure was theirs. Say where it broke and keep the raw sentence in
@@ -136,6 +158,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   [
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
     "agentChat.errorMessages.providerAuthentication",
+  ],
+  [
+    PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+    "agentChat.errorMessages.providerCredentialRejected",
   ],
   [
     "The model provider could not be reached. Check your connection and retry.",
@@ -280,7 +306,7 @@ export function isProviderAuthenticationError(
     lower.includes("incorrect api key") ||
     lower.includes("api key is invalid") ||
     lower.includes("rejected the saved api key") ||
-    lower.includes("saved provider key was rejected") ||
+    lower.includes(PROVIDER_CREDENTIAL_REJECTED_FRAGMENT) ||
     (lower.includes("authentication_error") && lower.includes("api"))
   );
 }
@@ -372,8 +398,7 @@ export function normalizeChatError(
 
   if (isProviderAuthenticationError(text, errorCode)) {
     return {
-      message:
-        "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+      message: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
       details: text,
     };
   }

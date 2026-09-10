@@ -23,6 +23,10 @@ import {
 } from "@/lib/sanitize-slide-html";
 
 import type { DesignSystemData } from "../../../shared/api";
+import {
+  backgroundCssValue,
+  resolveSlideBackground,
+} from "../../../shared/slide-background";
 import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
 import { MermaidRenderer } from "./MermaidRenderer";
 
@@ -54,6 +58,29 @@ export const layoutClasses: Record<string, string> = {
   blank: "flex flex-col",
 };
 
+function isDarkSlideBackground(value: string): boolean {
+  if (
+    /^(?:bg-black|bg-(?:slate|gray|zinc|neutral|stone)-(?:900|950))$/i.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  const match = value.match(/^#([\da-f]{3,8})$/i);
+  if (!match) return /(?:^|-)black(?:$|\s)/i.test(value);
+  const hex = match[1];
+  const channels =
+    hex.length === 3 || hex.length === 4
+      ? hex
+          .slice(0, 3)
+          .split("")
+          .map((channel) => parseInt(channel + channel, 16))
+      : [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map((channel) =>
+          parseInt(channel, 16),
+        );
+  return channels[0] * 0.299 + channels[1] * 0.587 + channels[2] * 0.114 < 128;
+}
+
 /** Custom image component that shows skeleton while loading */
 function LazyImage({
   src,
@@ -62,7 +89,9 @@ function LazyImage({
 }: React.ImgHTMLAttributes<HTMLImageElement>) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
-  const safeSrc = sanitizeSlideUrl(src, "image");
+  const safeSrc = sanitizeSlideUrl(src, "image", {
+    allowBlob: typeof window !== "undefined",
+  });
 
   if (src === "PLACEHOLDER_IMAGE" || !safeSrc) {
     return (
@@ -310,10 +339,19 @@ function measureContentBounds(target: HTMLElement): {
     const right = (rect.right - targetRect.left) * invScaleX;
     const bottom = (rect.bottom - targetRect.top) * invScaleY;
 
+    const isFreeform = isFreeformElement(el);
+    // A normal-flow wrapper can spill because of its own box model while its
+    // visible child still fits. Measure the child boundary instead of making
+    // the wrapper itself an overflow warning.
+    const hasDirectText = Array.from(el.childNodes).some(
+      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+    );
+    if (!isFreeform && el.children.length > 0 && !hasDirectText) continue;
+
     contentMinX = Math.min(contentMinX, left);
     contentMaxX = Math.max(contentMaxX, right);
 
-    if (isFreeformElement(el)) {
+    if (isFreeform) {
       contentMaxY = Math.max(contentMaxY, bottom);
       continue;
     }
@@ -391,7 +429,9 @@ function useSlideAutofit(
     // thumbnails are left unmeasured until they scroll into view. Without an
     // IntersectionObserver there is nothing to defer against, so measure
     // eagerly as before.
-    const canDefer = typeof IntersectionObserver !== "undefined";
+    const canDefer =
+      typeof IntersectionObserver !== "undefined" &&
+      !root.closest("[data-pdf-export-stage]");
     // Resolved synchronously rather than waiting for the observer's first
     // callback: a slide that is already on screen must be measured on this
     // pass, and nothing may depend on a callback that a given environment
@@ -483,11 +523,10 @@ function useSlideAutofit(
       // Fire the callback on EVERY measurement (not just when the overflow
       // value changes). The editor uses this to refresh its
       // `application_state.slide-fit-check` record with a new `measuredAt`
-      // timestamp so the add-slide / update-slide actions can confirm the
-      // slide has been re-measured AFTER their write — even when an agent
-      // patch keeps the overflow at the same value (e.g. dropped one bullet
-      // and added another). The editor dedups React state changes on its
-      // own end if needed.
+      // timestamp so a later `get-layout-overflows` call can confirm the
+      // slide has been re-measured after a write — even when an agent patch
+      // keeps the overflow at the same value (e.g. dropped one bullet and
+      // added another). The editor dedups React state changes on its own end.
       if (!isEditing) {
         overflowCallbackRef.current?.(
           worstInfo ?? {
@@ -569,6 +608,7 @@ function AutoFitContent({
   canvasHeight,
   fitKey,
   className = "",
+  contentScope,
   children,
   onOverflowChange,
   onAutofitSettled,
@@ -577,6 +617,8 @@ function AutoFitContent({
   canvasHeight: number;
   fitKey: string;
   className?: string;
+  /** Stamps `data-slide-content-scope`; see {@link slideDeclaresTextColor}. */
+  contentScope?: string;
   children: ReactNode;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
   onAutofitSettled?: () => void;
@@ -595,12 +637,36 @@ function AutoFitContent({
     <div
       ref={ref}
       data-slide-autofit-root="true"
+      data-slide-content-scope={contentScope}
       className={`fmd-autofit-scale ${className}`}
     >
       {children}
     </div>
   );
 }
+
+/**
+ * Whether the slide's own markup declares a text color.
+ *
+ * The `.slide-content <tag>` palette in global.css paints headings and body
+ * text for the dark markdown decks. It is a per-element declaration, so it
+ * beats any color the slide inherits from its own wrapper — a light slide
+ * rendered white-on-cream, and no edit to the slide could repair it because
+ * the color lives in the stylesheet. `data-slide-content-scope` turns that
+ * palette off. The raw-HTML container always carries it; a markdown layout
+ * (which renders the same agent HTML through rehype-raw) carries it exactly
+ * when the slide took over colors, so a pure-markdown deck keeps its palette.
+ *
+ * Matches `color:` only inside a tag, so `background-color:`, `border-color:`,
+ * a `--brand-color:` custom property, and prose that says "color:" don't trip
+ * it.
+ */
+export function slideDeclaresTextColor(html: string): boolean {
+  return /<[^>]*[^-\w]color\s*:/i.test(html);
+}
+
+/** Marks a markdown container whose slide declares its own colors. */
+const AUTHORED_COLOR_SCOPE = "authored-colors";
 
 /**
  * Google Fonts families an imported deck may name. Split by what the `css2`
@@ -618,6 +684,7 @@ const VARIABLE_AXIS_GOOGLE_FONTS = [
   "Epilogue",
   "Exo 2",
   "Geist",
+  "Geist Mono",
   "Heebo",
   "Inter",
   "Jost",
@@ -665,6 +732,7 @@ const STATIC_WEIGHT_GOOGLE_FONTS = [
   "Inconsolata",
   "Instrument Sans",
   "Josefin Sans",
+  "JetBrains Mono",
   "Kanit",
   "Karla",
   "Lato",
@@ -757,12 +825,12 @@ export function prepareImportedFonts(html: string): {
 } {
   const hrefs = new Set<string>();
   const rewritten = html.replace(
-    /(font-family:\s*)'([^']*)'/gi,
-    (match, prefix: string, name: string) => {
+    /(font-family:\s*)(["'])(.*?)\2/gi,
+    (match, prefix: string, quote: string, name: string) => {
       const font = resolveImportedFont(name);
       if (!font) return match;
       hrefs.add(font.href);
-      return `${prefix}'${font.family}'`;
+      return `${prefix}${quote}${font.family}${quote}`;
     },
   );
   return { html: rewritten, hrefs: [...hrefs] };
@@ -815,7 +883,10 @@ function BlankSlideContent({ content }: { content: string }) {
             return before + ' style="filter:brightness(0) invert(1);"' + close;
           },
         ),
-        { scopeSelector },
+        {
+          scopeSelector,
+          allowBlobImages: typeof window !== "undefined",
+        },
       );
       const { html: processed, hrefs } = prepareImportedFonts(sanitized);
 
@@ -825,7 +896,7 @@ function BlankSlideContent({ content }: { content: string }) {
         dangerousHtml: { __html: processed },
         fontHrefs: hrefs,
       };
-    }, [content]);
+    }, [content, scopeSelector]);
 
   useEffect(() => {
     loadImportedFonts(fontHrefs);
@@ -834,7 +905,9 @@ function BlankSlideContent({ content }: { content: string }) {
   if (mermaidBlocks.length > 0) {
     return (
       <div
-        className="slide-content text-white/90 w-full block h-full"
+        className="slide-content w-full block h-full"
+        // guard:allow-raw-color - design-system text fallback for raw HTML
+        style={{ color: "var(--ds-text, #1f2933)" }}
         data-slide-content-scope={scopeId}
       >
         <MermaidHtmlContent
@@ -847,7 +920,9 @@ function BlankSlideContent({ content }: { content: string }) {
 
   return (
     <div
-      className="slide-content text-white/90 w-full block h-full"
+      className="slide-content w-full block h-full"
+      // guard:allow-raw-color - design-system text fallback for raw HTML
+      style={{ color: "var(--ds-text, #1f2933)" }}
       data-slide-content-scope={scopeId}
       dangerouslySetInnerHTML={dangerousHtml}
     />
@@ -918,25 +993,43 @@ export function SlideInner({
     height: dims.height,
   };
 
-  const bg = slide.background || "bg-[#000000]";
+  const bg = resolveSlideBackground(slide.background, designSystem);
   const isGradientClass = bg.startsWith("bg-");
-  const safeBackground = !isGradientClass ? sanitizeCssValue(bg) : null;
+  const cssBackground = isGradientClass ? backgroundCssValue(bg) : bg;
+  const safeBackground = cssBackground ? sanitizeCssValue(cssBackground) : null;
   const bgStyle = safeBackground ? { background: safeBackground } : undefined;
   const bgClass = isGradientClass ? bg : "";
   const isCentered = slide.layout === "title";
+  const darkSlide = isDarkSlideBackground(safeBackground ?? bg);
 
-  const dsStyle = designSystem
-    ? ({
-        "--ds-accent": designSystem.colors.accent,
-        "--ds-bg": designSystem.colors.background,
-        "--ds-text": designSystem.colors.text,
-        "--ds-text-muted": designSystem.colors.textMuted,
-        "--ds-heading-font": designSystem.typography.headingFont,
-        "--ds-body-font": designSystem.typography.bodyFont,
-        "--ds-primary": designSystem.colors.primary,
-        "--ds-radius": designSystem.borders.radius,
-      } as React.CSSProperties)
-    : {};
+  const dsStyle = {
+    "--ds-bg": safeBackground ?? "transparent",
+    ...(designSystem
+      ? {
+          "--ds-accent": designSystem.colors.accent,
+          "--ds-text": designSystem.colors.text,
+          "--ds-text-muted": designSystem.colors.textMuted,
+          "--ds-heading-font": designSystem.typography.headingFont,
+          "--ds-body-font": designSystem.typography.bodyFont,
+          "--ds-primary": designSystem.colors.primary,
+          "--ds-secondary": designSystem.colors.secondary,
+          // guard:allow-raw-color - safe placeholder surface fallback
+          "--ds-surface":
+            // guard:allow-raw-color - safe placeholder surface fallback
+            sanitizeCssValue(designSystem.colors.surface) ?? "#FFFFFF",
+          "--ds-radius": designSystem.borders.radius,
+        }
+      : {}),
+  } as React.CSSProperties & Record<string, string>;
+  if (
+    darkSlide &&
+    (!designSystem || isDarkSlideBackground(designSystem.colors.text))
+  ) {
+    // guard:allow-raw-color - readable Markdown defaults on explicit dark slides
+    dsStyle["--ds-text"] = "#FFFFFF";
+    // guard:allow-raw-color - readable Markdown defaults on explicit dark slides
+    dsStyle["--ds-text-muted"] = "rgba(255, 255, 255, 0.72)";
+  }
 
   const overflowByTargetRef = useRef(new Map<string, SlideOverflowInfo>());
   const reportTargetOverflow = useCallback(
@@ -988,13 +1081,40 @@ export function SlideInner({
 
   useEffect(() => {
     overflowByTargetRef.current.clear();
-  }, [slide.id, slide.content, aspectRatio]);
+  }, [slide.id, slide.content, slide.layoutFitRevision, aspectRatio]);
+
+  const parsedExcalidrawData = slide.excalidrawData
+    ? parseExcalidrawData(slide.excalidrawData)
+    : null;
+  const hasExcalidraw = Boolean(parsedExcalidrawData?.elements?.length);
+
+  // Excalidraw is a fixed-size canvas and intentionally bypasses AutoFitContent.
+  // Report that finite canvas geometry so a drawing does not remain unknown to
+  // get-layout-overflows forever after its revision changes.
+  useEffect(() => {
+    if (!hasExcalidraw) return;
+    onOverflowChange?.({
+      contentHeight: dims.height,
+      contentWidth: dims.width,
+      viewportHeight: dims.height,
+      viewportWidth: dims.width,
+      verticalOverflow: 0,
+      horizontalOverflow: 0,
+    });
+    onAutofitSettled?.();
+  }, [
+    dims.height,
+    dims.width,
+    hasExcalidraw,
+    onAutofitSettled,
+    onOverflowChange,
+    slide.excalidrawData,
+    slide.id,
+    slide.layoutFitRevision,
+  ]);
 
   // If slide has excalidraw data, render it as a static SVG thumbnail
-  if (
-    slide.excalidrawData &&
-    parseExcalidrawData(slide.excalidrawData)?.elements?.length
-  ) {
+  if (slide.excalidrawData && parsedExcalidrawData?.elements?.length) {
     return (
       <div
         className={`relative ${bgClass}`}
@@ -1022,9 +1142,14 @@ export function SlideInner({
   // Slides with fmd-slide markup carry their layout in the raw HTML contract;
   // render them as-is so supported semantic classes and inline styles survive.
   const content = typeof slide.content === "string" ? slide.content : "";
+  const trimmedContent = content.trimStart();
+  const isConvertedMarkdownImage =
+    /^<img\b\s+data-markdown-image(?:\s*=\s*(?:"true"|'true'|true))?(?:\s|>)/i.test(
+      trimmedContent,
+    );
   const isRawHtml =
     content.includes('class="fmd-slide"') ||
-    content.trimStart().startsWith("<") ||
+    (trimmedContent.startsWith("<") && !isConvertedMarkdownImage) ||
     ["blank", "section", "statement", "full-image"].includes(slide.layout);
 
   if (!isRawHtml && slide.layout === "two-column") {
@@ -1042,8 +1167,11 @@ export function SlideInner({
         <AutoFitContent
           canvasWidth={dims.width}
           canvasHeight={dims.height}
-          fitKey={left}
-          className="slide-content text-white/90"
+          fitKey={`${slide.layoutFitRevision ?? ""}:${left}`}
+          className="slide-content"
+          {...(slideDeclaresTextColor(left)
+            ? { contentScope: AUTHORED_COLOR_SCOPE }
+            : {})}
           onOverflowChange={(info) => reportTargetOverflow("left", info)}
           onAutofitSettled={onAutofitSettled}
         >
@@ -1057,8 +1185,11 @@ export function SlideInner({
         <AutoFitContent
           canvasWidth={dims.width}
           canvasHeight={dims.height}
-          fitKey={right}
-          className="slide-content text-white/90"
+          fitKey={`${slide.layoutFitRevision ?? ""}:${right}`}
+          className="slide-content"
+          {...(slideDeclaresTextColor(right)
+            ? { contentScope: AUTHORED_COLOR_SCOPE }
+            : {})}
           onOverflowChange={(info) => reportTargetOverflow("right", info)}
           onAutofitSettled={onAutofitSettled}
         >
@@ -1083,7 +1214,7 @@ export function SlideInner({
         <AutoFitContent
           canvasWidth={dims.width}
           canvasHeight={dims.height}
-          fitKey={content}
+          fitKey={`${slide.layoutFitRevision ?? ""}:${content}`}
           className="h-full w-full"
           onOverflowChange={(info) => reportTargetOverflow("raw", info)}
           onAutofitSettled={onAutofitSettled}
@@ -1109,8 +1240,11 @@ export function SlideInner({
       <AutoFitContent
         canvasWidth={dims.width}
         canvasHeight={dims.height}
-        fitKey={content}
-        className="slide-content text-white/90 w-full"
+        fitKey={`${slide.layoutFitRevision ?? ""}:${content}`}
+        className="slide-content w-full"
+        {...(slideDeclaresTextColor(content)
+          ? { contentScope: AUTHORED_COLOR_SCOPE }
+          : {})}
         onOverflowChange={(info) => reportTargetOverflow("markdown", info)}
         onAutofitSettled={onAutofitSettled}
       >

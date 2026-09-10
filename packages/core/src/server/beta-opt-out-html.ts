@@ -4,8 +4,16 @@ import {
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
+  BETA_REDIRECT_STORAGE_KEY,
   ENVIRONMENT_BETA_HOSTS,
 } from "../shared/environment-lanes.js";
+import {
+  getSsrBetaRedirectScript,
+  SSR_BETA_REDIRECT_MARKER,
+} from "../shared/ssr-beta-redirect.js";
+import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+import { resolvePublicAppOriginConfig } from "./app-origin-config.js";
+import { workspaceBasePathFromRequest } from "./onboarding-html.js";
 
 export const BETA_OPT_OUT_PERSISTENCE_MARKER =
   "Persist the beta opt-out before authentication";
@@ -28,10 +36,22 @@ function insertBeforeClosingTag(
   return html.slice(0, closeIndex) + fragment + html.slice(closeIndex);
 }
 
+function betaRedirectBasePath(requestPath?: string): string {
+  const configuredBasePath = getAppBasePathFromViteEnv();
+  const requestWorkspaceBasePath = workspaceBasePathFromRequest(requestPath);
+  if (!requestWorkspaceBasePath) return configuredBasePath;
+
+  const workspaceMounts =
+    resolvePublicAppOriginConfig()?.workspaceAppMountPaths;
+  return workspaceMounts?.includes(requestWorkspaceBasePath)
+    ? requestWorkspaceBasePath
+    : configuredBasePath;
+}
+
 const environmentSwitcherMarkup = `<div class="environment-switcher" id="environment-switcher" ${ENVIRONMENT_SWITCHER_MARKER} hidden>
-  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
+  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">alpha</button>
   <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
-    <div class="environment-popover-title" id="environment-popover-title">You're on Agent-Native Beta</div>
+    <div class="environment-popover-title" id="environment-popover-title">You're on Agent-Native Alpha</div>
     <div class="environment-popover-copy">Choose where you want to continue.</div>
     <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
     <button type="button" class="environment-hide-badge" id="environment-hide-badge">Hide badge</button>
@@ -211,6 +231,7 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
           ${JSON.stringify(BETA_OPT_OUT_STORAGE_KEY)},
           String(optOutExpiry),
         );
+        window.localStorage.removeItem(${JSON.stringify(BETA_REDIRECT_STORAGE_KEY)});
       }
       optOutStorageReady = true;
     } catch (error) {
@@ -231,8 +252,19 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
  * Keep the production switcher's one-time opt-out behavior at the shared auth
  * response boundary so those pages cannot drop the handoff before sign-in.
  */
-export function injectBetaOptOutPersistence(loginHtml: string): string {
+export function injectBetaOptOutPersistence(
+  loginHtml: string,
+  requestPath?: string,
+): string {
   let html = loginHtml;
+  if (!html.includes(SSR_BETA_REDIRECT_MARKER)) {
+    const appBasePath = betaRedirectBasePath(requestPath);
+    html = insertBeforeClosingTag(
+      html,
+      getSsrBetaRedirectScript(`${appBasePath}/_agent-native/auth/session`),
+      "</head>",
+    );
+  }
   if (!html.includes(BETA_OPT_OUT_PERSISTENCE_MARKER)) {
     html = insertBeforeClosingTag(html, betaOptOutPersistenceScript, "</body>");
   }

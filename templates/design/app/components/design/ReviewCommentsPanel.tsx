@@ -5,104 +5,54 @@ import {
 } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
 import { IconSend } from "@tabler/icons-react";
-import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 export interface ReviewCommentsPanelProps {
   designId: string;
-  activeFileId?: string | null;
-  commentAnchor?: unknown | null;
-  commentMetadata?: Record<string, unknown>;
-  commentContextLabel?: string;
   canComment: boolean;
   /** Caller-derived editor capability for resolving threads. */
   canResolve?: boolean;
   /** Caller authorization for deleting a specific root comment. */
   canDeleteComment?: (comment: ReviewComment, thread: ReviewThread) => boolean;
-  showComposer?: boolean;
   signInHref?: string;
   onSelectThread?: (thread: ReviewThread) => void;
   canDispatchToAgent?: boolean;
   sendingThreadId?: string | null;
-  onDispatchCommentToAgent?: (comment: ReviewComment) => void;
   onSendThreadToAgent?: (thread: ReviewThread) => void;
   className?: string;
 }
 
-type ReviewCommentsScope = "screen" | "all";
-
-export function resolveReviewComposerTargetId({
-  scope,
-  activeFileId,
-  commentAnchor,
-}: {
-  scope: ReviewCommentsScope;
-  activeFileId?: string | null;
-  commentAnchor?: unknown | null;
-}): string | null | undefined {
-  if (commentAnchor != null) return activeFileId;
-  return scope === "screen" ? activeFileId : undefined;
-}
-
 export function ReviewCommentsPanel({
   designId,
-  activeFileId,
-  commentAnchor,
-  commentMetadata,
-  commentContextLabel,
   canComment,
   canResolve,
   canDeleteComment,
-  showComposer = true,
   signInHref,
   onSelectThread,
   canDispatchToAgent = false,
   sendingThreadId,
-  onDispatchCommentToAgent,
   onSendThreadToAgent,
   className,
 }: ReviewCommentsPanelProps) {
   const t = useT();
-  const [scope, setScope] = useState<ReviewCommentsScope>("screen");
-  const targetId = scope === "screen" ? activeFileId : undefined;
-  const composerTargetId = resolveReviewComposerTargetId({
-    scope,
-    activeFileId,
-    commentAnchor,
-  });
 
   return (
     <div
       data-review-comments-panel
-      className={cn("flex min-h-0 flex-1 flex-col", className)}
+      className={cn(
+        "design-sidebar-comments flex min-h-0 flex-1 flex-col",
+        className,
+      )}
     >
-      <div className="shrink-0 border-b border-border px-3 py-2">
-        <Tabs
-          value={scope}
-          onValueChange={(value) => setScope(value as "screen" | "all")}
-          className="w-full"
-        >
-          <TabsList className="grid h-8 w-full grid-cols-2 rounded-md bg-muted p-0.5">
-            <TabsTrigger value="screen" className="h-7 px-2 text-xs">
-              {t("review.thisScreen")}
-            </TabsTrigger>
-            <TabsTrigger value="all" className="h-7 px-2 text-xs">
-              {t("review.allScreens")}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-
       {!canComment && signInHref ? (
         <Button
           asChild
           variant="outline"
           size="sm"
-          className="mx-3 mt-3 h-8 shrink-0"
+          className="mx-2 mt-2 min-h-[var(--design-row-height)] shrink-0"
         >
           <a href={signInHref}>{t("review.signInToComment")}</a>
         </Button>
@@ -112,13 +62,7 @@ export function ReviewCommentsPanel({
         <ReviewThreadPanel
           resourceType="design"
           resourceId={designId}
-          targetId={targetId}
-          composerTargetId={composerTargetId}
-          composerAnchor={commentAnchor}
-          composerMetadata={commentMetadata}
-          composerContextLabel={commentContextLabel}
           title={t("review.panelTitle")}
-          placeholder={t("review.placeholder")}
           emptyState={t("review.emptyState")}
           loadingLabel={t("review.loading")}
           replyLabel={t("review.reply")}
@@ -132,20 +76,12 @@ export function ReviewCommentsPanel({
           includeResolved
           showHeader={false}
           variant="plain"
-          showComposer={canComment && showComposer}
+          className="design-sidebar-comments"
+          showComposer={false}
           canReply={canComment}
           canResolve={canResolve ?? false}
           canDeleteComment={canDeleteComment}
-          showComposerTargetPicker={
-            canComment && showComposer && canDispatchToAgent
-          }
-          composerCommentLabel={t("review.commentMode")}
-          composerAgentLabel={t("review.sendToAgent")}
-          onCommentCreated={(comment) => {
-            if (canDispatchToAgent && comment.resolutionTarget === "agent") {
-              onDispatchCommentToAgent?.(comment);
-            }
-          }}
+          showComposerTargetPicker={false}
           onSelectThread={onSelectThread}
           renderThreadActions={
             canDispatchToAgent && onSendThreadToAgent
@@ -162,7 +98,7 @@ export function ReviewCommentsPanel({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-7 gap-1.5 px-2 text-xs"
+                      className="design-sidebar-control-text h-7 gap-1.5 px-2"
                       disabled={dispatchPending}
                       aria-busy={sending}
                       aria-label={t("review.sendToAgent")}

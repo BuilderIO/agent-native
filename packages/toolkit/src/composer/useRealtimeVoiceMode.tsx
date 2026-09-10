@@ -651,7 +651,12 @@ async function readErrorResponse(response: Response): Promise<string> {
   if (!raw) return response.statusText || `HTTP ${response.status}`;
   try {
     const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown };
-    return String(parsed.error ?? parsed.message ?? raw);
+    const detail = parsed.error ?? parsed.message;
+    return typeof detail === "object" && detail !== null
+      ? JSON.stringify(detail)
+      : typeof detail === "string" || typeof detail === "number"
+        ? String(detail)
+        : raw;
   } catch {
     return raw.slice(0, 500);
   }
@@ -1852,7 +1857,12 @@ function useRealtimeVoiceModeController(
         const detail = event.error;
         const message =
           detail && typeof detail === "object"
-            ? String((detail as { message?: unknown }).message ?? "")
+            ? typeof (detail as { message?: unknown }).message === "object"
+              ? JSON.stringify((detail as { message?: unknown }).message)
+              : typeof (detail as { message?: unknown }).message === "string" ||
+                  typeof (detail as { message?: unknown }).message === "number"
+                ? String((detail as { message?: unknown }).message)
+                : ""
             : typeof detail === "string"
               ? detail
               : "";
@@ -2357,7 +2367,7 @@ export async function readRealtimeVoiceContext(): Promise<{
 }
 
 export async function readRealtimeVoiceContextWith(options: {
-  readAppState?: (key: string) => Promise<unknown> | unknown;
+  readAppState?: (key: string) => unknown;
   resolvePath?: (path: string) => string;
 }): Promise<{ navigation: unknown; url: unknown }> {
   if (options.readAppState) {
@@ -2375,7 +2385,7 @@ export async function readRealtimeVoiceContextWith(options: {
       ),
     );
     if (!response.ok) return null;
-    const body = (await response.json()) as { value?: unknown } | unknown;
+    const body = (await response.json()) as unknown;
     return body && typeof body === "object" && "value" in body
       ? ((body as { value?: unknown }).value ?? null)
       : body;

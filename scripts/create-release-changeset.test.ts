@@ -19,7 +19,7 @@ describe("create release changeset", () => {
     assert.throws(() => parseReleaseBumpType("beta"), /must be one of/);
   });
 
-  it("writes one deterministic changeset for every publishable package", async () => {
+  it("writes one deterministic changeset with a patch-only core bump", async () => {
     const tempRoot = await mkdtemp(
       path.join(os.tmpdir(), "agent-native-release-changeset-"),
     );
@@ -37,7 +37,10 @@ describe("create release changeset", () => {
       for (const packageName of NPM_PUBLISH_PACKAGE_NAMES) {
         assert.match(
           contents,
-          new RegExp(`^\\"${packageName}\\": minor$`, "m"),
+          new RegExp(
+            `^\\"${packageName}\\": ${packageName === "@agent-native/core" ? "patch" : "minor"}$`,
+            "m",
+          ),
         );
       }
       await assert.rejects(

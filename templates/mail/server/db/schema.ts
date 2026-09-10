@@ -48,6 +48,9 @@ export const automationRules = table("automation_rules", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
   domain: text("domain").notNull(), // "mail" | "calendar"
+  kind: text("kind", { enum: ["automation", "ai-filter"] })
+    .notNull()
+    .default("automation"),
   name: text("name").notNull(),
   condition: text("condition").notNull(), // natural language condition
   actions: text("actions").notNull(), // JSON array of AutomationAction

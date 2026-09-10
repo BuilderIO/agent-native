@@ -14,8 +14,12 @@ CREATE TABLE decks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   data TEXT NOT NULL,       -- Full deck JSON (slides array, metadata)
+  design_system_id TEXT,
   created_at TEXT DEFAULT (current_timestamp),
-  updated_at TEXT DEFAULT (current_timestamp)
+  updated_at TEXT DEFAULT (current_timestamp),
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private'
 );
 ```
 
@@ -70,18 +74,21 @@ pnpm action view-screen
 
 ## Writing Decks
 
-**From scripts:**
+Never write the `decks` table directly -- no `db-exec` (this app has no such
+action), no raw SQL. Every write goes through an action so ids, access checks,
+`notifyClients` events, and version snapshots stay correct.
 
-```bash
-# Use db-exec to insert/update
-pnpm action db-exec --sql "INSERT INTO decks (id, title, data) VALUES (?, ?, ?)" --params '["new-id", "Title", "{...}"]'
-```
+- `create-deck` -- create a deck (the agent's only creation path; `add-deck`
+  is the browser editor's optimistic client-id flow and is hidden from the
+  agent)
+- `add-slide` -- append one slide
+- `update-slide` -- edit one slide (see `slide-editing`)
+- `patch-deck` -- delete/reorder slides, deck-wide or multi-slide changes
+- `delete-deck` -- delete a deck and its version history
 
-**From actions:**
-
-- `add-deck` -- create a new deck
-- `save-deck` -- replace an authoritative full deck payload
-- `delete-deck` -- delete a deck
+`save-deck` is a full-payload replace reserved for undo/redo and bulk
+replacement; it is hidden from the agent so concurrent writers on different
+slides do not clobber each other.
 
 ## Important Rules
 
@@ -90,3 +97,26 @@ pnpm action db-exec --sql "INSERT INTO decks (id, title, data) VALUES (?, ?, ?)"
 3. **Slide IDs within a deck are stable** -- used for referencing specific slides
 4. **The `data` column is the full source of truth** -- title is duplicated at the top level for listing queries
 5. **SSE events** (`source: "resources"`) fire when decks change, keeping the UI in sync
+
+## PDF Round Trip
+
+A PDF page is a picture of a slide, not the slide. `exportDeckAsPdf`
+(`app/lib/export-pdf-client.ts`) therefore writes three layers per page: the
+rendered page image, the slide's own text drawn over it invisibly, and — once
+for the document — the deck source as base64 JSON in the PDF's XMP metadata
+(`shared/pdf-sidecar.ts` owns that format and its size cap).
+
+`import-file` reads them back in that order of preference
+(`server/handlers/import/pdf-sidecar-reader.ts`):
+
+- **Sidecar found** — the PDF came from Slides. The original slide HTML, notes,
+  layouts, and aspect ratio are restored verbatim, with fresh slide ids. The
+  result carries `restoredFromExport: true`.
+- **Sidecar absent** — a foreign PDF. `parsePdfFidelity` rebuilds positioned
+  text boxes and placed images from the page itself.
+- **Sidecar present but unreadable** — logged loudly, then treated as absent.
+  Never report that import as a clean restore.
+
+A PDF import that yields one full-slide image means the page carried nothing
+else — a scan or a flattened render. Say that rather than presenting it as a
+faithful import, and offer OCR or the original source file instead.

@@ -11,6 +11,12 @@ const messages = {
     themeTitle: "테마",
     themeDescription: "다크 / 라이트 전환",
   },
+  common: {
+    cancel: "취소",
+    confirmDisconnect: "연결 해제 확인",
+    disconnect: "연결 해제",
+    disconnecting: "연결 해제 중…",
+  },
   settings: {
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
@@ -27,6 +33,9 @@ const messages = {
     openTeamSettings: "팀 설정 열기",
     openResourceSettings: "리소스 설정 열기",
     backHome: "홈으로 돌아가기",
+    builderConnection: {
+      manage: "Builder.io 연결 관리",
+    },
   },
   dispatch: {
     nav: {

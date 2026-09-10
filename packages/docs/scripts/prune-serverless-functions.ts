@@ -115,10 +115,15 @@ function assertPrerendered(keys: string[]): string[] {
     const locale = localeFromKey(key);
     const slug = slugFromKey(key);
     if (!locale) continue;
+    // Prerendered pages land at the canonical route path, whose locale segment
+    // is lowercase (see `docsPathForSlug`). Looking them up under the cased
+    // locale from the source filename finds nothing, and this script would then
+    // report every translated doc as un-prerendered and refuse to prune at all.
+    const localeDir = locale.toLowerCase();
     const candidates =
       slug === "getting-started"
-        ? [path.join(PUBLISH_DIR, locale, "docs", "index.html")]
-        : [path.join(PUBLISH_DIR, locale, "docs", slug, "index.html")];
+        ? [path.join(PUBLISH_DIR, localeDir, "docs", "index.html")]
+        : [path.join(PUBLISH_DIR, localeDir, "docs", slug, "index.html")];
     if (!candidates.some((file) => existsSync(file)))
       missing.push(`${locale}/${slug}`);
   }
@@ -140,9 +145,16 @@ function pruneFunction(functionDir: string): {
   for (const chunk of localeOnly) {
     const keys = keysByChunk.get(chunk) ?? [];
     // A redirect slug never renders its own page, and a draft is not
-    // prerendered; both keep their chunk rather than gamble on the 301/500.
+    // prerendered; query-sensitive Getting Started also stays on SSR so its
+    // `?tab=cloud` variant has a renderer. Keep those chunks rather than
+    // gamble on a 301/404 or a missing query variant.
     if (
-      keys.some((key) => redirectSlugs.has(slugFromKey(key)) || isDraft(key))
+      keys.some((key) => {
+        const slug = slugFromKey(key);
+        return (
+          redirectSlugs.has(slug) || slug === "getting-started" || isDraft(key)
+        );
+      })
     ) {
       continue;
     }

@@ -38,10 +38,10 @@ export default function DocContent({
   // into the real renderer instead of painting a second Markdown tree.
   void preloadDocBlocksContent();
 
+  // Raw Markdown is not a safe fallback for MDX pages: unresolved block tags
+  // would render as visible source instead of content.
   return (
-    <Suspense
-      fallback={<MarkdownRenderer markdown={markdown} locale={locale} />}
-    >
+    <Suspense fallback={null}>
       <DocBlocksContent markdown={markdown} locale={locale} />
     </Suspense>
   );

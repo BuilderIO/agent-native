@@ -32,6 +32,18 @@ export interface FigmaNodeCandidate {
 
 export type FigmaClipboardMatchStatus = "matched" | "ambiguous" | "none";
 
+/**
+ * Why a non-`matched` result imported nothing. `status` alone cannot tell a
+ * caller whether the file had no frames at all, whether too many frames share
+ * the pasted text, or whether the clipboard text simply never appears in the
+ * file — three problems with three different fixes for the user.
+ */
+export type FigmaClipboardMatchReason =
+  | "no-candidates"
+  | "too-many-name-matches"
+  | "tied-text-matches"
+  | "no-text-overlap";
+
 export interface FigmaClipboardMatch {
   id: string;
   name: string;
@@ -41,6 +53,10 @@ export interface FigmaClipboardMatch {
 export interface FigmaClipboardMatchResult {
   status: FigmaClipboardMatchStatus;
   matches: FigmaClipboardMatch[];
+  /** Set on every non-`matched` result. */
+  reason?: FigmaClipboardMatchReason;
+  /** Frames that tied, so guidance can name them instead of saying "ambiguous". */
+  candidateNames?: string[];
 }
 
 /** Caps a "multi-select copy" match so a huge/garbled name-match list still degrades to ambiguous. */
@@ -144,6 +160,10 @@ export function matchFigmaClipboardNodes(
     clipboardTexts.map(normalize).filter((text) => text.length > 0),
   );
 
+  if (candidates.length === 0) {
+    return { status: "none", matches: [], reason: "no-candidates" };
+  }
+
   const nameMatches = candidates.filter((candidate) =>
     clipboardTextSet.has(normalize(candidate.name)),
   );
@@ -157,7 +177,12 @@ export function matchFigmaClipboardNodes(
   }
   if (nameMatches.length > 1) {
     if (nameMatches.length > MAX_MULTI_MATCH) {
-      return { status: "ambiguous", matches: [] };
+      return {
+        status: "ambiguous",
+        matches: [],
+        reason: "too-many-name-matches",
+        candidateNames: nameMatches.map((match) => match.name),
+      };
     }
     return {
       status: "matched",
@@ -189,8 +214,13 @@ export function matchFigmaClipboardNodes(
     };
   }
   if (strongTextMatches.length > 1) {
-    return { status: "ambiguous", matches: [] };
+    return {
+      status: "ambiguous",
+      matches: [],
+      reason: "tied-text-matches",
+      candidateNames: strongTextMatches.map((entry) => entry.candidate.name),
+    };
   }
 
-  return { status: "none", matches: [] };
+  return { status: "none", matches: [], reason: "no-text-overlap" };
 }

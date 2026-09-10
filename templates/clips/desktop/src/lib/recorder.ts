@@ -71,6 +71,7 @@ import {
   buildDesktopDisplayMediaOptions,
   getAudioStreamWithFallback,
   getCameraStreamWithFallback,
+  shouldRequestSystemAudio,
 } from "./media-capture-constraints";
 import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 import {
@@ -79,7 +80,11 @@ import {
 } from "./pause-transition";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import {
+  buildCreateRecordingRequestHeaders,
   buildCreateRecordingRequestBody,
+  RECORDING_SERVER_UNAVAILABLE,
+  RECORDING_SESSION_EXPIRED,
+  isStorageSetupFailureMessage,
   type NativeRecordingRequestOptions,
 } from "./recording-request";
 import {
@@ -173,6 +178,53 @@ function stopMediaStream(stream: MediaStream | null | undefined): void {
       // coercion-ok: stopping an already-ended capture track is best-effort cleanup.
     }
   });
+}
+
+function startBrowserMicLevelEmitter(stream: MediaStream): () => void {
+  const AudioContextCtor =
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+  if (!AudioContextCtor) return () => {};
+
+  let context: AudioContext;
+  try {
+    context = new AudioContextCtor();
+  } catch {
+    return () => {};
+  }
+  const source = context.createMediaStreamSource(stream);
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 256;
+  const data = new Uint8Array(analyser.fftSize);
+  source.connect(analyser);
+  void context.resume().catch(() => {});
+
+  let stopped = false;
+  let frame = 0;
+  const tick = () => {
+    if (stopped) return;
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (const sample of data) {
+      const centered = (sample - 128) / 128;
+      sum += centered * centered;
+    }
+    emit("voice:audio-level", {
+      level: Math.min(1, Math.sqrt(sum / data.length) * 2),
+      source: "mic",
+    }).catch(() => {});
+    frame = window.requestAnimationFrame(tick);
+  };
+  frame = window.requestAnimationFrame(tick);
+
+  return () => {
+    stopped = true;
+    window.cancelAnimationFrame(frame);
+    source.disconnect();
+    analyser.disconnect();
+    void context.close().catch(() => {});
+  };
 }
 
 function isMacPlatform(): boolean {
@@ -481,7 +533,7 @@ function createUploadOptimizedVideoStream(
   document.body.appendChild(video);
   const play = () => video.play().catch(() => undefined);
   video.addEventListener("loadedmetadata", play);
-  play();
+  void play();
 
   const resizeCanvas = () => {
     const width = positiveNumber(video.videoWidth)
@@ -1595,7 +1647,10 @@ async function createServerRecording(
   hasCamera: boolean,
   hasAudio: boolean,
   titleContext?: CaptureTitleResult,
-  options?: NativeRecordingRequestOptions & { signal?: AbortSignal },
+  options?: NativeRecordingRequestOptions & {
+    authToken?: string;
+    signal?: AbortSignal;
+  },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
   console.log("[clips-recorder] POST", url, {
@@ -1608,7 +1663,7 @@ async function createServerRecording(
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildCreateRecordingRequestHeaders(options?.authToken),
       // Tauri webview is a different origin from the clips server. The dev
       // CORS middleware is permissive for "*" but won't accept credentialed
       // requests without Allow-Credentials — and dev auth is bypassed, so
@@ -1625,15 +1680,27 @@ async function createServerRecording(
       ),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     console.error("[clips-recorder] fetch failed:", url, err);
-    throw new Error(
-      `Can't reach Clips server at ${url} — ${msg}. Is the dev server running on that port?`,
-    );
+    if (
+      options?.signal?.aborted ||
+      (err instanceof DOMException && err.name === "AbortError")
+    ) {
+      throw err;
+    }
+    throw new Error(RECORDING_SERVER_UNAVAILABLE);
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.error("[clips-recorder] bad response:", url, res.status, body);
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(RECORDING_SESSION_EXPIRED);
+    }
+    if (res.status >= 500 && isStorageSetupFailureMessage(body)) {
+      throw new Error(body.slice(0, 200));
+    }
+    if (res.status >= 500) {
+      throw new Error(RECORDING_SERVER_UNAVAILABLE);
+    }
     throw new Error(`create-recording ${res.status}: ${body.slice(0, 200)}`);
   }
   const data = (await res.json()) as {
@@ -1654,6 +1721,7 @@ export async function createPrivateAgentRewindRecording(
   serverUrl: string,
   hasAudio: boolean,
   startedAt: string,
+  authToken?: string,
 ): Promise<{ id: string; uploadMode: UploadMode }> {
   return createServerRecording(
     serverUrl,
@@ -1670,6 +1738,7 @@ export async function createPrivateAgentRewindRecording(
       requestStreaming: true,
       streamingUploadClient: "desktop-native",
       visibility: "private",
+      authToken,
     },
   );
 }
@@ -2454,6 +2523,9 @@ async function runRecordingCountdown(
   let countdownGeneration: number;
   try {
     countdownGeneration = await invoke<number>("show_countdown");
+    // The countdown is a focused full-screen window. Re-show the disabled pill
+    // after it appears so it remains above that overlay while the count runs.
+    await invoke("toolbar_set_visible", { visible: true }).catch(() => {});
   } catch (err) {
     console.error("[clips-recorder] show_countdown failed:", err);
     countdown.cleanup();
@@ -2464,6 +2536,7 @@ async function runRecordingCountdown(
     console.log(`[rewind-latency] countdown completion cause=${cause}`);
   } catch (err) {
     if (isCountdownCancelledError(err)) {
+      await emit("clips:toolbar-hidden").catch(() => {});
       await invoke("hide_recording_chrome").catch(() => {});
       throw err;
     }
@@ -2508,14 +2581,18 @@ function emitRecorderSession(
   serverUrl: string | null,
   recordingId: string | null,
   localOnly: boolean,
+  microphoneEnabled: boolean,
 ) {
   const viewUrl =
     serverUrl && recordingId
       ? `${serverUrl.replace(/\/+$/, "")}/r/${recordingId}`
       : null;
-  emit("clips:recorder-session", { viewUrl, recordingId, localOnly }).catch(
-    () => {},
-  );
+  emit("clips:recorder-session", {
+    viewUrl,
+    recordingId,
+    localOnly,
+    microphoneEnabled,
+  }).catch(() => {});
 }
 
 async function clearRecordingState() {
@@ -2809,6 +2886,7 @@ async function tryStartRewindFullscreenRecording(
             // fail with 409 after the local encode has completed.
             requestStreaming: true,
             streamingUploadClient: "desktop-native",
+            authToken: params.authToken,
             signal: params.signal,
           },
         );
@@ -3219,6 +3297,7 @@ async function tryStartRewindFullscreenRecording(
         localOnly ? null : params.serverUrl,
         id || null,
         localOnly,
+        params.micOn,
       );
       emitState();
     }),
@@ -3230,6 +3309,7 @@ async function tryStartRewindFullscreenRecording(
     localOnly ? null : params.serverUrl,
     id || null,
     localOnly,
+    params.micOn,
   );
   emitState();
   return handle;
@@ -3245,7 +3325,7 @@ async function startNativeFullscreenRecording(
   const localRecordingMode = params.localRecordingMode ?? "off";
   const localOnly = localRecordingMode !== "off";
   const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
-  const streamCleanups: Array<() => void> = [audioCue.cleanup];
+  const streamCleanups: Array<() => void> = [() => audioCue.cleanup()];
   let id = "";
   let uploadMode: UploadMode = "buffered";
   let localCameraExport: LocalRecordingExportHandle | null = null;
@@ -3260,7 +3340,7 @@ async function startNativeFullscreenRecording(
   // clock and the toolbar-enable behind the real recording start.
   let startedAt = 0;
   let nativeTranscriptFailureSaved = false;
-  const wantsSystemAudio = params.systemAudioOn !== false;
+  const wantsSystemAudio = shouldRequestSystemAudio(true, params.systemAudioOn);
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const canTranscribeLocally =
     shouldStartLocalRecordingTranscription(wantsAudio);
@@ -3447,17 +3527,13 @@ async function startNativeFullscreenRecording(
           `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
         );
       })();
-      try {
-        await Promise.all([
-          countdownPromise,
-          (async () => {
-            await warmPromise;
-            await startNativeTranscriptionBeforeRecording();
-          })(),
-        ]);
-      } catch (err) {
-        throw err;
-      }
+      await Promise.all([
+        countdownPromise,
+        (async () => {
+          await warmPromise;
+          await startNativeTranscriptionBeforeRecording();
+        })(),
+      ]);
     } else {
       const captureTitlePromise = captureTitleForRecording({
         mode: params.mode,
@@ -3477,6 +3553,7 @@ async function startNativeFullscreenRecording(
               mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
               requestStreaming: true,
               streamingUploadClient: "desktop-native",
+              authToken: params.authToken,
               signal: params.signal,
             },
           );
@@ -3573,6 +3650,7 @@ async function startNativeFullscreenRecording(
       localOnly ? null : params.serverUrl,
       id || null,
       localOnly,
+      params.micOn,
     );
     emit("clips:recorder-state", {
       paused: false,
@@ -4090,6 +4168,7 @@ async function startNativeFullscreenRecording(
         localOnly ? null : params.serverUrl,
         id || null,
         localOnly,
+        params.micOn,
       );
       emitState();
     }),
@@ -4103,6 +4182,7 @@ async function startNativeFullscreenRecording(
     localOnly ? null : params.serverUrl,
     id || null,
     localOnly,
+    params.micOn,
   );
   emitState();
 
@@ -4301,7 +4381,10 @@ async function startRecordingInner(
   // Vetted before anything is acquired so an ended display share cannot strand
   // a capture-suspension lease behind it.
   const restartHandoff = resolveRestartHandoff(params, wantsScreen, wantsAudio);
-  const wantsSystemAudio = wantsScreen && params.systemAudioOn !== false;
+  const wantsSystemAudio = shouldRequestSystemAudio(
+    wantsScreen,
+    params.systemAudioOn,
+  );
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const canTranscribeLocally =
     shouldStartLocalRecordingTranscription(wantsAudio);
@@ -4374,7 +4457,7 @@ async function startRecordingInner(
   if (wantsAudio) {
     console.log("[clips-recorder] acquiring audioStream (mic only)");
   }
-  const streamCleanups: Array<() => void> = [audioCue.cleanup];
+  const streamCleanups: Array<() => void> = [() => audioCue.cleanup()];
   const devSyntheticCapture = shouldUseDevSyntheticCapture();
 
   // Queue the native suspension before dispatching any WebKit capture calls.
@@ -4512,7 +4595,9 @@ async function startRecordingInner(
     // A picker may already have resolved while IPC was in flight. Tear down
     // every possible stream before surfacing the fail-closed suspension error.
     cleanupUnstartedCapture();
-    void Promise.allSettled(trackedCapturePromises).then((streams) => {
+    void Promise.allSettled(
+      trackedCapturePromises.map((promise) => Promise.resolve(promise)),
+    ).then((streams) => {
       streams.forEach((result) => {
         if (result.status === "fulfilled") stopMediaStream(result.value);
       });
@@ -4529,7 +4614,9 @@ async function startRecordingInner(
     // catch still sees `NotAllowedError` / `AbortError` as before.
     console.log("[clips-recorder] allSettled IN — streams dispatched");
     const settled = await guardRecordingStart(
-      Promise.allSettled(trackedCapturePromises),
+      Promise.allSettled(
+        trackedCapturePromises.map((promise) => Promise.resolve(promise)),
+      ),
       { signal: params.signal },
     );
     console.log(
@@ -4639,6 +4726,9 @@ async function startRecordingInner(
         })),
       );
     }
+    if (audioStream && wantsAudio) {
+      streamCleanups.push(startBrowserMicLevelEmitter(audioStream));
+    }
 
     await invoke("park_popover_offscreen").catch(() => {});
     emit("clips:popover-visible", false).catch(() => {});
@@ -4662,7 +4752,7 @@ async function startRecordingInner(
           })
         : null;
     if (recordedScreenCameraStream) {
-      streamCleanups.push(recordedScreenCameraStream.cleanup);
+      streamCleanups.push(() => recordedScreenCameraStream.cleanup());
       console.log("[clips-recorder] compositing camera into recorded video");
     }
 
@@ -4775,7 +4865,7 @@ async function startRecordingInner(
           emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
             () => {},
           );
-          emitRecorderSession(null, null, true);
+          emitRecorderSession(null, null, true, params.micOn);
           emitState(pausedAt != null);
         }),
       ]);
@@ -4788,7 +4878,7 @@ async function startRecordingInner(
       startedAt = Date.now();
       tickHandle = setInterval(() => emitState(pausedAt != null), 500);
       emit("clips:toolbar-enabled", true).catch(() => {});
-      emitRecorderSession(null, null, true);
+      emitRecorderSession(null, null, true, params.micOn);
       emitState(false);
 
       const detachCombinedStream = () => {
@@ -4903,7 +4993,7 @@ async function startRecordingInner(
     }
 
     const uploadPrimaryVideo = createUploadOptimizedVideoStream(primaryVideo);
-    streamCleanups.push(uploadPrimaryVideo.cleanup);
+    streamCleanups.push(() => uploadPrimaryVideo.cleanup());
 
     const uploadCombined = new MediaStream();
     uploadPrimaryVideo.stream
@@ -4939,6 +5029,7 @@ async function startRecordingInner(
       {
         mimeType: mimeType || "video/webm",
         requestStreaming: true,
+        authToken: params.authToken,
         signal: params.signal,
       },
     ).finally(() => {
@@ -5211,7 +5302,7 @@ async function startRecordingInner(
         emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
           () => {},
         );
-        emitRecorderSession(params.serverUrl, id, false);
+        emitRecorderSession(params.serverUrl, id, false, params.micOn);
         emitState(pausedAt != null);
       }),
     ]);
@@ -5228,7 +5319,7 @@ async function startRecordingInner(
     // Now that MediaRecorder is actually ticking, flip the toolbar's
     // Stop / Pause buttons to enabled so the user can drive the recorder.
     emit("clips:toolbar-enabled", true).catch(() => {});
-    emitRecorderSession(params.serverUrl, id, false);
+    emitRecorderSession(params.serverUrl, id, false, params.micOn);
     // Seed the initial recorder-state so the time / paused styling match
     // MediaRecorder's real state (before the first 500ms tick).
     emitState(false);

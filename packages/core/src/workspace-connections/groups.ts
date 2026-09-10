@@ -2,8 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
-  isPostgres,
   retryOnDdlRace,
   safeJsonParse,
   type DbExec,
@@ -41,13 +39,11 @@ export interface UpdateWorkspaceUserGroupMembersInput {
 }
 
 export function workspaceUserGroupsTable(): string {
-  return isPostgres()
-    ? "public.workspace_user_groups"
-    : "workspace_user_groups";
+  return "public.workspace_user_groups";
 }
 
 function isDuplicateObjectError(err: unknown): boolean {
-  const code = String((err as { code?: unknown })?.code ?? "");
+  const code = stringifyValue((err as { code?: unknown })?.code ?? "");
   const message = String((err as { message?: unknown })?.message ?? err)
     .toLowerCase()
     .trim();
@@ -96,7 +92,7 @@ function normalizeGroupName(value: unknown): string {
 function iso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "number") return new Date(value).toISOString();
-  const parsed = Date.parse(String(value ?? ""));
+  const parsed = Date.parse(stringifyValue(value ?? ""));
   return Number.isFinite(parsed)
     ? new Date(parsed).toISOString()
     : new Date(0).toISOString();
@@ -119,13 +115,13 @@ function requireWorkspaceUserGroupScope(): {
 
 function parseRow(row: Record<string, unknown>): WorkspaceUserGroup {
   return {
-    id: String(row.id ?? ""),
-    orgId: String(row.org_id ?? ""),
-    name: String(row.name ?? ""),
+    id: stringifyValue(row.id ?? ""),
+    orgId: stringifyValue(row.org_id ?? ""),
+    name: stringifyValue(row.name ?? ""),
     memberEmails: normalizeMemberEmails(
       safeJsonParse<unknown>(row.member_emails_json, []),
     ),
-    createdByEmail: String(row.created_by_email ?? ""),
+    createdByEmail: stringifyValue(row.created_by_email ?? ""),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -140,16 +136,14 @@ async function ensureWorkspaceUserGroupColumns(
     ["name", "TEXT NOT NULL DEFAULT ''"],
     ["member_emails_json", "TEXT NOT NULL DEFAULT '[]'"],
     ["created_by_email", "TEXT NOT NULL DEFAULT ''"],
-    ["created_at", `${intType()} NOT NULL DEFAULT 0`],
-    ["updated_at", `${intType()} NOT NULL DEFAULT 0`],
+    ["created_at", `BIGINT NOT NULL DEFAULT 0`],
+    ["updated_at", `BIGINT NOT NULL DEFAULT 0`],
   ] as const;
   for (const [name, definition] of columns) {
     try {
       await retryOnDdlRace(() =>
         client.execute(
-          isPostgres()
-            ? `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`
-            : `ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`,
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`,
         ),
       );
     } catch (error) {
@@ -172,12 +166,12 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
           name TEXT NOT NULL DEFAULT '',
           member_emails_json TEXT NOT NULL DEFAULT '[]',
           created_by_email TEXT NOT NULL DEFAULT '',
-          created_at ${intType()} NOT NULL DEFAULT 0,
-          updated_at ${intType()} NOT NULL DEFAULT 0
+          created_at BIGINT NOT NULL DEFAULT 0,
+          updated_at BIGINT NOT NULL DEFAULT 0
         )
       `;
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("workspace_user_groups", createSql);
         await ensureWorkspaceUserGroupColumns(client, table);
         await ensureIndexExists(
@@ -276,7 +270,10 @@ export async function workspaceUserGroupRole(
     return null;
   }
   const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [normalizedOrgId, normalizedEmail],
   });
   const role = String(
@@ -428,4 +425,14 @@ export async function workspaceUserGroupsIncludeUser(
     normalizedIds,
   );
   return groups.some((group) => group.memberEmails.includes(normalizedEmail));
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

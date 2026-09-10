@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   builderRefreshKey,
+  isDesignSystemUsableForGeneration,
   shouldRefreshBuilderDesignSystem,
 } from "../lib/design-system-data";
 
@@ -72,5 +73,29 @@ describe("shouldRefreshBuilderDesignSystem", () => {
         }),
       }),
     );
+  });
+});
+
+describe("isDesignSystemUsableForGeneration", () => {
+  it("excludes Builder proxies until indexing is ready", () => {
+    expect(
+      isDesignSystemUsableForGeneration(
+        JSON.stringify({ source: "builder", builderStatus: "in-progress" }),
+      ),
+    ).toBe(false);
+    expect(
+      isDesignSystemUsableForGeneration(
+        JSON.stringify({ source: "builder", builderStatus: "failed" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps ready Builder systems and ordinary local systems eligible", () => {
+    expect(
+      isDesignSystemUsableForGeneration(
+        JSON.stringify({ source: "builder", builderStatus: "ready" }),
+      ),
+    ).toBe(true);
+    expect(isDesignSystemUsableForGeneration("{}")).toBe(true);
   });
 });

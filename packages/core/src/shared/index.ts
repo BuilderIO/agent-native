@@ -4,8 +4,17 @@ export {
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./agent-chat.js";
+export {
+  appendAgentChatContextToMessage,
+  splitAgentChatContextFromMessage,
+  type AgentChatMessageParts,
+} from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
-export { extractOAuthStateAppId } from "./oauth-state.js";
+export {
+  extractOAuthStateAppId,
+  extractOAuthStateProvider,
+} from "./oauth-state.js";
+export { isGoogleProfileImageUrl } from "./google-profile-image.js";
 export {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,
@@ -26,10 +35,27 @@ export {
   normalizeDocumentTitle,
 } from "./document-title.js";
 export { injectDocumentMarkup } from "./html-document.js";
+export {
+  formatAgentDesignSystemContext,
+  loadAgentDesignSystemContext,
+  type AgentDesignSystemContext,
+  type AgentDesignSystemContextAvailable,
+  type AgentDesignSystemContextUnavailable,
+} from "./design-system-agent-context.js";
+export {
+  formatHtmlStyleSummary,
+  summarizeHtmlStyles,
+  type HtmlStyleFragment,
+  type HtmlStyleSummary,
+  type HtmlStyleValue,
+} from "./html-style-summary.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
+  BETA_REDIRECT_DURATION_MS,
+  BETA_REDIRECT_STORAGE_KEY,
+  BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
@@ -76,6 +102,14 @@ export {
   type LlmConnectionStatus,
 } from "./llm-connection.js";
 export {
+  AGENT_NATIVE_ACTION_EVENTS,
+  AGENT_NATIVE_LIFECYCLE_EVENTS,
+  normalizeTrackingDimension,
+  withCanonicalTrackingProperties,
+  type AgentNativeActionEventName,
+  type AgentNativeLifecycleEventName,
+} from "./analytics-events.js";
+export {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   RESERVED_WORKSPACE_APP_IDS,
   assertValidWorkspaceAppId,
@@ -111,6 +145,12 @@ export {
   type ChatFirstAppCreationResource,
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
+export { isAutozQaEmail, isQaTestEmail } from "./qa-test-email.js";
+export {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "./test-traffic.js";
 export {
   NATIVE_AUTH_COPY,
   resolveNativeAuthCopy,
@@ -123,6 +163,7 @@ export {
 } from "./poll-engine.js";
 export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -163,3 +204,20 @@ export {
   type AgentReadableResourceDiscovery,
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "./agent-readable-resource.js";
+export {
+  applyTargetedReplace,
+  findTargetedMatches,
+  type TargetedAmbiguousMatch,
+  type TargetedCandidate,
+  type TargetedMatch,
+  type TargetedMatchFailure,
+  type TargetedMatchesResult,
+  type TargetedReplaceResult,
+  type TargetedTextEditOptions,
+} from "./targeted-text-edit.js";
+export {
+  DIAGNOSTIC_SNIPPET_CLOSE,
+  DIAGNOSTIC_SNIPPET_OPEN,
+  stripDiagnosticSnippets,
+  wrapDiagnosticSnippet,
+} from "./diagnostic-snippet.js";

@@ -7,14 +7,19 @@ import {
 import {
   IconBackground,
   IconBlur,
+  IconChevronDown,
+  IconDroplet,
   IconEye,
   IconEyeOff,
+  IconLayoutGrid,
   IconMinus,
   IconPlus,
   IconShadow,
+  IconSquare,
+  IconSun,
   IconWaveSine,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,24 +28,23 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 
-import { ScrubInput } from "../inspector";
 import {
   GlslShaderEffectSection,
   useScreenGlslShaders,
   type GlslShaderPanelContext,
 } from "../inspector/GlslShaderPanel";
+import {
+  InspectorControlField,
+  InspectorControlPopoverContent,
+} from "../inspector/InspectorControlPopover";
 import type { ElementInfo } from "../types";
 import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
@@ -51,13 +55,13 @@ import {
   SectionIconButton,
   useRowDragReorder,
 } from "./inspector-controls";
+import { InspectorGridCell, InspectorPaintRow } from "./inspector-grid";
 import { ColorInput, PanelSection } from "./panel-primitives";
 import {
   colorHasVisibleAlpha,
   compactCssValue,
   cssColorOrFallback,
   roundToOneDecimal,
-  swatchStyle,
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import type {
@@ -77,6 +81,9 @@ export interface ShadowLayer {
   inset: boolean;
 }
 
+// guard:allow-raw-color — authored shadows need a concrete CSS color fallback.
+const DEFAULT_DROP_SHADOW_COLOR = "rgba(0, 0, 0, 0.25)";
+
 function defaultDropShadowLayer(index: number): ShadowLayer {
   return {
     id: `shadow-${index}`,
@@ -84,7 +91,7 @@ function defaultDropShadowLayer(index: number): ShadowLayer {
     y: 4,
     blur: 12,
     spread: 0,
-    color: "rgba(0, 0, 0, 0.25)",
+    color: DEFAULT_DROP_SHADOW_COLOR,
     inset: false,
   };
 }
@@ -105,7 +112,7 @@ function parseShadowLayer(layer: string, index: number): ShadowLayer {
     // like a numeric length. Without this, tweaking x/y/blur would reset it to
     // the hardcoded default below.
     tokens.find((token) => token !== "inset" && !/^[-+]?[\d.]/.test(token)) ??
-    "rgba(0, 0, 0, 0.25)";
+    DEFAULT_DROP_SHADOW_COLOR;
   const numericTokens = tokens
     .filter((token) => token !== "inset" && token !== colorToken)
     .map((token) => parseFloat(token))
@@ -284,6 +291,183 @@ export function effectsSelectionIsMixed(styles: {
   ].some(isMixedValue);
 }
 
+function EffectPopoverRow({
+  title,
+  icon,
+  visible,
+  onToggleVisibility,
+  onRemove,
+  dragHandleLabel,
+  dropIndicator,
+  rowProps,
+  handleProps,
+  trailer,
+  titleAccessory,
+  headerActions,
+  footer,
+  children,
+}: {
+  title: string;
+  icon: ReactNode;
+  visible: boolean;
+  onToggleVisibility: () => void;
+  onRemove: () => void;
+  dragHandleLabel?: string;
+  dropIndicator?: "before" | "after" | null;
+  rowProps?: ReturnType<ReturnType<typeof useRowDragReorder>["getRowProps"]>;
+  handleProps?: ReturnType<
+    ReturnType<typeof useRowDragReorder>["getHandleProps"]
+  >;
+  trailer?: ReactNode;
+  titleAccessory?: ReactNode;
+  headerActions?: ReactNode;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <InspectorPaintRow {...rowProps} draggable={Boolean(handleProps)}>
+        {handleProps ? (
+          <InspectorGridCell span={1}>
+            <RowDragHandle
+              label={dragHandleLabel ?? t("editPanel.labels.reorderLayer")}
+              dropIndicator={dropIndicator}
+              {...handleProps}
+            />
+          </InspectorGridCell>
+        ) : null}
+        <InspectorGridCell span={20}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+            >
+              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                {icon}
+              </span>
+              <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                {title}
+              </span>
+            </button>
+          </PopoverTrigger>
+        </InspectorGridCell>
+        <InspectorGridCell span={4} className="flex justify-center">
+          <SectionIconButton
+            label={
+              visible
+                ? t("editPanel.labels.hideLayer")
+                : t("editPanel.labels.showLayer")
+            }
+            onClick={onToggleVisibility}
+          >
+            {visible ? (
+              <IconEye className="size-3.5" />
+            ) : (
+              <IconEyeOff className="size-3.5" />
+            )}
+          </SectionIconButton>
+        </InspectorGridCell>
+        <InspectorGridCell span={4} className="flex justify-center">
+          <SectionIconButton
+            label={t("editPanel.labels.removeLayer")}
+            onClick={onRemove}
+          >
+            <IconMinus className="size-3.5" />
+          </SectionIconButton>
+        </InspectorGridCell>
+        {trailer ? (
+          <InspectorGridCell span={1} className="flex justify-center">
+            {trailer}
+          </InspectorGridCell>
+        ) : null}
+      </InspectorPaintRow>
+      <InspectorControlPopoverContent
+        title={title}
+        icon={icon}
+        titleAccessory={titleAccessory}
+        headerActions={headerActions}
+        onClose={() => setOpen(false)}
+        footer={footer}
+      >
+        {children}
+      </InspectorControlPopoverContent>
+    </Popover>
+  );
+}
+
+function BlurControl({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number, meta: StyleChangeMeta) => void;
+}) {
+  return (
+    <InspectorControlField label={label}>
+      <Input
+        type="number"
+        min={0}
+        step={1}
+        value={value}
+        aria-label={`${label} value`}
+        className="h-6 border-0 bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none"
+        onChange={(event) =>
+          onChange(Math.max(0, Number(event.target.value)), {
+            phase: "preview",
+          })
+        }
+        onBlur={(event) =>
+          onChange(Math.max(0, Number(event.target.value)), {
+            phase: "commit",
+          })
+        }
+      />
+    </InspectorControlField>
+  );
+}
+
+function ShadowNumberControl({
+  label,
+  ariaLabel,
+  value,
+  min,
+  onChange,
+}: {
+  label: ReactNode;
+  ariaLabel: string;
+  value: number;
+  min?: number;
+  onChange: (value: number, meta: StyleChangeMeta) => void;
+}) {
+  const clamp = (value: number) =>
+    min === undefined ? value : Math.max(min, value);
+  return (
+    <div className="design-inspector-popover-number grid h-6 min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
+      <span className="flex items-center justify-center !text-[11px] text-muted-foreground">
+        {label}
+      </span>
+      <Input
+        type="number"
+        value={value}
+        min={min}
+        step={1}
+        aria-label={`${ariaLabel} value`}
+        className="h-6 min-w-0 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+        onChange={(event) =>
+          onChange(clamp(Number(event.target.value)), { phase: "preview" })
+        }
+        onBlur={(event) =>
+          onChange(clamp(Number(event.target.value)), { phase: "commit" })
+        }
+      />
+    </div>
+  );
+}
+
 function ShadowEffectRow({
   layer,
   index,
@@ -308,155 +492,116 @@ function ShadowEffectRow({
   handleProps: ReturnType<
     ReturnType<typeof useRowDragReorder>["getHandleProps"]
   >;
-  /**
-   * Optional — only needed for the keyframe diamond (drop shadow's motion
-   * track keys the WHOLE `box-shadow` value, so there's one diamond for the
-   * layer, not per x/y/blur field). No breakpoint override indicator here —
-   * multi-layer `box-shadow` composition isn't covered by
-   * `getBreakpointOverrideState`'s per-property model yet.
-   */
   element?: ElementInfo;
   motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
-  const visible = colorHasVisibleAlpha(layer.color);
+  const effectType = layer.inset
+    ? t("editPanel.labels.innerShadow")
+    : t("editPanel.labels.dropShadow");
+  const title = index === 0 ? effectType : `${effectType} ${index + 1}`;
   return (
-    <Popover>
-      {/* design effect row: [grip] [swatch+label+x,y,blur trigger (flex-1)] [eye] [remove] */}
-      <div className="group relative flex items-center gap-1.5" {...rowProps}>
-        <RowDragHandle
-          label={dragHandleLabel}
-          dropIndicator={dropIndicator}
-          {...handleProps}
-        />
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
-          >
-            <span
-              className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
-              style={swatchStyle(layer.color)}
-            />
-            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-              {index === 0
-                ? t("editPanel.labels.dropShadow")
-                : `${t("editPanel.labels.dropShadow")} ${index + 1}`}
-            </span>
-            <span className="shrink-0 tabular-nums text-muted-foreground">
-              {Math.round(layer.x)}, {Math.round(layer.y)},{" "}
-              {Math.round(layer.blur)}
-            </span>
-          </button>
-        </PopoverTrigger>
-        <SectionIconButton
-          label={
-            visible
-              ? t("editPanel.labels.hideLayer")
-              : t("editPanel.labels.showLayer")
-          }
-          onClick={onToggleVisibility}
+    <EffectPopoverRow
+      title={title}
+      icon={
+        <IconSquare className="size-3.5 drop-shadow-[0_2px_0_var(--design-editor-control-border)]" />
+      }
+      visible={colorHasVisibleAlpha(layer.color)}
+      onToggleVisibility={onToggleVisibility}
+      dragHandleLabel={dragHandleLabel}
+      dropIndicator={dropIndicator}
+      rowProps={rowProps}
+      handleProps={handleProps}
+      onRemove={onRemove}
+      titleAccessory={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={"Change shadow type" /* i18n-ignore */}
+            >
+              <IconChevronDown className="size-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-36">
+            <DropdownMenuItem
+              className="!text-[11px]"
+              onSelect={() => onChange({ inset: false })}
+            >
+              {t("editPanel.labels.dropShadow")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="!text-[11px]"
+              onSelect={() => onChange({ inset: true })}
+            >
+              {t("editPanel.labels.innerShadow")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+      headerActions={
+        <span
+          className="flex size-6 items-center justify-center text-muted-foreground"
+          aria-hidden
         >
-          {visible ? (
-            <IconEye className="size-3.5" />
-          ) : (
-            <IconEyeOff className="size-3.5" />
-          )}
-        </SectionIconButton>
-        <SectionIconButton
-          label={t("editPanel.labels.removeLayer")}
-          onClick={onRemove}
-        >
-          <IconMinus className="size-3.5" />
-        </SectionIconButton>
-        {index === 0 && element ? (
+          <IconDroplet className="size-3.5" />
+        </span>
+      }
+      trailer={
+        index === 0 && element ? (
           <FieldTrailer
             element={element}
             motionCssProperty="box-shadow"
             motionKeyframeContext={motionKeyframeContext}
             hoverRevealClassName="opacity-0 group-hover:opacity-100"
           />
-        ) : null}
-      </div>
-      <PopoverContent
-        side="left"
-        align="start"
-        sideOffset={8}
-        className="w-72 p-3"
-      >
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-foreground">
-              {t("editPanel.labels.dropShadow")}
-            </p>
-            <button
-              type="button"
-              className={cn(
-                "rounded border px-2 py-1 !text-[11px]",
-                layer.inset
-                  ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
-                  : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground",
-              )}
-              onClick={() => onChange({ inset: !layer.inset })}
-            >
-              {t("editPanel.labels.innerShadow")}
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <ScrubInput
+        ) : undefined
+      }
+    >
+      <div className="design-sidebar-control-stack">
+        <InspectorControlField label={t("editPanel.labels.position")}>
+          <div className="design-sidebar-control-stack">
+            <ShadowNumberControl
               label="X"
+              ariaLabel="X"
               value={layer.x}
-              onChange={(value, meta) =>
-                onChange({ x: value }, { phase: meta?.phase })
-              }
-              unit="px"
-              precision={1}
-              inputClassName="h-6"
+              onChange={(value, meta) => onChange({ x: value }, meta)}
             />
-            <ScrubInput
+            <ShadowNumberControl
               label="Y"
+              ariaLabel="Y"
               value={layer.y}
-              onChange={(value, meta) =>
-                onChange({ y: value }, { phase: meta?.phase })
-              }
-              unit="px"
-              precision={1}
-              inputClassName="h-6"
-            />
-            <ScrubInput
-              label={t("editPanel.labels.blur")}
-              value={layer.blur}
-              onChange={(value, meta) =>
-                onChange({ blur: Math.max(0, value) }, { phase: meta?.phase })
-              }
-              unit="px"
-              min={0}
-              precision={1}
-              inputClassName="h-6"
-            />
-            <ScrubInput
-              label={t("editPanel.labels.spread")}
-              value={layer.spread}
-              // Spread radius is valid negative for both inset AND drop
-              // (non-inset) shadows in real CSS — negative spread shrinks
-              // the shadow smaller than the box before blurring, a common
-              // technique. Only blur-radius must stay >= 0.
-              onChange={(value, meta) =>
-                onChange({ spread: value }, { phase: meta?.phase })
-              }
-              unit="px"
-              precision={1}
-              inputClassName="h-6"
+              onChange={(value, meta) => onChange({ y: value }, meta)}
             />
           </div>
-          <ColorInput
-            label={t("editPanel.labels.color")}
-            value={cssColorOrFallback(layer.color, "rgba(0, 0, 0, 0.25)")}
-            onChange={(value, meta) => onChange({ color: value }, meta)}
-          />
-        </div>
-      </PopoverContent>
-    </Popover>
+        </InspectorControlField>
+      </div>
+      <InspectorControlField label={t("editPanel.labels.blur")}>
+        <ShadowNumberControl
+          label={<IconBlur className="size-3.5" />}
+          ariaLabel={t("editPanel.labels.blur")}
+          value={layer.blur}
+          min={0}
+          onChange={(value, meta) => onChange({ blur: value }, meta)}
+        />
+      </InspectorControlField>
+      <InspectorControlField label={t("editPanel.labels.spread")}>
+        <ShadowNumberControl
+          label={<IconSun className="size-3.5" />}
+          ariaLabel={t("editPanel.labels.spread")}
+          value={layer.spread}
+          onChange={(value, meta) => onChange({ spread: value }, meta)}
+        />
+      </InspectorControlField>
+      <InspectorControlField label={t("editPanel.labels.color")}>
+        <ColorInput
+          label={t("editPanel.labels.color")}
+          value={cssColorOrFallback(layer.color, DEFAULT_DROP_SHADOW_COLOR)}
+          onChange={(value, meta) => onChange({ color: value }, meta)}
+        />
+      </InspectorControlField>
+    </EffectPopoverRow>
   );
 }
 
@@ -542,7 +687,7 @@ export function EffectsProperties({
   const reorderShadowLayers = (from: number, to: number) => {
     const next = [...shadowLayers];
     const [moved] = next.splice(from, 1);
-    if (moved === undefined) return;
+    if (!moved) return;
     next.splice(to, 0, moved);
     setShadowLayers(next);
   };
@@ -590,62 +735,66 @@ export function EffectsProperties({
     <PanelSection
       title={t("editPanel.sections.effects")}
       actions={
-        <DropdownMenu>
-          {/* Tooltip as well as aria-label: this was the one section-header +
-              that explained itself to screen readers only. */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
-                  aria-label={t("editPanel.labels.addEffect")}
-                >
-                  <IconPlus className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{t("editPanel.labels.addEffect")}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="min-w-44">
-            <DropdownMenuItem
-              className="gap-2 !text-[11px]"
-              onSelect={addDropShadow}
-            >
-              <IconShadow className="size-3.5" />
-              {t("editPanel.labels.dropShadow")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="gap-2 !text-[11px]"
-              onSelect={addLayerBlur}
-            >
-              <IconBlur className="size-3.5" />
-              {t("editPanel.labels.layerBlur")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="gap-2 !text-[11px]"
-              onSelect={addBackgroundBlur}
-            >
-              <IconBackground className="size-3.5" />
-              {"Background blur" /* i18n-ignore design effect type */}
-            </DropdownMenuItem>
-            {glslShaderContext?.nodeId ? (
+        <>
+          <SectionIconButton
+            label={t("editPanel.labels.stylesComingSoon")}
+            disabled
+          >
+            <IconLayoutGrid className="size-3.5" />
+          </SectionIconButton>
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+                    aria-label={t("editPanel.labels.addEffect")}
+                  >
+                    <IconPlus className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("editPanel.labels.addEffect")}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="min-w-44">
               <DropdownMenuItem
                 className="gap-2 !text-[11px]"
-                onSelect={() => {
-                  // Defer past the dropdown's close so the inline picker's
-                  // focus handling isn't clobbered by menu teardown.
-                  setTimeout(() => setShaderPickerOpen(true), 0);
-                }}
+                onSelect={addDropShadow}
               >
-                <IconWaveSine className="size-3.5" />
-                {t("editPanel.labels.shaderEffectType")}
+                <IconShadow className="size-3.5" />
+                {t("editPanel.labels.dropShadow")}
               </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuItem
+                className="gap-2 !text-[11px]"
+                onSelect={addLayerBlur}
+              >
+                <IconBlur className="size-3.5" />
+                {t("editPanel.labels.layerBlur")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2 !text-[11px]"
+                onSelect={addBackgroundBlur}
+              >
+                <IconBackground className="size-3.5" />
+                {"Background blur" /* i18n-ignore design effect type */}
+              </DropdownMenuItem>
+              {glslShaderContext?.nodeId ? (
+                <DropdownMenuItem
+                  className="gap-2 !text-[11px]"
+                  onSelect={() => {
+                    setTimeout(() => setShaderPickerOpen(true), 0);
+                  }}
+                >
+                  <IconWaveSine className="size-3.5" />
+                  {t("editPanel.labels.shaderEffectType")}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
       }
     >
       {hasEffectsContent ? (
@@ -736,202 +885,108 @@ export function EffectsProperties({
                 </div>
               ) : null}
               {filterHasBlur ? (
-                /* design effect row for layer blur: flat row matching shadow rows */
-                <Popover>
-                  <div className="group flex items-center gap-1.5">
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
-                      >
-                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                          {t("editPanel.labels.layerBlur")}
-                        </span>
-                        <span className="shrink-0 tabular-nums text-muted-foreground">
-                          {roundToOneDecimal(blurValue)}px
-                        </span>
-                      </button>
-                    </PopoverTrigger>
-                    <SectionIconButton
-                      label={
-                        blurValue > 0
-                          ? t("editPanel.labels.hideLayer")
-                          : t("editPanel.labels.showLayer")
-                      }
-                      onClick={() => {
-                        if (blurValue > 0) {
-                          setHiddenEffectStash((prev) => ({
-                            ...prev,
-                            [layerBlurStashKey]: String(blurValue),
-                          }));
-                          onStyleChange(
-                            "filter",
-                            setBlurFilterValue(styles.filter, 0),
-                          );
-                          return;
-                        }
-
-                        const restored = Number(
-                          hiddenEffectStash[layerBlurStashKey],
-                        );
-                        const nextBlur =
-                          Number.isFinite(restored) && restored > 0
-                            ? restored
-                            : 4;
-                        setHiddenEffectStash((prev) => {
-                          const next = { ...prev };
-                          delete next[layerBlurStashKey];
-                          return next;
-                        });
-                        onStyleChange(
-                          "filter",
-                          setBlurFilterValue(styles.filter, nextBlur),
-                        );
-                      }}
-                    >
-                      {blurValue > 0 ? (
-                        <IconEye className="size-3.5" />
-                      ) : (
-                        <IconEyeOff className="size-3.5" />
-                      )}
-                    </SectionIconButton>
-                    <SectionIconButton
-                      label={t("editPanel.labels.removeLayer")}
-                      onClick={() =>
-                        onStyleChange(
-                          "filter",
-                          removeBlurFilterValue(styles.filter),
-                        )
-                      }
-                      disabled={!filterHasBlur}
-                    >
-                      <IconMinus className="size-3.5" />
-                    </SectionIconButton>
-                  </div>
-                  <PopoverContent
-                    side="left"
-                    align="start"
-                    sideOffset={8}
-                    className="w-56 p-3"
-                  >
-                    <ScrubInput
-                      label={t("editPanel.labels.blur")}
-                      value={blurValue}
-                      onChange={(value, meta) =>
-                        onStyleChange(
-                          "filter",
-                          setBlurFilterValue(styles.filter, value),
-                          meta,
-                        )
-                      }
-                      unit="px"
-                      min={0}
-                      precision={1}
-                      labelClassName="w-16"
-                      inputClassName="h-6"
-                    />
-                  </PopoverContent>
-                </Popover>
+                <EffectPopoverRow
+                  title={t("editPanel.labels.layerBlur")}
+                  icon={<IconBlur className="size-3.5" />}
+                  visible={blurValue > 0}
+                  onToggleVisibility={() => {
+                    if (blurValue > 0) {
+                      setHiddenEffectStash((prev) => ({
+                        ...prev,
+                        [layerBlurStashKey]: String(blurValue),
+                      }));
+                      onStyleChange(
+                        "filter",
+                        setBlurFilterValue(styles.filter, 0),
+                      );
+                      return;
+                    }
+                    const restored = Number(
+                      hiddenEffectStash[layerBlurStashKey],
+                    );
+                    const nextBlur =
+                      Number.isFinite(restored) && restored > 0 ? restored : 4;
+                    setHiddenEffectStash((prev) => {
+                      const next = { ...prev };
+                      delete next[layerBlurStashKey];
+                      return next;
+                    });
+                    onStyleChange(
+                      "filter",
+                      setBlurFilterValue(styles.filter, nextBlur),
+                    );
+                  }}
+                  onRemove={() =>
+                    onStyleChange(
+                      "filter",
+                      removeBlurFilterValue(styles.filter),
+                    )
+                  }
+                >
+                  <BlurControl
+                    label={t("editPanel.labels.blur")}
+                    value={blurValue}
+                    onChange={(value, meta) =>
+                      onStyleChange(
+                        "filter",
+                        setBlurFilterValue(styles.filter, value),
+                        meta,
+                      )
+                    }
+                  />
+                </EffectPopoverRow>
               ) : null}
               {backdropFilterHasBlur ? (
-                /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
-                <Popover>
-                  <div className="group flex items-center gap-1.5">
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
-                      >
-                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                          {
-                            "Background blur" /* i18n-ignore design effect type */
-                          }
-                        </span>
-                        <span className="shrink-0 tabular-nums text-muted-foreground">
-                          {roundToOneDecimal(backdropBlurValue)}px
-                        </span>
-                      </button>
-                    </PopoverTrigger>
-                    <SectionIconButton
-                      label={
-                        backdropBlurValue > 0
-                          ? t("editPanel.labels.hideLayer")
-                          : t("editPanel.labels.showLayer")
-                      }
-                      onClick={() => {
-                        if (backdropBlurValue > 0) {
-                          setHiddenEffectStash((prev) => ({
-                            ...prev,
-                            [backdropBlurStashKey]: String(backdropBlurValue),
-                          }));
-                          onStyleChange(
-                            "backdropFilter",
-                            setBlurFilterValue(backdropFilterValue, 0),
-                          );
-                          return;
-                        }
-
-                        const restored = Number(
-                          hiddenEffectStash[backdropBlurStashKey],
-                        );
-                        const nextBlur =
-                          Number.isFinite(restored) && restored > 0
-                            ? restored
-                            : 8;
-                        setHiddenEffectStash((prev) => {
-                          const next = { ...prev };
-                          delete next[backdropBlurStashKey];
-                          return next;
-                        });
-                        onStyleChange(
-                          "backdropFilter",
-                          setBlurFilterValue(backdropFilterValue, nextBlur),
-                        );
-                      }}
-                    >
-                      {backdropBlurValue > 0 ? (
-                        <IconEye className="size-3.5" />
-                      ) : (
-                        <IconEyeOff className="size-3.5" />
-                      )}
-                    </SectionIconButton>
-                    <SectionIconButton
-                      label={t("editPanel.labels.removeLayer")}
-                      onClick={() =>
-                        onStyleChange(
-                          "backdropFilter",
-                          removeBlurFilterValue(backdropFilterValue),
-                        )
-                      }
-                      disabled={!backdropFilterHasBlur}
-                    >
-                      <IconMinus className="size-3.5" />
-                    </SectionIconButton>
-                  </div>
-                  <PopoverContent
-                    side="left"
-                    align="start"
-                    sideOffset={8}
-                    className="w-56 p-3"
-                  >
-                    <ScrubInput
-                      label={t("editPanel.labels.blur")}
-                      value={backdropBlurValue}
-                      onChange={(value, meta) =>
-                        onStyleChange(
-                          "backdropFilter",
-                          setBlurFilterValue(backdropFilterValue, value),
-                          meta,
-                        )
-                      }
-                      unit="px"
-                      min={0}
-                      precision={1}
-                      labelClassName="w-16"
-                      inputClassName="h-6"
-                    />
-                  </PopoverContent>
-                </Popover>
+                <EffectPopoverRow
+                  title={"Background blur" /* i18n-ignore design effect type */}
+                  icon={<IconBackground className="size-3.5" />}
+                  visible={backdropBlurValue > 0}
+                  onToggleVisibility={() => {
+                    if (backdropBlurValue > 0) {
+                      setHiddenEffectStash((prev) => ({
+                        ...prev,
+                        [backdropBlurStashKey]: String(backdropBlurValue),
+                      }));
+                      onStyleChange(
+                        "backdropFilter",
+                        setBlurFilterValue(backdropFilterValue, 0),
+                      );
+                      return;
+                    }
+                    const restored = Number(
+                      hiddenEffectStash[backdropBlurStashKey],
+                    );
+                    const nextBlur =
+                      Number.isFinite(restored) && restored > 0 ? restored : 8;
+                    setHiddenEffectStash((prev) => {
+                      const next = { ...prev };
+                      delete next[backdropBlurStashKey];
+                      return next;
+                    });
+                    onStyleChange(
+                      "backdropFilter",
+                      setBlurFilterValue(backdropFilterValue, nextBlur),
+                    );
+                  }}
+                  onRemove={() =>
+                    onStyleChange(
+                      "backdropFilter",
+                      removeBlurFilterValue(backdropFilterValue),
+                    )
+                  }
+                >
+                  <BlurControl
+                    label={t("editPanel.labels.blur")}
+                    value={backdropBlurValue}
+                    onChange={(value, meta) =>
+                      onStyleChange(
+                        "backdropFilter",
+                        setBlurFilterValue(backdropFilterValue, value),
+                        meta,
+                      )
+                    }
+                  />
+                </EffectPopoverRow>
               ) : null}
             </>
           )}

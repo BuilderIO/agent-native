@@ -494,7 +494,7 @@ function HtmlArtboard({
       render={({ theme, style }) => (
         <div
           ref={htmlRef}
-          className="plan-html-frame"
+          className={cn("plan-html-frame", data.skeleton && "skeleton-shimmer")}
           data-theme={theme}
           data-style={style}
           data-frame={showFrame ? "show" : "hide"}

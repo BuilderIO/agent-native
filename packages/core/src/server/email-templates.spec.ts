@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
+import {
   renderMagicLinkEmail,
   renderVerifySignupEmail,
 } from "./email-templates";
 
 describe("renderVerifySignupEmail", () => {
   afterEach(() => {
+    resetAppConfigForTests();
     vi.unstubAllEnvs();
   });
 
@@ -33,6 +38,65 @@ describe("renderVerifySignupEmail", () => {
 
     expect(rendered.subject).toBe("Verify your email for Acme Portal");
     expect(rendered.html).not.toContain("Agent-Native Acme Portal");
+  });
+
+  it("uses a custom package name when app branding is not configured", () => {
+    vi.stubEnv("npm_package_name", "try-marisco");
+
+    const rendered = renderVerifySignupEmail({
+      email: "reader@example.com",
+      verifyUrl: "https://example.com/verify?token=abc",
+    });
+
+    expect(rendered.subject).toBe("Verify your email for Try Marisco");
+    expect(rendered.html).toContain('alt="Try Marisco"');
+    expect(rendered.html).not.toContain("Agent-Native");
+    expect(rendered.appSender).toBeUndefined();
+  });
+
+  it("keeps first-party template branding and the embedded logo", () => {
+    vi.stubEnv("npm_package_name", "slides");
+
+    const rendered = renderVerifySignupEmail({
+      email: "reader@example.com",
+      verifyUrl: "https://example.com/verify?token=abc",
+    });
+
+    expect(rendered.subject).toBe("Verify your email for Agent-Native Slides");
+    expect(rendered.html).toContain('src="cid:agent-native-logo"');
+    expect(rendered.appSender).toMatchObject({
+      name: "Agent-Native Slides",
+      slug: "slides",
+    });
+  });
+
+  it("keeps a same-named custom scaffold off first-party branding", () => {
+    defineAppConfig({ app: { sourceTemplate: "chat" } });
+    vi.stubEnv("npm_package_name", "slides");
+
+    const rendered = renderVerifySignupEmail({
+      email: "reader@example.com",
+      verifyUrl: "https://example.com/verify?token=abc",
+    });
+
+    expect(rendered.subject).toBe("Verify your email for Slides");
+    expect(rendered.html).not.toContain("Agent-Native");
+    expect(rendered.appSender).toBeUndefined();
+  });
+
+  it("uses a configured custom logo in auth email branding", () => {
+    vi.stubEnv("APP_NAME", "Try Marisco");
+    vi.stubEnv("APP_LOGO_URL", "https://cdn.example.com/try-marisco.png");
+
+    const rendered = renderVerifySignupEmail({
+      email: "reader@example.com",
+      verifyUrl: "https://example.com/verify?token=abc",
+    });
+
+    expect(rendered.html).toContain(
+      'src="https://cdn.example.com/try-marisco.png"',
+    );
+    expect(rendered.html).not.toContain('src="cid:agent-native-logo"');
   });
 });
 

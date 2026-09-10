@@ -15,6 +15,7 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import {
   mergeCanvasFramePlacements,
@@ -31,6 +32,7 @@ import {
 
 const routeInputSchema = z.object({
   routeId: z.string().optional(),
+  connectionId: z.string().optional(),
   path: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),
@@ -152,6 +154,26 @@ function isLoopbackHostname(hostname: string): boolean {
   return /^127(?:\.\d{1,3}){3}$/.test(normalized);
 }
 
+function canonicalLoopbackHostname(hostname: string): string {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(normalized)
+    ? "default-loopback"
+    : normalized;
+}
+
+function loopbackOriginsMatch(left: string, right: string): boolean {
+  const leftUrl = new URL(left);
+  const rightUrl = new URL(right);
+  return (
+    leftUrl.protocol === rightUrl.protocol &&
+    leftUrl.port === rightUrl.port &&
+    isLoopbackHostname(leftUrl.hostname) &&
+    isLoopbackHostname(rightUrl.hostname) &&
+    canonicalLoopbackHostname(leftUrl.hostname) ===
+      canonicalLoopbackHostname(rightUrl.hostname)
+  );
+}
+
 function withLocalhostProtocol(value: string): string {
   const raw = value.trim();
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
@@ -183,22 +205,25 @@ export function routeUrl(
   }
   const base = new URL(baseUrl);
   if (parsed.origin !== base.origin) {
-    const equivalentLoopbackOrigin =
-      parsed.protocol === base.protocol &&
-      parsed.port === base.port &&
-      isLoopbackHostname(parsed.hostname) &&
-      isLoopbackHostname(base.hostname);
-    if (!equivalentLoopbackOrigin) {
+    const equivalentLoopbackOrigin = loopbackOriginsMatch(
+      parsed.origin,
+      base.origin,
+    );
+    const separateLoopbackOrigin =
+      isLoopbackHostname(parsed.hostname) && isLoopbackHostname(base.hostname);
+    if (!separateLoopbackOrigin) {
       throw new Error(
-        `Localhost screen URL must stay on the connected dev server origin (${base.origin}): ${raw}`,
+        `Localhost screen URL must stay on the connected dev server or another loopback origin (${base.origin}): ${raw}`,
       );
     }
-    // localhost / 127.0.0.1 / ::1 aliases can point at the same loopback
-    // server, but the bridge enforces exact same-origin fetches. Canonicalize
-    // the alias to the registered dev-server origin so live edit does not fail
-    // later with an opaque bridge 400.
-    parsed.protocol = base.protocol;
-    parsed.host = base.host;
+    if (equivalentLoopbackOrigin) {
+      // localhost / 127.0.0.1 / ::1 aliases can point at the same loopback
+      // server, but the bridge enforces exact same-origin fetches. Canonicalize
+      // the alias to the registered dev-server origin so live edit does not fail
+      // later with an opaque bridge 400.
+      parsed.protocol = base.protocol;
+      parsed.host = base.host;
+    }
   }
   parsed.hash = "";
   return parsed.toString();
@@ -208,7 +233,10 @@ export function pathFromUrl(baseUrl: string, url: string, fallback?: string) {
   try {
     const parsed = new URL(url);
     const base = new URL(baseUrl);
-    if (parsed.origin === base.origin) {
+    if (
+      parsed.origin === base.origin ||
+      (isLoopbackHostname(parsed.hostname) && isLoopbackHostname(base.hostname))
+    ) {
       return `${parsed.pathname}${parsed.search}` || "/";
     }
   } catch {
@@ -217,11 +245,13 @@ export function pathFromUrl(baseUrl: string, url: string, fallback?: string) {
   return fallback ?? "/";
 }
 
-export function slugForPath(pathOrUrl: string) {
+export function slugForPath(pathOrUrl: string, includeOrigin = false) {
   const parsed = (() => {
     try {
       const url = new URL(withLocalhostProtocol(pathOrUrl));
-      return url.pathname + url.search;
+      return includeOrigin
+        ? `${url.host}${url.pathname}${url.search}`
+        : url.pathname + url.search;
     } catch {
       return pathOrUrl;
     }
@@ -238,8 +268,10 @@ function uniqueFilename(
   pathOrUrl: string,
   used: Set<string>,
   preferred?: string,
+  includeOrigin = false,
 ) {
-  const base = preferred ?? `localhost-${slugForPath(pathOrUrl)}.html`;
+  const base =
+    preferred ?? `localhost-${slugForPath(pathOrUrl, includeOrigin)}.html`;
   const [stem, extension = "html"] = base.split(/\.(?=[^.]+$)/);
   let filename = `${stem}.${extension}`;
   let suffix = 2;
@@ -251,13 +283,19 @@ function uniqueFilename(
   return filename;
 }
 
+const MAX_FILENAME_INSERT_ATTEMPTS = 5;
+
 export function viewportFilename(
   pathOrUrl: string,
   width: number,
   height: number,
+  includeOrigin = false,
 ) {
   const viewport = `${Math.round(width)}x${Math.round(height)}`;
-  return `localhost-${slugForPath(pathOrUrl)}-${viewport}.html`;
+  const discriminator = includeOrigin
+    ? `-${makeLocalhostRouteId(pathOrUrl).split("-").pop()}`
+    : "";
+  return `localhost-${slugForPath(pathOrUrl, includeOrigin)}${discriminator}-${viewport}.html`;
 }
 
 function metadataNumber(
@@ -281,22 +319,75 @@ function metadataForFile(
   return isRecord(legacy) ? legacy : undefined;
 }
 
+function routeUrlsMatch(
+  left: string,
+  right: string,
+  options: { includeSearch?: boolean } = {},
+): boolean {
+  try {
+    const includeSearch = options.includeSearch ?? true;
+    const leftUrl = new URL(left);
+    const rightUrl = new URL(right);
+    const sameOrigin =
+      leftUrl.origin === rightUrl.origin ||
+      loopbackOriginsMatch(leftUrl.origin, rightUrl.origin);
+    return (
+      sameOrigin &&
+      leftUrl.pathname === rightUrl.pathname &&
+      (!includeSearch || leftUrl.search === rightUrl.search)
+    );
+  } catch {
+    // coercion-ok: malformed persisted screen URLs are not route matches.
+    return false;
+  }
+}
+
+function canonicalRouteUrl(baseUrl: string, value: string): string {
+  try {
+    return routeUrl(baseUrl, { url: value });
+  } catch {
+    // coercion-ok: route resolution validates malformed URLs before placement.
+    return value;
+  }
+}
+
 function metadataMatchesRoute(
   metadata: Record<string, unknown> | undefined,
-  args: { connectionId: string; routeId: string; path: string; url: string },
+  args: {
+    connectionId: string;
+    routeId: string;
+    path: string;
+    url: string;
+    content?: string;
+    connectionAmbiguous: boolean;
+  },
 ): boolean {
   if (!metadata || metadata.sourceType !== "localhost") return false;
+  const storedConnectionId = metadata.connectionId;
   if (
-    typeof metadata.connectionId === "string" &&
-    metadata.connectionId !== args.connectionId
+    typeof storedConnectionId === "string" &&
+    storedConnectionId !== args.connectionId
   ) {
     return false;
   }
+  if (typeof storedConnectionId !== "string" && args.connectionAmbiguous) {
+    return false;
+  }
+  const storedUrlMatches = [metadata.url, metadata.previewUrl].some(
+    (value) => typeof value === "string" && routeUrlsMatch(value, args.url),
+  );
+  const storedContentMatches =
+    typeof args.content === "string" &&
+    routeUrlsMatch(args.content, args.url, { includeSearch: false });
+  const hasRouteIdentity =
+    storedConnectionId === args.connectionId ||
+    storedUrlMatches ||
+    storedContentMatches;
   return (
-    metadata.routeId === args.routeId ||
-    metadata.url === args.url ||
-    metadata.previewUrl === args.url ||
-    metadata.path === args.path
+    storedUrlMatches ||
+    storedContentMatches ||
+    (hasRouteIdentity &&
+      (metadata.routeId === args.routeId || metadata.path === args.path))
   );
 }
 
@@ -319,7 +410,7 @@ export default defineAction({
         z.array(routeInputSchema).optional(),
       )
       .describe(
-        "Routes or URL states to place. Each may include path, url, title, width, height, x/y/z.",
+        "Routes or localhost URL states to place. Each may include path, url, connectionId, title, width, height, x/y/z. Absolute URLs can target any registered loopback connection.",
       ),
     paths: z
       .preprocess(
@@ -351,27 +442,32 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({
-    designId,
-    connectionId,
-    routes,
-    paths,
-    defaultWidth,
-    defaultHeight,
-    startX,
-    startY,
-    gap,
-  }) => {
+  run: async (
+    {
+      designId,
+      connectionId,
+      routes,
+      paths,
+      defaultWidth,
+      defaultHeight,
+      startX,
+      startY,
+      gap,
+    },
+    context,
+  ) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
     const db = getDb();
 
-    const connectionClauses = [
+    const scopeClauses = [
       eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
       orgId
         ? eq(schema.designLocalhostConnections.orgId, orgId)
         : isNull(schema.designLocalhostConnections.orgId),
     ];
+    const connectionClauses = [...scopeClauses];
     if (connectionId) {
       connectionClauses.push(
         eq(schema.designLocalhostConnections.id, connectionId),
@@ -393,31 +489,134 @@ export default defineAction({
       );
     }
 
-    const devServerUrl = normalizeBaseUrl(connection.devServerUrl);
-    const manifest = parseJson<LocalhostDesignRouteManifest>(
-      connection.routeManifest,
+    const primaryDevServerUrl = normalizeBaseUrl(connection.devServerUrl);
+    let scopedConnections = [connection];
+    let allConnectionsLoaded = false;
+    const loadScopedConnections = async () => {
+      if (allConnectionsLoaded) return scopedConnections;
+      scopedConnections = await db
+        .select()
+        .from(schema.designLocalhostConnections)
+        .where(and(...scopeClauses))
+        .orderBy(desc(schema.designLocalhostConnections.updatedAt));
+      allConnectionsLoaded = true;
+      return scopedConnections;
+    };
+    const connectionOriginMatches = (left: string, right: string) => {
+      try {
+        const leftUrl = new URL(left);
+        const rightUrl = new URL(right);
+        return (
+          leftUrl.origin === rightUrl.origin ||
+          loopbackOriginsMatch(leftUrl.toString(), rightUrl.toString())
+        );
+      } catch {
+        // coercion-ok: malformed persisted connection URLs cannot match a route.
+        return false;
+      }
+    };
+    const resolveRouteConnection = async (
+      input: LocalhostScreenInput,
+      urlHint?: string,
+    ) => {
+      if (input.connectionId) {
+        const target = (await loadScopedConnections()).find(
+          (candidate) => candidate.id === input.connectionId,
+        );
+        if (!target) {
+          throw new Error(
+            `No localhost connection found for ${input.connectionId}.`,
+          );
+        }
+        if (
+          urlHint &&
+          !connectionOriginMatches(
+            urlHint,
+            normalizeBaseUrl(target.devServerUrl),
+          )
+        ) {
+          throw new Error(
+            `Route URL ${urlHint} does not match localhost connection ${input.connectionId} (${target.devServerUrl}).`,
+          );
+        }
+        return target;
+      }
+      if (!urlHint) {
+        return connection;
+      }
+      const matchingConnections = (await loadScopedConnections()).filter(
+        (candidate) =>
+          connectionOriginMatches(
+            urlHint,
+            normalizeBaseUrl(candidate.devServerUrl),
+          ),
+      );
+      if (matchingConnections.length === 0) {
+        throw new Error(
+          `No localhost connection is registered for ${new URL(urlHint).origin}. Connect that local app first, then add its URL again.`,
+        );
+      }
+      if (matchingConnections.length > 1) {
+        throw new Error(
+          `Multiple localhost connections are registered for ${new URL(urlHint).origin}. Pass the route's connectionId to choose the app with the correct root.`,
+        );
+      }
+      return matchingConnections[0]!;
+    };
+    const manifestForConnection = (sourceConnection: typeof connection) => {
+      const devServerUrl = normalizeBaseUrl(sourceConnection.devServerUrl);
+      return parseJson<LocalhostDesignRouteManifest>(
+        sourceConnection.routeManifest,
+        {
+          version: 1,
+          sourceType: "localhost",
+          devServerUrl,
+          rootPath: sourceConnection.rootPath ?? undefined,
+          routes: [],
+          generatedAt: sourceConnection.updatedAt ?? new Date(0).toISOString(),
+        },
+      );
+    };
+    const routeManifestCache = new Map<
+      string,
       {
-        version: 1,
-        sourceType: "localhost",
-        devServerUrl,
-        rootPath: connection.rootPath ?? undefined,
-        routes: [],
-        generatedAt: connection.updatedAt ?? new Date(0).toISOString(),
-      },
-    );
-    const manifestByPath = new Map(
-      manifest.routes.map((route) => [route.path, route]),
-    );
-    const manifestById = new Map(
-      manifest.routes.map((route) => [route.id, route]),
-    );
+        manifest: LocalhostDesignRouteManifest;
+        byPath: Map<string, LocalhostDesignRouteManifest["routes"][number]>;
+        byUrl: Map<string, LocalhostDesignRouteManifest["routes"][number]>;
+        byId: Map<string, LocalhostDesignRouteManifest["routes"][number]>;
+      }
+    >();
+    const manifestIndexesForConnection = (
+      sourceConnection: typeof connection,
+    ) => {
+      const cached = routeManifestCache.get(sourceConnection.id);
+      if (cached) return cached;
+      const manifest = manifestForConnection(sourceConnection);
+      const indexed = {
+        manifest,
+        byPath: new Map(manifest.routes.map((route) => [route.path, route])),
+        byUrl: new Map(
+          manifest.routes.flatMap((route) =>
+            route.url
+              ? [[canonicalRouteUrl(manifest.devServerUrl, route.url), route]]
+              : [],
+          ),
+        ),
+        byId: new Map(manifest.routes.map((route) => [route.id, route])),
+      };
+      routeManifestCache.set(sourceConnection.id, indexed);
+      return indexed;
+    };
+    const primaryManifest = manifestIndexesForConnection(connection);
     const requestedRoutes: LocalhostScreenInput[] = routes?.length
       ? routes
       : paths?.length
         ? paths.map((path) => ({ path }))
-        : manifest.routes.map((route) => ({
+        : primaryManifest.manifest.routes.map((route) => ({
             routeId: route.id,
+            connectionId: route.connectionId,
             path: route.path,
+            url: route.url,
             title: route.title,
             sourceFile: route.sourceFile,
             sourceKind: route.sourceKind,
@@ -438,6 +637,8 @@ export default defineAction({
         "No routes were provided and the localhost manifest has no routes.",
       );
     }
+
+    const devServerUrl = primaryDevServerUrl;
 
     const [design] = await db
       .select({ data: schema.designs.data })
@@ -480,6 +681,10 @@ export default defineAction({
       sourceKind?: "react-router" | "html" | "manual";
       screenshotUrl?: string;
       routeMetadata?: Record<string, unknown>;
+      connectionId: string;
+      devServerUrl: string;
+      bridgeUrl?: string | null;
+      previewToken?: string | null;
       width: number;
       height: number;
     }> = [];
@@ -499,43 +704,156 @@ export default defineAction({
 
     for (let index = 0; index < requestedRoutes.length; index += 1) {
       const input = requestedRoutes[index]!;
-      const manifestRoute =
-        (input.routeId ? manifestById.get(input.routeId) : undefined) ??
-        (input.path ? manifestByPath.get(input.path) : undefined);
-      const url = routeUrl(devServerUrl, {
-        path: input.path ?? manifestRoute?.path,
-        url: input.url,
-      });
-      const path = pathFromUrl(
-        devServerUrl,
-        url,
-        input.path ?? manifestRoute?.path ?? "/",
+      const primaryManifestRoute =
+        (input.url
+          ? primaryManifest.byUrl.get(
+              canonicalRouteUrl(
+                primaryManifest.manifest.devServerUrl,
+                input.url,
+              ),
+            )
+          : undefined) ??
+        (input.routeId ? primaryManifest.byId.get(input.routeId) : undefined) ??
+        (!input.url && input.path
+          ? primaryManifest.byPath.get(input.path)
+          : undefined);
+      const routeInput =
+        input.connectionId || !primaryManifestRoute?.connectionId
+          ? input
+          : { ...input, connectionId: primaryManifestRoute.connectionId };
+      const rawUrl =
+        input.url ??
+        primaryManifestRoute?.url ??
+        input.path ??
+        primaryManifestRoute?.path;
+      const hasUrlHint =
+        input.url !== undefined || primaryManifestRoute?.url !== undefined;
+      const hintedUrl =
+        !routeInput.connectionId && rawUrl && hasUrlHint
+          ? routeUrl(primaryDevServerUrl, { url: rawUrl })
+          : undefined;
+      const routeConnection = await resolveRouteConnection(
+        routeInput,
+        hintedUrl,
       );
+      const routeDevServerUrl = normalizeBaseUrl(routeConnection.devServerUrl);
+      const routeManifest = manifestIndexesForConnection(routeConnection);
+      const manifestRoute =
+        (input.url
+          ? routeManifest.byUrl.get(
+              canonicalRouteUrl(routeManifest.manifest.devServerUrl, input.url),
+            )
+          : undefined) ??
+        (input.routeId ? routeManifest.byId.get(input.routeId) : undefined) ??
+        (!input.url && input.path
+          ? routeManifest.byPath.get(input.path)
+          : undefined) ??
+        (routeConnection.id === connection.id &&
+        (!primaryManifestRoute?.connectionId ||
+          primaryManifestRoute.connectionId === routeConnection.id)
+          ? primaryManifestRoute
+          : undefined);
+      const primaryRouteForSelectedConnection =
+        primaryManifestRoute &&
+        (primaryManifestRoute.connectionId === routeConnection.id ||
+          (!input.connectionId &&
+            primaryManifestRoute.url !== undefined &&
+            rawUrl !== undefined &&
+            routeUrlsMatch(primaryManifestRoute.url, rawUrl)))
+          ? primaryManifestRoute
+          : undefined;
+      const url = routeUrl(routeDevServerUrl, {
+        path:
+          input.path ??
+          manifestRoute?.path ??
+          primaryRouteForSelectedConnection?.path,
+        url:
+          input.url ??
+          manifestRoute?.url ??
+          primaryRouteForSelectedConnection?.url,
+      });
+      if (!connectionOriginMatches(routeDevServerUrl, url)) {
+        throw new Error(
+          `Route URL ${url} does not match localhost connection ${routeConnection.id} (${routeConnection.devServerUrl}).`,
+        );
+      }
+      const path = pathFromUrl(
+        routeDevServerUrl,
+        url,
+        input.path ??
+          manifestRoute?.path ??
+          primaryRouteForSelectedConnection?.path ??
+          "/",
+      );
+      const isSecondaryConnection = routeConnection.id !== connection.id;
       const routeId =
-        input.routeId ?? manifestRoute?.id ?? makeLocalhostRouteId(path);
-      const routeRequestKey = `${routeId}::${input.width ?? ""}x${input.height ?? ""}`;
-      if (seenRouteRequestKeys.has(routeRequestKey)) continue;
-      seenRouteRequestKeys.add(routeRequestKey);
+        input.routeId ??
+        manifestRoute?.id ??
+        primaryRouteForSelectedConnection?.id ??
+        makeLocalhostRouteId(
+          isSecondaryConnection &&
+            (Boolean(input.connectionId) ||
+              primaryManifestRoute?.connectionId === routeConnection.id)
+            ? `${routeConnection.id}:${path}`
+            : isSecondaryConnection
+              ? url
+              : path,
+        );
       const title =
-        input.title ?? manifestRoute?.title ?? titleFromRoutePath(path);
-      const sourceFile = input.sourceFile ?? manifestRoute?.sourceFile;
-      const sourceKind = input.sourceKind ?? manifestRoute?.sourceKind;
-      const screenshotUrl = input.screenshotUrl ?? manifestRoute?.screenshotUrl;
+        input.title ??
+        manifestRoute?.title ??
+        primaryRouteForSelectedConnection?.title ??
+        titleFromRoutePath(path);
+      const sourceFile =
+        input.sourceFile ??
+        manifestRoute?.sourceFile ??
+        primaryRouteForSelectedConnection?.sourceFile;
+      const sourceKind =
+        input.sourceKind ??
+        manifestRoute?.sourceKind ??
+        primaryRouteForSelectedConnection?.sourceKind;
+      const screenshotUrl =
+        input.screenshotUrl ??
+        manifestRoute?.screenshotUrl ??
+        primaryRouteForSelectedConnection?.screenshotUrl;
       const routeMetadata = {
+        ...(primaryRouteForSelectedConnection?.metadata ?? {}),
         ...(manifestRoute?.metadata ?? {}),
         ...(input.metadata ?? {}),
       };
-      const basePreferredFilename = `localhost-${slugForPath(path)}.html`;
+      const sameOriginSecondaryConnection =
+        isSecondaryConnection &&
+        connectionOriginMatches(primaryDevServerUrl, url);
+      const includeOriginInFilename =
+        sameOriginSecondaryConnection ||
+        !connectionOriginMatches(primaryDevServerUrl, url);
+      const filenameKey = sameOriginSecondaryConnection
+        ? `${routeConnection.id}:${path}`
+        : includeOriginInFilename
+          ? url
+          : path;
+      const sameOriginConnectionCount = (await loadScopedConnections()).filter(
+        (candidate) =>
+          connectionOriginMatches(
+            routeDevServerUrl,
+            normalizeBaseUrl(candidate.devServerUrl),
+          ),
+      ).length;
+      const filenameDiscriminator = includeOriginInFilename
+        ? `-${makeLocalhostRouteId(filenameKey).split("-").pop()}`
+        : "";
+      const basePreferredFilename = `localhost-${slugForPath(filenameKey, includeOriginInFilename)}${filenameDiscriminator}.html`;
       const routeMatchArgs = {
-        connectionId: connection.id,
+        connectionId: routeConnection.id,
         routeId,
         path,
         url,
+        connectionAmbiguous: sameOriginConnectionCount > 1,
       };
       const routeCandidates = existingFiles.filter((file) =>
         metadataMatchesRoute(
           metadataForFile(file.id, existingMetadata, existingLocalhostScreens),
-          routeMatchArgs,
+          { ...routeMatchArgs, content: file.content },
         ),
       );
       const filenameBase = existingByFilename.get(basePreferredFilename);
@@ -547,7 +865,7 @@ export default defineAction({
             existingMetadata,
             existingLocalhostScreens,
           ),
-          routeMatchArgs,
+          { ...routeMatchArgs, content: filenameBase.content },
         )
           ? filenameBase
           : routeCandidates.find(
@@ -593,7 +911,12 @@ export default defineAction({
           existingBaseHeight !== requestedHeight);
       const preferredFilename =
         existingBase && requestedViewportExplicitly && viewportDiffersFromBase
-          ? viewportFilename(path, requestedWidth, requestedHeight)
+          ? viewportFilename(
+              filenameKey,
+              requestedWidth,
+              requestedHeight,
+              includeOriginInFilename,
+            )
           : basePreferredFilename;
       const preferredExisting = existingByFilename.get(preferredFilename);
       const matchingPreferredExisting =
@@ -604,7 +927,7 @@ export default defineAction({
             existingMetadata,
             existingLocalhostScreens,
           ),
-          routeMatchArgs,
+          { ...routeMatchArgs, content: preferredExisting.content },
         )
           ? preferredExisting
           : undefined;
@@ -627,9 +950,14 @@ export default defineAction({
             : candidate === existingBase;
         }) ??
         (!requestedViewportExplicitly ? routeCandidates[0] : undefined);
-      const filename =
+      let filename =
         existing?.filename ??
-        uniqueFilename(path, usedFilenames, preferredFilename);
+        uniqueFilename(
+          filenameKey,
+          usedFilenames,
+          preferredFilename,
+          includeOriginInFilename,
+        );
       // Reassigned below if a concurrent request wins the insert race for
       // this exact (designId, filename) pair — see the `else` branch.
       let fileId = existing?.id ?? nanoid();
@@ -657,6 +985,9 @@ export default defineAction({
         metadataNumber(existingScreenMetadata, "height") ??
         metadataNumber(routeMetadata, "height") ??
         900;
+      const routeRequestKey = `${routeConnection.id}::${routeId}::${width}x${height}`;
+      if (seenRouteRequestKeys.has(routeRequestKey)) continue;
+      seenRouteRequestKeys.add(routeRequestKey);
 
       if (existing) {
         await db
@@ -669,48 +1000,65 @@ export default defineAction({
           await seedFromText(existing.id, url);
         }
       } else {
-        try {
-          await db.insert(schema.designFiles).values({
-            id: fileId,
-            designId,
-            filename,
-            fileType: "html",
-            content: url,
-            createdAt: now,
-            updatedAt: now,
-          });
-          await seedFromText(fileId, url);
-        } catch (err) {
-          if (!isUniqueConstraintViolation(err)) throw err;
-          // Cross-request race: this snapshot's `existingFiles` query ran
-          // before a concurrent add-localhost-screens call (for the same
-          // route) committed its own insert, so both requests independently
-          // computed the same deterministic filename and both tried to
-          // create it. The `design_files_design_filename_unique_idx` unique
-          // index (see server/plugins/db.ts) turns the loser's insert into
-          // this error instead of a silent duplicate screen. Recover by
-          // adopting whichever row actually won the race and updating its
-          // content, the same way the `existing` branch above does.
-          const [winner] = await db
-            .select()
-            .from(schema.designFiles)
-            .where(
-              and(
-                eq(schema.designFiles.designId, designId),
-                eq(schema.designFiles.filename, filename),
-              ),
-            )
-            .limit(1);
-          if (!winner) throw err;
-          fileId = winner.id;
-          await db
-            .update(schema.designFiles)
-            .set({ content: url, fileType: "html", updatedAt: now })
-            .where(eq(schema.designFiles.id, winner.id));
-          if (await hasCollabState(winner.id)) {
-            await applyText(winner.id, url, "content", "agent");
-          } else {
-            await seedFromText(winner.id, url);
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            await db.insert(schema.designFiles).values({
+              id: fileId,
+              designId,
+              filename,
+              fileType: "html",
+              content: url,
+              createdAt: now,
+              updatedAt: now,
+            });
+            await seedFromText(fileId, url);
+            break;
+          } catch (err) {
+            if (
+              !isUniqueConstraintViolation(err) ||
+              attempt >= MAX_FILENAME_INSERT_ATTEMPTS
+            ) {
+              throw err;
+            }
+            // Cross-request race: this snapshot's `existingFiles` query ran
+            // before another call committed its insert. Only adopt the
+            // winner when its persisted URL proves it is the same route;
+            // otherwise retry with a distinct filename so a lossy primary
+            // slug cannot overwrite a different route.
+            const [winner] = await db
+              .select()
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.designId, designId),
+                  eq(schema.designFiles.filename, filename),
+                ),
+              )
+              .limit(1);
+            if (!winner) throw err;
+            if (
+              typeof winner.content === "string" &&
+              routeUrlsMatch(winner.content, url, { includeSearch: false })
+            ) {
+              fileId = winner.id;
+              await db
+                .update(schema.designFiles)
+                .set({ content: url, fileType: "html", updatedAt: now })
+                .where(eq(schema.designFiles.id, winner.id));
+              if (await hasCollabState(winner.id)) {
+                await applyText(winner.id, url, "content", "agent");
+              } else {
+                await seedFromText(winner.id, url);
+              }
+              break;
+            }
+            filename = uniqueFilename(
+              filenameKey,
+              usedFilenames,
+              preferredFilename,
+              includeOriginInFilename,
+            );
+            fileId = nanoid();
           }
         }
       }
@@ -726,6 +1074,10 @@ export default defineAction({
         sourceKind,
         screenshotUrl,
         routeMetadata,
+        connectionId: routeConnection.id,
+        devServerUrl: routeDevServerUrl,
+        bridgeUrl: routeConnection.bridgeUrl,
+        previewToken: routeConnection.previewToken,
         width,
         height,
       });
@@ -804,11 +1156,11 @@ export default defineAction({
             height: frame.height ?? screen.height,
             url: screen.url,
             previewUrl: screen.url,
-            connectionId: connection.id,
+            connectionId: screen.connectionId,
             routeId: screen.routeId,
             path: screen.path,
-            bridgeUrl: connection.bridgeUrl ?? undefined,
-            previewToken: connection.previewToken ?? undefined,
+            bridgeUrl: screen.bridgeUrl ?? undefined,
+            previewToken: screen.previewToken ?? undefined,
           };
           if (screen.sourceFile !== undefined) {
             ownedMetadata.sourceFile = screen.sourceFile;

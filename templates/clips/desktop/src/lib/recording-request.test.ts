@@ -1,6 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCreateRecordingRequestBody } from "./recording-request";
+import {
+  buildCreateRecordingRequestBody,
+  buildCreateRecordingRequestHeaders,
+  isStorageSetupFailureMessage,
+} from "./recording-request";
+
+describe("buildCreateRecordingRequestHeaders", () => {
+  it("adds the desktop bearer token when one is available", () => {
+    expect(buildCreateRecordingRequestHeaders("  desktop-token  ")).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer desktop-token",
+    });
+  });
+
+  it("does not send an empty authorization header", () => {
+    expect(buildCreateRecordingRequestHeaders("  ")).toEqual({
+      "Content-Type": "application/json",
+    });
+  });
+});
 
 describe("buildCreateRecordingRequestBody", () => {
   it("leaves visibility unset so the server can apply the saved default", () => {
@@ -32,5 +51,16 @@ describe("buildCreateRecordingRequestBody", () => {
       spaceIds: [],
       visibility: "private",
     });
+  });
+});
+
+describe("isStorageSetupFailureMessage", () => {
+  it("recognizes storage setup errors returned by create-recording", () => {
+    expect(
+      isStorageSetupFailureMessage('{"error":"No video storage configured"}'),
+    ).toBe(true);
+    expect(
+      isStorageSetupFailureMessage('{"error":"Database unavailable"}'),
+    ).toBe(false);
   });
 });

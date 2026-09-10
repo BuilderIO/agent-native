@@ -287,7 +287,7 @@ async function exists(pathname: string): Promise<boolean> {
   }
 }
 
-async function readJson(pathname: string): Promise<unknown | null> {
+async function readJson(pathname: string): Promise<unknown> {
   const { fs } = await nodeModules();
   try {
     return JSON.parse(await fs.readFile(pathname, "utf8"));
@@ -635,7 +635,7 @@ function redactCredentialText(value: string): string {
       /\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})\b/g,
       "[REDACTED CREDENTIAL]",
     )
-    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{8,}/gi, "Bearer [REDACTED]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{8,}/gi, "Bearer [REDACTED]")
     .replace(
       /\b(api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*([^\s,;]{4,})/gi,
       "$1=[REDACTED]",

@@ -54,6 +54,11 @@ export {
 } from "./oauth-client.js";
 
 export {
+  readMcpOAuthFlowCookiePayload,
+  type McpOAuthFlowCookieReadResult,
+} from "./oauth-flow-cookie.js";
+
+export {
   areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
   getBuiltinMcpCapability,
@@ -309,7 +314,7 @@ export function flattenMcpToolResult(result: unknown): string {
     if ((result as any).isError) return `Error: ${fallback}`;
     return fallback;
   }
-  return typeof result === "string" ? result : JSON.stringify(result);
+  return typeof result === "string" ? result : (JSON.stringify(result) ?? "");
 }
 
 function formatMcpContentPart(part: Record<string, any>): string {
@@ -430,7 +435,14 @@ async function extractMcpAppPayload(
     toolResult:
       raw && typeof raw === "object"
         ? ({ ...(raw as Record<string, unknown>) } as Record<string, unknown>)
-        : { content: [{ type: "text", text: String(raw ?? "") }] },
+        : {
+            content: [
+              {
+                type: "text",
+                text: String(raw ?? ""),
+              },
+            ],
+          },
     tool: toolForMcpAppPayload(tool),
     ...(resource ? { resource } : {}),
   };

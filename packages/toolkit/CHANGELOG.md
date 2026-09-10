@@ -1,5 +1,116 @@
 # @agent-native/toolkit
 
+## 0.19.7
+
+### Patch Changes
+
+- 35eb1e6: Align dropdown submenu trigger icon spacing with menu items (`gap-2`).
+- 4676e71: Show popular OpenRouter models in the chat picker and preserve custom selections.
+- Release all public npm packages with a patch version bump.
+
+## 0.19.6
+
+### Patch Changes
+
+- e8b291e: Use the shared mouse-reactive wave animation as the branded auth background across all templates.
+- 4915b82: Style Tiptap collaboration carets and labels so remote presence indicators stay compact and non-disruptive.
+- Release all public npm packages with a patch version bump.
+- 3bde94f: Reduce avatar border and presence-ring weight across shared app surfaces.
+
+## 0.19.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 58d9dc3: Allow callers to keep the AI presence avatar display-only.
+
+## 0.19.4
+
+### Patch Changes
+
+- e29fee8: Add a shared hook for browser-persisted sidebar collapse preferences.
+- cef8c06: Route Clips' shadcn UI primitives through the shared Toolkit while preserving its intentional line-tab variant.
+- Release all public npm packages with a patch version bump.
+- 73c36ce: Preserve non-overlapping local edits when a newer authoritative rich-document revision arrives, and report overlapping changes without replacing the local draft.
+
+## 0.19.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 760d108: Add an opt-in DataGrid edge affordance that reveals horizontally scrollable content without replacing the native scroll surface.
+
+## 0.19.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0566ce9: Expose resolved composer model selections so hosts can preserve them during attachment and recovery flows.
+
+## 0.19.1
+
+### Patch Changes
+
+- e74593d: Keep the auth marketing learn-more action in a dedicated top-right layout row.
+- Release all public npm packages with a patch version bump.
+
+## 0.19.0
+
+### Minor Changes
+
+- a1869cc: Render the shared authentication surface with hydratable React and reuse its marketing composition for SSR app entry pages.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 349ce5c: Persist Agent-Native prompt drafts synchronously and keep prompt surfaces isolated across refreshes.
+- 353f95a: Split template marketing home routes from authenticated app entries and add the shared browser auth handoff.
+- f0fb6c5: Use the cube spinner for shared loading indicators and the worded loader for full-page states across apps.
+- 03711a6: Keep app launch loaders animated across remounts, randomize their labels, and smoothly resize the centered label.
+
+## 0.18.0
+
+### Minor Changes
+
+- 163dd55: Add a shared font family picker for design and editor toolbars.
+
+### Patch Changes
+
+- 844fa10: Show the AI initials in collaborator presence avatars and expose the editing status on hover.
+- 4af2889: Use the cube loader for app shells and agent activity, with long-running hints delayed to five minutes.
+- Release all public npm packages with a patch version bump.
+- dcc9f89: Remove the separate AI editing pill so the agent presence circle carries the status tooltip.
+- 5b7a8ea: Replace flashing skeleton pulses with a smooth whole-surface loading shine.
+
+## 0.17.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.17.5
+
+### Patch Changes
+
+- ac1ecfc: Keep slash-prefixed prompts when no command handler is available.
+- Release all public npm packages with a patch version bump.
+- 5a12f71: Use opaque white and soft-gray checkerboards for transparency.
+- d2b314b: Keep uploaded files and pasted text visible in chat history without importing new-deck references.
+- 5c96078: Use soft-gray checkerboards for transparency in shared visual color controls.
+
+## 0.17.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.17.3
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- Release all public npm packages with a patch version bump.
+
 ## 0.17.2
 
 ### Patch Changes
@@ -449,7 +560,7 @@
 
 ### Patch Changes
 
-- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add complete MUI and Ant Design Chat examples that exercise the public conformance contract, and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
+- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add public conformance coverage and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
 - f0da2e0: Preserve normalized core control icon sizing and semantic button styling while keeping settings defaults and sharing overlays consistent.
 - f0da2e0: Serialize realtime voice responses and recover from overlapping response requests without ending the voice session.
 - f0da2e0: Make the Dispatch chat composer recover from unavailable AI status checks and keep its Add menu clickable.

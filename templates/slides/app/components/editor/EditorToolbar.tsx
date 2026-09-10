@@ -12,6 +12,7 @@ import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconArrowLeft,
+  IconCircle,
   IconPlayerPlay,
   IconLayoutSidebar,
   IconPhoto,
@@ -23,7 +24,6 @@ import {
   IconMoon,
   IconDotsVertical,
   IconLoader2,
-  IconBolt,
   IconAdjustments,
   IconPencilPlus,
   IconPin,
@@ -31,9 +31,21 @@ import {
   IconCode,
   IconCopy,
   IconFileTypePdf,
+  IconPlus,
+  IconSquare,
+  IconTextSize,
+  IconBolt,
+  IconLayersSubtract,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -53,8 +65,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
-import type { Deck, Slide } from "@/context/DeckContext";
-import { useSaveState } from "@/context/DeckContext";
+import {
+  hasFailedDeckSave,
+  hasUnsavedDeckChanges,
+  useSaveState,
+  type Deck,
+  type Slide,
+} from "@/context/DeckContext";
+import { DeckBackupError } from "@/lib/deck-backup";
 import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
@@ -63,8 +81,20 @@ import {
   registerEditorCommands,
   type EditorCommand,
 } from "./editor-command-model";
-import { EditorActionCluster } from "./EditorActionCluster";
-import { ExportMenu, type ExportMenuHandle } from "./ExportMenu";
+import {
+  EditorActionCluster,
+  type SlideShapeType,
+} from "./EditorActionCluster";
+import {
+  ExportMenu,
+  ExportStatusDialog,
+  type ExportMenuHandle,
+  type ExportStatus,
+} from "./ExportMenu";
+export type PresentRequest = {
+  preserveNativeNavigation: true;
+};
+
 interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
@@ -75,6 +105,8 @@ interface EditorToolbarProps {
   canEdit?: boolean;
   /** Whether the user may create and manage comments without editing slides. */
   canComment?: boolean;
+  /** Source-preserving imports keep slide structure fixed while canvas edits remain available. */
+  sourceImported?: boolean;
   onTitleChange: (title: string) => void;
   currentSlideIndex: number;
   sidebarOpen: boolean;
@@ -100,10 +132,14 @@ interface EditorToolbarProps {
   unresolvedCommentCount?: number;
   /** Current user email for avatar display */
   currentUserEmail?: string;
-  /** Whether the animations panel is open */
+  /** Whether the selected-element transitions panel is open */
   animationsOpen?: boolean;
-  /** Toggle the animations panel */
+  /** Toggle the selected-element transitions panel */
   onToggleAnimations?: () => void;
+  /** Whether the slide layers panel is open */
+  layersOpen?: boolean;
+  /** Toggle the slide layers panel */
+  onToggleLayers?: () => void;
   /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
   /** Toggle the tweaks panel */
@@ -120,17 +156,26 @@ interface EditorToolbarProps {
   textBoxMode?: boolean;
   /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
-  onChangeSlideTransition?: (
-    transition: NonNullable<Slide["transition"]>,
-  ) => void;
+  /** Active shape tool */
+  shapeType?: SlideShapeType | null;
+  /** Arm a shape tool for drag-to-place on the canvas */
+  onSelectShape?: (shape: SlideShapeType) => void;
+  /** Update the current slide's entrance transition from the overflow menu. */
+  onChangeSlideTransition?: (transition: SlideTransition) => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
-  onExportPdf?: () => void;
+  onExportPdf?: () => Promise<void> | void;
   /** Export the deck as PPTX */
   onExportPptx?: () => Promise<void> | void;
   /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
+  /** Flush local edits before entering the full-screen presentation view. */
+  onPresent?: (request?: PresentRequest) => boolean | void;
+  /** Download the current local deck state as a recovery backup. */
+  onDownloadBackup?: () => void;
+  /** Restore a recovery backup into the current deck. */
+  onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
   /** Inserts a blank slide directly below the active slide. Threaded through
    *  to the fallback action cluster below so an empty deck (no current
    *  slide, so the primary element-controls toolbar never mounts) still has
@@ -142,6 +187,15 @@ interface EditorToolbarProps {
 
 const TOOLBAR_ICON_BUTTON_CLASS =
   "inline-flex size-8 flex-shrink-0 items-center justify-center rounded-md transition-colors";
+
+type SlideTransition = NonNullable<Slide["transition"]>;
+
+const SLIDE_TRANSITIONS: { value: SlideTransition; labelKey: string }[] = [
+  { value: "instant", labelKey: "editorToolbar.transition_instant" },
+  { value: "fade", labelKey: "editorToolbar.transition_fade" },
+  { value: "slide", labelKey: "editorToolbar.transition_slide" },
+  { value: "zoom", labelKey: "editorToolbar.transition_zoom" },
+];
 
 export default function EditorToolbar({
   deck,
@@ -166,6 +220,8 @@ export default function EditorToolbar({
   currentUserEmail,
   animationsOpen,
   onToggleAnimations,
+  layersOpen,
+  onToggleLayers,
   tweaksOpen,
   onToggleTweaks,
   drawMode,
@@ -174,15 +230,21 @@ export default function EditorToolbar({
   onTogglePinMode,
   textBoxMode,
   onToggleTextBoxMode,
+  shapeType,
+  onSelectShape,
   onChangeSlideTransition,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  onPresent,
+  onDownloadBackup,
+  onImportDeckBackup,
   onAddEmptySlide,
   addSlideGenerating,
   canEdit = true,
   canComment = canEdit,
+  sourceImported = false,
 }: EditorToolbarProps) {
   const t = useT();
   // Public decks default to the read-only presentation URL so recipients do
@@ -215,6 +277,8 @@ export default function EditorToolbar({
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
   const { saving } = useSaveState();
+  const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
+  const saveFailed = hasFailedDeckSave(deckId);
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -235,6 +299,9 @@ export default function EditorToolbar({
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
+  const [exportStatus, setExportStatus] = useState<ExportStatus>({
+    state: "idle",
+  });
   const titleMeasureRef = useRef<HTMLSpanElement>(null);
   const [titleInputWidth, setTitleInputWidth] = useState(96);
   const [importing, setImporting] = useState(false);
@@ -242,6 +309,10 @@ export default function EditorToolbar({
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
+  const activeSlideTransition: SlideTransition =
+    !currentSlide?.transition || currentSlide.transition === "none"
+      ? "instant"
+      : currentSlide.transition;
 
   useLayoutEffect(() => {
     const measuredWidth =
@@ -260,9 +331,21 @@ export default function EditorToolbar({
     toast(t("editorToolbar.importingFile"), {
       description: t("editorToolbar.readingFile", { fileName: file.name }),
     });
-    const formData = new FormData();
-    formData.append("file", file);
     try {
+      if (file.name.toLowerCase().endsWith(".json")) {
+        if (!onImportDeckBackup) throw new DeckBackupError();
+        const { slideCount } = await onImportDeckBackup(file);
+        toast.success(t("editorToolbar.importComplete"), {
+          description: t("editorToolbar.importCompleteSlides", {
+            count: slideCount,
+            fileName: file.name,
+          }),
+        });
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
       const uploadRes = await fetch(`${appBasePath()}/api/uploads`, {
         method: "POST",
         body: formData,
@@ -319,9 +402,11 @@ export default function EditorToolbar({
       console.error("Import failed:", err);
       toast.error(t("editorToolbar.importFailed"), {
         description:
-          err instanceof Error
-            ? err.message
-            : t("editorToolbar.importFailedDescription"),
+          err instanceof DeckBackupError
+            ? t("editorToolbar.invalidBackup")
+            : err instanceof Error
+              ? err.message
+              : t("editorToolbar.importFailedDescription"),
       });
     } finally {
       setImporting(false);
@@ -332,6 +417,51 @@ export default function EditorToolbar({
   const editorCommands = useMemo<EditorCommand[]>(() => {
     const commands: EditorCommand[] = [];
     if (canEdit) {
+      if (onAddEmptySlide) {
+        commands.push({
+          id: "new-slide",
+          group: "slideTools",
+          label: t("editorSidebar.newSlide"),
+          keywords: ["slide", "add", "insert", "new"],
+          icon: IconPlus,
+          run: () => {
+            if (!addSlideGenerating) onAddEmptySlide();
+          },
+        });
+      }
+      if (onToggleTextBoxMode) {
+        commands.push({
+          id: "add-text-box",
+          group: "slideTools",
+          label: t("editorToolbar.addTextBox"),
+          keywords: ["text", "box", "insert"],
+          icon: IconTextSize,
+          active: textBoxMode,
+          run: onToggleTextBoxMode,
+        });
+      }
+      if (currentSlide && onSelectShape) {
+        commands.push(
+          {
+            id: "shape-rectangle",
+            group: "slideTools",
+            label: t("editorToolbar.shapeRectangle"),
+            keywords: ["shape", "rectangle", "square", "insert"],
+            icon: IconSquare,
+            active: shapeType === "rectangle",
+            run: () => onSelectShape("rectangle"),
+          },
+          {
+            id: "shape-circle",
+            group: "slideTools",
+            label: t("editorToolbar.shapeCircle"),
+            keywords: ["shape", "circle", "ellipse", "insert"],
+            icon: IconCircle,
+            active: shapeType === "circle",
+            run: () => onSelectShape("circle"),
+          },
+        );
+      }
       commands.push(
         {
           id: "generate-image",
@@ -354,11 +484,22 @@ export default function EditorToolbar({
         commands.push({
           id: "element-animations",
           group: "slideTools",
-          label: t("editorToolbar.elementAnimations"),
-          keywords: ["animation", "motion"],
+          label: t("animations.title"),
+          keywords: ["animation", "motion", "transition"],
           icon: IconBolt,
           active: animationsOpen,
           run: onToggleAnimations,
+        });
+      }
+      if (currentSlide && onToggleLayers) {
+        commands.push({
+          id: "layers",
+          group: "slideTools",
+          label: t("editorToolbar.layers"),
+          keywords: ["layers", "hierarchy", "stack"],
+          icon: IconLayersSubtract,
+          active: layersOpen,
+          run: onToggleLayers,
         });
       }
       if (onToggleTweaks) {
@@ -395,6 +536,20 @@ export default function EditorToolbar({
         run: onTogglePinMode,
       });
     }
+
+    if (canEdit && currentSlide && onChangeSlideTransition) {
+      commands.push(
+        ...SLIDE_TRANSITIONS.map((transition) => ({
+          id: `slide-transition-${transition.value}`,
+          group: "slideTools" as const,
+          label: t(transition.labelKey),
+          keywords: ["slide", "transition", transition.value],
+          icon: IconBolt,
+          active: activeSlideTransition === transition.value,
+          run: () => onChangeSlideTransition(transition.value),
+        })),
+      );
+    }
     if (onToggleComments) {
       commands.push({
         id: "comments",
@@ -422,7 +577,7 @@ export default function EditorToolbar({
         label: t("editorExport.exportPdf"),
         keywords: ["export", "pdf", "download"],
         icon: IconFileTypePdf,
-        run: () => void onExportPdf?.(),
+        run: () => void exportMenuRef.current?.exportPdf(),
       },
       {
         id: "export-pptx",
@@ -485,7 +640,10 @@ export default function EditorToolbar({
     );
     return commands;
   }, [
+    activeSlideTransition,
+    addSlideGenerating,
     animationsOpen,
+    layersOpen,
     canComment,
     canEdit,
     commentsOpen,
@@ -493,20 +651,27 @@ export default function EditorToolbar({
     drawMode,
     importing,
     isDark,
+    onAddEmptySlide,
     onDuplicateDeck,
     onExportGoogleSlides,
     onExportPdf,
     onGenerateImage,
     onOpenAssetLibrary,
     onShowHistory,
+    onSelectShape,
+    onChangeSlideTransition,
     onToggleAnimations,
+    onToggleLayers,
     onToggleComments,
     onToggleDrawMode,
     onTogglePinMode,
+    onToggleTextBoxMode,
     onToggleTweaks,
     pinMode,
     setTheme,
+    shapeType,
     t,
+    textBoxMode,
     tweaksOpen,
   ]);
   const editorCommandsRef = useRef<readonly EditorCommand[]>(editorCommands);
@@ -514,13 +679,29 @@ export default function EditorToolbar({
 
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
+  const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (event.button !== 0 && event.button !== 1) return;
+    const preserveNativeNavigation =
+      event.button === 1 ||
+      (event.button === 0 &&
+        (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey));
+    if (preserveNativeNavigation) {
+      if (onPresent?.({ preserveNativeNavigation: true }) === true) {
+        event.preventDefault();
+      }
+      return;
+    }
+    event.preventDefault();
+    onPresent?.();
+  };
+
   return (
-    <div className="deck-editor-toolbar flex h-14 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
+    <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Link
-            to="/"
+            to="/home"
             className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
             aria-label={t("editorToolbar.backToDecks")}
           >
@@ -558,9 +739,6 @@ export default function EditorToolbar({
           onToggleTextBoxMode={onToggleTextBoxMode}
           onAddEmptySlide={onAddEmptySlide}
           addSlideGenerating={addSlideGenerating}
-          currentSlideId={currentSlide?.id}
-          slideTransition={currentSlide?.transition}
-          onChangeSlideTransition={onChangeSlideTransition}
         />
       )}
 
@@ -592,6 +770,21 @@ export default function EditorToolbar({
       />
 
       {/* "View only" badge — mirrors Google Slides' viewer chrome */}
+      {sourceImported && canEdit && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              className="inline-flex flex-shrink-0 cursor-help items-center rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground"
+            >
+              {t("editorToolbar.sourcePreserving")}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-72 whitespace-normal text-center">
+            {t("editorToolbar.sourcePreservingDescription")}
+          </TooltipContent>
+        </Tooltip>
+      )}
       {!canEdit && (
         <span className="flex-shrink-0 inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground">
           {t("editorToolbar.viewOnly")}
@@ -603,23 +796,29 @@ export default function EditorToolbar({
       {canEdit && (
         <SaveStatusIndicator
           saving={saving}
+          hasUnsavedChanges={deckHasUnsavedChanges}
+          saveFailed={saveFailed}
           offline={offline}
+          onDownloadBackup={onDownloadBackup}
+          onImportBackup={
+            onImportDeckBackup ? () => fileInputRef.current?.click() : undefined
+          }
           className="flex-shrink-0 mr-1"
         />
       )}
 
-      {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
-      <PresenceBar
-        activeUsers={activeUsers ?? []}
-        agentPresent={agentPresent}
-        agentActive={agentActive}
-        showAgentEditingDot={false}
-        currentUserEmail={currentUserEmail}
-        className="ml-auto flex-shrink-0 mr-0.5 pl-2"
-      />
+      {/* Top-right editor actions */}
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
+        <PresenceBar
+          activeUsers={activeUsers ?? []}
+          agentPresent={agentPresent}
+          agentActive={agentActive}
+          currentUserEmail={currentUserEmail}
+          className="flex-shrink-0 pl-2"
+        />
 
-      {/* Consolidated editor menu */}
-      <div className="ml-auto flex-shrink-0">
+        {/* Consolidated editor menu */}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -639,11 +838,15 @@ export default function EditorToolbar({
             <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent
+            forceMount
             align="end"
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
             {((canEdit &&
-              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
+              (onToggleAnimations ||
+                onToggleLayers ||
+                onToggleTweaks ||
+                onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
               <>
                 <DropdownMenuSeparator />
@@ -661,7 +864,20 @@ export default function EditorToolbar({
                       }
                     >
                       <IconBolt className="size-4" />
-                      {t("editorToolbar.elementAnimations")}
+                      {t("animations.title")}
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && currentSlide && onToggleLayers && (
+                    <DropdownMenuItem
+                      onSelect={onToggleLayers}
+                      className={
+                        layersOpen
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconLayersSubtract className="size-4" />
+                      {t("editorToolbar.layers")}
                     </DropdownMenuItem>
                   )}
                   {canEdit && onToggleTweaks && (
@@ -707,25 +923,6 @@ export default function EditorToolbar({
               </>
             )}
 
-            {canEdit && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>
-                  {t("editorToolbar.media")}
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={onGenerateImage}>
-                    <IconPhoto className="size-4" />
-                    {t("editorToolbar.generateImage")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={onOpenAssetLibrary}>
-                    <IconFolderOpen className="size-4" />
-                    {t("editorToolbar.assetLibrary")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </>
-            )}
-
             {onToggleComments && (
               <>
                 <DropdownMenuSeparator />
@@ -761,6 +958,8 @@ export default function EditorToolbar({
             <ExportMenu
               ref={exportMenuRef}
               inline
+              hideExportDialog
+              onExportStatusChange={setExportStatus}
               deckId={deckId}
               deckTitle={deckTitle}
               onDuplicate={onDuplicateDeck ?? (() => {})}
@@ -782,21 +981,12 @@ export default function EditorToolbar({
                 ? t("editorToolbar.importing")
                 : t("editorToolbar.importFile")}
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={() => setTheme(isDark ? "light" : "dark")}
-            >
-              {isDark ? (
-                <IconSun className="size-4" />
-              ) : (
-                <IconMoon className="size-4" />
-              )}
-              {isDark
-                ? t("editorToolbar.lightTheme")
-                : t("editorToolbar.darkTheme")}
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <ExportStatusDialog
+          status={exportStatus}
+          onStatusChange={setExportStatus}
+        />
       </div>
 
       {/* Framework share (ownership, per-user/org grants, visibility) */}
@@ -821,7 +1011,7 @@ export default function EditorToolbar({
             tabs: [
               {
                 value: "context",
-                label: "Context",
+                label: t("creativeContext.share.tabLabel"),
                 content: (
                   <CreativeContextShareTab
                     resource={{
@@ -830,7 +1020,7 @@ export default function EditorToolbar({
                       resourceId: deckId,
                       title: deckTitle,
                       updatedAt: deck.updatedAt,
-                      preview: { kind: "document", label: "Deck" },
+                      preview: { kind: "document", label: t("header.deck") },
                     }}
                   />
                 ),
@@ -842,6 +1032,8 @@ export default function EditorToolbar({
       {/* Present button — matches Share trigger height (h-9) */}
       <Link
         to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
+        onClick={onPresent ? handlePresentClick : undefined}
+        onAuxClick={onPresent ? handlePresentClick : undefined}
         className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <IconPlayerPlay className="w-3.5 h-3.5" />
@@ -852,7 +1044,7 @@ export default function EditorToolbar({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pptx,.docx,.pdf"
+        accept=".pptx,.docx,.pdf,.json"
         onChange={handleImportFile}
         className="hidden"
       />

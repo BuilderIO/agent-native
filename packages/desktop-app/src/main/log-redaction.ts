@@ -24,7 +24,7 @@ const SENSITIVE_KEY_TERMS = [
 ];
 const ASSIGNMENT_PATTERN =
   /([A-Za-z][A-Za-z0-9_-]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;}]+)/g;
-const BEARER_TOKEN = /(Bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi;
+const BEARER_TOKEN = /(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi;
 const JWT = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
 
 function normalizeKey(key: string): string {
@@ -78,7 +78,14 @@ export function redactLogValue(
   if (value instanceof Uint8Array) {
     return `[${value.constructor.name} ${value.byteLength} bytes]`;
   }
-  if (typeof value !== "object") return String(value);
+  if (typeof value === "string") return value;
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  )
+    return `${value}`;
+  if (typeof value === "symbol") return value.description ?? "Symbol";
   if (seen.has(value)) return "[CIRCULAR]";
   seen.add(value);
 

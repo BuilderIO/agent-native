@@ -4,7 +4,10 @@ import {
   listFileUploadProviders,
   type FileUploadProvider,
 } from "@agent-native/core/file-upload";
-import { hasBuilderApiCredentialCustody } from "@agent-native/core/server";
+import {
+  BUILDER_ASSETS_WRITE_SCOPE,
+  canAuthorizeBuilderApiRequest,
+} from "@agent-native/core/server";
 
 async function isConfiguredForRequest(
   provider: FileUploadProvider,
@@ -34,7 +37,7 @@ export async function resolveResumableUploadProvider(
 
   if (providerId === builderFileUploadProvider.id) {
     try {
-      if (await hasBuilderApiCredentialCustody()) {
+      if (await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE)) {
         return builderFileUploadProvider;
       }
     } catch {

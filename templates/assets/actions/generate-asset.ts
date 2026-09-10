@@ -41,10 +41,13 @@ const schema = z.object({
       "Brand, campaign, or use-case hint used when matching a library.",
     ),
   aspectRatio: z.enum(ASPECT_RATIOS).default("16:9"),
-  presetId: z
+  templateId: z
     .string()
     .optional()
-    .describe("Optional generation preset ID from the selected library."),
+    .describe(
+      "Optional template ID from the selected Brand Kit or global templates.",
+    ),
+  presetId: z.string().optional().describe("Deprecated — use templateId."),
   count: z.coerce
     .number()
     .int()
@@ -199,7 +202,7 @@ const action = defineAction({
         libraryId: args.libraryId,
         libraryHint: args.libraryHint,
         aspectRatio: args.aspectRatio,
-        presetId: args.presetId,
+        presetId: args.templateId ?? args.presetId,
         count: args.count,
         autoGenerate: true,
         tier: args.tier,

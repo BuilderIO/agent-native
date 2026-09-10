@@ -19,6 +19,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mockGetRequestUserEmail(),
+  getRequestUserName: () => undefined,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({

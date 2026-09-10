@@ -153,7 +153,7 @@ export default function LogoSearchPanel({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSearch();
+                  if (e.key === "Enter") void handleSearch();
                 }}
                 placeholder={t("raw.searchCompanyPlaceholder")}
                 className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50"

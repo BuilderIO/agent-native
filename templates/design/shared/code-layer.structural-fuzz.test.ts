@@ -378,16 +378,29 @@ describe("seeded inline HTML/Alpine structural edit fuzz", () => {
             direction: random() < 0.5 ? "row" : "column",
             gap: `${4 + Math.floor(random() * 5) * 4}px`,
           });
-          if (edit.result.status !== "applied") {
-            invariantError(
-              seed,
-              step,
-              `auto-layout ${targetId} returned ${edit.result.status}`,
-            );
+          // Disabling auto-layout without child rects cannot be rebuilt
+          // deterministically, so the contract is needsAgent with the content
+          // left untouched — not a silent success the caller cannot detect.
+          if (!enabled && edit.result.status === "needsAgent") {
+            if (edit.content !== before) {
+              invariantError(
+                seed,
+                step,
+                `auto-layout ${targetId} needsAgent mutated content`,
+              );
+            }
+          } else {
+            if (edit.result.status !== "applied") {
+              invariantError(
+                seed,
+                step,
+                `auto-layout ${targetId} returned ${edit.result.status}`,
+              );
+            }
+            html = edit.content;
+            autoLayoutEnabled.set(targetId, enabled);
+            selectedIds = new Set([targetId]);
           }
-          html = edit.content;
-          autoLayoutEnabled.set(targetId, enabled);
-          selectedIds = new Set([targetId]);
         } else {
           const placement =
             operation < 0.62
@@ -708,24 +721,36 @@ describe("seeded cross-screen HTML/Alpine drag transaction fuzz", () => {
             direction: random() < 0.5 ? "row" : "column",
             gap: `${4 + Math.floor(random() * 6) * 2}px`,
           });
-          if (edit.result.status !== "applied") {
-            invariantError(
-              seed,
-              step,
-              `cross-screen auto-layout ${targetId} returned ${edit.result.status}`,
-            );
+          if (!enabled && edit.result.status === "needsAgent") {
+            // Same contract as the inline fuzz: no rects, no deterministic
+            // rebuild, content untouched and nothing to record in history.
+            if (edit.content !== before) {
+              invariantError(
+                seed,
+                step,
+                `cross-screen auto-layout ${targetId} needsAgent mutated content`,
+              );
+            }
+          } else {
+            if (edit.result.status !== "applied") {
+              invariantError(
+                seed,
+                step,
+                `cross-screen auto-layout ${targetId} returned ${edit.result.status}`,
+              );
+            }
+            documents.set(fileId, edit.content);
+            autoLayoutEnabled.set(targetId, enabled);
+            history.push({
+              changes: [{ fileId, before, after: edit.content }],
+              modelsBefore,
+              modelsAfter: new Map(
+                [...models].map(([id, model]) => [id, cloneModel(model)]),
+              ),
+              selectedFileId: fileId,
+              selectedIds: new Set([targetId]),
+            });
           }
-          documents.set(fileId, edit.content);
-          autoLayoutEnabled.set(targetId, enabled);
-          history.push({
-            changes: [{ fileId, before, after: edit.content }],
-            modelsBefore,
-            modelsAfter: new Map(
-              [...models].map(([id, model]) => [id, cloneModel(model)]),
-            ),
-            selectedFileId: fileId,
-            selectedIds: new Set([targetId]),
-          });
         } else {
           const [sourceFileId, destinationFileId] =
             random() < 0.5

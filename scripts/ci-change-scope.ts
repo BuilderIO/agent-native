@@ -107,9 +107,7 @@ export function isDocsPath(path: string): boolean {
 export function isWorkspacePath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   return (
-    normalized.startsWith("examples/") ||
-    normalized.startsWith("packages/") ||
-    normalized.startsWith("templates/")
+    normalized.startsWith("packages/") || normalized.startsWith("templates/")
   );
 }
 
@@ -117,7 +115,7 @@ function workspaceRootForPath(path: string): string | undefined {
   const segments = normalizeChangedPath(path).split("/");
   const parent = segments[0];
 
-  if ((parent === "examples" || parent === "packages") && segments[1]) {
+  if (parent === "packages" && segments[1]) {
     return `${parent}/${segments[1]}`;
   }
 

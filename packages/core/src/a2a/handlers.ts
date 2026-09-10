@@ -68,7 +68,7 @@ const A2A_READ_INVOKE_EVENT = "$a2a_read_invoke";
 
 function trustedApprovedActions(
   value: unknown,
-  event: any | undefined,
+  event: any,
 ): A2AApprovedAction[] | undefined {
   // Static API keys and unsigned requests do not prove which user authorized
   // a consequential action. Only a verified identity-bearing JWT may carry
@@ -147,7 +147,7 @@ function resolvedSlackSourceContext(
 
 async function trustedSourceContext(
   value: unknown,
-  event: any | undefined,
+  event: any,
 ): Promise<A2ASourceContext | undefined> {
   const verifiedEmail = event?.context?.__a2aVerifiedEmail as
     | string
@@ -210,7 +210,7 @@ function requestOriginFromMetadata(
   }
 }
 
-function requestOriginFromEvent(event: any | undefined): string | undefined {
+function requestOriginFromEvent(event: any): string | undefined {
   if (!event) return undefined;
   try {
     return requestOriginFromMetadata({
@@ -228,7 +228,7 @@ function requestOriginFromEvent(event: any | undefined): string | undefined {
  */
 function requestOriginForContext(
   metadata: Record<string, unknown> | undefined,
-  event: any | undefined,
+  event: any,
 ): string | undefined {
   if (!event) return undefined;
   const receiverOrigin = requestOriginFromEvent(event);
@@ -244,7 +244,7 @@ function requestOriginForContext(
 
 function trustedA2AMetadata(
   metadata: Record<string, unknown> | undefined,
-  event: any | undefined,
+  event: any,
 ): Record<string, unknown> | undefined {
   if (!metadata) return undefined;
   const trusted = { ...metadata };
@@ -586,7 +586,7 @@ function makeHandlerContext(
  */
 async function withA2ARequestContext<T>(
   metadata: Record<string, unknown> | undefined,
-  event: any | undefined,
+  event: any,
   fn: () => Promise<T>,
 ): Promise<T> {
   const { runWithRequestContext } =

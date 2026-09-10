@@ -51,6 +51,7 @@ function currentJourney(returnTo?: string) {
     continuation: new URLSearchParams(search).get("c"),
     legacyReturn: new URLSearchParams(search).get("return"),
     basePath: appBasePath(),
+    homePath: window.__AGENT_NATIVE_CONFIG__?.appHomePath,
   });
 }
 

@@ -20,7 +20,6 @@ import {
   DEFAULT_CANVAS_MIN_ZOOM,
   getDraftGeometryFromPoints,
 } from "@shared/canvas-math";
-import { ensureCodeLayerNodeIdsInHtml } from "@shared/code-layer";
 import {
   appendPenNode,
   clonePenPath,
@@ -36,6 +35,7 @@ import {
   type PenPath,
   type PenPoint,
 } from "@shared/pen-path";
+import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import {
@@ -77,6 +77,7 @@ import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-run
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
+import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
 import { appendContentSizeReporter } from "./design-canvas/content-size-report";
@@ -127,6 +128,11 @@ import {
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import { shapeClosingHandles } from "./multi-screen/draft-primitives";
+import {
+  registerLinkedScreenPreviewHandlers,
+  replaceLinkedScreenPreviewContent,
+  sendLinkedScreenPreviewStyleChange,
+} from "./multi-screen/linked-screen-preview";
 import type {
   ElementInfo,
   ElementSelectionIntent,
@@ -491,6 +497,9 @@ interface DesignCanvasProps {
   editMode: boolean;
   interactMode: boolean;
   readOnly?: boolean;
+  /** This screen's layout grid step in content px. 1 (or absent) means no grid,
+   *  which leaves the whole-pixel floor every gesture already lands on. */
+  layoutGridStep?: number;
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo, intent?: ElementSelectionIntent) => void;
   onElementMarqueeSelect?: (
@@ -504,6 +513,7 @@ interface DesignCanvasProps {
     styles: Record<string, string>,
     info?: ElementInfo,
     metadata?: {
+      phase?: "preview" | "commit";
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
     },
@@ -1131,6 +1141,7 @@ export function DesignCanvas({
   editorChromeScaleY = editorChromeScaleX,
   editMode,
   interactMode,
+  layoutGridStep,
   readOnly = false,
   scaleMode = false,
   clearSelectionRequest,
@@ -2213,7 +2224,7 @@ export function DesignCanvas({
         const sourceHtml = sanitizeLocalhostSourceSnapshotHtml(
           payload.html ?? "",
         );
-        const stamped = ensureCodeLayerNodeIdsInHtml(sourceHtml, {
+        const stamped = normalizeScreenHtml(sourceHtml, {
           source: {
             kind: "remote-url",
             sourceType: "localhost",
@@ -2450,6 +2461,7 @@ export function DesignCanvas({
       transparentBackground,
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
       contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+      fitBodyToFrame: !boardSurface,
     });
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
@@ -2785,6 +2797,7 @@ export function DesignCanvas({
             styles,
             isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
             {
+              phase: e.data.phase === "preview" ? "preview" : "commit",
               originalStyles,
               preserveSelection: e.data.preserveSelection === true,
             },
@@ -3029,7 +3042,11 @@ export function DesignCanvas({
       if (e.data.type === "figma-clipboard-paste") {
         const content =
           typeof e.data.content === "string" ? e.data.content : "";
-        if (content) onFigmaClipboardPaste?.({ content });
+        const html = typeof e.data.html === "string" ? e.data.html : "";
+        const text = typeof e.data.text === "string" ? e.data.text : "";
+        if (content || html || text) {
+          onFigmaClipboardPaste?.({ content, html, text });
+        }
         return;
       }
       if (e.data.type === "canvas-image-paste") {
@@ -3683,6 +3700,27 @@ export function DesignCanvas({
     return () => iframe.removeEventListener("load", applyOffset);
   }, [embeddedContentOffsetX, embeddedContentOffsetY]);
 
+  // The screen's own layout grid step, in this document's content px. Pushed
+  // in-place (never baked into srcdoc) so adding or resizing a grid does not
+  // reload the iframe and drop its Alpine state.
+  const layoutGridStepRef = useRef(layoutGridStep);
+  layoutGridStepRef.current = layoutGridStep;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendLayoutGridStep() {
+      iframe!.contentWindow?.postMessage(
+        { type: "set-layout-grid-step", step: layoutGridStepRef.current ?? 1 },
+        "*",
+      );
+    }
+    sendLayoutGridStep();
+    iframe.addEventListener("load", sendLayoutGridStep);
+    return () => iframe.removeEventListener("load", sendLayoutGridStep);
+    // Only re-run when the step changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutGridStep]);
+
   // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
   // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.
   // The initial baked __READ_ONLY__ placeholder covers first paint; subsequent
@@ -3839,19 +3877,6 @@ export function DesignCanvas({
       });
     },
     [postOneShotBridgeMessage],
-  );
-  const sendStyleChangeForScreen = useCallback(
-    (
-      targetScreenId: string,
-      selector: string,
-      property: string,
-      value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
-    ) => {
-      if (!screenId || targetScreenId !== screenId) return false;
-      return sendStyleChange(selector, property, value, options);
-    },
-    [screenId, sendStyleChange],
   );
 
   const sendInteractionStatePreviewStyle = useCallback(
@@ -4154,6 +4179,7 @@ export function DesignCanvas({
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+          fitBodyToFrame: !boardSurface,
         }),
         selector,
         candidates,
@@ -4192,9 +4218,13 @@ export function DesignCanvas({
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+          fitBodyToFrame: !boardSurface,
         }),
-        null,
-        [],
+        // Carry the host's committed selection so the bridge can re-anchor it
+        // after the morph: without it the canvas silently deselects while the
+        // inspector still shows the element.
+        selectedSelectorRef.current,
+        selectedSelectorCandidatesRef.current ?? [],
         {
           forceFullDocument: true,
           // Prop/save echoes are synchronization, not a user command. If a
@@ -4301,15 +4331,92 @@ export function DesignCanvas({
     [postOneShotBridgeMessage],
   );
 
+  // BUG-UNDO-LINKED-BREAKPOINT: every mounted frame for a screen (primary +
+  // breakpoint siblings) registers its own replace/style handlers so the
+  // orchestrator can fan out undo/redo and base style commits to all of them.
+  // `registerRuntimeBridge` still owns the single-active global helpers below;
+  // this registry is the multi-frame path those globals cannot reach.
+  useEffect(() => {
+    const frameId = previewFrameId ?? screenId;
+    if (!frameId) return;
+    return registerLinkedScreenPreviewHandlers(frameId, {
+      replaceContent: replacePreviewContentFromHost,
+      sendStyleChange,
+    });
+  }, [
+    previewFrameId,
+    replacePreviewContentFromHost,
+    screenId,
+    sendStyleChange,
+  ]);
+
   // Expose iframe runtime mutations for the editor orchestrator.
   useEffect(() => {
     if (!registerRuntimeBridge) return;
-    (window as any).__designCanvasSendStyle = sendStyleChange;
-    (window as any).__designCanvasSendStyleForScreen = sendStyleChangeForScreen;
+    // Fan out base-scope style edits to linked breakpoint iframes so they stay
+    // visually in sync (BUG-UNDO-LINKED-BREAKPOINT). Breakpoint-scoped preview
+    // frames must only patch themselves — otherwise a Phone edit briefly paints
+    // onto Tablet/Desktop siblings before persistence scope is decided.
+    const sendStyleChangeLinked = (
+      selector: string,
+      property: string,
+      value: string,
+      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+    ) => {
+      const isBreakpointScopedPreview =
+        typeof previewFrameId === "string" && previewFrameId.includes("::bp-");
+      if (screenId && !isBreakpointScopedPreview) {
+        return sendLinkedScreenPreviewStyleChange(
+          screenId,
+          selector,
+          property,
+          value,
+          options,
+        );
+      }
+      return sendStyleChange(selector, property, value, options);
+    };
+    const sendStyleChangeForScreenLinked = (
+      targetScreenId: string,
+      selector: string,
+      property: string,
+      value: string,
+      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+    ) => {
+      if (!screenId || targetScreenId !== screenId) return false;
+      return sendStyleChangeLinked(selector, property, value, options);
+    };
+    const replacePreviewContentLinked = (
+      nextContent: string,
+      selector?: string | null,
+      candidates?: string[],
+      options?: {
+        forceFullDocument?: boolean;
+        preserveTextEditingSession?: boolean;
+      },
+    ) => {
+      if (screenId) {
+        return replaceLinkedScreenPreviewContent(
+          screenId,
+          nextContent,
+          selector,
+          candidates,
+          options,
+        );
+      }
+      return replacePreviewContentFromHost(
+        nextContent,
+        selector,
+        candidates,
+        options,
+      );
+    };
+    (window as any).__designCanvasSendStyle = sendStyleChangeLinked;
+    (window as any).__designCanvasSendStyleForScreen =
+      sendStyleChangeForScreenLinked;
     (window as any).__designCanvasSendInteractionStatePreviewStyle =
       sendInteractionStatePreviewStyle;
-    (window as any).__designCanvasReplaceContent =
-      replacePreviewContentFromHost;
+    (window as any).__designCanvasReplaceContent = replacePreviewContentLinked;
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
     (window as any).__designCanvasClearMotionPreview = clearMotionPreview;
@@ -4323,12 +4430,12 @@ export function DesignCanvas({
     return () => {
       // Identity-guard each delete so a stale unmounting instance never clobbers
       // a freshly mounted instance's bridge during a remount race.
-      if ((window as any).__designCanvasSendStyle === sendStyleChange) {
+      if ((window as any).__designCanvasSendStyle === sendStyleChangeLinked) {
         delete (window as any).__designCanvasSendStyle;
       }
       if (
         (window as any).__designCanvasSendStyleForScreen ===
-        sendStyleChangeForScreen
+        sendStyleChangeForScreenLinked
       ) {
         delete (window as any).__designCanvasSendStyleForScreen;
       }
@@ -4340,7 +4447,7 @@ export function DesignCanvas({
       }
       if (
         (window as any).__designCanvasReplaceContent ===
-        replacePreviewContentFromHost
+        replacePreviewContentLinked
       ) {
         delete (window as any).__designCanvasReplaceContent;
       }
@@ -4378,8 +4485,8 @@ export function DesignCanvas({
   }, [
     deleteRuntimeElement,
     registerRuntimeBridge,
-    sendStyleChangeForScreen,
     replacePreviewContentFromHost,
+    screenId,
     sendStyleChange,
     sendInteractionStatePreviewStyle,
     sendMotionPreview,
@@ -4449,6 +4556,7 @@ export function DesignCanvas({
 
   const handleScrollSurfaceMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       const isMiddleButton = e.button === 1;
       const isLeftPanGesture =
         e.button === 0 && (handToolActive || spacePanActive);
@@ -4490,6 +4598,7 @@ export function DesignCanvas({
   // scroll surface means the user clicked outside the framed preview.
   const handleScrollSurfaceBackgroundClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       if (e.button !== 0) return;
       if (handToolActive || spacePanActive) return;
       const target = e.target as HTMLElement | null;
@@ -4929,7 +5038,7 @@ export function DesignCanvas({
           annotationCaptureBusyRef.current = true;
           setAnnotationCaptureBusy(true);
           onAnnotationSendingChange?.(true);
-          captureAnnotatedScreenshot({
+          void captureAnnotatedScreenshot({
             designId,
             fileId: screenId,
             sourceType:
@@ -4983,6 +5092,29 @@ export function DesignCanvas({
     </div>
   );
 
+  const reviewCanvasPins =
+    designId && (screenId || commentContextId) ? (
+      <ReviewCanvasPins
+        active={!!pinMode}
+        hidden={commentPinsHidden}
+        onClose={() => onExitPinMode?.()}
+        canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
+        resourceType="design"
+        resourceId={designId}
+        targetId={screenId ?? commentContextId ?? ""}
+        canPost={reviewCanPost}
+        canResolve={reviewCanResolve}
+        focusRequest={reviewFocusRequest}
+        onDispatchCommentToAgent={onDispatchCommentToAgent}
+        onSendThreadToAgent={onSendThreadToAgent}
+        sendingThreadId={reviewSendingThreadId}
+        sourceType={sourceType ?? (externalPreviewUrl ? "localhost" : "inline")}
+        sourceVersionHash={sourceContentHash(content)}
+        repromptDraftRequest={repromptDraftRequest}
+        onRepromptDraftConsumed={onRepromptDraftConsumed}
+      />
+    ) : null;
+
   if (embeddedFrame) {
     if (embeddedFrameFluid) {
       return (
@@ -4994,6 +5126,7 @@ export function DesignCanvas({
           className="relative h-full w-full overflow-hidden"
         >
           {iframeElement}
+          {reviewCanvasPins}
         </div>
       );
     }
@@ -5024,6 +5157,7 @@ export function DesignCanvas({
         >
           {iframeElement}
         </div>
+        {reviewCanvasPins}
       </div>
     );
   }
@@ -5107,29 +5241,7 @@ export function DesignCanvas({
         </div>
       )}
 
-      {designId && (screenId || commentContextId) ? (
-        <ReviewCanvasPins
-          active={!!pinMode}
-          hidden={commentPinsHidden}
-          onClose={() => onExitPinMode?.()}
-          canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
-          resourceType="design"
-          resourceId={designId}
-          targetId={screenId ?? commentContextId ?? ""}
-          canPost={reviewCanPost}
-          canResolve={reviewCanResolve}
-          focusRequest={reviewFocusRequest}
-          onDispatchCommentToAgent={onDispatchCommentToAgent}
-          onSendThreadToAgent={onSendThreadToAgent}
-          sendingThreadId={reviewSendingThreadId}
-          sourceType={
-            sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
-          }
-          sourceVersionHash={sourceContentHash(content)}
-          repromptDraftRequest={repromptDraftRequest}
-          onRepromptDraftConsumed={onRepromptDraftConsumed}
-        />
-      ) : null}
+      {reviewCanvasPins}
     </div>
   );
 }

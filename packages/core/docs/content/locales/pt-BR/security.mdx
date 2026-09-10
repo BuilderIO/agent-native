@@ -238,13 +238,13 @@ A estrutura cria visualizações SQL temporárias que filtram consultas automati
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 As instruções INSERT são injetadas automaticamente em `owner_email` quando a coluna ainda não está presente.
 
-As ferramentas `db-query`/`db-exec` rejeitam referências de tabela qualificadas pelo esquema (`public.<table>`, `main.<table>`) — um nome qualificado é resolvido para a tabela base e ignoraria a visualização temporária acima. Os agentes usam nomes de tabelas simples; o escopo é aplicado automaticamente.
+As ferramentas `db-query`/`db-exec` rejeitam referências de tabela qualificadas pelo esquema (`public.<table>`) — um nome qualificado é resolvido para a tabela base e ignoraria a visualização temporária acima. Os agentes usam nomes de tabelas simples; o escopo é aplicado automaticamente.
 
 ### Escopo por organização (`org_id`)
 
@@ -356,9 +356,11 @@ Sem `A2A_SECRET` em produção, cada endpoint A2A e o endpoint de disparo autom�
 
 ## Entrada Webhooks {#webhooks}
 
-Os manipuladores de webhook de entrada (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) recusam solicitações forjadas por padrão na produção: quando a variável de env secreta de assinatura correspondente está faltando, o manipulador retorna 401 em vez de aceitar e despachar.
+Os manipuladores de webhook de entrada (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom) recusam solicitações forjadas por padrão na produção: quando a variável de env secreta de assinatura correspondente está faltando, o manipulador retorna 401 em vez de aceitar e despachar.
 
 Anteriormente, essa era uma postura de "avisar e aceitar" - defina o segredo que de outra forma estaria faltando ou opte novamente pelo comportamento antigo com `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` apenas para desenvolvedores locais. Consulte [Messaging](/docs/messaging#env-vars) para obter as variáveis secretas de assinatura por integração.
+
+As notificações `changes.watch` do Google Drive não passam por esse gateway genérico de adaptadores: são solicitações opacas sem corpo. Por isso, o framework registra um token aleatório por canal e verifica os cabeçalhos `X-Goog-Channel-ID`, `X-Goog-Channel-Token` e `X-Goog-Resource-ID` antes de buscar as alterações. São notificações diretas do Drive, não mensagens Pub/Sub, e não carregam tokens OIDC bearer do Pub/Sub.
 
 ## Lista de verificação de produção {#production-checklist}
 

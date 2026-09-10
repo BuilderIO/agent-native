@@ -103,10 +103,12 @@ function latestUserText(
 }
 
 function normalizeToolName(name: unknown): string {
-  return String(name ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-");
+  return typeof name === "string"
+    ? name
+    : JSON.stringify(name ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-");
 }
 
 function parseAskBrainResult(content: string): ParsedAskBrainResult | null {
@@ -223,6 +225,10 @@ export function brainFinalResponseGuard(
 ): AgentLoopFinalResponseGuardResult | null {
   if (context.executionMode === "plan") return null;
 
+  // A tool result is not a user-facing answer. The run must not complete on a
+  // cited ask-brain card when the model emitted no final text.
+  const hasFinalText = context.text.trim().length > 0;
+
   const requestText =
     context.requestText?.trim() || latestUserText(context.messages);
   const companyKnowledgeQuestion = isCompanyKnowledgeQuestion(requestText);
@@ -233,7 +239,7 @@ export function brainFinalResponseGuard(
   const askBrain = latestAskBrainResult(context.toolResults);
   if (correctionFollowUp) {
     if (
-      askBrain.hasCitations ||
+      (askBrain.hasCitations && hasFinalText) ||
       (!companyKnowledgeQuestion && isSafeCorrectionResponse(context.text))
     ) {
       return null;
@@ -250,7 +256,10 @@ export function brainFinalResponseGuard(
 
   if (!companyKnowledgeQuestion) return null;
 
-  if (askBrain.hasCitations || isSafeUnverifiedResponse(context.text)) {
+  if (
+    (askBrain.hasCitations && hasFinalText) ||
+    isSafeUnverifiedResponse(context.text)
+  ) {
     return null;
   }
 

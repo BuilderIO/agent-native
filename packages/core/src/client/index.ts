@@ -16,7 +16,10 @@ export {
   AgentNativeI18nProvider,
   LanguagePicker,
   getLocaleInitScript,
+  isLocaleCode,
+  isValidLocaleCode,
   localeDirection,
+  localeMetadataFor,
   normalizeLocaleCode,
   normalizeLocalePreference,
   normalizeLocalizationPreference,
@@ -32,6 +35,7 @@ export {
   SUPPORTED_LOCALES,
   type AgentNativeI18nCatalog,
   type AgentNativeI18nProviderProps,
+  type BuiltinLocaleCode,
   type LocaleCode,
   type LocaleHydrationPayload,
   type LocaleMessages,
@@ -40,6 +44,25 @@ export {
   type LocalizationPreference,
 } from "./i18n.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
+export {
+  AppSidebar,
+  AppSidebarHeader,
+  AppSidebarNavItem,
+  AppSidebarNavGroup,
+  AppSidebarSection,
+  AppSidebarFeedbackButton,
+  AppSidebarFooter,
+  useAppSidebar,
+  type AppSidebarProps,
+  type AppSidebarHeaderProps,
+  type AppSidebarNavItemProps,
+  type AppSidebarNavGroupProps,
+  type AppSidebarSectionProps,
+  type AppSidebarFeedbackButtonProps,
+  type AppSidebarFooterProps,
+  type AppSidebarItemDefinition,
+  type AppSidebarContextValue,
+} from "./ui/AppSidebar.js";
 export {
   FeatureFlagsEditor,
   evaluatedFeatureFlagValues,
@@ -51,11 +74,20 @@ export {
   type FeatureFlagRules,
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
+export {
+  ExperimentsSettings,
+  useExperiment,
+  useExperimentState,
+  useExperiments,
+  type ExperimentValues,
+  type ExperimentsSettingsProps,
+} from "./experiments/index.js";
 export { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 export {
   SettingsPanel,
   SettingsTabsPage,
   SecretsSection,
+  BuilderConnectPopover,
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,
   useAgentSettingsTabs,
@@ -75,6 +107,7 @@ export {
   type SettingsSearchEntry,
   type SettingsTabItem,
   type SettingsTabsPageProps,
+  type BuilderConnectPopoverProps,
 } from "./settings/index.js";
 export {
   DevDatabaseLink,
@@ -89,6 +122,7 @@ export {
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export {
   trackEvent,
+  trackLifecycleEvent,
   trackAgentChatLifecycle,
   trackSessionStatus,
   configureTracking,
@@ -138,6 +172,8 @@ export {
   dedupeCollabUsersByEmail,
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
+  type CollabInitializationErrorCategory,
+  type CollabInitializationState,
   type CollabUser,
 } from "../collab/client.js";
 export { AGENT_CLIENT_ID } from "../collab/agent-identity.js";

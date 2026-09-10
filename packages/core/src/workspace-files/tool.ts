@@ -1,3 +1,13 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * `workspace-files` bridge tool.
  *
@@ -118,15 +128,17 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
           return "Error: workspace-files requires an authenticated request context.";
         }
 
-        const action = String(args.action ?? "").trim();
+        const action = stringifyValue(args.action ?? "").trim();
 
         try {
           switch (action) {
             case "write": {
-              const path = String(args.path ?? "").trim();
+              const path = stringifyValue(args.path ?? "").trim();
               if (!path) return "Error: path is required for write.";
-              const content = String(args.content ?? "");
-              const contentType = String(args.contentType ?? "text/plain");
+              const content = stringifyValue(args.content ?? "");
+              const contentType = stringifyValue(
+                args.contentType ?? "text/plain",
+              );
               const meta = await writeWorkspaceFile(
                 scope,
                 path,
@@ -145,10 +157,12 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
             }
 
             case "append": {
-              const path = String(args.path ?? "").trim();
+              const path = stringifyValue(args.path ?? "").trim();
               if (!path) return "Error: path is required for append.";
-              const content = String(args.content ?? "");
-              const contentType = String(args.contentType ?? "text/plain");
+              const content = stringifyValue(args.content ?? "");
+              const contentType = stringifyValue(
+                args.contentType ?? "text/plain",
+              );
               const meta = await appendWorkspaceFile(
                 scope,
                 path,
@@ -167,7 +181,7 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
             }
 
             case "read": {
-              const path = String(args.path ?? "").trim();
+              const path = stringifyValue(args.path ?? "").trim();
               if (!path) return "Error: path is required for read.";
               const rawOffset = Number(args.offset);
               const offset =
@@ -212,7 +226,9 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
             }
 
             case "list": {
-              const prefix = args.path ? String(args.path).trim() : undefined;
+              const prefix = args.path
+                ? stringifyValue(args.path).trim()
+                : undefined;
               const files = await listWorkspaceFiles(
                 scope,
                 prefix || undefined,
@@ -230,7 +246,7 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
             }
 
             case "delete": {
-              const path = String(args.path ?? "").trim();
+              const path = stringifyValue(args.path ?? "").trim();
               if (!path) return "Error: path is required for delete.";
               const deleted = await deleteWorkspaceFile(scope, path);
               return JSON.stringify({
@@ -241,11 +257,14 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
             }
 
             case "grep": {
-              const pattern = String(args.pattern ?? "").trim();
+              const pattern = stringifyValue(args.pattern ?? "").trim();
               if (!pattern) return "Error: pattern is required for grep.";
-              const prefix = args.path ? String(args.path).trim() : undefined;
+              const prefix = args.path
+                ? stringifyValue(args.path).trim()
+                : undefined;
               const useRegex =
-                args.useRegex === true || String(args.useRegex) === "true";
+                args.useRegex === true ||
+                stringifyValue(args.useRegex) === "true";
               const matches = await grepWorkspaceFiles(scope, pattern, {
                 pathPrefix: prefix || undefined,
                 useRegex,

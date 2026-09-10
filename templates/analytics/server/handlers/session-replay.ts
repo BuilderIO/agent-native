@@ -1,6 +1,10 @@
 import { gunzipSync } from "node:zlib";
 
 import {
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "@agent-native/core/shared";
+import {
   defineEventHandler,
   getHeader,
   getQuery,
@@ -58,7 +62,7 @@ function setCors(event: any): void {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "content-type, content-encoding, x-agent-native-analytics-key",
+    `content-type, content-encoding, x-agent-native-analytics-key, ${SYNTHETIC_TRAFFIC_HEADER.toLowerCase()}`,
   );
   setResponseHeader(event, "Access-Control-Max-Age", "86400");
 }
@@ -274,6 +278,11 @@ export const handleSessionReplayOptions = defineEventHandler((event) => {
 
 export const handleSessionReplayIngest = defineEventHandler(async (event) => {
   setCors(event);
+  if (isSyntheticTrafficValue(getHeader(event, SYNTHETIC_TRAFFIC_HEADER))) {
+    setResponseStatus(event, 202);
+    return { success: true, accepted: 0 };
+  }
+
   try {
     const query = getQuery(event);
     if (hasQueryKey(query)) {

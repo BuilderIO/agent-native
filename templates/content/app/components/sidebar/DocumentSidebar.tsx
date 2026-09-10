@@ -1,5 +1,4 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
@@ -9,8 +8,11 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AppSidebarFooter,
+  AppSidebarHeader,
+  FeedbackButton,
+} from "@agent-native/core/client/ui";
 import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewOverrides,
@@ -25,9 +27,8 @@ import {
   IconArrowsSort,
   IconPlus,
   IconRestore,
-  IconSearch,
   IconSettings,
-  IconStar,
+  IconPin,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -75,6 +76,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   applyOptimisticItemToContentDatabase,
+  contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
   isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
@@ -88,6 +90,7 @@ import {
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  shouldAutoEnsureContentSpaces,
   useContentSpaces,
   useEnsureContentSpaces,
   type ContentSpaceSummary,
@@ -123,7 +126,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import { getDocumentSidebarSections } from "./document-sidebar-sections";
-import { DocumentSidebarIcon } from "./DocumentTreeItem";
 import {
   firstLocalSourceDocumentId,
   localSourceItemIdentity,
@@ -159,6 +161,8 @@ interface DocumentSidebarProps {
   onNavigate?: () => void;
   width?: number;
   onResize?: (width: number) => void;
+  minWidth?: number;
+  maxWidth?: number;
 }
 
 const LIST_DOCUMENTS_QUERY_KEY = [
@@ -855,6 +859,8 @@ export function DocumentSidebar({
   onNavigate,
   width,
   onResize,
+  minWidth,
+  maxWidth,
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -873,7 +879,9 @@ export function DocumentSidebar({
   const documentsQuery = useDocuments();
   const { data: documents = [] } = documentsQuery;
   const createDocument = useCreateDocument();
-  const createDatabase = useCreateContentDatabase(null);
+  const createDatabase = useCreateContentDatabase(null, {
+    skipListDocumentsInvalidation: true,
+  });
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
   const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
@@ -916,20 +924,58 @@ export function DocumentSidebar({
   const moveWorkspaceItem = useMoveDatabaseItem(
     workspaceCatalogDocumentId ?? "",
   );
-  const spaceProvisionAttemptedRef = useRef(false);
+  const attemptedSpaceReconciliationKeyRef = useRef<string | null>(null);
+  const spaceReconciliationRetryTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const [spaceReconciliationRetryNonce, setSpaceReconciliationRetryNonce] =
+    useState(0);
+  useEffect(
+    () => () => {
+      if (spaceReconciliationRetryTimerRef.current) {
+        clearTimeout(spaceReconciliationRetryTimerRef.current);
+      }
+    },
+    [],
+  );
   useEffect(() => {
+    const reconciliationNeeded =
+      contentSpacesQuery.data?.needsReconciliation ?? false;
+    if (contentSpacesQuery.isSuccess && !reconciliationNeeded) {
+      attemptedSpaceReconciliationKeyRef.current = null;
+    }
+    const reconciliationKey = contentSpacesQuery.data?.reconciliationKey ?? "";
     if (
-      contentSpacesQuery.isSuccess &&
-      !spaceProvisionAttemptedRef.current &&
-      !ensureContentSpaces.isPending
+      shouldAutoEnsureContentSpaces({
+        querySucceeded: contentSpacesQuery.isSuccess,
+        reconciliationNeeded,
+        reconciliationKey,
+        attemptedReconciliationKey: attemptedSpaceReconciliationKeyRef.current,
+        provisioningPending: ensureContentSpaces.isPending,
+      })
     ) {
-      spaceProvisionAttemptedRef.current = true;
-      ensureContentSpaces.mutate({});
+      attemptedSpaceReconciliationKeyRef.current = reconciliationKey;
+      ensureContentSpaces.mutate(
+        {},
+        {
+          onError: () => {
+            if (spaceReconciliationRetryTimerRef.current) return;
+            spaceReconciliationRetryTimerRef.current = setTimeout(() => {
+              attemptedSpaceReconciliationKeyRef.current = null;
+              spaceReconciliationRetryTimerRef.current = null;
+              setSpaceReconciliationRetryNonce((nonce) => nonce + 1);
+            }, 5_000);
+          },
+        },
+      );
     }
   }, [
+    contentSpacesQuery.data?.needsReconciliation,
+    contentSpacesQuery.data?.reconciliationKey,
     contentSpacesQuery.isSuccess,
     ensureContentSpaces,
     ensureContentSpaces.isPending,
+    spaceReconciliationRetryNonce,
   ]);
   const [storedSpaceId, setStoredSpaceId] = useLocalStorage<string | null>(
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
@@ -976,17 +1022,18 @@ export function DocumentSidebar({
     contentSpacesLoading: contentSpacesQuery.isLoading,
     contentSpacesFetching: contentSpacesQuery.isFetching,
     contentSpacesError: contentSpacesQuery.isError,
-    provisioningAttempted: spaceProvisionAttemptedRef.current,
+    provisioningAttempted: attemptedSpaceReconciliationKeyRef.current !== null,
     provisioningPending: ensureContentSpaces.isPending,
     provisioningError: ensureContentSpaces.isError,
   });
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
-      spaceProvisionAttemptedRef.current = false;
+      attemptedSpaceReconciliationKeyRef.current = null;
       void contentSpacesQuery.refetch();
       return;
     }
-    spaceProvisionAttemptedRef.current = true;
+    attemptedSpaceReconciliationKeyRef.current =
+      contentSpacesQuery.data?.reconciliationKey ?? "manual-retry";
     ensureContentSpaces.mutate({});
   }, [contentSpacesQuery, ensureContentSpaces]);
   useEffect(() => {
@@ -1064,6 +1111,48 @@ export function DocumentSidebar({
     [queueSidebarStateWrite],
   );
 
+  const parentCreationRevealsRef = useRef(
+    new Map<
+      string,
+      {
+        pendingCount: number;
+        initiallyExpanded: boolean;
+        keepExpanded: boolean;
+      }
+    >(),
+  );
+
+  const revealParentForCreation = useCallback(
+    (parentId?: string | null) => {
+      if (!parentId) {
+        return (_succeeded: boolean) => {};
+      }
+      const existing = parentCreationRevealsRef.current.get(parentId);
+      const reveal = existing ?? {
+        pendingCount: 0,
+        initiallyExpanded: expandedDocumentIdsRef.current.includes(parentId),
+        keepExpanded: false,
+      };
+      reveal.pendingCount += 1;
+      parentCreationRevealsRef.current.set(parentId, reveal);
+      if (!reveal.initiallyExpanded && reveal.pendingCount === 1) {
+        handleDocumentExpandedChange(parentId, true);
+      }
+      return (succeeded: boolean) => {
+        const current = parentCreationRevealsRef.current.get(parentId);
+        if (!current) return;
+        current.pendingCount -= 1;
+        current.keepExpanded ||= succeeded;
+        if (current.pendingCount > 0) return;
+        parentCreationRevealsRef.current.delete(parentId);
+        if (!current.initiallyExpanded && !current.keepExpanded) {
+          handleDocumentExpandedChange(parentId, false);
+        }
+      };
+    },
+    [handleDocumentExpandedChange],
+  );
+
   const handleSelectContentSpace = useCallback(
     async (
       space: (typeof contentSpaces)[number],
@@ -1090,7 +1179,7 @@ export function DocumentSidebar({
             persistSelection: setStoredSpaceId,
             openFiles: (documentId) => {
               if (targetDocumentId === null) return;
-              navigate(`/page/${targetDocumentId ?? documentId}`, {
+              void navigate(`/page/${targetDocumentId ?? documentId}`, {
                 flushSync: true,
               });
             },
@@ -1139,8 +1228,6 @@ export function DocumentSidebar({
     RemoveLocalFileSourceResult,
     { sourceRootPath?: string | null }
   >("remove-local-file-source");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
   // Track user-expanded nodes only; active ancestors are derived below so they
   // do not stay open after navigation unless the user explicitly expanded them.
   const expandedIdsRef = useRef(new Set<string>());
@@ -1174,6 +1261,18 @@ export function DocumentSidebar({
     title: string;
   } | null>(null);
   const confirmedDeleteIdRef = useRef<string | null>(null);
+  const pendingOptimisticCreationIdsRef = useRef(new Set<string>());
+  const settleOptimisticListRefresh = useCallback(
+    (id: string) => {
+      pendingOptimisticCreationIdsRef.current.delete(id);
+      if (pendingOptimisticCreationIdsRef.current.size === 0) {
+        void queryClient.invalidateQueries({
+          queryKey: LIST_DOCUMENTS_QUERY_KEY,
+        });
+      }
+    },
+    [queryClient],
+  );
   const settingsActive = location.pathname.startsWith("/settings");
 
   const handleMouseDown = useCallback(
@@ -1236,7 +1335,7 @@ export function DocumentSidebar({
 
   const navigateToDocument = useCallback(
     (id: string) => {
-      navigate(`/page/${id}`, { flushSync: true });
+      void navigate(`/page/${id}`, { flushSync: true });
     },
     [navigate],
   );
@@ -1248,6 +1347,7 @@ export function DocumentSidebar({
       optimisticId?: string,
       rootFilesDatabaseId?: string,
     ) => {
+      const settleParentExpansion = revealParentForCreation(parentId);
       if (
         !shouldCreateDocumentOptimistically({
           localFileMode,
@@ -1264,12 +1364,14 @@ export function DocumentSidebar({
             ["action", "get-document", { id: created.id }],
             created,
           );
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
+          settleParentExpansion(true);
           navigateToDocument(created.id);
           onNavigate?.();
         } catch (err) {
+          settleParentExpansion(false);
           toast.error(t("sidebar.failedCreatePage"), {
             description:
               err instanceof Error ? err.message : t("empty.genericError"),
@@ -1300,6 +1402,7 @@ export function DocumentSidebar({
         LIST_DOCUMENTS_QUERY_KEY,
       );
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
+      pendingOptimisticCreationIdsRef.current.add(id);
 
       // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
@@ -1344,24 +1447,22 @@ export function DocumentSidebar({
         }
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
-        queryClient.invalidateQueries(documentQueryFilter(nextId));
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+        void queryClient.invalidateQueries(documentQueryFilter(nextId));
+        settleOptimisticListRefresh(id);
         if (rootFilesDatabaseId) {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
           });
         }
+        settleParentExpansion(true);
       } catch (err) {
+        settleParentExpansion(false);
         rollbackOptimisticCreatedDocument(
           queryClient,
           id,
           previousDocuments !== undefined,
         );
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+        settleOptimisticListRefresh(id);
         queryClient.removeQueries(documentQueryFilter(id));
         if (rootFilesDatabaseId) {
           queryClient.setQueryData<ContentDatabaseResponse>(
@@ -1369,10 +1470,12 @@ export function DocumentSidebar({
             (current) => removeOptimisticItemFromContentDatabase(current, id),
           );
         }
-        navigate(previousPath, {
-          replace: true,
-          flushSync: true,
-        });
+        if (window.location.pathname === `/page/${id}`) {
+          void navigate(previousPath, {
+            replace: true,
+            flushSync: true,
+          });
+        }
         toast.error(t("sidebar.failedCreatePage"), {
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
@@ -1389,28 +1492,113 @@ export function DocumentSidebar({
       navigateToDocument,
       onNavigate,
       queryClient,
+      revealParentForCreation,
       selectedSpace?.id,
+      settleOptimisticListRefresh,
+      t,
     ],
   );
 
   const handleCreateDatabase = useCallback(
     async (parentId?: string | null, rootSpaceId = selectedSpace?.id) => {
+      const settleParentExpansion = revealParentForCreation(parentId);
+      const id = nanoid();
+      const now = new Date().toISOString();
+      const title = t("editor.untitledDatabase");
+      const tempDoc = markDocumentCreationPending({
+        id,
+        parentId: parentId ?? null,
+        title,
+        content: "",
+        icon: null,
+        position: 9999,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+        accessRole: "owner",
+        canEdit: true,
+        canManage: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const previousDocuments = queryClient.getQueryData(
+        LIST_DOCUMENTS_QUERY_KEY,
+      );
+      const previousPath = `${location.pathname}${location.search}${location.hash}`;
+      pendingOptimisticCreationIdsRef.current.add(id);
+
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+        const docs: Document[] =
+          old?.documents ?? (Array.isArray(old) ? old : documents);
+        return withDocumentsCacheShape(old, [...docs, tempDoc]);
+      });
+      queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      navigateToDocument(id);
+      onNavigate?.();
+
       try {
-        const result = await createDatabase.mutateAsync({
-          parentId: parentId ?? null,
-          spaceId: parentId ? undefined : rootSpaceId,
-          title: t("editor.untitledDatabase"),
-        });
-        navigateToDocument(result.database.documentId);
-        onNavigate?.();
+        const parentFilesDocumentId = parentId
+          ? documents.find((document) => document.id === parentId)
+              ?.databaseMembership?.databaseDocumentId
+          : undefined;
+        const spaceId = parentFilesDocumentId
+          ? contentSpaces.find(
+              (space) => space.filesDocumentId === parentFilesDocumentId,
+            )?.id
+          : rootSpaceId;
+        const result = await createDatabase.mutateAsync(
+          contentDatabaseCreationRequest({
+            newDocumentId: id,
+            parentId: parentId ?? null,
+            spaceId,
+            title,
+          }),
+        );
+        const nextId = result.database.documentId;
+        if (nextId !== id) {
+          queryClient.removeQueries(documentQueryFilter(id));
+          navigateToDocument(nextId);
+        }
+        void queryClient.invalidateQueries(documentQueryFilter(nextId));
+        settleOptimisticListRefresh(id);
+        settleParentExpansion(true);
       } catch (err) {
+        settleParentExpansion(false);
+        rollbackOptimisticCreatedDocument(
+          queryClient,
+          id,
+          previousDocuments !== undefined,
+        );
+        queryClient.removeQueries(documentQueryFilter(id));
+        settleOptimisticListRefresh(id);
+        if (window.location.pathname === `/page/${id}`) {
+          void navigate(previousPath, {
+            replace: true,
+            flushSync: true,
+          });
+        }
         toast.error(t("sidebar.failedCreateDatabase"), {
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
-    [createDatabase, navigateToDocument, onNavigate, selectedSpace?.id, t],
+    [
+      createDatabase,
+      contentSpaces,
+      documents,
+      location.hash,
+      location.pathname,
+      location.search,
+      navigate,
+      navigateToDocument,
+      onNavigate,
+      queryClient,
+      revealParentForCreation,
+      selectedSpace?.id,
+      settleOptimisticListRefresh,
+      t,
+    ],
   );
 
   const handleCreatePageInSpace = useCallback(
@@ -1463,7 +1651,7 @@ export function DocumentSidebar({
       }
 
       if (activeDeleted) {
-        navigate(nextDocument ? `/page/${nextDocument.id}` : "/", {
+        void navigate(nextDocument ? `/page/${nextDocument.id}` : "/home", {
           replace: true,
           flushSync: true,
         });
@@ -1477,7 +1665,7 @@ export function DocumentSidebar({
         } else {
           await deleteDocument.mutateAsync({ id });
         }
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       } catch (err) {
@@ -1487,11 +1675,11 @@ export function DocumentSidebar({
           previousDocumentQueries,
           deletedIds,
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         if (activeDeleted) {
-          navigate(previousPath, {
+          void navigate(previousPath, {
             replace: true,
             flushSync: true,
           });
@@ -1608,10 +1796,10 @@ export function DocumentSidebar({
     async (documentId: string) => {
       try {
         await permanentlyDeleteDocument.mutateAsync({ id: documentId });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-trashed-content-databases"],
         });
         toast.success(t("sidebar.databasePermanentlyDeleted"));
@@ -1658,7 +1846,7 @@ export function DocumentSidebar({
   const handleRemoveLocalFiles = useCallback(async () => {
     try {
       const result = await removeLocalFileSource.mutateAsync({});
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
       setRemoveLocalFilesDialogOpen(false);
@@ -1675,25 +1863,6 @@ export function DocumentSidebar({
     }
   }, [queryClient, removeLocalFileSource, t]);
 
-  const filteredDocuments = searchQuery
-    ? documents.filter((d) =>
-        d.title.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : null;
-
-  const renderNewButton = (space = selectedSpace) =>
-    space ? (
-      <button
-        type="button"
-        className="flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-        disabled={createDocument.isPending}
-        onClick={() => void handleCreatePageInSpace(space)}
-      >
-        <IconPlus size={14} className="shrink-0" />
-        <span>{t("sidebar.newPage")}</span>
-      </button>
-    ) : null;
-
   const renderCollapsedNewButton = () =>
     selectedSpace ? (
       <Tooltip>
@@ -1701,6 +1870,7 @@ export function DocumentSidebar({
           <button
             type="button"
             className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+            aria-label={`${t("sidebar.newPage")} — ${selectedSpace.name}`}
             disabled={createDocument.isPending}
             onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
@@ -1715,14 +1885,14 @@ export function DocumentSidebar({
     <Link
       to="/settings"
       className={cn(
-        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs",
         settingsActive
-          ? "bg-accent text-accent-foreground"
-          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          ? "bg-primary/10 font-medium text-primary"
+          : "text-primary hover:bg-accent/60",
       )}
     >
-      <IconSettings size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-start">
+      <IconSettings className="size-4 shrink-0 text-primary" />
+      <span className="min-w-0 flex-1 truncate text-start text-primary">
         {t("navigation.settings")}
       </span>
     </Link>
@@ -1749,61 +1919,9 @@ export function DocumentSidebar({
       </TooltipContent>
     </Tooltip>
   );
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("sidebar.search")}
-          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={() => setIsSearching((value) => !value)}
-        >
-          <IconSearch size={16} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
-    </Tooltip>
-  );
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-      className={collapsed ? "size-8" : "h-8 min-w-0"}
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
-  const brandButton = (isCollapsed: boolean) => (
-    <button
-      type="button"
-      onClick={onToggleCollapsed}
-      aria-label={isCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-      className={cn(
-        "flex items-center gap-2 rounded outline-none text-foreground transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
-        isCollapsed ? "size-8 justify-center" : "min-w-0 text-start",
-      )}
-      data-sidebar-brand-toggle
-    >
-      <img
-        src={appPath("/agent-native-icon-light.svg")}
-        alt=""
-        aria-hidden="true"
-        width={28}
-        height={16}
-        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-      />
-      <img
-        src={appPath("/agent-native-icon-dark.svg")}
-        alt=""
-        aria-hidden="true"
-        width={28}
-        height={16}
-        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
-      />
-      {!isCollapsed && (
-        <span className="text-base font-semibold tracking-tight">Content</span>
-      )}
-    </button>
-  );
-
   const toggleSection = (id: SidebarSectionId) => {
     setStoredCollapsedSections((current) => {
       const normalized = normalizeCollapsedSections(current);
@@ -2191,32 +2309,46 @@ export function DocumentSidebar({
 
   if (collapsed) {
     return (
-      <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
-        {brandButton(true)}
-        {renderCollapsedNewButton()}
-        <SidebarFooterActions
+      <div className="agent-layout-left-drawer flex h-full w-14 flex-col items-center border-e border-border bg-sidebar transition-[width] duration-200 ease-out">
+        <AppSidebarHeader
+          brandName="Content"
+          brandHref="/home"
           collapsed
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-          className="mt-auto"
+          onBrandClick={onToggleCollapsed}
         />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link
-              to="/settings"
-              className={cn(
-                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
-                settingsActive
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <IconSettings size={16} />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>{t("navigation.settings")}</TooltipContent>
-        </Tooltip>
+        <div className="flex flex-col items-center gap-1 px-2 py-3">
+          {renderCollapsedNewButton()}
+        </div>
+        <div className="mt-auto shrink-0 w-full">
+          <AppSidebarFooter
+            collapsed
+            collapsible={false}
+            feedback={feedbackButton}
+            orgSwitcher={
+              <OrgSwitcher
+                compact
+                reserveSpace
+                className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
+            }
+            footerExtras={
+              <>
+                {isCodeMode ? <DevDatabaseLink /> : null}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link to="/settings" aria-label={t("navigation.settings")}>
+                      <IconSettings className="size-4" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t("navigation.settings")}
+                  </TooltipContent>
+                </Tooltip>
+                {collapseButton}
+              </>
+            }
+          />
+        </div>
       </div>
     );
   }
@@ -2231,196 +2363,131 @@ export function DocumentSidebar({
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
     >
       {/* Header */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
-        {brandButton(false)}
-      </div>
-
-      {/* Search */}
-      {isSearching && (
-        <div className="px-3 py-2 border-b border-border">
-          <input
-            autoFocus
-            type="text"
-            placeholder={t("sidebar.searchPages")}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setIsSearching(false);
-                setSearchQuery("");
-              }
-            }}
-            className="w-full px-2 py-1.5 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring"
-          />
-        </div>
-      )}
+      <AppSidebarHeader
+        brandName="Content"
+        brandHref="/home"
+        collapsed={false}
+        onBrandClick={onToggleCollapsed}
+      />
 
       <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
         <div className="w-full min-w-0 py-2 pe-2">
-          {/* Search results */}
-          {filteredDocuments ? (
-            <>
-              <div>
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {t("sidebar.results")}
-                </div>
-                {filteredDocuments.length === 0 ? (
-                  <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                    {t("sidebar.noPagesFound")}
-                  </div>
-                ) : (
-                  filteredDocuments.map((doc) => (
-                    <button
-                      key={doc.id}
+          {/* Pinned */}
+          {showFavorites && (
+            <div className="mb-2 min-w-0 px-2">
+              <div className="group/favorites flex h-7 w-full min-w-0 items-center rounded-md px-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground">
+                <button
+                  type="button"
+                  aria-expanded={!collapsedSections.favorites}
+                  aria-label={`${collapsedSections.favorites ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.pinned")}`}
+                  className="group/favorites-toggle flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+                  onClick={() => toggleSection("favorites")}
+                >
+                  <span className="relative size-3.5">
+                    <IconPin
+                      aria-hidden="true"
+                      className="absolute inset-0 size-3.5 transition-opacity group-hover/favorites:opacity-0 group-focus-visible/favorites-toggle:opacity-0"
+                    />
+                    <IconChevronRight
+                      aria-hidden="true"
                       className={cn(
-                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-start rounded-md",
-                        doc.id === activeDocumentId
-                          ? "bg-accent text-accent-foreground"
-                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                        "absolute inset-0 size-3.5 opacity-0 transition-[opacity,transform] group-hover/favorites:opacity-100 group-focus-visible/favorites-toggle:opacity-100 rtl:-scale-x-100",
+                        !collapsedSections.favorites && "rotate-90",
                       )}
-                      onClick={() => {
-                        navigateToDocument(doc.id);
-                        setIsSearching(false);
-                        setSearchQuery("");
-                        onNavigate?.();
-                      }}
-                    >
-                      <span className="flex-shrink-0 w-5 text-center">
-                        <DocumentSidebarIcon document={doc} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {doc.title || t("sidebar.untitled")}
-                      </span>
-                    </button>
-                  ))
-                )}
+                    />
+                  </span>
+                </button>
+                <Link
+                  to={
+                    favoritesDocumentId
+                      ? `/page/${favoritesDocumentId}`
+                      : "/favorites"
+                  }
+                  className={cn(
+                    "h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider leading-7",
+                    (location.pathname === "/favorites" ||
+                      activeDocumentId === favoritesDocumentId) &&
+                      "text-foreground",
+                  )}
+                >
+                  {t("sidebar.pinned")}
+                </Link>
               </div>
-              {renderNewButton()}
-            </>
-          ) : (
-            <>
-              {/* Pinned */}
-              {showFavorites && (
-                <div className="mb-2 min-w-0 px-2">
-                  <div className="group/favorites flex h-7 w-full min-w-0 items-center rounded-md px-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground">
-                    <button
-                      type="button"
-                      aria-expanded={!collapsedSections.favorites}
-                      aria-label={`${collapsedSections.favorites ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.pinned")}`}
-                      className="group/favorites-toggle flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
-                      onClick={() => toggleSection("favorites")}
-                    >
-                      <span className="relative size-3.5">
-                        <IconStar
-                          aria-hidden="true"
-                          className="absolute inset-0 size-3.5 transition-opacity group-hover/favorites:opacity-0 group-focus-visible/favorites-toggle:opacity-0"
-                        />
-                        <IconChevronRight
-                          aria-hidden="true"
-                          className={cn(
-                            "absolute inset-0 size-3.5 opacity-0 transition-[opacity,transform] group-hover/favorites:opacity-100 group-focus-visible/favorites-toggle:opacity-100 rtl:-scale-x-100",
-                            !collapsedSections.favorites && "rotate-90",
-                          )}
-                        />
-                      </span>
-                    </button>
-                    <Link
-                      to={
-                        favoritesDocumentId
-                          ? `/page/${favoritesDocumentId}`
-                          : "/favorites"
-                      }
-                      className={cn(
-                        "h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider leading-7",
-                        (location.pathname === "/favorites" ||
-                          activeDocumentId === favoritesDocumentId) &&
-                          "text-foreground",
-                      )}
-                    >
-                      {t("sidebar.pinned")}
-                    </Link>
-                  </div>
-                  {!collapsedSections.favorites ? (
-                    favoritesDatabase.isError ? (
-                      <QueryErrorState
-                        compact
-                        onRetry={() => void favoritesDatabase.refetch()}
-                        retrying={favoritesDatabase.isFetching}
-                      />
-                    ) : (
-                      <ContentFilesSidebarView
-                        data={favoritesDatabase.data}
-                        overrides={null}
-                        isLoading={favoritesDatabase.isLoading}
-                        activeDocumentId={activeDocumentId}
-                        manualReorder={
-                          movePinnedItem.isPending
-                            ? undefined
-                            : {
-                                labels: sidebarReorderLabels,
-                                onReorder: handlePinnedReorder,
-                              }
-                        }
-                        onOpenItem={(item) => {
-                          const document = documents.find(
-                            (candidate) => candidate.id === item.document.id,
-                          );
-                          const space = document
-                            ? contentSpaces.find(
-                                (candidate) =>
-                                  candidate.filesDocumentId ===
-                                  document.databaseMembership
-                                    ?.databaseDocumentId,
-                              )
-                            : undefined;
-                          if (!space || selectedSpace?.id === space.id) {
-                            onNavigate?.();
-                            return false;
+              {!collapsedSections.favorites ? (
+                favoritesDatabase.isError ? (
+                  <QueryErrorState
+                    compact
+                    onRetry={() => void favoritesDatabase.refetch()}
+                    retrying={favoritesDatabase.isFetching}
+                  />
+                ) : (
+                  <ContentFilesSidebarView
+                    data={favoritesDatabase.data}
+                    overrides={null}
+                    isLoading={favoritesDatabase.isLoading}
+                    activeDocumentId={activeDocumentId}
+                    manualReorder={
+                      movePinnedItem.isPending
+                        ? undefined
+                        : {
+                            labels: sidebarReorderLabels,
+                            onReorder: handlePinnedReorder,
                           }
-                          void handleSelectContentSpace(
-                            space,
-                            item.document.id,
-                          );
-                          onNavigate?.();
-                          return true;
-                        }}
-                        onCreateChildPage={(item) =>
-                          void handleCreatePage(item.document.id)
-                        }
-                        onCreateChildDatabase={(item) =>
-                          void handleCreateDatabase(item.document.id)
-                        }
-                        onDeleteItem={(item) =>
-                          requestDelete(
-                            item.document.id,
-                            item.document.title || t("sidebar.untitled"),
+                    }
+                    onOpenItem={(item) => {
+                      const document = documents.find(
+                        (candidate) => candidate.id === item.document.id,
+                      );
+                      const space = document
+                        ? contentSpaces.find(
+                            (candidate) =>
+                              candidate.filesDocumentId ===
+                              document.databaseMembership?.databaseDocumentId,
                           )
-                        }
-                        onToggleFavorite={(item) =>
-                          handleToggleFavorite(item.document.id, false)
-                        }
-                        scroll={false}
-                        labels={{
-                          noMatchesLabel: t("database.noRowsMatchThisView"),
-                          clearLabel: t("database.clearSearchAndFilters"),
-                          navigationLabel: t("sidebar.pinned"),
-                          untitledLabel: t("sidebar.untitled"),
-                        }}
-                      />
-                    )
-                  ) : null}
-                </div>
-              )}
-
-              {renderWorkspaceNavigation()}
-              {renderTrashSection()}
-            </>
+                        : undefined;
+                      if (!space || selectedSpace?.id === space.id) {
+                        onNavigate?.();
+                        return false;
+                      }
+                      void handleSelectContentSpace(space, item.document.id);
+                      onNavigate?.();
+                      return true;
+                    }}
+                    onCreateChildPage={(item) =>
+                      void handleCreatePage(item.document.id)
+                    }
+                    onCreateChildDatabase={(item) =>
+                      void handleCreateDatabase(item.document.id)
+                    }
+                    onDeleteItem={(item) =>
+                      requestDelete(
+                        item.document.id,
+                        item.document.title || t("sidebar.untitled"),
+                      )
+                    }
+                    onToggleFavorite={(item) =>
+                      handleToggleFavorite(item.document.id, false)
+                    }
+                    scroll={false}
+                    labels={{
+                      noMatchesLabel: t("database.noRowsMatchThisView"),
+                      clearLabel: t("database.clearSearchAndFilters"),
+                      navigationLabel: t("sidebar.pinned"),
+                      untitledLabel: t("sidebar.untitled"),
+                    }}
+                  />
+                )
+              ) : null}
+            </div>
           )}
+
+          {renderWorkspaceNavigation()}
+          {renderTrashSection()}
         </div>
       </ScrollArea>
 
-      <div className="shrink-0 px-3 py-2">
-        <div className="space-y-1">{renderSettingsNavButton()}</div>
+      <div className="shrink-0 border-t border-border/70 px-2 pt-3">
+        <div className="space-y-0.5">{renderSettingsNavButton()}</div>
       </div>
 
       <div className="shrink-0">
@@ -2437,28 +2504,71 @@ export function DocumentSidebar({
         />
       </div>
 
-      <div className="shrink-0 px-3 py-2">
-        <OrgSwitcher reserveSpace />
-      </div>
-
-      {/* Footer */}
-      <div className="shrink-0 space-y-2 px-3 py-2">
-        {isCodeMode ? <DevDatabaseLink /> : null}
-        <SidebarFooterActions
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-          className="px-0 py-0"
-        />
-      </div>
+      <AppSidebarFooter
+        collapsed={false}
+        collapsible={false}
+        feedback={feedbackButton}
+        orgSwitcher={
+          <OrgSwitcher
+            reserveSpace
+            className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+          />
+        }
+        footerExtras={
+          <>
+            {isCodeMode ? <DevDatabaseLink /> : null}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link to="/settings" aria-label={t("navigation.settings")}>
+                  <IconSettings className="size-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("navigation.settings")}
+              </TooltipContent>
+            </Tooltip>
+            {collapseButton}
+          </>
+        }
+      />
 
       {/* Resize handle */}
-      {onResize && (
+      {onResize && width !== undefined && (
         <div
           className={cn(
-            "absolute top-0 end-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
+            "absolute top-0 end-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
             isResizing && "bg-primary/30",
           )}
+          role="separator"
+          tabIndex={0}
+          aria-label={t("sidebar.resize")}
+          aria-orientation="vertical"
+          aria-valuemin={minWidth}
+          aria-valuemax={maxWidth}
+          aria-valuenow={width}
+          onKeyDown={(event) => {
+            let nextWidth: number;
+            switch (event.key) {
+              case "ArrowLeft":
+                nextWidth = width - 10;
+                break;
+              case "ArrowRight":
+                nextWidth = width + 10;
+                break;
+              case "Home":
+                if (minWidth === undefined) return;
+                nextWidth = minWidth;
+                break;
+              case "End":
+                if (maxWidth === undefined) return;
+                nextWidth = maxWidth;
+                break;
+              default:
+                return;
+            }
+            event.preventDefault();
+            onResize(nextWidth);
+          }}
           onMouseDown={handleMouseDown}
         />
       )}

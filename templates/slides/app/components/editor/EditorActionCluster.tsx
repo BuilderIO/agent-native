@@ -1,23 +1,27 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconArrowBigRight,
+  IconCircle,
+  IconLine,
   IconPlus,
+  IconShape,
+  IconSquare,
   IconTextSize,
-  IconTransitionRight,
+  IconTriangle,
 } from "@tabler/icons-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Slide } from "@/context/DeckContext";
 import { cn } from "@/lib/utils";
 
 const BUTTON_CLASS =
@@ -27,18 +31,52 @@ const IDLE_CLASS =
 const ACTIVE_CLASS = "bg-accent text-foreground";
 const DIVIDER_CLASS = "mx-1 h-4 w-px shrink-0 bg-border";
 
-type SlideTransition = NonNullable<Slide["transition"]>;
+export type SlideShapeType =
+  | "rectangle"
+  | "circle"
+  | "arrow"
+  | "triangle"
+  | "line";
 
-const TRANSITIONS: { value: SlideTransition; labelKey: string }[] = [
-  { value: "instant", labelKey: "editorToolbar.transition_instant" },
-  { value: "fade", labelKey: "editorToolbar.transition_fade" },
-  { value: "slide", labelKey: "editorToolbar.transition_slide" },
-  { value: "zoom", labelKey: "editorToolbar.transition_zoom" },
+export const SLIDE_SHAPE_LABEL_KEYS = {
+  rectangle: "editorToolbar.shapeRectangle",
+  circle: "editorToolbar.shapeCircle",
+  arrow: "editorToolbar.shapeArrow",
+  triangle: "editorToolbar.shapeTriangle",
+  line: "editorToolbar.shapeLine",
+} as const;
+
+const SHAPES = [
+  {
+    value: "rectangle" as const,
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.rectangle,
+    icon: IconSquare,
+  },
+  {
+    value: "circle" as const,
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.circle,
+    icon: IconCircle,
+  },
+  {
+    value: "arrow" as const,
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.arrow,
+    icon: IconArrowBigRight,
+  },
+  {
+    value: "triangle" as const,
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.triangle,
+    icon: IconTriangle,
+  },
+  {
+    value: "line" as const,
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.line,
+    icon: IconLine,
+  },
 ];
 
 /**
  * Selection-independent actions pinned to the head of the contextual
- * toolbar: add-slide, add-text-box, and the slide transition picker.
+ * toolbar: add-slide, add-text-box, and the shape picker.
  * Rendered both as the `leading` slot of the element-controls row and as a
  * fallback directly in the deck toolbar for when that row is hidden (narrow
  * viewports) or never mounts (no current slide, e.g. an empty deck).
@@ -48,28 +86,22 @@ export function EditorActionCluster({
   onToggleTextBoxMode,
   onAddEmptySlide,
   addSlideGenerating,
-  currentSlideId,
-  slideTransition,
-  onChangeSlideTransition,
+  shapeType,
+  onSelectShape,
   className,
 }: {
   textBoxMode?: boolean;
   onToggleTextBoxMode?: () => void;
   onAddEmptySlide?: () => void;
   addSlideGenerating?: boolean;
-  currentSlideId?: string;
-  slideTransition?: Slide["transition"];
-  onChangeSlideTransition?: (transition: SlideTransition) => void;
+  shapeType?: SlideShapeType | null;
+  onSelectShape?: (shape: SlideShapeType) => void;
   className?: string;
 }) {
   const t = useT();
-  // "none" is a legacy alias the presentation view already treats as instant.
-  const activeTransition: SlideTransition =
-    !slideTransition || slideTransition === "none"
-      ? "instant"
-      : slideTransition;
+  const [shapeMenuOpen, setShapeMenuOpen] = useState(false);
 
-  if (!onToggleTextBoxMode && !onAddEmptySlide) return null;
+  if (!onToggleTextBoxMode && !onAddEmptySlide && !onSelectShape) return null;
 
   return (
     <div className={cn("flex items-center gap-1", className)}>
@@ -110,45 +142,51 @@ export function EditorActionCluster({
           <TooltipContent>{t("editorToolbar.addTextBox")} (T)</TooltipContent>
         </Tooltip>
       )}
-      {onChangeSlideTransition && currentSlideId && (
+      {onSelectShape && (
         <>
-          <div className={DIVIDER_CLASS} />
-          <DropdownMenu>
+          {onToggleTextBoxMode && <div className={DIVIDER_CLASS} />}
+          <Popover open={shapeMenuOpen} onOpenChange={setShapeMenuOpen}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
+                <PopoverTrigger asChild>
                   <button
                     type="button"
-                    aria-label={t("editorToolbar.transition")}
+                    aria-label={t("editorToolbar.shapes")}
+                    aria-expanded={shapeMenuOpen}
                     className={cn(
                       BUTTON_CLASS,
-                      activeTransition === "instant"
-                        ? IDLE_CLASS
-                        : ACTIVE_CLASS,
+                      shapeMenuOpen || shapeType ? ACTIVE_CLASS : IDLE_CLASS,
                     )}
                   >
-                    <IconTransitionRight className="size-4" />
+                    <IconShape className="size-4" />
                   </button>
-                </DropdownMenuTrigger>
+                </PopoverTrigger>
               </TooltipTrigger>
-              <TooltipContent>{t("editorToolbar.transition")}</TooltipContent>
+              <TooltipContent>{t("editorToolbar.shapes")}</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="start" className="w-40">
-              {TRANSITIONS.map((transition) => (
-                <DropdownMenuItem
-                  key={transition.value}
-                  onSelect={() => onChangeSlideTransition(transition.value)}
-                  className={
-                    activeTransition === transition.value
-                      ? "bg-accent text-accent-foreground"
-                      : undefined
-                  }
-                >
-                  {t(transition.labelKey)}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <PopoverContent align="start" className="w-52 p-1.5">
+              <div className="grid grid-cols-5 gap-1" role="menu">
+                {SHAPES.map(({ value, labelKey, icon: ShapeIcon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="menuitem"
+                    aria-label={t(labelKey)}
+                    className={cn(
+                      "flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                      shapeType === value && "bg-accent text-foreground",
+                    )}
+                    onClick={() => {
+                      onSelectShape(value);
+                      setShapeMenuOpen(false);
+                    }}
+                  >
+                    <ShapeIcon className="size-5" aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         </>
       )}
     </div>

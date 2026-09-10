@@ -15,6 +15,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -23,6 +24,7 @@ import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../../lib/docs-source";
+import { docsI18nCatalog } from "../i18n";
 import {
   DocBlock,
   DocBlocksProvider,
@@ -187,7 +189,7 @@ describe("docs visual blocks", () => {
   it("does not leave registered MDX block tags behind as prose", () => {
     const failures: string[] = [];
     const rawBlockTagPattern =
-      /^\s*<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diagram|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)(?:\s|>|\/|$)/;
+      /^\s*<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diagram|Diff|Endpoint|FileTree|GettingStartedPaths|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)(?:\s|>|\/|$)/;
     for (const doc of allDocs) {
       const leaked = doc.segments
         .filter((segment) => segment.kind === "markdown")
@@ -237,9 +239,16 @@ describe("docs visual blocks", () => {
         try {
           const html = renderToStaticMarkup(
             <MemoryRouter>
-              <DocBlocksProvider>
-                <DocBlock segment={segment} />
-              </DocBlocksProvider>
+              <AgentNativeI18nProvider
+                catalog={docsI18nCatalog}
+                initialLocale="en-US"
+                initialPreference="en-US"
+                persistPreference={false}
+              >
+                <DocBlocksProvider>
+                  <DocBlock segment={segment} />
+                </DocBlocksProvider>
+              </AgentNativeI18nProvider>
             </MemoryRouter>,
           );
           // A rendered DocBlockError surfaces as the only child text; treat the

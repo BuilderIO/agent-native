@@ -280,6 +280,7 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
         undefined,
         {
           origin,
+          transport: "stdio",
           clientName: "agent-native-mcp-standalone",
           // Compact by default; opt into the full catalog with the env flag.
           fullCatalog: process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1",

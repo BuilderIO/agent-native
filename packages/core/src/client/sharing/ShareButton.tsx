@@ -24,6 +24,7 @@ import type {
   UIEvent as ReactUIEvent,
 } from "react";
 
+import { trackEvent } from "../analytics.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
@@ -32,6 +33,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
+import { useAvatarUrl } from "../use-avatar.js";
 import { cn } from "../utils.js";
 import { AgentShareSection } from "./AgentShareSection.js";
 import {
@@ -348,6 +350,7 @@ function SharePanel(
   },
 ) {
   const t = useT();
+  const tabIds = useId();
   const { controller } = props;
   const {
     inviteEmail,
@@ -409,6 +412,9 @@ function SharePanel(
           value={props.shareUrl}
           label={props.shareUrlLabel}
           description={props.shareUrlDescription}
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          linkType="share"
         />
       ) : props.shareUrlPlaceholder ? (
         <div className="mb-4 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
@@ -426,6 +432,9 @@ function SharePanel(
           value={props.secondaryShareUrl}
           label={props.secondaryShareUrlLabel}
           description={props.secondaryShareUrlDescription}
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          linkType="secondary"
         />
       ) : null}
     </>
@@ -436,8 +445,7 @@ function SharePanel(
       Boolean(props.shareUrlPlaceholder) ||
       Boolean(props.secondaryShareUrl));
   const shareUrlPlacement = props.shareUrlPlacement ?? "top";
-  const extraTabs =
-    props.shareTabs?.tabs.filter((tab) => tab.value !== "context") ?? [];
+  const extraTabs = props.shareTabs?.tabs ?? [];
   const hasTabs = extraTabs.length > 0;
   const shareTabLabel =
     props.shareTabs?.shareLabel ??
@@ -639,7 +647,11 @@ function SharePanel(
         <ul className="flex list-none flex-col gap-1 p-0 m-0">
           {data?.ownerEmail ? (
             <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-              <Avatar label={displayName(data.ownerEmail, knownMembers, t)} />
+              <Avatar
+                email={data.ownerEmail}
+                image={memberImage(data.ownerEmail, knownMembers)}
+                label={displayName(data.ownerEmail, knownMembers, t)}
+              />
               <span className="flex-1 min-w-0 truncate">
                 {displayName(data.ownerEmail, knownMembers, t)}
               </span>
@@ -657,6 +669,12 @@ function SharePanel(
               )}
             >
               <Avatar
+                email={s.principalType === "user" ? s.principalId : undefined}
+                image={
+                  s.principalType === "user"
+                    ? memberImage(s.principalId, knownMembers)
+                    : undefined
+                }
                 label={principalLabel(s, knownMembers, t)}
                 org={s.principalType === "org"}
                 group={s.principalType === "group"}
@@ -744,7 +762,6 @@ function SharePanel(
   const activeTab = tabs.some((tab) => tab.value === activeShareTab)
     ? activeShareTab
     : "share";
-
   return (
     <div className="flex flex-col gap-4">
       <div
@@ -754,20 +771,23 @@ function SharePanel(
         })}
         className="flex gap-1 rounded-xl bg-muted/70 p-1"
       >
-        {tabs.map((tab) => {
+        {tabs.map((tab, index) => {
           const active = tab.value === activeTab;
+          const tabId = `${tabIds}-tab-${index}`;
+          const panelId = `${tabIds}-panel-${index}`;
           return (
             <button
               key={tab.value}
               type="button"
+              id={tabId}
               role="tab"
               aria-selected={active}
+              aria-controls={panelId}
               disabled={tab.disabled}
               onClick={() => handleShareTabChange(tab.value)}
               className={cn(
-                "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
-                active &&
-                  "bg-background text-foreground shadow-sm ring-2 ring-primary",
+                "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+                active && "bg-background text-foreground shadow-sm",
               )}
             >
               <span className="block truncate">{tab.label}</span>
@@ -775,9 +795,21 @@ function SharePanel(
           );
         })}
       </div>
-      <div role="tabpanel">
-        {tabs.find((tab) => tab.value === activeTab)?.content}
-      </div>
+      {tabs.map((tab, index) => {
+        const active = tab.value === activeTab;
+        return (
+          <div
+            key={tab.value}
+            id={`${tabIds}-panel-${index}`}
+            role="tabpanel"
+            aria-labelledby={`${tabIds}-tab-${index}`}
+            tabIndex={active ? 0 : -1}
+            hidden={!active}
+          >
+            {active ? tab.content : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1082,7 +1114,14 @@ function MemberAutocomplete({
                       strokeWidth={1.8}
                       className="shrink-0 text-muted-foreground"
                     />
-                  ) : null}
+                  ) : (
+                    <Avatar
+                      email={suggestion.email}
+                      image={suggestion.image}
+                      label={suggestion.name?.trim() || suggestion.email}
+                      className="h-6 w-6 text-[10px]"
+                    />
+                  )}
                   <span className="truncate">
                     {suggestion.principalType === "group"
                       ? suggestion.name
@@ -1168,12 +1207,29 @@ function CopyLinkField({
   value,
   label,
   description,
+  resourceType,
+  resourceId,
+  linkType,
 }: {
   value: string;
   label?: string;
   description?: ReactNode;
+  resourceType: string;
+  resourceId: string;
+  linkType: "share" | "secondary";
 }) {
   const t = useT();
+  const copy = async (nextValue: string) => {
+    const copied = await writeClipboardText(nextValue);
+    if (copied) {
+      trackEvent("share_link_copied", {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        link_type: linkType,
+      });
+    }
+    return copied;
+  };
   return (
     <ShareCopyRow
       value={value}
@@ -1183,7 +1239,7 @@ function CopyLinkField({
       description={description}
       copyLabel={t("agentChat.share.copy", { defaultValue: "Copy" })}
       copiedLabel={t("agentChat.share.copied", { defaultValue: "Copied" })}
-      onCopy={writeClipboardText}
+      onCopy={copy}
       className="mb-4"
     />
   );
@@ -1357,21 +1413,38 @@ function VisibilitySelect(props: {
 }
 
 function Avatar({
+  email,
+  image,
   label,
   org,
   group,
+  className,
 }: {
+  email?: string;
+  image?: string | null;
   label: string;
   org?: boolean;
   group?: boolean;
+  className?: string;
 }) {
+  const profileImage = image?.trim();
+  const avatarUrl = useAvatarUrl(profileImage ? undefined : email);
   return (
     <span
       aria-hidden
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+      className={cn(
+        "inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-[11px] font-semibold text-muted-foreground",
+        className,
+      )}
     >
       {org || group ? (
         <IconUsersGroup size={14} strokeWidth={1.75} />
+      ) : profileImage || avatarUrl ? (
+        <img
+          src={profileImage || avatarUrl || undefined}
+          alt=""
+          className="size-full object-cover"
+        />
       ) : (
         initials(label)
       )}
@@ -1420,4 +1493,12 @@ function displayName(
     : t("agentChat.share.unknownPerson", {
         defaultValue: "Unknown person",
       });
+}
+
+function memberImage(email: string, members: OrgMember[]): string | undefined {
+  const normalized = email.trim().toLowerCase();
+  const match = members.find(
+    (member) => member.email.trim().toLowerCase() === normalized,
+  );
+  return match?.image?.trim() || undefined;
 }

@@ -103,7 +103,7 @@ export function runAdoptDbFileContent({
 
     if (isLeadClient && ydoc) {
       const ytext = ydoc.getText("content");
-      if (ytext.toString() !== dbContent) {
+      if (ytext.toJSON() !== dbContent) {
         // Untracked write (agent edit / external DB content replacing a
         // live doc that diverged) — clear the undo stack so a stale
         // tracked delta can't be replayed against content it no longer
@@ -179,7 +179,7 @@ export function runAdoptDbFileContent({
 
           if (isLeadClient && ydoc) {
             const ytext = ydoc.getText("content");
-            if (ytext.toString() !== expectedContent) {
+            if (ytext.toJSON() !== expectedContent) {
               // Untracked write — see U1 note above.
               undoManagerRef.current?.clear(true, false);
               writeCollabText(ydoc, ytext, expectedContent, TAB_ID);
@@ -252,7 +252,7 @@ export function runAdoptDbFileContent({
   // the Yjs update was missed (the failure this fallback exists to cover).
   if (isLeadClient && ydoc) {
     const ytext = ydoc.getText("content");
-    if (ytext.toString() !== dbContent) {
+    if (ytext.toJSON() !== dbContent) {
       // Untracked write — see U1 note above. The view-appropriate
       // checkpoint recorded above (U21) is what Cmd+Z now falls back to.
       undoManagerRef.current?.clear(true, false);

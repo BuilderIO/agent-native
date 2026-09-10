@@ -11,14 +11,17 @@
  * form-builder autosave and an agent edit) are serialized instead of racing
  * on the same row — without the lock, the second writer's read would miss
  * the first writer's not-yet-committed update and silently clobber it.
+ * The database compare-and-swap below also covers requests on different
+ * instances, retrying granular operations against the latest row after a
+ * conflict.
  *
  * The UI form builder uses this action for all incremental edits.
  * The legacy `update-form --fields <json>` path remains available for agents
  * and bulk imports that want to replace the whole fields array at once.
  */
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -28,6 +31,7 @@ import {
   assertValidFields,
   normalizePersistedFields,
 } from "../server/lib/validate-fields.js";
+import { formFieldSchema } from "../shared/field-schema.js";
 import type { FormField } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
@@ -64,10 +68,19 @@ export function withFormLock<T>(
 const fieldOpSchema = z.union([
   z.object({
     op: z.literal("upsert"),
-    field: z
-      .record(z.string(), z.any())
+    // `id` is optional on create-form (auto-generated from the label) but the
+    // merge keys on it, so an id-less upsert would append a field that then
+    // fails validation.
+    field: formFieldSchema
+      .extend({
+        id: formFieldSchema.shape.id
+          .unwrap()
+          .describe(
+            "Stable field id: an existing id replaces that field, a new id appends one.",
+          ),
+      })
       .describe(
-        "Complete field object with id, type, label, and required; never use shorthand strings.",
+        "Complete field object, with `id` set to the field being replaced (see the field schema's own per-property descriptions for what each property means per type). Never use shorthand strings. This REPLACES the whole field, so never rebuild one from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the field with get-form first, or the options past the cap are deleted.",
       ),
   }),
   z.object({
@@ -82,7 +95,7 @@ const fieldOpSchema = z.union([
 
 export default defineAction({
   description:
-    "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive.",
+    "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive. Before adding or restyling a field, read the form with `get-form` and follow its theme and the other fields' label, required, and help-text conventions so the new field matches its siblings.",
   schema: z.object({
     id: z.string().describe("Form ID"),
     ops: z
@@ -96,62 +109,84 @@ export default defineAction({
 
     return withFormLock(args.id, async () => {
       const db = getDb();
-      const [existing] = await db
-        .select()
-        .from(schema.forms)
-        .where(eq(schema.forms.id, args.id))
-        .limit(1);
-
-      if (!existing) {
-        throw new Error(`Form ${args.id} not found`);
-      }
-
       let ops: Array<{ op: string; [k: string]: unknown }>;
       if (typeof args.ops === "string") {
         try {
           ops = JSON.parse(args.ops);
         } catch {
-          throw new Error("--ops must be valid JSON");
+          fail("--ops must be valid JSON", { errorCode: "invalid_ops" });
         }
       } else {
         ops = args.ops as Array<{ op: string; [k: string]: unknown }>;
       }
 
       if (!Array.isArray(ops)) {
-        throw new Error("ops must be an array");
+        fail("ops must be an array", { errorCode: "invalid_ops" });
       }
 
-      // Parse current fields from the DB row.
-      let currentFields: FormField[] = [];
-      try {
-        currentFields = normalizePersistedFields(
-          JSON.parse(existing.fields),
-        ) as FormField[];
-      } catch {
-        currentFields = [];
+      // ponytail: three CAS attempts; move to a shared retry policy if hot-form
+      // contention needs tuning.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const [existing] = await db
+          .select()
+          .from(schema.forms)
+          .where(eq(schema.forms.id, args.id))
+          .limit(1);
+
+        if (!existing) {
+          fail(`Form ${args.id} not found`, {
+            errorCode: "form_not_found",
+            statusCode: 404,
+          });
+        }
+
+        // Parse current fields from the DB row.
+        let currentFields: FormField[];
+        try {
+          currentFields = normalizePersistedFields(
+            JSON.parse(existing.fields),
+          ) as FormField[];
+        } catch {
+          fail("Cannot update fields because saved fields are invalid", {
+            errorCode: "invalid_existing_fields",
+          });
+        }
+
+        // Apply ops server-side so concurrent edits on different fields both land.
+        const nextFields = applyFieldOps(
+          currentFields,
+          ops as Parameters<typeof applyFieldOps>[1],
+        );
+
+        // Validate the result before persisting.
+        assertValidFields(nextFields);
+        if (existing.status === "published") {
+          assertPublishableForm(nextFields);
+        }
+
+        const now = new Date().toISOString();
+        const [written] = await db
+          .update(schema.forms)
+          .set({ fields: JSON.stringify(nextFields), updatedAt: now })
+          .where(
+            and(
+              eq(schema.forms.id, args.id),
+              eq(schema.forms.fields, existing.fields),
+              eq(schema.forms.updatedAt, existing.updatedAt),
+            ),
+          )
+          .returning({ id: schema.forms.id });
+
+        if (written) {
+          invalidatePublicFormCache(existing);
+          return { id: args.id, fields: nextFields, updatedAt: now };
+        }
       }
 
-      // Apply ops server-side so concurrent edits on different fields both land.
-      const nextFields = applyFieldOps(
-        currentFields,
-        ops as Parameters<typeof applyFieldOps>[1],
+      fail(
+        `Form ${args.id} changed while this update was in progress; read it again and retry`,
+        { errorCode: "form_changed", statusCode: 409 },
       );
-
-      // Validate the result before persisting.
-      assertValidFields(nextFields);
-      if (existing.status === "published") {
-        assertPublishableForm(nextFields);
-      }
-
-      const now = new Date().toISOString();
-      await db
-        .update(schema.forms)
-        .set({ fields: JSON.stringify(nextFields), updatedAt: now })
-        .where(eq(schema.forms.id, args.id));
-
-      invalidatePublicFormCache(existing);
-
-      return { id: args.id, fields: nextFields, updatedAt: now };
     });
   },
 });

@@ -1,4 +1,5 @@
-export { default } from "../pages/Index";
+import { appPath } from "@agent-native/core/client/api-path";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 
 const SEO_TITLE =
   "Design - Open Source AI design tool for agent-built prototypes";
@@ -18,4 +19,16 @@ export function meta() {
     { name: "twitter:title", content: SEO_TITLE },
     { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
+}
+
+export default function MarketingHomeRoute() {
+  return (
+    <MarketingHome
+      appName="Design"
+      tagline={SEO_TITLE}
+      description={SEO_DESCRIPTION}
+      primaryActionHref={appPath("/home")}
+      secondaryActionHref={appPath("/sign-in")}
+    />
+  );
 }

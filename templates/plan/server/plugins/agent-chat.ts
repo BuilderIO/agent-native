@@ -9,9 +9,91 @@ import { z } from "zod";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { PLAN_CONNECTOR_CATALOG } from "../lib/plan-connector-catalog.js";
 import { PLAN_FRAMEWORK_TOOLS } from "../lib/plan-framework-tools.js";
+import { planVersionChatContextFromRun } from "../lib/plan-versions.js";
 import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
+import { assertPlanEditor } from "../plans.js";
 
 const PLAN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+
+const PLAN_EDIT_TOOLS = new Set([
+  "convert-visual-plan-to-prototype",
+  "patch-visual-plan-source",
+  "restore-plan-version",
+  "update-visual-plan",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+function hasPlanEdit(
+  run: { events: readonly unknown[] },
+  planId: string,
+): boolean {
+  return run.events.some((entry, index) => {
+    const record = eventRecord(entry);
+    const input = record
+      ? inputForCompletedTool(run.events, index, record)
+      : undefined;
+    return (
+      record?.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      PLAN_EDIT_TOOLS.has(record.tool) &&
+      (input?.planId ?? input?.id) === planId
+    );
+  });
+}
+
+async function autosavePlanAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  if (scope.type !== "plan" || !hasPlanEdit(run, scope.id)) return;
+  await assertPlanEditor(scope.id);
+  const { createPlanVersionSnapshot } = await import("../lib/plan-versions.js");
+  await createPlanVersionSnapshot(scope.id, {
+    force: true,
+    label: "Chat autosave",
+    createdBy: "agent",
+    chatContext: planVersionChatContextFromRun(run),
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Register plan event-bus events
@@ -127,6 +209,7 @@ const INITIAL_TOOL_NAMES = [
 
 const planAgentChatOptions = {
   appId: "plan",
+  onAgentTurnComplete: autosavePlanAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   anonymousOwner: resolvePlanAnonymousOwner,

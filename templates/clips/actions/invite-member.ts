@@ -20,6 +20,7 @@ import {
   renderEmail,
   emailStrong,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -153,22 +154,41 @@ export default defineAction({
 
     const orgName = await fetchOrgName(organizationId);
     const inviteUrl = `${baseUrl()}/invite/${token}`;
+    const emailConfigured = await isEmailConfigured();
+    let notified = false;
 
-    try {
-      await sendEmail({
-        ...renderClipsInviteEmail({
-          appName: getAppName(),
-          orgName,
-          inviter,
-          role,
-          inviteUrl,
-        }),
-        to: args.email,
-        templateId: CLIPS_ORGANIZATION_INVITE_EMAIL_ID,
-      });
-    } catch (err) {
-      console.warn("[invite-member] email send failed:", err);
+    if (emailConfigured) {
+      try {
+        await sendEmail({
+          ...renderClipsInviteEmail({
+            appName: getAppName(),
+            orgName,
+            inviter,
+            role,
+            inviteUrl,
+          }),
+          to: args.email,
+          templateId: CLIPS_ORGANIZATION_INVITE_EMAIL_ID,
+        });
+        notified = true;
+      } catch (err) {
+        console.warn("[invite-member] email send failed:", err);
+      }
     }
+
+    track(
+      "share_invite_sent",
+      {
+        app: "clips",
+        template: "clips",
+        resource_type: "organization",
+        resource_id: organizationId,
+        principal_type: "user",
+        role,
+        notified,
+      },
+      { userId: inviter },
+    );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
@@ -192,7 +212,7 @@ export default defineAction({
       status: "pending" as const,
       token,
       inviteUrl,
-      emailConfigured: await isEmailConfigured(),
+      emailConfigured,
     };
   },
 });

@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { deriveAppIdentity } from "./app-identity.js";
+import {
+  deriveAppIdentity,
+  isFirstPartyApp,
+  resolveAppHomePath,
+} from "./app-identity.js";
 import { getAppConfig, resetAppConfigForTests } from "./store.js";
 
 const base = { packageName: undefined } as Parameters<
@@ -41,6 +45,69 @@ describe("deriveAppIdentity", () => {
     expect(app.name).toBe("Acme");
     // ...while still filling the fields that were left unset.
     expect(app.slug).toBe("mail");
+  });
+
+  it("does not treat a custom package as first-party after a template rename", () => {
+    expect(
+      isFirstPartyApp({
+        ...base,
+        packageName: "try-marisco",
+        slug: "chat",
+      }),
+    ).toBe(false);
+    expect(
+      isFirstPartyApp({ ...base, packageName: "slides", slug: "slides" }),
+    ).toBe(true);
+  });
+
+  it("does not treat a same-named app as first-party when its source differs", () => {
+    expect(
+      isFirstPartyApp({
+        ...base,
+        packageName: "slides",
+        slug: "slides",
+        sourceTemplate: "chat",
+      }),
+    ).toBe(false);
+    expect(
+      isFirstPartyApp({
+        ...base,
+        packageName: "slides",
+        slug: "slides",
+        sourceTemplate: "slides",
+      }),
+    ).toBe(true);
+  });
+
+  it("defaults apps to /home while allowing an explicit root opt-out", () => {
+    expect(
+      resolveAppHomePath({ ...base, packageName: "mail", slug: "mail" }),
+    ).toBe("/home");
+    expect(resolveAppHomePath({ ...base, packageName: "customer-crm" })).toBe(
+      "/home",
+    );
+    expect(
+      resolveAppHomePath({
+        ...base,
+        packageName: "test-standalone",
+        sourceTemplate: "chat",
+      }),
+    ).toBe("/home");
+    expect(
+      resolveAppHomePath({
+        ...base,
+        packageName: "mail",
+        slug: "mail",
+        homePath: "/inbox",
+      }),
+    ).toBe("/inbox");
+    expect(
+      resolveAppHomePath({
+        ...base,
+        packageName: "customer-crm",
+        homePath: "/",
+      }),
+    ).toBe("/");
   });
 
   it("runs on the resolved config, so APP_NAME still wins", () => {

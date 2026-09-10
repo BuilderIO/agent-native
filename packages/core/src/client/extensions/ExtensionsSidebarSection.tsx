@@ -718,7 +718,7 @@ export function ExtensionsSidebarSection() {
           return next;
         });
         if (isExtensionPathname(location.pathname, extensionId)) {
-          navigate("/extensions");
+          void navigate("/extensions");
         }
       } catch {
         if (prev) queryClient.setQueryData(["extensions"], prev);
@@ -738,7 +738,7 @@ export function ExtensionsSidebarSection() {
           { method: "POST" },
         );
       } finally {
-        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        void queryClient.invalidateQueries({ queryKey: ["extensions"] });
       }
     },
     [queryClient],
@@ -755,7 +755,7 @@ export function ExtensionsSidebarSection() {
           { method: "POST" },
         );
       } finally {
-        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        void queryClient.invalidateQueries({ queryKey: ["extensions"] });
       }
     },
     [queryClient],
@@ -792,11 +792,15 @@ export function ExtensionsSidebarSection() {
             body: JSON.stringify({ name: trimmed }),
           },
         );
-        queryClient.invalidateQueries({ queryKey: ["extensions"] });
-        queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+        void queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["extension", extensionId],
+        });
       } catch {
         if (prev) queryClient.setQueryData(["extensions"], prev);
-        queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+        void queryClient.invalidateQueries({
+          queryKey: ["extension", extensionId],
+        });
       }
     },
     [renameValue, queryClient],
@@ -1118,7 +1122,8 @@ export function ExtensionsSidebarSection() {
                           onChange={(e) => setRenameValue(e.target.value)}
                           onBlur={() => submitRename(extension.id)}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") submitRename(extension.id);
+                            if (e.key === "Enter")
+                              void submitRename(extension.id);
                             if (e.key === "Escape") setRenamingId(null);
                           }}
                           onClick={(e) => {

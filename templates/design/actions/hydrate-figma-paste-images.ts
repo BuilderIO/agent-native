@@ -18,6 +18,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   applyHydration,
   collectImageRefHashes,
@@ -40,7 +41,7 @@ export default defineAction({
         "ID of the design_files row to hydrate. Use the fileId returned by import-figma-clipboard.",
       ),
   }),
-  run: async ({ fileId }) => {
+  run: async ({ fileId }, context) => {
     const { workspaceFile, designId, figmaFileKey } =
       await loadHydratableFile(fileId);
 
@@ -95,6 +96,7 @@ export default defineAction({
       };
     }
 
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const result = await applyHydration({
       file: workspaceFile,
       designId,

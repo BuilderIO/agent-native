@@ -1,3 +1,7 @@
+import {
+  DEFAULT_BIG_NUDGE_PX,
+  DEFAULT_SMALL_NUDGE_PX,
+} from "@shared/canvas-math";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -18,7 +22,10 @@ export interface NudgeAmounts {
   big: number;
 }
 
-export const DEFAULT_NUDGE_AMOUNTS: NudgeAmounts = { small: 1, big: 10 };
+export const DEFAULT_NUDGE_AMOUNTS: NudgeAmounts = {
+  small: DEFAULT_SMALL_NUDGE_PX,
+  big: DEFAULT_BIG_NUDGE_PX,
+};
 
 export type FlowAxis = "horizontal" | "vertical";
 

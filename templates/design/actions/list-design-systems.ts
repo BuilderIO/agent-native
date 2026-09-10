@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   accessFilter,
   resolveAccess,
@@ -8,6 +9,7 @@ import { desc } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDefaultDesignSystemId } from "../server/lib/design-system-defaults.js";
 
 function canManageRole(role: "owner" | ShareRole) {
   return role === "owner" || role === "admin";
@@ -15,8 +17,11 @@ function canManageRole(role: "owner" | ShareRole) {
 
 export default defineAction({
   description:
-    "List all design systems accessible to the current user. " +
-    "Returns title, id, and whether each is the default.",
+    "List all design systems accessible to the current user. Returns title, " +
+    "id, and isDefault (true only for the caller's effective default). For a " +
+    "named system, match the exact title and pass its id as designSystemId " +
+    "— or pass the title as `designSystem` on create-design — then call " +
+    "get-design-system once before authoring.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -25,6 +30,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpApp: { compactCatalog: true },
   run: async (args) => {
     const db = getDb();
     const rows = await db
@@ -36,6 +42,14 @@ export default defineAction({
     if (rows.length === 0) {
       return { count: 0, designSystems: [] };
     }
+
+    // The row-level isDefault column is per-owner, so a shared system owned by
+    // someone else can carry isDefault: true for them. Compute the caller's
+    // own effective default once and report that instead of the raw column.
+    const userEmail = getRequestUserEmail();
+    const effectiveDefaultId = userEmail
+      ? await resolveDefaultDesignSystemId(userEmail)
+      : null;
 
     const accessById = new Map<
       string,
@@ -68,7 +82,7 @@ export default defineAction({
         return {
           id: row.id,
           title: row.title,
-          isDefault: row.isDefault,
+          isDefault: row.id === effectiveDefaultId,
           accessRole: access.role,
           canManage: access.canManage,
         };
@@ -80,7 +94,7 @@ export default defineAction({
         data: row.data,
         assets: row.assets,
         customInstructions: row.customInstructions ?? "",
-        isDefault: row.isDefault,
+        isDefault: row.id === effectiveDefaultId,
         visibility: row.visibility,
         accessRole: access.role,
         canManage: access.canManage,

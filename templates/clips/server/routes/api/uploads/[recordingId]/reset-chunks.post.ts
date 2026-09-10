@@ -158,14 +158,27 @@ function pickString(value: unknown, max: number): string | undefined {
   return trimmed.slice(0, max);
 }
 
-export default defineEventHandler(async (event: H3Event) => {
-  const recordingId = getRouterParam(event, "recordingId");
+export async function handleResetRecordingChunks(
+  event: H3Event,
+  override?: {
+    recordingId?: string;
+    ownerEmail?: string;
+    orgId?: string;
+  },
+) {
+  const recordingId =
+    override?.recordingId ?? getRouterParam(event, "recordingId");
   if (!recordingId) {
     setResponseStatus(event, 400);
     return { error: "Missing recordingId" };
   }
 
-  const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
+  const { ownerEmail, orgId } = override?.ownerEmail
+    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
+    : await getEventOwnerContext(event).then(({ userEmail, orgId }) => ({
+        ownerEmail: userEmail,
+        orgId,
+      }));
   const body = (await readBody(event).catch(() => null)) as {
     compression?: CompressionMeta | null;
     requestStreaming?: boolean;
@@ -593,4 +606,8 @@ export default defineEventHandler(async (event: H3Event) => {
       uploadGenerationId: nextGenerationId,
     };
   });
-});
+}
+
+export default defineEventHandler((event: H3Event) =>
+  handleResetRecordingChunks(event),
+);

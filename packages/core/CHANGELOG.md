@@ -1,5 +1,981 @@
 # @agent-native/core
 
+## 1.0.0
+
+### Major Changes
+
+- ea6123a: Remove the legacy settings view from agent chat surfaces.
+
+### Minor Changes
+
+- e977e59: Automatically expose eligible backend actions as WebMCP tools on authenticated app pages.
+
+### Patch Changes
+
+- 0a07d1a: Route chat "What went wrong?" feedback through the shared Agent-Native form so its configured Slack integration receives the chat and request context.
+- 4af2889: Use the cube loader for app shells and agent activity, with long-running hints delayed to five minutes.
+- a1b4ae8: Make recurring automation actions available to delegated Agent-Native turns.
+- 8fe0f75: fix: keep authentication email links on their canonical HTTPS origin
+- 6675922: Fail closed when collaborative client initialization cannot load a valid state, with typed retryable errors and no outbound updates before synchronization succeeds.
+- 0fee765: Keep MCP OAuth callbacks from returning to chat until the saved server is connected.
+- 1f8e13c: Route managed Google OAuth through the provider-aware root callback on standalone apps.
+- Release all public npm packages with a patch version bump.
+- c2b2ca7: Track usage of the MCP server an app exposes. Every `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read` now emits an analytics event through the framework's provider-agnostic `track()`, so the metrics land in whichever provider the app has configured (PostHog, Mixpanel, Amplitude, webhook, Agent-Native Analytics).
+
+  Event and property names follow PostHog's MCP analytics vocabulary — `$mcp_tool_call`, `$mcp_tool_name`, `$mcp_duration_ms`, `$mcp_is_error`, `$mcp_client_name`, `$mcp_vendor_client`, … — so PostHog's MCP dashboards work with no mapping layer. Both transports report identically: the events are emitted from the shared server builder, with the handshake captured at the HTTP mount where the client's own name and version are on the wire.
+
+  Tool results are never sent. Tool arguments are off by default; set `MCP_ANALYTICS_PARAMETERS=true` (`observability.mcpCaptureParameters`) to include them as redacted `$mcp_parameters`, or `MCP_ANALYTICS=false` (`observability.mcpEvents`) to turn the events off entirely.
+
+- 5820376: Use a monochrome Agent-Native mark in app sidebars.
+- c2b2ca7: Name agent traces by what started them. Background automation runs now emit `background_automation_run:<job name>` as their span name (plus a `run_label` property carrying `recurring-job:` / `manual-automation:` / `automation:`), and a chat turn that sets `usageLabel` emits `agent_run:<label>` instead of a bare `agent_run`.
+
+  `sendToAgentChat` accepts a `usageLabel`, which rides the submit payload through the composer and the chat request body to that label.
+
+- 8edbd88: Preserve custom OpenRouter model IDs selected in Agent settings.
+- 3feb9ce: Make Builder.io free-credit activation consent a compact one-click popover with an existing-account fallback during onboarding.
+- 8239ce1: Show the Connect AI setup card above shared chat composers when provider credentials fail.
+- c2b2ca7: Make the agent output-token ceiling configurable and stop scheduled runs from silently getting a smaller one than chat.
+  - `agent.maxOutputTokens` (env `AGENT_MAX_OUTPUT_TOKENS`), `agent.mainChatMaxOutputTokens` (default 64K) and `agent.emptyResponseRetryMaxOutputTokens` (default 128K) are declared app-config fields, so the global cap is no longer a bare `process.env` read and an app can set it from `defineAppConfig`. Every value is still clamped down to the model's documented ceiling.
+  - The background automation runner now passes the same model-aware ceiling the interactive paths pass. It previously passed none, so every scheduled job and dispatched automation ran at the flat per-engine default — a lower completion budget than chat, on exactly the runs that emit the largest single tool call.
+  - A `max_tokens` stop is now recognised as truncation when tool-call parts are present, not only when they are absent. A tool call cut off mid-arguments used to read as a schema error: the model was told to "retry with arguments that match the tool schema" and re-sent the same oversized payload against the same ceiling until the identical-error breaker ended the turn, with the tool never executed. The retry now raises the ceiling and the error names the real cause.
+
+- ef5d097: Restore hosted first-run onboarding after email verification and sign-in redirects.
+- 5b7a8ea: Replace flashing skeleton pulses with a smooth whole-surface loading shine.
+- 48b09d5: Add shared shine and rotating loading labels to the app shell, and slightly enlarge active tool-call cube loaders.
+- Updated dependencies [844fa10]
+- Updated dependencies [4af2889]
+- Updated dependencies
+- Updated dependencies [dcc9f89]
+- Updated dependencies [163dd55]
+- Updated dependencies [5b7a8ea]
+  - @agent-native/toolkit@0.18.0
+  - @agent-native/recap-cli@0.5.21
+
+## 0.178.1
+
+### Patch Changes
+
+- 35eb1e6: Preserve the Design "Make this a real app" waitlist use case for Forms routing.
+- 1f6d412: Propagate request continuations to actions so background cache writes can finish reliably.
+- 2a2f929: Make the Builder.io free credits card header in first-run setup start the
+  activation flow. The header arrow looked like the card's affordance but was
+  decorative, so clicking it did nothing while the neighboring "Use my own keys"
+  card was clickable end to end.
+- 2b9e4aa: Keep the All chats history popover open when launched from the agent panel menu.
+- e5364ac: Keep request-independent login pages on the local auth surface for PR preview hosts.
+- 4676e71: Show popular OpenRouter models in the chat picker and preserve custom selections.
+- b7c56a1: Settings → Integrations → Keys now reports the value each app actually uses and where it comes from (personal, workspace, Vault, or environment) instead of only the row it wrote itself, so keys synced from the Dispatch Vault no longer look unset. The "+ New" menu keeps a custom-key row visible and turns typed text into a custom key. The Dispatch Vault add/edit dialogs are key-first, and its access card explains how apps see Vault keys.
+- Release all public npm packages with a patch version bump.
+- 7eebc21: Open MCP OAuth setup in a new tab so the current app stays available.
+- 6a0f973: Preserve exact pending action inputs when resuming an approved tool call.
+- facb1ed: Preserve the prerendered Netlify root shell for explicitly public apps.
+- 63f77f0: Prevent Cmd/Ctrl+K from reaching an outer host while a command menu input is focused.
+- 0fcdb36: Keep the command picker above navigation drawers by using the shared dialog stacking order.
+- 63bc52e: Keep the Builder connect OAuth callback on the preview origin the popup was opened on. In a workspace deploy behind a Builder-hosted preview, the callback origin resolved to the loopback workspace gateway, so Builder returned the authorization code to the visitor's own machine instead of the preview server holding the pending flow, and the connect popup failed with "No active Builder connect flow found. Restart the connection from Settings."
+- b3262c3: Remove Sentry source maps from production build artifacts without blocking deploys when their upload fails.
+- b7c56a1: Harden security across CLI action runners and scheduling actions: safely tokenize and quote CLI arguments in fallback action routes to prevent shell command injection, require viewer access on routing form responses, and enforce access checks on event type ID queries.
+- 0dc7290: Simplify device authorization screen by removing the redundant accordion heading and toggle, and using Tabler terminal icon.
+- d986fe3: Add Turn Into App as a built-in exported skill, installable through `agent-native skills add turn-into-app` and shown in the interactive skill picker, alongside `an`, `visual-plan`, and the other framework skills.
+- facb1ed: Warm the grouped and per-client-loader `.data` URLs React Router requests during navigation.
+- 35eb1e6: Shine the running "Working" chat status label so long turns still look active.
+- Updated dependencies [35eb1e6]
+- Updated dependencies [4676e71]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.7
+  - @agent-native/recap-cli@0.5.29
+
+## 0.178.0
+
+### Minor Changes
+
+- 8acd379: Add user-controlled experiments to shared settings, search, and action surfaces.
+- 46391ca: Store the rendered HTML/text body of every transactional email send alongside the existing send-log record, and show it in the Dispatch send log detail dialog so an org admin can see exactly what was sent, not just the redacted provider request. Magic links, password-reset/verification links, JWT-shaped tokens, and OTP/verification codes are redacted from the body before it is persisted, since `email_log` is org-admin readable. The list query never returns bodies (fetched lazily per row via a new `get-email-log-body` action once a row is opened), and the sandboxed HTML preview now carries a restrictive CSP so a body can't load remote tracking images/styles.
+
+### Patch Changes
+
+- e8b291e: Use the shared mouse-reactive wave animation as the branded auth background across all templates.
+- 632665b: Allow apps to register custom BCP-47 locales with catalog metadata and English framework fallback.
+- b21d29c: Clarify first-run capability requirements, make the Builder services popover a bulleted list, and let users skip manual key setup.
+- 92297ec: Show the Builder reconnect path when an OAuth-backed gateway request returns a bare 403.
+- e57a58a: Let app history restores prepare pending edits and apply the committed result before chat reports success.
+- 0a64d41: Remove unused `p-limit` dependency and dead unexported `usePausingInterval` hook.
+- 09ec5c0: Keep docs links on client-side navigation without intercepting non-app same-origin paths.
+- 094cc5b: Set a fast interaction-feedback standard across generated Agent-Native app instructions and shared frontend guidance.
+- b6bd189: Suppress telemetry for `+autoz` QA identities across the shared tracking paths.
+- 840cb6c: Add recipient, sender, and template inclusion and exclusion filters to the transactional email send log action and Dispatch controls.
+- 8fafe18: Keep the email verification resend countdown visible and current until it expires.
+- 804113d: Enforce the package's Node.js 22.22.0 minimum in the CLI before scaffolding.
+- d7408c3: Fix trigger error caching and webhook retries, fail closed on unreadable turn budgets, verify process run failure terminal status, optimize extension list queries, and validate Google service account token_uri against SSRF.
+- 4822dad: Keep workspace app discovery and A2A calls working on protected Vercel previews.
+- 554c771: Keep share dialogs readable while additive migrations are pending, and let
+  ordinary iframe pages load cross-origin subresources. Improve new-project setup
+  and Slack identity recovery guidance. Keep Cloudflare Workers builds below the
+  static-header rule limit, allow local Ollama endpoints on local non-production
+  servers, surface provider-setting errors, keep one PGlite client across dev
+  reload realms, permit the optional terminal build in fresh scaffolds, and
+  clarify standalone deployment.
+- 4822dad: Keep standalone usage metrics visible when token usage has no configured app identity.
+- 4822dad: Preserve Vite assets for colliding workspace app ids and reconcile deployed app registry records.
+- 5c1b5e0: Fix the default social/OG image's advertised MIME type to match the actual asset (JPEG, not PNG) via a new `AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE` export, and add the guard's documented opt-out pragma to the fixed brand-palette color literals in the OG image generators.
+- d26705c: Use Google’s canonical identity scopes for browser sign-in.
+- 74c9585: Restore organization scope for legacy connect tokens that predate the JWT org claim.
+- Release all public npm packages with a patch version bump.
+- 999dc70: Keep application-owned job YAML when updating an existing automation. Status, enable/disable, and schedule writes patch named keys instead of rebuilding the markdown from known fields.
+- 6e02aa4: Reject failed or incomplete provider-save responses, display the confirmed saved model, keep fallback provider/model pairs consistent, and keep provider controls reachable in narrow viewports.
+- 8f0c972: Record when a share notification was actually emailed (`notified_at` on share
+  tables) so follow-up email can tell a deliberate share from a silent access
+  grant.
+- e57a58a: Keep Cloudflare SSR builds compatible with current Yjs editor imports.
+- bc67356: Fix a crash on the auth/signup page (`NotFoundError: removeChild`) caused by the ocean background's dynamically-loaded renderer chunk sharing tuning/color modules with the auth entry chunk, which made the browser re-import and re-execute the entry chunk's hydration a second time. The shared values now live in their own module, and hydration is guarded to run only once as a backstop.
+- 9b801b6: Preserve organization scope when HTTP actions authenticate with an MCP token.
+- dffb4b8: Refresh page-local WebMCP clients when an in-app browser reconnect replaces the model context.
+- de384ae: Preserve complete structured MCP action results for clients without inline apps, so mutation receipts remain available when display text is shortened.
+- 4822dad: Restore Dispatch access for all authenticated organization members.
+- d1d8495: Preserve mounted app routes across settings navigation and surface failed Builder connection authorization immediately.
+- e89b114: Keep Google and email authentication as the only visible sign-in choices while optionally bootstrapping a Dispatch session and local cross-app session after sign-in. The handoff uses a short-lived, one-time server-side handle and preserves existing local accounts and cookies.
+- de384ae: Include core actions in the agent tool catalog when an app supplies a static action registry, so audit history remains discoverable while respecting disabled framework tool groups.
+- 6b397ca: Create Builder projects from the `agent-native-starter` template by default while preserving the deprecated repository-backed project helpers.
+- be49675: Ignore malformed runtime database URL aliases and fall back to a usable database URL.
+- d3386d0: WebMCP no longer excludes an action just because it declares `needsApproval`. The action stays discoverable, and a call is refused with an `approval_required` error telling the caller to ask the user to confirm in chat only when that call's actual arguments trip the predicate.
+- Updated dependencies [e8b291e]
+- Updated dependencies [4915b82]
+- Updated dependencies
+- Updated dependencies [3bde94f]
+  - @agent-native/toolkit@0.19.6
+  - @agent-native/recap-cli@0.5.28
+
+## 0.177.1
+
+### Patch Changes
+
+- 48a4eca: Add a durable audit trail for every transactional email send attempt. The shared `sendEmail()` transport now records the outbound request payload (with auth links and message bodies redacted) and the raw provider response/status for both successes and failures, so Dispatch can show exactly what was sent, to whom, and why a send failed. The `list-email-log` action gained filters for recipient, sender, status, provider, and date range with stable pagination, and a new searchable "Send log" section was added to `/admin/transactional-email`. Magic-link sign-in emails are now tagged with a `core.magic-link` template id so they show up alongside other auth emails in the catalog and send log.
+- 48a4eca: Record request payload, response status, and response body on every email send log entry, and support filtering the send log by recipient, sender, status, provider, and time range.
+- 5c0e4c7: Fix duplicate clear ("x") icons in the Settings and Agent page search bars by hiding the browser's native WebKit search-cancel button on inputs that render their own custom clear button.
+- Release all public npm packages with a patch version bump.
+- 7a24645: Let multi-organization users choose which organization an MCP OAuth connection is authorized for.
+- 050fad2: Keep mobile OAuth session cookies on the callback response and detect completed magic-link sessions in the auth page.
+- a6fb3c6: Remove the "Sign in with Agent-Native" browser login option and automatic SSO handoff from auth pages.
+- d891beb: Add server-backed search to the organization member list and hide role editing
+  from admins to match the owner-only role policy.
+
+  Show an error with a retry action when members cannot be loaded, instead of
+  presenting failed searches as empty results.
+
+  Keep a debounced member search on its first page when pagination is used while
+  the new query is pending.
+
+- c050912: Search fields that draw their own clear button no longer also show WebKit's native cancel widget, so only one clear control renders.
+- e5e6962: Request Builder OAuth scopes covering agent execution, browser connections, assets, projects, and design systems; use OAuth-first authorization (with legacy private-key fallback) across the Builder browser, design-system, asset-deletion, and Fusion APIs; and surface actionable reconnect errors instead of generic failures when a Builder grant needs re-authorizing.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/recap-cli@0.5.27
+  - @agent-native/toolkit@0.19.5
+
+## 0.177.0
+
+### Minor Changes
+
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+
+### Patch Changes
+
+- 92c5992: Add Sigma's remote MCP server to the integration catalog with OAuth setup guidance and branded logo support.
+- b804f4a: MCP/WebMCP instructions now advertise the app's key tools from
+  `initialToolNames` (override with `mcp.keyToolNames`) and name `view-screen`
+  literally. MCP tool results keep the deep link and surface
+  `nextRequiredAction` as "Next: …".
+- 6c84a09: Automatically register template WebMCP actions on public and private app
+  surfaces, with an explicit opt-out for exceptional shells.
+- 464c3fc: Expose linked design-system context consistently to external MCP and WebMCP agents.
+- cef8c06: Group organization switcher actions into clearly labeled workspace, account, organization, and tools sections.
+- 52944fb: Load the tracking registry lazily from the action lifecycle wrapper so `@agent-native/core`'s browser entry no longer pulls `server/deploy-environment` and the database client into client bundles, which crashed the Slides deck editor at load. A test now walks the browser entry's static import graph and fails on any server-only module.
+- cef8c06: Add opt-in persistent agent sidebar toggles, customizable toggle icons, and hideable inline collapse controls.
+- 4ca5522: Expose the current sync-event batch to action invalidation predicates so apps can keep cache refreshes narrowly scoped.
+- cef8c06: Route Clips' shadcn UI primitives through the shared Toolkit while preserving its intentional line-tab variant.
+- 71ebb30: `loadAgentDesignSystemContext` returns a bounded summary on reads and the full design-system context only when asked (`{ full: true }`); an unreadable link now says whether retrying can help.
+- 2ab0a5e: Fix extension/slide content patches ending the agent's turn on the first text
+  mismatch instead of letting the model retarget. Extension and slide literal
+  find/replace edits now fall back to whitespace-flexible matching (tolerating
+  re-indentation and CRLF/LF differences), report the closest-matching lines
+  when nothing is found, and flag more than one match as ambiguous instead of
+  silently patching the first one.
+- 98a61a0: External MCP/WebMCP surfaces now hide turn-ending in-app question actions (`endsTurn: true`) by default and accept tool inputs/results up to 500,000 characters, so external agents author and save whole screens, decks, and documents directly instead of stalling on an in-app answer or hitting the old 20k/50k character caps.
+
+  The page-local WebMCP action bridge now sends the calling browser tab id (`X-Agent-Native-Browser-Tab`, the header the action routes resolve into `getRequestRunContext()?.browserTabId`), so `readAppStateForCurrentTab` scopes navigation and selection reads for a WebMCP call to the tab that made it instead of whichever tab last wrote the global key.
+
+- cb3a95f: Add opt-in canonical organization federation across Agent-Native app deployments.
+- 8199216: Add an optional `exhaustedDraftPrefix` to `AgentLoopFinalResponseGuardResult`. When the final-response guard's retries are exhausted, an app that sets this field keeps the model's non-empty draft and prepends the prefix instead of replacing it with `fallbackMessage`; an empty draft still falls back to `fallbackMessage`. Apps that don't set the field keep the existing replace behavior.
+- 2815f2a: Make the Builder free-credits service list open when users click "+8 more" during onboarding.
+- 324b27e: Fix org creation and SSO login failing with `value "<epoch ms>" is out of range for type integer` by widening `organizations`, `org_members`, `org_invitations`, `app_member_roles`, `workspace_apps`, `identity_sso_flow_state`, and `identity_sso_jti` millisecond-timestamp columns from `INTEGER` to `BIGINT`. Also corrects the Drizzle schema for these tables plus `chat_threads`, `email_log`, and `app_secrets`, which declared their (already- or now-)BIGINT timestamp columns as `integer(...)` — silently mistyping them as `number` when node-postgres actually decodes `BIGINT` as a string.
+- 9e6f642: Pass the input shape expected by the active WebMCP host adapter, including the
+  Codex page adapter.
+- aa4f7b6: Steer WebMCP clients toward direct mutations when current selection or item
+  context already identifies a focused edit target.
+- bea5bbd: Update the package README with the current Agent-Native positioning, quick start, architecture, and app examples.
+- 7b19c49: Add an authenticated compare-and-set application-state route for race-safe browser acknowledgements.
+- a22a313: `/_agent-native/health` reports `database.runningApp` and only claims
+  `identityMismatch` when the runtime can derive its own app identity; a hosted
+  bundle that resolves no slug/id reports the gap instead of blocking every
+  production cutover. The deploy smoke check warns on identity mismatch for this
+  rollout rather than failing.
+- 30b1941: Add `summarizeHtmlStyles` and `formatHtmlStyleSummary` to `@agent-native/core/shared` so a current-screen read can print the style vocabulary shared by sibling HTML fragments (backgrounds, text and accent colors, fonts, heading sizes) and an agent editing one item matches the others instead of inventing values.
+- cef8c06: Allow apps to place the shared environment badge in an inline brand slot and opt out of the provider-level badge.
+- f11c6be: Keep the cached app shell loader from flashing during client hydration.
+- 42f5fc3: Job and automation status writes keep application-owned frontmatter (such as a Factory Slack channel) instead of dropping those YAML extras when a run completes.
+- 85582cb: Make Agent-Native OpenTelemetry spans parent correctly under each agent run and
+  export bracketed model calls as live per-call spans.
+- Release all public npm packages with a patch version bump.
+- bb13ba4: Use the shared branded background for generated Agent-Native OG images.
+- cef8c06: Keep organization switching and management actions together, ordered with member invitations before settings and organization creation.
+- a7634e2: Use the docs homepage WebGL halftone field for shared public-page backgrounds.
+- 434fbb2: Add flag-gated silent browser identity handoff across canonical hosted apps.
+- 1852196: Skip unchanged dashboard writes and history snapshots so autosave stays frequent without creating duplicate revisions.
+- 0d68c54: Allow long-lived operation groups to coalesce remote undo entries.
+- 4c25e85: Fix desktop terminal colors and app surface loading behavior.
+- df9cfb2: Prevent Workspace settings from flashing Builder connection actions while status loads.
+- 2ab0a5e: Stop a tool call on the first failure, instead of retrying it three times, when its error text embeds a nested A2A/ask_app delegation's own permanent-precondition marker ("needs a setup step outside this turn" or "code: permanent_precondition").
+- 056e5f2: Remove obsolete built-in template Wrangler deployment artifacts and guidance now that first-party sites use Netlify.
+- 58d613a: Revalidate the current session before automatic beta redirects.
+- 859a891: Inject the session-replay iframe bootstrap at the first `</head>` that is real
+  markup rather than the first one anywhere in the string. A preview document
+  that inlines a script whose source mentions `</head>` had the bootstrap spliced
+  into that script's body, which unterminated a string literal and let the
+  bootstrap's own `</script>` close the host script early — the whole inlined
+  bundle then failed to parse and the preview silently lost every interaction.
+- b542ff2: Allow explicitly authenticated custom routes to reuse connect-minted MCP bearer sessions.
+- 9e54b12: Add canonical lifecycle and action-level analytics tracking across framework apps.
+- 96cb0c5: Scope agent context, navigation, WebMCP actions, and sidebar chat state to the active browser tab.
+- 801aedd: Preserve composed object input schemas while adding the explicit root object type required by MCP tool discovery.
+- cef8c06: Allow apps to add low-frequency utility links to the shared organization switcher menu.
+- 29bfdbc: Surface a failed Builder connection-status read instead of leaving the
+  first-run "Activate Builder.io free credits" CTA silently inert. `statusResolved`
+  only flips on a successful status response, so a 404, a 500, or the 10s abort
+  left the button fully styled and dead for the rest of the session with nothing
+  rendered and nothing logged.
+- 4c0dd7a: Warm the root route data endpoint when it enters the viewport.
+- c5b58a7: Make focused WebMCP edits self-correcting by advertising required fields and preserving safe action contract errors.
+- 947a973: Remove the `window.__agentNativeWebMcp` page helper when the last WebMCP registration stops, report an honest failed status from `ready()` when no registration exists, and keep same-origin `{ origin }` calls on the normal page listing so the polyfill does not reject them.
+- 47ceaf2: Publish a `window.__agentNativeWebMcp` page helper for browser agents that wraps readiness, discovery, the host input contract, stale-descriptor retries, and pending handles for short evaluators; register WebMCP tools concurrently so a hidden browser pane no longer pays one throttled timer wake-up per tool; and re-poll the sync transport after WebMCP writes so the UI repaints without a reload.
+- Updated dependencies [e29fee8]
+- Updated dependencies [cef8c06]
+- Updated dependencies
+- Updated dependencies [73c36ce]
+  - @agent-native/toolkit@0.19.4
+  - @agent-native/recap-cli@0.5.26
+
+## 0.176.5
+
+### Patch Changes
+
+- 345fcd7: Allow signed Creative Context background processors to bypass session auth and
+  cover both processor HMAC routes.
+- 1670de6: Fix a cold-start latency bug where `/_agent-native/auth/session` (and the
+  other early auth/sign-in routes) waited for the entire default-plugin
+  bootstrap chain — agent-chat, org, integrations, and every other unrelated
+  default plugin — before Better Auth even mounted. The default (non-BYOA)
+  branch of `createAuthPlugin` now marks its own routes ready and mounts
+  Better Auth the same way the BYOA branch already did: without serializing
+  behind `awaitBootstrap`. Better Auth and the DB client are lazy singletons
+  that only need the database reachable when a request actually runs, not
+  anything the rest of bootstrap sets up.
+- d729669: Auth marketing pages always place the "New to {app}? Learn more" link in the bottom-right corner. Removed the `learnMorePlacement` opt-in that only `slides` and `calendar` set — every app now shares the same layout.
+- 938400f: Initialize the page-local WebMCP polyfill when native WebMCP is unavailable.
+- f082ec8: Expose default MCP guidance and human-readable action titles across WebMCP and MCP metadata.
+- 3e53f82: Clear stale browser-session WebMCP tools when live discovery fails.
+- 7dccc22: Make external AI hosts discoverable from Integrations and route familiar Claude, OpenAI, Codex, Cursor, and Grok names into one shared MCP setup flow.
+- 345dc58: Export `deleteAutomationRuns` so apps can clear reusable automation history when deleting scoped jobs.
+- 8d2e8d8: Allow review composers to hide the human comment action when a host provides a dedicated agent workflow while keeping implicit submission aligned with the visible action.
+- 2b25c01: Keep desktop UI and terminal chats in the same sidebar surface with scoped terminal workspaces and friendlier Claude errors.
+- 1670de6: `/_agent-native/health/google` now probes the actual configured redirect URI
+  against Google, not just the client id/secret. `redirect_uri_mismatch` — the
+  most common real-world Google OAuth failure — used to be invisible to this
+  health check; it now shows up as `redirectUriStatus: "mismatched"` and pages
+  (503) alongside the existing `status: "invalid"` case, gated so a managed pair
+  intentionally left unregistered (declared `managedConnection` other than
+  `"required"`) doesn't false-page.
+
+  `/_agent-native/identity` and `/_agent-native/embed/start` (the workspace-app
+  SSO and MCP App embed handshake routes) are now registered synchronously
+  before the DB-dependent bootstrap chain, alongside `/ping` and `/health` —
+  previously a cold function made the desktop/mobile shell's embed handshake
+  wait 4-5s for unrelated init before first paint. Security response headers
+  and the framework CORS middleware moved earlier with them so both routes
+  still get baseline protection.
+
+  `/_agent-native/health` also reports an additive
+  `alerts.chatHealthSlackWebhookConfigured` boolean so an unconfigured
+  `NOTIFICATIONS_SLACK_WEBHOOK_URL` — which silently no-ops the chat-health
+  outage alert — is visible instead of only discoverable by nobody getting
+  paged during an outage.
+
+- 1027d81: Re-registering an agent engine no longer keeps its previous priority slot.
+  `Map.set` on an existing key preserves the original insertion position, so an
+  engine re-registered over an earlier one silently stayed wherever it first
+  landed. Engine detection walks that map in order, which left a stale entry
+  ahead of Builder and read a provider key on the path that is supposed to
+  resolve without touching one.
+- 1466345: Nudge users toward their host agent chat from prompt popovers and shared
+  sidebar surfaces.
+- acf64f9: Keep auth marketing previews flush to the viewport, add a softer preview shadow, and show verification copy in light mode and local development flows.
+- 9528d62: Fix the auth marketing screenshot blur, which was set to 0.3px instead of the
+  intended 3px.
+- ea85886: Fix Builder personal access token uploads by including their target space.
+- 9c3eded: Allow Builder resumable upload retries to cancel stale GCS sessions.
+- 765f263: Fix an infinite redirect loop when an app sets `homePath: "/"`. The auth guard
+  served the framework login document at `/` whenever marketing content was
+  configured, but for a root-home app `/` is the authenticated app shell — so a
+  signed-in visitor was bounced from `/` to `/` forever. The guard now serves the
+  app shell at `/` (letting the client session gate own sign-in) when the app home
+  is the root, and only serves the login document there for apps whose home is a
+  separate path.
+- 0a1317c: Keep Core and Creative Context in one Node-style Nitro server chunk to prevent standalone cold-start failures.
+- f44279a: Fix WebMCP action execution when hosts omit an abort signal.
+- 3d73d24: Focus the agent sidebar composer when a user opens it.
+- 1670de6: `/_agent-native/health?strict=1&schema=1` no longer reports a deploy healthy
+  when it silently fell back to a local database, and its schema probe now
+  covers Better Auth's own tables. `runDatabaseSchemaHealthCheck` requires
+  `user`, `session`, `account`, `verification`, and `jwks` whenever auth is
+  enabled (skipped only when `AUTH_DISABLED` is set), so a missing `jwks` table
+  now shows up as `schema.ok: false` instead of only surfacing as a 500 on the
+  Better Auth route. The response also carries an additive `auth` object
+  (`baseUrlHost`, `requestHost`, `hostMismatch`) so a probe can tell a
+  configured production host apart from the host actually being served.
+
+  `getDbExec()` now throws a typed `HostedRuntimeLocalDatabaseError` instead of
+  silently opening a local PGlite data directory when a hosted function invocation (not
+  a Netlify build step, which also sets `NETLIFY=true`) resolves no database
+  URL — a serverless instance's local filesystem is ephemeral and per-instance,
+  so this was a deploy that looked green while quietly running on throwaway
+  data.
+
+  Adds `scripts/smoke-check-health.ts`, used by the prebuilt Netlify deploy
+  workflow's smoke-test step to assert the health body (readiness, dialect,
+  schema, and — for production — the host match) instead of only the HTTP
+  status code, and to check the Better Auth `jwks` route returns real keys.
+
+- 1670de6: The LLM-completion retry loop now honors a provider's `Retry-After` header
+  (seconds or HTTP-date, capped at 60s) instead of always sleeping a fixed
+  exponential backoff. `classifyProviderError` parses the header (reusing the
+  provider-api quota governor's parser via a new shared
+  `packages/core/src/shared/retry-after.ts` helper) and the engine error/stop
+  event shape carries the result as `retryAfterMs`. The retry loop's sleep and
+  its run-budget estimate now use the same number, so a 429 with a longer
+  provider-requested wait either waits that long or — if it would not fit the
+  remaining run budget — surfaces the error instead of silently truncating the
+  wait.
+- 4fa738a: Improve local authentication and Builder connection onboarding.
+- 1670de6: Log the real Better Auth error code/message and report it to Sentry before
+  sanitizing the direct Better Auth handler's error responses, so a
+  misconfiguration like `INVALID_ORIGIN` is visible in logs/Sentry instead of
+  only showing the generic public error message.
+- d5506c1: Include Google Contacts scopes in the reusable Gmail workspace connection so Mail contact autocomplete can read saved and other contacts.
+- Release all public npm packages with a patch version bump.
+- 1670de6: `decodeOAuthState` no longer returns a success-shaped object on a missing,
+  tampered, or malformed OAuth `state` parameter — it now returns a
+  discriminated `{ ok: true, ...payload } | { ok: false, reason, redirectUri }`
+  result, so a bad-signature or corrupted state (e.g. a rotated
+  `OAUTH_STATE_SECRET`/`BETTER_AUTH_SECRET`) can no longer be silently processed
+  as an anonymous plain sign-in with owner/org/desktop context dropped. All 13
+  callers now check `ok` and log a structured
+  `[agent-native][oauth] state decode failed` warning (via the new
+  `logOAuthStateDecodeFailure`) before falling back to their existing OAuth
+  error page.
+
+  `checkGoogleSignInCredential` and `checkGoogleManagedCredential` accept an
+  optional `redirectUri` and, when supplied, also probe Google's authorize
+  endpoint (`probeGoogleRedirectUri`) to classify it as `registered`,
+  `mismatched`, or `unknown` — the credential-only token-exchange probe used a
+  constant fake redirect URI and structurally could not detect
+  `redirect_uri_mismatch`, the most common real Google OAuth failure.
+
+  `describeGoogleSignInCredentialPairs` gained test coverage confirming
+  `mismatched` is a plain fact about the two credential pairs, independent of
+  credential mode.
+
+- ba865ef: Keep scheduler status writes from dropping job frontmatter the editor owns. Let Factory claim and queue recovered folder jobs that lost domain or appId tags.
+- 8ff5fe7: Expose safe public actions through page-local WebMCP and provide a reusable
+  registration component for custom app roots.
+- 41c7ebb: Restore the auth marketing link and refine its responsive, themed screenshot layout.
+- eb59867: Update the default Agent-Native OG image template: new monochrome logo mark, solid `#0A0A0A` background (grid pattern removed), and updated title/accent text colors.
+- d5506c1: Put recommended guided-question choices first and preselect them in question flows.
+- 1670de6: Records which app first owns a shared database, and surfaces it on
+  `/_agent-native/health`. `runFrameworkReleaseMigrations` now writes a
+  `framework.database_identity` setting (`{ app, recordedAt }`, keyed by the
+  app slug falling back to app id) right after the framework schema exists,
+  using a write-once CAS so a second app booting against the same database can
+  never repoint an existing record. The health probe reads it back through the
+  same connection its `SELECT 1` already opened, bounded by the same deadline,
+  and reports `database.identity` (`recorded` / `unrecorded` / `unreadable` /
+  `timeout`), `database.identityMismatch`, and a pooler-agnostic
+  `database.fingerprint` next to the existing `urlHash`. `identityMismatch` is
+  only ever true when a recorded identity disagrees with the app actually
+  running — nothing else on this axis existed before, which is how a
+  copy-pasted repair once pointed several beta sites' database URL at another
+  app's production database undetected. `scripts/smoke-check-health.ts` now
+  fails a deploy on `identityMismatch: true` and warns (without failing) on the
+  other three states.
+- e3900a6: Retry managed messaging requests through a distinct usable model provider when the selected credential is rejected before agent output, and make terminal delivery retries idempotent.
+- 9755eb0: Restore the Slides sign-in marketing composition with a blurred preview, an overlapping auth card, and a stable image layout.
+- 341c6d5: Scope workspace-file persistence to the active organization instead of the global legacy shared owner.
+- eb59867: Update `AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE` to the new marketing OG/social preview image.
+- 647ebfb: Preserve Builder signup attribution through standard OAuth and track failed first-run completion requests.
+- cc0a806: Make the `turn-into-app` skill stop and report when a scaffold fails, times out, or is denied instead of substituting another stack, post the source brief before scaffolding rather than at handoff, and read spreadsheet inputs from structure and the sheet's own instruction text rather than from an assumed colour convention.
+- cf8a596: Let authenticated Builder consumers share one request-authorization resolver, including the org-scoped, read-only Publish MCP grant used by Content database sources, while preserving legacy key fallback.
+- 4071795: Mark delegated app-agent responses as unverified until the caller reads back persisted state.
+- f44279a: Publish WebMCP registration progress so a partial tool list is distinguishable
+  from a complete one. Tools register one at a time, so a discovery caller that
+  read `document.modelContext.getTools()` mid-flight saw a truncated list with no
+  way to tell it was truncated, and reported live tools as missing. Read the new
+  state with `getAgentNativeWebMcpStatus()`, or from the page world via
+  `window.__agentNativeWebMcpStatus`, which reports `registering`, `ready`, or
+  `failed` with registered/total counts. Concurrent starts share one in-flight
+  registration, and failed passes preserve the number of tools accepted before
+  the failure.
+- Updated dependencies
+- Updated dependencies [760d108]
+  - @agent-native/recap-cli@0.5.25
+  - @agent-native/toolkit@0.19.3
+
+## 0.176.4
+
+### Patch Changes
+
+- 24c0a3e: Return HTTP 500 for unclassified signup failures instead of reporting them as account conflicts.
+- afea78a: Re-check the stored `_collab_docs` version on every cached Y.Doc read, so a
+  serverless instance no longer serves collaboration text that a peer instance
+  moved past. `applyText` gains a `validateBase` hook for callers that need the
+  converged pre-diff text checked inside the write lock.
+- 56404c7: Restore Creative context as a Share tab and compact its submission controls.
+- afea78a: Add an `emptyStateFooter` slot to the agent chat, rendered below the empty-state suggestions. Unlike `threadFooterSlot` it never survives the first message, so a first-run affordance can sit with the suggestions without following the user through the conversation. Also forwards `onMessageCountChange` through `AgentPanel`/`AgentChatSurface` so a host can tell an empty thread from a started one. Fixes `onMessageCountChange` being swallowed by the multi-tab chat's own tab counter instead of reaching the host.
+- 3e4a129: Prefer direct WebMCP and cataloged app actions before delegated app-agent work.
+- 9a1011e: Register direct WebMCP action tools on token-authenticated app surfaces.
+- 9de6cb9: `createDrizzleConfig` accepts a `url` option that takes precedence over `DATABASE_URL` and `<APP_NAME>_DATABASE_URL`, so an app can point drizzle-kit at a direct database endpoint while the app itself keeps querying through a pooler. A Neon pooler is PgBouncer in transaction mode and cannot run migration DDL. A blank or unset `url` still falls back to the environment, so `url: process.env.DATABASE_URL_UNPOOLED` is correct on hosts that set only `DATABASE_URL`.
+- 63dfbc8: Report effective deployment database configuration in env-status checks.
+- c9ed8ff: Batch provider secret reads when agent engine detection has to check provider keys. `detectEngineFromUserSecrets` probed each engine's keys one at a time and `resolveSecret` walks four scopes per key, so `/_agent-native/agent-engine/status` cost roughly 50 serial reads per poll for accounts without a Builder connection — bring-your-own-key users, and anyone with no provider configured at all. It now warms the request memo with one batched read per scope. Builder-connected accounts already resolved without reading a provider key and are unaffected.
+- 3275e6f: Make `detectEngineFromUserSecrets` batch-load candidate provider credentials
+  in one read per identity scope instead of sweeping the whole engine registry
+  one point read at a time. An unconfigured request (e.g. the polled
+  `/_agent-native/agent-engine/status` gate in local dev) previously issued ~80
+  sequential `app_secrets` reads per call; it now reuses the existing
+  `prefetchSecrets` memo so the per-engine usability checks answer from the
+  request cache. Same precedence, identity scoping, and unreadable-store
+  propagation.
+- 1cd665a: Redirect returning Builder employees from production to beta before the app bundle loads.
+- 8b060aa: Bound database admin table catalog row-count queries.
+- 6d5f99a: Avoid prefetching provider secrets before checking a connected Builder account.
+- 79861ce: Expose fetchable WebMCP compatibility manifests and direct action endpoints alongside the existing browser, MCP, and A2A surfaces.
+- ea7c5f3: Allow a usable Builder key pair to remain available when an unreadable OAuth row is present.
+- 0566ce9: Make `/act` implement the latest plan when the plan-mode callout is available.
+- 485642e: Keep hosted Dispatch app launches inline outside Builder editor sessions.
+- Release all public npm packages with a patch version bump.
+- 9c047e3: Batch provider credential reads while building the model catalog.
+- ee3a826: Keep the global chat shortcut from intercepting editable content.
+- 5404eca: Make MCP settings more scannable with a distinct app icon and click-to-reveal host instructions.
+- a5686be: Refresh open app data after successful mutating actions run through direct MCP tools.
+- 5eeee8d: Launch terminal providers with a reliable native PTY environment and lifecycle cleanup.
+- 1aad450: Let apps outside the Builder hosting pipeline use the hosted Realtime Gateway.
+
+  Set `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` on a Postgres-backed production
+  deploy that already has a `BUILDER_PRIVATE_KEY`, and the app registers its own
+  database and origin with the gateway on demand, then mints subscribe tokens against the
+  channel it gets back. The gateway URL is now derived from
+  `BUILDER_GATEWAY_BASE_URL` when unset, so hosted realtime needs one env var
+  instead of four. Pipeline-injected channels still win, and anything missing
+  (no key, a deploy preview, the org not in the rollout)
+  leaves the app on its own `/_agent-native/poll`.
+
+  Registering an origin requires positive evidence that this process is the
+  deployment serving it, so a production build run on a laptop cannot repoint
+  production's channel at another database. A platform runtime marker counts
+  (`NETLIFY`, `VERCEL`, `K_SERVICE`, `AWS_LAMBDA_FUNCTION_NAME` and the like, plus
+  Netlify's per-deploy `DEPLOY_PRIME_URL` / `DEPLOY_URL`); `NODE_ENV` and the
+  generic `URL` deliberately do not, because both travel with a copied `.env`.
+
+  A self-hosted container or VM has no such marker and declares its origin
+  instead, with `AGENT_NATIVE_REALTIME_APP_URL`. That value wins over the resolved
+  self URL when set. Without either, registration declines and logs why.
+
+- 8b393d4: Route chat health outage alerts to Slack instead of the in-app notification inbox.
+- 08aa90d: Allow OAuth state to carry a signed provider-resource target for reconnect flows.
+- d75ca12: Add `splitAgentChatContextFromMessage`, the inverse of `appendAgentChatContextToMessage`, so a consumer can tell the user's prompt apart from the context an app attached to it.
+- c9aa273: Keep ambient composer context chips stable when their label changes.
+- b9fd516: Sync generated action field guidance across workspace and template scaffolds.
+- 65abfdd: Redirect Builder employees to beta instantly from the cached browser marker, without waiting on a session round trip.
+- Updated dependencies
+- Updated dependencies [0566ce9]
+  - @agent-native/recap-cli@0.5.24
+  - @agent-native/toolkit@0.19.2
+
+## 0.176.3
+
+### Patch Changes
+
+- 453cb52: Accept Builder personal access tokens when saving credentials returned by account activation.
+- b734fd1: Let actions declare `endsTurn`, and unwrap a JSON-encoded tool argument on its container type.
+
+  `endsTurn` already stopped the agent loop for core's own `ask-question`, but
+  `defineAction` never exposed it, so a template action that puts a question or
+  form on screen could not say the turn was over. The loop asked the model for
+  another step and a completion guard scored the paused turn as a failure.
+
+  `coerceStringifiedJsonToolValues` also required a stringified argument's parsed
+  contents to fully validate before unwrapping it. A model that JSON-encoded an
+  array whose items were missing a property was told only "must be array" — never
+  the per-item defect — so it re-encoded the same payload until its retry budget
+  ran out.
+
+- 4d86bff: Update shared auth pages with per-app product previews and learn-more links.
+- aa826fc: Prevent optional Better Auth JWT response headers from breaking valid session checks.
+- f83b944: Add the /an Agent-Native app skill with Dispatch MCP and inline app workflows.
+- ab2d987: Offer the Builder.io models in the chat and prompt-box model pickers on the gateway lane, so an AI-enabled app in a Fusion preview or a Builder-credits deploy no longer needs a connect step before a model can be selected
+- 17740f6: Allow apps to configure their authenticated home route while defaulting every app to `/home`; set `homePath: "/"` to keep an app at the root.
+- e32b034: Allow workspace credential lookups to skip last-used recording for read-only readiness checks.
+- 8a151f8: Keep the hydrated auth client aligned with the cacheable SSR auth shell.
+- 2b38c4d: Fix Clips share loading and mobile viewport behavior.
+- 1fc5184: Add friendly automation schedules and webhook triggers.
+- ad860e5: Keep framework SSE connections alive through idle edge timeouts.
+- bbbac69: Keep pending Builder app reservations visible for 30 days.
+- dc10e35: Keep delegated objectives on their already-selected receiver's bounded local action surface without requiring an app-specific rollout flag.
+- 4b83a0d: Fix magic-link sign-in dropping the session after verify. Better Auth's `set-auth-token` is a signed `token.signature`, which is not the session table row. `getSession` now tries the unsigned token, decodes percent-encoded cookies before asking Better Auth, and persists that unsigned token as the framework session cookie.
+- Release all public npm packages with a patch version bump.
+- b67ffff: Dont include the template migrate-production script as something that can be auto-discovered by the actions framework
+- 2e531c9: Preserve verified artifact receipts across truncated tool results and interrupted-run recovery.
+- aa826fc: Keep the first-run onboarding surface available until its explicit completion succeeds.
+- b302bcf: Hold the root auth document until the auth routes finish mounting during a cold start.
+- 4deb8a1: Suppress synthetic signup identities that were reaching production analytics.
+  `isQaTestEmail` only matched plus-addressed `+qa-test-bot-…@`, so bare
+  `qa-test-bot-…@`, `an-e2e-probe-…@e2e.agent-native.test` and `e2e-…@example.com`
+  were tracked as real users. Matching now covers those shapes plus the RFC 2606
+  reserved TLDs, and stays narrow enough that ordinary addresses — including bare
+  `example.com` fixtures and plus-addresses — remain trackable.
+- 067307e: Improve desktop chat surfaces, terminal failure reporting, and scrollbar contrast.
+- 4deb8a1: Make hosted ask_app submissions retry-safe and return before the MCP transport deadline.
+- d8cd1c4: Make macOS Electron PTY spawning resilient to packaged helper paths and reliably clean up terminal processes.
+- 1355b35: Use direct Neon endpoints for serverless runtime database clients when the configured pooler stalls.
+- Updated dependencies [e74593d]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.1
+  - @agent-native/recap-cli@0.5.23
+
+## 0.176.2
+
+### Patch Changes
+
+- d7d12c0: Add owner-scoped app adoption metrics to the Dispatch admin.
+- 84c74f9: Keep synthetic beta E2E traffic out of analytics, prevent provider-key fallback, and preserve authenticated failure semantics across background runs.
+- ab839c1: Keep synthetic beta E2E credentials isolated to the test user's validated key.
+- 657658c: keep synthetic beta E2E OpenAI turns on the validated direct endpoint
+- 215308c: Enforce byte limits for response bodies without a readable stream.
+- 3de12aa: Bound Builder design-system status polling to one lightweight docs page.
+- 1350263: Use the canonical app URL for integration thread links.
+- b7e1cc9: Add chat-side revert controls for supported app history.
+- 443ce1a: Keep shared agent chat scrollers inside their flex boundaries.
+- 46abef1: Declare managed Google OAuth capability in app health contracts so deploy verification checks only apps that own the managed connection.
+- 790f15a: Keep side app surfaces from stealing the active chat while desktop terminal and app tabs are open.
+- e2a65ed: Allow trusted desktop hosts to add CLI launch arguments to PTY sessions.
+- d0d8721: fix: keep authentication email links on their canonical HTTPS origin
+- 7c26a81: Resume agent runs that end while an action input is still being prepared instead of reporting a completed turn.
+- 6be8173: Fix Nitro AWS Amplify SSR startup and preserve framework email runtime variables.
+- 383e1f6: Fix Builder desktop OAuth handoff and mounted preview auth routes.
+- 7836ff8: Keep recovery-card fork snapshots compact when chats contain uploaded attachments.
+- 2e03d60: Fix provider-aware model selection, shared Builder reconnect access, and provider tool limits.
+- d142c4f: Fix `mergeThreadDataForClientSave` pairing two structurally identical messages (same role/content/attachments, different ids) by whichever incoming entry a content fingerprint happened to hit first. A strong identity key (id/runId/turnId) now always wins over a fingerprint-only match, and a fingerprint tie is resolved deterministically by array position instead of silently keeping the first candidate — a wrong pairing could rewrite parent links onto the wrong message id.
+- 43f0da1: Read agent engine status from the current request instead of sharing stale serverless lookups across credential writes.
+- 1350263: Fix Google Drive Docs push authentication to use native channel tokens.
+- 3de12aa: Keep active assistant work grouped behind the work disclosure while a response is running.
+- 7d8e14d: Use build-time package evidence when detecting agent engines bundled into serverless functions.
+- b0c24e4: Invalidate stale in-flight agent engine status lookups after provider credential writes.
+- b0c24e4: Invalidate agent engine status lookups after every successful provider credential mutation.
+- 77ab9e9: Self-heal Better Auth JWKS keys orphaned by a `BETTER_AUTH_SECRET` rotation. The JWT plugin decrypts the persisted signing key on every `get-session`, so a rotated secret used to 500 every session check and sign the whole deployment out. The key is now verified against the live secret when that failure appears, stale rows are expired so a fresh key is minted, and the optional `set-auth-jwt` header is skipped (loudly) rather than failing the session response if recovery cannot help.
+- 28fd3ea: Keep a signed-in visitor from being stranded on the login form when the session
+  endpoint is briefly unreachable. The login document's probe read any non-ok
+  status, unparseable body, or failed fetch as "signed out" — the signed-out
+  answer is a 200 carrying `{ error }`, so those all mean the question went
+  unanswered — and nothing retried it.
+- Release all public npm packages with a patch version bump.
+- 9902c3b: Render the shared integrations catalog immediately while saved connections load.
+- ae94b70: Treat Netlify function bundles as having their inlined agent-engine packages when resolving runtime availability.
+- 786418b: Use Netlify's runtime site marker when detecting bundled agent-engine packages.
+- 0b8d452: Persist onboarding roles through Better Auth's user adapter.
+- 349ce5c: Persist Agent-Native prompt drafts synchronously and keep prompt surfaces isolated across refreshes.
+- 01d2112: Preserve typed HTTP status codes when formatting MCP connection errors.
+- 353f95a: Split template marketing home routes from authenticated app entries and add the shared browser auth handoff.
+- 99609ee: Suppress synthetic signup identities that were reaching production analytics.
+  `isQaTestEmail` only matched plus-addressed `+qa-test-bot-…@`, so bare
+  `qa-test-bot-…@`, `an-e2e-probe-…@e2e.agent-native.test` and `e2e-…@example.com`
+  were tracked as real users. Matching now covers those shapes plus the RFC 2606
+  reserved TLDs, and stays narrow enough that ordinary addresses — including bare
+  `example.com` fixtures and plus-addresses — remain trackable.
+- b953ef6: Keep desktop chat tab creation aligned with the selected UI or CLI mode.
+- a1869cc: Render the shared authentication surface with hydratable React and reuse its marketing composition for SSR app entry pages.
+- 7c1565b: Register the workspace connection catalog action in Dispatch's server action surface.
+- b7e1cc9: Fail a `CONTEXT=production` release migration whose database URL is local or
+  unconnectable, instead of silently migrating a throwaway file. Netlify hands the
+  CLI a masked secret outside its own build infra, so the prebuilt deploy lane
+  applied the whole schema to a local database in the build container, logged
+  `Applied migration ...`, exited 0, and published green while the deployed
+  functions kept using a remote database that never received the schema. A masked
+  value is neither empty nor a `file:` URL, so a local-database check alone does
+  not see it — the guard now also requires a real URL scheme. Scoped to the
+  production context so the beta lane, which builds under branch-deploy against
+  masked secrets and is migrated by its production twin, is unaffected.
+- ed97046: Retry transient Builder design-system indexing gateway failures.
+- f0fb6c5: Use the cube spinner for shared loading indicators and the worded loader for full-page states across apps.
+- 050fffb: Make the shared skeleton loading shine more subtle.
+- 6d0d1d7: Soften the contrast of the shared skeleton loading shine.
+- 03711a6: Keep app launch loaders animated across remounts, randomize their labels, and smoothly resize the centered label.
+- 8c198b8: Add regression coverage for recovery card action spacing.
+- 75253cc: Support AWS Amplify Hosting with Nitro's `aws_amplify` deployment preset.
+- a120516: fix: suppress analytics for reserved signup canary addresses
+- 07452a5: Allow synthetic browser checks to verify a user-scoped engine when the deploy-selected engine is intentionally unavailable to synthetic traffic.
+- d0d8721: fix: use deployment email credentials for scheduled dashboard reports
+- 56beef0: Use the registered root callback for managed Google OAuth and fail closed when template OAuth code has no redirect URI.
+- ff39391: Prefetch internal route data and JavaScript for links entering the viewport by default.
+- Updated dependencies
+- Updated dependencies [349ce5c]
+- Updated dependencies [353f95a]
+- Updated dependencies [a1869cc]
+- Updated dependencies [f0fb6c5]
+- Updated dependencies [03711a6]
+  - @agent-native/recap-cli@0.5.22
+  - @agent-native/toolkit@0.19.0
+
+## 0.176.1
+
+### Patch Changes
+
+- 6621544: Emit `$ai_http_status` on `$ai_generation` events. A model call that streamed to completion reports 200; the call a run died in reports the provider status the engine named. A failure that carried no status omits the field rather than defaulting it, so a transport drop is never reported as a healthy call or an invented rejection.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.20
+  - @agent-native/toolkit@0.17.6
+
+## 0.176.0
+
+### Minor Changes
+
+- f445b44: Make the read-only source/search convergence budget configurable as `agent.sourceSweepToolCallThreshold` (env `AGENT_SOURCE_SWEEP_TOOL_CALL_THRESHOLD`), and raise its default from 12 to 24 tool calls per turn. Research-shaped apps that legitimately inspect many records were hitting the guard mid-task; a deployment can now tune the budget instead of living with a hardcoded constant.
+- f445b44: Add `agent.builtInEngines` so a deployment can choose which built-in agent engines are registered. Unset registers every built-in, as before; setting it (in `defineAppConfig()` or via `AGENT_BUILT_IN_ENGINES`) registers only the named ones, so the rest never appear in the model picker and never resolve by name. An unknown name is a configuration error rather than a silently ignored entry.
+
+### Patch Changes
+
+- 3d10cb0: Use Agent-Native branding in Drizzle migration docs and comments
+- 2ee0e37: Preserve a trailing slash in advertised agent-web page URLs. `normalizePagePath` stripped it from every page path, so a site whose canonical URLs carry a trailing slash had every sitemap entry, `llms.txt` link, and JSON-LD `url` pointing at a redirect instead of the page. Bare page paths are unchanged, and Markdown twin paths still drop the route's trailing slash (`/about/` → `/about.md`). JSON-LD breadcrumb items now follow the page's own URL shape.
+
+  Add an optional `localizeHref` to `BlockRenderContext`. Block fields such as a card `href` go straight to the router without passing through `renderMarkdown`, so a host that canonicalizes its URLs had no way to reach them.
+
+- e37c195: Expose Builder gateway credential availability to server consumers.
+- a29c7ef: Expose MCP connection setup in searchable standard Settings, with the canonical
+  `/mcp` URL and host-specific guidance shared with the connect page.
+- 55b7b6f: Ask for a user's role during shared first-run onboarding and persist the preference for personalization.
+- 5203369: Publish restored composer drafts to host affordances.
+- ca7360e: Clarify the email sign-in action and keep magic-link onboarding as the default entry view.
+- 04b27f9: Use custom app names and optional logos in social OG images while preserving Agent-Native branding for first-party templates.
+- 46e4ada: Refuse to save failed provider and web responses as durable workspace exports.
+- 841c741: Fix two Figma auto-layout rules the REST importer could not express in CSS.
+
+  Figma allows a negative `itemSpacing`, which overlaps auto-layout children. CSS
+  rejects a negative `gap` outright, so the declaration was dropped and silently
+  fell back to 0. On the Positivus landing page the contact block overlaps its
+  children by -367px; losing that overflowed the row, and because CSS flex items
+  shrink by default while Figma never shrinks a FIXED or HUG child, the overflow
+  was redistributed and both children came out the wrong width (1240px rendered
+  as 825px, 692px as 415px) with the illustration thrown outside its card.
+
+  A negative `itemSpacing` is now reproduced as a negative margin on every child
+  after the first, and children whose main-axis sizing is not FILL are pinned
+  with `flex-shrink: 0`. Measured against Figma's own geometry for those nodes,
+  every box now matches to within 0.1px.
+
+- 841c741: Fix a set of Figma import defects that silently dropped or reshaped content,
+  found by measuring 26 real designs against Figma's own render of each node.
+
+  Across that corpus the import diff falls to 3.1% overall, 0.78% with text boxes
+  excluded and 0.44% excluding image fills as well — what remains is Chromium and
+  Figma hinting glyphs and scaling bitmaps differently, not the conversion. The
+  export hop costs under 2.4% on every design. Per node, 23 of the 26 designs have
+  nothing off by more than 1.5px, and every offender in the other three is one
+  glyph: a hugging box holding a `%`, which Google Fonts' Inter draws wider than
+  the Inter Figma bundles.
+
+  A child set to FILL along an axis its auto-layout parent HUGS now keeps the
+  size Figma resolved for it. Figma treats that pair by falling back to the
+  child's own size, but `flex-grow: 1; flex-basis: 0%` in an auto-sized flex
+  container resolves to zero — so the child disappeared and every later sibling
+  slid up by its height. A 343x240 photo vanished from a real landing page this
+  way.
+
+  An auto-layout frame that HUGS an axis but has no children now keeps the size
+  Figma resolved for it. Figma does not collapse an empty hug frame, so it still
+  reports real dimensions; mapping that to `width: auto` collapsed it to nothing,
+  which deleted a 685x456 image placeholder from a real hero section and let its
+  FILL sibling take the whole row, so the heading stopped wrapping too.
+
+  Mirrored nodes are no longer rendered as half turns. Figma's `rotation` field
+  is a decomposition that cannot tell a flip from a 180-degree rotation — both
+  report pi — so a horizontally mirrored group picked up a vertical flip it does
+  not have, and everything inside it landed on the wrong side. The transform now
+  comes from `relativeTransform`'s own 2x2 block as a CSS `matrix()`, which
+  carries mirroring and skew as well as rotation.
+
+  Three auto-layout rules now match Figma's own resolution rather than the raw
+  field values. A row aligned SPACE_BETWEEN no longer also emits `itemSpacing` as
+  a CSS gap — Figma ignores that field in this mode but still reports it, and CSS
+  distributes space on top of a gap rather than instead of it. A negative
+  `itemSpacing` is clamped so the children still fill their container, which is
+  where Figma stops an overlap — the same rule the `.fig` walker already used,
+  rather than a second one, and applied on a FILL axis as well as a FIXED one
+  since a FILL axis takes its parent's definite size. And a rotated auto-layout
+  child now occupies its rotated footprint: a CSS transform does not change
+  layout size, so a vertical rule stored as a wide line turned 90 degrees was
+  taking its full pre-rotation width out of the row.
+
+  Three more sizing rules now follow Figma. A HUG container holding a cross-axis
+  FILL child uses the size Figma resolved: a FILL child does not feed Figma's
+  hug, while CSS still feeds its max-content into the container's shrink-to-fit
+  width, so a card column came out 76px too wide and moved every sibling. A FILL
+  child is allowed to shrink below its own content (`min-width: 0`), which is
+  what Figma's FILL does. And a zero-thickness LINE is placed from its own size
+  rather than the already-rotated bounding box — requiring both dimensions to be
+  positive pushed every rotated rule onto the fallback and squared its rotation.
+
+  Break characters Figma does not lay out as breaks no longer become lines.
+  Figma's stored text can carry them: a real footer holds "Get started for
+  free.\rAdd your whole team as your needs grow." and Figma draws it as ONE
+  flowing paragraph, wrapping at the width, while a heading holding "Customise
+  it\rto your needs" renders "Customise it to / your needs". Both formats say so
+  and neither walker was reading it — REST `lineTypes` and kiwi `textData.lines`
+  hold one entry per line Figma actually laid out. Measured across every
+  break-bearing text node in the corpus that count is never wrong, while counting
+  break characters overstates it on 8 of 20 REST nodes and 17 of 18 kiwi ones.
+  Mapping one such CR to a newline made a footer a line taller and, because its
+  column is vertically centred, moved all 61 nodes in it.
+
+  Trailing whitespace goes for the same reason: Figma neither draws it nor lets
+  it widen a hugging box, while `pre-wrap` does both. Of the 943 hugging text
+  nodes in the corpus the only three wider than Figma's own box are the three
+  whose text ends in a space — the other 940 average 0.02px of error.
+
+  Angular (conic) gradients now sweep the way Figma sweeps them. Figma computes
+  the sweep in the node's normalized space — the box treated as a unit square,
+  then stretched — while CSS `conic-gradient()` sweeps at a true uniform angular
+  rate in real pixels; the two agree only on the axes, so a non-square tile
+  landed its mid-sweep colours visibly early. Drawing the gradient into a square
+  and scaling that square to the box reproduces Figma's definition exactly.
+
+  Zero-thickness vector geometry renders again. The SVG spec says a viewBox with
+  a zero width or height DISABLES rendering of the element, so a stroked path
+  whose own box is 20x0 — a horizontal rule, or the arrow inside a "Learn more"
+  button — disappeared silently. A collapsed axis now takes the stroke's own
+  width, with the geometry centred on it.
+
+  Figma's image CROP is now honoured. `scaleMode: STRETCH` with an
+  `imageTransform` is Figma's Crop mode: the matrix picks a sub-rectangle of the
+  image and stretches that to fill the box. The transform was being discarded and
+  the whole image drawn instead, which reads as the artwork zoomed out — every
+  illustration on a real services page came out visibly smaller than Figma draws
+  it, and it was the largest non-text difference left on that page (4.04% ->
+  3.52%). A rotated or skewed crop still takes the raster fallback, which is
+  exact where a stretch would be wrong.
+
+  A hugging TEXT box now takes Figma's rounded width as a minimum. Figma rounds
+  every hugging text box to a whole pixel and lays its siblings out against that;
+  hugging to our own fractional width makes each label a fraction narrower, and
+  in a row of them the fractions add up — a nav came out 5px short across six
+  items, moving every one of them. As a minimum rather than a fixed width:
+  pinning the width forces the text to wrap wherever our advances run a hair
+  wider than Figma's, which is a different layout entirely.
+
+  The height is a minimum only where the text can wrap. Figma lays a hugging box
+  out at `round(lines * lineHeight)` — 206 of the 207 hug-both nodes in the
+  corpus with a fractional line height — and it rounds DOWN as often as up, so a
+  minimum could never reach it. Text hugging BOTH axes cannot wrap, so its line
+  count is fixed by the break characters and always matches Figma's; there the
+  rounded height is taken outright. Two Space Grotesk headings at 38.28px line
+  height hugged to 38.28 each where Figma laid out 38, and the 0.56px each pushed
+  their whole column down.
+
+  Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
+  of being approximated by an ellipse. The falloff is an L1 distance, which is
+  linear inside each quadrant, so four quadrant-tiled linear gradients reproduce
+  it exactly rather than approximately.
+
+  An image fallback's overflowing ink no longer takes layout space. The `<img>`
+  is sized from render bounds so an OUTSIDE stroke or shadow is drawn at its
+  natural size instead of squished into the smaller geometric box, but Figma
+  stacks siblings against the geometric box and paints the ink outside it. A
+  horizontal LINE is the extreme case — its box is zero-height and the stroke is
+  entirely overflow, so every rule on a page pushed everything below it down a
+  pixel.
+
+  `downscaleImageToFit` is new in `ingestion`: it re-encodes an image to fit a
+  byte budget, keeping the aspect ratio, for callers that must inline one. The
+  Figma SVG export used it to stop dropping a page's 11.5MB hero shot, which had
+  been leaving a hole in the exported file — over a budget is a reason to send
+  fewer pixels, not to send nothing.
+
+  Icon-font glyphs no longer import as `.notdef` boxes. A Private Use Area
+  codepoint means nothing outside the font that assigned it, and fonts reach an
+  imported screen by family name from Google Fonts, which serves none of these
+  icon fonts — so Chromium drew a hollow box beside all 16 nav items of a real
+  admin dashboard, where Figma draws an icon. Such a text node now takes the
+  rendered-PNG fallback the walker already uses for anything it cannot express
+  (0.97% -> 0.83% on that design). The `.fig` walker has no render to fall back
+  on, so it drops the glyph and records the reason against the node instead.
+
+- 841c741: Match Figma's nearest-neighbour sampling when a Figma image fill is magnified.
+
+  Figma upscales an image fill with nearest-neighbour sampling; a browser upscales
+  with bilinear smoothing. Measured across a checkerboard edge on a 16x16 fill
+  blown up to 180x90, Figma steps from `rgb(119,73,132)` to `rgb(227,78,52)` in
+  ONE pixel while the import ramped across twelve, so every low-resolution fill —
+  a pattern, an icon, pixel art, a placeholder — imported blurred.
+
+  `mapFigmaNodeToHtml` now takes `imageFillSizes` (imageRef -> the image's own
+  pixel size) and asks for `image-rendering: pixelated` only when the box is
+  meaningfully larger than the image. Only when magnified: `pixelated` is nearest
+  in both directions and a photo scaled down that way aliases badly. Without a
+  size the fill still renders, just smoothed.
+
+  The Figma importer supplies it for free from the bytes it already downloads to
+  mirror into storage. The `fills-effects` fidelity case went 14.33% -> 12.07%,
+  and the scanline across that edge now matches Figma's within 1/255 per channel.
+
+- 841c741: `fingerprintMedia` no longer imports `node:crypto`. It is re-exported from the
+  `ingestion` barrel, so that one import made the whole barrel — the Figma
+  converters included — fail to load in a browser. It now uses `@noble/hashes`,
+  verified to produce the same SHA-256 digest.
+- 841c741: Figma REST import fidelity: four measured corrections found by pixel-diffing
+  the mapper's output against Figma's own renders.
+  - Rotated nodes tilted the wrong way. `relativeTransform`'s 2x2 block is
+    already CSS's own rotation matrix in the same y-down space, so the CSS angle
+    is `rotation`, not `-rotation`; negating it doubled the error.
+  - Children of a rotated node were positioned and sized from
+    `absoluteBoundingBox`, which is measured in already-rotated absolute space
+    and inflated to the rotated AABB. Geometry now comes from
+    `relativeTransform` + `size` (the node's true pre-rotation box in its
+    parent's own frame) whenever Figma returns them.
+  - Linear gradients used the wrong angle on any non-square box. Figma evaluates
+    the gradient in normalized space, so the CSS angle follows the iso-line
+    normal `(du/w, dv/h)`, not the scaled handle vector `(du*w, dv*h)`.
+  - Per-paint `opacity` on an IMAGE fill was dropped, because CSS background
+    layers have no per-layer opacity. Such a paint (and anything Figma stacks
+    above it) now renders as an absolutely-positioned overlay div.
+
+  Also: layer/background blur radius is scaled by a fitted 0.45x instead of 1:1,
+  and `textAutoResize: TRUNCATE` now renders its ellipsis instead of clipping
+  silently.
+
+- 841c741: Figma REST import now reconstructs real vector geometry. Vectors and boolean
+  operations that carry `fillGeometry`/`strokeGeometry` are emitted as inline
+  `<svg><path>` markup with their own solid and gradient paints, and reported as
+  `exact` fidelity instead of `image-fallback`. Nodes without geometry keep the
+  rendered-PNG fallback.
+- 7379c91: Export the fitted Figma blur-radius constant so the REST and `.fig` import
+  walkers share one value, and stop the fidelity report from describing a text
+  layer's drop shadow as a `text-shadow` when it is emitted as a `box-shadow`.
+- 0705e7f: fix Builder OAuth callbacks for apps hosted on Builder Cloud origins
+- 9f31e60: fix password actions for framework sessions without a Better Auth session
+- 5f9ca21: Keep completed chat responses static when a new run starts and keep stopped-response actions available.
+- 0d69102: Fix Google Drive Docs push authentication to use native channel tokens.
+- 7abab10: Create or reuse a verified Builder account during first-run onboarding.
+- 6e59cdd: Keep Builder editing detection active after SPA navigation removes preview URL markers.
+- 313909c: Keep managed Drizzle app migrations separate from framework release migrations in generated and hosted projects.
+- 56f7bab: Wait for lazy MCP initialization before app-visible MCP actions read the shared manager.
+- Release all public npm packages with a patch version bump.
+- b8bc6bf: Show a readable error page when a workspace OAuth connection cannot start, instead of replacing the page with a raw JSON body
+- 5c66e51: Keep password authentication available when deployed apps do not configure an email provider, and document email delivery as optional but recommended.
+- 292a1ac: Preserve exact visible prompt text when hidden agent context is attached.
+- 387de2d: Stop telling readers their own provider key was rejected when it was not theirs
+
+  A 401 proves the credential a request carried was refused. It does not prove
+  whose credential it was, and the reader is often someone with no saved key to
+  fix — the rejected credential can be a workspace or deployment one they cannot
+  see. The copy named "the saved provider key" as the cause and sent everyone to
+  Settings, which is why one shared credential cost two days of chasing key
+  configuration.
+
+  The message now says only what the 401 proves, and the rejected-credential card
+  offers a retry alongside the setup flow. That retry used to be withheld because
+  it would "replay the same rejected credential and loop"; that stopped being true
+  once a 401 began fingerprinting the credential and skipping it for a backing-off
+  window, so the next attempt reaches for a different one or fails closed as
+  missing credentials. Previously this rendered a setup panel for a connection
+  already marked good, with no action available at all.
+
+- 4776e61: Reduce CI lint warnings with safer type narrowing, callback binding, and explicit async intent.
+- d2b314b: Keep uploaded files and pasted text visible in chat history without importing new-deck references.
+- a3d0e47: Expose atomic user-scoped settings mutation alongside the existing read and write helpers.
+- 2dc4b25: Fix magic-link startup and Builder credit signup handoff.
+- d5ddd8c: Use connected Google profile names and avatars across shared identity surfaces.
+- 4f7f661: Export scope-aware Builder upload authorization checks from `@agent-native/core/server`.
+- 510eb32: Keep Slides agent generation context and chat history reliable across attachments, follow-ups, and queued sends.
+- 7d89861: Smooth out the skeleton loading animation. Tailwind's stock `animate-pulse`
+  swings opacity 1 → 0.5 and eases hard into both ends, and skeletons that mount
+  at different moments never line up — at that amplitude a screen of placeholders
+  strobes. The shared stylesheet now defines `--animate-pulse` as a calmer
+  1 → 0.72 breathe, honours `prefers-reduced-motion` globally, and the two
+  hand-rolled skeleton keyframes reuse it.
+- 0a0956d: Keep intentionally stopped chat runs from reappearing as missing final responses.
+- 709f807: Track Agent-Native auth, onboarding, activation, and sharing funnel events.
+- e714047: Keep chat response streams available during JSON checks and reject unexpected successful JSON responses explicitly.
+- Updated dependencies [ac1ecfc]
+- Updated dependencies [4776e61]
+- Updated dependencies
+- Updated dependencies [5a12f71]
+- Updated dependencies [d2b314b]
+- Updated dependencies [5c96078]
+  - @agent-native/toolkit@0.17.5
+  - @agent-native/recap-cli@0.5.19
+
+## 0.175.5
+
+### Patch Changes
+
+- 330eedf: restore markdown list markers and open durable chat streams while workers finish setup
+- c4f89b2: Handle coded Builder gateway internal errors consistently across streamed and HTTP responses.
+- 37d360e: Standardize Agent-Native branding in the migration runner documentation.
+- 3b19335: Use custom app names and optional logos in transactional emails while preserving Agent-Native branding for first-party templates.
+- Release all public npm packages with a patch version bump.
+- 24348cb: Prevent auth and password-reset fields from auto-focusing on initial load, avoiding an unexpected mobile keyboard.
+- bda7ef3: Improve shared-resource notification emails with sender context, a resource-name block, and a focused call to action.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.18
+  - @agent-native/toolkit@0.17.4
+
+## 0.175.4
+
+### Patch Changes
+
+- 20be465: Keep ordinary cross-app todo requests in chat and make oversized provider tool names safe for A2A handoffs.
+- 9426034: Stop a rejected provider credential from re-breaking the first prompt on a fixed cadence
+
+  A 401 pins the rejected credential so the next lane serves everyone after it, but
+  two things kept unpinning it and making the next person's first prompt pay to
+  rediscover the same rejection:
+  - `ai-sdk-engine` cleared the auth-failure marker after every stream, error or
+    not, so one unrelated failure (a 500, an overload) re-admitted a credential a
+    401 had just pinned. Clearing asserts the credential works, so only a turn
+    that actually completed does it now.
+  - Both auth-failure markers released on a flat 15-minute TTL. The marker is
+    fingerprinted on the credential value, so a rotated credential never matched
+    the old marker anyway — the TTL only ever re-tested a credential that was
+    still wrong. Repeat failures on the same fingerprint now back off
+    exponentially from that base up to 24h, while a first, genuinely transient
+    401 still releases on the original TTL.
+
+- Release all public npm packages with a patch version bump.
+- db91905: Allow hosted deployments to resolve their Notion OAuth client credentials for signed-in users.
+- 5ef18e1: Let agents inspect successful public image responses from web-request as vision context.
+- 557e694: Polish the agent recovery card action spacing.
+- 318819b: Give the Dispatch workspace embed handshake a cold-boot connect budget so opening an app whose server is still starting no longer fails as unreachable. `McpClientManager` now accepts a `connectTimeoutMs` option, and the embed session mint spends up to 90s per attempt within a 95s total budget instead of the 5s interactive default, matching the dev gateway's own readiness wait.
+- Updated dependencies [db91905]
+- Updated dependencies
+  - @agent-native/toolkit@0.17.3
+  - @agent-native/recap-cli@0.5.17
+
 ## 0.175.3
 
 ### Patch Changes
@@ -319,7 +1295,7 @@
 
 ### Patch Changes
 
-- 200e63b: Make the harness-session generation migration idempotent on SQLite.
+- 200e63b: Make the harness-session generation migration idempotent on Postgres.
 
 ## 0.172.9
 
@@ -534,12 +1510,10 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - 0dc3cdd: Add `mcpTool` and `important` to `defineAction`, so an action declares its external-agent exposure and its first-request tool slot beside itself instead of in a plugin-level name list. `mcpTool` defaults to `agentTool`, so hiding an action from the agent hides it from outside agents too; declaring it overrides that inheritance in both directions. `mcpTool: false` hides an action from every MCP tier and the direct A2A surface (including the `--full-catalog` opt-in) while the in-app agent keeps calling it, `mcpTool: true` is the action-owned form of `mcp.connectorCatalog` membership, and `agentTool: false` with `mcpTool: true` makes an action MCP-only — external agents get it, the app's own agent does not. `deferLoading: false` keeps an action in the agent's first tool list and narrows the derived default to the actions that opted out of deferral, the action-owned form of `initialToolNames`; `deferLoading: true` pushes one behind `tool-search`. Both name lists keep working, so an app can migrate one action at a time.
 - c595519: Fix the chat-first workspace apps rail's active app having no visible selection indicator in both the collapsed and expanded rail layouts.
 - af1b3bb: Stop a transient boot failure from permanently breaking sign-in. `getBetterAuth()` cached its init promise before that promise settled, so one failed
-  initialization — a busy SQLite file, a momentary pool error — was replayed as a rejection to every later caller for the life of the process, and the only
+  initialization — a busy database connection or a momentary pool error — was replayed as a rejection to every later caller for the life of the process, and the only
   recovery was a restart. The failed attempt is now cleared so the next request re-initializes.
 
-  Also in the local-SQLite boot path: Better Auth opens the database through the shared `prepareLocalSqliteUrl()` / `sqliteFilenameFromUrl()` pair instead of
-  trimming the `file:` prefix by hand, so on serverless runtimes it lands on the same writable file as the app; and the `journal_mode = WAL` pragma is retried
-  on `SQLITE_BUSY` the way its documented sibling in `db/client.ts` already is.
+  The local database boot path now uses the same URL and file-resolution helpers as the app, and transient initialization failures are retried consistently.
 
   Separately, the injected beta environment switcher opened its stylesheet with a bare `color-scheme: dark;` declaration. A declaration at stylesheet top level
   is not a parse error that ends at its semicolon — the next qualified rule's prelude absorbs it, so `.environment-switcher` was dropped entirely and the badge
@@ -560,7 +1534,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - baedb60: Fetch the headless browser at launch instead of embedding it in every serverless function. `@agent-native/creative-context` now depends on `@sparticuz/chromium-min` (46KB) rather than `@sparticuz/chromium` (66.4MB), and passes a version-pinned pack URL to `executablePath()`. The hosted Builder Browser path is unchanged and still preferred; this only affects the local-launch fallback, which now downloads the pack once per container. Set `AGENT_NATIVE_CHROMIUM_PACK_URL` to serve the pack from your own mirror. Measured on slides: server function 126.0MB → 59.6MB, total upload 243.8MB → 111.0MB.
 - c595519: Fix the shared `code` and `code-tabs` block specs so inserting one from a slash menu seeds real content instead of an empty `__raw` string — previously the freshly inserted block got permanently stuck on "Loading code block…" (or a terminal load error) because neither spec had an `empty()` factory.
 - aba438a: docs: correct the Clips Rewind documentation. Rewind is Clips' own local rolling recording, not a rewind.ai integration, and the pre-roll section is renamed to the product's "Add what happened before" and nested under Rewind.
-- baedb60: Stop shipping `better-sqlite3` in serverless function bundles. It is a local-development driver: every consumer is gated on a `file:` or schemeless `DATABASE_URL`, and a serverless function holding a file-backed SQLite database is already broken, since the filesystem is ephemeral and each container gets its own copy. Denying the package turns that misconfiguration into a loud failure instead of a silently empty database. The denylist applies to the netlify, vercel and aws-lambda presets only, so local development is unaffected. ~1.9MB per emitted function dir.
+- baedb60: Stop shipping the unused database fallback in serverless function bundles. Every consumer is gated on `DATABASE_URL`, and a serverless function cannot safely persist database files because its filesystem is ephemeral and each container gets its own copy. Denying the fallback turns that misconfiguration into a loud failure instead of silently empty data. The denylist applies to the netlify, vercel and aws-lambda presets only, so local development is unaffected. ~1.9MB per emitted function dir.
 - c595519: Fix the dev-server speculation-rules endpoint 404ing on the browser's real `Sec-Fetch-Dest: speculationrules` auto-fetch, logging a console error on every page load in `pnpm dev`.
 - 43c4adb: Allow transactional email definitions to re-register after a development hot reload while still rejecting conflicting catalog metadata for the same id. Add atomic, app-owned snapshot registration so conflicting or deleted catalog entries cannot leave partial or stale definitions behind while owned metadata changes refresh safely.
 - c595519: Fix EnvironmentBadge causing a React hydration mismatch on public SSR pages by deferring its content to a post-mount effect instead of branching on `typeof window` during render.
@@ -641,13 +1615,12 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 41aa6e2: Let a manual automation run target a resource path, including the generic `run-automation-now` action and manage-automations `run-now` tool, so automations nested under `jobs/` (such as per-factory jobs) can be run immediately instead of failing with "A valid automation name is required." Preserve application-owned frontmatter when automation status is written back after a run, and dispatch local runs back to the inbound request host when present.
 - efbde51: Cut and ratchet serverless function payload size.
-  - Replace `better-sqlite3` with a throwing stub in serverless function bundles.
-    Every consumer is gated on a `file:` or schemeless `DATABASE_URL`, and a
-    function holding a file-backed SQLite database is already broken — the
-    filesystem is ephemeral and each container gets its own copy. The stub drops
-    the 1.9MB native binding from every emitted function and turns that
-    misconfiguration into a loud, specific error instead of a silently empty
-    database. Only the netlify, vercel and aws-lambda presets are affected; local
+  - Replace the unused database fallback with a throwing stub in serverless function bundles.
+    Every consumer is gated on `DATABASE_URL`, and a serverless
+    filesystem cannot safely persist database files because each container gets
+    its own copy. The stub drops the 1.9MB binding from every emitted function
+    and turns that misconfiguration into a loud, specific error instead of
+    silently empty data. Only the netlify, vercel and aws-lambda presets are affected; local
     development against a `file:` URL is unchanged.
   - Run an app's `scripts/prune-serverless-functions.ts`, when it exists, as part
     of `agent-native build` rather than leaving it to be chained afterwards. The
@@ -678,7 +1651,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 4de4af3: Point missing-provider recovery errors to Settings > Agent > AI providers.
 - 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
-- 4de4af3: Stop shipping the 9.3MB libsql native driver to deployments that never load it. `copyInstalledLibsqlNativePackages` ran unconditionally for netlify/vercel/aws-lambda, unlike its Chromium sibling which is gated on a real consumer probe. It is now gated the same way, on whether the emitted bundle actually imports the bare `libsql` addon — the only gate that cannot be wrong, since `getDialect()` reads `DATABASE_URL` at runtime and build-time dialect is unknowable. The one importer in the server graph was the `db-check-scoping` maintenance script, which now uses the existing `createSqliteScriptClient` (dynamic `better-sqlite3` / `@libsql/client/web`) instead of the static node entry. Measured on the docs app: server function 55.9MB → 46.6MB.
+- 4de4af3: Stop shipping unused native database packages to deployments. The deploy bundler now includes only database code that the emitted bundle actually imports. Measured on the docs app: server function 55.9MB → 46.6MB.
 - Release all public npm packages with a patch version bump.
 - 4de4af3: Keep chat turns queued through transient server-run handoffs and delay missing-final warnings until the run state settles.
 - 4de4af3: Show the Connect AI setup for desktop chat relay failures and keep other recovery actions compact.
@@ -1155,7 +2128,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 ### Patch Changes
 
-- 7bb5be0: Reject host-native better-sqlite3 binaries in Netlify server bundles before publication.
+- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
 - 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
 
 ## 0.164.21
@@ -1399,735 +2372,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Minor Changes
 
 - a688849: Add organization groups and privacy controls for workspace apps. New apps use the organization default (organization-wide by default), while creators and organization admins can manage individual, group, and organization access from the shared popover.
-
-## 0.162.0
-
-### Minor Changes
-
-- 0b57293: Add an internal beta/production environment badge and typed deployment-lane metadata to hosted Agent-Native app shells.
-
-### Patch Changes
-
-- 0b57293: Fix `useActionQuery`/`useActionMutation`/`callAction` surfacing an opaque `405` when a caller's HTTP verb doesn't match an action's declared `http.method` (e.g. a `defineAction({ http: { method: "DELETE" } })` called without `{ method: "DELETE" }`). The transport now throws a typed `action_method_mismatch` error naming the action, the method that was sent, and the method it declares, instead of a bare "Method not allowed" the caller had to reverse-engineer — and marks it non-retryable, since resending the same wrong verb never succeeds.
-- 0b57293: Show Approve/Deny again when a tool approval has to be re-asked. `approval_required` now carries an `askId` identifying that specific gate hit, and the chat retains a user's resolution per ask instead of per approval key. Previously, if a resume never consumed the grant (expired TTL, turn-id mismatch), the server re-asked for the same call and the client still showed the quiet "Approved" note — the buttons never came back, so the action silently never ran and there was no way to retry.
-- 0b57293: Fix a bug where closing one chat tab could close several tabs at once (or make a tab reappear right after closing it). A duplicated thread id made two tab-bar entries share one underlying thread, so closing either removed both. Open-tab ids are now de-duplicated in the tab state itself, which covers both a corrupted list restored from localStorage and duplicates introduced at runtime by a synchronous burst of open requests.
-- f97dad9: Keep mounted framework endpoints reachable in dev and strip React Router HMR imports from transplanted app modules.
-- 0b57293: Keep semantic settings URLs under the app's mounted workspace path.
-- 0b57293: Fix Connect Builder (and other `agentNativePath`/`appPath` calls) building the wrong URL in a multi-app workspace dev gateway when the current page's client-side route (e.g. `/settings`) isn't itself a workspace app id. Previously `appBasePath()` would blindly trust the URL's first path segment as the workspace mount, producing URLs like `/settings/_agent-native/builder/connect` that the gateway 404s into its app-picker page instead of Builder's real sign-in screen. The guessed segment is now validated against the deployed workspace app manifest when one is available.
-- 0b57293: Extend the human-in-the-loop tool approval grant window from 15 minutes to 1 hour. A user who stepped away between seeing an "Approve to run..." prompt and clicking it (e.g. to update their client) could return to a silently expired grant — clicking Approve did nothing because the durable row no longer matched `expires_at > now`, with no error shown.
-- bcd4c14: Time out session-replay uploads so a hung request releases the flush lock instead of growing the replay queue for the rest of the session, and bound the extension-marker scan by its watermark instead of reading every marker row ever written.
-- 0b57293: Add regression coverage proving the magic-link `callbackURL`/`newUserCallbackURL` construction survives Better Auth's own `originCheck` validator end-to-end (not just a shape assertion) — this is the exact flow behind the `{"message":"Invalid callbackURL","code":"INVALID_CALLBACK_URL"}` reports from a UTM-tagged signup link and a retried sign-up after a stale `?error=` redirect. The existing absolute-URL promotion in `betterAuthCallbackURL` already fixed the underlying behavior; this closes the test gap so a future regression is caught even if the constructed URL still "looks" valid.
-
-  Also stop silently swallowing a failure in the best-effort `email_verified` repair that runs after a successful verify-email redirect. A DB error there was previously indistinguishable from "nothing needed repairing," which is exactly the symptom in the "clicked the verify link, login still says not verified" reports — it's now reported via `captureAuthError` (still non-blocking) so a genuine failure is visible instead of silent.
-
-- 0b57293: Fix two bugs where a failure looked like success:
-  - First-run onboarding's Skip/Continue no longer silently do nothing when the completion save fails. `completeFirstRun()` now rejects instead of swallowing a failed fetch or non-ok response, and `FirstRunOnboarding` surfaces the failure with a "Try again" affordance instead of bouncing to an unrelated full-screen error.
-  - A workspace file (including binary exports) now renders a download card the moment it's created — `show-workspace-file`'s binary content-type gate is gone, and any tool result shaped like a workspace-file card (e.g. `web-request`/`provider-api-request`'s `saveToFile`) renders one automatically, without a second discretionary `show-workspace-file` call.
-
-- 0b57293: Keep replayed conversations faithful to what the agent actually did.
-  - Resuming a run (chained background continuation, agent-teams `continue`) now
-    replays the tool calls and results stored in `thread_data` instead of
-    flattening each turn to its prose, so a resumed chunk can see the output of
-    work already committed rather than re-running it. Integration turns keep their
-    existing delivered-text-only replay policy, and each replayed result is bounded
-    with an in-band truncation notice.
-  - The outbound history window no longer slides by one message per turn. Every
-    prompt cache matches a byte-identical prefix, so a window that moved every turn
-    meant no cached prefix ever matched once a thread passed the message cap, and
-    the whole conversation was re-billed at write price on every turn. The window
-    start is now quantized to a stride.
-  - Anthropic `redacted_thinking` blocks survive normalization and replay verbatim.
-    They were silently dropped as an unknown block type, which left the next
-    iteration of a tool-use turn sending an assistant turn the API rejects.
-    Unrecognized content block types now warn instead of vanishing.
-  - Reducing a long thread is Observational Memory's job, but its Observer only
-    engages past 30k unobserved tokens while a 24-message count cap bit long
-    before that, so turns left the request while compaction still had nothing to
-    say about them. The count cap is now a backstop well above that threshold; the
-    two char budgets remain the real bound on what a request carries.
-  - A thinking block with no signature is dropped with a warning instead of being
-    sent with an empty one, which the native API rejects outright — failing the
-    whole turn on a provider error that points nowhere near the cause. The Builder
-    gateway path is unchanged, since its tolerance here is unverified.
-
-- 16cbc53: Stop PR Visual Recap gate skips from creating visible pull request comments.
-- 0b57293: Fix `provider-api-request` reporting a failed Slack send as a success. Slack's Web API always answers HTTP 200, even on failure, and encodes the real outcome as `ok: false` in the JSON body — `chat.postMessage` calls that failed (e.g. `not_in_channel`, `channel_not_found`, `msg_too_long`) looked identical to a delivered message to any caller checking `response.ok`, including the agent, which could then tell a user a Slack message was sent when it never was. Provider configs can now declare `bodyOkField` for this always-200-with-body-encoded-outcome convention; the Slack provider sets it, and a body-level `false` now flips the response's `ok` to `false` so a failed or unconfirmed send can no longer be reported as delivered.
-- 0b57293: Record a rejected Builder credential on the transcription path so it is not
-  retried forever. The chat engine already marks a 401/403 and stops reusing that
-  credential for the auth-failure TTL; transcription threw the raw upstream text
-  and marked nothing, so one unusable credential re-sent the same doomed request
-  on every attempt — 24 identical "Missing Authentication header" 401s in a day.
-- Updated dependencies [16cbc53]
-- Updated dependencies [0b57293]
-  - @agent-native/recap-cli@0.5.5
-  - @agent-native/toolkit@0.16.5
-
-## 0.161.23
-
-### Patch Changes
-
-- 112547e: Resolve Agent-Native model selections through request, org/user defaults, and the global catalog before sending a concrete model to the Builder gateway.
-
-## 0.161.22
-
-### Patch Changes
-
-- 8a7ba01: Restore formatter compliance in core schema sanitization code.
-
-## 0.161.21
-
-### Patch Changes
-
-- 0d81f46: Keep the core tool-schema seam regression test formatted with the current source formatter.
-- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
-
-## 0.161.20
-
-### Patch Changes
-
-- 814f0ad: Allow explicitly configured public ingestion routes to complete cross-origin preflight requests without enabling credentialed CORS.
-- c54d918: `useSemanticNavigationState` no longer reports an unserializable navigation state
-  once per render. The write-dedup token fell back to a fresh symbol, and
-  `navigationKeys` is typically a new array each render, so every re-render issued
-  another failing write and another `onError`. It now falls back to the state's own
-  identity, which still lets a genuinely different unserializable state reach the
-  write path and surface its real error.
-
-## 0.161.19
-
-### Patch Changes
-
-- efc5f92: Improve the self-hosting documentation with a fast local Docker quickstart and downloadable Chat fixture.
-- 9fed363: Teach generated workspaces to reuse shared settings, vault, OAuth, and onboarding primitives before building custom integration setup UI.
-
-## 0.161.18
-
-### Patch Changes
-
-- 9dd50a0: Drop JSON Schema keywords OpenAI's function validator rejects: unsupported
-  `format` values (`uri` from `z.string().url()` among them) and constraint-only
-  keywords like `patternProperties`, `not`, and `if`/`then`/`else`. Any one of them
-  400s the entire chat request, so a single `z.string().url()` in one tool broke
-  every turn that offered it.
-- f294ae3: Keep the Connect Builder and Custom keys actions side by side in the agent sidebar.
-
-## 0.161.17
-
-### Patch Changes
-
-- 34496d7: Sanitize every tool schema at the engine boundary, not just `defineAction` ones.
-  Hand-written tools (extensions, MCP, context tools) and third-party MCP server
-  schemas bypassed the sanitizer entirely, so `extension-data-set` shipped a `data`
-  property with no `type` and OpenAI 400'd the whole request — every tool in the
-  payload, not just that one.
-
-## 0.161.16
-
-### Patch Changes
-
-- c940f4c: Record a rejected Builder credential on the transcription path so it is not
-  retried forever. The chat engine already marks a 401/403 and stops reusing that
-  credential for the auth-failure TTL; transcription threw the raw upstream text
-  and marked nothing, so one unusable credential re-sent the same doomed request
-  on every attempt — 24 identical "Missing Authentication header" 401s in a day.
-
-## 0.161.15
-
-### Patch Changes
-
-- 551b583: Fix `CORS_ALLOWED_ORIGINS` exact-match comparison to tolerate operator formatting differences (scheme/host casing, a trailing slash, or a bare domain with no scheme) instead of silently rejecting an otherwise-legitimate configured origin.
-- 551b583: Stop sending unbounded inline base64 attachments to the model. Text attachments
-  were capped; binary ones were not, so a large screenshot or PDF went out as a
-  multi-megabyte `file_url` and OpenAI rejected the entire request ("string too
-  long", 4,149,128 against a 1,048,576 limit), killing the turn. The upload to
-  blob storage already happened — the hosted URL is now used in place of the bytes
-  when they exceed the cap, instead of being discarded.
-- 00025b1: Keep replayed conversations faithful to what the agent actually did.
-  - Resuming a run (chained background continuation, agent-teams `continue`) now
-    replays the tool calls and results stored in `thread_data` instead of
-    flattening each turn to its prose, so a resumed chunk can see the output of
-    work already committed rather than re-running it. Integration turns keep their
-    existing delivered-text-only replay policy, and each replayed result is bounded
-    with an in-band truncation notice.
-  - The outbound history window no longer slides by one message per turn. Every
-    prompt cache matches a byte-identical prefix, so a window that moved every turn
-    meant no cached prefix ever matched once a thread passed the message cap, and
-    the whole conversation was re-billed at write price on every turn. The window
-    start is now quantized to a stride.
-  - Anthropic `redacted_thinking` blocks survive normalization and replay verbatim.
-    They were silently dropped as an unknown block type, which left the next
-    iteration of a tool-use turn sending an assistant turn the API rejects.
-    Unrecognized content block types now warn instead of vanishing.
-
-## 0.161.14
-
-### Patch Changes
-
-- 96ecc13: Use compact app search and pin labels that stay on one line.
-- 96ecc13: Clear stale thread restore errors when an unavailable saved tab becomes a fresh chat.
-- 96ecc13: Give type-less tool-schema positions a concrete JSON value union. OpenAI rejects
-  any schema position without a `type` ("schema must have a 'type' key") and 400s
-  the entire chat request, the same way it rejected `oneOf`. Zod emits a bare `{}`
-  for `z.unknown()`/`z.any()`, of which there are 137 sites across the templates,
-  so this is answered at the same boundary rather than by retyping every action.
-
-## 0.161.13
-
-### Patch Changes
-
-- a269cc8: Keep failed MCP app iframes visible under a compact error overlay with a clear open-in-new-tab escape hatch.
-
-## 0.161.12
-
-### Patch Changes
-
-- 610103f: Page owners and admins when an app's chat stops answering. The detector already
-  existed as `scripts/chat-health.mjs --strict`, but nothing ran it and nothing
-  alerted, so a sustained outage was found by a user posting in Slack. The same
-  turn-scoring now runs on the durable sweep that already drives stale reaping,
-  scoped to the app it runs in so no cross-app credential is needed. "Not enough
-  turns to judge" and "could not read the ledger" are distinct outcomes from
-  "healthy" — a check that could not run never reports all-clear.
-- 610103f: Rewrite `oneOf` to `anyOf` in generated tool schemas. OpenAI's function-calling
-  validator rejects `oneOf` outright, and Zod v4 emits it for every
-  `z.discriminatedUnion`, so a single action carrying one 400'd the entire chat
-  request before any token streamed — every tool in the payload, not just that
-  action. Measured at 178k errors across 786 users over seven weeks. Also stops a
-  settings-read failure in the chat-health pager from reading as "never paged".
-- 2a7736a: Bound realtime polling, invalidation, collaboration, and autoscroll work so idle or rapidly changing surfaces do not retain unbounded state or repeat expensive refreshes.
-
-## 0.161.11
-
-### Patch Changes
-
-- 1e90670: Bound core client state retention and avoid repeating semantic route-state serialization on unrelated renders.
-
-## 0.161.10
-
-### Patch Changes
-
-- bee7146: Page owners and admins when an app's chat stops answering. The detector already
-  existed as `scripts/chat-health.mjs --strict`, but nothing ran it and nothing
-  alerted, so a sustained outage was found by a user posting in Slack. The same
-  turn-scoring now runs on the durable sweep that already drives stale reaping,
-  scoped to the app it runs in so no cross-app credential is needed. "Not enough
-  turns to judge" and "could not read the ledger" are distinct outcomes from
-  "healthy" — a check that could not run never reports all-clear.
-
-## 0.161.9
-
-### Patch Changes
-
-- 3c54d4e: Add `setAgentNativeApiDisabled(reason)` for surfaces framed by a host with no
-  agent-native session, so the client stops calling `/_agent-native/*` instead of
-  401-ing on every poll. Action queries do not fire, action fetches and
-  application-state reads/writes throw `AgentNativeApiDisabledError`, session reads
-  resolve as signed out, and the runtime-config ping is skipped.
-- 3c54d4e: `sendToBuilderChat` accepts a `targetOrigin` for embedders that verified the
-  Builder parent through a handshake. `getBuilderParentOrigin()` requires
-  `?builder.*` params to trust a loopback parent, so those embeds previously fell
-  back to posting `"*"`.
-
-## 0.161.8
-
-### Patch Changes
-
-- adf5cb0: Prioritize a selected A2A receiver's declared local capabilities before cross-app delegation.
-
-## 0.161.7
-
-### Patch Changes
-
-- 8a867bc: Fix Cloudflare Pages builds for templates that import the PDF.js legacy entrypoint.
-
-## 0.161.6
-
-### Patch Changes
-
-- ff06749: fix stale home chat pointers so a missing local thread does not render a restore error
-- ff06749: fix mounted embed dev servers serving CSS and other static assets through Vite's normal asset pipeline and allow Builder preview origins to use embed CORS
-- c7ad22e: Fix Portal remote connector initialization so handoffs create remote run records and expose command failures in connector logs.
-- ff06749: Record what was sent when an agent run errors. An errored run's capture now
-  carries the failed request's model, payload bytes, tool count, and message
-  count alongside `gatewayRequestId` — sizes and counts only, never prompt or
-  user content — so an oversized request and an upstream outage stop producing
-  identical, undiagnosable captures.
-- ff06749: Stop a background turn from retrying an identical failure forever. When two
-  consecutive server-driven continuation chunks end on the same terminal error
-  code having produced no assistant text and no tool calls, the chain now stops
-  and the run ends with one non-recoverable error that keeps the original error
-  code and the gateway's `ERROR ID:` reference. A different error, or the same
-  error after real progress, still chains as before.
-
-## 0.161.5
-
-### Patch Changes
-
-- 4c7c289: Keep scoped chat tabs isolated when navigating between resources so an older
-  resource's conversation cannot remain visible on the current resource.
-
-## 0.161.4
-
-### Patch Changes
-
-- e0b883d: fix mounted embed dev servers serving CSS and other static assets through Vite's normal asset pipeline and allow Builder preview origins to use embed CORS
-- e0b883d: Record what was sent when an agent run errors. An errored run's capture now
-  carries the failed request's model, payload bytes, tool count, and message
-  count alongside `gatewayRequestId` — sizes and counts only, never prompt or
-  user content — so an oversized request and an upstream outage stop producing
-  identical, undiagnosable captures.
-
-## 0.161.3
-
-### Patch Changes
-
-- 1e7ce6a: Bound durable-event pruning to one atomic Postgres statement so interrupted serverless workers cannot leave idle transactions behind.
-- 1e7ce6a: Re-arm Neon idle-transaction cleanup and bound concurrent agent-run pruning.
-
-## 0.161.2
-
-### Patch Changes
-
-- 772f59a: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
-- 772f59a: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
-- 772f59a: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
-- 772f59a: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- 772f59a: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- 772f59a: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
-- 772f59a: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
-- 772f59a: Keep the gateway request id on agent-chat error captures, and create the
-  workspace connection tables at release time.
-
-  A Builder gateway error stop often arrives as one opaque user-facing sentence
-  carrying only an error id. The request id was captured only when the gateway
-  sent no message at all, so the errors that actually page had no key to join on
-  upstream. It now rides the stop event onto `EngineError` and out as a
-  `gatewayRequestId` tag (alongside `statusCode`) on the run-manager capture.
-
-  `workspace_connections`, `workspace_connection_grants`, and
-  `workspace_user_groups` existed only in their runtime `ensureTable` helpers.
-  Those are a no-op on a production serverless runtime by design, so
-  `workspace_user_groups` was never created in production and every read failed
-  with `relation "public.workspace_user_groups" does not exist`. They now have a
-  release migration.
-
-- 772f59a: Format the Portal reference table in the shared core documentation.
-- 772f59a: Redact nested callback parameters in desktop magic-link diagnostics.
-- 772f59a: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-- 772f59a: Keep approved agent actions valid across Dispatch history replay and scope them to the current turn.
-- 772f59a: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
-
-## 0.161.1
-
-### Patch Changes
-
-- 71e1308: Name the Builder gateway's unhandled-500 envelope instead of letting it end a
-  turn as `unknown`.
-
-  The gateway can answer 200 and then emit an in-stream error frame whose whole
-  message is its own internal envelope ("Sorry, we ran into an issue processing
-  your request. ERROR ID: …"), with no code and no status. That matched no
-  classifier, so the turn died on the first attempt — no engine retry, no
-  continuation, `error_code = 'unknown'` in `agent_runs`, and Builder's internal
-  correlation id rendered as the assistant's answer. The identical body arriving
-  as an HTTP 500 was always retried.
-
-  `classifyTerminalErrorCode` now returns `builder_gateway_internal_error` for
-  that envelope, the engine marks it `providerRetryable` so the verdict survives
-  the Builder-credits message rewrite, and every predicate that lists `http_500`
-  lists it too. The chat now shows what broke and keeps the error id in the
-  details.
-
-## 0.161.0
-
-### Minor Changes
-
-- 2107a36: Let a hosted app pay for its own AI with Builder credits. `BUILDER_GATEWAY_TOKEN`
-  plus `BUILDER_GATEWAY_SPACE_ID` now select the Builder engine and back the
-  gateway lane (chat, web search, realtime voice, transcription, scheduled and
-  event automations), so an anonymous visitor can use AI on a deployed site
-  without connecting anything. An injected gateway token can never move a
-  customer's spend onto Builder credits: it steps aside for any other engine whose
-  credentials resolve. A Builder key pair the customer configured themselves is
-  unchanged and keeps winning, as does `AGENT_ENGINE_PREFER_BYO_KEY`. Where the
-  deployment pays, a rejected or missing credential reads as one line to the
-  visitor, with the real reason kept on the error code for the owner; that holds
-  for the gateway's own 402/403 on voice and realtime transcription, for the auto
-  provider chain rather than only an explicit Builder preference, for a gateway
-  whose transport dropped or whose stream stopped early, and at the point the chat
-  renders an error — where a message the deployment already chose for a visitor is
-  no longer re-expanded from its code back into owner instructions. Owner surfaces
-  keep the copy that says what to fix, the workspace/preview runtime included, even
-  though it carries the same injected token as the published site. No recovery
-  decision depends on what the error message says any more: the Builder engine
-  marks a retryable gateway rejection and an over-long prompt structurally, and
-  those verdicts reach the chat client too. So an overloaded provider retries the
-  same way whoever is paying — without turning a provider throttle into a chain of
-  background continuations against the limit that just rejected it — a truncated
-  stream is still continued from where it stopped instead of ending the turn, and a
-  conversation that outgrew the context window still gets its one automatic trim
-  and retry. A background or
-  scheduled run keeps the message the server chose for its failure rather than
-  restating it from the terminal reason, and an earlier transient error in the same
-  run can no longer stand in for the reason the run actually died. Pasted
-  `ANTHROPIC_API_KEY` values are now validated when saved.
-
-### Patch Changes
-
-- 2107a36: Preserve chat restore failures for recovery and distinguish missing threads from transient errors.
-- 2107a36: Keep the chat share popover interactive while it is open in the sidebar.
-
-## 0.160.2
-
-### Patch Changes
-
-- 831e915: Recover and index durable approval continuation scopes when clients omit a logical turn id.
-
-## 0.160.1
-
-### Patch Changes
-
-- d3702a5: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
-- d3702a5: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
-- d3702a5: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
-- d3702a5: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- d3702a5: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- d3702a5: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
-- d3702a5: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
-- d3702a5: Support moving existing local Code Agents chats to a paired Portal computer with their code snapshot and text transcript context.
-- d3702a5: Format the Portal reference table in the shared core documentation.
-- d3702a5: Redact nested callback parameters in desktop magic-link diagnostics.
-- d3702a5: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-- d3702a5: Keep approved agent actions valid across Dispatch history replay and scope them to the current turn.
-- d3702a5: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
-
-## 0.160.0
-
-### Minor Changes
-
-- 167be56: Let a hosted app pay for its own AI with Builder credits. `BUILDER_GATEWAY_TOKEN`
-  plus `BUILDER_GATEWAY_SPACE_ID` now select the Builder engine and back the
-  gateway lane (chat, web search, realtime voice, transcription, scheduled and
-  event automations), so an anonymous visitor can use AI on a deployed site
-  without connecting anything. An injected gateway token can never move a
-  customer's spend onto Builder credits: it steps aside for any other engine whose
-  credentials resolve. A Builder key pair the customer configured themselves is
-  unchanged and keeps winning, as does `AGENT_ENGINE_PREFER_BYO_KEY`. Where the
-  deployment pays, a rejected or missing credential reads as one line to the
-  visitor, with the real reason kept on the error code for the owner; that holds
-  for the gateway's own 402/403 on voice and realtime transcription, for the auto
-  provider chain rather than only an explicit Builder preference, for a gateway
-  whose transport dropped or whose stream stopped early, and at the point the chat
-  renders an error — where a message the deployment already chose for a visitor is
-  no longer re-expanded from its code back into owner instructions. Owner surfaces
-  keep the copy that says what to fix, the workspace/preview runtime included, even
-  though it carries the same injected token as the published site. No recovery
-  decision depends on what the error message says any more: the Builder engine
-  marks a retryable gateway rejection and an over-long prompt structurally, and
-  those verdicts reach the chat client too. So an overloaded provider retries the
-  same way whoever is paying — without turning a provider throttle into a chain of
-  background continuations against the limit that just rejected it — a truncated
-  stream is still continued from where it stopped instead of ending the turn, and a
-  conversation that outgrew the context window still gets its one automatic trim
-  and retry. A background or
-  scheduled run keeps the message the server chose for its failure rather than
-  restating it from the terminal reason, and an earlier transient error in the same
-  run can no longer stand in for the reason the run actually died. Pasted
-  `ANTHROPIC_API_KEY` values are now validated when saved.
-
-### Patch Changes
-
-- ed0666b: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
-- ed0666b: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
-- ed0666b: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
-- ed0666b: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- ed0666b: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- ed0666b: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
-- ed0666b: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
-- ed0666b: Format the Portal reference table in the shared core documentation.
-- ed0666b: Redact nested callback parameters in desktop magic-link diagnostics.
-- ed0666b: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-- ed0666b: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
-
-## 0.159.6
-
-### Patch Changes
-
-- b676db8: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
-- b676db8: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
-- b676db8: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
-- b676db8: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- b676db8: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- b676db8: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
-- b676db8: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
-- b676db8: Format the Portal reference table in the shared core documentation.
-- b676db8: Redact nested callback parameters in desktop magic-link diagnostics.
-- b676db8: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-- b676db8: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
-
-## 0.159.5
-
-### Patch Changes
-
-- b676db8: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
-- b676db8: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
-- b676db8: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
-- b676db8: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- b676db8: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- b676db8: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
-- b676db8: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
-- 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
-- b676db8: Format the Portal reference table in the shared core documentation.
-- b676db8: Redact nested callback parameters in desktop magic-link diagnostics.
-- b676db8: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-- b676db8: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
-
-## 0.159.4
-
-### Patch Changes
-
-- 436340b: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
-- 436340b: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
-- 436340b: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- 436340b: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- 436340b: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
-- 436340b: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
-- 436340b: Format the Portal reference table in the shared core documentation.
-- 436340b: Redact nested callback parameters in desktop magic-link diagnostics.
-- 436340b: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-- 436340b: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
-
-## 0.159.3
-
-### Patch Changes
-
-- 7b267fd: Rewrite preserved Yjs imports in Node server build output.
-- Updated dependencies [95ea873]
-  - @agent-native/toolkit@0.16.4
-
-## 0.159.2
-
-### Patch Changes
-
-- 7acc86e: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
-- 7acc86e: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- 7acc86e: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- 7acc86e: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
-- 7acc86e: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
-- 7acc86e: Format the Portal reference table in the shared core documentation.
-- 7acc86e: Redact nested callback parameters in desktop magic-link diagnostics.
-- 7acc86e: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
-
-## 0.159.1
-
-### Patch Changes
-
-- 4f686cd: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- 4f686cd: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- 4f686cd: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
-- 4f686cd: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
-- 4f686cd: Format the Portal reference table in the shared core documentation.
-- 4f686cd: Redact nested callback parameters in desktop magic-link diagnostics.
-- 4f686cd: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
-
-## 0.159.0
-
-### Minor Changes
-
-- d003981: Add `defineAppConfig()` and `getAppConfig()` — one zod schema under `src/app-config/` that owns server-side configuration, so a value can be set in typed app code instead of only through an environment variable. Environment variables become declared `.meta({ env })` aliases into a schema field, parsed and validated in one place rather than at each call site, and resolve below explicit app configuration. A field can declare several aliases in precedence order, which is how one concept with many historical spellings collapses to a single declared ladder.
-
-  Five domains are declared so far, replacing roughly thirty hand-rolled `process.env` reads:
-  - **`privateBlob`** — `provider` selects which registered provider is active, replacing the implicit "first one whose `isConfigured()` returns true in module import order" rule (still the fallback when unset), and throwing when the named provider is not registered. `publicUploadFallback` replaces a setter and an environment variable whose precedence was decided by statement order inside `putPrivateBlob`. `setPrivateBlobPublicUploadFallbackEnabled` is deprecated but keeps working, now with a stated position in the ladder.
-  - **`app`** — `id`, `workspaceId`, `name`, `packageName`, and `template` replace nine fallback chains across agent chat, SSO, credential scoping, onboarding, the CLI, data programs, durable background dispatch, and workspace OAuth. They stay separate fields on purpose: `vault_grants` rows are written with the workspace-assigned id, so credential scoping keeps preferring it, and `name` is a display name rather than an identifier. None has a default, so an app with no configured identity is still denied a credential grant lookup instead of resolving one scoped to an app literally named `app`.
-  - **`agent`** — `engine`, `model`, `mode`, `preferBringYourOwnKey`, `runSoftTimeoutMs`, `completedRunRetentionMs`, `erroredRunRetentionMs`. `resolveEngine`'s documented resolution order is unchanged and `createAgentChatPlugin({ model })` keeps working; the explicit option stays a function parameter above the declared field.
-  - **`a2a`** and **`integrations`** — `allowUnsignedInternal` and `allowUnverifiedWebhooks`, the latter replacing three byte-identical copies of the same check in the telegram, whatsapp, and email webhook adapters.
-  - **`workspace`** — `gatewayUrl` and `oauthOrigin`. Together with `app.url` these retire the `VITE_` mirrors of the URL keys: the prefix only ever answered "how does this value reach the browser", so the value is now one declared field and delivery goes through `window.__AGENT_NATIVE_CONFIG__` alongside the existing Sentry, PostHog, and realtime scripts.
-
-  Two self-dispatch bugs are fixed along the way. `integrations/webhook-handler.ts` and `integrations/a2a-continuation-processor.ts` each carried their own copy of "resolve my own base URL"; both omitted `DEPLOY_PRIME_URL`, so a Netlify deploy preview dispatched background work to production, and the continuation copy silently fell back to `http://localhost:${PORT}` in production, where the request never arrives and the work is dropped with no error. Both now delegate to `resolveSelfDispatchBaseUrl`.
-
-  A new guard keeps the surface from growing back: `pnpm guard:no-legacy-config` fails when a line this branch adds reads `process.env` in `packages/core/src` outside the four resolvers, or calls a deprecated entry point. Opt out per line with `// config-ok: <reason>`.
-
-  Declared configuration now generates its own documentation: `pnpm sync:config-docs` writes the field table into `docs/environment-variables.md`, and `pnpm guard:config-docs` fails when it is stale.
-
-  Malformed values in migrated keys now fail at startup naming the key, instead of silently reading as `false` or falling back to a default. This affects `AGENT_ENGINE_PREFER_BYO_KEY`, `A2A_ALLOW_UNSIGNED_INTERNAL`, `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS`, and the three agent run timeout/retention keys.
-
-## 0.158.10
-
-### Patch Changes
-
-- c3a0f94: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
-
-## 0.158.9
-
-### Patch Changes
-
-- f411be6: Rotate persisted Better Auth JWKS keys safely after an auth-secret change.
-
-## 0.158.8
-
-### Patch Changes
-
-- 38e3471: Redact nested callback parameters in desktop magic-link diagnostics.
-
-## 0.158.7
-
-### Patch Changes
-
-- d0de8bc: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
-
-## 0.158.6
-
-### Patch Changes
-
-- e76df66: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- e76df66: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- e76df66: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
-- e76df66: Format the Portal reference table in the shared core documentation.
-
-## 0.158.5
-
-### Patch Changes
-
-- 4d2e3a2: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- 4d2e3a2: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
-- 4d2e3a2: Format the Portal reference table in the shared core documentation.
-
-## 0.158.4
-
-### Patch Changes
-
-- 2b618ab: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
-- 2b618ab: Format the Portal reference table in the shared core documentation.
-
-## 0.158.3
-
-### Patch Changes
-
-- 8a9743f: Format the Portal reference table in the shared core documentation.
-
-## 0.158.2
-
-### Patch Changes
-
-- c91e4ba: Format the Portal reference table in the shared core documentation.
-
-## 0.158.1
-
-### Patch Changes
-
-- 223cf26: Format the Portal reference table in the shared core documentation.
-
-## 0.158.0
-
-### Minor Changes
-
-- 1267aec: Add approved background-tab creation to the remote Chrome browser control action surface.
-
-## 0.157.28
-
-### Patch Changes
-
-- 3850b75: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
-- 3850b75: Serve the authenticated Desktop completion page on Dispatch, the identity authority, after its ordinary sign-in flow.
-- 3850b75: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 3850b75: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-- 3850b75: Hide the Agent-Native SSO option on canonical hosted login pages while preserving explicit self-hosted opt-in.
-- 3850b75: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
-
-## 0.157.27
-
-### Patch Changes
-
-- bc5f350: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
-- bc5f350: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- bc5f350: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-- bc5f350: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
-
-## 0.157.26
-
-### Patch Changes
-
-- abfb925: Serve the authenticated Desktop completion page on Dispatch, the identity authority, after its ordinary sign-in flow.
-
-## 0.157.25
-
-### Patch Changes
-
-- 6e56b98: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
-- 6e56b98: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 6e56b98: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-- 6e56b98: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
-
-## 0.157.24
-
-### Patch Changes
-
-- 6bdf1f7: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
-- 6bdf1f7: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 6bdf1f7: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-- 6bdf1f7: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
-
-## 0.157.23
-
-### Patch Changes
-
-- febb983: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
-- febb983: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- febb983: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
-
-## 0.157.22
-
-### Patch Changes
-
-- 802f708: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 802f708: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
-
-## 0.157.21
-
-### Patch Changes
-
-- 904b67c: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-
-## 0.157.20
-
-### Patch Changes
-
-- d525c66: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
-
-## 0.157.19
-
-### Patch Changes
-
-- 8d34d57: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
-
-## 0.157.18
-
-### Patch Changes
-
-- 907dfa3: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
-- 907dfa3: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
-- 907dfa3: Return Google sign-in callbacks to native mobile clients using signed flow intent, even when the callback browser user-agent is not mobile, and hide the Agent-Native SSO control in embedded auth views.
-- 907dfa3: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
-
-## 0.157.17
-
-### Patch Changes
-
-- 9e73795: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
-- 9e73795: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
-- 9e73795: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
-
-## 0.157.16
-
-### Patch Changes
-
-- 1b7d8c2: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
-- 1b7d8c2: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

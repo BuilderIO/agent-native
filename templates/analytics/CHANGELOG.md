@@ -3,6 +3,124 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-09
+
+### Improved
+
+- Faster analytics dashboard loading
+- Collaborator avatars use a slimmer border.
+
+## 2026-09-08
+
+### Improved
+
+- Login pages use the same mouse-reactive wave background as the docs and booking experiences.
+
+### Fixed
+
+- Analytics dashboards and daily emails include current zero-activity dates.
+
+## 2026-09-04
+
+### Improved
+
+- The agent now answers data questions with explicit confidence instead of a dead end, and uses existing dashboards first
+
+## 2026-09-03
+
+### Fixed
+
+- Analytics autosaves now skip unchanged edits, keeping history focused on real changes.
+- Saved Analytics panels recover when chart fields are nested in their config
+
+## 2026-09-01
+
+### Added
+
+- Analytics admins can join read-only data from connected app databases
+
+## 2026-08-31
+
+### Improved
+
+- Per-app auth pages show a product preview and learn-more link
+
+## 2026-08-29
+
+### Added
+
+- Chat edits can be reverted to saved checkpoints
+
+### Improved
+
+- Analytics loading states now use an even more subtle whole-surface shine.
+- Dashboard certification lives in the overflow menu
+- Analytics now has a public marketing page with a direct path into the app.
+
+## 2026-08-28
+
+### Improved
+
+- Analytics loading states now use a softer whole-surface shine.
+- Analytics sidebar navigation now matches sibling sidebars with tighter horizontal spacing.
+- Sidebar branding matches the app text color with a tighter mark size.
+- Analytics loading placeholders now use a smooth whole-surface shine
+- Sidebar branding uses a monochrome Agent-Native mark.
+
+## 2026-08-27
+
+### Added
+
+- Dashboard owners can archive dashboards from the actions menu.
+- See signup, onboarding, activation, and sharing drop-off in one filterable dashboard.
+
+### Improved
+
+- Show connected Google names and profile photos in analytics
+
+### Fixed
+
+- Show Analytics's own registered flags in fleet feature flag management.
+- Analytics exports now show a direct download in chat and reject failed responses
+
+## 2026-08-26
+
+### Improved
+
+- Analytics distinguishes daily from weekly activity, shows stacked totals in chart tooltips, and remembers dashboard visibility.
+
+### Fixed
+
+- Analytics deployments no longer fail when dashboard creator metadata is already present
+- Dashboard metadata now shows the original creator separately from the current owner
+- Dashboard names stay editable when the Analytics sidebar refreshes
+- Fixed the agent re-asking dashboard scope questions you had already answered
+
+## 2026-08-24
+
+### Fixed
+
+- Analytics chat drafts now stay in place while a new chat finishes loading.
+- Feature flag management recovers from temporary workspace directory failures, while directory reads avoid slow per-app database lookups
+
+## 2026-08-22
+
+### Fixed
+
+- Fixed the Agent-Native Templates (First-party) dashboard panels failing to load on a local PGlite database
+- Org admin panels no longer report a database error as a permission denial. A failed
+  organization-role lookup now surfaces as a retryable error instead of silently reading
+  as "you are not an owner or admin", which had been 403-ing the usage stats panel for
+  real admins whenever the database was briefly unreachable.
+- Slack analytics requests now reject invalid workspaces and cursors with actionable errors instead of using the wrong workspace or returning a server failure.
+- Visiting a broken or mistyped Analytics link now returns a real not-found response instead of a silent success.
+
+## 2026-08-21
+
+### Fixed
+
+- Dashboard filters keep other users' dashboards out of Mine
+
 ## 2026-08-20
 
 ### Improved

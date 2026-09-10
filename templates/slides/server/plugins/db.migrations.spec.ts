@@ -4,15 +4,13 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// guard:allow-unscoped — this isolated SQLite fixture verifies migration rows directly.
-
 const originalDatabaseUrl = process.env.DATABASE_URL;
 let tempDir: string | null = null;
 
 describe("Slides share migrations", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "slides-migrations-"));
-    process.env.DATABASE_URL = `file:${path.join(tempDir, "slides.db")}`;
+    process.env.DATABASE_URL = `pglite:${path.join(tempDir, "slides")}`;
     vi.resetModules();
   });
 
@@ -45,14 +43,25 @@ describe("Slides share migrations", () => {
         principal_id TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'viewer',
         created_by TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        created_at TIMESTAMP NOT NULL DEFAULT now()
+      )
+    `);
+    await exec.execute(`
+      CREATE TABLE deck_versions (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        deck_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        data TEXT NOT NULL,
+        change_label TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT now()
       )
     `);
     await exec.execute(
-      "CREATE TABLE slides_migrations (version INTEGER PRIMARY KEY)",
+      "CREATE TABLE slides_migrations (version BIGINT PRIMARY KEY)",
     );
     await exec.execute(
-      "CREATE TABLE slides_migrations_named (name TEXT PRIMARY KEY, version INTEGER, applied_at TEXT NOT NULL DEFAULT (datetime('now')))",
+      "CREATE TABLE slides_migrations_named (name TEXT PRIMARY KEY, version BIGINT, applied_at TIMESTAMP NOT NULL DEFAULT now())",
     );
     for (let version = 1; version <= 23; version++) {
       await exec.execute({
@@ -104,6 +113,15 @@ describe("Slides share migrations", () => {
 
     await runSlidesMigrations({});
 
+    const { rows: commentColumns } = await exec.execute(
+      `SELECT column_name AS name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'slide_comments'`,
+    );
+    expect(commentColumns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "anchor" })]),
+    );
+
     const { rows } = await exec.execute(
       `SELECT id, resource_id, principal_type, principal_id, role
        FROM deck_shares
@@ -134,12 +152,33 @@ describe("Slides share migrations", () => {
     ]);
 
     const { rows: indexRows } = await exec.execute(
-      `SELECT name
-       FROM sqlite_master
-       WHERE type = 'index' AND name = 'deck_shares_resource_user_principal_uidx'`,
+      `SELECT indexname AS name
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname = 'deck_shares_resource_user_principal_uidx'`,
     );
     expect(indexRows).toEqual([
       { name: "deck_shares_resource_user_principal_uidx" },
+    ]);
+
+    const { rows: versionColumns } = await exec.execute(
+      `SELECT column_name AS name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'deck_versions'`,
+    );
+    expect(versionColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "change_group" }),
+      ]),
+    );
+    const { rows: versionIndexes } = await exec.execute(
+      `SELECT indexname AS name
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname = 'deck_versions_deck_owner_change_group_uidx'`,
+    );
+    expect(versionIndexes).toEqual([
+      { name: "deck_versions_deck_owner_change_group_uidx" },
     ]);
 
     await expect(

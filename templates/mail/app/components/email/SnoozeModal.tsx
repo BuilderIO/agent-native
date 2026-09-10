@@ -225,11 +225,7 @@ export function SnoozeModal({
           })
           .catch((err: any) => {
             const msg = err?.message ?? "";
-            if (
-              msg.includes("no such table") ||
-              msg.includes("scheduled_jobs") ||
-              msg.includes("SQLITE")
-            ) {
+            if (msg.includes("scheduled_jobs")) {
               toast.error(t("mail.toasts.snoozeDbNotReady"));
             } else {
               toast.error(msg || t("mail.toasts.couldNotSnooze"));
@@ -237,7 +233,7 @@ export function SnoozeModal({
           });
       }
     },
-    [snoozeTargets, snoozeEmail, onSnoozed, onClose],
+    [snoozeTargets, snoozeEmail, onSnoozed, onClose, t],
   );
 
   const handleKeyDown = useCallback(

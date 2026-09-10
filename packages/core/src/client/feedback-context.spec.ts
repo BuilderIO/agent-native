@@ -86,4 +86,22 @@ describe("getFeedbackClientContext", () => {
 
     expect(context.chatSessionIds).toEqual(["same-thread"]);
   });
+
+  it("uses an explicit message run id over the currently active run", () => {
+    sessionStorage.setItem(
+      "agent-chat-active-run",
+      JSON.stringify({
+        threadId: "same-thread",
+        runId: "active-run",
+        lastSeq: 1,
+      }),
+    );
+
+    const context = getFeedbackClientContext({
+      chatSessionId: "same-thread",
+      activeRunId: "message-run",
+    });
+
+    expect(context.activeRunId).toBe("message-run");
+  });
 });

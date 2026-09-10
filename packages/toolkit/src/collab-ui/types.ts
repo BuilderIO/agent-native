@@ -90,6 +90,9 @@ export function dedupeCollabUsersByEmail(users: CollabUser[]): CollabUser[] {
         typeof user.color === "string" && user.color.trim()
           ? user.color
           : emailToColor(email),
+      ...(typeof user.avatarUrl === "string" && user.avatarUrl.trim()
+        ? { avatarUrl: user.avatarUrl }
+        : {}),
     });
   }
   return Array.from(byEmail.values());

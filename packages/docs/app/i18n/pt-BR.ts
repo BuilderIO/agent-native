@@ -63,6 +63,7 @@ const ptBR = {
     dialogLabel: "Pesquisar documentação",
     placeholder: "Pesquisar documentação...",
     empty: "Digite para pesquisar em toda a documentação",
+    toggleChatSidebar: "Alternar barra lateral do chat",
     loadError: "A busca não pôde ser carregada. Tente novamente.",
     retry: "Tentar novamente",
     noResults: 'Nenhum resultado para "{{query}}"',
@@ -156,8 +157,8 @@ const ptBR = {
           body: "Defina o trabalho uma vez e use pela UI, agent, HTTP, MCP, A2A e CLI.",
         },
         sqlStateOrm: {
-          title: "Estado SQL e ORM",
-          body: "Dados duráveis da app, estado da aplicação, migrações e esquemas independentes de provedor.",
+          title: "Estado PostgreSQL e ORM",
+          body: "Dados duráveis da app, estado da aplicação, migrações e esquemas PostgreSQL/PGlite.",
         },
         dbAdmin: {
           title: "Admin de banco de dados",
@@ -210,7 +211,7 @@ const ptBR = {
       body1:
         "Agent-Native é um framework open source para construir agentic applications: comece com Chat, defina actions compartilhadas e depois adicione UI, jobs e colaboração ao redor do mesmo estado.",
       body2:
-        "Traga seu próprio banco de dados, provedor de hospedagem, stack de modelos e código da app.",
+        "Use PGlite local ou PostgreSQL hospedado, seu provedor de hospedagem, stack de modelos e código da app.",
       cta: "Ler o guia do framework",
       primitives: {
         actions: {
@@ -228,10 +229,10 @@ const ptBR = {
           description:
             "O app-agent loop, tools, skills, memory, jobs e observabilidade são entregues juntos.",
         },
-        backendAgnostic: {
-          title: "Independente de backend",
+        postgresSpecific: {
+          title: "Específico de PostgreSQL",
           description:
-            "Conecte qualquer banco de dados SQL compatível com Drizzle e qualquer host compatível com Nitro.",
+            "Use os auxiliares de esquema PostgreSQL da estrutura com PGlite local ou Postgres hospedado em qualquer host compatível com Nitro.",
         },
       },
     },
@@ -310,7 +311,7 @@ const ptBR = {
     },
     quickStart: {
       title: "Comece com um comando",
-      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e SQLite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
+      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e PGlite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
     },
     finalCta: {
       title: "Software feito para a era agentic",
@@ -415,6 +416,7 @@ const ptBR = {
   },
   common: {
     copied: "Copiado",
+    copyFailed: "Falha ao copiar",
     copyCommand: "Comando copiar",
     copyCode: "Copiar código",
     tryIt: "Experimentar",
@@ -432,25 +434,188 @@ const ptBR = {
     freeAndOpenSource: "100% grátis • código aberto",
     viewAllApps: "Ver todos os apps",
   },
+  homepage: {
+    hero: {
+      title: "O framework para aplicativos agentic",
+      bodyLine1: "Crie agentes autônomos com interfaces intuitivas.",
+      bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
+      tryAnApp: "Experimentar um app",
+    },
+    install: {
+      copyCommand: "Copiar comando de instalação",
+    },
+    actions: {
+      title: "Uma Action alimenta cada superfície",
+      bodyLine1: "Defina uma capacidade uma vez com defineAction().",
+      bodyLine2:
+        "Seu agente, sua UI React, clientes HTTP e integrações usam o mesmo código.",
+      diagramAlt:
+        "Uma Action alimenta UI, MCP, chat do agente, A2A, HTTP API e CLI",
+    },
+    builtIn: {
+      title: "Tudo o que seu agente precisa",
+      body: "UI, contexto, dados, permissões e infraestrutura, já conectados entre si.",
+      pillars: {
+        reactUi: {
+          title: "UI em React",
+          body: "Dê aos usuários telas familiares para navegar, editar e revisar trabalho.",
+        },
+        agentChat: {
+          title: "Chat de agente incorporado",
+          body: "Deixe os usuários delegarem trabalho, fazerem perguntas e revisarem resultados na mesma UI.",
+        },
+        sharedState: {
+          title: "Estado de aplicação compartilhado",
+          body: "O agente sabe o que os usuários estão vendo, selecionando e editando.",
+        },
+        sharedSql: {
+          title: "Dados PostgreSQL compartilhados",
+          body: "Usuários e agentes leem e atualizam a mesma fonte de verdade.",
+        },
+        skillsMemory: {
+          title: "Habilidades e memória",
+          body: "Dê aos agentes expertise reutilizável e contexto persistente.",
+        },
+        automations: {
+          title: "Automações",
+          body: "Execute trabalho do agente automaticamente por horários ou eventos.",
+        },
+        agentTeams: {
+          title: "Equipes de agentes",
+          body: "Delegue trabalho a agentes especializados no mesmo workspace ou entre agentes conectados.",
+        },
+        auth: {
+          title: "Autenticação e organizações",
+          body: "Login, contas de usuário e associação a organizações já vêm integrados.",
+        },
+        sharing: {
+          title: "Compartilhamento e permissões",
+          body: "Controle quem pode visualizar, comentar, editar ou gerenciar cada recurso.",
+        },
+      },
+    },
+    stack: {
+      title: "Traga sua própria stack",
+      body: "Agent-Native é TypeScript de código aberto. Escolha seu modelo, banco de dados e hospedagem, e mantenha o código da aplicação no seu repositório.",
+      exploreApps: "Explore apps criados com Agent-Native",
+    },
+    showcase: {
+      title: "Apps reais criados com Agent-Native",
+      body: "Apps Agent-Native de código aberto que você pode usar gratuitamente ou personalizar infinitamente.",
+      browseApps: "Explorar apps",
+      scrollLeft: "Rolar apps para a esquerda",
+      scrollRight: "Rolar apps para a direita",
+    },
+    bottomCta: {
+      title: "Crie seu primeiro agente com uma UI",
+      body: "O agente e a UI compartilham as mesmas capacidades. Traga seu próprio LLM e implante em qualquer lugar.",
+    },
+    footer: {
+      tagline: "O framework para aplicativos agentic.",
+      framework: "Framework",
+      ecosystem: "Ecossistema",
+      community: "Comunidade",
+      legal: "Legal",
+      docs: "Documentação",
+      download: "Baixar",
+      apps: "Apps",
+      privacyPolicy: "Política de Privacidade",
+      saasTerms: "Termos de SaaS",
+      legalResources: "Recursos jurídicos",
+    },
+  },
+  gettingStarted: {
+    tabs: {
+      label: "Escolha como criar",
+      local: "Criar localmente",
+      localDescription: "Use a CLI para criar no seu computador.",
+      cloud: "Criar na nuvem",
+      cloudDescription: "Crie no navegador com o Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Crie os mesmos aplicativos sem instalar nada. Descreva o que você quer e o agente escreve e executa o código em um espaço de trabalho hospedado pelo Builder.",
+      stepOneTitle: "Crie uma conta no Builder",
+      stepOneBody:
+        "Use sua conta do Builder para criar no navegador. Comece gratuitamente, sem precisar fornecer chaves de API.",
+      stepTwoTitle: "Envie seu prompt",
+      stepTwoBody:
+        "Descreva em linguagem simples o que você quer criar e o agente fará isso por você.",
+      stepThreeTitle: "Publique",
+      stepThreeBody:
+        "Quando estiver pronto, publique seu agente e sua UI com um clique no Builder.",
+    },
+  },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
     eyebrow: "Comece com uma app funcional e deixe o agente evoluí-la.",
     body: "Você pode personalizar tudo.",
+    firstPartyTitle: "Criados pelo Agent-Native",
     community:
       "Quer uma app em branco? Comece do zero com o guia do framework.",
     createYourOwn: "Começar do zero",
-    communityTitle: "Modelos da comunidade",
+    communityTitle: "Aplicativos da comunidade",
     communityDescription:
-      "Aplicativos independentes mantidos por seus autores. Instale a partir de um repositório público do GitHub ou experimente uma versão hospedada quando disponível.",
-    submitCommunityTemplate: "Enviar seu modelo",
+      "Descubra aplicativos mantidos por seus autores. Experimente uma versão hospedada quando disponível ou veja o código-fonte e personalize por conta própria.",
+    submitCommunityTemplate: "Enviar um aplicativo",
     communityEmpty:
-      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado em um repositório público e envie-o para o catálogo.",
+      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado e envie-o para o catálogo.",
     publishGuide: "Ler o guia de publicação",
     communityTrust:
-      "Modelos da comunidade são código de terceiros. Revise o repositório, a licença, as dependências e os scripts de instalação antes de executá-lo.",
+      "Aplicativos da comunidade são código de terceiros. Revise o código-fonte, a licença, as dependências e os scripts de instalação antes de executá-los.",
     copyCommunityInstallCommand: "Copiar comando de instalação",
     viewRepository: "Ver repositório",
     tryCommunityDemo: "Experimentar demo",
+    customizeDescription: "Use este app como ponto de partida.",
+    customizeOnline: "Online",
+    customizeOnlineBadge: "Entrar na lista de espera",
+    customizeLocally: "Local",
+    communityNew: "Novo",
+    communityComingSoon: "Em breve",
+    communityGithubStars: "{{count}} estrelas no GitHub",
+    tryCommunityApp: "Experimentar aplicativo",
+    viewCommunitySource: "Ver código-fonte",
+    communityEyebrow: "Aplicativo da comunidade",
+    communityScreenshots: "Capturas de tela",
+    previousScreenshot: "Captura anterior",
+    nextScreenshot: "Próxima captura",
+    communityNoScreenshots: "As capturas aparecerão aqui após a revisão.",
+    communityScreenshotAlt: "Captura {{index}} de {{name}}",
+    communityNoHostedVersion:
+      "Uma versão hospedada estará disponível em breve. Acompanhe o desenvolvimento pelo código-fonte.",
+    communitySubmissionTitle: "Compartilhe um aplicativo da comunidade",
+    communitySubmissionDescription:
+      "Conte onde encontrar seu aplicativo e o que ele faz. Revisaremos os detalhes antes de publicar a listagem.",
+    communitySubmissionName: "Nome do aplicativo",
+    communitySubmissionNamePlaceholder: "Central de suporte ao cliente",
+    communitySubmissionUrl: "URL do aplicativo",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "Descrição",
+    communitySubmissionDescriptionPlaceholder:
+      "O que o aplicativo faz e para quem ele é?",
+    communitySubmissionRepository: "Repositório do GitHub (opcional)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Capturas de tela (opcional)",
+    communitySubmissionScreenshotsPlaceholder: "Solte até 5 imagens aqui",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG ou WebP. Máximo de 1,5 MB cada.",
+    communitySubmissionScreenshotSlot: "Captura {{index}}",
+    communitySubmissionScreenshotsAdd: "Adicionar capturas",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 selecionadas",
+    communitySubmissionScreenshotRemove: "Remover captura {{index}}",
+    communitySubmissionSubmit: "Enviar aplicativo",
+    communitySubmissionReady:
+      "Obrigado. Vamos revisar seu aplicativo antes de publicá-lo.",
+    communitySubmissionNameError: "Insira um nome para o aplicativo.",
+    communitySubmissionDescriptionError: "Adicione uma descrição curta.",
+    communitySubmissionUrlError: "Insira um link válido, como example.com.",
+    communitySubmissionRepositoryError:
+      "Insira um link de repositório do GitHub.",
+    communitySubmissionScreenshotsError:
+      "Use imagens PNG, JPG ou WebP de até 1,5 MB cada, com no máximo 5 imagens.",
+    communitySubmissionSubmitError:
+      "Não foi possível enviar agora. Verifique os campos destacados e tente novamente.",
+    communitySubmissionSubmitting: "Enviando…",
   },
   buildFromScratch: {
     title: "Criar do zero",
@@ -458,8 +623,10 @@ const ptBR = {
       "Comece com o guia do framework ou crie online com o agente de programação em nuvem da Builder.io.",
     readDocs: "Ler a documentação",
     buildOnline: "Criar online",
-    popoverTitle: "Criar online com a Builder.io",
+    popoverTitle: "Criar no navegador",
     popoverBody:
+      "Gere rapidamente apps agent-native na nuvem com a Builder.io.",
+    waitlistBody:
       "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
     emailLabel: "Email",
     emailPlaceholder: "voce@empresa.com",
@@ -469,6 +636,9 @@ const ptBR = {
       "Você está na lista de espera. Enviaremos um email quando o acesso para criar online abrir.",
     invalidEmail: "Insira um endereço de email válido.",
     submitError: "Não foi possível entrar na lista de espera. Tente novamente.",
+    waitlistUnavailable:
+      "As inscrições na lista de espera ainda não estão disponíveis neste ambiente. Tente o site de documentação hospedado.",
+    launchBuilder: "Abrir o Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Cole em seu terminal.",
@@ -488,7 +658,7 @@ const ptBR = {
     clips: {
       replaces: "Substitui ou amplia Loom, Granola e Wisprflow",
       description:
-        "Gravações de tela com captura de depuração do navegador, notas de reuniões sincronizadas com o calendário e ditado de voz em espera Fn — tudo transcrito, resumido e pesquisável, com um agente que pode editar qualquer um deles.",
+        "Grava sua tela, reuniões e notas de voz para que os agentes entendam o que aconteceu e tomem providências.",
     },
     plan: {
       replaces:
@@ -499,27 +669,27 @@ const ptBR = {
     design: {
       replaces: "Substitui ou amplia ferramentas de prototipagem de design",
       description:
-        "Estúdio de prototipagem HTML agent-native. Gere designs Alpine/Tailwind interativos, compare variantes, ajuste controles ao vivo e exporte o resultado.",
+        "Transforma prompts em designs interativos que seguem seu sistema de design enquanto o agente refina cada tela com seu feedback.",
     },
     content: {
       replaces: "Substitui ou aumenta Obsidian por MDX, Notion, Google Docs",
       description:
-        "Edite arquivos Markdown/MDX locais como Obsidian, gere blocos personalizados interativos avançados e use um agente AI para redigir, reescrever e publicar.",
+        "Trabalha com seus documentos enquanto um agente escreve com sua voz, cria conteúdo interativo e publica no seu site.",
     },
     slides: {
       replaces: "Substitui ou aumenta Google Slides, Pitch",
       description:
-        "Gere apresentações completas a partir de um prompt. Edite visualmente ou de forma conversacional. AI geração de imagem, 8 layouts e modo de apresentação integrado.",
+        "Cria apresentações editáveis e alinhadas à sua marca a partir de prompts ou slides existentes, que um agente pode criar, editar e refinar.",
     },
     analytics: {
       replaces: "Alternativa de código aberto ao Amplitude e ao FullStory",
       description:
-        "Conecte qualquer fonte de dados, solicite qualquer gráfico, crie painéis reutilizáveis. O agente escreve SQL, gera visualizações e evolui o aplicativo.",
+        "Conecta seus dados para que um agente responda perguntas em linguagem simples e transforme os resultados em gráficos e painéis.",
     },
     mail: {
       replaces: "Substitui ou aumenta Superhuman, Gmail",
       description:
-        "Cliente de e-mail estilo Superhuman com atalhos de teclado, triagem AI, suporte para várias contas e automações de e-mail. Seja dono do fluxo de trabalho da sua caixa de entrada.",
+        "Uma caixa de entrada pensada para o teclado, onde um agente prioriza e-mails, redige respostas, resume conversas e acompanha pendências.",
     },
     forms: {
       replaces: "Substitui ou aumenta Typeform, Google Forms",
@@ -530,12 +700,12 @@ const ptBR = {
       replaces:
         "Substitui ou aumenta DAMs, bibliotecas de ativos de marca e geradores de mídia AI",
       description:
-        "Gerenciador de ativos digitais para uploads, bibliotecas de marcas, referências pesquisáveis e geração de imagens/vídeos da marca que outros aplicativos podem chamar por meio de A2A ou incorporar como seletor.",
+        "Oferece aos agentes uma biblioteca compartilhada de diretrizes, imagens e vídeos da marca para criar e escolher mídias alinhadas em seus apps.",
     },
     calendar: {
       replaces: "Substitui ou aumenta Google Calendar, Calendly",
       description:
-        "Calendário completo com sincronização Google, gerenciamento de disponibilidade e página de reserva pública. O agente encontra vagas abertas, cria eventos e gerencia sua programação.",
+        "Reúne seus Google Calendars para que um agente encontre horários, agende ou reagende eventos e gerencie reservas.",
     },
     dispatch: {
       replaces: "Controle de missão para seus aplicativos nativos de agente",
@@ -745,13 +915,66 @@ const ptBR = {
     },
     clips: {
       s001: "Captura de tela do modelo Clips",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "Gravações de tela que seu agente de IA pode ver e ouvir",
+      heroDescription:
+        "Clips é um gravador de tela gratuito e de código aberto para compartilhar bugs, feedback e tutoriais com agentes de IA.",
+      heroCta: "Gravar um clipe",
+      useCasesHeading: "O que você pode fazer com o Clips?",
+      useCasesBody:
+        "Comece com um clipe que você gravou ou que alguém compartilhou com você. Dê ao seu agente de IA o contexto e diga o que você precisa.",
+      useCase1Title: "Agir sobre feedback gravado",
+      useCase1Body:
+        "Dê ao seu agente de IA feedback gravado para transformar em um plano ou ajudar a implementar as mudanças solicitadas.",
+      useCase2Title: "Investigar um bug relatado",
+      useCase2Body:
+        "Compartilhe uma gravação de bug com seu agente de IA para investigar o que deu errado e definir os próximos passos.",
+      useCase3Title: "Criar a partir de um briefing gravado",
+      useCase3Body:
+        "Use um briefing gravado para orientar seu agente de IA na criação de uma apresentação, design, conteúdo ou mudança no app.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para gravar, transcrever e compartilhar",
+      feature1Title: "Gravações legíveis por agentes",
+      feature1Body:
+        "Compartilhe a transcrição e as imagens com marca de tempo de um clipe com seu agente de IA por meio de um único link legível por agentes.",
+      feature2Title: "Transcrições automáticas",
+      feature2Body:
+        "Obtenha transcrições de gravações, reuniões e ditados. Clique em qualquer linha da transcrição para voltar àquele momento.",
+      feature3Title: "Logs de depuração do navegador",
+      feature3Body:
+        "Capture erros de console e requisições que falharam junto com sua gravação com a extensão do Clips para Chrome.",
+      feature4Title: "Agente de IA integrado",
+      feature4Body:
+        "Pergunte ao agente de IA integrado sobre um clipe ou sobre toda a sua biblioteca, e deixe que ele edite as transcrições no chat.",
+      feature5Title: "Biblioteca de gravações pesquisável",
+      feature5Body:
+        "Encontre clipes pesquisando suas transcrições. Organize suas gravações com pastas, tags e espaços de equipe.",
+      feature6Title: "Ditado push-to-talk",
+      feature6Body:
+        "Mantenha Fn pressionado no app de desktop para ditar em outros aplicativos. Reveja transcrições e o texto revisado no seu histórico.",
+      teammatesLine:
+        "Seus colegas de equipe podem assistir à mesma gravação no player.",
+      teammatesLinkLabel: "Ler o guia de compartilhamento com agentes",
+      seeInActionHeading: "Veja o Clips em ação",
+      seeInActionBody:
+        "Veja o Clips em uso, desde a gravação de um fluxo de trabalho no navegador até mostrar a um agente de IA como realizar uma tarefa.",
+      watchClipLabel: "Ver o clipe",
+      finalCtaHeading: "Ponha seu próximo clipe para trabalhar",
+      finalCtaBody:
+        "Grave uma explicação ou leve um clipe compartilhado para o seu agente de IA.",
+      finalCtaButton: "Abrir o Clips",
       s002: "Gravação de tela",
       s003: "Logs de depuração do navegador",
       s004: "Ditar",
       s005: "Pode ver + ouvir",
       s006: "Todos os modelos",
-      s007: "A alternativa de código aberto para Loom",
-      s008: "Cole um link Clips em um agente e ele poderá ouvir a transcrição, ler resumos e ver quadros com carimbo de data/hora, mesmo que seu modelo não consiga ingerir vídeo ou áudio bruto.",
+      s007Primary: "Gravações de tela que sua",
+      s007Secondary: "AI pode ver e ouvir.",
+      s008: "Capture logs de depuração do navegador, obtenha transcrições e use o ditado integrado. 100% grátis, código aberto e personalizável.",
+      s063: "Receba uma recomendação personalizada",
+      s064: "Cole este prompt no Claude, ChatGPT ou Cursor para ver como o Clips pode impactar seu fluxo de trabalho.",
       s009: "Experimente",
       s010: "O que você pode fazer",
       s011: "Grave, transcreva e depure — um aplicativo, uma biblioteca, sem a pilha de assinaturas.",
@@ -804,8 +1027,26 @@ const ptBR = {
       s058: "Gratuito e de código aberto",
       s059: "Comece agora",
       s060: "Escolha o que capturar e comece a gravar no Clips.",
-      s061: "Ver mais aplicativos",
       s062: "Ver todos os modelos",
+      faq: {
+        question1: "O Clips é gratuito e de código aberto?",
+        answer1:
+          "Sim. O Clips é um software gratuito e de código aberto. Você pode usar o app ou personalizar e hospedar sua própria versão.",
+        question2:
+          "Posso compartilhar gravações com Claude, ChatGPT ou Cursor?",
+        answer2:
+          "O Clips fornece um link legível por agentes com uma transcrição e imagens com marca de tempo. Seu agente precisa conseguir abrir o conteúdo do link e ler imagens para usar os dois. Alguns modos de chat conseguem ler a transcrição, mas exigem que você envie uma imagem separadamente.",
+        question3: "Preciso da extensão do Chrome para gravar minha tela?",
+        answer3:
+          "Não. Você pode gravar no app web do Clips. Use a extensão do Chrome quando também quiser mensagens de console e diagnósticos de rede da aba que está demonstrando.",
+        question4:
+          "Agentes de IA conseguem assistir às minhas gravações de tela?",
+        answer4:
+          "Com o Clips, agentes de IA compatíveis conseguem entender sua gravação por meio de uma transcrição e imagens com marca de tempo. Eles usam o texto e as imagens em vez de reproduzir o vídeo, então você pode fazer perguntas sobre o que aconteceu ou dar ao seu agente de IA uma tarefa baseada na gravação.",
+        question5: "Quem pode acessar uma gravação compartilhada?",
+        answer5:
+          "As gravações usam links públicos por padrão, a menos que sua organização altere essa configuração. Qualquer pessoa com o link pode acessá-las. Há opções de acesso privado e organizacional disponíveis, e clipes privados podem ser compartilhados com agentes por meio de links temporários sem tornar a gravação pública.",
+      },
       quickStart: {
         recordingMode: "Modo de gravação",
         modeScreenCamera: "Tela + câmera",
@@ -929,7 +1170,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006: "O estúdio de prototipagem de código aberto AI HTML",
-      s007: "Gere protótipos Alpine/Tailwind interativos a partir de um prompt, compare variantes, refine com controles de ajuste e exporte arquivos reais de sua propriedade.",
+      s007: "Crie designs e protótipos interativos. Refine com ferramentas familiares ou faça edições de conversação. Exporte para qualquer lugar.",
       s008: "Crie algo",
       s009: "Como funciona",
       s010: "Tudo que você precisa",
@@ -983,6 +1224,7 @@ const ptBR = {
       s058: "Comece com o modelo e comece a gerar protótipos interativos com um agente que edita a fonte.",
       s059: "Leia os documentos",
       s060: "Ver todos os modelos",
+      s061: "100% grátis, código aberto e personalizável.",
     },
     dispatch: {
       faq: {
@@ -1343,7 +1585,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006Primary: "Apresentações de slides",
-      s006Secondary: "para pessoas e agentes",
+      s006Secondary: "Com sua marca e editáveis",
       s007: "Gere apresentações com a identidade da sua marca usando seu agente de IA, faça suas próprias alterações manuais a qualquer momento e exporte para qualquer lugar.",
       s008: "Experimentar",
       s009: "Como funciona",
@@ -1525,7 +1767,7 @@ const ptBR = {
   },
   downloadPage: {
     title: "Baixar Agent-Native",
-    body: "Todos os seus apps agent-native em uma única shell de desktop. Apps de produção integrados, com alternância de modo dev para desenvolvimento local.",
+    body: "Experimente apps agênticos para reuniões, design, apresentações, dados, agendamento, e-mail e muito mais, tudo em um único app de desktop.",
     openDesktop: "Abrir Agent-Native",
     downloadInstaller: "Baixar instalador",
     downloadStarted: "Download iniciado",
@@ -1534,27 +1776,33 @@ const ptBR = {
     checkingRelease: "Verificando a versão desktop mais recente...",
     retry: "Tentar novamente",
     unavailable: "Instalador indisponível para esta plataforma",
+    allPlatforms: "Todas as plataformas",
     stable: "Estável",
     nightly: "Nightly",
-    switchToNightly: "Mudar para builds Nightly",
-    switchToStable: "Mudar para builds estáveis",
-    runFromSource: "Ou executar a partir do código-fonte",
+    runFromSource: "Crie o seu",
     runFromSourceBody:
-      "Ainda não há instalador para sua plataforma, ou prefere a CLI? Crie um novo app com npm e rode localmente; funciona em macOS, Windows e Linux.",
+      "Crie um app Agent-Native pela linha de comando e execute-o localmente no macOS, Windows ou Linux.",
     platforms: {
       mac: {
         primary: "Baixar para Apple Silicon",
         alternative: "Mac Intel",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Baixar para Windows",
         alternative: "ARM64",
+        gridPrimary: "Instalador x64",
+        gridAlternative: "Instalador Arm64",
         note: "Windows 10 ou posterior.",
       },
       linux: {
         primary: "Baixar arquivo Linux",
         appImage: "Baixar AppImage",
         deb: "Baixar .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "Universal",
+        gridDeb: "Debian / Ubuntu",
         note: "O arquivo funciona sem FUSE. AppImage pode exigir FUSE 2 em algumas distribuições.",
       },
     },
@@ -1592,6 +1840,35 @@ const ptBR = {
   },
   legal: {
     lastUpdated: "Última atualização: {{date}}",
+    resources: {
+      eyebrow: "Recursos jurídicos",
+      title: "Recursos jurídicos do Agent-Native",
+      intro:
+        "Políticas jurídicas independentes do Agent-Native para aplicações e serviços hospedados.",
+      agentNative: {
+        title: "Políticas do Agent-Native",
+        body: "Estas páginas adaptam o conjunto de políticas compartilhado ao projeto open source e aos exemplos hospedados do Agent-Native.",
+        terms: "Termos de Serviço do Agent-Native",
+        privacy: "Política de Privacidade do Agent-Native",
+      },
+      builder: {
+        title: "Políticas adicionais do serviço hospedado",
+        body: "Estas cópias locais abrangem uso aceitável, recursos de IA, regras da plataforma, suspensão e remoção, direitos autorais e solicitações de autoridades. A versão em inglês prevalece.",
+      },
+      links: {
+        terms: "Contrato de Serviços SaaS",
+        privacy: "Política de Privacidade",
+        acceptableUse: "Política de Uso Aceitável",
+        aiTerms: "Termos de IA",
+        platformRules: "Regras da Plataforma",
+        takedown: "Política de Suspensão, Remoção e Tratamento de Dados",
+        lawEnforcement: "Política para Solicitações de Autoridades Policiais",
+      },
+      notIncluded: {
+        title: "Condições comerciais não incluídas",
+        body: "O Agent-Native não tem planos pagos nem contrato empresarial. Materiais comerciais como SLAs empresariais, termos de suporte, DPAs, adendos de segurança, termos de serviços profissionais e taxas não estão incluídos.",
+      },
+    },
     privacy: {
       eyebrow: "Política de Privacidade",
       title: "Agent-Native aplicativos hospedados",
@@ -1614,6 +1891,7 @@ const ptBR = {
       sections: {
         scope: "Escopo",
         information: "Informações que coletamos",
+        cookies: "Cookies e analytics",
         clipsExtension: "Extensão Chrome do Agent-Native Clips",
         use: "Como usamos as informações",
         sharing: "Compartilhamento e terceiros",
@@ -1629,6 +1907,8 @@ const ptBR = {
           "Esta política destina-se a complementar a visão mais ampla de Builder.io",
         scope2Suffix:
           "para comportamento do aplicativo hospedado Agent-Native.",
+        cookies:
+          "O site de documentação e os aplicativos hospedados do Agent-Native podem usar cookies necessários para autenticação e segurança, armazenamento de preferências como idioma ou tema e tecnologias de analytics configuradas. O site de documentação pode carregar o Google Analytics ou o Google Tag Manager quando configurados pela implantação, e o serviço hospedado pode usar analytics próprios para medir a confiabilidade e o uso de recursos. Não usamos o conteúdo de aplicativos hospedados para publicidade de terceiros. Você pode controlar cookies nas configurações do navegador, embora desativar os cookies necessários possa impedir o login ou outros recursos.",
         clips1:
           "O Agent-Native Clips Chrome extension ajuda você a iniciar gravações baseadas no navegador e, quando ativado, anexar diagnósticos do navegador a um clipe. Ele pode coletar a fonte de captura selecionada, mídia de câmera e microfone que você escolhe incluir, o título e URL da guia ativa e o estado de autenticação necessário para conectar a extensão ao Clips hospedado.",
         clips2:
@@ -1773,6 +2053,8 @@ const ptBR = {
         scope2Middle: "e o Agent-Native",
         scope2Suffix:
           "Se você usar um aplicativo Agent-Native hospedado em nome de uma empresa ou organização, você declara ter autoridade para aceitar estes termos para essa organização.",
+        scope3:
+          "O Agent-Native não tem planos pagos nem assinaturas de hospedagem pagas. Termos comerciais da Builder.io, como formulários de pedido, tarifas, suporte empresarial, níveis de serviço e aditivos de tratamento de dados, não fazem parte desta oferta, salvo se acordados separadamente por escrito.",
         hostedService:
           "Builder.io pode fornecer aplicativos Agent-Native hospedados, modelos, demonstrações, espaços de trabalho compartilhados, extensões de navegador e fluxos de trabalho de agentes relacionados. O serviço hospedado pode ser atualizado, limitado, suspenso ou descontinuado à medida que o produto evolui.",
         accounts1:
@@ -1835,7 +2117,6 @@ const ptBR = {
     usingYourAgent: "Usar seu Agent",
     agentResources: "Recursos do Agente",
     integrations: "Integrações",
-    buildApps: "Criar apps",
     advancedRuntime: "Avançado: estender o runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeiros passos",
@@ -1893,12 +2174,19 @@ const ptBR = {
     actionsAgentTools: "Acesso do Agente em Produção",
     publicAgentWeb: "Agent Web público",
     database: "Banco de dados",
+    databaseProviders: "Provedores de banco de dados",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
+    databasePostgres: "Plain Postgres",
     internationalization: "Internacionalização",
     localFileMode: "Modo de arquivos locais",
     fileUploads: "Uploads de arquivos",
     deployment: "Deploy",
     deploymentOverview: "Visão geral",
-    deploymentProviders: "Provedores",
+    deploymentProviders: "Provedores de hospedagem",
     deploymentProduction: "Produção e avançado",
     deployAnApp: "Fazer deploy de um app",
     workspaceDeployment: "Deploy do Workspace",
@@ -1969,7 +2257,6 @@ const ptBR = {
     syncingTemplateChanges: "Sincronizar alterações de templates",
     writingAgentInstructions: "Escrever instruções de Agent",
     embeddingSdk: "SDK de incorporação",
-    frames: "Frames",
     agentNativeCodeUi: "UI de código Agent-Native",
     harnessAgents: "Agentes com harness",
     adapters: "Adaptadores",
@@ -2045,8 +2332,9 @@ const ptBR = {
     dispatchDevelopers: "Guia do desenvolvedor",
     forms: "Formularios",
     formsOverview: "Visão geral",
-    formsBuildingPublishing: "Construção e publicação",
-    formsResponses: "Respostas e insights",
+    formsFeatures: "Funcionalidades",
+    formsAgent: "Conversar com o Agent",
+    formsIntegrations: "Uso entre apps",
     docsComponents: "Docs Components",
     formsDevelopers: "Guia do desenvolvedor",
   },

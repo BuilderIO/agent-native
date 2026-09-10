@@ -1,5 +1,5 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, AppState, Text, View } from "react-native";
 

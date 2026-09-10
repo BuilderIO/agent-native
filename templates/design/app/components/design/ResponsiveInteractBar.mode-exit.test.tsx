@@ -36,12 +36,9 @@ const CATALOG_MESSAGES = {
 
 function renderBar(props: Partial<ResponsiveInteractBarProps> = {}): string {
   return renderToStaticMarkup(
-    createElement(AgentNativeI18nProvider, {
-      catalog: { messages: CATALOG_MESSAGES },
-      children: createElement(
-        TooltipProvider,
-        null,
-        createElement(ResponsiveInteractBar, {
+    <AgentNativeI18nProvider catalog={{ messages: CATALOG_MESSAGES }}>
+      <TooltipProvider>
+        {createElement(ResponsiveInteractBar, {
           deviceName: "Desktop",
           width: 1440,
           height: 900,
@@ -54,9 +51,9 @@ function renderBar(props: Partial<ResponsiveInteractBarProps> = {}): string {
           canAnnotate: true,
           onClose: vi.fn(),
           ...props,
-        } as ResponsiveInteractBarProps),
-      ),
-    }),
+        } as ResponsiveInteractBarProps)}
+      </TooltipProvider>
+    </AgentNativeI18nProvider>,
   );
 }
 

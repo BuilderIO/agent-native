@@ -25,9 +25,14 @@ import action from "./get-layout-overflows";
 const slideAContent = "<p>A</p>";
 const slideBContent = "<p>B</p>";
 
-function measurement(content: string, verticalOverflow = 0) {
+function measurement(
+  content: string,
+  verticalOverflow = 0,
+  layoutFitRevision?: string,
+) {
   return {
     contentHash: hashSlideContent(content),
+    ...(layoutFitRevision ? { layoutFitRevision } : {}),
     contentHeight: verticalOverflow > 0 ? 645 : 380,
     contentWidth: 740,
     viewportHeight: 420,
@@ -99,6 +104,74 @@ describe("get-layout-overflows", () => {
       "slide-fit-check",
       { fallbackToGlobal: false },
     );
+  });
+
+  it("keeps stale measurements unknown while an async write is settling", async () => {
+    mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
+      if (key === "deck-fit-checks") {
+        return {
+          deckId: "deck-1",
+          aspectRatio: "16:9",
+          slides: {
+            "slide-a": measurement("<p>Old A</p>", 225),
+            "slide-b": measurement(slideBContent),
+          },
+        };
+      }
+      return null;
+    });
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).toMatchObject({
+      status: "unknown",
+      measuredSlideCount: 1,
+      unknownSlideIds: ["slide-a"],
+      overflows: [],
+      canClaimDeckFits: false,
+    });
+  });
+
+  it("rejects a matching hash from an older persisted write", async () => {
+    const currentRevision = "write-2";
+    mockResolveAccess.mockResolvedValue({
+      resource: {
+        data: JSON.stringify({
+          aspectRatio: "16:9",
+          slides: [
+            {
+              id: "slide-a",
+              content: slideAContent,
+              layoutFitRevision: currentRevision,
+            },
+            { id: "slide-b", content: slideBContent },
+          ],
+        }),
+      },
+    });
+    mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
+      if (key === "deck-fit-checks") {
+        return {
+          deckId: "deck-1",
+          aspectRatio: "16:9",
+          slides: {
+            "slide-a": measurement(slideAContent, 225, "write-1"),
+            "slide-b": measurement(slideBContent),
+          },
+        };
+      }
+      return null;
+    });
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).toMatchObject({
+      status: "unknown",
+      measuredSlideCount: 1,
+      unknownSlideIds: ["slide-a"],
+      overflows: [],
+      canClaimDeckFits: false,
+    });
   });
 
   it("tells the agent to stop re-checking after repeated unresolved overflow", async () => {

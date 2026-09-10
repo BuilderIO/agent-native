@@ -77,6 +77,9 @@ struct MeetingsWatcherInner {
     session_cookie: Option<String>,
     /// Legacy framework session token persisted by the desktop renderer.
     auth_token: Option<String>,
+    /// The renderer's entitlement for the experimental meetings experience.
+    /// Keep this off until a successful preference read enables it.
+    experiment_enabled: bool,
     /// meetingId -> the scheduledStart we last alerted for. Keyed by start time
     /// so a rescheduled meeting (same id, new time) re-notifies instead of
     /// being suppressed forever; pruned once the start is well in the past.
@@ -99,6 +102,22 @@ pub struct MeetingsSessionSnapshot {
 }
 
 impl MeetingsWatcherState {
+    pub fn set_experiment_enabled(&self, enabled: bool) -> Result<(), String> {
+        let mut g = self.inner.lock().map_err(|e| e.to_string())?;
+        g.experiment_enabled = enabled;
+        if !enabled {
+            g.notified.clear();
+            g.snoozed_until.clear();
+            g.last_calendar_notify_at.clear();
+        }
+        Ok(())
+    }
+
+    pub fn experiment_enabled(&self) -> Result<bool, String> {
+        let g = self.inner.lock().map_err(|e| e.to_string())?;
+        Ok(g.experiment_enabled)
+    }
+
     pub fn session_snapshot(&self) -> MeetingsSessionSnapshot {
         let Ok(g) = self.inner.lock() else {
             return MeetingsSessionSnapshot::default();
@@ -131,6 +150,14 @@ impl MeetingsWatcherState {
         };
         chrono::Utc::now().timestamp() - at <= within_secs
     }
+}
+
+#[tauri::command]
+pub async fn meetings_watcher_set_experiment_enabled(
+    state: tauri::State<'_, MeetingsWatcherState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.set_experiment_enabled(enabled)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -275,10 +302,14 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         return Ok(());
     }
 
+    let state = app
+        .try_state::<MeetingsWatcherState>()
+        .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
+    if !state.experiment_enabled()? {
+        return Ok(());
+    }
+
     let (server_url, cookie, auth_token) = {
-        let state = app
-            .try_state::<MeetingsWatcherState>()
-            .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
         let g = state.inner.lock().map_err(|e| e.to_string())?;
         (
             g.server_url.clone(),
@@ -414,29 +445,34 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
             if let Some(state) = app.try_state::<MeetingsWatcherState>() {
                 state.note_calendar_notify(m.platform.as_deref());
             }
-            let app_clone = app.clone();
-            let id_clone = m.id.clone();
-            let title_clone = title.clone();
-            let join_clone = join_url.clone();
-            let start_clone = m.scheduled_start.clone();
-            let end_clone = m.scheduled_end.clone();
-            let platform_clone = m.platform.clone();
             let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
-            tauri::async_runtime::spawn(async move {
-                let _ = crate::notifications::notify_meeting_starting(
-                    app_clone,
-                    id_clone,
-                    title_clone,
-                    secs_until,
-                    join_clone,
-                    start_clone,
-                    end_clone,
-                    platform_clone,
-                    Some(auto_start),
-                    None,
-                )
-                .await;
-            });
+            // Awaited, not spawned. The stored payload has to exist before
+            // auto-start is announced below: startup acknowledges itself with
+            // `meetings:hide-notification`, and an acknowledgement that arrives
+            // before the payload was stored clears nothing, leaving a spawned
+            // task free to install a "Take notes?" card over a meeting that is
+            // already recording. Ordering it here makes that impossible rather
+            // than unlikely, and matches the ad-hoc path.
+            if let Err(err) = crate::notifications::notify_meeting_starting(
+                app.clone(),
+                m.id.clone(),
+                title.clone(),
+                secs_until,
+                join_url.clone(),
+                m.scheduled_start.clone(),
+                m.scheduled_end.clone(),
+                m.platform.clone(),
+                Some(auto_start),
+                None,
+            )
+            .await
+            {
+                dlog!(
+                    "[clips-tray] calendar notification failed for {}: {}",
+                    m.id,
+                    err
+                );
+            }
         }
         if config.meeting_transcription_mode == MeetingTranscriptionMode::Auto {
             let _ = app.emit(
@@ -495,30 +531,54 @@ pub(crate) fn find_matching_calendar_meeting(
     Some((*meeting).clone())
 }
 
-pub(crate) fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
+/// `parse_meetings`, but able to say "this was not a meetings list at all".
+///
+/// `None` means no recognized list key and not a bare array — a changed
+/// envelope, or a 200 carrying an error payload. A caller that is about to
+/// *write* based on the answer needs that apart from `Some(vec![])`: an empty
+/// list is a checked "no such meeting", while an unreadable body says nothing,
+/// and treating the second as the first is how a duplicate row gets inserted.
+pub(crate) fn try_parse_meetings(body: &serde_json::Value) -> Option<Vec<MeetingItem>> {
     let payload = body.get("result").unwrap_or(body);
     if let Ok(parsed) = serde_json::from_value::<ListMeetingsResponse>(payload.clone()) {
         if let Some(v) = parsed.upcoming {
-            return v;
+            return Some(v);
         }
         if let Some(v) = parsed.meetings {
-            return v;
+            return Some(v);
         }
         if let Some(v) = parsed.items {
-            return v;
+            return Some(v);
         }
     }
-    if let Ok(arr) = serde_json::from_value::<Vec<MeetingItem>>(payload.clone()) {
-        return arr;
-    }
-    Vec::new()
+    serde_json::from_value::<Vec<MeetingItem>>(payload.clone()).ok()
+}
+
+/// Read-only callers, where "no meetings" and "cannot tell" lead to the same
+/// harmless outcome: nothing to remind about, nothing to enrich with.
+pub(crate) fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
+    try_parse_meetings(body).unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone, Utc};
 
-    use super::{find_matching_calendar_meeting, is_calendar_reminder_candidate, parse_meetings};
+    use super::{
+        find_matching_calendar_meeting, is_calendar_reminder_candidate, parse_meetings,
+        MeetingsWatcherState,
+    };
+
+    #[test]
+    fn meetings_experiment_defaults_off_and_can_be_toggled() {
+        let state = MeetingsWatcherState::default();
+
+        assert!(!state.experiment_enabled().expect("state lock"));
+        state.set_experiment_enabled(true).expect("state lock");
+        assert!(state.experiment_enabled().expect("state lock"));
+        state.set_experiment_enabled(false).expect("state lock");
+        assert!(!state.experiment_enabled().expect("state lock"));
+    }
 
     #[test]
     fn excludes_adhoc_meetings_from_calendar_reminders() {

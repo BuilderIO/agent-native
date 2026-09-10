@@ -1,22 +1,21 @@
 import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  HeaderActionsProvider,
-  SidebarFooterActions,
-} from "@agent-native/toolkit/app-shell";
+  AppSidebar,
+  FeedbackButton,
+  type AppSidebarItemDefinition,
+} from "@agent-native/core/client/ui";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import {
+  IconChartBar,
   IconFlame,
   IconLoader2,
-  IconChartBar,
-  IconSettings,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
   IconSearch,
+  IconSettings,
 } from "@tabler/icons-react";
 import {
   useIsFetching,
@@ -25,8 +24,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   Tooltip,
@@ -34,18 +34,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { apiFetch } from "@/lib/api";
+import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 import { Header } from "./Header";
-
-const navItems = [
-  { icon: IconFlame, labelKey: "navigation.entry", href: "/" },
-  { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
-];
-
-const bottomNavItems = [
-  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
-];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -86,7 +78,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         : isAnalytics
           ? "analytics"
           : "entry";
-    apiFetch(agentNativePath("/_agent-native/application-state/navigation"), {
+    apiFetch(`/_agent-native/application-state/navigation:${TAB_ID}`, {
       method: "PUT",
       body: JSON.stringify({ view, path: location.pathname }),
     }).catch(() => {});
@@ -94,11 +86,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   // useDbSync invalidates this key when the agent writes a navigate command.
   const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command"],
+    queryKey: ["navigate-command", TAB_ID],
     queryFn: async () => {
       try {
         const res = await fetch(
-          agentNativePath("/_agent-native/application-state/navigate"),
+          agentNativePath(
+            `/_agent-native/application-state/navigate:${TAB_ID}`,
+          ),
         );
         if (!res.ok) return null;
         return await res.json();
@@ -117,19 +111,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           ? JSON.parse(commandValue)
           : commandValue;
       if (cmd.view === "analytics") {
-        navigate("/analytics");
+        void navigate("/analytics");
       } else if (cmd.view === "settings") {
-        navigate("/settings");
+        void navigate("/settings");
       } else if (cmd.view === "agent") {
-        navigate("/settings/agent");
+        void navigate("/settings/agent");
       } else if (cmd.view === "entry") {
-        navigate("/");
+        void navigate("/home");
       }
       // Clear the command
-      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-        method: "DELETE",
-      }).catch(() => {});
-      queryClient.setQueryData(["navigate-command"], null);
+      fetch(
+        agentNativePath(`/_agent-native/application-state/navigate:${TAB_ID}`),
+        {
+          method: "DELETE",
+        },
+      ).catch(() => {});
+      queryClient.setQueryData(["navigate-command", TAB_ID], null);
     }
   }, [navCommand, navigate, queryClient]);
 
@@ -149,12 +146,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <div className="agent-layout-shell flex flex-1 overflow-hidden">
           {/* Desktop sidebar */}
-          <aside
-            className={cn(
-              "agent-layout-left-drawer hidden shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
-              desktopSidebarCollapsed ? "w-14" : "w-56",
-            )}
-          >
+          <div className="hidden md:flex h-full">
             <SidebarContent
               pathname={location.pathname}
               collapsed={desktopSidebarCollapsed}
@@ -162,11 +154,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 setDesktopSidebarCollapsed((collapsed) => !collapsed)
               }
             />
-          </aside>
+          </div>
 
           {/* Mobile sidebar sheet */}
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-            <SheetContent side="left" className="w-56 p-0">
+            <SheetContent side="left" className="w-[260px] p-0">
               <SheetTitle className="sr-only">
                 {t("sidebar.navigation")}
               </SheetTitle>
@@ -198,166 +190,73 @@ function SidebarContent({
   onToggleCollapsed?: () => void;
 }) {
   const t = useT();
-  const ToggleIcon = collapsed
-    ? IconLayoutSidebarLeftExpand
-    : IconLayoutSidebarLeftCollapse;
-  const collapseButton = onToggleCollapsed ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-          onClick={onToggleCollapsed}
-        >
-          <ToggleIcon className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">
-        {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-      </TooltipContent>
-    </Tooltip>
-  ) : null;
+
+  const items: AppSidebarItemDefinition[] = [
+    {
+      to: "/home",
+      label: t("navigation.entry"),
+      icon: IconFlame,
+      active: pathname === "/home" || pathname === "/entry",
+    },
+    {
+      to: "/analytics",
+      label: t("navigation.analytics"),
+      icon: IconChartBar,
+      active: pathname.startsWith("/analytics"),
+    },
+  ];
+
+  const secondaryItems: AppSidebarItemDefinition[] = [
+    {
+      to: "/settings",
+      label: t("navigation.settings"),
+      icon: IconSettings,
+      active: pathname.startsWith("/settings"),
+    },
+  ];
+
+  const feedbackButton = (
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
+  );
+
+  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
+
   const searchButton = (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
           onClick={openCommandMenu}
           aria-label={t("root.search")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
         >
-          <IconSearch className="h-4 w-4" />
-        </button>
+          <IconSearch className="size-4" />
+        </Button>
       </TooltipTrigger>
       <TooltipContent side="right">{t("root.search")}</TooltipContent>
     </Tooltip>
   );
-  const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-      className={collapsed ? "size-8" : "min-w-0"}
-    />
-  );
 
   return (
-    <div className="flex h-full flex-col">
-      <div
-        className={cn(
-          "flex h-12 shrink-0 items-center border-b border-border",
-          collapsed ? "justify-center px-2" : "gap-2 px-4",
-        )}
-      >
-        {!collapsed && (
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={16}
-              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={16}
-              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
-            />
-            <span className="font-logo truncate text-sm font-bold tracking-tight text-foreground">
-              {t("navigation.brand")}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const label = t(item.labelKey);
-          const isActive =
-            item.href === "/"
-              ? pathname === "/" || pathname === "/entry"
-              : pathname.startsWith(item.href);
-          const link = (
-            <Link
-              key={item.href}
-              to={item.href}
-              aria-label={collapsed ? label : undefined}
-              className={cn(
-                "flex h-9 items-center rounded-lg text-sm transition-colors",
-                collapsed ? "justify-center px-0" : "gap-3 px-3",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && label}
-            </Link>
-          );
-          return collapsed ? (
-            <Tooltip key={item.href}>
-              <TooltipTrigger asChild>{link}</TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
-            </Tooltip>
-          ) : (
-            link
-          );
-        })}
-      </nav>
-
-      <nav className="grid shrink-0 gap-1 px-2 py-1">
-        {bottomNavItems.map((item) => {
-          const Icon = item.icon;
-          const label = t(item.labelKey);
-          const isActive = pathname.startsWith(item.href);
-          const link = (
-            <Link
-              key={item.href}
-              to={item.href}
-              aria-label={collapsed ? label : undefined}
-              className={cn(
-                "flex h-9 items-center rounded-lg text-sm transition-colors",
-                collapsed ? "justify-center px-0" : "gap-3 px-3",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && label}
-            </Link>
-          );
-          return collapsed ? (
-            <Tooltip key={item.href}>
-              <TooltipTrigger asChild>{link}</TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
-            </Tooltip>
-          ) : (
-            link
-          );
-        })}
-      </nav>
-
-      {!collapsed && (
+    <AppSidebar
+      collapsed={collapsed}
+      collapsible={Boolean(onToggleCollapsed)}
+      onCollapsedChange={onToggleCollapsed}
+      brandName={t("navigation.brand")}
+      brandHref="/home"
+      items={items}
+      secondaryItems={secondaryItems}
+      feedback={feedbackButton}
+      orgSwitcher={orgSwitcher}
+      footerExtras={
         <>
-          <div className="space-y-2 px-3 py-2">
-            <DevDatabaseLink />
-            <OrgSwitcher />
-          </div>
+          {searchButton}
+          <DevDatabaseLink />
         </>
-      )}
-      <SidebarFooterActions
-        collapsed={collapsed}
-        feedback={feedbackButton}
-        search={searchButton}
-        collapse={collapseButton}
-      />
-    </div>
+      }
+    />
   );
 }
 

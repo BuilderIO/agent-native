@@ -95,7 +95,7 @@ export function useSidebarCollapsed() {
         },
         body: JSON.stringify({ collapsed: nextVal }),
       }).catch(() => {
-        qc.invalidateQueries({ queryKey: QUERY_KEY });
+        void qc.invalidateQueries({ queryKey: QUERY_KEY });
       });
     },
     [qc],

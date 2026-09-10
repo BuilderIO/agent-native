@@ -27,6 +27,11 @@ export function shouldBlockPendingDeckNavigation(args: {
   hasPendingEdits: boolean;
   currentPathname: string;
   nextPathname: string;
+  allowPendingEdits?: boolean;
 }): boolean {
-  return args.hasPendingEdits && args.currentPathname !== args.nextPathname;
+  return (
+    args.hasPendingEdits &&
+    !args.allowPendingEdits &&
+    args.currentPathname !== args.nextPathname
+  );
 }

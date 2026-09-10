@@ -1,4 +1,5 @@
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import {
   formatChatErrorText,
   normalizeChatError,
@@ -30,6 +31,7 @@ interface ContentPart {
   /** Mirrors the client ContentPart marker in client/sse-event-processor.ts. */
   outcome?: "unknown";
   completedSideEffect?: boolean;
+  artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   activity?: boolean;
@@ -51,6 +53,7 @@ interface BuildAssistantMessageOptions {
    */
   turnId?: string;
   runDurationMs?: number;
+  scope?: { type: string; id: string } | null;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
@@ -290,6 +293,7 @@ export function buildAssistantMessage(
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
         }
+        if (event.artifacts !== undefined) part.artifacts = event.artifacts;
         if (event.mcpApp) part.mcpApp = event.mcpApp;
         if (event.chatUI) part.chatUI = event.chatUI;
       }
@@ -361,6 +365,12 @@ export function buildAssistantMessage(
 
   const custom: Record<string, unknown> = {};
   if (options.turnId) custom.turnId = options.turnId;
+  if (options.scope?.type && options.scope.id) {
+    custom.chatScope = {
+      type: options.scope.type,
+      id: options.scope.id,
+    };
+  }
   if (runId) custom.foldedRunIds = [runId];
   if (
     typeof options.runDurationMs === "number" &&
@@ -575,18 +585,34 @@ function normalizeContentForFingerprint(content: unknown): unknown {
   );
 }
 
-function messageIdentityKeys(message: any): string[] {
-  const keys: string[] = [];
+// `strong` keys (id/runId/turnId) prove identity outright — two messages
+// sharing one of these ARE the same message. `fingerprint` keys are a
+// content-only fallback with no positional or temporal salt: two distinct
+// messages that merely render the same role+content+attachments (a repeated
+// prompt, a repeated canned reply) collide on it. A fingerprint key must
+// never outrank a strong key when ranking candidates — see
+// `findRankedIdentityMatch`, used by the ambiguous multi-candidate merge in
+// `mergeThreadDataForClientSave`. `messagesMatch` below only ever compares a
+// single candidate pair (adjacent-append dedup), where that ranking doesn't
+// apply and ANY shared key — strong or fingerprint — correctly means "same
+// message".
+interface MessageIdentityKeySet {
+  strong: string[];
+  fingerprint: string[];
+}
+
+function messageIdentityKeySet(message: any): MessageIdentityKeySet {
+  const strong: string[] = [];
   if (typeof message?.id === "string" && message.id) {
-    keys.push(`id:${message.id}`);
+    strong.push(`id:${message.id}`);
   }
   const runId = getMessageRunId(message);
-  if (runId) keys.push(`run:${runId}`);
+  if (runId) strong.push(`run:${runId}`);
   // A logical turn is ONE durable assistant message even though it may span
   // several continuation runs, so two messages sharing a turnId (e.g. the
   // client export and the server fold of the same answer) must dedupe to one.
   const turnId = turnIdOf(message);
-  if (turnId) keys.push(`turn:${turnId}`);
+  if (turnId) strong.push(`turn:${turnId}`);
 
   // Normalize attachments through `normalizeAttachmentIdentity` so an
   // explicit empty `[]` (assistant-ui's default for messages with no
@@ -599,8 +625,9 @@ function messageIdentityKeys(message: any): string[] {
   // `[]` vs `undefined`. (Repro on slides prod: every user turn produced
   // a `client_user → assistant → server_user` triple instead of a
   // `user → assistant` pair.)
+  const fingerprint: string[] = [];
   try {
-    keys.push(
+    fingerprint.push(
       `fingerprint:${JSON.stringify({
         role: message?.role,
         content: normalizeContentForFingerprint(message?.content),
@@ -612,7 +639,7 @@ function messageIdentityKeys(message: any): string[] {
   }
   if (message?.role === "user") {
     try {
-      keys.push(
+      fingerprint.push(
         `user-fingerprint:${JSON.stringify({
           role: message.role,
           content: normalizeContentForFingerprint(message.content),
@@ -623,12 +650,62 @@ function messageIdentityKeys(message: any): string[] {
       // Same best-effort behavior as the full fingerprint.
     }
   }
-  return keys;
+  return { strong, fingerprint };
+}
+
+function messageIdentityKeys(message: any): string[] {
+  const { strong, fingerprint } = messageIdentityKeySet(message);
+  return [...strong, ...fingerprint];
 }
 
 function messagesMatch(a: any, b: any): boolean {
   const bKeys = new Set(messageIdentityKeys(b));
   return messageIdentityKeys(a).some((key) => bKeys.has(key));
+}
+
+function keySetsOverlap(a: string[], b: Set<string>): boolean {
+  return a.some((key) => b.has(key));
+}
+
+/**
+ * Rank candidate incoming entries for one existing entry: a strong-key match
+ * (id/runId/turnId) always wins over a fingerprint-only match, since a
+ * fingerprint has no positional or temporal salt and different messages can
+ * collide on one. Within a tier, more than one candidate is genuinely
+ * ambiguous — nothing in the keys says which is "the same message" — so
+ * pick the candidate positioned closest to `existingIndex` instead of
+ * silently keeping array-scan order (the original defect: the first unused
+ * incoming entry sharing ANY key won, so a fingerprint match on an
+ * out-of-order entry could preempt the correct strong-key match and pair the
+ * wrong messages, rewriting parent links onto the wrong id).
+ */
+function findRankedIdentityMatch(
+  existingKeys: MessageIdentityKeySet,
+  incomingKeySets: MessageIdentityKeySet[],
+  usedIncoming: Set<number>,
+  existingIndex: number,
+): number {
+  const strongCandidates: number[] = [];
+  const fingerprintCandidates: number[] = [];
+  for (let i = 0; i < incomingKeySets.length; i++) {
+    if (usedIncoming.has(i)) continue;
+    const keys = incomingKeySets[i]!;
+    if (keySetsOverlap(existingKeys.strong, new Set(keys.strong))) {
+      strongCandidates.push(i);
+    } else if (
+      keySetsOverlap(existingKeys.fingerprint, new Set(keys.fingerprint))
+    ) {
+      fingerprintCandidates.push(i);
+    }
+  }
+  const candidates =
+    strongCandidates.length > 0 ? strongCandidates : fingerprintCandidates;
+  if (candidates.length === 0) return -1;
+  return candidates.reduce((closest, index) =>
+    Math.abs(index - existingIndex) < Math.abs(closest - existingIndex)
+      ? index
+      : closest,
+  );
 }
 
 function preserveAssistantRunDuration(chosenEntry: any, otherEntry: any): any {
@@ -1395,14 +1472,19 @@ export function mergeThreadDataForClientSave(
     return pruneClaimedQueuedMessages(merged);
   }
 
-  const incomingKeySets: Set<string>[] = incomingMessages.map(
-    (entry: unknown) => new Set(messageIdentityKeys(getStoredMessage(entry))),
+  const incomingKeySets: MessageIdentityKeySet[] = incomingMessages.map(
+    (entry: unknown) => messageIdentityKeySet(getStoredMessage(entry)),
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
   const idRewrites = new Map<string, string>();
 
-  for (const existingEntry of existingMessages) {
+  for (
+    let existingIndex = 0;
+    existingIndex < existingMessages.length;
+    existingIndex++
+  ) {
+    const existingEntry = existingMessages[existingIndex];
     const existingMessage = getStoredMessage(existingEntry);
     if (
       existingMessage?.role === "assistant" &&
@@ -1411,10 +1493,12 @@ export function mergeThreadDataForClientSave(
       continue;
     }
 
-    const existingKeys = messageIdentityKeys(existingMessage);
-    const incomingIndex = incomingKeySets.findIndex(
-      (keys: Set<string>, index: number) =>
-        !usedIncoming.has(index) && existingKeys.some((key) => keys.has(key)),
+    const existingKeys = messageIdentityKeySet(existingMessage);
+    const incomingIndex = findRankedIdentityMatch(
+      existingKeys,
+      incomingKeySets,
+      usedIncoming,
+      existingIndex,
     );
 
     if (incomingIndex === -1) {
@@ -1490,6 +1574,20 @@ function buildStoredAttachments(
   return (attachments ?? [])
     .map((att, index) => {
       const id = `server-${runId ?? Date.now()}-attachment-${index}`;
+      if (att.displayOnly === true) {
+        return {
+          id,
+          type: att.type === "image" ? "image" : "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content:
+            typeof att.text === "string" && att.text.length > 0
+              ? [{ type: "text", text: textAttachmentEnvelope(att, att.text) }]
+              : [],
+          metadata: { displayOnly: true },
+        };
+      }
       // When the attachment was successfully pre-uploaded, store only the URL
       // reference. This keeps the SQL thread_data row compact regardless of
       // file size, and lets the transcript render from the hosted URL instead
@@ -1810,6 +1908,7 @@ function shouldReplaceLastAssistant(
 export function upsertAssistantMessage(
   repo: any,
   assistantMsg: AssistantMessage,
+  parentId?: string | null,
 ): any {
   const nextRepo = normalizeThreadRepository(repo);
 
@@ -1817,9 +1916,11 @@ export function upsertAssistantMessage(
   const lastEntry = lastIndex >= 0 ? nextRepo.messages[lastIndex] : undefined;
   const lastMsg = getStoredMessage(lastEntry);
   const lastRole = lastMsg?.role;
+  const lastParentId = lastEntry ? getStoredParentId(lastEntry) : undefined;
 
   if (
     lastRole === "assistant" &&
+    (parentId === undefined || lastParentId === parentId) &&
     shouldReplaceLastAssistant(lastMsg, assistantMsg)
   ) {
     nextRepo.messages[lastIndex] = { ...lastEntry, message: assistantMsg };
@@ -1827,13 +1928,21 @@ export function upsertAssistantMessage(
     return nextRepo;
   }
 
-  const parentId =
+  const fallbackParentId =
     nextRepo.messages.length > 0
       ? (messageId(
           getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
         ) ?? null)
       : null;
-  nextRepo.messages.push({ message: assistantMsg, parentId });
+  const resolvedParentId =
+    parentId === null ||
+    (typeof parentId === "string" &&
+      nextRepo.messages.some(
+        (entry: any) => messageId(getStoredMessage(entry)) === parentId,
+      ))
+      ? parentId
+      : fallbackParentId;
+  nextRepo.messages.push({ message: assistantMsg, parentId: resolvedParentId });
   nextRepo.headId = assistantMsg.id;
   return nextRepo;
 }
@@ -1919,11 +2028,12 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
 export function foldAssistantTurn(
   repo: any,
   assistantMsg: AssistantMessage,
-  options: { turnId?: string; runId?: string },
+  options: { turnId?: string; runId?: string; parentId?: string | null },
 ): any {
   const turnId = options.turnId;
   const runId = options.runId;
-  if (!turnId) return upsertAssistantMessage(repo, assistantMsg);
+  if (!turnId)
+    return upsertAssistantMessage(repo, assistantMsg, options.parentId);
 
   const nextRepo = normalizeThreadRepository(repo);
   const lastIndex = nextRepo.messages.length - 1;
@@ -1932,6 +2042,8 @@ export function foldAssistantTurn(
 
   const sameTurn =
     lastMsg?.role === "assistant" &&
+    (options.parentId === undefined ||
+      getStoredParentId(lastEntry) === options.parentId) &&
     (turnIdOf(lastMsg) === turnId ||
       // A message the client wrote for one of this turn's runs before it
       // carried a turnId stamp.
@@ -1941,7 +2053,7 @@ export function foldAssistantTurn(
     // First chunk of this turn (or the previous assistant belongs to an
     // earlier turn) — append as a fresh message; buildAssistantMessage already
     // stamped turnId + foldedRunIds onto it.
-    return upsertAssistantMessage(repo, assistantMsg);
+    return upsertAssistantMessage(repo, assistantMsg, options.parentId);
   }
 
   const existingContent = Array.isArray(lastMsg.content) ? lastMsg.content : [];

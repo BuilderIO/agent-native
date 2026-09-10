@@ -1471,7 +1471,7 @@ export function DesignExtensionsPanel({
     const trimmed = text.trim();
     if (!trimmed) return;
     sendToDesignAgentChat({
-      message: `Create a Design extension: ${trimmed}`,
+      message: text,
       context: buildExtensionCreateContext(trimmed, context),
       submit: true,
       openSidebar: true,

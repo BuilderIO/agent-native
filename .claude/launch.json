@@ -2,42 +2,6 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "chat-mui",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "exec",
-        "tsx",
-        "scripts/claude-launch.ts",
-        "--name",
-        "chat-mui",
-        "--dir",
-        "examples/chat-mui",
-        "--",
-        "dev",
-        "--port",
-        "3210"
-      ],
-      "port": 3210
-    },
-    {
-      "name": "chat-antd",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "exec",
-        "tsx",
-        "scripts/claude-launch.ts",
-        "--name",
-        "chat-antd",
-        "--dir",
-        "examples/chat-antd",
-        "--",
-        "dev",
-        "--port",
-        "3211"
-      ],
-      "port": 3211
-    },
-    {
       "name": "docs",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
@@ -680,6 +644,98 @@
         "3231"
       ],
       "port": 3231
+    },
+    {
+      "name": "ssr-watchdog-chat",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "ssr-watchdog-chat",
+        "--dir",
+        "/Users/steve/.codex/worktrees/58cf/framework/templates/chat",
+        "--env",
+        "APP_URL=http://localhost:3241",
+        "--",
+        "dev",
+        "--port",
+        "3241"
+      ],
+      "port": 3241
+    },
+    {
+      "name": "slides-webmcp-helper",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "slides-webmcp-helper",
+        "--dir",
+        "templates/slides",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3197"
+      ],
+      "port": 3197
+    },
+    {
+      "name": "dispatch-vault-verify",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "dispatch-vault-verify",
+        "--dir",
+        "templates/dispatch",
+        "--env",
+        "DATABASE_URL=",
+        "--env",
+        "SLACK_BOT_TOKEN=",
+        "--env",
+        "SLACK_SIGNING_SECRET=",
+        "--env",
+        "TELEGRAM_BOT_TOKEN=",
+        "--env",
+        "SENDGRID_API_KEY=",
+        "--env",
+        "WORKSPACE_GATEWAY_URL=",
+        "--env",
+        "AGENT_NATIVE_ENABLE_RECURRING_JOBS=0",
+        "--env",
+        "SENTRY_DSN=",
+        "--env",
+        "SENTRY_SERVER_DSN=",
+        "--env",
+        "SENTRY_CLIENT_DSN=",
+        "--env",
+        "VITE_SENTRY_CLIENT_DSN=",
+        "--env",
+        "AGENT_NATIVE_ANALYTICS_ENDPOINT=",
+        "--env",
+        "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=",
+        "--env",
+        "AMPLITUDE_API_KEY=",
+        "--env",
+        "VITE_AMPLITUDE_API_KEY=",
+        "--env",
+        "VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=0",
+        "--env",
+        "AGENT_NATIVE_BUILDER_SSO_SECRET=",
+        "--",
+        "dev",
+        "--port",
+        "3190"
+      ],
+      "port": 3190
     }
   ]
 }

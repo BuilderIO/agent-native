@@ -5,10 +5,9 @@ import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
+import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard } from "./dashboards-store";
-import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 
 export interface ReportSubscriptionInput {
   id?: string;
@@ -70,10 +69,10 @@ export async function getReportDashboard(
 ): Promise<ReportDashboard | null> {
   const dashboard = await getDashboard(dashboardId, ctx);
   if (dashboard?.kind === "sql") {
-    const config =
-      dashboardId === FIRST_PARTY_DASHBOARD_ID
-        ? repairCanonicalFirstPartyDashboardQueries(dashboard.config).config
-        : dashboard.config;
+    const config = repairKnownFirstPartyDashboardQueries(
+      dashboardId,
+      dashboard.config,
+    ).config;
     return {
       id: dashboard.id,
       title: dashboard.title,

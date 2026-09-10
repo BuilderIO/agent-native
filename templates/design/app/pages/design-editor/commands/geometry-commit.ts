@@ -9,6 +9,7 @@ import {
 import type { UndoRedoOrderKind } from "@/pages/design-editor/editor-state";
 import {
   geometrySnapshotsEqual,
+  quantizeCanvasFrameGeometryForPersist,
   sanitizeCanvasFrameGeometryForPersist,
 } from "@/pages/design-editor/geometry-persistence";
 import type {
@@ -63,7 +64,7 @@ export function runGeometryCommit(
   // an insane frame falls back to its own pre-gesture geometry, and a
   // commit whose every change was refused becomes a no-op.
   const { geometryById: afterSnapshot } = sanitizeCanvasFrameGeometryForPersist(
-    cloneCanvasFrameGeometry(after),
+    quantizeCanvasFrameGeometryForPersist(cloneCanvasFrameGeometry(after)),
     beforeSnapshot,
     boardFileId ? [boardFileId] : [],
   );

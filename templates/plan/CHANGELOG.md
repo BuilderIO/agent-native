@@ -3,6 +3,36 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-09
+
+### Improved
+
+- Collaborator avatars use a slimmer border.
+
+## 2026-09-02
+
+### Improved
+
+- Recommended question choices now appear first and are selected by default.
+
+## 2026-08-29
+
+### Improved
+
+- Plan loading states now use an even more subtle whole-surface shine.
+
+## 2026-08-28
+
+### Improved
+
+- Plan loading placeholders now use a softer whole-surface shine.
+
+## 2026-08-22
+
+### Fixed
+
+- The Extensions link now opens the Extensions tab in Settings instead of silently landing on General.
+
 ## 2026-08-19
 
 ### Improved

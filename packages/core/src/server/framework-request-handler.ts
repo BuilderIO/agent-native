@@ -12,7 +12,7 @@
  * first call to `getH3App()` per nitroApp instance.
  */
 import type { EventHandler, H3Event } from "h3";
-import { setResponseHeader, setResponseStatus } from "h3";
+import { getHeader, setResponseHeader, setResponseStatus } from "h3";
 
 import { AppConfigurationError } from "../app-config/index.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
@@ -21,6 +21,10 @@ import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
+import {
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "../shared/test-traffic.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
@@ -51,6 +55,7 @@ const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
 const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
 
 const CANONICAL_AUTH_EARLY_PATHS = [
+  "/",
   SIGN_IN_ENTRY_PATH,
   "/login",
   "/signup",
@@ -58,6 +63,7 @@ const CANONICAL_AUTH_EARLY_PATHS = [
 
 export const FRAMEWORK_AUTH_EARLY_PATHS = [
   `${FRAMEWORK_PREFIX}/auth`,
+  "/",
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
   `${FRAMEWORK_PREFIX}/login`,
@@ -103,10 +109,17 @@ function resolveMountMatch(
   if (!appBasePath || !supportsAppBasePathMount(path)) return null;
 
   const prefixedPath = `${appBasePath}${path}`;
-  if (!pathMatchesPrefix(reqPath, prefixedPath)) return null;
+  if (
+    path === "/"
+      ? reqPath !== appBasePath && reqPath !== `${appBasePath}/`
+      : !pathMatchesPrefix(reqPath, prefixedPath)
+  ) {
+    return null;
+  }
   return {
     mountPath: prefixedPath,
-    strippedPath: reqPath.slice(prefixedPath.length) || "/",
+    strippedPath:
+      path === "/" ? "/" : reqPath.slice(prefixedPath.length) || "/",
   };
 }
 
@@ -320,9 +333,16 @@ function registerRequestContextBoundary(nitroApp: any): void {
   if (!h3 || !Array.isArray(h3["~middleware"])) return;
   if (h3[REQUEST_CONTEXT_BOUNDARY_KEY]) return;
 
-  const middleware = (_event: H3Event, next: () => unknown) => {
+  const middleware = (event: H3Event, next: () => unknown) => {
     if (hasRequestContext()) return next();
-    return runWithRequestContext({}, () => next());
+    return runWithRequestContext(
+      {
+        isSyntheticTraffic: isSyntheticTrafficValue(
+          getHeader(event, SYNTHETIC_TRAFFIC_HEADER),
+        ),
+      },
+      () => next(),
+    );
   };
 
   h3[REQUEST_CONTEXT_BOUNDARY_KEY] = middleware;
@@ -462,7 +482,7 @@ function frameworkReadyDeadlineMs(): number {
  * inside an async plugin may not be ready when the first request arrives.
  *
  * Call this from the TOP of any async plugin so that the readiness gate
- * (installed by getH3App) can hold /_agent-native requests until the plugin
+ * (installed by getH3App) can hold framework requests until the plugin
  * finishes mounting its routes.
  */
 export function trackPluginInit(

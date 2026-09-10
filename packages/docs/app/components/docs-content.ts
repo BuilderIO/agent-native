@@ -14,7 +14,7 @@ import { preloadDocBlocksContent } from "./doc-block-renderer";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
-  isDocsLocale,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "./docs-locale";
 import { docSourceLoaders, localizedDocLoaders } from "./docs-source-loaders";
@@ -128,7 +128,7 @@ function docEntryFromPath(path: string, raw: string): DocEntry {
 }
 
 function normalizeDocsLocale(locale: unknown): DocsLocale {
-  return isDocsLocale(locale) ? locale : DEFAULT_DOCS_LOCALE;
+  return docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE;
 }
 
 function localizedDocKey(locale: DocsLocale, slug: string): string | undefined {
@@ -247,14 +247,12 @@ export async function loadDocRespectingDraftVisibility(
   const visibleDoc =
     isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
 
-  // Route loaders run before both SSR and client-side navigations render. Keep
-  // the optional block module out of ordinary docs requests, but resolve it
-  // before a block page can paint the Markdown fallback and then reflow.
-  if (hasDocBlockSyntax(visibleDoc.body)) {
-    await preloadDocBlocksContent();
-  }
+  return preloadDocBlocksForDoc(visibleDoc);
+}
 
-  return visibleDoc;
+export async function preloadDocBlocksForDoc(doc: DocEntry): Promise<DocEntry> {
+  if (hasDocBlockSyntax(doc.body)) await preloadDocBlocksContent();
+  return doc;
 }
 
 export function hasLocalizedDoc(locale: unknown, slug: string): boolean {

@@ -1,4 +1,4 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { breakpointBarOverrides } from "./i18n-breakpoints";
@@ -41,6 +41,11 @@ const enUS = {
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Design.",
     languageLabel: "Interface language",
+    experiments: "Experiments",
+    experimentsIntro:
+      "These are new, unstable features and may have bugs. We value your feedback.",
+    experimentTweaks: "Design tweaks",
+    experimentTweaksDescription: "Try AI-powered design tweaks.",
   },
   pages: {
     presentEmpty: "No content to present",
@@ -95,6 +100,7 @@ const enUS = {
       typography: "Typography",
       autoLayout: "Auto layout",
       positionLayout: "Position",
+      layoutGrid: "Layout grid",
       flexLayout: "Flex Layout",
       layout: "Layout",
       spacing: "Spacing",
@@ -152,6 +158,10 @@ const enUS = {
       removeLayer: "Remove layer",
       showLayer: "Show layer",
       hideLayer: "Hide layer",
+      addGrid: "Add grid",
+      removeGrid: "Remove grid",
+      showGrid: "Show grid",
+      hideGrid: "Hide grid",
       reorderLayer: "Reorder layer",
       stylesComingSoon: "Styles — Coming soon",
       linkSides: "Link sides",
@@ -300,6 +310,14 @@ const enUS = {
       center: "Center",
       right: "Right",
       justify: "Justify",
+    },
+    positionAligns: {
+      left: "Align left",
+      centerHorizontal: "Align horizontal centers",
+      right: "Align right",
+      top: "Align top",
+      centerVertical: "Align vertical centers",
+      bottom: "Align bottom",
     },
     textDecorations: {
       underline: "Underline",
@@ -606,12 +624,15 @@ const enUS = {
         "Connect your Figma access token for exact node imports.",
       figmaPasteMatchGuidance:
         "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
+      figmaPasteUnreadable:
+        "That clipboard has no copied Figma layers in it. Select a frame in Figma, copy it with Cmd+C, and paste again — or import a Figma link from the Import panel.",
       figmaPasteRestLabel: "Imported via Figma API",
       figmaPasteHtmlLabel: "Imported from clipboard preview",
       figmaPasteLocalKiwiLabel:
         "Imported without token — geometry and text only",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
+      figmaPasteImagesDontShowAgain: "Don't show again",
       figmaHydrationDialogTitle: "Fill in the missing images",
       figmaHydrationDialogDescription:
         "{{count}} image{{plural}} in the imported screen{{screensPlural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",
@@ -834,8 +855,12 @@ const enUS = {
         previousSibling: "Previous sibling",
         nextScreen: "Next screen",
         previousScreen: "Previous screen",
+        toggleLayoutGrids: "Show/hide layout grids",
         nudge: "Nudge",
-        nudgeLarge: "Nudge by 10",
+        // i18n-copy-ignore: dropped the hardcoded "10" — every locale's value
+        // for this row is built from the already-translated nudgeAmountBig
+        // label in i18n-keyboard-shortcuts.ts, changed in this same diff.
+        nudgeLarge: "Big nudge",
         copy: "Copy",
         copyPng: "Copy as PNG",
         cut: "Cut",
@@ -1032,12 +1057,12 @@ const enUS = {
       modeAuto: "Auto",
       modePreview: "Preview change",
       modeAsk: "Ask agent",
-      modeRegenerate: "Regenerate",
+      modeRegenerate: "Edit with AI", // i18n-copy-ignore: localized node-rewrite CTA overrides live in app/i18n/*.ts and are updated with this source string
       agentModeOptions: "Choose agent behavior",
       pendingReview: "Review changes · {{count}}",
       pendingReviewMenu: "Changes ready to review",
       reviewCandidate: "Review change",
-      regenerate: "Regenerate…",
+      regenerate: "Edit with AI…",
       sending: "Regenerating…",
       sent: "Regeneration request sent",
       sendFailed: "Could not send the regeneration request",
@@ -1081,7 +1106,7 @@ const enUS = {
       pngClipboardBlocked: "Allow clipboard access to copy this PNG",
       pngClipboardWriteError: "Could not copy PNG to the clipboard",
       pngLivePreviewUnavailable:
-        "PNG capture isn't available for URL-backed screens yet",
+        "PNG export is only available in the desktop app right now.",
       pngReadOnlyUnavailable:
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
@@ -1125,6 +1150,8 @@ const enUS = {
         "Tweaks aren't saved yet. Keep this tab open and try again.",
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
+      saveConflict:
+        "This screen changed elsewhere. Your last edit was not saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       reactSourceAnchorsLoading:
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
@@ -1260,6 +1287,10 @@ const enUS = {
       "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
     failedToSubmitPrompt: "Failed to submit prompt",
     skipPrompt: "Skip prompt",
+    startBlankCanvas: "Start with a blank canvas",
+    startWithAi: "Start with AI",
+    startWithAiHint: "Describe a page and get a first draft to edit.",
+    startBlankCanvasHint: "Draw it yourself with frames, shapes and text.",
     designSystem: "Design system",
     noDesignSystem: "No design system",
     newDesignSystem: "New",
@@ -1362,6 +1393,11 @@ const enUS = {
     createdBy: "Created by",
     allAuthors: "All authors",
     me: "Me",
+    designFilter: "Design filter",
+    mine: "Mine",
+    all: "All",
+    showMineDesigns: "Show my designs",
+    showAllDesigns: "Show all designs",
     openingDesign: "Opening design...",
     skipToEditor: "Skip to editor",
     failedToCreateDesign: "Failed to create design",
@@ -1396,6 +1432,9 @@ const enUS = {
     prototype: "Prototype",
     other: "Other",
     designPreview: "Design preview",
+    paginationPrevious: "Previous",
+    paginationNext: "Next",
+    paginationPage: "Page {{page}} of {{totalPages}}",
   },
   visualEdit: {
     eyebrow: "Visual edit",
@@ -1546,9 +1585,9 @@ const enUS = {
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
       githubIndex:
         "Could not start GitHub indexing. Check your Builder connection and repository access.",
-      chooseDesignMd: "Please choose a design.md or design.mdx file.",
-      readDesignMd: "Could not read the design.md file.",
-      designMdTooLarge: "design.md must be 2 MB or smaller.",
+      chooseDesignMd: "Please choose a Markdown (.md or .mdx) file.",
+      readDesignMd: "Could not read that Markdown file.",
+      designMdTooLarge: "The Markdown file must be 2 MB or smaller.",
       designMdIndex:
         "Could not start design.md indexing. Check your Builder connection.",
       noSources: "Add at least one source before generating a design system.",
@@ -1662,6 +1701,11 @@ const enUS = {
       useAsStartingPoint: "Use as starting point",
       saving: "Saving...",
       saveChanges: "Save changes",
+    },
+    preview: {
+      title: "Preview",
+      description:
+        "This design system is managed by Builder Design System Intelligence. Open the linked project to see the full design system, including all tokens, components, and usage guidance.",
     },
     tokenPreview: {
       title: "Token preview",
@@ -1837,6 +1881,14 @@ const designLocaleOverrides = {
         right: "正确的",
         justify: "证明合法",
       },
+      positionAligns: {
+        left: "左对齐",
+        centerHorizontal: "水平居中对齐",
+        right: "右对齐",
+        top: "顶部对齐",
+        centerVertical: "垂直居中对齐",
+        bottom: "底部对齐",
+      },
       textDecorations: {
         underline: "下划线",
         strikethrough: "删除线",
@@ -1960,6 +2012,7 @@ const designLocaleOverrides = {
         svgExportError: "无法导出 SVG",
         undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
         redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
+        saveConflict: "此屏幕已在其他位置更改。上次编辑未保存。",
       },
     },
     designSystemSetup: {
@@ -2032,9 +2085,9 @@ const designLocaleOverrides = {
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
         githubIndex:
           "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
-        chooseDesignMd: "请选择 design.md 或 design.mdx 文件。",
-        readDesignMd: "无法读取 design.md 文件。",
-        designMdTooLarge: "design.md 必须不超过 2 MB。",
+        chooseDesignMd: "请选择 Markdown（.md 或 .mdx）文件。",
+        readDesignMd: "无法读取该 Markdown 文件。",
+        designMdTooLarge: "Markdown 文件必须不超过 2 MB。",
         designMdIndex: "无法启动 design.md 索引。请检查 Builder 连接。",
         noSources: "在生成设计系统之前至少添加一个源。",
       },
@@ -2148,6 +2201,11 @@ const designLocaleOverrides = {
         saving: "保存...",
         saveChanges: "保存更改",
       },
+      preview: {
+        title: "预览",
+        description:
+          "此设计系统由 Builder 设计系统智能管理。打开关联的项目即可查看完整的设计系统，包括所有令牌、组件和使用指南。",
+      },
       tokenPreview: {
         title: "代币预览",
         description: "当前存储的颜色、类型、间距和资源的快照。",
@@ -2259,6 +2317,14 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Bien",
         justify: "Justificar",
+      },
+      positionAligns: {
+        left: "Alinear a la izquierda",
+        centerHorizontal: "Centrar horizontalmente",
+        right: "Alinear a la derecha",
+        top: "Alinear arriba",
+        centerVertical: "Centrar verticalmente",
+        bottom: "Alinear abajo",
       },
       textDecorations: {
         underline: "Subrayado",
@@ -2386,6 +2452,8 @@ const designLocaleOverrides = {
         svgExportError: "No se pudo exportar SVG",
         undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
         redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
+        saveConflict:
+          "Esta pantalla cambió en otro lugar. Tu última edición no se guardó.",
       },
     },
     designSystemSetup: {
@@ -2469,9 +2537,10 @@ const designLocaleOverrides = {
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
-        chooseDesignMd: "Elija un archivo design.md o design.mdx.",
-        readDesignMd: "No se pudo leer el archivo design.md.",
-        designMdTooLarge: "design.md debe tener un tamaño máximo de 2 MB.",
+        chooseDesignMd: "Elija un archivo Markdown (.md o .mdx).",
+        readDesignMd: "No se pudo leer ese archivo Markdown.",
+        designMdTooLarge:
+          "El archivo Markdown debe tener un tamaño máximo de 2 MB.",
         designMdIndex:
           "No se pudo iniciar la indexación de design.md. Comprueba la conexión de Builder.",
         noSources:
@@ -2593,6 +2662,11 @@ const designLocaleOverrides = {
         saving: "Ahorro...",
         saveChanges: "Guardar cambios",
       },
+      preview: {
+        title: "Vista previa",
+        description:
+          "Este sistema de diseño se gestiona con Builder Design System Intelligence. Abre el proyecto vinculado para ver el sistema de diseño completo, incluidos todos los tokens, componentes y guías de uso.",
+      },
       tokenPreview: {
         title: "Vista previa del token",
         description:
@@ -2706,6 +2780,14 @@ const designLocaleOverrides = {
         center: "Centre",
         right: "Droite",
         justify: "Justifier",
+      },
+      positionAligns: {
+        left: "Aligner à gauche",
+        centerHorizontal: "Centrer horizontalement",
+        right: "Aligner à droite",
+        top: "Aligner en haut",
+        centerVertical: "Centrer verticalement",
+        bottom: "Aligner en bas",
       },
       textDecorations: {
         underline: "Souligné",
@@ -2837,6 +2919,8 @@ const designLocaleOverrides = {
           "Annulation ignorée : quelqu'un d'autre a déplacé cet élément",
         redoSkippedConcurrentEdit:
           "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
+        saveConflict:
+          "Cet écran a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée.",
       },
     },
     designSystemSetup: {
@@ -2921,9 +3005,9 @@ const designLocaleOverrides = {
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
         githubIndex:
           "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
-        chooseDesignMd: "Veuillez choisir un fichier design.md ou design.mdx.",
-        readDesignMd: "Impossible de lire le fichier design.md.",
-        designMdTooLarge: "design.md doit faire 2 Mo ou moins.",
+        chooseDesignMd: "Veuillez choisir un fichier Markdown (.md ou .mdx).",
+        readDesignMd: "Impossible de lire ce fichier Markdown.",
+        designMdTooLarge: "Le fichier Markdown doit faire 2 Mo ou moins.",
         designMdIndex:
           "Impossible de démarrer l’indexation de design.md. Vérifiez la connexion à Builder.",
         noSources:
@@ -3045,6 +3129,11 @@ const designLocaleOverrides = {
         saving: "Économie...",
         saveChanges: "Enregistrer les modifications",
       },
+      preview: {
+        title: "Aperçu",
+        description:
+          "Ce système de conception est géré par Builder Design System Intelligence. Ouvrez le projet associé pour voir le système de conception complet, y compris tous les jetons, composants et conseils d’utilisation.",
+      },
       tokenPreview: {
         title: "Aperçu du jeton",
         description:
@@ -3158,6 +3247,14 @@ const designLocaleOverrides = {
         center: "Center",
         right: "Rechts",
         justify: "Rechtfertigen",
+      },
+      positionAligns: {
+        left: "Links ausrichten",
+        centerHorizontal: "Horizontal zentrieren",
+        right: "Rechts ausrichten",
+        top: "Oben ausrichten",
+        centerVertical: "Vertikal zentrieren",
+        bottom: "Unten ausrichten",
       },
       textDecorations: {
         underline: "Unterstrichen",
@@ -3289,6 +3386,8 @@ const designLocaleOverrides = {
           "Rückgängig übersprungen – jemand anderes hat das verschoben",
         redoSkippedConcurrentEdit:
           "Wiederholen übersprungen – jemand anderes hat das verschoben",
+        saveConflict:
+          "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
       },
     },
     designSystemSetup: {
@@ -3374,9 +3473,9 @@ const designLocaleOverrides = {
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
         githubIndex:
           "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
-        chooseDesignMd: "Wählen Sie eine design.md- oder design.mdx-Datei aus.",
-        readDesignMd: "Die design.md-Datei konnte nicht gelesen werden.",
-        designMdTooLarge: "design.md darf höchstens 2 MB groß sein.",
+        chooseDesignMd: "Wählen Sie eine Markdown-Datei (.md oder .mdx) aus.",
+        readDesignMd: "Diese Markdown-Datei konnte nicht gelesen werden.",
+        designMdTooLarge: "Die Markdown-Datei darf höchstens 2 MB groß sein.",
         designMdIndex:
           "Die design.md-Indizierung konnte nicht gestartet werden. Prüfen Sie die Builder-Verbindung.",
         noSources:
@@ -3497,6 +3596,11 @@ const designLocaleOverrides = {
         saving: "Sparen...",
         saveChanges: "Änderungen speichern",
       },
+      preview: {
+        title: "Vorschau",
+        description:
+          "Dieses Designsystem wird von Builder Design System Intelligence verwaltet. Öffnen Sie das verknüpfte Projekt, um das vollständige Designsystem einzusehen, einschließlich aller Tokens, Komponenten und Nutzungshinweise.",
+      },
       tokenPreview: {
         title: "Token-Vorschau",
         description:
@@ -3610,6 +3714,14 @@ const designLocaleOverrides = {
         center: "中心",
         right: "右",
         justify: "正当化する",
+      },
+      positionAligns: {
+        left: "左揃え",
+        centerHorizontal: "左右中央揃え",
+        right: "右揃え",
+        top: "上揃え",
+        centerVertical: "上下中央揃え",
+        bottom: "下揃え",
       },
       textDecorations: {
         underline: "下線",
@@ -3740,6 +3852,8 @@ const designLocaleOverrides = {
           "元に戻す操作をスキップしました — 他のユーザーがそれを移動しました",
         redoSkippedConcurrentEdit:
           "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
+        saveConflict:
+          "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
       },
     },
     designSystemSetup: {
@@ -3824,9 +3938,9 @@ const designLocaleOverrides = {
         githubIndex:
           "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
         chooseDesignMd:
-          "design.md または design.mdx ファイルを選択してください。",
-        readDesignMd: "design.md ファイルを読み込めませんでした。",
-        designMdTooLarge: "design.md は 2 MB 以下にしてください。",
+          "Markdown（.md または .mdx）ファイルを選択してください。",
+        readDesignMd: "その Markdown ファイルを読み込めませんでした。",
+        designMdTooLarge: "Markdown ファイルは 2 MB 以下にしてください。",
         designMdIndex:
           "design.md のインデックス作成を開始できませんでした。Builder の接続を確認してください。",
         noSources:
@@ -3944,6 +4058,11 @@ const designLocaleOverrides = {
         saving: "保存中...",
         saveChanges: "変更を保存する",
       },
+      preview: {
+        title: "プレビュー",
+        description:
+          "このデザインシステムは Builder Design System Intelligence によって管理されています。リンクされたプロジェクトを開くと、すべてのトークン、コンポーネント、使用ガイダンスを含む完全なデザインシステムを確認できます。",
+      },
       tokenPreview: {
         title: "トークンのプレビュー",
         description:
@@ -4057,6 +4176,14 @@ const designLocaleOverrides = {
         center: "센터",
         right: "오른쪽",
         justify: "신이 옳다고 하다",
+      },
+      positionAligns: {
+        left: "왼쪽 정렬",
+        centerHorizontal: "가로 가운데 정렬",
+        right: "오른쪽 정렬",
+        top: "위쪽 정렬",
+        centerVertical: "세로 가운데 정렬",
+        bottom: "아래쪽 정렬",
       },
       textDecorations: {
         underline: "밑줄",
@@ -4186,6 +4313,8 @@ const designLocaleOverrides = {
           "실행 취소를 건너뛰었습니다 — 다른 사용자가 이동했습니다",
         redoSkippedConcurrentEdit:
           "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
+        saveConflict:
+          "이 화면이 다른 곳에서 변경되었습니다. 마지막 편집이 저장되지 않았습니다.",
       },
     },
     designSystemSetup: {
@@ -4265,9 +4394,9 @@ const designLocaleOverrides = {
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
         githubIndex:
           "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
-        chooseDesignMd: "design.md 또는 design.mdx 파일을 선택하세요.",
-        readDesignMd: "design.md 파일을 읽을 수 없습니다.",
-        designMdTooLarge: "design.md 파일은 2MB 이하여야 합니다.",
+        chooseDesignMd: "Markdown(.md 또는 .mdx) 파일을 선택하세요.",
+        readDesignMd: "해당 Markdown 파일을 읽을 수 없습니다.",
+        designMdTooLarge: "Markdown 파일은 2MB 이하여야 합니다.",
         designMdIndex:
           "design.md 인덱싱을 시작할 수 없습니다. Builder 연결을 확인하세요.",
         noSources: "디자인 시스템을 생성하기 전에 소스를 하나 이상 추가하세요.",
@@ -4384,6 +4513,11 @@ const designLocaleOverrides = {
         saving: "절약...",
         saveChanges: "변경사항 저장",
       },
+      preview: {
+        title: "미리보기",
+        description:
+          "이 디자인 시스템은 Builder Design System Intelligence에서 관리합니다. 연결된 프로젝트를 열어 모든 토큰, 구성 요소 및 사용 가이드를 포함한 전체 디자인 시스템을 확인하세요.",
+      },
       tokenPreview: {
         title: "토큰 미리보기",
         description: "현재 저장된 색상, 유형, 간격 및 자산의 스냅샷입니다.",
@@ -4496,6 +4630,14 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Certo",
         justify: "Justificar",
+      },
+      positionAligns: {
+        left: "Alinhar à esquerda",
+        centerHorizontal: "Centralizar horizontalmente",
+        right: "Alinhar à direita",
+        top: "Alinhar acima",
+        centerVertical: "Centralizar verticalmente",
+        bottom: "Alinhar abaixo",
       },
       textDecorations: {
         underline: "Sublinhado",
@@ -4625,6 +4767,8 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit:
           "Desfazer ignorado — outra pessoa moveu isso",
         redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
+        saveConflict:
+          "Esta tela mudou em outro lugar. Sua última edição não foi salva.",
       },
     },
     designSystemSetup: {
@@ -4707,9 +4851,9 @@ const designLocaleOverrides = {
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
-        chooseDesignMd: "Escolha um arquivo design.md ou design.mdx.",
-        readDesignMd: "Não foi possível ler o arquivo design.md.",
-        designMdTooLarge: "design.md deve ter no máximo 2 MB.",
+        chooseDesignMd: "Escolha um arquivo Markdown (.md ou .mdx).",
+        readDesignMd: "Não foi possível ler esse arquivo Markdown.",
+        designMdTooLarge: "O arquivo Markdown deve ter no máximo 2 MB.",
         designMdIndex:
           "Não foi possível iniciar a indexação do design.md. Verifique a conexão do Builder.",
         noSources:
@@ -4830,6 +4974,11 @@ const designLocaleOverrides = {
         saving: "Salvando...",
         saveChanges: "Salvar alterações",
       },
+      preview: {
+        title: "Visualização",
+        description:
+          "Este sistema de design é gerenciado pelo Builder Design System Intelligence. Abra o projeto vinculado para ver o sistema de design completo, incluindo todos os tokens, componentes e diretrizes de uso.",
+      },
       tokenPreview: {
         title: "Visualização do token",
         description:
@@ -4943,6 +5092,14 @@ const designLocaleOverrides = {
         center: "केंद्र",
         right: "सही",
         justify: "औचित्य",
+      },
+      positionAligns: {
+        left: "बाएँ संरेखित करें",
+        centerHorizontal: "क्षैतिज रूप से मध्य में संरेखित करें",
+        right: "दाएँ संरेखित करें",
+        top: "ऊपर संरेखित करें",
+        centerVertical: "लंबवत रूप से मध्य में संरेखित करें",
+        bottom: "नीचे संरेखित करें",
       },
       textDecorations: {
         underline: "रेखांकित",
@@ -5071,6 +5228,7 @@ const designLocaleOverrides = {
           "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
         redoSkippedConcurrentEdit:
           "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
+        saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
       },
     },
     designSystemSetup: {
@@ -5148,9 +5306,9 @@ const designLocaleOverrides = {
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
         githubIndex:
           "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
-        chooseDesignMd: "कृपया design.md या design.mdx फ़ाइल चुनें।",
-        readDesignMd: "design.md फ़ाइल पढ़ी नहीं जा सकी।",
-        designMdTooLarge: "design.md 2 MB या उससे छोटा होना चाहिए।",
+        chooseDesignMd: "कृपया Markdown (.md या .mdx) फ़ाइल चुनें।",
+        readDesignMd: "वह Markdown फ़ाइल पढ़ी नहीं जा सकी।",
+        designMdTooLarge: "Markdown फ़ाइल 2 MB या उससे छोटी होनी चाहिए।",
         designMdIndex: "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
         noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
       },
@@ -5266,6 +5424,11 @@ const designLocaleOverrides = {
         saving: "सहेजा जा रहा है...",
         saveChanges: "परिवर्तनों को सुरक्षित करें",
       },
+      preview: {
+        title: "पूर्वावलोकन",
+        description:
+          "इस डिज़ाइन सिस्टम को Builder डिज़ाइन सिस्टम इंटेलिजेंस द्वारा प्रबंधित किया जाता है। सभी टोकन, घटकों और उपयोग मार्गदर्शन सहित पूरा डिज़ाइन सिस्टम देखने के लिए लिंक की गई परियोजना खोलें।",
+      },
       tokenPreview: {
         title: "टोकन पूर्वावलोकन",
         description:
@@ -5379,6 +5542,14 @@ const designLocaleOverrides = {
         center: "مركز",
         right: "يمين",
         justify: "يبرر",
+      },
+      positionAligns: {
+        left: "محاذاة إلى اليسار",
+        centerHorizontal: "توسيط أفقي",
+        right: "محاذاة إلى اليمين",
+        top: "محاذاة إلى الأعلى",
+        centerVertical: "توسيط رأسي",
+        bottom: "محاذاة إلى الأسفل",
       },
       textDecorations: {
         underline: "تسطير",
@@ -5505,6 +5676,7 @@ const designLocaleOverrides = {
         svgExportError: "تعذر تصدير SVG",
         undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
         redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
+        saveConflict: "تغيرت هذه الشاشة في مكان آخر. لم يُحفظ آخر تعديل.",
       },
     },
     designSystemSetup: {
@@ -5584,9 +5756,9 @@ const designLocaleOverrides = {
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
         githubIndex:
           "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
-        chooseDesignMd: "يرجى اختيار ملف design.md أو design.mdx.",
-        readDesignMd: "تعذر قراءة ملف design.md.",
-        designMdTooLarge: "يجب ألا يتجاوز حجم design.md ‏2 ميغابايت.",
+        chooseDesignMd: "يرجى اختيار ملف Markdown (.md أو .mdx).",
+        readDesignMd: "تعذر قراءة ملف Markdown هذا.",
+        designMdTooLarge: "يجب ألا يتجاوز حجم ملف Markdown ‏2 ميغابايت.",
         designMdIndex: "تعذر بدء فهرسة design.md. تحقق من اتصال Builder.",
         noSources: "أضف مصدرًا واحدًا على الأقل قبل إنشاء نظام التصميم.",
       },
@@ -5701,6 +5873,11 @@ const designLocaleOverrides = {
         useAsStartingPoint: "استخدم كنقطة انطلاق",
         saving: "توفير...",
         saveChanges: "حفظ التغييرات",
+      },
+      preview: {
+        title: "معاينة",
+        description:
+          "يتم إدارة نظام التصميم هذا بواسطة Builder Design System Intelligence. افتح المشروع المرتبط لعرض نظام التصميم الكامل، بما في ذلك جميع الرموز والمكونات وإرشادات الاستخدام.",
       },
       tokenPreview: {
         title: "معاينة الرمز المميز",
@@ -7271,7 +7448,7 @@ const designExactEnglishOverrides = {
         pngClipboardUnsupported: "此浏览器无法将 PNG 图像复制到剪贴板",
         pngClipboardBlocked: "请允许访问剪贴板以复制此 PNG",
         pngClipboardWriteError: "无法将 PNG 复制到剪贴板",
-        pngLivePreviewUnavailable: "URL 支持的屏幕暂不支持 PNG 捕获",
+        pngLivePreviewUnavailable: "PNG 导出目前仅在桌面应用中可用。",
         pngReadOnlyUnavailable: "只读预览不支持 PNG 捕获",
         pngExportError: "无法导出 PNG",
         pngSaveError: "无法保存 PNG",
@@ -7364,7 +7541,7 @@ const designExactEnglishOverrides = {
           "Permite el acceso al portapapeles para copiar este PNG",
         pngClipboardWriteError: "No se pudo copiar el PNG al portapapeles",
         pngLivePreviewUnavailable:
-          "La captura PNG aún no está disponible para pantallas basadas en URL",
+          "La exportación PNG solo está disponible en la aplicación de escritorio por ahora.",
         pngReadOnlyUnavailable:
           "La captura PNG no está disponible en vistas previas de solo lectura",
         pngExportError: "No se pudo exportar PNG",
@@ -7462,7 +7639,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "Impossible de copier le PNG dans le presse-papiers",
         pngLivePreviewUnavailable:
-          "La capture PNG n’est pas encore disponible pour les écrans basés sur une URL",
+          "L’exportation PNG est actuellement disponible uniquement dans l’application de bureau.",
         pngReadOnlyUnavailable:
           "La capture PNG n’est pas disponible dans les aperçus en lecture seule",
         pngExportError: "Impossible d’exporter PNG",
@@ -7561,7 +7738,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "PNG konnte nicht in die Zwischenablage kopiert werden",
         pngLivePreviewUnavailable:
-          "PNG-Aufnahmen sind für URL-basierte Bildschirme noch nicht verfügbar",
+          "Der PNG-Export ist derzeit nur in der Desktop-App verfügbar.",
         pngReadOnlyUnavailable:
           "PNG-Aufnahmen sind in schreibgeschützten Vorschauen nicht verfügbar",
         pngExportError: "PNG konnte nicht exportiert werden",
@@ -7659,7 +7836,7 @@ const designExactEnglishOverrides = {
           "この PNG をコピーするにはクリップボードへのアクセスを許可してください",
         pngClipboardWriteError: "PNG をクリップボードにコピーできませんでした",
         pngLivePreviewUnavailable:
-          "URL ベースの画面では PNG キャプチャをまだ利用できません",
+          "PNG のエクスポートは現在デスクトップアプリでのみ利用できます。",
         pngReadOnlyUnavailable:
           "読み取り専用プレビューでは PNG キャプチャを利用できません",
         pngExportError: "PNG をエクスポートできませんでした",
@@ -7754,7 +7931,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked: "이 PNG를 복사하려면 클립보드 접근을 허용하세요",
         pngClipboardWriteError: "PNG를 클립보드에 복사할 수 없음",
         pngLivePreviewUnavailable:
-          "URL 기반 화면에서는 아직 PNG 캡처를 사용할 수 없음",
+          "PNG 내보내기는 현재 데스크톱 앱에서만 사용할 수 있습니다.",
         pngReadOnlyUnavailable:
           "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
         pngExportError: "PNG를 내보낼 수 없음",
@@ -7850,7 +8027,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "Não foi possível copiar o PNG para a área de transferência",
         pngLivePreviewUnavailable:
-          "A captura PNG ainda não está disponível para telas baseadas em URL",
+          "A exportação de PNG está disponível apenas no aplicativo para computador no momento.",
         pngReadOnlyUnavailable:
           "A captura PNG não está disponível em visualizações somente leitura",
         pngExportError: "Não foi possível exportar PNG",
@@ -7945,8 +8122,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked:
           "इस PNG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
         pngClipboardWriteError: "PNG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
-        pngLivePreviewUnavailable:
-          "URL-आधारित स्क्रीन के लिए PNG कैप्चर अभी उपलब्ध नहीं है",
+        pngLivePreviewUnavailable: "PNG निर्यात अभी केवल डेस्कटॉप ऐप में उपलब्ध है।",
         pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
         pngExportError: "PNG निर्यात नहीं किया जा सका",
         pngSaveError: "PNG सहेजा नहीं जा सका",
@@ -8037,7 +8213,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked: "اسمح بالوصول إلى الحافظة لنسخ ملف PNG هذا",
         pngClipboardWriteError: "تعذر نسخ PNG إلى الحافظة",
         pngLivePreviewUnavailable:
-          "التقاط PNG غير متاح بعد للشاشات المستندة إلى عنوان URL",
+          "يتوفر تصدير PNG حاليًا في تطبيق سطح المكتب فقط.",
         pngReadOnlyUnavailable:
           "التقاط PNG غير متاح في المعاينات المخصصة للقراءة فقط",
         pngExportError: "تعذر تصدير PNG",
@@ -8070,6 +8246,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "自動布局",
         positionLayout: "位置",
+        layoutGrid: "版面格線",
         stroke: "描邊",
         effects: "效果",
         codeConfidence: "程式碼",
@@ -8243,6 +8420,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "自动布局",
         positionLayout: "位置",
+        layoutGrid: "布局网格",
         stroke: "描边",
         effects: "效果",
         codeConfidence: "代码",
@@ -8415,6 +8593,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Diseño automático",
         positionLayout: "Posición",
+        layoutGrid: "Cuadrícula de diseño",
         stroke: "Trazo",
         effects: "Efectos",
         codeConfidence: "Código",
@@ -8611,6 +8790,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Mise en page auto",
         positionLayout: "Position",
+        layoutGrid: "Grille de mise en page",
         stroke: "Contour",
         effects: "Effets",
         codeConfidence: "Code",
@@ -8802,6 +8982,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Auto-Layout",
         positionLayout: "Position",
+        layoutGrid: "Layoutraster",
         stroke: "Kontur",
         effects: "Effekte",
         codeConfidence: "Code",
@@ -9000,6 +9181,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "オートレイアウト",
         positionLayout: "位置",
+        layoutGrid: "レイアウトグリッド",
         stroke: "線",
         effects: "効果",
         codeConfidence: "コード",
@@ -9192,6 +9374,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "자동 레이아웃",
         positionLayout: "위치",
+        layoutGrid: "레이아웃 그리드",
         stroke: "획",
         effects: "효과",
         codeConfidence: "코드",
@@ -9381,6 +9564,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Layout automático",
         positionLayout: "Posição",
+        layoutGrid: "Grade de layout",
         stroke: "Traço",
         effects: "Efeitos",
         codeConfidence: "Código",
@@ -9570,6 +9754,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "ऑटो लेआउट",
         positionLayout: "स्थिति",
+        layoutGrid: "लेआउट ग्रिड",
         stroke: "स्ट्रोक",
         effects: "प्रभाव",
         codeConfidence: "कोड",
@@ -9759,6 +9944,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "تخطيط تلقائي",
         positionLayout: "الموضع",
+        layoutGrid: "شبكة التخطيط",
         stroke: "الحد",
         effects: "التأثيرات",
         codeConfidence: "الكود",
@@ -10020,6 +10206,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "移除图层",
         showLayer: "显示图层",
         hideLayer: "隐藏图层",
+        addGrid: "添加网格",
+        removeGrid: "移除网格",
+        showGrid: "显示网格",
+        hideGrid: "隐藏网格",
         reorderLayer: "重新排序图层",
         linkSides: "链接四边",
         unlinkSides: "取消链接四边",
@@ -10123,6 +10313,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Eliminar capa",
         showLayer: "Mostrar capa",
         hideLayer: "Ocultar capa",
+        addGrid: "Añadir cuadrícula",
+        removeGrid: "Eliminar cuadrícula",
+        showGrid: "Mostrar cuadrícula",
+        hideGrid: "Ocultar cuadrícula",
         reorderLayer: "Reordenar capa",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
@@ -10228,6 +10422,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Supprimer le calque",
         showLayer: "Afficher le calque",
         hideLayer: "Masquer le calque",
+        addGrid: "Ajouter une grille",
+        removeGrid: "Supprimer la grille",
+        showGrid: "Afficher la grille",
+        hideGrid: "Masquer la grille",
         reorderLayer: "Réorganiser le calque",
         linkSides: "Lier les côtés",
         unlinkSides: "Délier les côtés",
@@ -10333,6 +10531,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Ebene entfernen",
         showLayer: "Ebene anzeigen",
         hideLayer: "Ebene ausblenden",
+        addGrid: "Raster hinzufügen",
+        removeGrid: "Raster entfernen",
+        showGrid: "Raster anzeigen",
+        hideGrid: "Raster ausblenden",
         reorderLayer: "Ebene neu anordnen",
         linkSides: "Seiten verknüpfen",
         unlinkSides: "Seiten lösen",
@@ -10434,6 +10636,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "レイヤーを削除",
         showLayer: "レイヤーを表示",
         hideLayer: "レイヤーを非表示",
+        addGrid: "グリッドを追加",
+        removeGrid: "グリッドを削除",
+        showGrid: "グリッドを表示",
+        hideGrid: "グリッドを非表示",
         reorderLayer: "レイヤーを並べ替え",
         linkSides: "辺をリンク",
         unlinkSides: "辺のリンクを解除",
@@ -10535,6 +10741,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "레이어 제거",
         showLayer: "레이어 표시",
         hideLayer: "레이어 숨기기",
+        addGrid: "그리드 추가",
+        removeGrid: "그리드 제거",
+        showGrid: "그리드 표시",
+        hideGrid: "그리드 숨기기",
         reorderLayer: "레이어 순서 변경",
         linkSides: "면 연결",
         unlinkSides: "면 연결 해제",
@@ -10638,6 +10848,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Remover camada",
         showLayer: "Mostrar camada",
         hideLayer: "Ocultar camada",
+        addGrid: "Adicionar grade",
+        removeGrid: "Remover grade",
+        showGrid: "Mostrar grade",
+        hideGrid: "Ocultar grade",
         reorderLayer: "Reordenar camada",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
@@ -10739,6 +10953,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "परत हटाएं",
         showLayer: "परत दिखाएं",
         hideLayer: "परत छिपाएं",
+        addGrid: "ग्रिड जोड़ें",
+        removeGrid: "ग्रिड हटाएं",
+        showGrid: "ग्रिड दिखाएं",
+        hideGrid: "ग्रिड छिपाएं",
         reorderLayer: "परत पुनः क्रमित करें",
         linkSides: "किनारे लिंक करें",
         unlinkSides: "किनारे अनलिंक करें",
@@ -10840,6 +11058,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "إزالة طبقة",
         showLayer: "إظهار الطبقة",
         hideLayer: "إخفاء الطبقة",
+        addGrid: "إضافة شبكة",
+        removeGrid: "إزالة الشبكة",
+        showGrid: "إظهار الشبكة",
+        hideGrid: "إخفاء الشبكة",
         reorderLayer: "إعادة ترتيب الطبقة",
         linkSides: "ربط الجوانب",
         unlinkSides: "إلغاء ربط الجوانب",
@@ -12462,11 +12684,14 @@ const designImportOverrides = {
         figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
         figmaPasteMatchGuidance:
           "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
+        figmaPasteUnreadable:
+          "剪貼簿中沒有已複製的 Figma 圖層。請在 Figma 中選取畫框，按 Cmd+C 複製後再貼上，或從匯入面板匯入 Figma 連結。",
         figmaPasteRestLabel: "透過 Figma API 匯入",
         figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
         figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
         figmaPasteImagesNeedToken:
           "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
+        figmaPasteImagesDontShowAgain: "不再顯示",
         figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
         figmaHydrationDialogDescription:
           "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
@@ -12526,11 +12751,14 @@ const designImportOverrides = {
         figmaPasteApiKeyHint: "连接您的 Figma 访问令牌以获得精确的节点导入。",
         figmaPasteMatchGuidance:
           "无法匹配到特定的 Figma 节点。请改为粘贴画框链接以进行精确导入。",
+        figmaPasteUnreadable:
+          "剪贴板中没有复制的 Figma 图层。请在 Figma 中选中画框，按 Cmd+C 复制后再粘贴，或从导入面板导入 Figma 链接。",
         figmaPasteRestLabel: "通过 Figma API 导入",
         figmaPasteHtmlLabel: "从剪贴板预览导入",
         figmaPasteLocalKiwiLabel: "已在未登录状态下导入 — 仅包含几何与文字",
         figmaPasteImagesNeedToken:
           "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
+        figmaPasteImagesDontShowAgain: "不再显示",
         figmaHydrationDialogTitle: "连接 Figma 以加载图片",
         figmaHydrationDialogDescription:
           "输入您的 Figma 访问令牌，以加载已导入屏幕{{screensPlural}}中缺少的 {{count}} 张图片{{plural}}。",
@@ -12592,12 +12820,15 @@ const designImportOverrides = {
           "Conecta tu token de acceso de Figma para importaciones exactas de nodos.",
         figmaPasteMatchGuidance:
           "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
+        figmaPasteUnreadable:
+          "Ese portapapeles no contiene capas copiadas de Figma. Selecciona un marco en Figma, cópialo con Cmd+C y vuelve a pegar, o importa un enlace de Figma desde el panel Importar.",
         figmaPasteRestLabel: "Importado mediante la API de Figma",
         figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
         figmaPasteLocalKiwiLabel:
           "Importado sin token — solo geometría y texto",
         figmaPasteImagesNeedToken:
           "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
+        figmaPasteImagesDontShowAgain: "No mostrar de nuevo",
         figmaHydrationDialogTitle: "Conectar Figma para cargar imágenes",
         figmaHydrationDialogDescription:
           "Introduce tu token de acceso de Figma para cargar {{count}} imagen{{plural}} faltante{{plural}} en la pantalla{{screensPlural}} importada{{screensPlural}}.",
@@ -12661,12 +12892,15 @@ const designImportOverrides = {
           "Connectez votre jeton d'accès Figma pour des imports de nœuds exacts.",
         figmaPasteMatchGuidance:
           "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
+        figmaPasteUnreadable:
+          "Ce presse-papiers ne contient aucun calque Figma copié. Sélectionnez un cadre dans Figma, copiez-le avec Cmd+C puis recollez, ou importez un lien Figma depuis le panneau Importer.",
         figmaPasteRestLabel: "Importé via l'API Figma",
         figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
         figmaPasteLocalKiwiLabel:
           "Importé sans token — géométrie et texte uniquement",
         figmaPasteImagesNeedToken:
           "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
+        figmaPasteImagesDontShowAgain: "Ne plus afficher",
         figmaHydrationDialogTitle: "Connecter Figma pour charger les images",
         figmaHydrationDialogDescription:
           "Saisissez votre token d'accès Figma pour charger {{count}} image{{plural}} manquante{{plural}} dans l'écran{{screensPlural}} importé{{screensPlural}}.",
@@ -12730,12 +12964,15 @@ const designImportOverrides = {
           "Verbinde deinen Figma-Zugriffstoken für exakte Node-Importe.",
         figmaPasteMatchGuidance:
           "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
+        figmaPasteUnreadable:
+          "In dieser Zwischenablage sind keine kopierten Figma-Ebenen. Wähle in Figma einen Frame aus, kopiere ihn mit Cmd+C und füge ihn erneut ein – oder importiere einen Figma-Link über das Import-Panel.",
         figmaPasteRestLabel: "Über die Figma-API importiert",
         figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
         figmaPasteLocalKiwiLabel:
           "Ohne Token importiert — nur Geometrie und Text",
         figmaPasteImagesNeedToken:
           "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
+        figmaPasteImagesDontShowAgain: "Nicht mehr anzeigen",
         figmaHydrationDialogTitle: "Figma verbinden, um Bilder zu laden",
         figmaHydrationDialogDescription:
           "Gib deinen Figma-Zugriffstoken ein, um {{count}} fehlendes{{plural}} Bild{{plural}} in den importierten Screen{{screensPlural}} zu laden.",
@@ -12798,12 +13035,15 @@ const designImportOverrides = {
           "正確なノードインポートのために Figma アクセストークンを接続してください。",
         figmaPasteMatchGuidance:
           "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
+        figmaPasteUnreadable:
+          "クリップボードにコピーされた Figma レイヤーがありません。Figma でフレームを選択し Cmd+C でコピーしてから貼り付け直すか、インポートパネルから Figma のリンクをインポートしてください。",
         figmaPasteRestLabel: "Figma API 経由でインポート",
         figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
         figmaPasteLocalKiwiLabel:
           "トークンなしでインポート — ジオメトリとテキストのみ",
         figmaPasteImagesNeedToken:
           "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
+        figmaPasteImagesDontShowAgain: "今後は表示しない",
         figmaHydrationDialogTitle: "Figma を接続して画像を読み込む",
         figmaHydrationDialogDescription:
           "Figma アクセストークンを入力して、インポートされた画面{{screensPlural}}の不足している {{count}} 枚の画像{{plural}}を読み込んでください。",
@@ -12867,11 +13107,14 @@ const designImportOverrides = {
           "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
         figmaPasteMatchGuidance:
           "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
+        figmaPasteUnreadable:
+          "클립보드에 복사된 Figma 레이어가 없습니다. Figma에서 프레임을 선택해 Cmd+C로 복사한 뒤 다시 붙여넣거나, 가져오기 패널에서 Figma 링크를 가져오세요.",
         figmaPasteRestLabel: "Figma API로 가져옴",
         figmaPasteHtmlLabel: "클립보드 미리보기에서 가져옴",
         figmaPasteLocalKiwiLabel: "토큰 없이 가져옴 — 기하학적 구조와 텍스트만",
         figmaPasteImagesNeedToken:
           "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
+        figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
         figmaHydrationDialogTitle: "Figma를 연결하여 이미지 로드",
         figmaHydrationDialogDescription:
           "Figma 액세스 토큰을 입력하여 가져온 화면{{screensPlural}}의 누락된 이미지 {{count}}개{{plural}}를 로드하세요.",
@@ -12935,6 +13178,8 @@ const designImportOverrides = {
           "Conecte seu token de acesso do Figma para importações exatas de nós.",
         figmaPasteMatchGuidance:
           "Não foi possível corresponder a nós específicos do Figma. Cole um link do frame para uma importação exata.",
+        figmaPasteUnreadable:
+          "Essa área de transferência não tem camadas do Figma copiadas. Selecione um frame no Figma, copie com Cmd+C e cole novamente, ou importe um link do Figma pelo painel Importar.",
         figmaPasteRestLabel: "Importado via API do Figma",
         figmaPasteHtmlLabel:
           "Importado da pré-visualização da área de transferência",
@@ -12942,6 +13187,7 @@ const designImportOverrides = {
           "Importado sem token — apenas geometria e texto",
         figmaPasteImagesNeedToken:
           "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
+        figmaPasteImagesDontShowAgain: "Não mostrar novamente",
         figmaHydrationDialogTitle: "Conectar o Figma para carregar imagens",
         figmaHydrationDialogDescription:
           "Insira seu token de acesso do Figma para carregar {{count}} imagem{{plural}} ausente{{plural}} na tela{{screensPlural}} importada{{screensPlural}}.",
@@ -13005,12 +13251,15 @@ const designImportOverrides = {
           "सटीक नोड आयात के लिए अपना Figma access token कनेक्ट करें।",
         figmaPasteMatchGuidance:
           "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
+        figmaPasteUnreadable:
+          "इस क्लिपबोर्ड में कोई कॉपी की गई Figma लेयर नहीं है। Figma में एक frame चुनें, उसे Cmd+C से कॉपी करें और दोबारा paste करें, या Import पैनल से Figma लिंक आयात करें।",
         figmaPasteRestLabel: "Figma API के ज़रिए आयात किया गया",
         figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
         figmaPasteLocalKiwiLabel:
           "बिना token के आयात किया गया — केवल geometry और text",
         figmaPasteImagesNeedToken:
           "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
+        figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
         figmaHydrationDialogTitle: "छवियाँ लोड करने के लिए Figma जोड़ें",
         figmaHydrationDialogDescription:
           "आयातित screen{{screensPlural}} में {{count}} गायब छवि{{plural}} लोड करने के लिए अपना Figma access token दर्ज करें।",
@@ -13073,12 +13322,15 @@ const designImportOverrides = {
           "قم بربط رمز الوصول الخاص بك في Figma للحصول على استيراد دقيق للعقد.",
         figmaPasteMatchGuidance:
           "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
+        figmaPasteUnreadable:
+          "لا تحتوي هذه الحافظة على طبقات Figma منسوخة. حدّد إطارًا في Figma وانسخه بالضغط على Cmd+C ثم الصقه مرة أخرى، أو استورد رابط Figma من لوحة الاستيراد.",
         figmaPasteRestLabel: "تم الاستيراد عبر واجهة Figma البرمجية",
         figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
         figmaPasteLocalKiwiLabel:
           "تم الاستيراد بدون رمز — الأشكال الهندسية والنص فقط",
         figmaPasteImagesNeedToken:
           "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
+        figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
         figmaHydrationDialogTitle: "ربط Figma لتحميل الصور",
         figmaHydrationDialogDescription:
           "أدخل رمز الوصول إلى Figma لتحميل {{count}} صورة{{plural}} مفقودة في الشاشة{{screensPlural}} المستوردة.",
@@ -14931,6 +15183,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "无法提交提示",
       skipPrompt: "跳过提示",
+      startBlankCanvas: "从空白画布开始",
+      startWithAi: "使用 AI 开始",
+      startWithAiHint: "描述页面，先获得可编辑的初稿。",
+      startBlankCanvasHint: "使用画框、形状和文字自行绘制。",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -14961,6 +15217,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "No se pudo enviar el prompt",
       skipPrompt: "Omitir prompt",
+      startBlankCanvas: "Empezar con un lienzo en blanco",
+      startWithAi: "Empezar con IA",
+      startWithAiHint:
+        "Describe una página y obtén un primer borrador editable.",
+      startBlankCanvasHint: "Dibújala tú con marcos, formas y texto.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -14992,6 +15253,12 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "Impossible d’envoyer le prompt",
       skipPrompt: "Ignorer le prompt",
+      startBlankCanvas: "Commencer avec une toile vierge",
+      startWithAi: "Commencer avec l'IA",
+      startWithAiHint:
+        "Décrivez une page et obtenez un premier jet à modifier.",
+      startBlankCanvasHint:
+        "Dessinez-la vous-même avec cadres, formes et texte.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15022,6 +15289,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
       skipPrompt: "Prompt überspringen",
+      startBlankCanvas: "Mit leerer Zeichenfläche beginnen",
+      startWithAi: "Mit KI beginnen",
+      startWithAiHint:
+        "Beschreibe eine Seite und erhalte einen bearbeitbaren Entwurf.",
+      startBlankCanvasHint: "Zeichne selbst mit Rahmen, Formen und Text.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15053,6 +15325,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "プロンプトを送信できませんでした",
       skipPrompt: "プロンプトをスキップ",
+      startBlankCanvas: "空白のキャンバスから始める",
+      startWithAi: "AI で始める",
+      startWithAiHint: "ページを説明すると、編集できる下書きが作成されます。",
+      startBlankCanvasHint: "フレーム・図形・テキストで自分で描きます。",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15083,6 +15359,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
       skipPrompt: "프롬프트 건너뛰기",
+      startBlankCanvas: "빈 캔버스로 시작",
+      startWithAi: "AI로 시작",
+      startWithAiHint: "페이지를 설명하면 편집 가능한 초안을 만듭니다.",
+      startBlankCanvasHint: "프레임, 도형, 텍스트로 직접 그립니다.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15113,6 +15393,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "Não foi possível enviar o prompt",
       skipPrompt: "Pular prompt",
+      startBlankCanvas: "Começar com uma tela em branco",
+      startWithAi: "Começar com IA",
+      startWithAiHint: "Descreva uma página e receba um rascunho editável.",
+      startBlankCanvasHint: "Desenhe você mesmo com molduras, formas e texto.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15144,6 +15428,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
       skipPrompt: "प्रॉम्प्ट छोड़ें",
+      startBlankCanvas: "खाली कैनवास से शुरू करें",
+      startWithAi: "AI से शुरू करें",
+      startWithAiHint: "पेज बताइए और संपादन योग्य पहला ड्राफ़्ट पाइए।",
+      startBlankCanvasHint: "फ़्रेम, आकृतियों और टेक्स्ट से स्वयं बनाइए।",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15174,6 +15462,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "تعذر إرسال المطالبة",
       skipPrompt: "تخطي المطالبة",
+      startBlankCanvas: "ابدأ بلوحة فارغة",
+      startWithAi: "ابدأ باستخدام الذكاء الاصطناعي",
+      startWithAiHint: "صِف الصفحة واحصل على مسودة أولى قابلة للتحرير.",
+      startBlankCanvasHint: "ارسمها بنفسك بالإطارات والأشكال والنص.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15603,6 +15895,14 @@ const designAuthorFilterOverrides = {
       createdBy: "创建者",
       allAuthors: "所有作者",
       me: "我",
+      designFilter: "设计筛选",
+      mine: "我的",
+      all: "全部",
+      showMineDesigns: "显示我的设计",
+      showAllDesigns: "显示所有设计",
+      paginationPrevious: "上一页",
+      paginationNext: "下一页",
+      paginationPage: "第 {{page}} / {{totalPages}} 页",
     },
   },
   "es-ES": {
@@ -15610,6 +15910,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Creado por",
       allAuthors: "Todos los autores",
       me: "Yo",
+      designFilter: "Filtro de diseños",
+      mine: "Míos",
+      all: "Todos",
+      showMineDesigns: "Mostrar mis diseños",
+      showAllDesigns: "Mostrar todos los diseños",
+      paginationPrevious: "Anterior",
+      paginationNext: "Siguiente",
+      paginationPage: "Página {{page}} de {{totalPages}}",
     },
   },
   "fr-FR": {
@@ -15617,6 +15925,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Créé par",
       allAuthors: "Tous les auteurs",
       me: "Moi",
+      designFilter: "Filtre de designs",
+      mine: "Les miens",
+      all: "Tous",
+      showMineDesigns: "Afficher mes designs",
+      showAllDesigns: "Afficher tous les designs",
+      paginationPrevious: "Précédent",
+      paginationNext: "Suivant",
+      paginationPage: "Page {{page}} sur {{totalPages}}",
     },
   },
   "de-DE": {
@@ -15624,6 +15940,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Erstellt von",
       allAuthors: "Alle Autoren",
       me: "Ich",
+      designFilter: "Designfilter",
+      mine: "Meine",
+      all: "Alle",
+      showMineDesigns: "Meine Designs anzeigen",
+      showAllDesigns: "Alle Designs anzeigen",
+      paginationPrevious: "Zurück",
+      paginationNext: "Weiter",
+      paginationPage: "Seite {{page}} von {{totalPages}}",
     },
   },
   "ja-JP": {
@@ -15631,6 +15955,14 @@ const designAuthorFilterOverrides = {
       createdBy: "作成者",
       allAuthors: "すべての作成者",
       me: "自分",
+      designFilter: "デザインのフィルター",
+      mine: "自分のデザイン",
+      all: "すべて",
+      showMineDesigns: "自分のデザインを表示",
+      showAllDesigns: "すべてのデザインを表示",
+      paginationPrevious: "前へ",
+      paginationNext: "次へ",
+      paginationPage: "{{totalPages}}ページ中{{page}}ページ",
     },
   },
   "ko-KR": {
@@ -15638,6 +15970,14 @@ const designAuthorFilterOverrides = {
       createdBy: "만든 사람",
       allAuthors: "모든 작성자",
       me: "나",
+      designFilter: "디자인 필터",
+      mine: "내 디자인",
+      all: "전체",
+      showMineDesigns: "내 디자인 보기",
+      showAllDesigns: "모든 디자인 보기",
+      paginationPrevious: "이전",
+      paginationNext: "다음",
+      paginationPage: "{{totalPages}}페이지 중 {{page}}페이지",
     },
   },
   "pt-BR": {
@@ -15645,6 +15985,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Criado por",
       allAuthors: "Todos os autores",
       me: "Eu",
+      designFilter: "Filtro de designs",
+      mine: "Meus",
+      all: "Todos",
+      showMineDesigns: "Mostrar meus designs",
+      showAllDesigns: "Mostrar todos os designs",
+      paginationPrevious: "Anterior",
+      paginationNext: "Próximo",
+      paginationPage: "Página {{page}} de {{totalPages}}",
     },
   },
   "hi-IN": {
@@ -15652,6 +16000,14 @@ const designAuthorFilterOverrides = {
       createdBy: "द्वारा बनाया गया",
       allAuthors: "सभी लेखक",
       me: "मैं",
+      designFilter: "डिज़ाइन फ़िल्टर",
+      mine: "मेरे",
+      all: "सभी",
+      showMineDesigns: "मेरे डिज़ाइन दिखाएं",
+      showAllDesigns: "सभी डिज़ाइन दिखाएं",
+      paginationPrevious: "पिछला",
+      paginationNext: "अगला",
+      paginationPage: "पृष्ठ {{page}} / {{totalPages}}",
     },
   },
   "ar-SA": {
@@ -15659,6 +16015,14 @@ const designAuthorFilterOverrides = {
       createdBy: "أنشأه",
       allAuthors: "جميع المؤلفين",
       me: "أنا",
+      designFilter: "تصفية التصميمات",
+      mine: "تصميماتي",
+      all: "الكل",
+      showMineDesigns: "عرض تصميماتي",
+      showAllDesigns: "عرض كل التصميمات",
+      paginationPrevious: "السابق",
+      paginationNext: "التالي",
+      paginationPage: "الصفحة {{page}} من {{totalPages}}",
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
@@ -15746,6 +16110,11 @@ export const messagesByLocale = {
           languageTitle: "语言",
           languageDescription: "选择 Design 的界面语言。",
           languageLabel: "界面语言",
+          experiments: "实验功能",
+          experimentsIntro:
+            "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
+          experimentTweaks: "设计微调",
+          experimentTweaksDescription: "试用 AI 设计微调功能。",
         },
         designEditor: {
           toasts: {
@@ -15825,6 +16194,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Elige el idioma de la interfaz de Design.",
           languageLabel: "Idioma de la interfaz",
+          experiments: "Experimentos",
+          experimentsIntro:
+            "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
+          experimentTweaks: "Ajustes de diseño",
+          experimentTweaksDescription: "Prueba los ajustes de diseño con IA.",
         },
         designEditor: {
           toasts: {
@@ -15907,6 +16281,12 @@ export const messagesByLocale = {
           languageTitle: "Langue",
           languageDescription: "Choisissez la langue de l'interface de Design.",
           languageLabel: "Langue de l'interface",
+          experiments: "Expériences",
+          experimentsIntro:
+            "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
+          experimentTweaks: "Ajustements de design",
+          experimentTweaksDescription:
+            "Essayez les ajustements de design avec l’IA.",
         },
         designEditor: {
           toasts: {
@@ -15989,6 +16369,11 @@ export const messagesByLocale = {
           languageTitle: "Sprache",
           languageDescription: "Wähle die Oberflächensprache für Design.",
           languageLabel: "Oberflächensprache",
+          experiments: "Experimente",
+          experimentsIntro:
+            "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
+          experimentTweaks: "Design-Anpassungen",
+          experimentTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
         },
         designEditor: {
           toasts: {
@@ -16071,6 +16456,12 @@ export const messagesByLocale = {
           languageTitle: "言語",
           languageDescription: "Design のインターフェース言語を選択します。",
           languageLabel: "インターフェース言語",
+          experiments: "実験機能",
+          experimentsIntro:
+            "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
+          experimentTweaks: "デザインの調整",
+          experimentTweaksDescription:
+            "AI によるデザイン調整をお試しください。",
         },
         designEditor: {
           toasts: {
@@ -16154,6 +16545,11 @@ export const messagesByLocale = {
           languageTitle: "언어",
           languageDescription: "Design의 인터페이스 언어를 선택하세요.",
           languageLabel: "인터페이스 언어",
+          experiments: "실험 기능",
+          experimentsIntro:
+            "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
+          experimentTweaks: "디자인 트윅",
+          experimentTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
         },
         designEditor: {
           toasts: {
@@ -16235,6 +16631,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Escolha o idioma da interface do Design.",
           languageLabel: "Idioma da interface",
+          experiments: "Experimentos",
+          experimentsIntro:
+            "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
+          experimentTweaks: "Ajustes de design",
+          experimentTweaksDescription: "Experimente ajustes de design com IA.",
         },
         designEditor: {
           toasts: {
@@ -16317,6 +16718,11 @@ export const messagesByLocale = {
           languageTitle: "भाषा",
           languageDescription: "Design की interface भाषा चुनें।",
           languageLabel: "इंटरफ़ेस भाषा",
+          experiments: "प्रयोग",
+          experimentsIntro:
+            "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
+          experimentTweaks: "डिज़ाइन ट्वीक",
+          experimentTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
         },
         designEditor: {
           toasts: {
@@ -16399,6 +16805,12 @@ export const messagesByLocale = {
           languageTitle: "اللغة",
           languageDescription: "اختر لغة واجهة Design.",
           languageLabel: "لغة الواجهة",
+          experiments: "التجارب",
+          experimentsIntro:
+            "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
+          experimentTweaks: "تعديلات التصميم",
+          experimentTweaksDescription:
+            "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
         },
         designEditor: {
           toasts: {

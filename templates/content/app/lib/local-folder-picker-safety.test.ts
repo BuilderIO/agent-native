@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   hasInterruptedNativeFolderPickerAttempt,
+  isUserCancelledFolderPickerError,
   runNativeFolderPickerWithCrashSentinel,
 } from "./local-folder-picker-safety";
 
@@ -55,5 +56,32 @@ describe("native folder picker crash sentinel", () => {
     expect(
       hasInterruptedNativeFolderPickerAttempt(memoryStorage("unfinished")),
     ).toBe(true);
+  });
+});
+
+describe("isUserCancelledFolderPickerError", () => {
+  it("recognizes the DOMException showDirectoryPicker() rejects with on user cancel", () => {
+    expect(
+      isUserCancelledFolderPickerError(
+        new DOMException("The user aborted a request.", "AbortError"),
+      ),
+    ).toBe(true);
+  });
+
+  it("recognizes an abort by error code when the name is unavailable", () => {
+    expect(
+      isUserCancelledFolderPickerError({ code: DOMException.ABORT_ERR }),
+    ).toBe(true);
+  });
+
+  it("does not treat a real failure as a user cancellation", () => {
+    expect(
+      isUserCancelledFolderPickerError(
+        new DOMException("Permission denied.", "NotAllowedError"),
+      ),
+    ).toBe(false);
+    expect(isUserCancelledFolderPickerError(new Error("boom"))).toBe(false);
+    expect(isUserCancelledFolderPickerError(null)).toBe(false);
+    expect(isUserCancelledFolderPickerError("nope")).toBe(false);
   });
 });

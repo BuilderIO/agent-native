@@ -11,6 +11,8 @@ import {
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
+  ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   resolveSecret,
   createOAuthSession,
@@ -109,6 +111,7 @@ async function exchangeIdentityCode(
   email: string;
   id?: string;
   name?: string;
+  picture?: string;
 }> {
   const credentials = resolveGoogleSignInCredentials();
   if (!credentials) {
@@ -151,6 +154,7 @@ async function exchangeIdentityCode(
     email,
     id: typeof user.id === "string" ? user.id : undefined,
     name: typeof user.name === "string" ? user.name : undefined,
+    picture: typeof user.picture === "string" ? user.picture : undefined,
   };
 }
 
@@ -235,7 +239,11 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
     const method = getMethod(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      { allowRootCallback: true },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -353,6 +361,12 @@ export const handleGoogleCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
@@ -401,6 +415,15 @@ export const handleGoogleCallback = defineEventHandler(
 
       if (!addAccount) {
         const identity = await exchangeIdentityCode(code, redirectUri);
+        if (!identity.id) {
+          throw new Error("Could not get Google account id");
+        }
+        const isNewUser = await ensureGoogleAuthIdentity({
+          email: identity.email,
+          accountId: identity.id,
+          name: identity.name,
+          image: identity.picture,
+        });
         const { sessionToken } = await createOAuthSession(
           event,
           identity.email,
@@ -412,6 +435,7 @@ export const handleGoogleCallback = defineEventHandler(
               authProvider: "google",
               authUserId: identity.id,
               name: identity.name,
+              isNewUser,
             },
           },
         );
@@ -520,7 +544,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       );
     }
     try {
-      const redirectUri = resolveOAuthRedirectUri(event);
+      const redirectUri = resolveOAuthRedirectUri(
+        event,
+        "/_agent-native/google/callback",
+        { allowRootCallback: true },
+      );
       if (!redirectUri) {
         setResponseStatus(event, 400);
         return {
@@ -594,6 +622,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;

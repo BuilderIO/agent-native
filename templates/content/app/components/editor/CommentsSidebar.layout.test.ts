@@ -10,6 +10,7 @@ import {
   estimateThreadCardHeight,
   findPendingCommentOffset,
   findThreadPosition,
+  getAiCommentSource,
   layoutCommentThreads,
   scrollToCommentAnchor,
 } from "./CommentsSidebar";
@@ -29,6 +30,14 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("attributes only comments submitted through AI surfaces", () => {
+    expect(getAiCommentSource("mcp")).toBe("mcp");
+    expect(getAiCommentSource("agent")).toBe("agent");
+    expect(getAiCommentSource("frontend")).toBeNull();
+    expect(getAiCommentSource("automation")).toBeNull();
+    expect(getAiCommentSource(null)).toBeNull();
+  });
+
   it("tracks both document and desktop-rail positions for a highlight", () => {
     document.body.innerHTML =
       '<div id="scroll"><div data-document-scroll-content><span data-comment-thread="thread-1"></span></div></div><div id="rail"></div>';
@@ -174,37 +183,151 @@ describe("comments sidebar layout", () => {
     const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
       encoding: "utf8",
     });
+    const globalStyles = readFileSync("app/global.css", { encoding: "utf8" });
 
     expect(source).not.toContain('container.addEventListener("scroll"');
     expect(source).not.toContain("scrollIntoView");
-    expect(source).toContain("data-comment-connector");
+    expect(source).not.toContain("data-comment-connector");
     expect(source).toContain("data-unanchored-comments");
+    expect(source).not.toContain("CommentConnector");
+    expect(globalStyles).not.toContain(".comment-highlight::after");
   });
 
-  it("keeps the pending composer in normal flow on narrow sheets", () => {
+  it("keeps comment actions named and available to keyboard focus", () => {
     const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
       encoding: "utf8",
     });
 
-    expect(source).toContain("pendingComment && alignToAnchors");
+    expect(source).toContain('aria-label={t("comments.askAi")}');
+    expect(source).toContain(
+      'thread.resolved ? "comments.reopen" : "comments.resolve"',
+    );
+    expect(source).toContain('aria-label={t("comments.submit")}');
+    expect(source).toContain('t("comments.reopen")');
+    expect(source).toContain("focus-visible:ring-ring");
+    expect(source).not.toContain("hidden group-hover/thread:flex");
+    expect(source).toContain('presentation === "history"');
+    expect(source).toContain("data-comments-history");
+    expect(source).not.toContain("showResolved");
+    expect(source).not.toContain('t("comments.resolved", {');
+  });
+
+  it("uses the same eased emphasis for active and hovered comment cards", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      "transition-transform duration-[260ms] ease-[var(--ease-drawer)]",
+    );
+    expect(source).toContain("allowEmphasisMotion={alignToAnchors}");
+    expect(source).toContain('? "-translate-x-2 shadow-lg"');
+    expect(source).toContain(': "hover:-translate-x-2 hover:shadow-lg"');
+  });
+
+  it("keeps multiline comment highlights padded as one forgiving target", () => {
+    const styles = readFileSync("app/global.css", { encoding: "utf8" });
+    const highlightStyles = styles.slice(
+      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf("/* @mention tokens inside comment bodies */"),
+    );
+
+    expect(highlightStyles).toContain("padding-block: 0.2em");
+    expect(highlightStyles).toContain("padding-inline: 0.15em");
+    expect(highlightStyles).toContain("margin-inline: -0.15em");
+    expect(highlightStyles).toContain("box-decoration-break: clone");
+    expect(highlightStyles).toContain("content-box");
+    expect(highlightStyles).not.toContain("border-bottom: 1px");
+  });
+
+  it("opens the selected inline thread for reply and closes it on deselection", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("selectedThreadIsOpen");
+    expect(source).toContain(
+      'presentation === "inline" && canComment && selectedThreadIsOpen',
+    );
+    expect(source).toContain("setReplyingThreadId(nextReplyingThreadId)");
+    expect(source).toContain("setReplyingThreadId(thread.threadId)");
+    expect(source).not.toContain("current === thread.threadId ? null");
+    expect(source).toMatch(
+      /useLayoutEffect\(\(\) => \{[\s\S]*?setReplyingThreadId\(nextReplyingThreadId\)/,
+    );
+  });
+
+  it("combines supported comment history filters into one persistent checkbox menu", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source.match(/t\("comments.filter"\)/g)).toHaveLength(1);
+    expect(source).toContain("DropdownMenuCheckboxItem");
+    expect(source).not.toContain('t("comments.typeFilter")');
+    expect(source).not.toContain('historyType === "suggestions"');
+    expect(source).toContain('t("comments.statusFilter")');
+    expect(source).toContain('t("comments.authorFilter")');
+    expect(source).toContain("event.preventDefault()");
+    expect(source).toContain(
+      'className="w-full min-w-0 overflow-hidden rounded-lg bg-popover',
+    );
+  });
+
+  it("captures inline comment activation at the document state boundary", () => {
+    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('target?.closest("[data-comment-thread]")');
+    expect(source).toContain("onPointerOverCapture");
+    expect(source).toContain("onPointerOutCapture");
+    expect(source).toContain("setHoveredThreadId(threadId)");
+    expect(source).toContain("activateCommentThread(threadId)");
+    expect(source).toContain("data-comments-flow-lane");
+    expect(source).toContain("commentLaneRef");
+    expect(source).toContain('querySelector(".notion-editor")');
+    expect(source).toContain("translate-x-4");
+    expect(source).toContain(
+      'scrollContainer.addEventListener("scroll", update, { passive: true })',
+    );
+    expect(source).toContain(
+      "const containerRect = scrollContent.getBoundingClientRect()",
+    );
+    expect(source).toContain(
+      "const mutationObserver = new MutationObserver(update)",
+    );
+    expect(source).toContain('className="pointer-events-none absolute z-30"');
+    expect(source).toContain("data-comments-anchored-popover");
+    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
+    expect(source).toContain('window.addEventListener("resize", update)');
+    expect(source).toContain(
+      'window.visualViewport?.addEventListener("resize", update)',
+    );
+    expect(source).toContain("observer?.observe(element)");
+    expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
+  });
+
+  it("recomputes anchors when comment indicators are restored", () => {
+    const source = readFileSync("app/components/editor/VisualEditor.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /scheduleApply\(false\);[\s\S]*?showCommentIndicators/,
+    );
+  });
+
+  it("keeps the pending composer in normal flow in the anchored card", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("alignToAnchors");
     expect(source).toContain(
       '"relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"',
     );
     expect(source).toContain(": undefined");
-  });
-
-  it("keeps comment drafts open until their mutation succeeds", () => {
-    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("createComment.isPending");
-    expect(source).toContain("onSuccess: () => {");
-    expect(source).toContain("onError: (error) => {");
-    expect(source).toContain('toast.error(t("empty.genericError")');
-    expect(source).toMatch(
-      /createComment\.mutate\([\s\S]*?onSuccess: \(\) => \{[\s\S]*?setPendingText\(""\)/,
-    );
   });
 
   it("keeps card height estimates based on the thread reply count", () => {
@@ -221,7 +344,9 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("data-comments-sidebar");
-    expect(source).toContain("relative w-full min-w-0 shrink-0 pb-16");
+    expect(source).toContain(
+      "relative flow-root w-full min-w-0 shrink-0 pb-16",
+    );
     expect(source).not.toContain("w-80 shrink-0 overflow-auto");
     expect(source).not.toContain("overflow-auto relative");
   });

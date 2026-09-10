@@ -16,7 +16,7 @@ import {
   IconFolder,
   IconFolderOpen,
   IconPlus,
-  IconStar,
+  IconPin,
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
@@ -864,11 +864,9 @@ function DatabaseSidebarRow({
                 <DropdownMenuContent align="start" className="w-48">
                   {canFavorite && onToggleFavorite ? (
                     <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
-                      <IconStar
-                        className={cn(
-                          "me-2 size-4",
-                          item.document.isFavorite && "fill-current",
-                        )}
+                      <IconPin
+                        className="me-2 size-4"
+                        strokeWidth={item.document.isFavorite ? 2.2 : 1.7}
                       />
                       {item.document.isFavorite
                         ? t("sidebar.unpinFromSidebar")

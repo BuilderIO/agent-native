@@ -10,24 +10,26 @@ LLMs — including Gemini Pro — degrade complex logos. They smear gradients, d
 ## How it works
 
 1. The library has a `canonicalLogoUrl` (set via `set-canonical-logo --libraryId --assetId`). The asset's role is `logo_reference`.
-2. **Logo compositing is a preset option.** A generation preset carries `includeLogo` (stored in the preset `settings` and surfaced as a first-class field). When a generation resolves to a preset with `includeLogo: true`, `generate-image` composites the logo. A generate call's own `includeLogo` arg, when passed, overrides the preset for that run; when omitted, the preset's value wins.
-3. **Preset skeletons generalize logo compositing.** A preset can also carry `settings.skeletonSpec`: background first, generated subject second, foreground layers last. If the skeleton already has a `foreground` layer with `source: "canonicalLogo"`, `includeLogo` is treated as a no-op for that run so the logo is not stamped twice. If the skeleton does not include the logo and `includeLogo` is true, the existing canonical-logo layer is appended at the default upper-right position during compositing.
+2. **Logo compositing is an associated-template option.** A Template carries `includeLogo` (stored in its `settings` and surfaced as a first-class field). Global templates cannot enable it because a canonical logo belongs to a brand kit. When a generation resolves to an associated template with `includeLogo: true`, `generate-image` composites the logo. A generate call's own `includeLogo` arg, when passed, overrides the template for that run; when omitted, the template's value wins.
+3. **Template skeletons generalize logo compositing.** An associated template can carry `settings.skeletonSpec`: background first, generated subject second, foreground layers last. If the skeleton already has a `foreground` layer with `source: "canonicalLogo"`, `includeLogo` is treated as a no-op for that run so the logo is not stamped twice. If the skeleton does not include the logo and `includeLogo` is true, the existing canonical-logo layer is appended at the default upper-right position during compositing.
 4. When logo compositing is on, the prompt envelope adds:
    > Leave a clean uncluttered area in the upper-right for the real brand logo; do not draw or approximate the logo yourself.
 5. Gemini returns an image with empty space in that corner.
 6. `compositeLogo()` from `server/lib/image-processing.ts` (Sharp) loads the canonical logo PNG / SVG, resizes it to ~16% of the image width with reasonable inset, and composites it onto the generated image. Skeleton runs use `applyPresetSkeleton()` at the same seam.
 7. Output: the image with the actual logo, pixel-perfect, vector-quality if the source is SVG.
 
-Set `includeLogo` via `create-generation-preset` / `update-generation-preset`.
+Set `includeLogo` via `create-template` / `update-template` after associating
+the template with a brand kit. The `*-generation-preset` actions are deprecated
+aliases retained for existing threads.
 `generate-image` / `generate-image-batch` stamp the library's pixel-perfect
-canonical logo onto the result when the resolved preset has it on, and it is a
+canonical logo onto the result when the resolved template has it on, and it is a
 no-op if the library has no canonical logo. The model never draws the logo
 itself.
 
-## Preset skeletons
+## Template skeletons
 
-Preset skeletons live in `settings.skeletonSpec` on generation presets and are
-edited from `/brand-kits/:libraryId/presets/:presetId`. They composite a
+Template skeletons live in `settings.skeletonSpec` on associated templates and
+are edited from `/templates/:templateId`. They composite a
 generated subject onto an uploaded brand background image and optional
 foreground layers.
 
@@ -58,8 +60,8 @@ foreground layers.
 
 ## When to use it
 
-- The user turned on "Composite canonical logo" when creating a generation preset (the preset then stamps the logo on every image made with it).
-- The agent infers the user wants the logo for a one-off (e.g. "make a hero with our brand logo") — pass `includeLogo: true` on that single generate call to override the preset.
+- The user turned on "Composite canonical logo" on an associated template (the template then stamps the logo on every image made with it).
+- The agent infers the user wants the logo for a one-off (e.g. "make a hero with our brand logo") — pass `includeLogo: true` on that single generate call to override the template.
 - The image will appear in a customer-facing context where logo accuracy matters.
 
 ## When NOT to use it

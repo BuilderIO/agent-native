@@ -1,10 +1,34 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const resolveBuilderRequestAuthorizationMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./builder-api-auth.js", () => ({
+  resolveBuilderRequestAuthorization: resolveBuilderRequestAuthorizationMock,
+}));
+
+function useLegacyBuilderAuthorizationMock() {
+  resolveBuilderRequestAuthorizationMock.mockImplementation(async () => {
+    const privateKey = process.env.BUILDER_PRIVATE_KEY;
+    if (!privateKey) return null;
+    const publicKey = process.env.BUILDER_PUBLIC_KEY;
+    return {
+      token: privateKey,
+      authorization: `Bearer ${privateKey}`,
+      source: "legacy",
+      ...(publicKey ? { legacyPublicKey: publicKey } : {}),
+    };
+  });
+}
+
+useLegacyBuilderAuthorizationMock();
+
 import {
   buildBuilderDesignSystemIndexFiles,
   collectBuilderDesignSystemGitHubFiles,
   createBuilderDesignSystemProxyFields,
+  fetchBuilderDesignSystemDocs,
   hydrateBuilderDesignSystemReference,
+  indexBuilderDesignSystem,
   localBuilderDesignSystemId,
   mimeTypeForBuilderDesignSystemFilename,
   parseBuilderDesignSystemProxyReference,
@@ -28,6 +52,75 @@ describe("Builder design-system helpers", () => {
       else process.env[key] = value;
     }
     vi.unstubAllGlobals();
+    resolveBuilderRequestAuthorizationMock.mockReset();
+    useLegacyBuilderAuthorizationMock();
+  });
+
+  it("uses OAuth for design-system reads without legacy API key fields", async () => {
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify([]), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchBuilderDesignSystemDocs("ds-1")).resolves.toEqual([]);
+
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledWith({
+      requiredScope: "builder:designsystem:read",
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://builder.example.test/design-systems/v1/ds-1/docs",
+    );
+    const headers = new Headers(
+      (fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.headers,
+    );
+    expect(headers.get("Authorization")).toBe("Bearer <OAUTH_TOKEN_EXAMPLE>");
+    expect(headers.has("x-builder-api-key")).toBe(false);
+    expect(headers.has("x-builder-user-id")).toBe(false);
+  });
+
+  it("uses OAuth for design-system writes without legacy API key fields", async () => {
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ designSystemId: "ds-1" }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      }),
+    ).resolves.toMatchObject({ designSystemId: "ds-1" });
+
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledWith({
+      requiredScope: "builder:designsystem:write",
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://builder.example.test/design-systems/v1/index",
+    );
+    const headers = new Headers(
+      (fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.headers,
+    );
+    expect(headers.get("Authorization")).toBe("Bearer <OAUTH_TOKEN_EXAMPLE>");
+    expect(headers.has("x-builder-api-key")).toBe(false);
+    expect(headers.has("x-builder-user-id")).toBe(false);
   });
 
   it("builds Builder DSI upload files from design.md and code inputs", () => {
@@ -270,6 +363,41 @@ describe("Builder design-system helpers", () => {
     });
   });
 
+  it("bounds minimal hydration to the first page", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            docs: [{ id: "doc-1" }],
+            status: "in-progress",
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      hydrateBuilderDesignSystemReference(
+        {
+          source: "builder",
+          builderDesignSystemId: "ds-1",
+          builderJobId: "job-1",
+          builderStatus: "in-progress",
+        },
+        { page: 0, pageSize: 1, minimal: true },
+      ),
+    ).resolves.toMatchObject({
+      builderStatus: "in-progress",
+      docCount: 1,
+      completionConfirmed: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves failed status over completion flags and normalizes cancellation variants", async () => {
     process.env.BUILDER_PRIVATE_KEY = "builder-private";
     process.env.BUILDER_PUBLIC_KEY = "builder-public";
@@ -491,6 +619,109 @@ describe("Builder design-system helpers", () => {
       jobId: "job-1",
       status: "in-progress",
     });
+  });
+
+  it("retries transient Builder indexing gateway failures", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("<html><title>Bad gateway</title></html>", {
+          status: 502,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            designSystemId: "ds-1",
+            jobId: "job-1",
+            projectId: "project-1",
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+
+    try {
+      const result = indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      });
+      await vi.advanceTimersByTimeAsync(600);
+      await expect(result).resolves.toMatchObject({
+        designSystemId: "ds-1",
+        jobId: "job-1",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const idempotencyKeys = fetchMock.mock.calls.map(([, init]) =>
+      new Headers(init?.headers).get("Idempotency-Key"),
+    );
+    expect(idempotencyKeys[0]).toMatch(/^agent-native-dsi-/);
+    expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
+  });
+
+  it("retries transient Builder indexing transport failures", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            designSystemId: "ds-1",
+            jobId: "job-1",
+            projectId: "project-1",
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+
+    try {
+      const result = indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      });
+      await vi.advanceTimersByTimeAsync(600);
+      await expect(result).resolves.toMatchObject({
+        designSystemId: "ds-1",
+        jobId: "job-1",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry permanent Builder indexing failures", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: "Invalid source" }), {
+        status: 422,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      }),
+    ).rejects.toThrow("422");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps an unscoped public repository as a native Builder source", async () => {

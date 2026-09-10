@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { signOut } from "@agent-native/core/client/hooks";
 import {
   isInBuilderFrame,
   oauthRedirectUri,
@@ -89,9 +90,9 @@ function startManagedGoogleOAuth(): void {
 
 function newDesktopOAuthVerifier(): string | null {
   const cryptoApi = globalThis.crypto;
-  const randomUuid = cryptoApi?.randomUUID;
+  const randomUuid = cryptoApi?.randomUUID?.bind(cryptoApi);
   if (typeof randomUuid === "function") {
-    return `${randomUuid.call(cryptoApi)}${randomUuid.call(cryptoApi)}`;
+    return `${randomUuid()}${randomUuid()}`;
   }
   if (typeof cryptoApi?.getRandomValues === "function") {
     const bytes = new Uint8Array(32);
@@ -319,7 +320,7 @@ export function GoogleConnectBanner({
 
   // Check if credentials are already configured on mount
   useEffect(() => {
-    fetchStatus();
+    void fetchStatus();
   }, [fetchStatus]);
 
   // When auth URL is ready, leave this tab for Google and let the callback
@@ -351,27 +352,19 @@ export function GoogleConnectBanner({
       setWantAuthUrl(false);
       if (canOfferOAuthSetup) {
         setShowWizard(true);
-        fetchStatus();
+        void fetchStatus();
       }
       setAuthError(
         (authUrl.error as any)?.message || t("mail.error.failedToConnect"),
       );
     }
-  }, [authUrl.error, canOfferOAuthSetup, fetchStatus]);
+  }, [authUrl.error, canOfferOAuthSetup, fetchStatus, t]);
 
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
   const handleSignOutForGoogle = useCallback(async () => {
-    try {
-      await fetch(agentNativePath("/_agent-native/auth/logout"), {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {
-      // Reload below still lands on the auth screen if the local cookie changed.
-    }
-    window.location.reload();
+    await signOut();
   }, []);
 
   // When add-account URL is ready, open it and poll for new account.
@@ -500,7 +493,7 @@ export function GoogleConnectBanner({
   }
 
   function copyToClipboard(text: string, key: string) {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
   }
@@ -596,7 +589,7 @@ export function GoogleConnectBanner({
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        !saved && setCurrentStep(i);
+                        if (!saved) setCurrentStep(i);
                       }
                     }}
                   >
@@ -686,7 +679,7 @@ export function GoogleConnectBanner({
                                   className="hidden"
                                   onChange={(e) => {
                                     const file = e.target.files?.[0];
-                                    if (file) handleJsonUpload(file);
+                                    if (file) void handleJsonUpload(file);
                                   }}
                                 />
                                 {saveError && (
@@ -907,7 +900,7 @@ export function GoogleConnectBanner({
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      !saved && setCurrentStep(i);
+                      if (!saved) setCurrentStep(i);
                     }
                   }}
                 >
@@ -997,7 +990,7 @@ export function GoogleConnectBanner({
                                 className="hidden"
                                 onChange={(e) => {
                                   const file = e.target.files?.[0];
-                                  if (file) handleJsonUpload(file);
+                                  if (file) void handleJsonUpload(file);
                                 }}
                               />
                               {saveError && (

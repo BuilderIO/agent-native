@@ -1,6 +1,6 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { IconMessage2, IconCheck } from "@tabler/icons-react";
+import { IconCheck, IconMessageCircle } from "@tabler/icons-react";
 import {
   useState,
   useEffect,
@@ -53,7 +53,7 @@ const FEEDBACK_COPY: Record<
   }
 > = {
   "en-US": {
-    label: "Feedback",
+    label: "Send feedback",
     placeholder: "What's working, what's broken, or what would you change?",
     submit: "Send feedback",
     submitting: "Sending...",
@@ -227,6 +227,81 @@ async function loadSchema(target: ParsedTarget): Promise<FormSchema> {
   return pending;
 }
 
+export interface SubmitFeedbackFormOptions {
+  value: string;
+  url?: string | null;
+  openedAt?: number;
+  idempotencyKey?: string | null;
+  honeypot?: string;
+  submitterEmail?: string | null;
+  chatSessionId?: string | null;
+  chatStorageKey?: string | null;
+  activeRunId?: string | null;
+}
+
+export async function submitFeedbackForm(
+  options: SubmitFeedbackFormOptions,
+): Promise<"submitted" | "unconfigured"> {
+  const resolvedUrl = resolveFeedbackUrl(options.url);
+  const target = resolvedUrl ? parseTarget(resolvedUrl) : null;
+  if (!target) return "unconfigured";
+
+  const value = options.value.trim();
+  if (!value) throw new Error("Feedback is empty");
+
+  const resolvedSchema = await loadSchema(target);
+  const submitterEmail = isSyntheticAgentNativeAnonymousEmail(
+    options.submitterEmail,
+  )
+    ? null
+    : options.submitterEmail;
+  const feedbackContext = getFeedbackClientContext({
+    chatSessionId: options.chatSessionId,
+    storageKey: options.chatStorageKey,
+    activeRunId: options.activeRunId,
+  });
+  const res = await fetch(
+    `${target.endpoint}/api/submit/${encodeURIComponent(resolvedSchema.formId)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.idempotencyKey
+          ? { "Idempotency-Key": options.idempotencyKey }
+          : {}),
+      },
+      body: JSON.stringify({
+        data: { [resolvedSchema.fieldId]: value },
+        _t: options.openedAt ?? Date.now(),
+        _hp: options.honeypot ?? "",
+        _meta: {
+          ...(submitterEmail ? { submitterEmail } : {}),
+          ...feedbackContext,
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const responseBody = await res.text();
+    let errorMessage: string | undefined;
+    try {
+      const body = JSON.parse(responseBody) as unknown;
+      if (
+        body !== null &&
+        typeof body === "object" &&
+        "error" in body &&
+        typeof body.error === "string"
+      ) {
+        errorMessage = body.error.trim() || undefined;
+      }
+    } catch {
+      throw new Error(`submit failed (${res.status})`);
+    }
+    throw new Error(errorMessage || `submit failed (${res.status})`);
+  }
+  return "submitted";
+}
+
 export interface FeedbackButtonProps {
   /**
    * "sidebar" renders a full-width row with icon + label (for app left sidebars).
@@ -299,10 +374,23 @@ function clientHostname(): string | undefined {
 }
 
 function isFirstPartyHostname(hostname: string | null | undefined): boolean {
-  const normalized = hostname?.trim().toLowerCase();
+  const normalized = hostname?.trim().toLowerCase().split(":")[0];
   return (
     normalized === FIRST_PARTY_HOSTNAME ||
-    normalized?.endsWith(`.${FIRST_PARTY_HOSTNAME}`) === true
+    normalized?.endsWith(`.${FIRST_PARTY_HOSTNAME}`) === true ||
+    normalized?.endsWith(".netlify.app") === true ||
+    normalized?.endsWith(".builder.io") === true
+  );
+}
+
+function isLocalDevHostname(hostname: string | null | undefined): boolean {
+  const normalized = hostname?.trim().toLowerCase().split(":")[0];
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "[::1]" ||
+    normalized === "0.0.0.0" ||
+    normalized?.endsWith(".local") === true
   );
 }
 
@@ -333,7 +421,11 @@ export function resolveFeedbackUrl(
     return parseTarget(normalized) ? normalized : null;
   }
   if (url !== undefined) return null;
-  return isFirstPartyHostname(hostname) ? FIRST_PARTY_FEEDBACK_URL : null;
+  // Local template/dev hosts are first-party too — otherwise the sidebar
+  // feedback row vanishes on 127.0.0.1 even though every app wires it.
+  return isFirstPartyHostname(hostname) || isLocalDevHostname(hostname)
+    ? FIRST_PARTY_FEEDBACK_URL
+    : null;
 }
 
 export function FeedbackButton(props: FeedbackButtonProps) {
@@ -381,7 +473,6 @@ function FeedbackPopoverButton({
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [schema, setSchema] = useState<FormSchema | null>(null);
   const openedAtRef = useRef<number>(0);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -395,14 +486,11 @@ function FeedbackPopoverButton({
     setSubmitting(false);
     setSubmitted(false);
     setError(null);
-    setSchema(null);
     if (target) {
-      loadSchema(target)
-        .then((s) => setSchema(s))
-        .catch((err) => {
-          console.error("[FeedbackButton] schema load failed", err);
-          setError(copy.loadError);
-        });
+      loadSchema(target).catch((err) => {
+        console.error("[FeedbackButton] schema load failed", err);
+        setError(copy.loadError);
+      });
     } else {
       setError(copy.invalidUrl);
     }
@@ -428,39 +516,20 @@ function FeedbackPopoverButton({
       setSubmitting(true);
       setError(null);
       try {
-        const resolvedSchema = schema ?? (await loadSchema(target));
-        if (!schema) setSchema(resolvedSchema);
         const submitterEmail = isSyntheticAgentNativeAnonymousEmail(
           session?.email,
         )
           ? null
           : session?.email;
-        const feedbackContext = getFeedbackClientContext({
+        await submitFeedbackForm({
+          url,
+          value,
+          openedAt: openedAtRef.current,
+          honeypot,
+          submitterEmail,
           chatSessionId,
-          storageKey: chatStorageKey,
+          chatStorageKey,
         });
-        const res = await fetch(
-          `${target.endpoint}/api/submit/${encodeURIComponent(resolvedSchema.formId)}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              data: { [resolvedSchema.fieldId]: trimmed },
-              _t: openedAtRef.current,
-              _hp: honeypot,
-              _meta: {
-                ...(submitterEmail ? { submitterEmail } : {}),
-                ...feedbackContext,
-              },
-            }),
-          },
-        );
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(body.error || `submit failed (${res.status})`);
-        }
         setSubmitted(true);
         closeTimerRef.current = setTimeout(() => setOpen(false), 1400);
       } catch (err) {
@@ -470,7 +539,6 @@ function FeedbackPopoverButton({
     },
     [
       target,
-      schema,
       value,
       honeypot,
       submitting,
@@ -500,11 +568,11 @@ function FeedbackPopoverButton({
                 type="button"
                 aria-label={resolvedLabel}
                 className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                  "flex size-9 items-center justify-center rounded-md bg-transparent text-primary hover:bg-accent/60 hover:text-primary",
                   className,
                 )}
               >
-                <IconMessage2 size={14} />
+                <IconMessageCircle className="size-4 shrink-0 text-primary" />
               </button>
             </PopoverPrimitive.Trigger>
           </TooltipPrimitive.Trigger>
@@ -530,22 +598,23 @@ function FeedbackPopoverButton({
             className,
           )}
         >
-          <IconMessage2 size={14} stroke={1.5} />
+          <IconMessageCircle size={14} stroke={1.5} />
           <span>{resolvedLabel}</span>
         </button>
       </PopoverPrimitive.Trigger>
     );
   } else {
+    // Sidebar variant matches Clips footer feedback row spacing/density.
     trigger = (
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
           className={cn(
-            "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+            "flex h-auto w-full items-center justify-start gap-2 rounded bg-transparent px-2 py-1.5 text-xs font-normal text-primary hover:bg-accent/60 hover:text-primary",
             className,
           )}
         >
-          <IconMessage2 className="h-4 w-4" />
+          <IconMessageCircle className="size-4 shrink-0 text-primary" />
           <span>{resolvedLabel}</span>
         </button>
       </PopoverPrimitive.Trigger>
@@ -583,7 +652,8 @@ function FeedbackPopoverButton({
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
+                    void submit();
                 }}
                 placeholder={resolvedPlaceholder}
                 rows={5}

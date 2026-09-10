@@ -2,7 +2,11 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton";
+import {
+  FeedbackButton,
+  resolveFeedbackUrl,
+  submitFeedbackForm,
+} from "./FeedbackButton";
 
 describe("resolveFeedbackUrl", () => {
   afterEach(() => {
@@ -28,6 +32,17 @@ describe("resolveFeedbackUrl", () => {
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
     expect(resolveFeedbackUrl(undefined, "fakeagent-native.com")).toBeNull();
+  });
+
+  it("uses the Agent-Native feedback form on local first-party template hosts", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_FEEDBACK_URL", "");
+
+    expect(resolveFeedbackUrl(undefined, "localhost")).toBe(
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    expect(resolveFeedbackUrl(undefined, "127.0.0.1")).toBe(
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
   });
 
   it("keeps the first-party fallback out of the server-rendered tree", () => {
@@ -88,5 +103,32 @@ describe("resolveFeedbackUrl", () => {
       ),
     ).toBe("https://feedback.example.com/f/custom/form-id");
     expect(resolveFeedbackUrl(null, "analytics.agent-native.com")).toBeNull();
+  });
+
+  it("uses the status fallback for non-JSON submission errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            id: "form-1",
+            fields: [{ id: "feedback", type: "textarea" }],
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 502,
+          text: async () => "Bad Gateway",
+        }),
+    );
+
+    await expect(
+      submitFeedbackForm({
+        url: "https://feedback.example.com/f/product/form-id",
+        value: "The form is unavailable.",
+      }),
+    ).rejects.toThrow("submit failed (502)");
   });
 });

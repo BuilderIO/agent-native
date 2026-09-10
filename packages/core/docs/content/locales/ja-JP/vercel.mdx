@@ -14,8 +14,13 @@ export default defineConfig({
 Vercel CLI または git push でデプロイします。
 
 ```bash
-vercel deploy
+npx vercel deploy
 ```
+
+Vercel にサインインせず一時プレビューを作るには、
+`npx vercel deploy --temporary` を実行します。一時デプロイにはプロジェクトの
+環境変数が引き継がれないため、UI プレビュー以上の機能が必要な場合は
+`--env` と `--build-env` でデータベースとシークレットの値を渡してください。
 
 ワークスペースの場合、すべてのアプリを 1 つの Vercel Build Output API バンドルにビルドします。
 

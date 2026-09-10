@@ -65,10 +65,8 @@
   box-sizing: border-box;
 }
 
-/* Tauri window is `transparent: true` + `decorations: false`, so the HTML
-   paints the visible shape. The popover window is sized to the rounded panel
-   exactly; macOS derives a native shadow from the panel's alpha, giving us
-   the round-cornered chromeless popover with no transparent apron. */
+/* The main Tauri window is transparent and chromeless, so the HTML paints the
+   visible rounded popover while macOS supplies its shadow. */
 html,
 body {
   margin: 0;
@@ -141,7 +139,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .app-settings {
   gap: 0;
   padding: 0;
-  overflow-y: auto;
+  max-height: none;
+  overflow: hidden;
 }
 
 /* Recorder Home keeps its navigation present even when active-recording
@@ -151,6 +150,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   position: relative;
   gap: 0;
   padding: 0;
+  width: 320px;
+  max-width: 320px;
   overflow: hidden;
 }
 
@@ -160,7 +161,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -173,7 +174,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--bg);
 }
 
-/* Header — logo + mode toggle + close */
+/* Header — centered capture-mode toggle */
 
 .header {
   display: grid;
@@ -183,41 +184,19 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 0 2px;
 }
 
-/* Mode toggle lives in the first column — center it horizontally so the
-   close button on the right doesn't make the layout look lopsided. */
+/* Center the mode toggle independently of the popover's content width. */
 .header .mode-toggle {
   justify-self: center;
 }
 
-/* Variant: truly-centered mode-toggle with an absolutely positioned close X.
-   Using a grid column for the close button nudges the mode tabs left by the
-   close button's width, which read as "off center" in Steve's screenshot.
-   Absolute positioning keeps the X in the top-right corner while the tabs
-   occupy the visual center of the popover. */
+/* Keep the capture modes visually centered inside the popover. Dismissal is
+   owned by the menubar toggle rather than a second close affordance. */
 .header.header-centered {
   position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 28px;
-}
-
-.header.header-centered .header-close {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.header.header-centered .header-feedback {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: auto;
-  padding: 0 9px;
-  font-size: 12px;
-  font-weight: 500;
+  min-height: 36px;
 }
 
 .logo {
@@ -238,7 +217,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .mode-toggle {
   display: inline-flex;
   background: var(--surface);
-  border-radius: var(--radius-pill);
+  border-radius: var(--recorder-mode-toggle-radius);
   padding: 3px;
   justify-self: center;
   border: 1px solid var(--border);
@@ -249,18 +228,17 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  min-width: 34px;
+  width: 64px;
+  min-width: 64px;
   height: 28px;
   border: none;
   background: transparent;
   color: var(--fg-muted);
-  border-radius: var(--radius-pill);
+  border-radius: var(--recorder-mode-option-radius);
   cursor: pointer;
-  transition:
-    background 120ms,
-    color 120ms,
-    box-shadow 120ms;
+  transition-property: background-color, color, box-shadow, transform;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 
 .mode-toggle button:hover {
@@ -271,6 +249,15 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--bg);
   color: var(--brand);
   box-shadow: var(--shadow-sm);
+}
+
+.mode-toggle button:focus-visible {
+  outline: 2px solid hsl(var(--ui-ring));
+  outline-offset: 1px;
+}
+
+.mode-toggle button:active {
+  transform: scale(0.96);
 }
 
 .mode-tooltip {
@@ -509,7 +496,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .row {
@@ -517,18 +504,25 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  min-height: 30px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
   cursor: default;
-  transition:
-    background 120ms,
-    border-color 120ms;
+  transition: background 120ms;
+}
+
+.row:hover {
+  background: hsl(var(--ui-muted) / 0.55);
+}
+
+.row-on {
+  color: var(--fg);
 }
 
 .row-off {
-  opacity: 0.6;
+  color: var(--fg-subtle);
 }
 
 .row-icon {
@@ -537,41 +531,71 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--fg-muted);
+  color: inherit;
   flex-shrink: 0;
 }
 
-.row-on .row-icon {
-  color: var(--fg);
+.media-device-row .row,
+.system-audio-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 36px;
+  column-gap: 10px;
 }
 
-/* Custom device picker — button + popover menu (replaces native <select>). */
+.row-main {
+  min-width: 0;
+}
+
+.row-trailing-control {
+  display: flex;
+  width: 36px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.system-audio-row {
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 10px;
+}
+
+.system-audio-icon {
+  transform: translateX(2px);
+}
+
+.system-audio-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* Radix device picker trigger — the menu owns keyboard and focus behavior. */
 .row-button {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
   border: none;
   background: transparent;
-  color: var(--fg);
+  color: inherit;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   padding: 0;
   margin: 0;
   cursor: pointer;
-  outline: none;
   text-align: left;
-}
-
-.row-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+  transition-property: color, background-color;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 
 .row-button:focus-visible {
-  box-shadow: 0 0 0 2px var(--brand-ring);
   border-radius: 4px;
+  outline: 2px solid hsl(var(--ui-ring));
+  outline-offset: 2px;
 }
 
 .row-label {
@@ -585,6 +609,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   white-space: nowrap;
 }
 
+.row-button-placeholder {
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
 /* Flexible filler between the label and the chevron when there's no meter
    (camera rows / mic off) — keeps the chevron pinned to the right. */
 .row-flex {
@@ -593,196 +623,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .row-chev {
   display: inline-flex;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   flex-shrink: 0;
-}
-
-/* Popover menu rendered below a device row. */
-.media-device-picker {
-  position: relative;
-}
-
-.row-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: var(--bg);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
-  padding: 4px;
-  z-index: 10;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.row-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  background: transparent;
-  border: none;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.row-menu-item:hover {
-  background: var(--surface-hover);
-}
-
-.row-menu-item.selected {
-  color: var(--fg);
-  font-weight: 600;
-  background: var(--surface-hover);
-}
-
-.row-menu-trigger {
-  display: inline-flex;
-  align-items: center;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-}
-
-.row-menu-trigger:focus-visible {
-  box-shadow: 0 0 0 2px var(--brand-ring);
-  border-radius: 4px;
-}
-
-.row-menu-divider {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--border);
-}
-
-.row-menu-setting {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  color: var(--fg);
-  font-size: 13px;
-}
-
-.row-menu-setting-label {
-  flex: 1;
-  min-width: 0;
-  font-weight: 500;
-}
-
-.row-menu-check {
-  width: 16px;
-  display: inline-flex;
-  justify-content: center;
-  color: var(--fg);
-  flex-shrink: 0;
-}
-
-.row-menu-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-menu-empty {
-  padding: 10px 12px;
-  color: var(--fg-muted);
-  font-size: 13px;
-}
-
-/* Toggle chip — mirrors Loom's On/Off pill. Green when on, subtle when off. */
-.toggle {
-  border: none;
-  border-radius: var(--radius-pill);
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  line-height: 1;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  transition:
-    background 120ms,
-    color 120ms;
-}
-
-.toggle-on {
-  background: #16a34a;
-  color: white;
-}
-
-.toggle-on:hover {
-  background: #15803d;
-}
-
-.toggle-off {
-  background: var(--surface-strong);
-  color: var(--fg-muted);
-}
-
-.toggle-off:hover {
-  color: var(--fg);
-}
-
-/* Shadcn-style switch — slim track + sliding thumb. Used in Settings for the
-   Voice dictation enable/disable toggle. */
-.switch {
-  position: relative;
-  display: inline-flex;
-  width: 32px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  border-radius: 9999px;
-  cursor: pointer;
-  transition: background 120ms;
-  flex-shrink: 0;
-}
-
-.switch:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--brand-ring);
-}
-
-.switch:disabled {
-  opacity: 0.42;
-  filter: grayscale(0.55);
-  cursor: not-allowed;
-}
-
-.switch-on {
-  background: #16a34a;
-}
-
-.switch-off {
-  background: var(--surface-strong);
-}
-
-.switch-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: white;
-  transition: transform 120ms;
-  pointer-events: none;
-}
-
-.switch-on .switch-thumb {
-  transform: translateX(14px);
 }
 
 /* Live mic level meter — a single wave line driven by real audio, sitting
@@ -827,40 +669,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   stroke-linejoin: round;
   /* Keep the line crisp regardless of the non-uniform x-stretch. */
   vector-effect: non-scaling-stroke;
-}
-
-/* One variable owns the meter's height and the bars scale off it — every rule
-   that resizes the meter sets `--meter-height`, not `height`. Two rules setting
-   `height` independently is how the box and the bars drifted apart before. */
-.live-audio-bars {
-  --meter-height: 26px;
-  display: inline-flex;
-  width: 48px;
-  height: var(--meter-height);
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.live-audio-bars-compact {
-  --meter-height: 22px;
-  width: 21px;
-  gap: 3px;
-}
-
-.live-audio-bar {
-  display: block;
-  width: 3px;
-  border-radius: 999px;
-  background: rgba(132, 204, 22, 0.98);
-  transition: height 90ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .live-audio-bar {
-    transition: none;
-  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -933,6 +741,28 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .primary.start {
   margin-top: 2px;
+}
+
+.primary.start.start-loading {
+  position: relative;
+  overflow: hidden;
+  cursor: progress;
+}
+
+.primary.start.start-loading .start-label {
+  position: relative;
+  z-index: 1;
+}
+
+.start-loading-shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  /* The CTA reverses foreground/background in dark mode; invert the shared
+     foreground shine so the sweep stays visible on either button fill. */
+  filter: invert(1);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1174,8 +1004,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444;
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
+  flex: 0 0 auto;
+  background: hsl(var(--ui-destructive));
 }
 
 .active-recording-card {
@@ -1334,25 +1164,26 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 /* ------------------------------------------------------------------------- */
 
 .bottom-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .bottom-btn {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
+  gap: 10px;
+  min-height: 30px;
+  padding: 5px 8px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
-  color: var(--fg-muted);
+  color: var(--fg);
   cursor: pointer;
-  transition:
-    background 120ms,
-    color 120ms;
+  text-align: left;
+  transition-property: background-color, color, transform;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 
 .bottom-btn:hover {
@@ -1361,20 +1192,81 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .bottom-icon {
-  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--fg-muted);
+  width: 20px;
+  flex-shrink: 0;
 }
 
 .bottom-btn:hover .bottom-icon {
   color: var(--fg);
 }
 
+.bottom-btn:active {
+  transform: scale(0.96);
+}
+
 .bottom-label {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.bottom-shortcut {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--fg-subtle);
   font-size: 11px;
-  font-weight: 500;
+}
+
+.bottom-shortcut-separator {
+  margin-inline: 2px;
+  color: var(--fg-subtle);
+}
+
+.bottom-external {
+  margin-inline-start: auto;
+  color: var(--fg-subtle);
+}
+
+.imminent-meeting {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid hsl(var(--ui-success) / 0.2);
+  border-radius: 8px;
+  background: hsl(var(--ui-success) / 0.08);
+  color: hsl(var(--ui-success));
+}
+
+.imminent-meeting-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.imminent-meeting-copy strong,
+.imminent-meeting-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imminent-meeting-copy strong {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.imminent-meeting-copy span {
+  color: hsl(var(--ui-success) / 0.85);
+  font-size: 11px;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1643,7 +1535,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .popover-list::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
+  background: var(--border);
   border-radius: 999px;
 }
 
@@ -1774,17 +1666,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 0 2px var(--bg);
-}
-
-.bottom-dot {
-  position: absolute;
-  top: -2px;
-  right: -3px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: hsl(var(--ui-info));
   box-shadow: 0 0 0 2px var(--bg);
 }
 
@@ -2019,7 +1900,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .tooltip-content {
   z-index: 60;
-  max-width: 260px;
+  max-width: min(260px, calc(100vw - 16px));
   /* No border: shadcn's tooltip is borderless (solid bg + shadow). A border
      would also detach visually from the Radix arrow, whose flush base can't
      carry a matching CSS border. Shadow alone gives separation in both
@@ -2032,6 +1913,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-size: 12px;
   line-height: 1.45;
   text-align: left;
+  overflow-wrap: anywhere;
   user-select: none;
   transform-origin: var(--radix-tooltip-content-transform-origin);
 }
@@ -2078,96 +1960,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     opacity: 0;
     transform: scale(0.96);
   }
-}
-
-/* ------------------------------------------------------------------------- */
-/* Microphone-off confirmation                                                */
-/* ------------------------------------------------------------------------- */
-
-.mic-off-confirmation {
-  min-height: 430px;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-}
-
-.mic-off-confirmation-header {
-  display: flex;
-  align-items: center;
-  padding: 16px 18px 8px;
-}
-
-.mic-off-confirmation-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 4px 6px 4px 2px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--fg);
-  cursor: pointer;
-  font-size: 15px;
-  font-weight: 650;
-  transition:
-    background 120ms,
-    color 120ms;
-}
-
-.mic-off-confirmation-back:hover {
-  background: var(--surface-hover);
-}
-
-.mic-off-confirmation-back:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--brand-ring);
-}
-
-.mic-off-confirmation-body {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 28px 30px;
-  text-align: center;
-}
-
-.mic-off-confirmation-visual {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 88px;
-  height: 88px;
-  border-radius: 50%;
-  background: var(--surface-strong);
-  color: var(--status-warn);
-}
-
-.mic-off-confirmation-slash {
-  position: absolute;
-  width: 58px;
-  height: 3px;
-  border-radius: var(--radius-pill);
-  background: var(--status-warn);
-  transform: rotate(45deg);
-}
-
-.mic-off-confirmation-body h2 {
-  margin: 24px 0 0;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.mic-off-confirmation-body p {
-  max-width: 300px;
-  margin: 8px 0 0;
-  color: var(--fg-muted);
-  font-size: 14px;
-  line-height: 1.55;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2226,12 +2018,14 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .alert-dialog-title {
+  margin: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--fg);
 }
 
 .alert-dialog-description {
+  margin: 0;
   font-size: 12px;
   line-height: 1.5;
   color: var(--fg-muted);
@@ -2239,7 +2033,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .alert-dialog-footer {
   display: flex;
-  flex-direction: row-reverse;
+  flex-direction: row;
   gap: 8px;
 }
 
@@ -2774,60 +2568,56 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow-wrap: anywhere;
 }
 
-.permission-banner {
+.recovery-alert {
   display: flex;
-  flex-direction: column;
+  align-items: start;
   gap: 8px;
-}
-
-.permission-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  line-height: 1.35;
-  min-width: 0;
-}
-
-.permission-title {
-  color: #991b1b;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
-  font-weight: 700;
+  line-height: 1.35;
+}
+
+.recovery-alert-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.recovery-alert-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recovery-alert-copy > h5 {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.recovery-alert-description {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .permission-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
-.permission-actions button {
-  border: 1px solid #fecaca;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.65);
-  color: #991b1b;
-  cursor: pointer;
+.permission-actions .permission-action {
+  min-height: 28px;
+  height: 28px;
+  padding-inline: 8px;
+  border-radius: 6px;
   font-size: 12px;
-  font-weight: 600;
-  padding: 5px 8px;
-  transition:
-    background 120ms,
-    border-color 120ms;
-}
-
-.permission-actions button:hover {
-  background: white;
-  border-color: #fca5a5;
-}
-
-.permission-actions .permission-retry {
-  background: #991b1b;
-  border-color: #991b1b;
-  color: white;
-}
-
-.permission-actions .permission-retry:hover {
-  background: #7f1d1d;
-  border-color: #7f1d1d;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -2903,32 +2693,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     background: rgba(185, 28, 28, 0.14);
     border-color: rgba(239, 68, 68, 0.5);
     color: #fca5a5;
-  }
-
-  .permission-title {
-    color: #fecaca;
-  }
-
-  .permission-actions button {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.4);
-    color: #fecaca;
-  }
-
-  .permission-actions button:hover {
-    background: rgba(239, 68, 68, 0.18);
-    border-color: rgba(248, 113, 113, 0.6);
-  }
-
-  .permission-actions .permission-retry {
-    background: #fecaca;
-    border-color: #fecaca;
-    color: #7f1d1d;
-  }
-
-  .permission-actions .permission-retry:hover {
-    background: white;
-    border-color: white;
   }
 }
 
@@ -3030,46 +2794,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: #ffffff;
   animation: cd-pop 1s ease-out forwards;
   line-height: 1;
-}
-
-.countdown-hint {
-  position: fixed;
-  left: 50%;
-  bottom: 34px;
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  padding: 7px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-pill);
-  background: rgba(10, 12, 16, 0.28);
-  color: rgba(255, 255, 255, 0.58);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  transform: translateX(-50%);
-  backdrop-filter: blur(8px);
-}
-
-.countdown-hint span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.countdown-hint kbd {
-  min-width: 24px;
-  padding: 3px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.74);
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  text-align: center;
 }
 
 @keyframes cd-pop {
@@ -3790,92 +3514,71 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   align-items: center;
   gap: 8px;
   margin: 0;
+  min-height: 42px;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.3;
 }
 
+.update-banner-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.update-banner-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.update-banner-copy > h5 {
+  margin: 0;
+  line-height: 1.2;
+}
+
+.update-banner-description {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .update-banner--pending {
-  background: var(--surface);
-  color: var(--fg-muted);
-  border: 1px solid var(--border);
+  border-color: hsl(var(--ui-info) / 0.3);
+  background: hsl(var(--ui-info) / 0.07);
+  color: hsl(var(--ui-info));
 }
 
 .update-banner--ready {
-  background: var(--surface-strong);
-  color: var(--fg);
-  border: 1px solid var(--border-strong, var(--border));
-  flex-wrap: nowrap;
+  border-color: hsl(var(--ui-success) / 0.3);
+  background: hsl(var(--ui-success) / 0.07);
+  color: hsl(var(--ui-success));
 }
 
 .update-banner--error {
-  background: color-mix(in srgb, var(--error, #dc2626) 10%, transparent);
-  color: var(--error, #dc2626);
-  border: 1px solid color-mix(in srgb, var(--error, #dc2626) 40%, transparent);
-  flex-wrap: wrap;
-}
-
-.update-banner-text {
-  flex: 1;
-  min-width: 0;
+  border-color: hsl(var(--ui-destructive) / 0.35);
+  background: hsl(var(--ui-destructive) / 0.07);
 }
 
 .update-banner-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-left: auto;
+  gap: 4px;
+  flex: 0 0 auto;
+  margin-inline-start: 2px;
 }
 
-.update-banner-btn {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
+.update-banner--error {
+  align-items: flex-start;
 }
 
-.update-banner-btn--ghost {
-  background: transparent;
-  color: var(--fg-muted);
-  border-color: var(--border);
-}
-
-.update-banner-btn--ghost:hover {
-  background: var(--surface-hover, var(--surface));
-  color: var(--fg);
-}
-
-.update-banner-btn--dismiss {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: transparent;
-  color: var(--fg-muted);
-}
-
-.update-banner-btn--dismiss:hover {
-  background: var(--surface-hover, var(--surface));
-  color: var(--fg);
-}
-
-.update-banner-btn--dismiss:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--brand-ring);
-}
-
-.update-banner-btn--primary {
-  background: var(--brand);
-  color: var(--bg);
-}
-
-.update-banner-btn--primary:hover {
-  background: var(--brand-hover, var(--brand));
+.update-banner--error .update-banner-actions {
+  align-self: center;
 }
 
 .update-spinner {
@@ -3888,6 +3591,22 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mode-toggle button,
+  .bottom-btn {
+    transition: none;
+  }
+
+  .mode-toggle button:active,
+  .bottom-btn:active {
+    transform: none;
+  }
+
+  .update-banner .animate-spin {
+    animation: none;
   }
 }
 
@@ -4274,8 +3993,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   justify-content: center;
 }
 
-.flow-bar-canvas {
-  display: block;
+.flow-bar-meter {
+  height: 18px;
 }
 
 .flow-bar-processing {
@@ -4692,6 +4411,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
+  /* Pinned to the top of its window. The window is pre-grown before the
+     capsule opens, and a centred capsule would jump upward the instant that
+     happens — the growth has to come out of the bottom edge only. */
+  align-self: flex-start;
   /* Stadium, not a squircle — the collapsed capsule reads as a pill at any
      height. A fixed radius on the ~44x64 vertical form looks like a rounded
      rectangle. */
@@ -4764,26 +4487,139 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 /* Collapsed = vertical capsule: logo on top, waveform below. */
 .pill-inner-compact .pill-header.pill-vertical {
   flex-direction: column;
-  gap: 6px;
+  /* No gap here: the transport segment owns the space above itself, so at
+     rest it contributes nothing and the capsule closes flush under the
+     meter. Spacing lives inside each group instead, all on one 8px step. */
+  gap: 0;
   height: auto;
   width: auto;
-  padding: 10px 8px;
+  padding: 9px 8px;
   cursor: pointer;
 }
 
 .pill-vertical .pill-logo {
-  height: 12px;
+  width: 21px;
+  height: auto;
 }
 
-/* Controls (timer / pause / stop / chevron) live in the expanded view — the
-   collapsed capsule is just logo + waveform and expands on click. */
+/* The collapsed capsule grows along its long axis to reveal its transport,
+   the same way the recorder pill grows to reveal its extras: the segment
+   animates its own measured size while the window is resized around it. The
+   height here is set in px by the overlay after measuring — `auto` cannot be
+   animated, and a guessed constant drifts from the real control stack. */
+/* Height and opacity are set inline by the overlay, not by a hover rule: this
+   window is never the key window, and the browser can stop advancing its
+   animations — so anything whose END state depends on a transition running is
+   invisible exactly when it matters. The transition is the polish; the inline
+   values are the truth. */
 .pill-vertical .pill-controls {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  /* The horizontal pill pushes its controls to the right with an auto margin;
+     in this column that is a 3px offset off the capsule's centre line. */
+  margin-left: 0;
+  gap: 8px;
+  /* The space above the transport is a margin, animated with the height. As
+     padding it could not collapse below its own 8px, so the capsule kept a
+     dead band under the meter while closed. */
+  margin-top: 0;
+  height: 0;
+  min-height: 0;
+  max-width: none;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    height 220ms var(--ease-drawer),
+    margin-top 220ms var(--ease-drawer),
+    opacity 160ms var(--ease-out-strong);
+}
+
+.pill-vertical .pill-controls[data-open="true"] {
+  pointer-events: auto;
+}
+
+/* The buttons settle in a beat after the capsule starts opening, so the growth
+   reads as the capsule making room rather than a jump cut. Transform only —
+   a stalled transition leaves them 4px off instead of invisible. */
+.pill-vertical .pill-controls > * {
+  transform: translateY(-4px);
+  transition: transform 200ms var(--ease-out-strong);
+  transition-delay: 60ms;
+}
+
+.pill-vertical .pill-controls[data-open="true"] > * {
+  transform: translateY(0);
+}
+
+/* The note-taker shows no elapsed time anywhere, and 38px of capsule has room
+   for the two transport controls and nothing besides. */
+.pill-vertical .pill-timer,
+.pill-vertical .pill-expand-btn,
+.pill-vertical .pill-copy-btn {
   display: none;
 }
 
+/* Bare glyphs, matching the recorder pill: a red square for stop and a ghost
+   pause, with no filled circle behind either. The base styles here are the
+   compact pill's filled buttons, which is the wrong language for a capsule
+   this small — two solid discs stacked read as a traffic light. */
+/* Sized to the glyph, not to the hit target. A 22px box around a 14px icon
+   puts 4px of dead space on the rhythm, which is why evenly-spaced boxes
+   still looked uneven — the eye measures ink, not boxes. The target is an
+   overlay instead, so it costs nothing in layout. */
+.pill-vertical .pill-pause-btn,
+.pill-vertical .pill-stop-btn {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.pill-vertical .pill-pause-btn::after,
+.pill-vertical .pill-stop-btn::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-pause-btn {
+  background: transparent;
+  /* guard:allow-raw-color — pill chrome is theme-invariant, like the recorder */
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-pause-btn:hover {
+  background: transparent;
+  /* guard:allow-raw-color — pill chrome is theme-invariant, like the recorder */
+  color: #ffffff;
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-stop-btn,
+.pill-inner-compact
+  .pill-header.pill-vertical
+  .pill-stop-btn:hover:not(:disabled) {
+  background: transparent;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-vertical .pill-controls,
+  .pill-vertical .pill-controls > * {
+    transition-duration: 1ms;
+    transition-delay: 0ms;
+  }
+}
+
 .pill-vertical .pill-wave-meter {
-  --meter-height: 22px;
-  width: 21px;
+  height: 14px;
 }
 
 /* Wrapper around logo + waveform. */
@@ -4795,7 +4631,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
 }
 
 .pill-timer {
@@ -4804,12 +4640,17 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-variant-numeric: tabular-nums;
 }
 
-/* Layout only. `display` must stay flex here — a `block` override collapses
-   the meter's bars into a single stacked column instead of a waveform. */
+/* The collapsed capsule is its own dark chrome with white content, and the
+   expanded panel is themed — inheriting is the only value that reads on both. */
+.pill-media-spinner {
+  flex: none;
+  color: currentColor;
+  opacity: 0.7;
+}
+
+/* Layout only; the bars size and color themselves. */
 .pill-wave-meter {
-  --meter-height: 26px;
-  width: 48px;
-  flex-shrink: 0;
+  height: 14px;
 }
 
 .pill-stop-btn {
@@ -4875,7 +4716,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-divider {
-  margin: 0 12px;
+  /* 14px matches the header's title and the transcript's own padding. A rule
+     that overhangs the text it separates is the misalignment you see first. */
+  margin: 0 14px;
   height: 1px;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.1);
@@ -5007,8 +4850,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   opacity: 0.5;
 }
 
-.pill-ask-send,
-.pill-ask-open {
+.pill-ask-send {
   display: inline-flex;
   height: 28px;
   width: 28px;
@@ -5038,11 +4880,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-ask-send:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-.pill-ask-open:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f5f5f5;
 }
 
 .lt-chat {
@@ -5123,6 +4960,661 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: rgba(255, 255, 255, 0.06);
   color: #e5e5e5;
   border-bottom-left-radius: 4px;
+}
+
+/* ---- Expanded meeting panel: a themed reading surface --------------------
+   The collapsed capsule stays dark capture chrome (it floats over arbitrary
+   content), but the EXPANDED panel is for reading, so it follows the system
+   theme and borrows the record pill's control grammar: a red stop square as
+   the live indicator + save action, bare ghost glyphs for everything else.
+   All rules are scoped to the expanded state and override the dark base. */
+
+.pill-inner:not(.pill-inner-compact) {
+  background: hsl(var(--ui-popover) / 0.98);
+  color: hsl(var(--ui-foreground));
+  border: 0.5px solid hsl(var(--ui-border));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-header {
+  gap: 6px;
+  padding: 0 8px 0 14px;
+}
+
+/* Everything in the header that is not text rides the measured shift, so the
+   glyphs sit on the title's optical centre rather than on its box centre.
+   Zero until measured, so a missing measurement changes nothing. */
+.pill-inner:not(.pill-inner-compact) .pill-controls {
+  transform: translateY(var(--header-ink-shift, 0px));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-wave-meter {
+  transform: translateY(var(--header-meter-shift, 0px));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-media {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+
+.pill-title {
+  /* Same box height as the control buttons beside it: centring two boxes of
+     equal height puts their ink on one line whatever the font metrics do. */
+  line-height: 30px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-timer {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: hsl(var(--ui-foreground));
+  transition: color 150ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-timer-live {
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-stop-btn {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-stop-btn:hover:not(:disabled) {
+  background: hsl(var(--ui-accent));
+}
+
+.pill-stop-square {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-pause-btn,
+.pill-inner:not(.pill-inner-compact) .pill-expand-btn,
+.pill-inner:not(.pill-inner-compact) .pill-close-btn,
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn {
+  height: 30px;
+  width: 30px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-pause-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-expand-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-close-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn:hover:not(:disabled) {
+  background: hsl(var(--ui-accent));
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn:disabled {
+  opacity: 0.4;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-divider {
+  background: hsl(var(--ui-border));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-error {
+  background: hsl(var(--ui-destructive) / 0.1);
+  border-color: hsl(var(--ui-destructive) / 0.3);
+  color: hsl(var(--ui-destructive));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-banner {
+  border-color: hsl(var(--ui-success) / 0.35);
+  background: hsl(var(--ui-success) / 0.1);
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-text {
+  color: hsl(var(--ui-success));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-open {
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-open:hover {
+  opacity: 0.9;
+  background: hsl(var(--ui-primary));
+}
+
+/* Transcript: uniform left alignment for reading — the speaker label, not
+   the side, carries who is talking. */
+.pill-inner:not(.pill-inner-compact) .lt-chat {
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-empty {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you,
+.pill-inner:not(.pill-inner-compact) .lt-row-them {
+  align-items: flex-start;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  padding: 0 2px 2px;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you .lt-label,
+.pill-inner:not(.pill-inner-compact) .lt-row-them .lt-label {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-bubble {
+  max-width: 100%;
+  padding: 7px 11px;
+  border-radius: 10px;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you .lt-bubble,
+.pill-inner:not(.pill-inner-compact) .lt-row-them .lt-bubble {
+  background: hsl(var(--ui-muted));
+  color: hsl(var(--ui-foreground));
+  border-bottom-right-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+
+/* Ask composer: Stop leads the line (Wispr's pattern), then the quiet
+   rounded field on the muted fill with ghost actions. */
+.pill-stop-inline-square {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2.5px;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  background: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-bar {
+  gap: 6px;
+  padding: 8px 14px 12px;
+}
+
+/* Inline ask conversation: a sheet rises from the composer and holds the
+   running exchange — user questions as chat bubbles, streamed answers, and
+   contextual suggestion chips. The grip resizes it; pulling it low dismisses. */
+.pill-ask-sheet {
+  /* In the column, not over it: an overlay would cover the newest transcript
+     lines, which is the only part of a live session anyone is reading. */
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 0.5px solid hsl(var(--ui-border));
+  border-radius: 14px 14px 0 0;
+  background: hsl(var(--ui-popover));
+  box-shadow: var(--elevation-sheet);
+  /* Travels rather than fades: the panel arrives from the edge it belongs to,
+     on the same curve the framework's drawers use. */
+  animation: pill-ask-sheet-in 320ms var(--ease-drawer);
+}
+
+.pill-ask-sheet[data-state="closing"] {
+  animation: pill-ask-sheet-out 200ms var(--ease-collapse) forwards;
+  pointer-events: none;
+}
+
+/* The panel leads; its contents follow a beat later, so the drawer reads as
+   one object arriving instead of a card and its text appearing together. */
+.pill-ask-sheet > * {
+  animation: pill-ask-sheet-content 260ms var(--ease-out-strong) both;
+  animation-delay: 90ms;
+}
+
+.pill-ask-sheet[data-state="closing"] > * {
+  animation: none;
+}
+
+@keyframes pill-ask-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pill-ask-sheet-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@keyframes pill-ask-sheet-content {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Motion is the affordance here, not decoration — reduced motion keeps the
+   state change, drops the travel. */
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-sheet,
+  .pill-ask-sheet[data-state="closing"],
+  .pill-ask-sheet > * {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-sheet {
+    animation: none;
+  }
+}
+
+.pill-ask-sheet-grip {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  /* 18px of grabbable height around a 4px handle: the affordance is the
+     target, not the glyph. */
+  padding: 8px 0 6px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.pill-ask-sheet-grip:active {
+  cursor: grabbing;
+}
+
+.pill-ask-sheet-handle {
+  display: block;
+  width: 32px;
+  height: 4px;
+  border-radius: 999px;
+  background: hsl(var(--ui-muted-foreground) / 0.35);
+  transition:
+    background 160ms var(--ease-collapse),
+    transform 160ms var(--ease-collapse);
+}
+
+.pill-ask-sheet-grip:active .pill-ask-sheet-handle {
+  transform: scaleX(1.12);
+  background: hsl(var(--ui-muted-foreground) / 0.7);
+}
+
+.pill-ask-sheet-grip:hover .pill-ask-sheet-handle {
+  background: hsl(var(--ui-muted-foreground) / 0.55);
+}
+
+.pill-ask-sheet-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 11px;
+  overflow-y: auto;
+  padding: 6px 16px 12px;
+}
+
+.pill-ask-msg-user {
+  align-self: flex-end;
+  max-width: 88%;
+  /* A full-radius capsule curves in on every line but the middle, so the
+     horizontal padding has to clear the corner, not just the glyph. */
+  padding: 9px 17px;
+  border-radius: 999px;
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.pill-ask-msg-assistant {
+  align-self: stretch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: hsl(var(--ui-foreground));
+  white-space: pre-line;
+}
+
+.pill-ask-suggestions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 4px 16px 10px;
+  mask-image: linear-gradient(
+    to right,
+    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
+    #000 calc(100% - 22px),
+    transparent 100%
+  );
+}
+
+.pill-ask-suggestions::-webkit-scrollbar {
+  display: none;
+}
+
+/* Waiting for capture to attach: never the live red, never a running clock. */
+.pill-timer-starting {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--ui-muted-foreground));
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.pill-ask-work {
+  margin-bottom: 7px;
+}
+
+.pill-ask-work-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* The trail scrolls rather than wrapping: a run of ten steps must not push the
+   answer down the sheet. Edges fade so a clipped chip reads as "more". */
+.pill-ask-chips {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* No horizontal padding: it reads as extra space between the chip and its
+     label, on top of the row's own gap. Vertical padding has to clear the
+     active chip's scale AND its 2px ring, or `overflow-x` clips the ring —
+     one axis set to auto makes the other axis clip too. */
+  padding: 4px 0;
+}
+
+.pill-ask-chips[data-scrolled="true"] {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
+    #000 14px
+  );
+}
+
+.pill-ask-chips::-webkit-scrollbar {
+  display: none;
+}
+
+/* Overlapped like a stack of avatars rather than spaced out as a row: the
+   ring in the surface color is what cuts each chip out of the one behind it,
+   so the trail reads as one object with a head instead of N buttons. */
+/* A Tabler glyph inks 75% of its box, so a 12px icon put 9px of ink inside a
+   21px ring — 43%, which reads as a glyph lost in a circle rather than one
+   set in it. 15px of icon in a 20px ring is ~56%. */
+.pill-ask-chip-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-right: -5px;
+  border: 1px solid hsl(var(--ui-border));
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px hsl(var(--ui-popover));
+  color: hsl(var(--ui-muted-foreground));
+  background: hsl(var(--ui-popover));
+  opacity: 0.5;
+  transition:
+    opacity 160ms var(--ease-out-strong),
+    transform 160ms var(--ease-out-strong),
+    border-color 160ms var(--ease-out-strong);
+}
+
+.pill-ask-chip-icon:last-child {
+  margin-right: 0;
+}
+
+.pill-ask-chip-icon[data-active="true"] {
+  z-index: 2;
+  transform: scale(1.1);
+  opacity: 1;
+  color: hsl(var(--ui-foreground));
+  border-color: hsl(var(--ui-foreground) / 0.4);
+}
+
+.pill-ask-chip-icon[data-status="error"] {
+  z-index: 1;
+  opacity: 1;
+  color: hsl(var(--ui-destructive));
+  border-color: hsl(var(--ui-destructive) / 0.4);
+}
+
+.pill-ask-chip-icon[data-status="running"][data-active="true"],
+.pill-ask-chip-icon[data-status="blocked"][data-active="true"] {
+  animation: pill-ask-chip-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pill-ask-chip-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pill-ask-work-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-ask-work-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: hsl(var(--ui-muted-foreground));
+  cursor: default;
+}
+
+.pill-ask-work-toggle:hover {
+  color: hsl(var(--ui-foreground));
+  background: hsl(var(--ui-muted) / 0.6);
+}
+
+/* Quoted like the reasoning it is, so it never reads as the answer. */
+.pill-ask-work-now,
+.pill-ask-work-list {
+  margin: 5px 0 0;
+  padding: 0 0 0 9px;
+  border-left: 1.5px solid hsl(var(--ui-border));
+  font-size: 12px;
+  line-height: 17px;
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-ask-work-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  list-style: none;
+}
+
+.pill-ask-work-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pill-ask-work-list li[data-status="error"] {
+  color: hsl(var(--ui-destructive));
+}
+
+.pill-ask-work-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill-ask-work-item-detail {
+  flex: none;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-chip-icon[data-status="running"][data-active="true"],
+  .pill-ask-chip-icon[data-status="blocked"][data-active="true"] {
+    animation: none;
+  }
+}
+
+.pill-ask-thread-caret {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  border-radius: 1.5px;
+  background: hsl(var(--ui-muted-foreground));
+  animation: pill-ask-caret 900ms steps(2) infinite;
+}
+
+@keyframes pill-ask-caret {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-activity {
+    display: block;
+    margin: 2px 0;
+    font-size: 12px;
+    font-style: italic;
+    color: hsl(var(--ui-muted-foreground));
+    animation: pill-ask-activity-pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes pill-ask-activity-pulse {
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pill-ask-activity {
+      animation: none;
+    }
+  }
+
+  .pill-ask-thread-caret {
+    animation: none;
+  }
+}
+
+/* The field owns the fill, radius, and focus ring; the input is transparent
+   inside it and the send button sits embedded at the trailing edge (shadcn's
+   InputGroup pattern), so composing and sending read as one control. */
+.pill-inner:not(.pill-inner-compact) .pill-ask-field {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  height: 34px;
+  padding: 0 4px 0 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: hsl(var(--ui-muted));
+  transition: border-color 120ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-field:focus-within {
+  border-color: hsl(var(--ui-ring) / 0.35);
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input {
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: hsl(var(--ui-foreground));
+  font-size: 13px;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input::placeholder {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send {
+  /* Concentric with the capsule field: 34px/2 outer radius minus the 4px
+     inset = 13px inner radius, i.e. an exact 26px circle. */
+  height: 26px;
+  width: 26px;
+  border-radius: 999px;
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+  transition:
+    opacity 120ms,
+    background 120ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send:disabled {
+  background: transparent;
+  color: hsl(var(--ui-muted-foreground));
+  opacity: 0.6;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send:hover:not(:disabled) {
+  opacity: 0.85;
 }
 
 .pill-pause-btn {

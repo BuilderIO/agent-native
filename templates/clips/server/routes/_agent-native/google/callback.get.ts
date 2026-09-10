@@ -1,7 +1,9 @@
 import {
   createOAuthSession,
   decodeOAuthState,
+  ensureGoogleAuthIdentity,
   getAppUrl,
+  logOAuthStateDecodeFailure,
   oauthCallbackResponse,
   oauthErrorPage,
   resolveGoogleSignInCredentials,
@@ -10,6 +12,8 @@ import {
   setDesktopExchange,
   type OAuthStatePayload,
 } from "@agent-native/core/server";
+import { putSetting } from "@agent-native/core/settings";
+import { isGoogleProfileImageUrl } from "@agent-native/core/shared";
 import {
   defineEventHandler,
   getQuery,
@@ -25,6 +29,19 @@ import {
   handleGoogleCalendarCallback,
   isCalendarConnectState,
 } from "../../../lib/google-calendar-oauth.js";
+
+export async function persistGoogleProfileImage(
+  email: string,
+  picture: unknown,
+) {
+  if (!isGoogleProfileImageUrl(picture)) return;
+
+  await putSetting(`avatar:${email}`, { image: picture.trim() }).catch(
+    (error) => {
+      console.warn("[auth] failed to store Google profile image:", error);
+    },
+  );
+}
 
 async function handleGoogleSignInCallback(
   event: H3Event,
@@ -104,6 +121,15 @@ async function handleGoogleSignInCallback(
         "Google account email is not verified. Please verify your email with Google and try again.",
       );
     }
+    const googleAccountId = typeof user.id === "string" ? user.id.trim() : "";
+    if (!googleAccountId) throw new Error("Could not get Google account id");
+    const isNewUser = await ensureGoogleAuthIdentity({
+      email,
+      accountId: googleAccountId,
+      name: typeof user.name === "string" ? user.name : undefined,
+      image: typeof user.picture === "string" ? user.picture : undefined,
+    });
+    await persistGoogleProfileImage(email, user.picture);
 
     const { hasProductionSession } = await resolveOAuthOwner(
       event,
@@ -116,6 +142,7 @@ async function handleGoogleSignInCallback(
         authProvider: "google",
         authUserId: typeof user.id === "string" ? user.id : undefined,
         name: typeof user.name === "string" ? user.name : undefined,
+        isNewUser,
       },
     });
 
@@ -147,10 +174,17 @@ async function handleGoogleSignInCallback(
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  const state = decodeOAuthState(
+  const decoded = decodeOAuthState(
     getQuery(event).state as string | undefined,
     getAppUrl(event, "/_agent-native/google/callback"),
   );
+  if (!decoded.ok) {
+    logOAuthStateDecodeFailure(event, decoded.reason, "google");
+    return oauthErrorPage(
+      "Connection failed: your sign-in link expired or is invalid. Please try again.",
+    );
+  }
+  const state = decoded;
 
   if (isCalendarConnectState(state)) {
     return handleGoogleCalendarCallback(event, state);

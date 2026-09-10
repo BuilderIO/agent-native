@@ -35,6 +35,7 @@ agent should know.
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - All AI/LLM behavior goes through the app's agent chat. UI and server code must
   not call model providers or AI SDK `generateText()` / `streamText()` directly;
   use `sendToAgentChat()`. Keep actions deterministic and focused. Research,
@@ -43,9 +44,8 @@ agent should know.
   second freeform textbox. Read `delegate-to-agent` first.
 - Keep domain workflows on named routes and preserve the scaffold's full-page
   chat route.
-- Keep the first viewport focused: one primary action, progressive disclosure,
-  concise copy, and domain-specific navigation. Never use sparkle, wand,
-  magic, or robot icons as AI affordances.
+- Keep first viewport focused: one primary action, progressive disclosure, and
+  domain navigation; never use sparkle, wand, magic, or robot icons.
 - Data loads use layout-matching `Skeleton` geometry, never a
   generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
   and progress actions.
@@ -60,9 +60,9 @@ agent should know.
   duplicate, wrap, proxy, or re-export an action.
 - Keep app-specific screens, actions, state, and skills inside `apps/<app>`. Put
   shared code in `packages/shared` only when multiple apps need it.
-- App database code must be provider-agnostic: `@agent-native/core/db/schema`
-  helpers plus Drizzle's query builder. Never import `drizzle-orm/sqlite-core`
-  or `drizzle-orm/pg-core` from an app.
+- App database code must be PostgreSQL-specific: `@agent-native/core/db/schema`
+  helpers plus Drizzle's PostgreSQL query builder. Never import raw schema-driver
+  packages from an app.
 - SQL is for structured records, metadata, references, and searchable text.
   Large files and blob payloads belong in configured file/blob storage; persist
   only URLs, ids, or handles.

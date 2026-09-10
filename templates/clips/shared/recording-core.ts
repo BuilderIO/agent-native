@@ -51,6 +51,9 @@ export function pickMimeType(): string {
  *  - `"buffered"`  — full blob assembled after stop() and uploaded in slices */
 export type UploadMode = "streaming" | "buffered";
 
+/** Keeps function payloads below the server's 4 MiB chunk cap. */
+export const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
+
 /**
  * Resumable providers advance a single byte offset, so their chunks must be
  * sent in strict index order. Buffered uploads can retain bounded parallelism.
@@ -76,6 +79,7 @@ export type ChunkUploadParams = {
   height?: number | null;
   hasAudio?: boolean;
   hasCamera?: boolean;
+  attemptId?: string;
   uploadGenerationId?: string;
 };
 
@@ -116,18 +120,19 @@ export function chunkUploadQuery(params: ChunkUploadParams): string {
   if (params.hasCamera !== undefined) {
     q.set("hasCamera", params.hasCamera ? "1" : "0");
   }
+  if (params.attemptId) q.set("attemptId", params.attemptId);
   if (params.uploadGenerationId) {
     q.set("uploadGenerationId", params.uploadGenerationId);
   }
   return q.toString();
 }
 
-/** Full chunk-upload URL: `<chunkBaseUrl>?<encoded params>`. `chunkBaseUrl` is
- * the per-recording endpoint (e.g. `/api/uploads/<id>/chunk` or its absolute
- * form) with no existing query string. */
+/** Full chunk-upload URL: append the encoded chunk params to the per-recording
+ * endpoint, preserving any capability query already present on the URL. */
 export function chunkUploadUrl(
   chunkBaseUrl: string,
   params: ChunkUploadParams,
 ): string {
-  return `${chunkBaseUrl}?${chunkUploadQuery(params)}`;
+  const separator = chunkBaseUrl.includes("?") ? "&" : "?";
+  return `${chunkBaseUrl}${separator}${chunkUploadQuery(params)}`;
 }

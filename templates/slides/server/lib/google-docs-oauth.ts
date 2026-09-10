@@ -5,6 +5,7 @@ import {
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import {
+  getRequestOrgId,
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveSecret,
   runWithRequestContext,
@@ -33,6 +34,16 @@ export function hasGoogleDriveExportScope(scope?: string): boolean {
   return (
     grantedScopes.has("https://www.googleapis.com/auth/drive") ||
     grantedScopes.has(GOOGLE_DRIVE_READONLY_SCOPE)
+  );
+}
+
+export function hasGoogleDriveUploadScope(scope?: string): boolean {
+  const grantedScopes = new Set(
+    (scope ?? "").split(/\s+/).filter((value) => value.length > 0),
+  );
+  return (
+    grantedScopes.has("https://www.googleapis.com/auth/drive") ||
+    grantedScopes.has("https://www.googleapis.com/auth/drive.file")
   );
 }
 
@@ -68,7 +79,10 @@ async function resolveGoogleDocsProviderCredentialCandidates(owner?: string) {
       readCredential: resolveSecret,
     });
   return owner
-    ? runWithRequestContext({ userEmail: owner }, resolve)
+    ? runWithRequestContext(
+        { userEmail: owner, orgId: getRequestOrgId() },
+        resolve,
+      )
     : await resolve();
 }
 
@@ -120,7 +134,10 @@ export async function getGooglePickerConfig(owner?: string): Promise<{
       null,
   });
   return owner
-    ? runWithRequestContext({ userEmail: owner }, resolve)
+    ? runWithRequestContext(
+        { userEmail: owner, orgId: getRequestOrgId() },
+        resolve,
+      )
     : await resolve();
 }
 
@@ -203,7 +220,7 @@ async function refreshGoogleDocsToken(
   }
 
   if (!data?.access_token) {
-    if (isPermanentGoogleRefreshError(data?.error)) {
+    if (data?.error === "invalid_grant") {
       await deleteOAuthTokens(provider, accountId, owner);
     }
     throw new Error(
@@ -324,14 +341,33 @@ export async function disconnectGoogleDocs(owner: string): Promise<void> {
   );
 }
 
-export async function getGoogleDocsAccessToken(owner: string): Promise<{
+export async function getGoogleDocsAccessToken(
+  owner: string,
+  options: GoogleDocsAccessTokenOptions = {},
+): Promise<{
   accessToken: string;
   accountEmail: string;
 } | null> {
   const accounts = await listGoogleProviderAccounts(owner);
-  if (accounts.length === 0) return null;
+  const account = options.requireDriveUploadScope
+    ? accounts.find((candidate) =>
+        hasGoogleDriveUploadScope(
+          typeof candidate.tokens.scope === "string"
+            ? candidate.tokens.scope
+            : JSON.stringify(candidate.tokens.scope ?? ""),
+        ),
+      )
+    : options.requireDriveExportScope
+      ? accounts.find((candidate) =>
+          hasGoogleDriveExportScope(
+            typeof candidate.tokens.scope === "string"
+              ? candidate.tokens.scope
+              : JSON.stringify(candidate.tokens.scope ?? ""),
+          ),
+        )
+      : accounts[0];
+  if (!account) return null;
 
-  const account = accounts[0];
   const stored = await getOAuthTokens(
     account.provider,
     account.accountId,
@@ -346,6 +382,11 @@ export async function getGoogleDocsAccessToken(owner: string): Promise<{
     stored as unknown as GoogleDocsTokens,
   );
   return { accessToken, accountEmail: account.accountId };
+}
+
+export interface GoogleDocsAccessTokenOptions {
+  requireDriveExportScope?: boolean;
+  requireDriveUploadScope?: boolean;
 }
 
 async function listGoogleProviderAccounts(owner: string): Promise<
@@ -366,7 +407,13 @@ async function listGoogleProviderAccounts(owner: string): Promise<
   );
   const seen = new Set<string>();
   return accounts.flat().filter((account) => {
-    if (!hasGoogleDriveAccessScope(String(account.tokens.scope ?? ""))) {
+    if (
+      !hasGoogleDriveAccessScope(
+        typeof account.tokens.scope === "string"
+          ? account.tokens.scope
+          : JSON.stringify(account.tokens.scope ?? ""),
+      )
+    ) {
       return false;
     }
     const key = account.accountId.toLowerCase();

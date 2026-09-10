@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import {
   recordGenerationCreativeContext,
   resolveGenerationCreativeContext,
@@ -13,6 +12,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
+import { assertCanDraft } from "../server/lib/library-access.js";
 import {
   ASPECT_RATIOS,
   GENERATION_INTENTS,
@@ -40,6 +40,7 @@ const imageBatchAgentInputSchema = z.object({
     .describe("Brand kit/library ID to use for every generated image."),
   collectionId: z.string().optional(),
   presetId: z.string().optional(),
+  templateId: z.string().optional(),
   presetReferenceFills: z.array(presetReferenceFillSchema).max(6).optional(),
   sessionId: z.string().optional(),
   slots: z
@@ -69,7 +70,7 @@ const imageBatchAgentInputSchema = z.object({
 
 export default defineAction({
   description:
-    "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
+    "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. This is synchronous for images: one call waits for every slot and returns compact image summaries; use get-asset for full asset details and get-audit-run for prompt, references, and settings. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
   schema: z.object({
     libraryId: z
       .string()
@@ -78,12 +79,11 @@ export default defineAction({
         "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
     collectionId: z.string().optional(),
-    presetId: z
+    templateId: z
       .string()
       .optional()
-      .describe(
-        "Generation preset ID (from a @preset mention or list-generation-presets). The preset already defines aspectRatio, imageSize, model, tier, and category. When you set presetId, OMIT each slot's aspectRatio/imageSize and the top-level model/tier so the preset's values are used; only pass one when the user explicitly asks for a value that differs from the preset.",
-      ),
+      .describe("Template ID from a @template mention or list-templates."),
+    presetId: z.string().optional().describe("Deprecated — use templateId."),
     presetReferenceFills: z
       .array(presetReferenceFillSchema)
       .max(6)
@@ -183,9 +183,13 @@ export default defineAction({
       ...inputBase,
       libraryId,
     };
-    await assertAccess("asset-library", base.libraryId, "editor");
+    const draftAccess = await assertCanDraft(base.libraryId);
     if (base.sessionId) {
-      await requireGenerationSessionInLibrary(base.sessionId, base.libraryId);
+      await requireGenerationSessionInLibrary(
+        base.sessionId,
+        base.libraryId,
+        draftAccess,
+      );
     }
     const creativeContextRequestId =
       base.creativeContextRequestId ?? (base.sessionId ? undefined : nanoid());
@@ -231,7 +235,7 @@ export default defineAction({
           batchId: variantBatchId,
           libraryId: base.libraryId,
           collectionId: base.collectionId ?? null,
-          presetId: base.presetId ?? null,
+          presetId: base.templateId ?? base.presetId ?? null,
           sessionId: base.sessionId ?? null,
           threadId: context?.threadId ?? null,
           variantScopeId: base.variantScopeId ?? null,
@@ -249,6 +253,7 @@ export default defineAction({
             {
               libraryId: base.libraryId,
               collectionId: base.collectionId,
+              templateId: base.templateId,
               presetId: base.presetId,
               presetReferenceFills: base.presetReferenceFills,
               sessionId: base.sessionId,
@@ -291,14 +296,44 @@ export default defineAction({
           .where(eq(schema.assetGenerationSessions.id, base.sessionId));
       }
     }
+    const creativeContextProvenance = firstCreativeContextProvenance(results);
     return {
       count: results.length,
       images: results.map((result, index) =>
         serializeBatchResult(slots[index].slotId, result),
       ),
+      ...creativeContextProvenance,
     };
   },
 });
+
+function firstCreativeContextProvenance(
+  results: PromiseSettledResult<Record<string, unknown>>[],
+) {
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    const contextMode = result.value.contextMode;
+    if (
+      contextMode !== "off" &&
+      contextMode !== "auto" &&
+      contextMode !== "pinned"
+    ) {
+      continue;
+    }
+    const contextPackId = result.value.contextPackId;
+    return {
+      contextMode,
+      contextPackId:
+        typeof contextPackId === "string" || contextPackId === null
+          ? contextPackId
+          : null,
+      reuseLabels: Array.isArray(result.value.reuseLabels)
+        ? result.value.reuseLabels
+        : [],
+    };
+  }
+  return {};
+}
 
 function firstSuccessfulAssetId(
   results: PromiseSettledResult<Record<string, unknown>>[],
@@ -346,7 +381,13 @@ function serializeBatchResult(
     };
   }
 
-  return { slotId, ok: true, ...result.value };
+  const {
+    contextMode: _contextMode,
+    contextPackId: _contextPackId,
+    reuseLabels: _reuseLabels,
+    ...image
+  } = result.value;
+  return { slotId, ok: true, ...image };
 }
 
 function imageAssetId(value: Record<string, unknown>): string | undefined {

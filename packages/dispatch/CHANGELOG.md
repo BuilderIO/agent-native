@@ -1,5 +1,203 @@
 # @agent-native/dispatch
 
+## 0.36.1
+
+### Patch Changes
+
+- b7c56a1: Settings → Integrations → Keys now reports the value each app actually uses and where it comes from (personal, workspace, Vault, or environment) instead of only the row it wrote itself, so keys synced from the Dispatch Vault no longer look unset. The "+ New" menu keeps a custom-key row visible and turns typed text into a custom key. The Dispatch Vault add/edit dialogs are key-first, and its access card explains how apps see Vault keys.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [35eb1e6]
+- Updated dependencies [4676e71]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.7
+
+## 0.36.0
+
+### Minor Changes
+
+- 774e549: Add scoped DAU and WAU trends and tabbed Dispatch metrics navigation.
+- 46391ca: Store the rendered HTML/text body of every transactional email send alongside the existing send-log record, and show it in the Dispatch send log detail dialog so an org admin can see exactly what was sent, not just the redacted provider request. Magic links, password-reset/verification links, JWT-shaped tokens, and OTP/verification codes are redacted from the body before it is persisted, since `email_log` is org-admin readable. The list query never returns bodies (fetched lazily per row via a new `get-email-log-body` action once a row is opened), and the sandboxed HTML preview now carries a restrictive CSP so a body can't load remote tracking images/styles.
+
+### Patch Changes
+
+- b6bd189: Suppress telemetry for `+autoz` QA identities across the shared tracking paths.
+- 840cb6c: Add recipient, sender, and template inclusion and exclusion filters to the transactional email send log action and Dispatch controls.
+- 554c771: Keep share dialogs readable while additive migrations are pending, and let
+  ordinary iframe pages load cross-origin subresources. Improve new-project setup
+  and Slack identity recovery guidance. Keep Cloudflare Workers builds below the
+  static-header rule limit, allow local Ollama endpoints on local non-production
+  servers, surface provider-setting errors, keep one PGlite client across dev
+  reload realms, permit the optional terminal build in fresh scaffolds, and
+  clarify standalone deployment.
+- 4822dad: Preserve Vite assets for colliding workspace app ids and reconcile deployed app registry records.
+- Release all public npm packages with a patch version bump.
+- 934301f: Give Dispatch app cards a subtle surface and remove hover feedback from their non-clickable containers.
+- 4822dad: Restore Dispatch access for all authenticated organization members.
+- e89b114: Keep Google and email authentication as the only visible sign-in choices while optionally bootstrapping a Dispatch session and local cross-app session after sign-in. The handoff uses a short-lived, one-time server-side handle and preserves existing local accounts and cookies.
+- 6b397ca: Create and persist a Builder project from the starter template when no project ID is configured.
+- Updated dependencies [e8b291e]
+- Updated dependencies [4915b82]
+- Updated dependencies
+- Updated dependencies [3bde94f]
+  - @agent-native/toolkit@0.19.6
+
+## 0.35.0
+
+### Minor Changes
+
+- 48a4eca: Add a durable audit trail for every transactional email send attempt. The shared `sendEmail()` transport now records the outbound request payload (with auth links and message bodies redacted) and the raw provider response/status for both successes and failures, so Dispatch can show exactly what was sent, to whom, and why a send failed. The `list-email-log` action gained filters for recipient, sender, status, provider, and date range with stable pagination, and a new searchable "Send log" section was added to `/admin/transactional-email`. Magic-link sign-in emails are now tagged with a `core.magic-link` template id so they show up alongside other auth emails in the catalog and send log.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- c050912: Search fields that draw their own clear button no longer also show WebKit's native cancel widget, so only one clear control renders.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/toolkit@0.19.5
+
+## 0.34.0
+
+### Minor Changes
+
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+
+### Patch Changes
+
+- cb3a95f: Add opt-in canonical organization federation across Agent-Native app deployments.
+- Release all public npm packages with a patch version bump.
+- f24d3ec: Fix Dispatch metrics app adoption cards to handle unavailable values, rank apps by tracked usage, and progressively reveal the app list.
+- Updated dependencies [e29fee8]
+- Updated dependencies [cef8c06]
+- Updated dependencies
+- Updated dependencies [73c36ce]
+  - @agent-native/toolkit@0.19.4
+
+## 0.33.2
+
+### Patch Changes
+
+- 1466345: Nudge users toward their host agent chat from prompt popovers and shared
+  sidebar surfaces.
+- 9c3eded: Keep the Dispatch Open app action usable for mounted web apps.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [760d108]
+  - @agent-native/toolkit@0.19.3
+
+## 0.33.1
+
+### Patch Changes
+
+- 485642e: Keep hosted Dispatch app launches inline outside Builder editor sessions.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [0566ce9]
+  - @agent-native/toolkit@0.19.2
+
+## 0.33.0
+
+### Minor Changes
+
+- 1fc5184: Add friendly automation schedules and webhook triggers.
+
+### Patch Changes
+
+- 4d86bff: Update shared auth pages with per-app product previews and learn-more links.
+- bbbac69: Keep pending Builder app reservations visible for 30 days.
+- Release all public npm packages with a patch version bump.
+- 4deb8a1: Make hosted ask_app submissions retry-safe and return before the MCP transport deadline.
+- Updated dependencies [e74593d]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.1
+
+## 0.32.0
+
+### Minor Changes
+
+- d7d12c0: Add owner-scoped app adoption metrics to the Dispatch admin.
+
+### Patch Changes
+
+- 46abef1: Declare managed Google OAuth capability in app health contracts so deploy verification checks only apps that own the managed connection.
+- d142c4f: Fix workspace app embed session mint returning a 500 for apps whose discovered agent URL is a deep link (e.g. Clips share links). The target MCP connection and A2A audience now resolve through the app's home origin instead of the raw discovered URL.
+- b89ceb2: Hide empty optional sidebar slots when organization controls are unavailable.
+- Release all public npm packages with a patch version bump.
+- 307bd64: Match the Dispatch sidebar mark to its text color and tighten its size.
+- 349ce5c: Persist Agent-Native prompt drafts synchronously and keep prompt surfaces isolated across refreshes.
+- 353f95a: Split template marketing home routes from authenticated app entries and add the shared browser auth handoff.
+- 7c1565b: Register the workspace connection catalog action in Dispatch's server action surface.
+- 01d2112: Retry transient 502–504 gateway responses from workspace app MCP hosts, including HTML error pages.
+- f0fb6c5: Use the cube spinner for shared loading indicators and the worded loader for full-page states across apps.
+- Updated dependencies
+- Updated dependencies [349ce5c]
+- Updated dependencies [353f95a]
+- Updated dependencies [a1869cc]
+- Updated dependencies [f0fb6c5]
+- Updated dependencies [03711a6]
+  - @agent-native/toolkit@0.19.0
+
+## 0.31.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 5820376: Use a monochrome Agent-Native mark in app sidebars.
+- ea6123a: Remove the legacy settings view from agent chat surfaces.
+- 5b7a8ea: Replace flashing skeleton pulses with a smooth whole-surface loading shine.
+- Updated dependencies [844fa10]
+- Updated dependencies [4af2889]
+- Updated dependencies
+- Updated dependencies [dcc9f89]
+- Updated dependencies [163dd55]
+- Updated dependencies [5b7a8ea]
+  - @agent-native/toolkit@0.18.0
+
+## 0.31.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.17.6
+
+## 0.31.27
+
+### Patch Changes
+
+- 4ef1d8c: Route one-pager integration requests to Content or inline responses instead of Plan.
+- Release all public npm packages with a patch version bump.
+- 3e18636: Fix transactional email previews to render the canonical Agent-Native logo.
+- 4776e61: Reduce CI lint warnings with safer type narrowing, callback binding, and explicit async intent.
+- dd834e7: Prevent vault actions and the Dispatch UI from exposing stored secret values.
+- Updated dependencies [ac1ecfc]
+- Updated dependencies
+- Updated dependencies [5a12f71]
+- Updated dependencies [d2b314b]
+- Updated dependencies [5c96078]
+  - @agent-native/toolkit@0.17.5
+
+## 0.31.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.17.4
+
+## 0.31.25
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- 32b49a8: Keep Dispatch page scrolling inside the viewport and replace the global header with a sticky agent-chat control.
+- Release all public npm packages with a patch version bump.
+- 318819b: Give the Dispatch workspace embed handshake a cold-boot connect budget so opening an app whose server is still starting no longer fails as unreachable. `McpClientManager` now accepts a `connectTimeoutMs` option, and the embed session mint spends up to 90s per attempt within a 95s total budget instead of the 5s interactive default, matching the dev gateway's own readiness wait.
+- Updated dependencies [db91905]
+- Updated dependencies
+  - @agent-native/toolkit@0.17.3
+
 ## 0.31.24
 
 ### Patch Changes
@@ -724,377 +922,5 @@
   Also folds the per-tier `tools/call` gate into one rule — the advertised set is the callable surface on every tier except the explicit `--full-catalog` opt-in — so adding a tier can no longer default to "everything callable" by omission.
 
   `tool-search` is fixed on both ends over MCP. It is dropped entirely from every flat catalog (`mcp.catalog: "app"` and the `--full-catalog` opt-in), where every tool is already listed beside it and it could only describe its own neighbours. On the trimmed catalogs, where it does earn its place, it is now scoped to the advertised set: previously it closed over the app's whole registry while `tools/call` accepted only the advertised subset, so it answered with names that came straight back as "Unknown tool". `attachToolSearch`, `searchToolRegistry`, `createToolSearchEntry`, `TOOL_SEARCH_ACTION_NAME`, `resolveFrameworkTools`, `filterFrameworkToolGroups`, and `frameworkGroupEnabled` are now exported from `@agent-native/core/server`, so a standalone `mountMCP` plugin can compose the same surface the agent-chat plugin does instead of hand-rolling a copy that drifts.
-
-## 0.19.0
-
-### Minor Changes
-
-- 8f10ada: Move Dispatch management and operator tools into a dedicated Admin control plane.
-
-## 0.18.0
-
-### Minor Changes
-
-- d3f8794: Add a compact workspace app rail to Dispatch navigation for ready workspace apps.
-
-### Patch Changes
-
-- d3f8794: Restrict shared Vault values and mutations to workspace owners and admins while keeping safe key requests available to members.
-- Updated dependencies [d3f8794]
-  - @agent-native/toolkit@0.13.3
-
-## 0.17.6
-
-### Patch Changes
-
-- abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
-
-## 0.17.5
-
-### Patch Changes
-
-- 158965b: Report unauthorized thread-debug source access as a client-safe 403 instead of a server error.
-
-## 0.17.4
-
-### Patch Changes
-
-- 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
-
-## 0.17.3
-
-### Patch Changes
-
-- 277be3f: Clarify that a free Builder tier is available when connecting Dispatch app creation.
-- Updated dependencies [277be3f]
-- Updated dependencies [277be3f]
-  - @agent-native/toolkit@0.13.2
-
-## 0.17.2
-
-### Patch Changes
-
-- c71d383: Keep connected messaging chats out of app history by default, with an opt-in all-sources view and stable Dispatch branding.
-- Updated dependencies [c71d383]
-  - @agent-native/toolkit@0.13.1
-
-## 0.17.1
-
-### Patch Changes
-
-- Updated dependencies [106af0e]
-  - @agent-native/toolkit@0.13.0
-
-## 0.17.0
-
-### Minor Changes
-
-- 2b6fea3: Show connected apps alongside mounted workspace apps in the Dispatch control plane.
-
-## 0.16.7
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-- Updated dependencies [f499dff]
-  - @agent-native/toolkit@0.12.2
-
-## 0.16.6
-
-### Patch Changes
-
-- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
-- eecd3ad: Add a read-only `read-slack-thread-context` action for Slack-linked issue triage. It resolves child permalinks to their parent thread, returns message attachments and related links, and reports incomplete pagination instead of silently treating a partial thread as complete.
-
-## 0.16.5
-
-### Patch Changes
-
-- Updated dependencies [89e5910]
-  - @agent-native/toolkit@0.12.1
-
-## 0.16.4
-
-### Patch Changes
-
-- 4f3a651: Harden delegated agent transport and provider selection, and support stable workspace-vault key rotation without changing app-local OAuth encryption.
-
-## 0.16.3
-
-### Patch Changes
-
-- c0e7d64: Add a cross-app failed-run inbox to Thread Debug so operators can find and
-  inspect recent agent failures without first copying a request ID.
-- c0e7d64: Make cross-app delegation ask the receiving specialist agent by default, keep
-  typed remote terminal states intact, retry idempotent transient transport
-  failures, prevent recursive agent cycles, and bound delegated context growth.
-  Proven durable-background delegated runs also keep the full bounded
-  continuation allowance while sharing one cumulative wall-clock deadline, so a
-  slow successful child task cannot strand its caller before the caller finishes
-  its own tool work. After a provider exhausts its short in-call 429/529 retry
-  budget, a proven background delegation now gets one cooled-down continuation,
-  with a hard cap that prevents sustained throttling from becoming a request
-  storm.
-
-  Receiving agents keep ownership of source selection, schema interpretation,
-  queries, joins, and their local tools. Direct read actions remain available for
-  exact bounded contracts, but are no longer advertised as a workaround for an
-  unreliable agent call.
-
-  Dispatch now opts into the same durable background run contract it emits at
-  deploy time, so delegated control-plane work is not cut off by the foreground
-  40-second budget while already running in the 15-minute worker.
-
-  Workspace vault ciphertext now prefers the workspace A2A-derived encryption
-  key over each app's independent auth secret. Existing app-auth-encrypted rows
-  remain readable by their owning app and are compare-and-swap migrated on read,
-  so sibling agents can reliably resolve the same organization credentials
-  without exposing or copying their values. Automatic engine selection also
-  pairs the chosen provider with that provider's credential instead of reusing
-  an unrelated active key.
-
-  Documentation now distinguishes framework Core, optional Toolkit, and optional
-  Templates, and makes source editing an explicit workspace/write-tool capability
-  rather than assuming every embedded agent has filesystem access.
-
-- Updated dependencies [c0e7d64]
-- Updated dependencies [c0e7d64]
-  - @agent-native/toolkit@0.12.0
-
-## 0.16.2
-
-### Patch Changes
-
-- Updated dependencies [cc35067]
-  - @agent-native/toolkit@0.11.2
-
-## 0.16.1
-
-### Patch Changes
-
-- 901769d: Make new workspace app creation clearly show Builder branch progress and a focused success handoff.
-- Updated dependencies [901769d]
-- Updated dependencies [901769d]
-  - @agent-native/toolkit@0.11.1
-
-## 0.16.0
-
-### Minor Changes
-
-- 24a5a20: Add secure Chrome extension pairing and an embedded Dispatch browser chat that
-  stages or submits canonical browser page context.
-
-### Patch Changes
-
-- 24a5a20: Keep scheduled automations classified correctly across scheduler writes, unify Jobs and Automations management, and give Scheduled and Event triggers one identity-checked execution lifecycle with organization scope and enforced MCP allowlists.
-- Updated dependencies [24a5a20]
-  - @agent-native/toolkit@0.11.0
-
-## 0.15.29
-
-### Patch Changes
-
-- 279e855: Return a typed forbidden response when non-admin organization members request workspace usage metrics.
-- Updated dependencies [279e855]
-  - @agent-native/toolkit@0.10.12
-
-## 0.15.28
-
-### Patch Changes
-
-- Updated dependencies [0aada94]
-- Updated dependencies [0aada94]
-  - @agent-native/toolkit@0.10.11
-
-## 0.15.27
-
-### Patch Changes
-
-- Updated dependencies [16a9d1a]
-  - @agent-native/toolkit@0.10.10
-
-## 0.15.26
-
-### Patch Changes
-
-- cbc6936: Make connecting one agent-native app to another a guided flow instead of three
-  blank text fields.
-  - New `GET /_agent-native/agents/probe` reads a peer's agent card and makes one
-    authenticated no-op call, reporting `reachable` and `authorized` as
-    independent fields. A peer that answers but rejects the caller's token is the
-    failure local dev hides — the receiver runs unauthenticated on localhost, so a
-    mismatched secret previously surfaced only after deploy.
-  - Settings → Manage agent → Connected Agents is URL-first: paste a peer URL,
-    press Check, and the name and description come from its card. Unreachable
-    never blocks the save. Rows carry a liveness dot from one batched probe.
-  - The section now shows shared-secret state and a Sync to apps action inline,
-    reusing the existing org hooks. A caller who cannot see the secret is told so
-    rather than being shown "not set".
-  - After an add, the UI states that registration is one-directional and deep
-    links to the peer's own settings with the values prefilled.
-  - The Connected Agents list collapses a remote agent that still has its
-    pre-migration `agents/*.json` row alongside the canonical
-    `remote-agents/*.json` one, instead of listing it twice with the same URL.
-  - `list-connected-agents` keys custom manifests by the normalized agent id, so
-    an agent registered as `images`/`asset` no longer appears once as a discovered
-    agent and again as a custom one.
-  - Export `resolveA2ACallerAuth` from `@agent-native/core/a2a` so app code can
-    authenticate outbound A2A calls without reimplementing org-secret lookup.
-  - The `a2a-protocol` skill documents the real setup path — A2A is auto-mounted,
-    peers are `remote-agents/*.json` resources, and auth is a JWT signed with
-    `A2A_SECRET` or the per-org secret — replacing the `mountA2A` + per-peer
-    `apiKeyEnv` flow the framework no longer wires up.
-
-- cbc6936: Hide pending workspace apps by default and expose app ownership metadata from each card's overflow menu.
-- Updated dependencies [cbc6936]
-  - @agent-native/toolkit@0.10.9
-
-## 0.15.25
-
-### Patch Changes
-
-- c849ba0: Allow Dispatch Thread Debug to resolve copied Agent-Native request/run IDs to their owning chat threads.
-
-## 0.15.24
-
-### Patch Changes
-
-- Updated dependencies [14818b6]
-  - @agent-native/toolkit@0.10.8
-
-## 0.15.23
-
-### Patch Changes
-
-- 52cce19: Fix two independent defects behind intermittent `Missing <KEY>` errors for
-  multi-org users.
-
-  Membership resolution now asks the database for a deterministic order
-  (`ORDER BY joined_at ASC, org_id ASC`), so the oldest membership wins. The three
-  fallback paths in `org/context.ts` — `getOrgContext`, `resolveOrgIdForEmail`, and
-  `resolveOrgIdForEmailViaEvent` — previously read the first row of an unordered
-  `SELECT`. On Postgres that order is a query-plan and physical-layout detail, so
-  any multi-org user without a valid persisted `active-org-id` got an arbitrary
-  answer that could change between two identical requests, and `getSession` then
-  froze it into `session.orgId`. This does not repair users who already have the
-  wrong org persisted in `active-org-id`; that needs a separate data change.
-
-  `syncGrantsToApp` now writes each vault secret under the org that owns the row
-  instead of the org of whoever clicked Sync. In `all-apps` mode it lists secrets
-  across every org the caller can see, then synced them all with the caller's ctx,
-  which `credentialStoreScopeForVaultCtx` turned into `scope: "org"` +
-  `scopeId: <caller org>`. Because `writeAppSecret` upserts, that copied rather
-  than moved, so credential material accumulated in whichever orgs happened to be
-  active during a sync. Grouping by the row's own tenant matches what every other
-  sync path already did via `ctxForSecretRow`. The sync result and audit entry now
-  report `credentialStores` (one entry per tenant written) in place of the single
-  `credentialStore` object.
-
-- 52cce19: Shrink the dispatch and pinpoint install footprint by removing code and
-  dependencies nothing could reach. Dispatch drops the unused pre-auth routing
-  helper — `rootDispatchRedirect` had no callers and was not re-exported from
-  `./server` or any other published subpath — along with the `@libsql/client` and
-  `h3` dependencies, which had no imports in the package but were still installed
-  for every consumer. Pinpoint drops the `HistoryDropdown` and `SettingsPanel`
-  overlay components, which were never rendered by the overlay and were not
-  reachable from any of its `.`, `./react`, `./primitives`, `./server`, or
-  `./types` entry points. No exported API changes.
-- 52cce19: Write NUL group-key delimiters as `\u0000` escapes instead of raw NUL bytes so
-  these files stay searchable. Ripgrep's binary-content heuristic treats any file
-  containing a `\0` byte as binary and prints only a `binary file matches` notice
-  with no lines, so `poll.ts`, `app-skill.ts`, `session-replay.ts`, and
-  `app-creation-store.ts` were invisible to every ripgrep-backed search — agents
-  and humans grepping them for a symbol got zero results and concluded it did not
-  exist. The escape sequence is the same character at runtime; only the on-disk
-  byte the heuristic keys on changes, so there is no behavior change.
-- Updated dependencies [52cce19]
-  - @agent-native/toolkit@0.10.7
-
-## 0.15.22
-
-### Patch Changes
-
-- c8a0bcf: Keep Dispatch navigation and workspace branding aligned with the first-party app surfaces.
-- c8a0bcf: Improve Dispatch workspace navigation and branding.
-
-## 0.15.21
-
-### Patch Changes
-
-- 231aca6: Setting a Builder project in Dispatch now enables cloud code changes for that organization's workspace apps. The project id is stored as an organization-scoped credential, which is what `resolveBuilderBranchProjectId()` actually reads — previously it was saved only to Dispatch's own settings row, so apps kept reporting code changes as unavailable. Clearing the project removes the credential and returns those apps to the connect prompt.
-- 231aca6: Create app now offers a "Connect Builder" action when Builder isn't connected, instead of dead-end prose. The create-app flow (popover and full-page NewWorkspaceAppFlow) tracks the structured `builder-unavailable` failure reason from `start-workspace-app-creation`, gives hard failures a destructive-styled affordance instead of the neutral muted box used for informational states, adds a "Try again" control for `builder-error`/`credential-store-unavailable`, and wires the "Connect Builder" button through the shared `useBuilderConnectFlow` hook so users can connect and retry without leaving the flow.
-- 231aca6: Return a structured reason from Dispatch app creation and replace the operator-facing Builder failure string with a user-facing message, so a missing Builder connection no longer surfaces a raw project id and three unrelated remediation steps.
-- 231aca6: Fix existing users being stranded in their personal workspace instead of their company org.
-
-  Request-time domain auto-join decided whether a user was still in a default workspace by
-  comparing the workspace name to a name recomputed from the current session. Sessions minted
-  by the framework's own Google OAuth and identity-SSO paths carry no display name while Better
-  Auth sessions do, so the same account could match on one sign-in path and not another — and a
-  renamed workspace, a changed provider display name, or any second org membership disabled the
-  auto-join permanently. It now keys off whether the user already belongs to an org whose
-  `allowed_domain` matches their email domain, which is the durable signal.
-
-  Joining is now also separated from activating: the company org is always joined, but the user
-  is only switched into it when their current workspace is one they solely own. Members of a
-  shared team stay where they are.
-
-  Also fixes two recovery paths that hid the manual way in: Settings → Team now shows the
-  "Join your team" card even when the user already has a (personal) workspace, and the Dispatch
-  sidebar keeps an icon-only workspace switcher when collapsed instead of dropping it.
-
-## 0.15.20
-
-### Patch Changes
-
-- Updated dependencies [8afb252]
-  - @agent-native/toolkit@0.10.6
-
-## 0.15.19
-
-### Patch Changes
-
-- 0e2c19d: Use quieter borderless styling for Dispatch secondary controls and surfaces.
-- 0e2c19d: Standardize Dispatch sidebar utility controls with the shared footer layout.
-- Updated dependencies [0e2c19d]
-- Updated dependencies [0e2c19d]
-- Updated dependencies [0e2c19d]
-  - @agent-native/toolkit@0.10.5
-
-## 0.15.18
-
-### Patch Changes
-
-- b00c38d: Remove the redundant extensions section from the Dispatch sidebar.
-
-## 0.15.17
-
-### Patch Changes
-
-- 5477352: Keep Dispatch's overview composer, full-page chat, and side chat on the same selected model.
-
-## 0.15.16
-
-### Patch Changes
-
-- Updated dependencies [4b734be]
-  - @agent-native/toolkit@0.10.4
-
-## 0.15.15
-
-### Patch Changes
-
-- Updated dependencies [180b41d]
-  - @agent-native/toolkit@0.10.3
-
-## 0.15.14
-
-### Patch Changes
-
-- 2254362: Make Dispatch messaging setup and destination workflows progressively disclose advanced details.
-- Updated dependencies [2254362]
-  - @agent-native/toolkit@0.10.2
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

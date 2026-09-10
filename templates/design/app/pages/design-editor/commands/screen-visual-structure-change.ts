@@ -17,6 +17,7 @@ import {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   isAbsoluteCodeLayerNode,
+  rawAbsoluteContainerOffsetFromDrop,
   removeAbsolutePositioningFromNodeInHtml,
   setAbsolutePositioningForNodeInHtml,
   setFlowPositioningOverrideForNodeInHtml,
@@ -199,19 +200,19 @@ export function runScreenVisualStructureChange(
           (node) => node.id === patch.result.after?.nodeId,
         )?.dataAttributes["data-agent-native-node-id"]
       : undefined);
-  // Same board-surface offset-poison guard as handleVisualStructureChange
-  // above: strip the 65536 fingerprint from the bridge's rect-space
-  // offset before persisting, and refresh the preview when it fired so
-  // the bridge's equally-off optimistic placement gets corrected.
-  const rawAbsoluteContainerOffset =
-    details?.dropMode === "absolute-container" &&
-    details.sourceRect &&
-    details.anchorRect
-      ? {
-          x: details.sourceRect.x - details.anchorRect.x,
-          y: details.sourceRect.y - details.anchorRect.y,
-        }
-      : null;
+  // Same board-surface offset-poison guard as handleVisualStructureChange:
+  // sibling un-nests persist rebased inline left/top; inside drops still
+  // use sourceRect − anchorRect. Strip the 65536 fingerprint and refresh
+  // the preview when it fired so the equally-off optimistic placement
+  // gets corrected.
+  const rawAbsoluteContainerOffset = rawAbsoluteContainerOffsetFromDrop({
+    dropMode: details?.dropMode,
+    placement,
+    sourceRect: details?.sourceRect,
+    anchorRect: details?.anchorRect,
+    inlineStyles: elementInfo?.inlineStyles,
+    anchorSelector,
+  });
   const absoluteContainerOffset = rawAbsoluteContainerOffset
     ? {
         x: stripBoardSurfaceOffsetFromCoord(rawAbsoluteContainerOffset.x),

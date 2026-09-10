@@ -243,6 +243,45 @@ export function getAvailableContentHistoryChanges(
   );
 }
 
+export function contentHistoryEntryFromChanges(
+  changes: ContentHistoryChange[],
+): ContentHistoryEntry | null {
+  if (changes.length === 0) return null;
+  if (changes.length === 1) return changes[0]!;
+  return { changes };
+}
+
+/** Split a grouped undo entry so missing screens stay on the stack instead of
+ * being dropped when the available side applies. */
+export function partitionContentHistoryEntry(
+  entry: ContentHistoryEntry,
+  availableFileIds: Iterable<string>,
+  activeFileId?: string | null,
+): {
+  available: ContentHistoryChange[];
+  remainder: ContentHistoryChange[];
+} {
+  const available = getAvailableContentHistoryChanges(
+    entry,
+    availableFileIds,
+    activeFileId,
+  );
+  const availableIds = new Set(available.map((change) => change.fileId));
+  const remainder = getContentHistoryChanges(entry).filter(
+    (change) => !availableIds.has(change.fileId),
+  );
+  return { available, remainder };
+}
+
+/** Partitioning pops the order token before applying the available side.
+ * Put `file-content` back so the remainder is still reachable on the next undo/redo. */
+export function restoreFileContentHistoryOrderToken<T extends string>(
+  order: T[],
+  remainderExists: boolean,
+): void {
+  if (remainderExists) order.push("file-content" as T);
+}
+
 export function findLastContentHistoryChangeIndex(
   stack: ContentHistoryChange[],
   fileId?: string | null,

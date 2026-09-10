@@ -10,6 +10,6 @@ export const authConfig = z.object({
   // difference between an operator who chose a policy and one who never spoke.
   requireEmailVerification: z.boolean().optional().meta({
     env: "AUTH_REQUIRE_EMAIL_VERIFICATION",
-    doc: "Whether password signup must verify the email address before it gets a session. Unset derives it: hosted deployments require it, local development skips it. Setting it false accepts an unverified email as a login credential, including in production.",
+    doc: "Whether password signup must verify email before a session. Unset: hosted deployments verify with a provider and skip verification without one; local development skips it. Setting false accepts unverified email in production. Email remains optional.",
   }),
 });

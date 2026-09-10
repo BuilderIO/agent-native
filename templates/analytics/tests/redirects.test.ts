@@ -2,10 +2,6 @@ import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
-  clientLoader as rootClientLoader,
-  loader as rootLoader,
-} from "../app/routes/_index";
-import {
   clientLoader as adhocClientLoader,
   loader as adhocLoader,
 } from "../app/routes/adhoc.$id";
@@ -13,6 +9,10 @@ import {
   clientLoader as dashboardClientLoader,
   loader as dashboardLoader,
 } from "../app/routes/dashboard";
+import {
+  clientLoader as homeClientLoader,
+  loader as homeLoader,
+} from "../app/routes/home";
 import {
   clientLoader as overviewClientLoader,
   loader as overviewLoader,
@@ -48,13 +48,13 @@ function expectHtmlRedirect(
 describe("Analytics redirect routes", () => {
   it.each([
     [
-      rootLoader,
-      { url: new URL("https://analytics.example/?from=home") },
+      homeLoader,
+      { url: new URL("https://analytics.example/home?from=home") },
       "/ask?from=home",
     ],
     [
-      rootClientLoader,
-      { url: new URL("https://analytics.example/?from=home") },
+      homeClientLoader,
+      { url: new URL("https://analytics.example/home?from=home") },
       "/ask?from=home",
     ],
     [
@@ -76,12 +76,12 @@ describe("Analytics redirect routes", () => {
     [
       dashboardLoader,
       { url: new URL("https://analytics.example/dashboard?tab=2") },
-      "/?tab=2",
+      "/home?tab=2",
     ],
     [
       dashboardClientLoader,
       { url: new URL("https://analytics.example/dashboard?tab=2") },
-      "/?tab=2",
+      "/home?tab=2",
     ],
     [
       overviewLoader,

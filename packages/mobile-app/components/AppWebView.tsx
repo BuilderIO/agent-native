@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect, usePathname } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import * as WebBrowser from "expo-web-browser";
 import {
   forwardRef,
@@ -32,6 +32,7 @@ import {
   inspectNativeSessionShared,
   NATIVE_AUTH_BASE_URL,
 } from "@/lib/native-auth";
+import { useCurrentPathname } from "@/lib/navigation";
 import { completeOAuthCallback, rememberOAuthState } from "@/lib/oauth-session";
 import {
   OAUTH_BASE_URL_KEY,
@@ -346,8 +347,8 @@ function AppWebView(
 
   // Remember the current route so the oauth-complete fallback can return here
   // instead of Home if the deep link leaks to the OS (Android resets the stack,
-  // so router.canGoBack() is false and it would otherwise land on Home).
-  const pathname = usePathname();
+  // so there is no back destination and it would otherwise land on Home).
+  const pathname = useCurrentPathname();
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
 

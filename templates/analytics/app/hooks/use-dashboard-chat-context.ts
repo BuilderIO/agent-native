@@ -297,7 +297,7 @@ export function useDashboardChatContext(
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         openSidebar: false,
       });
-      clearSelectedDashboardObjectIfOwned(publishedSelectionRef.current);
+      void clearSelectedDashboardObjectIfOwned(publishedSelectionRef.current);
     };
   }, [id]);
 

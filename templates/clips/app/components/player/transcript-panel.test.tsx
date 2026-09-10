@@ -4,7 +4,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TranscriptPanel } from "./transcript-panel";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+import {
+  getTranscriptSeekMs,
+  mergeTranscriptSegmentsForDisplay,
+  TranscriptPanel,
+} from "./transcript-panel";
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
@@ -77,5 +83,116 @@ describe("TranscriptPanel no-audio failures", () => {
     });
 
     expect(container.querySelector(".text-destructive")).not.toBeNull();
+  });
+
+  it("insets the active segment highlight within the panel frame", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[{ startMs: 0, endMs: 2_000, text: "Hello." }]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const scrollRegion = Array.from(
+      container.querySelectorAll<HTMLDivElement>("div"),
+    ).find(
+      (element) =>
+        element.classList.contains("overflow-y-auto") &&
+        element.classList.contains("px-3"),
+    );
+    const activeRow = container.querySelector('[role="button"]');
+
+    expect(scrollRegion).not.toBeUndefined();
+    expect(activeRow?.parentElement?.parentElement?.parentElement).toBe(
+      scrollRegion,
+    );
+  });
+
+  it("hides transcript cues that start inside an edited-out range", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[
+              { startMs: 0, endMs: 1_000, text: "Keep this." },
+              { startMs: 1_000, endMs: 2_000, text: "Cut this." },
+              { startMs: 2_000, endMs: 3_000, text: "Keep that." },
+            ]}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 1_000, endMs: 2_000, excluded: true }],
+              blurs: [],
+            })}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Keep this.");
+    expect(container.textContent).toContain("Keep that.");
+    expect(container.textContent).not.toContain("Cut this.");
+  });
+});
+
+describe("mergeTranscriptSegmentsForDisplay", () => {
+  it("groups short adjacent cues into readable paragraphs", () => {
+    const result = mergeTranscriptSegmentsForDisplay([
+      { startMs: 0, endMs: 2_000, text: "What's up, Sean?" },
+      {
+        startMs: 2_000,
+        endMs: 4_000,
+        text: "So in terms of users and audience,",
+      },
+      { startMs: 4_000, endMs: 5_000, text: "not too different," },
+      {
+        startMs: 5_000,
+        endMs: 10_000,
+        text: "the big thing here is basically like,",
+      },
+      {
+        startMs: 10_000,
+        endMs: 12_000,
+        text: "the builder audience is just big enough.",
+      },
+    ]);
+
+    expect(result).toEqual([
+      {
+        startMs: 0,
+        endMs: 12_000,
+        text: "What's up, Sean? So in terms of users and audience, not too different, the big thing here is basically like, the builder audience is just big enough.",
+      },
+    ]);
+  });
+
+  it("seeks to the matching raw cue when a paragraph is searched", () => {
+    const segments = [
+      { startMs: 0, endMs: 2_000, text: "First thought." },
+      { startMs: 2_000, endMs: 4_000, text: "The matching phrase." },
+    ];
+    const [displaySegment] = mergeTranscriptSegmentsForDisplay(segments);
+
+    expect(
+      getTranscriptSeekMs(displaySegment, "matching phrase", segments),
+    ).toBe(2_000);
+  });
+
+  it("seeks to the first cue when a search phrase spans cues", () => {
+    const segments = [
+      { startMs: 0, endMs: 2_000, text: "Please ship" },
+      { startMs: 2_000, endMs: 4_000, text: "this." },
+    ];
+    const [displaySegment] = mergeTranscriptSegmentsForDisplay(segments);
+
+    expect(getTranscriptSeekMs(displaySegment, "ship this", segments)).toBe(0);
   });
 });

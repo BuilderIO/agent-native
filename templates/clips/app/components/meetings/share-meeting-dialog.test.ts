@@ -35,7 +35,12 @@ describe("meeting share popover", () => {
   });
 
   it("keeps individual access in the primary share surface", () => {
-    expect(source).toContain("<SharePeopleTab");
+    expect(source).toContain("<PeopleAccessSection");
+    expect(source).toContain("<GeneralAccessSelect");
     expect(source).not.toContain('value="invite"');
+  });
+
+  it("offers inviting only to managers", () => {
+    expect(source).toMatch(/canManage \? \(\s*<InvitePeopleField/);
   });
 });

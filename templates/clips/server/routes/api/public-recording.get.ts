@@ -36,6 +36,7 @@ import {
   buildAgentApiUrls,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
 } from "../../../shared/agent-context.js";
+import { displayCommentMentions } from "../../../shared/comment-mentions.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -48,7 +49,7 @@ import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
-  isRecordingExpired,
+  isRecordingExpiredForViewer,
   type RecordingPageAccessRole,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
@@ -60,6 +61,7 @@ import {
 } from "../../lib/recordings.js";
 import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
 import { verifySharePassword } from "../../lib/share-password.js";
+import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -278,7 +280,10 @@ export default defineEventHandler(async (event) => {
   );
 
   // Expiry check
-  const recordingExpired = isRecordingExpired(rec.expiresAt);
+  const recordingExpired = isRecordingExpiredForViewer({
+    expiresAt: rec.expiresAt,
+    viewerIsOwner,
+  });
   if (recordingExpired) {
     setResponseStatus(event, 410);
     return { error: "Recording has expired", expired: true };
@@ -329,6 +334,16 @@ export default defineEventHandler(async (event) => {
           asc(schema.recordingComments.createdAt),
         )
     : [];
+  const hydratedComments = await hydrateCommentAuthorNames(comments);
+  const commentMentions = new Map(
+    hydratedComments.map((comment) => [
+      comment.id,
+      displayCommentMentions(comment.mentionsJson),
+    ]),
+  );
+  for (const comment of hydratedComments) {
+    Reflect.deleteProperty(comment, "mentionsJson");
+  }
 
   const reactions = rec.enableReactions
     ? await db
@@ -441,10 +456,10 @@ export default defineEventHandler(async (event) => {
   // Mirrors the gate in `get-recording-player-data` exactly: the share page
   // auto-redirects on this flag, so a false positive bounces the viewer
   // between /share/:id and /r/:id forever. Only a resolved access role can
-  // open the direct page — the org-member fallback above is a display role,
+  // open the direct page - the org-member fallback above is a display role,
   // not access the player action would grant.
   const canOpenDashboard =
-    Boolean(session?.email) && viewerAccess && !recordingExpired
+    Boolean(session?.email) && viewerAccess
       ? canOpenDirectRecordingPage({
           role: viewerAccess.role as RecordingPageAccessRole,
           visibility: rec.visibility as RecordingVisibility,
@@ -509,7 +524,7 @@ export default defineEventHandler(async (event) => {
           segments: transcriptSegments,
         }
       : null,
-    comments: comments.map((c) => ({
+    comments: hydratedComments.map((c) => ({
       id: c.id,
       recordingId: c.recordingId,
       threadId: c.threadId,
@@ -517,6 +532,7 @@ export default defineEventHandler(async (event) => {
       authorEmail: c.authorEmail,
       authorName: c.authorName,
       content: c.content,
+      mentions: commentMentions.get(c.id) ?? [],
       videoTimestampMs: c.videoTimestampMs,
       emojiReactionsJson: c.emojiReactionsJson,
       resolved: Boolean(c.resolved),

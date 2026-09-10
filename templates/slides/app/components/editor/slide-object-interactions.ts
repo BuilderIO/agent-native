@@ -4,7 +4,135 @@ import {
   type CanvasResizeHandle,
 } from "@agent-native/toolkit/canvas-interactions";
 
+import {
+  isRichTextBlock,
+  isSlideCanvasShell,
+  isTextLeaf,
+  shouldStampBuilderId,
+} from "./slide-text-targets";
+
 export const MIN_SLIDE_OBJECT_SIZE = 24;
+
+const SLIDE_LAYER_VOID_ELEMENTS = new Set([
+  "AREA",
+  "BASE",
+  "BR",
+  "COL",
+  "EMBED",
+  "HR",
+  "IMG",
+  "INPUT",
+  "LINK",
+  "META",
+  "PARAM",
+  "SOURCE",
+  "TRACK",
+  "WBR",
+]);
+
+const SLIDE_LAYER_NON_CONTAINER_ELEMENTS = new Set([
+  "A",
+  "ABBR",
+  "B",
+  "BDI",
+  "BDO",
+  "BUTTON",
+  "CITE",
+  "CODE",
+  "DATA",
+  "DFN",
+  "EM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "I",
+  "KBD",
+  "LABEL",
+  "MARK",
+  "P",
+  "Q",
+  "RP",
+  "RT",
+  "RUBY",
+  "S",
+  "SAMP",
+  "SMALL",
+  "SPAN",
+  "STRONG",
+  "SUB",
+  "SUP",
+  "TEXTAREA",
+  "TIME",
+  "U",
+  "VAR",
+]);
+
+const SLIDE_TABLE_STRUCTURE_ELEMENTS = new Set([
+  "CAPTION",
+  "COL",
+  "COLGROUP",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+]);
+
+const SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN = new Set([
+  ...SLIDE_TABLE_STRUCTURE_ELEMENTS,
+  "DD",
+  "DT",
+  "LI",
+]);
+
+export function isSlideTableStructureElement(element: Element): boolean {
+  return SLIDE_TABLE_STRUCTURE_ELEMENTS.has(element.tagName);
+}
+
+const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([
+  ["COLGROUP", new Set(["COL"])],
+  ["DL", new Set(["DD", "DT"])],
+  ["OL", new Set(["LI"])],
+  ["OPTGROUP", new Set(["OPTION"])],
+  ["SELECT", new Set(["OPTION", "OPTGROUP"])],
+  ["TABLE", new Set(["CAPTION", "COLGROUP", "THEAD", "TBODY", "TFOOT"])],
+  ["TBODY", new Set(["TR"])],
+  ["TFOOT", new Set(["TR"])],
+  ["THEAD", new Set(["TR"])],
+  ["TR", new Set(["TD", "TH"])],
+  ["UL", new Set(["LI"])],
+]);
+
+export function canDropSlideLayerInside(
+  target: Element,
+  source?: Element,
+): boolean {
+  if (
+    isRichTextBlock(target as HTMLElement) ||
+    SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName) ||
+    SLIDE_LAYER_NON_CONTAINER_ELEMENTS.has(target.tagName)
+  ) {
+    return false;
+  }
+  // TABLE, TBODY, TR, UL and friends accept only specific children. Appending
+  // anything else produces markup the parser silently reparents, so the layer
+  // lands somewhere the drop indicator never pointed.
+  const requiredChildren = SLIDE_LAYER_REQUIRED_CHILDREN.get(target.tagName);
+  if (!requiredChildren) return true;
+  return source ? requiredChildren.has(source.tagName) : false;
+}
+
+export function canDropSlideLayerAdjacent(
+  source: Element,
+  target: Element,
+): boolean {
+  const parent = target.parentElement;
+  return Boolean(parent) && canDropSlideLayerInside(parent!, source);
+}
 
 export type ResizeHandle = CanvasResizeHandle;
 
@@ -13,6 +141,40 @@ export interface SlideObjectGeometry {
   y: number;
   width: number;
   height: number;
+}
+
+export function setSlideObjectDimension(
+  element: HTMLElement,
+  property: "width" | "height",
+  value: string,
+): void {
+  if (element.tagName === "IMG") {
+    element.style.setProperty(`max-${property}`, "none", "important");
+    element.style.setProperty(property, value, "important");
+    return;
+  }
+  element.style.setProperty(property, value);
+}
+
+export function restoreSlideObjectStyle(
+  element: HTMLElement,
+  style: string | null,
+): void {
+  if (style === null) element.removeAttribute("style");
+  else element.setAttribute("style", style);
+}
+
+export function createSlideObjectPlacementGeometry(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  minSize = MIN_SLIDE_OBJECT_SIZE,
+): SlideObjectGeometry {
+  return {
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width: Math.max(Math.abs(end.x - start.x), minSize),
+    height: Math.max(Math.abs(end.y - start.y), minSize),
+  };
 }
 
 export interface SlideLayoutRect {
@@ -64,7 +226,7 @@ export type SlidesSelectionMode =
   | "resizing"
   | "canvas";
 
-export type SlidesSelectionTool = "select" | "draw" | "pin" | "text";
+export type SlidesSelectionTool = "select" | "draw" | "pin" | "text" | "shape";
 
 export interface SlidesSelectionState<TItem> {
   deckId?: string;
@@ -117,6 +279,7 @@ export function createSlidesSelectionState<TItem>({
   drawMode,
   pinMode,
   textBoxMode,
+  shapeMode = false,
   activeTool,
 }: {
   deckId?: string;
@@ -127,6 +290,7 @@ export function createSlidesSelectionState<TItem>({
   drawMode: boolean;
   pinMode: boolean;
   textBoxMode: boolean;
+  shapeMode?: boolean;
   activeTool?: SlidesSelectionTool;
 }): SlidesSelectionState<TItem> {
   return {
@@ -137,7 +301,15 @@ export function createSlidesSelectionState<TItem>({
     mode,
     activeTool:
       activeTool ??
-      (drawMode ? "draw" : pinMode ? "pin" : textBoxMode ? "text" : "select"),
+      (drawMode
+        ? "draw"
+        : pinMode
+          ? "pin"
+          : textBoxMode
+            ? "text"
+            : shapeMode
+              ? "shape"
+              : "select"),
     items,
   };
 }
@@ -172,16 +344,15 @@ export function findSlideObjectById(
 
 /**
  * Absolute offsets resolve against the nearest ancestor that establishes a
- * containing block, not necessarily the slide's autofit layer. Keeping the
- * original parent preserves nested layout semantics while this resolver keeps
- * the measured viewport position stable when that child becomes freeform.
+ * containing block, not necessarily the slide's autofit layer. Keep walking
+ * past a static layer so measured and authored coordinates use the same root.
  */
 export function resolveSlideObjectContainingBlock(
   element: HTMLElement,
   slideLayer: HTMLElement,
 ): HTMLElement {
   let ancestor = element.parentElement;
-  while (ancestor && ancestor !== slideLayer) {
+  while (ancestor) {
     const style = window.getComputedStyle(ancestor);
     const position = style.position || "static";
     const hasTransform = Boolean(style.transform && style.transform !== "none");
@@ -318,6 +489,12 @@ export function removeTransientBuilderIds(element: HTMLElement): void {
   });
 }
 
+export function stripTransientSlideLayoutSpacers(root: Element): void {
+  root
+    .querySelectorAll(".fmd-layout-spacer:not([data-slide-layout-preserved])")
+    .forEach((spacer) => spacer.remove());
+}
+
 const ID_REFERENCE_ATTRIBUTES = [
   "aria-activedescendant",
   "aria-controls",
@@ -437,6 +614,17 @@ export function freezeSlideElementForFreeform(
   const objectId = ensureSlideObjectId(element);
   const spacer = element.cloneNode(false) as HTMLElement;
   removeTransientBuilderIds(spacer);
+  for (const className of Array.from(spacer.classList)) {
+    if (className.startsWith("fmd-pptx-")) spacer.classList.remove(className);
+  }
+  for (const attribute of Array.from(spacer.attributes)) {
+    if (
+      attribute.name === "data-imported-pptx" ||
+      attribute.name.startsWith("data-pptx-")
+    ) {
+      spacer.removeAttribute(attribute.name);
+    }
+  }
   spacer.removeAttribute("id");
   spacer.removeAttribute("data-slide-object-id");
   spacer.removeAttribute("contenteditable");
@@ -505,8 +693,55 @@ export function freezeSlideElementForFreeform(
   return spacer;
 }
 
+export function preserveSlideObjectLayoutSpacer(element: HTMLElement): void {
+  const objectId = element.getAttribute("data-slide-object-id");
+  if (!objectId) return;
+  const owner = element.parentElement ?? element.ownerDocument;
+  for (const spacer of Array.from(
+    owner.querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]"),
+  )) {
+    if (spacer.getAttribute("data-slide-layout-spacer-for") !== objectId) {
+      continue;
+    }
+    spacer.setAttribute("data-slide-layout-preserved", "true");
+  }
+}
+
+/** Preserve a flow element's measured slot after its content is deleted. */
+function preserveSlideElementLayoutSlot(element: HTMLElement): void {
+  const computed = window.getComputedStyle(element);
+  freezeSlideElementForFreeform(
+    element,
+    {
+      x: 0,
+      y: 0,
+      width: element.offsetWidth,
+      height: element.offsetHeight,
+    },
+    {
+      display: computed.display,
+      flexGrow: computed.flexGrow,
+      flexShrink: computed.flexShrink,
+      flexBasis: computed.flexBasis,
+      alignSelf: computed.alignSelf,
+    },
+  );
+  preserveSlideObjectLayoutSpacer(element);
+  element.remove();
+}
+
 /** Remove a freeform object and the invisible layout slot that anchors it. */
-export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
+export function removeSlideObjectAndLayoutSpacer(
+  element: HTMLElement,
+  { preserveLayoutSlot = false }: { preserveLayoutSlot?: boolean } = {},
+): void {
+  if (
+    preserveLayoutSlot &&
+    window.getComputedStyle(element).position !== "absolute"
+  ) {
+    preserveSlideElementLayoutSlot(element);
+    return;
+  }
   const objectId = element.getAttribute("data-slide-object-id");
   if (objectId) {
     const owner = element.parentElement ?? element.ownerDocument;
@@ -582,6 +817,17 @@ export function findPersistedImageObject(
   return null;
 }
 
+export function resolveSlideClipboardElement(
+  selectedElement: HTMLElement | null,
+  selectedImg: HTMLImageElement | null,
+  slideContent: HTMLElement,
+): HTMLElement | null {
+  if (selectedImg) {
+    return findPersistedImageObject(selectedImg, slideContent) ?? selectedImg;
+  }
+  return selectedElement;
+}
+
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */
 export function clientPointToSlideCoordinates(
   clientX: number,
@@ -619,9 +865,99 @@ export function resizeSlideObject(
   });
 }
 
+const WIDTH_ONLY_RESIZE_HANDLES = new Set<ResizeHandle>(["e", "w"]);
+
+/**
+ * A width-only handle on a text object should not pin a height: wrapped text
+ * needs the box free to grow or shrink as its width changes. Corners and the
+ * top/bottom handles are an explicit height drag (or, with Shift held,
+ * derive one to preserve aspect ratio), so those keep a manual, fixed height.
+ */
+export function isAutoHeightTextResize(
+  element: HTMLElement,
+  handle: ResizeHandle,
+  preserveAspectRatio: boolean,
+): boolean {
+  return (
+    WIDTH_ONLY_RESIZE_HANDLES.has(handle) &&
+    !preserveAspectRatio &&
+    isTextLeaf(element)
+  );
+}
+
+export function resizeSlideObjectMembers(
+  members: readonly SlideObjectMoveMember[],
+  {
+    handle,
+    dx,
+    dy,
+    preserveAspectRatio = false,
+    minSize = MIN_SLIDE_OBJECT_SIZE,
+  }: {
+    handle: ResizeHandle;
+    dx: number;
+    dy: number;
+    preserveAspectRatio?: boolean;
+    minSize?: number;
+  },
+): Map<string, SlideObjectGeometry> {
+  const bounds = unionSlideObjectGeometries(
+    members.map((member) => member.start),
+  );
+  if (!bounds) return new Map();
+
+  const resized = resizeSlideObject(bounds, {
+    handle,
+    dx,
+    dy,
+    preserveAspectRatio,
+    minSize: 0,
+  });
+  const minimumScaleX = Math.max(
+    ...members.map((member) => minSize / member.start.width),
+  );
+  const minimumScaleY = Math.max(
+    ...members.map((member) => minSize / member.start.height),
+  );
+  const scaleX = Math.max(resized.width / bounds.width, minimumScaleX);
+  const scaleY = Math.max(resized.height / bounds.height, minimumScaleY);
+  const scale = preserveAspectRatio ? Math.max(scaleX, scaleY) : undefined;
+  const width = bounds.width * (scale ?? scaleX);
+  const height = bounds.height * (scale ?? scaleY);
+  const resizesFromWest = handle === "nw" || handle === "w" || handle === "sw";
+  const resizesFromEast = handle === "ne" || handle === "e" || handle === "se";
+  const resizesFromNorth = handle === "nw" || handle === "n" || handle === "ne";
+  const resizesFromSouth = handle === "sw" || handle === "s" || handle === "se";
+  const group = {
+    x: resizesFromWest
+      ? bounds.x + bounds.width - width
+      : resizesFromEast
+        ? bounds.x
+        : bounds.x + (bounds.width - width) / 2,
+    y: resizesFromNorth
+      ? bounds.y + bounds.height - height
+      : resizesFromSouth
+        ? bounds.y
+        : bounds.y + (bounds.height - height) / 2,
+    width,
+    height,
+  };
+  const plan = new Map<string, SlideObjectGeometry>();
+  for (const member of members) {
+    const { start } = member;
+    plan.set(member.objectId, {
+      x: group.x + ((start.x - bounds.x) / bounds.width) * group.width,
+      y: group.y + ((start.y - bounds.y) / bounds.height) * group.height,
+      width: (start.width / bounds.width) * group.width,
+      height: (start.height / bounds.height) * group.height,
+    });
+  }
+  return plan;
+}
+
 export type SlideObjectZOrderTarget = "front" | "back";
 
-function readSlideObjectZIndex(element: HTMLElement): number {
+export function readSlideObjectZIndex(element: HTMLElement): number {
   const raw = element.style.zIndex || window.getComputedStyle(element).zIndex;
   const value = Number(raw);
   return Number.isFinite(value) ? value : 0;
@@ -720,6 +1056,37 @@ function getSlideObjectZOrderPeers(
   });
 }
 
+/** Persist the DOM order of a freeform stack after a Layers panel move. */
+export function persistSlideObjectZOrderFromDom(
+  element: HTMLElement,
+  container: HTMLElement,
+): boolean {
+  if (!isEditableFreeformSlideObject(element)) return false;
+  if (readSlideObjectZIndex(element) < 0) return false;
+
+  const peers = [
+    { element, zIndex: readSlideObjectZIndex(element), order: -1 },
+    ...getSlideObjectZOrderPeers(element, container),
+  ];
+  const domOrder = new Map(
+    Array.from(
+      container.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ).map((peer, order) => [peer, order]),
+  );
+  peers.sort(
+    (left, right) =>
+      (domOrder.get(left.element) ?? -1) - (domOrder.get(right.element) ?? -1),
+  );
+
+  let changed = false;
+  for (const [index, peer] of peers.entries()) {
+    if (readSlideObjectZIndex(peer.element) === index) continue;
+    peer.element.style.zIndex = String(index);
+    changed = true;
+  }
+  return changed;
+}
+
 /**
  * Compute the z-index change that puts `element` in front of / behind every
  * other freeform object inside `container`. Returns null when nothing needs
@@ -764,6 +1131,105 @@ export function computeSlideObjectZOrder(
   };
 }
 
+/**
+ * Effective stacking index of a layer, or null when it has none.
+ *
+ * `auto` is not 0. Both paint in the same layer, but an `auto` sibling that
+ * comes later in the DOM still paints above an explicit 0, so collapsing the
+ * two is what let "send to back" report success while the layer stayed on top.
+ */
+function readSlideLayerZIndex(element: HTMLElement): number | null {
+  const raw = element.style.zIndex || window.getComputedStyle(element).zIndex;
+  if (!raw || raw === "auto") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * z-index only takes effect on a positioned box or a flex/grid item. A static
+ * layer in a plain block parent needs `position: relative` first, or the index
+ * it is handed is inert.
+ */
+function ensureSlideLayerCanStack(
+  element: HTMLElement,
+  parent: HTMLElement,
+): void {
+  const parentDisplay = window.getComputedStyle(parent).display;
+  if (parentDisplay === "flex" || parentDisplay === "grid") return;
+  const position =
+    element.style.position || window.getComputedStyle(element).position;
+  if (!position || position === "static") element.style.position = "relative";
+}
+
+function slideLayerSiblings(
+  element: HTMLElement,
+  parent: HTMLElement,
+): HTMLElement[] {
+  return Array.from(parent.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement &&
+      child !== element &&
+      !isSlideCanvasShell(child) &&
+      shouldStampBuilderId(child) &&
+      // Negative layers are reserved for slide backgrounds. They stay below
+      // every editable layer and must never be lifted by normalization.
+      (readSlideLayerZIndex(child) ?? 0) >= 0,
+  );
+}
+
+/**
+ * Raise or lower `element` past its sibling layers by z-index.
+ *
+ * Arrange means stacking order, so this only ever writes z-index. It must not
+ * reorder the DOM: `.fmd-slide` is a flex column, where moving a node changes
+ * where the layer sits on the slide instead of what it paints over.
+ */
+export function arrangeSlideLayerInParent(
+  element: HTMLElement,
+  target: SlideObjectZOrderTarget,
+): boolean {
+  const parent = element.parentElement;
+  if (!parent) return false;
+  // A negative index marks a reserved slide background. Arranging it would
+  // lift it into the editable stack, where it would cover the slide.
+  if ((readSlideLayerZIndex(element) ?? 0) < 0) return false;
+  const siblings = slideLayerSiblings(element, parent);
+  if (siblings.length === 0) return false;
+
+  ensureSlideLayerCanStack(element, parent);
+
+  if (target === "front") {
+    const next =
+      Math.max(0, ...siblings.map((s) => readSlideLayerZIndex(s) ?? 0)) + 1;
+    if (readSlideLayerZIndex(element) === next) return false;
+    element.style.zIndex = String(next);
+    return true;
+  }
+
+  // Reaching the back means clearing every sibling, including the ones still
+  // on `auto`. Park the element at 0 and give each sibling a unique positive
+  // slot in the order it already paints.
+  const domOrder = new Map(
+    Array.from(parent.children).map((child, index) => [child, index]),
+  );
+  const ordered = [...siblings].sort(
+    (left, right) =>
+      (readSlideLayerZIndex(left) ?? 0) - (readSlideLayerZIndex(right) ?? 0) ||
+      (domOrder.get(left) ?? 0) - (domOrder.get(right) ?? 0),
+  );
+
+  let changed = readSlideLayerZIndex(element) !== 0;
+  element.style.zIndex = "0";
+  ordered.forEach((sibling, index) => {
+    const value = index + 1;
+    if (readSlideLayerZIndex(sibling) === value) return;
+    ensureSlideLayerCanStack(sibling, parent);
+    sibling.style.zIndex = String(value);
+    changed = true;
+  });
+  return changed;
+}
+
 export interface SlideObjectMoveMember {
   objectId: string;
   element: HTMLElement;
@@ -778,6 +1244,10 @@ function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
         (candidate) => candidate !== element && candidate.contains(element),
       ),
   );
+}
+
+export function isValidSlideClipboardRoot(element: HTMLElement): boolean {
+  return !SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN.has(element.tagName);
 }
 
 /**
@@ -1043,12 +1513,196 @@ export interface CopiedSlideObjects {
   html: string[];
 }
 
+const SLIDE_OBJECT_CLIPBOARD_MARKER =
+  "data-agent-native-slide-object-clipboard";
+const SLIDE_OBJECT_CLIPBOARD_BLOCK_TAGS = new Set([
+  "ADDRESS",
+  "ARTICLE",
+  "ASIDE",
+  "BLOCKQUOTE",
+  "DIV",
+  "DL",
+  "DT",
+  "DD",
+  "FIGCAPTION",
+  "FIGURE",
+  "FOOTER",
+  "FORM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "HEADER",
+  "LI",
+  "MAIN",
+  "NAV",
+  "OL",
+  "P",
+  "PRE",
+  "SECTION",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+  "UL",
+]);
+const SLIDE_OBJECT_CLIPBOARD_IGNORED_TAGS = new Set([
+  "NOSCRIPT",
+  "SCRIPT",
+  "STYLE",
+  "TEMPLATE",
+]);
+
+export function slideObjectClipboardHtml(
+  clipboardId: string,
+  copied: CopiedSlideObjects,
+): string {
+  return `<div ${SLIDE_OBJECT_CLIPBOARD_MARKER}="${encodeURIComponent(clipboardId)}">${copied.html.join("\n")}</div>`;
+}
+
+export function readSlideObjectClipboardId(
+  html: string | null | undefined,
+  doc: Document,
+): string | null {
+  if (!html) return null;
+  const template = doc.createElement("template");
+  template.innerHTML = html;
+  const marker = template.content.querySelector(
+    `[${SLIDE_OBJECT_CLIPBOARD_MARKER}]`,
+  );
+  const encodedId = marker?.getAttribute(SLIDE_OBJECT_CLIPBOARD_MARKER);
+  if (!encodedId) return null;
+  try {
+    const clipboardId = decodeURIComponent(encodedId);
+    return clipboardId || null;
+  } catch (error) {
+    if (error instanceof URIError) return null;
+    throw error;
+  }
+}
+
+function slideObjectClipboardText(
+  copied: CopiedSlideObjects,
+  doc: Document,
+): string {
+  return copied.html
+    .map((html) => {
+      const container = doc.createElement("div");
+      container.innerHTML = html;
+      return slideObjectClipboardTextContent(container)
+        .replace(/\n{2,}/g, "\n")
+        .trim();
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function slideObjectClipboardTextContent(node: Node): string {
+  if (node.nodeType === 3) return node.textContent ?? "";
+  if (node.nodeType !== 1) {
+    return Array.from(node.childNodes, slideObjectClipboardTextContent).join(
+      "",
+    );
+  }
+  const element = node as Element;
+  if (SLIDE_OBJECT_CLIPBOARD_IGNORED_TAGS.has(element.tagName)) return "";
+  if (element.tagName === "BR") return "\n";
+  const text = Array.from(
+    element.childNodes,
+    slideObjectClipboardTextContent,
+  ).join("");
+  return SLIDE_OBJECT_CLIPBOARD_BLOCK_TAGS.has(element.tagName)
+    ? `\n${text}\n`
+    : text;
+}
+
+function writeSlideObjectClipboardLegacy(
+  representations: { text: string; html: string },
+  doc: Document | null,
+): boolean {
+  if (!doc || typeof doc.execCommand !== "function") return false;
+  let wrote = false;
+  const handleCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.clipboardData.setData("text/plain", representations.text);
+    event.clipboardData.setData("text/html", representations.html);
+    event.preventDefault();
+    wrote = true;
+  };
+  doc.addEventListener("copy", handleCopy, { capture: true, once: true });
+  try {
+    return doc.execCommand("copy") && wrote;
+  } catch (error) {
+    if (error instanceof Error) return false;
+    throw error;
+  } finally {
+    doc.removeEventListener("copy", handleCopy, true);
+  }
+}
+
+/**
+ * Give layer copies a native marker so the paste event can identify which
+ * clipboard source is newest. The in-memory copy remains the local fallback.
+ */
+export async function writeSlideObjectClipboard(
+  clipboardId: string,
+  copied: CopiedSlideObjects,
+  doc: Document | null = typeof document === "undefined" ? null : document,
+): Promise<"rich" | "text-only"> {
+  const html = slideObjectClipboardHtml(clipboardId, copied);
+  const textDocument =
+    doc ?? (typeof document === "undefined" ? null : document);
+  if (!textDocument) throw new Error("Clipboard writing requires a document");
+  const text = slideObjectClipboardText(copied, textDocument);
+  const representations = { text, html };
+  if (writeSlideObjectClipboardLegacy(representations, doc)) return "rich";
+
+  const clipboard =
+    typeof navigator === "undefined" ? null : (navigator.clipboard ?? null);
+  const ClipboardItemCtor =
+    typeof globalThis.ClipboardItem === "undefined"
+      ? null
+      : globalThis.ClipboardItem;
+
+  let richWriteError: unknown;
+  if (clipboard?.write && ClipboardItemCtor) {
+    try {
+      await clipboard.write([
+        new ClipboardItemCtor({
+          "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        }),
+      ]);
+      return "rich";
+    } catch (error) {
+      richWriteError = error;
+    }
+  }
+
+  if (richWriteError) throw richWriteError;
+  if (clipboard?.writeText) {
+    // This path starts during the copy gesture when no rich API is available.
+    // A rejected rich write is thrown above so a later fallback cannot lose
+    // transient activation or overwrite a newer copy.
+    await clipboard.writeText(text);
+    return "text-only";
+  }
+  throw new Error("Clipboard writing is not supported");
+}
+
 export function copySlideObjects(elements: HTMLElement[]): CopiedSlideObjects {
   return {
-    html: normalizeSlideObjectRoots(elements).map((element) => {
-      const clone = cloneSlideObject(element);
-      return clone.outerHTML;
-    }),
+    html: normalizeSlideObjectRoots(elements)
+      .filter(isValidSlideClipboardRoot)
+      .map((element) => {
+        const clone = cloneSlideObject(element);
+        return clone.outerHTML;
+      }),
   };
 }
 

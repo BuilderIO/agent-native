@@ -114,7 +114,7 @@ export function runCreateScreenFrame(
         // a whole-design refetch re-downloads every screen's HTML, which is
         // what made adding a frame feel slow.
         if (!nextId) {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         }

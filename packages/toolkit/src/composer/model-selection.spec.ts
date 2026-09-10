@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  filterModelGroupsForAgent,
   isClaudeCodeAgentId,
+  isClaudeModelId,
   isLunaModel,
   resolvePreferredAgentModel,
 } from "./model-selection.js";
@@ -26,6 +28,17 @@ describe("composer agent model defaults", () => {
     expect(isClaudeCodeAgentId("codex")).toBe(false);
     expect(isLunaModel("gpt-5.6-luna")).toBe(true);
     expect(isLunaModel("openai/gpt-5.6-sol")).toBe(false);
+    expect(isClaudeModelId("claude-sonnet-5")).toBe(true);
+    expect(isClaudeModelId("gpt-5.6-sol")).toBe(false);
+  });
+
+  it("keeps only Claude models when Claude Code is selected", () => {
+    expect(
+      filterModelGroupsForAgent("claude-code", [
+        { engine: "claude-cli", models: ["claude-sonnet-5", "gpt-5.6-luna"] },
+        { engine: "builder", models: ["claude-opus-4-8", "gpt-5.6-sol"] },
+      ]),
+    ).toEqual([{ engine: "claude-cli", models: ["claude-sonnet-5"] }]);
   });
 
   it("defaults Claude Code to Sonnet and other agents to Luna", () => {

@@ -26,6 +26,7 @@ proof_requirements:
 evidence:
   [
     "../../../app/components/sidebar/document-sidebar-sections.test.ts",
+    "../../../app/components/sidebar/DocumentSidebar.layout.test.ts",
     "../../../app/components/editor/database/sidebar.tsx",
   ]
 superseded_by: null
@@ -74,6 +75,14 @@ counts, and previews disclose only authorized results.
 Existing sidebar section tests and sidebar rendering show useful donor behavior. They do
 not prove the full Reference/query, access, recovery, and personal-state contract; this
 Capability remains `approved_shape`.
+
+The September 9, 2026 SB-01–03 controls pass exercised collapsed and expanded
+Search, Escape focus return, accessible control names, keyboard and pointer
+resizing within 240–480px, width persistence after reload, and a 390px mobile
+drawer through the local interface. The command picker uses the shared dialog
+stack so it remains visible above the drawer. This bounded controls evidence
+does not establish the remaining personal-reference, dynamic-section, access,
+or recovery contracts.
 
 ## Proof plan
 

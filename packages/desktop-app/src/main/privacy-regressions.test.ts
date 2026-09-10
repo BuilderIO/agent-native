@@ -15,6 +15,22 @@ function between(value: string, start: string, end: string): string {
 }
 
 describe("desktop passive-access regressions", () => {
+  it("reloads the packaged shell from its entry file after SPA route changes", () => {
+    const main = source("./index.ts");
+    const createWindow = between(
+      main,
+      "function createWindow(): BrowserWindow {",
+      "// ---------- DevTools: target the active app webview ----------",
+    );
+
+    expect(createWindow).toContain('win.webContents.on("will-navigate"');
+    expect(createWindow).toContain('"did-fail-load"');
+    expect(createWindow).toContain('protocol !== "file:"');
+    expect(createWindow).toContain("event.preventDefault();");
+    expect(createWindow).toContain("loadDesktopRenderer(win);");
+    expect(main).toContain("function desktopRendererEntryPath(): string");
+  });
+
   it("keeps remote status read-only", () => {
     // The Agent-Native Code IPC handlers live in ./ipc/code-agents.ts.
     const codeAgentsIpc = source("./ipc/code-agents.ts");
@@ -26,6 +42,66 @@ describe("desktop passive-access regressions", () => {
 
     expect(handler).toContain("getRemoteConnectorStatus()");
     expect(handler).not.toContain("startRemoteCodeAgentConnector");
+  });
+
+  it("keeps first-launch Code Agent inventory metadata-only", () => {
+    const main = source("./index.ts");
+    const projects = between(
+      main,
+      "function readCodeAgentProjectsState()",
+      "function writeCodeAgentProjectsState",
+    );
+    const runProjection = between(
+      main,
+      "function backgroundRunToDesktopRun(",
+      "function readJsonObjectFile(",
+    );
+    const runInventory = between(
+      main,
+      "function listDesktopCodeAgentRuns(",
+      "function readDesktopCodeAgentRun(",
+    );
+    const hostMetadata = between(
+      main,
+      "function getCodeAgentHostMetadata()",
+      "function getDesktopComputerControlMetadata(",
+    );
+    const projectPacks = between(
+      main,
+      "function listCodeAgentProjectPacks(",
+      "function walkMarkdownFiles(",
+    );
+    const worktrees = between(
+      main,
+      "function listCodeAgentWorktrees(",
+      "function restoreCodeAgentWorktree(",
+    );
+    const startup = between(
+      main,
+      "void app.whenReady().then(async () => {",
+      "// Webviews now run in per-app persisted partitions",
+    );
+
+    expect(projects).not.toContain("resolveUsableDirectory");
+    expect(projects).toContain("normalizeRememberedCodeAgentPath");
+    expect(runProjection).not.toContain("fs.existsSync");
+    expect(runInventory).toContain("resumeQueuedCodeAgentWorktreeRuns");
+    expect(runInventory).toContain("ensureCodeAgentWorktreeSweepScheduled");
+    expect(hostMetadata).not.toContain("resolveCodeAgentsTerminalCwd");
+    expect(hostMetadata).not.toContain("resolveRepositoryRoot");
+    expect(projectPacks).toContain(
+      'if (!requestedPath) return { status: "ok" };',
+    );
+    expect(projectPacks).not.toContain("resolveCodeAgentsTerminalCwd(input)");
+    expect(worktrees).not.toContain("resolveCodeAgentsTerminalCwd");
+    expect(worktrees).toContain("ensureCodeAgentWorktreeSweepScheduled");
+    expect(startup).not.toContain("initializeDesktopComputerMcpBridge");
+    expect(startup).not.toContain("reclaimTerminalCodeAgentWorktree");
+    expect(startup).not.toContain("cleanupDueManagedCodeAgentWorktrees");
+    expect(startup).not.toContain("resumeQueuedCodeAgentWorktreeRuns");
+    expect(main).toContain("function ensureDesktopComputerMcpBridge()");
+    expect(main).toContain("remoteConnectorStartPromise");
+    expect(main).toContain("startRemoteCodeAgentConnectorInternal()");
   });
 
   it("does not revalidate a verified desktop identity on tab status reads", () => {
@@ -48,6 +124,35 @@ describe("desktop passive-access regressions", () => {
     );
     expect(signOutGuard).toBeGreaterThanOrEqual(0);
     expect(signedInFastPath).toBeGreaterThan(signOutGuard);
+  });
+
+  it("starts native sign-in from the Dispatch authority, not the active app", () => {
+    const main = source("./index.ts");
+    const signIn = between(
+      main,
+      "ipcMain.handle(IPC.IDENTITY_SIGN_IN",
+      "ipcMain.handle(IPC.IDENTITY_AUTHENTICATE",
+    );
+
+    expect(signIn).toContain("resolveDesktopIdentityAuthority()");
+    expect(signIn).not.toContain("resolveDesktopIdentityApp(activeAppId)");
+
+    const resolver = between(
+      main,
+      "function resolveDesktopIdentityApp(",
+      "function listDesktopIdentityApps(",
+    );
+    expect(resolver).toContain(
+      'allowDisabled: appId === "dispatch" && isCanonical',
+    );
+    expect(resolver).toContain("allowDisabled?: boolean");
+    expect(main).toContain(
+      'return resolveDesktopIdentityApp("dispatch", { allowDisabled: true });',
+    );
+    expect(main).not.toContain(
+      'refreshStatus(resolveDesktopIdentityApp("dispatch"))',
+    );
+    expect(main).toContain("retryAppSessionFanout()");
   });
 
   it("keeps remembered Content folder discovery metadata-only", () => {
@@ -258,7 +363,7 @@ describe("desktop passive-access regressions", () => {
       "const requestedName = requestedDesktopAppName(prompt);",
     );
     expect(creation).toContain("requestedName ??");
-    expect(main).toContain("includeWorkspaceApps: !isDesktopAppCreation");
+    expect(main).toContain("includeWorkspaceApps: true");
   });
 
   it("only marks the local Codex provider configured after authentication", () => {
@@ -305,7 +410,7 @@ describe("desktop passive-access regressions", () => {
     );
     expect(main).toContain("void closeDesktopComputerMcpBridge().catch(");
     expect(main).toContain("restoreAfterUpdateFailure: async () => {");
-    expect(main).toContain("await initializeDesktopComputerMcpBridge();");
+    expect(main).toContain("await ensureDesktopComputerMcpBridge();");
     expect(main).toContain(
       "initializeMultiFrontierAppIntegrationForRuntime();",
     );
@@ -367,6 +472,86 @@ describe("desktop passive-access regressions", () => {
       "// Webviews now run in per-app persisted partitions",
     );
     expect(whenReady).toContain("if (pendingDeepLink) {");
-    expect(whenReady).toContain("handleDeepLink(pendingDeepLink);");
+    expect(whenReady).toContain("handleDeepLink(deepLink);");
+  });
+
+  it("registers development deep links against the current app path", () => {
+    const main = source("./index.ts");
+    const registration = between(
+      main,
+      "const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;",
+      "let pendingDeepLink: string | null = null;",
+    );
+
+    expect(registration).toContain(
+      "app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [",
+    );
+    expect(registration).toContain("app.getAppPath(),");
+    expect(registration).not.toContain("process.argv[1]");
+    expect(registration).toContain(
+      "app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);",
+    );
+  });
+
+  it("does not let embedded pages invoke privileged desktop deep links", () => {
+    const main = source("./index.ts");
+    const windowOpen = between(
+      main,
+      "function handleWindowOpenForContents(",
+      "function installWebviewOAuthNavigationHandler(",
+    );
+
+    expect(windowOpen).toContain(
+      "isTrustedShell && handleDesktopProtocolUrl(url)",
+    );
+    expect(windowOpen).toContain(
+      "denied desktop deep link from embedded content",
+    );
+    const navigation = between(
+      main,
+      "function installWebviewOAuthNavigationHandler(",
+      "// ---------- Webview popup handling ----------",
+    );
+    expect(navigation).toContain(
+      "denied desktop deep-link navigation from embedded content",
+    );
+    expect(navigation).not.toContain("handleDesktopProtocolUrl(url)");
+    expect(
+      navigation.indexOf("if (isDesktopDeepLinkUrl(url))"),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      navigation.indexOf("if (mcpOAuthNavigationGate.isActive(contents.id))"),
+    ).toBeGreaterThan(navigation.indexOf("if (isDesktopDeepLinkUrl(url))"));
+  });
+
+  it("keeps stable and nightly protocol registration channel-specific", () => {
+    expect(
+      readFileSync(
+        new URL("../../electron-builder.yml", import.meta.url),
+        "utf8",
+      ),
+    ).toContain("- agentnative");
+    expect(
+      readFileSync(
+        new URL(
+          "../../../../.github/workflows/desktop-release.yml",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ).toContain("agentnative(?:-nightly)?");
+  });
+
+  it("does not claim unsupported desktop deep-link routes were handled", () => {
+    const main = source("./index.ts");
+    const handler = between(
+      main,
+      "function handleDesktopProtocolUrl(url: string): boolean {",
+      "function cleanContextMenuTemplate(",
+    );
+
+    expect(handler).toContain("recognizedRoute");
+    expect(handler).toContain("return false;");
+    expect(handler).toContain("ignored unsupported desktop deep link route");
   });
 });

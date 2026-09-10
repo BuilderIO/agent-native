@@ -561,7 +561,11 @@ export async function compressBlobIfTooLarge(
   } catch (err) {
     const elapsedMs = Math.round(performance.now() - startedAt);
     const message =
-      err instanceof Error ? err.message : String(err ?? "unknown error");
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : "unknown error";
     // Best-effort cleanup so a failed run doesn't leak input data inside
     // the wasm FS for the lifetime of the tab.
     try {

@@ -26,7 +26,7 @@
 //!     position so the next show reopens at the same spot.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -36,11 +36,13 @@ use tauri::{
 
 use crate::dlog;
 use crate::util::{
-    build_overlay_url, configure_overlay_behavior, set_capture_excluded, show_without_activation,
-    tray_monitor_physical_rect,
+    build_overlay_url, configure_overlay_behavior, raise_to_status_level, set_capture_excluded,
+    show_without_activation, start_topmost_reassert_loop, tray_monitor_physical_rect,
 };
 
 const PILL_LABEL: &str = "recording-pill";
+/// Supersedes stale pill topmost loops after window recreation.
+static PILL_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Detached-mode flag. Toggled from JS via `recording_pill_set_detached` —
 /// the renderer flips it when the main app loses focus. We store it as a
@@ -89,7 +91,7 @@ const PILL_DETACHED_H_LOGICAL: u32 = 40;
 const PILL_DETACHED_TOP_MARGIN_LOGICAL: u32 = 24;
 const PILL_DETACHED_RIGHT_MARGIN_LOGICAL: u32 = 24;
 /// Gap between the visible capsule and the right screen edge, logical px.
-const PILL_RIGHT_MARGIN_LOGICAL: u32 = 28;
+const PILL_RIGHT_MARGIN_LOGICAL: u32 = 25;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -103,6 +105,21 @@ fn scale_factor(app: &AppHandle) -> f64 {
     app.get_webview_window("popover")
         .and_then(|w| w.scale_factor().ok())
         .unwrap_or(2.0)
+}
+
+fn monitor_scale_factor(app: &AppHandle, rect: (i32, i32, u32, u32)) -> f64 {
+    let (x, y, width, height) = rect;
+    app.get_webview_window("popover")
+        .and_then(|window| window.available_monitors().ok())
+        .and_then(|monitors| {
+            monitors.into_iter().find(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                position.x == x && position.y == y && size.width == width && size.height == height
+            })
+        })
+        .map(|monitor| monitor.scale_factor())
+        .unwrap_or_else(|| scale_factor(app))
 }
 
 /// Screen-edge margin for the visible capsule, physical px. The window is
@@ -130,6 +147,46 @@ fn pill_meeting_position_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("pill-position-meeting.json"))
 }
 
+fn pill_expanded_size_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    Some(dir.join("pill-expanded-size.json"))
+}
+
+fn load_expanded_size(app: &AppHandle) -> Option<(u32, u32)> {
+    let path = pill_expanded_size_path(app)?;
+    let bytes = std::fs::read(&path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let w = value.get("w")?.as_u64()? as u32;
+    let h = value.get("h")?.as_u64()? as u32;
+    Some((w, h))
+}
+
+/// Persist the user's chosen expanded-panel size (outer physical px). The
+/// renderer calls this debounced from resize events while expanded.
+#[tauri::command]
+pub async fn recording_pill_save_expanded_size(
+    app: AppHandle,
+    w: u32,
+    h: u32,
+) -> Result<(), String> {
+    let Some(path) = pill_expanded_size_path(&app) else {
+        return Ok(());
+    };
+    let body =
+        serde_json::to_vec(&serde_json::json!({ "w": w, "h": h })).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, &body).is_err() {
+        return Ok(());
+    }
+    if std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Ok(())
+}
+
 fn pill_detached_position_path(app: &AppHandle) -> Option<PathBuf> {
     let dir = app.path().app_data_dir().ok()?;
     if std::fs::create_dir_all(&dir).is_err() {
@@ -140,12 +197,11 @@ fn pill_detached_position_path(app: &AppHandle) -> Option<PathBuf> {
 
 #[derive(Deserialize)]
 struct MeetingPillPosition {
+    /// Meeting positions persist the right edge so width changes do not move the pill.
     x: i32,
     y: i32,
     #[serde(default)]
     anchor: Option<String>,
-    #[serde(default)]
-    width: Option<u32>,
 }
 
 fn load_meeting_position(app: &AppHandle) -> Option<MeetingPillPosition> {
@@ -162,7 +218,6 @@ fn save_meeting_position_to_disk(app: &AppHandle, x: i32, y: i32, width: u32) {
         "x": x + width as i32,
         "y": y,
         "anchor": "right",
-        "width": width,
     })) {
         Ok(b) => b,
         Err(_) => return,
@@ -174,6 +229,14 @@ fn save_meeting_position_to_disk(app: &AppHandle, x: i32, y: i32, width: u32) {
     if std::fs::rename(&tmp, &path).is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
+}
+
+fn right_anchored_x(right_edge: i32, width: u32, min_x: i32, max_x: i32) -> i32 {
+    (right_edge - width as i32).clamp(min_x, max_x)
+}
+
+fn meeting_position_x(position: &MeetingPillPosition, width: u32, min_x: i32, max_x: i32) -> i32 {
+    right_anchored_x(position.x, width, min_x, max_x)
 }
 
 fn load_detached_position(app: &AppHandle) -> Option<(i32, i32)> {
@@ -302,7 +365,19 @@ fn anchored_rect(
     expanded: bool,
     previous_position: Option<(i32, i32, u32, u32)>,
 ) -> (u32, u32, i32, i32) {
-    let (w, h) = pill_size_physical(app, expanded);
+    let (mut w, mut h) = pill_size_physical(app, expanded);
+    // Detached is the small floating footprint whatever `expanded` says —
+    // `pill_size_physical` ignores the flag there, so applying the saved
+    // expanded size would hand the floating pill a full panel-sized window.
+    if expanded && !PILL_DETACHED.load(Ordering::Relaxed) {
+        // The expanded panel is user-resizable; a saved size wins over the
+        // default, clamped to the monitor below via max_x/max_y.
+        if let Some((sw, sh)) = load_expanded_size(app) {
+            let (_, _, mw, mh) = tray_monitor_physical_rect(app);
+            w = sw.min(mw);
+            h = sh.min(mh);
+        }
+    }
     let (mx, my, mw, mh) = tray_monitor_physical_rect(app);
     let max_x = (mx + mw as i32 - w as i32).max(mx);
     let max_y = (my + mh as i32 - h as i32).max(my);
@@ -324,7 +399,7 @@ fn anchored_rect(
             // Top-right anchor: right edge and header stay fixed; pill grows
             // left and down on expand.
             let prev_right = px + prev_w as i32;
-            let x = (prev_right - w as i32).clamp(mx, max_x);
+            let x = right_anchored_x(prev_right, w, mx, max_x);
             let y = py.clamp(my, max_y);
             return (w, h, x, y);
         }
@@ -332,22 +407,26 @@ fn anchored_rect(
         let (_, h_exp) = pill_size_physical(app, true);
         let max_y_exp = (my + mh as i32 - h_exp as i32).max(my);
         let (x, y) = match load_meeting_position(app) {
-            Some(position) if position.anchor.as_deref() == Some("right") => {
-                let saved_width = position.width.unwrap_or(w);
-                (
-                    (position.x - saved_width as i32).clamp(mx, max_x),
-                    position.y.clamp(my, max_y_exp),
-                )
-            }
+            Some(position) if position.anchor.as_deref() == Some("right") => (
+                meeting_position_x(&position, w, mx, max_x),
+                position.y.clamp(my, max_y_exp),
+            ),
             Some(position) => {
-                let (expanded_w, _) = pill_size_physical(app, true);
-                let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale_factor(app)) as i32;
+                // Legacy width was sized from the popover scale, even when the
+                // pill was placed on a different monitor. Keep that old
+                // encoding when reconstructing its right edge.
+                let target_scale = monitor_scale_factor(app, (mx, my, mw, mh));
+                let expanded_w =
+                    (PILL_W_EXPANDED_MEETING_LOGICAL as f64 * scale_factor(app)) as u32;
+                let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * target_scale) as i32;
                 let legacy_right_edge = position.x + expanded_w as i32;
                 let monitor_right = mx + mw as i32;
-                if (legacy_right_edge - (monitor_right - right_margin)).abs() <= 4 {
+                let migration_tolerance = (4.0 * target_scale) as i32;
+                if (legacy_right_edge - (monitor_right - right_margin)).abs() <= migration_tolerance
+                {
                     save_meeting_position_to_disk(app, position.x, position.y, expanded_w);
                     (
-                        (legacy_right_edge - w as i32).clamp(mx, max_x),
+                        right_anchored_x(legacy_right_edge, w, mx, max_x),
                         position.y.clamp(my, max_y_exp),
                     )
                 } else {
@@ -376,6 +455,55 @@ fn anchored_rect(
         None => default_bottom_center(app, w, h),
     };
     (w, h, x, y)
+}
+
+#[tauri::command]
+pub async fn recording_pill_prewarm(app: AppHandle) -> Result<(), String> {
+    if app.get_webview_window(PILL_LABEL).is_some() {
+        return Ok(());
+    }
+    // Built hidden and left that way: `recording_pill_show` takes the
+    // already-alive branch afterwards, which re-anchors before showing, so a
+    // prewarmed window never appears in the wrong place — or at all, if the
+    // user dismisses the meeting instead of taking notes.
+    // The webview mounts a fresh React tree, which renders collapsed. Anything
+    // a previous session left in the flag would describe a pill that no longer
+    // exists, and `recording_pill_show` trusts it on the already-alive branch.
+    PILL_EXPANDED.store(false, Ordering::SeqCst);
+    let win = build_pill_window(&app, false)?;
+    let _ = win;
+    Ok(())
+}
+
+/// Create the pill webview, positioned but not shown. Shared by the prewarm
+/// path and the first `recording_pill_show` of a session.
+fn build_pill_window(app: &AppHandle, expanded: bool) -> Result<WebviewWindow, String> {
+    let (w, h, x, y) = anchored_rect(app, expanded, None);
+    let url = build_overlay_url("recording-pill");
+    let win = WebviewWindowBuilder::new(app, PILL_LABEL, url)
+        .title("Recording")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        // Native elevation: on a transparent window macOS computes the
+        // shadow from the drawn content's alpha, so the capsule gets a
+        // correctly rounded OS shadow with the window sized to the capsule
+        // exactly — no transparent CSS-shadow apron eating clicks.
+        .shadow(true)
+        .visible(false)
+        .focused(false)
+        .accept_first_mouse(true)
+        .build()
+        .map_err(|e| {
+            eprintln!("[clips-tray] recording-pill build failed: {}", e);
+            e.to_string()
+        })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    set_capture_excluded(&win);
+    Ok(win)
 }
 
 #[tauri::command]
@@ -418,40 +546,19 @@ pub async fn recording_pill_show(
         );
         configure_overlay_behavior(&existing);
         show_without_activation(&existing);
+        raise_to_status_level(&existing);
         start_pill_hover_tracking(&app);
+        start_topmost_reassert_loop(&app, PILL_LABEL, &PILL_TOPMOST_GENERATION);
         return Ok(());
     }
 
     PILL_EXPANDED.store(false, Ordering::SeqCst);
-    let (w, h, x, y) = anchored_rect(&app, false, None);
-
-    let url = build_overlay_url("recording-pill");
-    let win = WebviewWindowBuilder::new(&app, PILL_LABEL, url)
-        .title("Recording")
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        // Native elevation: on a transparent window macOS computes the
-        // shadow from the drawn content's alpha, so the capsule gets a
-        // correctly rounded OS shadow with the window sized to the capsule
-        // exactly — no transparent CSS-shadow apron eating clicks.
-        .shadow(true)
-        .visible(false)
-        .focused(false)
-        .accept_first_mouse(true)
-        .build()
-        .map_err(|e| {
-            eprintln!("[clips-tray] recording-pill build failed: {}", e);
-            e.to_string()
-        })?;
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
-    let _ = win.set_position(PhysicalPosition::new(x, y));
-    set_capture_excluded(&win);
+    let win = build_pill_window(&app, false)?;
     configure_overlay_behavior(&win);
     show_without_activation(&win);
+    raise_to_status_level(&win);
     start_pill_hover_tracking(&app);
+    start_topmost_reassert_loop(&app, PILL_LABEL, &PILL_TOPMOST_GENERATION);
 
     // Tell the freshly-mounted React side which mode + meeting_id to render.
     use tauri::Emitter;
@@ -528,6 +635,19 @@ pub async fn recording_pill_expand(app: AppHandle, expanded: bool) -> Result<(),
     let (w, h, x, y) = anchored_rect(&app, expanded, previous);
     let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = window.set_position(PhysicalPosition::new(x, y));
+    // The expanded panel is a reading/chat surface the user may size to
+    // taste; the collapsed capsule stays fixed. Frameless windows get native
+    // edge grips from resizable alone.
+    let _ = window.set_resizable(expanded);
+    if expanded {
+        let scale = window.scale_factor().unwrap_or(2.0);
+        let _ = window.set_min_size(Some(tauri::Size::Physical(PhysicalSize::new(
+            (360.0 * scale) as u32,
+            (260.0 * scale) as u32,
+        ))));
+    } else {
+        let _ = window.set_min_size(None::<tauri::Size>);
+    }
     Ok(())
 }
 
@@ -537,6 +657,13 @@ pub async fn recording_pill_hide(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(PILL_LABEL) {
         let _ = w.close();
     }
+    // The window is gone, so the flag describes nothing. It has to be cleared
+    // here rather than on the next show: a prewarmed window is built outside
+    // `recording_pill_show`, so the next show takes the already-alive branch
+    // and would size a freshly-mounted (collapsed) pill from a stale expanded
+    // flag — leaving a transparent 480x340 frame swallowing clicks around a
+    // capsule drawn at its top.
+    PILL_EXPANDED.store(false, Ordering::SeqCst);
     Ok(())
 }
 
@@ -591,4 +718,17 @@ pub async fn recording_pill_set_detached(app: AppHandle, detached: bool) -> Resu
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{meeting_position_x, MeetingPillPosition};
+
+    #[test]
+    fn meeting_restore_uses_current_width_after_expansion() {
+        let position: MeetingPillPosition =
+            serde_json::from_str(r#"{"x":1870,"y":100,"anchor":"right","width":960}"#).unwrap();
+
+        assert_eq!(meeting_position_x(&position, 76, 0, 1844), 1794);
+    }
 }

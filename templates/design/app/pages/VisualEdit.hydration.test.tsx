@@ -95,6 +95,6 @@ describe("VisualEditPage hydration", () => {
     expect(mocks.buildSignInReturnHref).not.toHaveBeenCalled();
     expect(
       container.querySelector("main a[aria-label]")?.getAttribute("href"),
-    ).toBe("/");
+    ).toBe("/home");
   });
 });

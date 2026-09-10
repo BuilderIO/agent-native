@@ -13,6 +13,7 @@ import { z } from "zod";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
@@ -927,8 +928,12 @@ export default defineAction({
       height: 720,
     }),
   },
-  run: async ({ designId, prompt, variants, deleteSupersededSetIds }) => {
+  run: async (
+    { designId, prompt, variants, deleteSupersededSetIds },
+    context,
+  ) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const omittedContent = variants.filter(
       (variant) => !variant.content?.trim(),
@@ -1216,7 +1221,7 @@ export default defineAction({
           allowOther: false,
           includeExplore: false,
           includeDecide: false,
-          submitOnSelect: true,
+          submitOnSelect: false,
           options: screens.map((screen, index) => {
             const otherScreens = screens
               .filter((other) => other.id !== screen.id)

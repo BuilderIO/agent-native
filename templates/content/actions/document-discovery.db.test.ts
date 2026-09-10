@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-document-discovery-${process.pid}-${Date.now()}.sqlite`,
+  `content-document-discovery-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "discovery-owner@example.com";
 const OUTSIDER = "discovery-outsider@example.com";
@@ -24,7 +24,7 @@ const asUser = <T>(userEmail: string, run: () => Promise<T>) =>
   runWithRequestContext({ userEmail }, run);
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -80,8 +80,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("bounded document discovery", () => {

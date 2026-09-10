@@ -10,24 +10,13 @@ vi.mock("./client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./client.js")>();
   return {
     ...actual,
-    isPostgres: vi.fn(() => false),
-    getDialect: vi.fn(() => "sqlite" as const),
-    getCloudflareD1Binding: vi.fn(() => undefined),
     getMigrationDatabaseUrl: vi.fn(() => ""),
-    retrySqliteBusy: vi.fn(async (fn: () => Promise<unknown>) => fn()),
     getDbExec: vi.fn(),
     createDbExec: vi.fn(),
   };
 });
 
-import {
-  isPostgres,
-  getDialect,
-  getDbExec,
-  createDbExec,
-  getCloudflareD1Binding,
-  getMigrationDatabaseUrl,
-} from "./client.js";
+import { getDbExec, createDbExec, getMigrationDatabaseUrl } from "./client.js";
 import {
   deferMigration,
   runMigrations,
@@ -98,35 +87,6 @@ function makeNamedExec(options: {
 // Tests
 // ---------------------------------------------------------------------------
 
-beforeEach(() => {
-  vi.mocked(getDialect).mockReturnValue("sqlite");
-  vi.mocked(getCloudflareD1Binding).mockReturnValue(undefined);
-});
-
-describe("runMigrations – SQLite steady-state (no pending migrations)", () => {
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("issues zero direct-exec opens when already up to date", async () => {
-    // SQLite path uses the pooled singleton exec only
-    vi.mocked(isPostgres).mockReturnValue(false);
-    const exec = makeExec([{ v: 5 }]);
-    vi.mocked(getDbExec).mockReturnValue(exec);
-
-    const migrations = [
-      { version: 1, sql: "CREATE TABLE t1 (id INTEGER PRIMARY KEY)" },
-      { version: 2, sql: "CREATE TABLE t2 (id INTEGER PRIMARY KEY)" },
-    ];
-
-    const plugin = runMigrations(migrations, { table: "test_migrations" });
-    await plugin(null);
-
-    // createDbExec must NOT be called for SQLite
-    expect(createDbExec).not.toHaveBeenCalled();
-  });
-});
-
 describe("runMigrations – serverless request runtime", () => {
   // Analytics guarded its OWN migration runner in #2708, but org,
   // context-xray, and observational-memory kept calling runMigrations
@@ -167,6 +127,22 @@ describe("runMigrations – serverless request runtime", () => {
       expect(createDbExec).not.toHaveBeenCalled();
     });
   }
+
+  it("does not resolve a lazy migration source in a guarded request", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    vi.stubEnv("NETLIFY", "true");
+    const loadMigrations = vi.fn(async () => migrations);
+
+    const plugin = runMigrations(loadMigrations, {
+      table: "lazy_guard_migrations",
+    });
+    await plugin(null);
+
+    expect(loadMigrations).not.toHaveBeenCalled();
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+  });
 
   it("keeps request-time migrations when no release runner is configured", async () => {
     vi.stubEnv("NODE_ENV", "production");
@@ -228,9 +204,12 @@ describe("runMigrations – serverless request runtime", () => {
   it("fails the release run when a migration fails", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
-    const exec = makeExec([{ v: 0 }]);
-    exec.execute.mockRejectedValueOnce(new Error("release DDL failed"));
-    vi.mocked(getDbExec).mockReturnValue(exec);
+    const pooledExec = makeExec([{ v: 0 }]);
+    const directExec = makeExec([{ v: 0 }]);
+    directExec.execute.mockRejectedValueOnce(new Error("release DDL failed"));
+    vi.mocked(getDbExec).mockReturnValue(pooledExec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://release");
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
 
     const plugin = runMigrations(migrations, { table: "release_migrations" });
 
@@ -277,7 +256,6 @@ describe("runMigrations – empty migration list", () => {
 
     expect(getDbExec).not.toHaveBeenCalled();
     expect(createDbExec).not.toHaveBeenCalled();
-    expect(getCloudflareD1Binding).not.toHaveBeenCalled();
   });
 });
 
@@ -305,8 +283,7 @@ describe("runMigrations – run-only entries", () => {
     vi.clearAllMocks();
   });
 
-  it("runs the callback before recording a named SQLite migration", async () => {
-    vi.mocked(isPostgres).mockReturnValue(false);
+  it("runs the callback before recording a named migration", async () => {
     const events: string[] = [];
     const exec = makeNamedExec({ version: 0, appliedNames: [] });
     exec.execute.mockImplementation(
@@ -346,7 +323,6 @@ describe("runMigrations – run-only entries", () => {
   });
 
   it("runs and records a named Postgres run-only migration", async () => {
-    vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeNamedExec({ version: 0, appliedNames: [] });
     const directExec = makeNamedExec({ version: 0, appliedNames: [] });
     pooledExec.execute.mockImplementation(
@@ -378,7 +354,6 @@ describe("runMigrations – run-only entries", () => {
   });
 
   it("leaves a deferred run-only migration unrecorded", async () => {
-    vi.mocked(isPostgres).mockReturnValue(false);
     const exec = makeNamedExec({ version: 0, appliedNames: [] });
     vi.mocked(getDbExec).mockReturnValue(exec);
     const run = vi.fn(async () => deferMigration());
@@ -393,53 +368,6 @@ describe("runMigrations – run-only entries", () => {
     expect(exec.insertedNames).toEqual([]);
     expect(exec.insertedVersions).toEqual([]);
   });
-
-  it("records D1 run-only bookkeeping in one atomic batch", async () => {
-    const batch = vi.fn(async () => []);
-    const prepared: Array<{ sql: string; values: unknown[] }> = [];
-    const d1 = {
-      prepare: vi.fn((sql: string) => {
-        const entry = { sql, values: [] as unknown[] };
-        prepared.push(entry);
-        return {
-          bind: (...values: unknown[]) => {
-            entry.values = values;
-            return {
-              bind: vi.fn(),
-              all: vi.fn(async () => ({ results: [] })),
-              first: vi.fn(async () => null),
-              run: vi.fn(async () => ({})),
-            };
-          },
-          all: vi.fn(async () => ({ results: [] })),
-          first: vi.fn(async () => null),
-          run: vi.fn(async () => ({})),
-        };
-      }),
-      batch,
-    };
-    vi.mocked(getDialect).mockReturnValue("d1");
-    vi.mocked(getCloudflareD1Binding).mockReturnValue(d1);
-    const run = vi.fn(async () => {});
-
-    const plugin = runMigrations(
-      [{ version: 1, name: "repair-counts", sql: {}, run }],
-      { table: "d1_run_only_migrations" },
-    );
-    await plugin(null);
-
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(batch).toHaveBeenCalledTimes(1);
-    expect(batch.mock.calls[0]?.[0]).toHaveLength(2);
-    expect(
-      prepared.some(
-        (entry) =>
-          /_named/.test(entry.sql) &&
-          entry.values[0] === "repair-counts" &&
-          entry.values[1] === 1,
-      ),
-    ).toBe(true);
-  });
 });
 
 describe("runMigrations – Postgres steady-state (no pending migrations)", () => {
@@ -450,7 +378,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
 
   it("opens zero direct-endpoint connections when all migrations applied", async () => {
     // Postgres path — pooled singleton says max version = 10 (all migrations done)
-    vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeExec([{ v: 10 }]);
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
 
@@ -472,7 +399,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
   it("treats a missing migrations table (pooled SELECT throws) as all-pending", async () => {
     // When the pooled exec throws (table doesn't exist yet), we should still
     // proceed to apply all migrations via the direct endpoint.
-    vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = {
       execute: vi
         .fn()
@@ -504,7 +430,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
   });
 
   it("opens the direct exec and applies pending migrations", async () => {
-    vi.mocked(isPostgres).mockReturnValue(true);
     // Pooled exec reports version = 2 (version 3 pending)
     const pooledExec = makeExec([{ v: 2 }]);
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
@@ -535,7 +460,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
   });
 
   it("uses the pooled exec for a pending run-only migration", async () => {
-    vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeNamedExec({ version: 131, appliedNames: [] });
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
 
@@ -560,7 +484,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
   });
 
   it("closes the direct exec after migrations complete", async () => {
-    vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeExec([{ v: 0 }]);
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
     vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
@@ -582,7 +505,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
   });
 
   it("closes the direct exec even when a migration throws", async () => {
-    vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeExec([{ v: 0 }]);
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
     vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
@@ -619,7 +541,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
   });
 
   it("shares one direct exec across concurrent runners in the same boot window", async () => {
-    vi.mocked(isPostgres).mockReturnValue(true);
     // Both pooled execs report current = 0 → both have pending migrations
     const pooledExec = makeExec([{ v: 0 }]);
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
@@ -658,9 +579,11 @@ describe("runMigrations – name-based tracking", () => {
     // Regression case: analytics_migrations reports MAX=83 (a colliding
     // branch's versions), but the named row for this migration was never
     // recorded — it must still apply.
-    vi.mocked(isPostgres).mockReturnValue(false);
     const exec = makeNamedExec({ version: 83, appliedNames: [] });
     vi.mocked(getDbExec).mockReturnValue(exec);
+    const directExec = makeNamedExec({ version: 83, appliedNames: [] });
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
 
     const migrations = [
       {
@@ -673,17 +596,16 @@ describe("runMigrations – name-based tracking", () => {
     const plugin = runMigrations(migrations, { table: "analytics_migrations" });
     await plugin(null);
 
-    const calls = exec.execute.mock.calls.map((c) =>
+    const calls = directExec.execute.mock.calls.map((c) =>
       typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
     );
     expect(
       calls.some((s) => /CREATE TABLE analytics_alert_rules/i.test(s)),
     ).toBe(true);
-    expect(exec.insertedNames).toContain("alert-rules-table");
+    expect(directExec.insertedNames).toContain("alert-rules-table");
   });
 
   it("does not re-apply a named migration whose name is already recorded", async () => {
-    vi.mocked(isPostgres).mockReturnValue(false);
     const exec = makeNamedExec({
       version: 83,
       appliedNames: ["alert-rules-table"],
@@ -710,7 +632,6 @@ describe("runMigrations – name-based tracking", () => {
   });
 
   it("does not re-apply on a second run after recording the name", async () => {
-    vi.mocked(isPostgres).mockReturnValue(false);
     // First run: name not yet applied.
     const firstExec = makeNamedExec({ version: 5, appliedNames: [] });
     vi.mocked(getDbExec).mockReturnValue(firstExec);
@@ -726,6 +647,8 @@ describe("runMigrations – name-based tracking", () => {
     const plugin = runMigrations(migrations, {
       table: "second_run_migrations",
     });
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+    vi.mocked(createDbExec).mockResolvedValueOnce(firstExec);
     await plugin(null);
     expect(firstExec.insertedNames).toContain("second-run-guard");
 
@@ -747,9 +670,11 @@ describe("runMigrations – name-based tracking", () => {
   });
 
   it("keeps unnamed legacy migrations gated purely by version > MAX", async () => {
-    vi.mocked(isPostgres).mockReturnValue(false);
     const exec = makeNamedExec({ version: 2, appliedNames: [] });
     vi.mocked(getDbExec).mockReturnValue(exec);
+    const directExec = makeNamedExec({ version: 2, appliedNames: [] });
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
 
     const migrations = [
       { version: 1, sql: "CREATE TABLE t1 (id INTEGER PRIMARY KEY)" },
@@ -760,7 +685,7 @@ describe("runMigrations – name-based tracking", () => {
     const plugin = runMigrations(migrations, { table: "legacy_migrations" });
     await plugin(null);
 
-    const calls = exec.execute.mock.calls.map((c) =>
+    const calls = directExec.execute.mock.calls.map((c) =>
       typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
     );
     // v1/v2 already applied (version <= MAX), only v3 should run.
@@ -794,9 +719,11 @@ describe("runMigrations – name-based tracking", () => {
   });
 
   it("advances the legacy version row when a named migration's version exceeds MAX", async () => {
-    vi.mocked(isPostgres).mockReturnValue(false);
     const exec = makeNamedExec({ version: 5, appliedNames: [] });
     vi.mocked(getDbExec).mockReturnValue(exec);
+    const directExec = makeNamedExec({ version: 5, appliedNames: [] });
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
 
     const migrations = [
       {
@@ -813,12 +740,11 @@ describe("runMigrations – name-based tracking", () => {
 
     // Both the named row AND the legacy version row should be recorded,
     // since version 6 > current max of 5.
-    expect(exec.insertedNames).toContain("advances-legacy");
-    expect(exec.insertedVersions).toContain(6);
+    expect(directExec.insertedNames).toContain("advances-legacy");
+    expect(directExec.insertedVersions).toContain(6);
   });
 
   it("applies a named migration on Postgres despite a stale direct-endpoint version", async () => {
-    vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeNamedExec({ version: 83, appliedNames: [] });
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
     vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");

@@ -4,6 +4,11 @@ const readAppSecretMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
+const getProviderCredentialAuthFailureMock = vi.hoisted(() => vi.fn());
+const requestContextState = vi.hoisted(() => ({
+  synthetic: false,
+  orgId: undefined as string | undefined,
+}));
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: readAppSecretMock,
@@ -14,18 +19,23 @@ vi.mock("../settings/store.js", () => ({
 }));
 
 vi.mock("../server/request-context.js", () => ({
-  getRequestOrgId: () => undefined,
+  getRequestContext: () =>
+    requestContextState.synthetic ? { isSyntheticTraffic: true } : undefined,
+  getRequestOrgId: () => requestContextState.orgId,
   getRequestUserEmail: () => "owner@example.com",
 }));
 
 vi.mock("../server/credential-provider.js", () => ({
   canUseDeployCredentialFallbackForRequest:
     canUseDeployCredentialFallbackForRequestMock,
-  getProviderCredentialAuthFailure: vi.fn(async () => null),
+  getProviderCredentialAuthFailure: getProviderCredentialAuthFailureMock,
   readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 
-import { resolveOwnerEngineApiKey } from "./production-agent.js";
+import {
+  getOwnerApiKey,
+  resolveOwnerEngineApiKey,
+} from "./production-agent.js";
 
 /** Owner-scoped `app_secrets` rows, keyed by the provider env var. */
 function ownerSecrets(secrets: Record<string, string>) {
@@ -40,6 +50,9 @@ beforeEach(() => {
   getSettingMock.mockResolvedValue(undefined);
   readDeployCredentialEnvMock.mockReturnValue(undefined);
   canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
+  getProviderCredentialAuthFailureMock.mockResolvedValue(null);
+  requestContextState.synthetic = false;
+  requestContextState.orgId = undefined;
 });
 
 describe("resolveOwnerEngineApiKey", () => {
@@ -160,5 +173,35 @@ describe("resolveOwnerEngineApiKey", () => {
       }),
     ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
     expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+  });
+
+  it("does not replace a rejected synthetic user key with a shared scope key", async () => {
+    requestContextState.synthetic = true;
+    requestContextState.orgId = "org-1";
+    readAppSecretMock.mockImplementation(
+      async ({ scope }: { scope: string }) => {
+        if (scope === "user") {
+          return { value: "sk-user-rejected", last4: "cted", updatedAt: 1 };
+        }
+        if (scope === "org") {
+          return { value: "sk-shared", last4: "ared", updatedAt: 1 };
+        }
+        return null;
+      },
+    );
+    getProviderCredentialAuthFailureMock.mockImplementation(
+      async ({ value }: { value: string }) =>
+        value === "sk-user-rejected" ? { status: 401 } : null,
+    );
+
+    await expect(getOwnerApiKey("openai", "owner@example.com")).resolves.toBe(
+      undefined,
+    );
+    expect(readAppSecretMock).toHaveBeenCalledTimes(1);
+    expect(readAppSecretMock).toHaveBeenCalledWith({
+      key: "OPENAI_API_KEY",
+      scope: "user",
+      scopeId: "owner@example.com",
+    });
   });
 });

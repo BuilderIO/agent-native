@@ -208,7 +208,9 @@ function withIosCompanion(config: Parameters<ConfigPlugin>[0]) {
             typeof item === "object" &&
             !Array.isArray(item) &&
             !quickActionUrls.has(
-              String(item.UIApplicationShortcutItemType ?? ""),
+              typeof item.UIApplicationShortcutItemType === "string"
+                ? item.UIApplicationShortcutItemType
+                : "",
             ),
         )
       : [];

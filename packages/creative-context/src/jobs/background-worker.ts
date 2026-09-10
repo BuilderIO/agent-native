@@ -197,7 +197,11 @@ async function processClaimedJob(job: ContextJob): Promise<{
         : operation === "rebuild-embeddings"
           ? await rebuildVectorBatch(job)
           : null;
-    if (!batch) throw new Error(`Unsupported embedding job: ${operation}`);
+    if (!batch) {
+      throw new Error(
+        `Unsupported embedding job: ${typeof operation === "string" ? operation : (JSON.stringify(operation) ?? "unknown")}`,
+      );
+    }
     return {
       progress: batch.processed,
       hasMore: batch.hasMore,

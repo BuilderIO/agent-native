@@ -1,5 +1,5 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { emailToName } from "@agent-native/core/client/collab";
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   InlineMarkdown,
@@ -7,22 +7,41 @@ import {
 } from "@agent-native/core/client/markdown";
 import {
   IconCheck,
-  IconMessageCircle,
+  IconSparkles,
   IconArrowUp,
   IconArrowBackUp,
-  IconChevronDown,
+  IconFilter,
+  IconDots,
 } from "@tabler/icons-react";
 import {
   Fragment,
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useCallback,
+  useId,
   type RefObject,
 } from "react";
 import { toast } from "sonner";
 
+import {
+  Avatar as UserAvatar,
+  AvatarFallback as UserAvatarFallback,
+  AvatarImage as UserAvatarImage,
+} from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +50,8 @@ import {
 import {
   useCreateComment,
   useResolveComment,
+  useEditComment,
+  type Comment,
   type CommentThread,
   type CommentMention,
 } from "@/hooks/use-comments";
@@ -40,6 +61,7 @@ import {
 } from "@/hooks/use-mention-members";
 
 import type { CommentTextAnchor } from "./comment-anchors";
+import { useCommentDraft, useCommentPanelSession } from "./comment-drafts";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
 
 /**
@@ -93,6 +115,87 @@ function emailToAvatarColor(email: string) {
   }
   const hue = Math.abs(hash) % 360;
   return `hsl(${hue}, 55%, 55%)`;
+}
+
+function CommentAvatar({
+  email,
+  name,
+  className = "h-6 w-6",
+}: {
+  email?: string | null;
+  name?: string | null;
+  className?: string;
+}) {
+  const avatarUrl = useAvatarUrl(email);
+  const label = name ?? email ?? "";
+  return (
+    <UserAvatar className={className} title={label}>
+      {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
+      <UserAvatarFallback
+        className="text-[11px] font-medium text-primary-foreground"
+        style={{ backgroundColor: emailToAvatarColor(email ?? "user") }}
+      >
+        {emailToInitial(label)}
+      </UserAvatarFallback>
+    </UserAvatar>
+  );
+}
+
+export function getAiCommentSource(
+  submissionSource: string | null | undefined,
+): "mcp" | "agent" | null {
+  return submissionSource === "mcp" || submissionSource === "agent"
+    ? submissionSource
+    : null;
+}
+
+function CommentAttributionBadge({ comment }: { comment: Comment }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const source = getAiCommentSource(comment.submission_source);
+  if (!source) return null;
+
+  const authorName =
+    comment.author_name ??
+    comment.author_email.split("@")[0] ??
+    comment.author_email;
+  const attribution = t("comments.aiAttribution", { name: authorName });
+  const sourceLabel = t(
+    source === "mcp" ? "comments.aiSourceMcp" : "comments.aiSourceAgent",
+  );
+
+  return (
+    <Tooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${attribution}. ${sourceLabel}`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(true);
+          }}
+          className="pointer-events-auto -m-1 inline-flex shrink-0 items-center justify-center rounded p-1 leading-none text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-comment-ai-attribution={source}
+        >
+          <span className="inline-flex h-4 min-w-5 items-center justify-center rounded border border-border bg-muted/50 px-1 text-[10px] font-semibold leading-none tracking-wide">
+            {t("comments.aiBadge")}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="w-max max-w-60 px-2 py-1.5 text-xs leading-4"
+      >
+        <span className="grid gap-0.5">
+          <span>{attribution}</span>
+          <span className="text-muted-foreground">{sourceLabel}</span>
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function formatDate(dateStr: string) {
@@ -313,7 +416,8 @@ interface CommentsSidebarProps {
     anchor?: CommentTextAnchor;
     range?: { from: number; to: number };
   } | null;
-  onPendingDone?: () => void;
+  pendingTargetValid?: boolean;
+  onPendingDone?: (threadId?: string) => void;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
   activeThreadId?: string | null;
   selectedThreadId?: string | null;
@@ -325,6 +429,9 @@ interface CommentsSidebarProps {
   canResolve?: boolean;
   alignToAnchors?: boolean;
   forceVisible?: boolean;
+  visibleThreadId?: string | null;
+  presentation?: "inline" | "history";
+  compactHistory?: boolean;
 }
 
 export function CommentsSidebar({
@@ -332,6 +439,7 @@ export function CommentsSidebar({
   threads = [],
   isLoading = false,
   pendingComment,
+  pendingTargetValid = true,
   onPendingDone,
   scrollContainerRef,
   activeThreadId,
@@ -344,102 +452,180 @@ export function CommentsSidebar({
   canResolve = false,
   alignToAnchors = true,
   forceVisible = false,
+  visibleThreadId,
+  presentation = "inline",
+  compactHistory = false,
 }: CommentsSidebarProps) {
   const t = useT();
   const { data: members = [] } = useMentionMembers();
-  const createComment = useCreateComment();
+  const createComment = useCreateComment({ email: currentUserEmail });
   const resolveComment = useResolveComment();
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState("");
-  const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
-  const [pendingText, setPendingText] = useState("");
-  const [pendingMentions, setPendingMentions] = useState<MentionEntry[]>([]);
-  const [showResolved, setShowResolved] = useState(false);
+  const replyDraft = useCommentDraft(
+    `reply:${replyingThreadId ?? selectedThreadId ?? ""}`,
+  );
+  const { text: replyText, mentions: replyMentions } = replyDraft.draft;
+  const setReplyText = replyDraft.setText;
+  const setReplyMentions = replyDraft.setMentions;
+  const pendingDraft = useCommentDraft("pending");
+  const { text: pendingText, mentions: pendingMentions } = pendingDraft.draft;
+  const setPendingText = pendingDraft.setText;
+  const setPendingMentions = pendingDraft.setMentions;
+  const {
+    historyStatus,
+    setHistoryStatus,
+    historyAuthor,
+    setHistoryAuthor,
+    isResolving,
+    startResolution,
+    finishResolution,
+  } = useCommentPanelSession();
   const sidebarRef = useRef<HTMLDivElement>(null);
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
+  const ambiguousCreate = (threadId?: string) =>
+    threads.some((thread) =>
+      thread.comments.some(
+        (comment) =>
+          comment.mutation?.ambiguous &&
+          comment.mutation.kind === "create" &&
+          (threadId
+            ? comment.thread_id === threadId
+            : comment.parent_id === null),
+      ),
+    );
 
-  const openThreads = useMemo(
-    () => threads?.filter((t) => !t.resolved) ?? [],
-    [threads],
-  );
-  const resolvedThreads = useMemo(
-    () => threads?.filter((t) => t.resolved) ?? [],
-    [threads],
-  );
+  const openThreads = useMemo(() => {
+    const open =
+      threads?.filter(
+        (thread) => !thread.resolved || thread.threadId === selectedThreadId,
+      ) ?? [];
+    return visibleThreadId
+      ? open.filter((thread) => thread.threadId === visibleThreadId)
+      : open;
+  }, [threads, visibleThreadId, selectedThreadId]);
+  const selectedThreadIsOpen =
+    !!selectedThreadId &&
+    openThreads.some((thread) => thread.threadId === selectedThreadId);
 
-  const authorName = currentUserEmail
-    ? emailToName(currentUserEmail)
-    : undefined;
+  useLayoutEffect(() => {
+    const nextReplyingThreadId =
+      presentation === "inline" && canComment && selectedThreadIsOpen
+        ? selectedThreadId
+        : null;
+    setReplyingThreadId(nextReplyingThreadId);
+  }, [canComment, presentation, selectedThreadId, selectedThreadIsOpen]);
+  const historyAuthors = useMemo(() => {
+    const authors = new Map<string, string>();
+    for (const thread of threads) {
+      for (const comment of thread.comments) {
+        authors.set(
+          comment.author_email,
+          comment.author_name ?? comment.author_email.split("@")[0],
+        );
+      }
+    }
+    return [...authors.entries()].sort((left, right) =>
+      left[1].localeCompare(right[1]),
+    );
+  }, [threads]);
+  const historyThreads = useMemo(() => {
+    return threads.filter((thread) => {
+      if (selectedThreadId === thread.threadId) return true;
+      if (compactHistory && selectedThreadId) return false;
+      if (historyStatus === "open" && thread.resolved) return false;
+      if (historyStatus === "resolved" && !thread.resolved) return false;
+      if (
+        historyAuthor &&
+        !thread.comments.some(
+          (comment) => comment.author_email === historyAuthor,
+        )
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [historyAuthor, historyStatus, threads, selectedThreadId, compactHistory]);
 
   useEffect(() => {
     if (pendingComment) {
-      setPendingText("");
-      setPendingMentions([]);
       setTimeout(() => pendingInputRef.current?.focus(), 50);
     }
   }, [pendingComment]);
 
-  const handlePendingSubmit = () => {
+  const handlePendingSubmit = async () => {
     if (!canComment) return;
-    if (!pendingText.trim() || createComment.isPending) return;
-    createComment.mutate(
-      {
-        documentId,
-        content: pendingText.trim(),
-        quotedText: pendingComment?.quotedText,
-        anchorPrefix: pendingComment?.anchor?.prefix,
-        anchorSuffix: pendingComment?.anchor?.suffix,
-        anchorStartOffset: pendingComment?.anchor?.startOffset,
-        authorName,
-        mentions: mentionsJsonFor(pendingText, pendingMentions),
-      },
-      {
-        onSuccess: () => {
-          setPendingText("");
-          setPendingMentions([]);
-          onPendingDone?.();
-        },
-        onError: (error) => {
-          toast.error(t("empty.genericError"), {
-            description: error.message,
-          });
-        },
-      },
-    );
+    if (
+      !pendingText.trim() ||
+      createComment.isPending ||
+      !pendingTargetValid ||
+      ambiguousCreate()
+    )
+      return;
+    const clientOperationId = crypto.randomUUID();
+    const submittedDraft = pendingDraft.markSubmitted(clientOperationId);
+    try {
+      await pendingDraft.clearOnSuccess(
+        submittedDraft,
+        createComment.mutateAsync(
+          {
+            clientOperationId,
+            documentId,
+            content: pendingText.trim(),
+            quotedText: pendingComment?.quotedText,
+            anchorPrefix: pendingComment?.anchor?.prefix,
+            anchorSuffix: pendingComment?.anchor?.suffix,
+            anchorStartOffset: pendingComment?.anchor?.startOffset,
+            mentions: mentionsJsonFor(pendingText, pendingMentions),
+          },
+          {
+            onSuccess: (result) => onPendingDone?.(result.threadId),
+          },
+        ),
+      );
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
   };
 
   const handlePendingCancel = () => {
-    setPendingText("");
-    setPendingMentions([]);
+    pendingDraft.discard();
     onPendingDone?.();
   };
 
-  const handleReply = (threadId: string) => {
+  const handleReply = async (threadId: string) => {
     if (!canComment) return;
-    if (!replyText.trim() || createComment.isPending) return;
+    if (
+      !replyText.trim() ||
+      createComment.isPending ||
+      isResolving(threadId) ||
+      threads.some(
+        (thread) => thread.threadId === threadId && thread.resolved,
+      ) ||
+      ambiguousCreate(threadId)
+    )
+      return;
+    const clientOperationId = crypto.randomUUID();
+    const submittedDraft = replyDraft.markSubmitted(clientOperationId);
     const thread = threads?.find((t) => t.threadId === threadId);
-    createComment.mutate(
-      {
-        documentId,
-        content: replyText.trim(),
-        threadId,
-        parentId: thread?.comments[0]?.id,
-        authorName,
-        mentions: mentionsJsonFor(replyText, replyMentions),
-      },
-      {
-        onSuccess: () => {
-          setReplyText("");
-          setReplyMentions([]);
-          setReplyingThreadId(null);
-        },
-        onError: (error) => {
-          toast.error(t("empty.genericError"), {
-            description: error.message,
-          });
-        },
-      },
-    );
+    try {
+      await replyDraft.clearOnSuccess(
+        submittedDraft,
+        createComment.mutateAsync({
+          clientOperationId,
+          documentId,
+          content: replyText.trim(),
+          threadId,
+          parentId: thread?.comments[0]?.id,
+          mentions: mentionsJsonFor(replyText, replyMentions),
+        }),
+      );
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
   };
 
   const handleSendToAI = (thread: CommentThread) => {
@@ -581,13 +767,13 @@ export function CommentsSidebar({
     ) {
       onSelectedThreadChange?.(null);
       setReplyingThreadId(null);
-      setReplyText("");
-      setReplyMentions([]);
     }
   }, [onSelectedThreadChange, selectedThreadId, openThreads]);
 
   const hasContent =
-    openThreads.length > 0 || !!pendingComment || resolvedThreads.length > 0;
+    presentation === "history"
+      ? threads.length > 0
+      : openThreads.length > 0 || !!pendingComment;
   if (!hasContent && !isLoading && !forceVisible) return null;
 
   const items = layoutCommentThreads(
@@ -597,39 +783,215 @@ export function CommentsSidebar({
     selectedThreadId,
   );
 
-  const handleResolve = (thread: CommentThread) => {
-    if (!canResolve) return;
-    resolveComment.mutate({
-      id: thread.comments[0].id,
-      documentId,
-      resolved: true,
-    });
-    if (selectedThreadId === thread.threadId) onSelectedThreadChange?.(null);
-    if (replyingThreadId === thread.threadId) {
-      setReplyingThreadId(null);
-      setReplyText("");
-      setReplyMentions([]);
+  const changeResolution = async (thread: CommentThread, resolved: boolean) => {
+    if (
+      !canResolve ||
+      thread.comments.some((c) => c.mutation?.status === "pending")
+    )
+      return;
+    if (!startResolution(thread.threadId)) return;
+    try {
+      await resolveComment.mutateAsync({
+        id: thread.comments[0].id,
+        documentId,
+        resolved,
+      });
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      finishResolution(thread.threadId);
     }
   };
+  const handleResolve = (thread: CommentThread) =>
+    changeResolution(thread, true);
+  const handleReopen = (thread: CommentThread) =>
+    changeResolution(thread, false);
 
-  const handleReopen = (thread: CommentThread) => {
-    if (!canResolve) return;
-    resolveComment.mutate({
-      id: thread.comments[0].id,
-      documentId,
-      resolved: false,
-    });
-  };
+  if (presentation === "history") {
+    return (
+      <div
+        className="min-h-full w-full bg-background"
+        data-comments-history
+        data-comments-sidebar
+      >
+        <div className="sticky top-0 z-10 flex items-center border-b border-border bg-background px-3 py-2">
+          {selectedThreadId && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onSelectedThreadChange?.(null)}
+            >
+              {t("comments.backToList")}
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <IconFilter size={14} />
+                {t("comments.filter")}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>
+                {t("comments.statusFilter")}
+              </DropdownMenuLabel>
+              <DropdownMenuGroup>
+                {(["all", "open", "resolved"] as const).map((status) => (
+                  <DropdownMenuCheckboxItem
+                    key={status}
+                    checked={historyStatus === status}
+                    onCheckedChange={(checked) =>
+                      checked && setHistoryStatus(status)
+                    }
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {status === "all"
+                      ? t("comments.allStatuses")
+                      : status === "open"
+                        ? t("comments.open")
+                        : t("comments.resolvedStatus")}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>
+                {t("comments.authorFilter")}
+              </DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuCheckboxItem
+                  checked={historyAuthor === null}
+                  onCheckedChange={(checked) =>
+                    checked && setHistoryAuthor(null)
+                  }
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  {t("comments.allAuthors")}
+                </DropdownMenuCheckboxItem>
+                {historyAuthors.map(([email, name]) => (
+                  <DropdownMenuCheckboxItem
+                    key={email}
+                    checked={historyAuthor === email}
+                    onCheckedChange={(checked) =>
+                      checked && setHistoryAuthor(email)
+                    }
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {name}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <div className="grid gap-2 p-3">
+          {isLoading ? (
+            [0, 1, 2].map((item) => (
+              <div
+                key={item}
+                className="h-24 animate-pulse rounded-lg bg-muted/60"
+                aria-hidden="true"
+              />
+            ))
+          ) : historyThreads.length === 0 ? (
+            <div className="px-2 py-10 text-center text-sm text-muted-foreground">
+              {historyStatus !== "resolved" &&
+              historyAuthor === null &&
+              threads.length === 0
+                ? t(
+                    canComment
+                      ? "comments.selectTextToComment"
+                      : "comments.empty",
+                  )
+                : t("comments.noFilteredComments")}
+            </div>
+          ) : (
+            historyThreads.map((thread) =>
+              thread.resolved ? (
+                <ResolvedThreadView
+                  key={thread.threadId}
+                  thread={thread}
+                  canResolve={canResolve}
+                  currentUserEmail={currentUserEmail}
+                  canComment={canComment}
+                  members={members}
+                  documentId={documentId}
+                  onReopen={() => handleReopen(thread)}
+                  t={t}
+                />
+              ) : selectedThreadId === thread.threadId ? (
+                <ThreadView
+                  key={thread.threadId}
+                  thread={thread}
+                  documentId={documentId}
+                  currentUserEmail={currentUserEmail}
+                  marginTop={0}
+                  isActive
+                  allowEmphasisMotion={false}
+                  isExpanded
+                  isSubmitting={
+                    isResolving(thread.threadId) ||
+                    (createComment.isPending &&
+                      createComment.variables?.threadId === thread.threadId) ||
+                    ambiguousCreate(thread.threadId)
+                  }
+                  replyText={replyText}
+                  members={members}
+                  canComment={canComment}
+                  canResolve={canResolve}
+                  onHoverChange={(hovered) =>
+                    onHoveredThreadChange?.(hovered ? thread.threadId : null)
+                  }
+                  onExpand={() => onActivateThread?.(thread.threadId)}
+                  onCollapse={() => onSelectedThreadChange?.(null)}
+                  onReplyChange={setReplyText}
+                  onReplyMentionAdd={(mention) =>
+                    setReplyMentions((previous) => [...previous, mention])
+                  }
+                  onHeightChange={handleThreadCardHeightChange}
+                  onSubmitReply={() => handleReply(thread.threadId)}
+                  onResolve={() => handleResolve(thread)}
+                  onSendToAI={() => handleSendToAI(thread)}
+                  t={t}
+                />
+              ) : (
+                <HistoryThreadView
+                  key={thread.threadId}
+                  thread={thread}
+                  onOpen={() => onActivateThread?.(thread.threadId)}
+                />
+              ),
+            )
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       ref={sidebarRef}
-      className="relative w-full min-w-0 shrink-0 pb-16"
+      className="relative flow-root w-full min-w-0 shrink-0 pb-16"
       data-comments-sidebar
     >
       {!hasContent && !isLoading ? (
         <div className="px-4 py-8 text-sm text-muted-foreground">
           {t("comments.empty")}
+        </div>
+      ) : null}
+      {isLoading ? (
+        <div className="space-y-3 px-2 pt-3" aria-hidden="true">
+          {[0, 1].map((item) => (
+            <div
+              key={item}
+              className="h-28 animate-pulse rounded-lg bg-muted/60"
+            />
+          ))}
         </div>
       ) : null}
       {/* Pending new comment — positioned at the selection Y offset */}
@@ -646,6 +1008,11 @@ export function CommentsSidebar({
               : undefined
           }
         >
+          {!pendingTargetValid && (
+            <p role="alert" className="mb-2 text-xs text-muted-foreground">
+              {t("comments.selectTextToComment")}
+            </p>
+          )}
           <CommentComposer
             ref={pendingInputRef}
             value={pendingText}
@@ -662,15 +1029,13 @@ export function CommentsSidebar({
           />
           <div className="flex justify-end gap-1 mt-1.5">
             <button
-              onClick={handlePendingCancel}
-              disabled={createComment.isPending}
-              className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
-            >
-              {t("comments.cancel")}
-            </button>
-            <button
               onClick={handlePendingSubmit}
-              disabled={!pendingText.trim() || createComment.isPending}
+              disabled={
+                !pendingText.trim() ||
+                createComment.isPending ||
+                !pendingTargetValid ||
+                ambiguousCreate()
+              }
               className="px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
               {t("comments.submit")}
@@ -681,20 +1046,13 @@ export function CommentsSidebar({
 
       {/* Open thread cards — positioned to align with their referenced text */}
       {items.map((item, index) => {
-        const { thread, marginTop, top, anchorTop, isOrphaned } = item;
+        const { thread, marginTop, top, isOrphaned } = item;
         const isActive = activeThreadId === thread.threadId;
         const startsOrphanedSection =
           isOrphaned &&
           !items.slice(0, index).some((prior) => prior.isOrphaned);
         return (
           <Fragment key={thread.threadId}>
-            {alignToAnchors && anchorTop != null ? (
-              <CommentConnector
-                anchorTop={anchorTop}
-                cardTop={top}
-                active={isActive}
-              />
-            ) : null}
             {startsOrphanedSection ? (
               <div
                 className="absolute inset-x-2 flex items-center gap-2 text-[11px] text-muted-foreground"
@@ -710,33 +1068,33 @@ export function CommentsSidebar({
               thread={thread}
               marginTop={marginTop}
               isActive={isActive}
+              allowEmphasisMotion={alignToAnchors}
               isExpanded={replyingThreadId === thread.threadId}
-              isSubmitting={createComment.isPending}
+              documentId={documentId}
+              currentUserEmail={currentUserEmail}
+              isSubmitting={
+                isResolving(thread.threadId) ||
+                (createComment.isPending &&
+                  createComment.variables?.threadId === thread.threadId) ||
+                ambiguousCreate(thread.threadId)
+              }
               replyText={replyingThreadId === thread.threadId ? replyText : ""}
               onHoverChange={(hovered) =>
                 onHoveredThreadChange?.(hovered ? thread.threadId : null)
               }
               onExpand={() => {
-                if (createComment.isPending) return;
                 onActivateThread?.(thread.threadId);
                 scrollToCommentAnchor(
                   scrollContainerRef?.current ?? null,
                   threadPositions.get(thread.threadId)?.documentTop,
                 );
                 if (canComment) {
-                  setReplyingThreadId((current) =>
-                    current === thread.threadId ? null : thread.threadId,
-                  );
+                  setReplyingThreadId(thread.threadId);
                 }
-                setReplyText("");
-                setReplyMentions([]);
               }}
               onCollapse={() => {
-                if (createComment.isPending) return;
                 setReplyingThreadId(null);
                 onSelectedThreadChange?.(null);
-                setReplyText("");
-                setReplyMentions([]);
               }}
               onReplyChange={setReplyText}
               onReplyMentionAdd={(mention) =>
@@ -747,83 +1105,85 @@ export function CommentsSidebar({
               canComment={canComment}
               canResolve={canResolve}
               onSubmitReply={() => handleReply(thread.threadId)}
-              onResolve={() => handleResolve(thread)}
+              onResolve={() =>
+                thread.resolved ? handleReopen(thread) : handleResolve(thread)
+              }
               onSendToAI={() => handleSendToAI(thread)}
               t={t}
             />
           </Fragment>
         );
       })}
-
-      {/* Resolved comments — collapsible, reopenable */}
-      {resolvedThreads.length > 0 && (
-        <div className="mx-2 mr-4 mt-4 mb-6">
-          <button
-            onClick={() => setShowResolved((v) => !v)}
-            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent"
-          >
-            <IconChevronDown
-              size={14}
-              className={showResolved ? "" : "-rotate-90 transition-transform"}
-            />
-            {t("comments.resolved", { count: resolvedThreads.length })}
-          </button>
-          {showResolved && (
-            <div className="mt-1.5 space-y-1.5">
-              {resolvedThreads.map((thread) => (
-                <ResolvedThreadView
-                  key={thread.threadId}
-                  thread={thread}
-                  canResolve={canResolve}
-                  onReopen={() => handleReopen(thread)}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
-function CommentConnector({
-  anchorTop,
-  cardTop,
-  active,
+function HistoryThreadView({
+  thread,
+  onOpen,
 }: {
-  anchorTop: number;
-  cardTop: number;
-  active: boolean;
+  thread: CommentThread;
+  onOpen: () => void;
 }) {
-  const cardPoint = cardTop + 20;
-  if (Math.abs(anchorTop - cardPoint) < 6) return null;
-  const top = Math.min(anchorTop, cardPoint);
-  const height = Math.abs(anchorTop - cardPoint);
-  const colorClass = active ? "border-primary/60" : "border-border";
-
+  const first = thread.comments[0];
+  const t = useT();
+  const labelId = useId();
+  const contentId = useId();
   return (
-    <div aria-hidden data-comment-connector={active ? "active" : "idle"}>
-      <span
-        className={`pointer-events-none absolute left-1 w-2 border-t ${colorClass}`}
-        style={{ top: anchorTop }}
+    <div className="w-full min-w-0 overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50 group/history relative">
+      <button
+        type="button"
+        className="absolute inset-0 rounded-lg hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        aria-labelledby={`${labelId} ${contentId}`}
+        onClick={onOpen}
       />
-      <span
-        className={`pointer-events-none absolute left-1 border-s ${colorClass}`}
-        style={{ top, height }}
-      />
-      <span
-        className={`pointer-events-none absolute left-1 w-2 border-t ${colorClass}`}
-        style={{ top: cardPoint }}
-      />
+      <div className="pointer-events-none relative p-3">
+        {thread.quotedText ? (
+          <p className="mb-2 line-clamp-2 border-s-2 border-border ps-[26px] text-xs italic leading-4 text-muted-foreground">
+            {thread.quotedText}
+          </p>
+        ) : null}
+        <div className="flex items-start gap-2">
+          <CommentAvatar
+            email={first.author_email}
+            name={first.author_name ?? first.author_email}
+            className="size-5 shrink-0"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex h-5 min-w-0 items-center gap-1.5">
+              <span
+                id={labelId}
+                className="truncate text-[13px] font-semibold leading-5 text-foreground"
+              >
+                {first.author_name ?? first.author_email.split("@")[0]}
+              </span>
+              <CommentAttributionBadge comment={first} />
+            </div>
+            <div
+              id={contentId}
+              className="break-words text-start text-[13px] leading-5 text-foreground/90 [&_a]:pointer-events-auto [&_a]:relative"
+            >
+              {renderCommentBody(first.content, first.mentions)}
+            </div>
+          </div>
+        </div>
+        {thread.comments.length > 1 && (
+          <span className="mt-2 block text-xs text-muted-foreground">
+            {t("comments.replyCount", { count: thread.comments.length - 1 })}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
 
 function ThreadView({
   thread,
+  documentId,
+  currentUserEmail,
   marginTop,
   isActive,
+  allowEmphasisMotion,
   isExpanded,
   isSubmitting,
   replyText,
@@ -842,8 +1202,11 @@ function ThreadView({
   t,
 }: {
   thread: CommentThread;
+  documentId: string;
+  currentUserEmail?: string;
   marginTop: number;
   isActive: boolean;
+  allowEmphasisMotion: boolean;
   isExpanded: boolean;
   isSubmitting: boolean;
   replyText: string;
@@ -886,32 +1249,46 @@ function ThreadView({
   return (
     <div
       ref={cardRef}
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (
+          event.target === event.currentTarget &&
+          (event.key === "Enter" || event.key === " ")
+        ) {
+          event.preventDefault();
+          onExpand();
+        }
+      }}
       data-thread-card={thread.threadId}
-      className={`group/thread mx-2 mr-4 rounded-lg bg-popover shadow-md cursor-pointer transition-shadow ${
-        isActive
-          ? "ring-2 ring-primary/60"
-          : "ring-1 ring-border/50 hover:ring-border"
+      className={`group/thread ${allowEmphasisMotion ? "mx-2 mr-4" : ""} cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 ${
+        allowEmphasisMotion
+          ? `transition-transform duration-[260ms] ease-[var(--ease-drawer)] ${
+              isActive
+                ? "-translate-x-2 shadow-lg"
+                : "hover:-translate-x-2 hover:shadow-lg"
+            }`
+          : ""
       }`}
       style={{ marginTop }}
-      onClick={() => {
-        if (!isSubmitting) onExpand();
-      }}
+      onClick={onExpand}
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => onHoverChange(false)}
     >
       <div className="relative p-3 pb-2">
         {/* Hover actions — top right, Notion style pill */}
-        <div className="absolute top-2 right-2 hidden group-hover/thread:flex items-center rounded-md bg-accent/80 ring-1 ring-border/50">
+        <div className="mb-2 flex items-center justify-end gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("comments.askAi")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSendToAI();
                 }}
                 className="p-1.5 text-muted-foreground hover:text-foreground rounded-l-md hover:bg-accent"
               >
-                <IconMessageCircle size={14} />
+                <IconSparkles size={14} />
               </button>
             </TooltipTrigger>
             <TooltipContent>{t("comments.askAi")}</TooltipContent>
@@ -920,60 +1297,57 @@ function ThreadView({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  aria-label={t(
+                    thread.resolved ? "comments.reopen" : "comments.resolve",
+                  )}
+                  disabled={thread.comments.some(
+                    (c) => c.mutation?.status === "pending",
+                  )}
                   onClick={(e) => {
                     e.stopPropagation();
                     onResolve();
                   }}
                   className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent"
                 >
-                  <IconCheck size={14} />
+                  {thread.resolved ? (
+                    <IconArrowBackUp size={14} />
+                  ) : (
+                    <IconCheck size={14} />
+                  )}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{t("comments.resolve")}</TooltipContent>
+              <TooltipContent>
+                {t(thread.resolved ? "comments.reopen" : "comments.resolve")}
+              </TooltipContent>
             </Tooltip>
           ) : null}
         </div>
 
         {/* Comments */}
-        {thread.comments.map((c) => (
-          <div key={c.id} className="mb-3 last:mb-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <div
-                className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-medium text-white shrink-0"
-                style={{ backgroundColor: emailToAvatarColor(c.author_email) }}
-              >
-                {emailToInitial(c.author_name ?? c.author_email)}
-              </div>
-              <span className="text-[13px] font-semibold text-foreground">
-                {c.author_name ?? c.author_email.split("@")[0]}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {formatDate(c.created_at)}
-              </span>
-            </div>
-            <div className="text-[13px] text-foreground/90 pl-8 leading-relaxed">
-              {renderCommentBody(c.content, c.mentions)}
-            </div>
-          </div>
+        {thread.comments.map((comment) => (
+          <CommentEntry
+            key={comment.id}
+            comment={comment}
+            documentId={documentId}
+            currentUserEmail={currentUserEmail}
+            canComment={canComment}
+            members={members}
+          />
         ))}
       </div>
 
       {/* Expanded: Notion-style reply input */}
-      {isExpanded && canComment && (
+      {isExpanded && canComment && !thread.resolved && (
         <div
           className="flex items-center gap-2 px-3 pb-3 pt-1"
           onClick={(e) => e.stopPropagation()}
         >
-          <div
-            className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-medium text-white shrink-0 opacity-40"
-            style={{
-              backgroundColor: emailToAvatarColor(
-                thread.comments[0]?.author_email ?? "user",
-              ),
-            }}
-          >
-            {emailToInitial(thread.comments[0]?.author_name ?? "user")}
-          </div>
+          <CommentAvatar
+            email={thread.comments[0]?.author_email}
+            name={thread.comments[0]?.author_name ?? "user"}
+            className="h-6 w-6 shrink-0 opacity-40"
+          />
           <div className="flex-1 relative">
             <CommentComposer
               ref={replyInputRef}
@@ -981,15 +1355,19 @@ function ThreadView({
               onChange={onReplyChange}
               onMentionAdd={onReplyMentionAdd}
               onSubmit={onSubmitReply}
-              onEscape={onCollapse}
+              onEscape={() => {
+                onCollapse();
+                requestAnimationFrame(() => cardRef.current?.focus());
+              }}
               members={members}
               placeholder={t("comments.reply")}
-              disabled={isSubmitting}
               rows={1}
-              className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none pr-16"
+              className="block w-full resize-none bg-transparent [font-family:inherit] text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none pe-8"
             />
             <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
               <button
+                type="button"
+                aria-label={t("comments.submit")}
                 onClick={onSubmitReply}
                 disabled={!replyText.trim() || isSubmitting}
                 className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
@@ -1008,44 +1386,266 @@ function ResolvedThreadView({
   thread,
   onReopen,
   canResolve,
+  currentUserEmail,
+  canComment,
+  documentId,
+  members,
   t,
 }: {
   thread: CommentThread;
   onReopen: () => void;
   canResolve: boolean;
+  currentUserEmail?: string;
+  canComment: boolean;
+  documentId: string;
+  members: MentionMember[];
   t: ReturnType<typeof useT>;
 }) {
-  const first = thread.comments[0];
   return (
-    <div className="group/resolved rounded-lg bg-muted/40 p-3 ring-1 ring-border/40">
+    <div className="w-full min-w-0 overflow-hidden rounded-lg bg-muted/40 p-3 ring-1 ring-border/40">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">
+          {t("comments.resolvedStatus")}
+        </span>
+        {canResolve && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onReopen}
+            disabled={thread.comments.some(
+              (c) => c.mutation?.status === "pending",
+            )}
+          >
+            <IconArrowBackUp size={14} />
+            {t("comments.reopen")}
+          </Button>
+        )}
+      </div>
       {thread.quotedText && (
-        <p className="mb-1.5 truncate border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
+        <p className="mb-2 border-s-2 border-border ps-[26px] text-xs italic leading-4 text-muted-foreground">
           {thread.quotedText}
         </p>
       )}
-      <div className="flex items-center gap-2">
-        <div
-          className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium text-white shrink-0 opacity-80"
-          style={{ backgroundColor: emailToAvatarColor(first.author_email) }}
-        >
-          {emailToInitial(first.author_name ?? first.author_email)}
-        </div>
-        <span className="flex-1 truncate text-[13px] text-muted-foreground">
-          {renderCommentBody(first.content, first.mentions)}
+      {thread.comments.map((comment) => (
+        <CommentEntry
+          key={comment.id}
+          comment={comment}
+          documentId={documentId}
+          currentUserEmail={currentUserEmail}
+          canComment={canComment}
+          members={members}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CommentEntry({
+  comment,
+  documentId,
+  currentUserEmail,
+  canComment,
+  members,
+}: {
+  comment: Comment;
+  documentId: string;
+  currentUserEmail?: string;
+  canComment: boolean;
+  members: MentionMember[];
+}) {
+  const t = useT();
+  const edit = useEditComment();
+  const create = useCreateComment({ email: currentUserEmail });
+  const [checking, setChecking] = useState(false);
+  const sourceDraft = useCommentDraft(
+    comment.parent_id ? `reply:${comment.thread_id}` : "pending",
+  );
+  const [editing, setEditing] = useState(false);
+  const initialDraft = { text: comment.content, mentions: comment.mentions };
+  const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const pending = comment.mutation?.status === "pending";
+  const showMutationStatus =
+    comment.mutation?.kind !== "resolve" || !comment.parent_id;
+  const canEdit =
+    canComment &&
+    !!currentUserEmail &&
+    currentUserEmail.toLowerCase() === comment.author_email.toLowerCase() &&
+    !pending &&
+    comment.mutation?.kind !== "create";
+  const checkSaved = async () => {
+    if (!comment.mutation?.ambiguous || checking) return;
+    const submitted = sourceDraft.getSubmittedDraft(
+      comment.mutation.operationId,
+    );
+    setChecking(true);
+    try {
+      const result = await create.reconcileAmbiguous(
+        documentId,
+        comment.mutation.operationId,
+      );
+      if (result === "confirmed" && submitted) {
+        sourceDraft.clearIfUnchanged(submitted);
+      }
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setChecking(false);
+    }
+  };
+  const close = () => {
+    setEditing(false);
+    requestAnimationFrame(() => menuRef.current?.focus());
+  };
+  const save = async () => {
+    if (!draft.draft.text.trim() || edit.isPending) return;
+    const submitted = draft.draft;
+    try {
+      await draft.clearOnSuccess(
+        submitted,
+        edit.mutateAsync(
+          {
+            id: comment.id,
+            documentId,
+            content: submitted.text.trim(),
+            mentions:
+              mentionsJsonFor(submitted.text, submitted.mentions) ?? "[]",
+          },
+          {
+            onSuccess: close,
+            onError: () => inputRef.current?.focus(),
+          },
+        ),
+      );
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  };
+  return (
+    <div
+      className="mb-3 last:mb-0"
+      data-comment-id={comment.id}
+      onClick={(event) => {
+        if (
+          editing ||
+          (event.target as HTMLElement).closest(
+            "button, textarea, [role=menuitem]",
+          )
+        )
+          event.stopPropagation();
+      }}
+    >
+      <div className="mb-1 flex min-h-5 items-center gap-2">
+        <CommentAvatar
+          email={comment.author_email}
+          name={comment.author_name ?? comment.author_email}
+          className="size-5 shrink-0"
+        />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+          {comment.author_name ?? comment.author_email.split("@")[0]}
         </span>
-        {canResolve ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onReopen}
-                className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/resolved:opacity-100"
+        <CommentAttributionBadge comment={comment} />
+        <span className="text-xs text-muted-foreground">
+          {formatDate(comment.created_at)}
+        </span>
+        {canEdit && !editing && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                ref={menuRef}
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("comments.commentActions")}
+                className="size-7"
               >
-                <IconArrowBackUp size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("comments.reopen")}</TooltipContent>
-          </Tooltip>
-        ) : null}
+                <IconDots size={14} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" data-comment-menu>
+              <DropdownMenuGroup>
+                <DropdownMenuItem onSelect={() => setEditing(true)}>
+                  {t("comments.edit")}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+      <div className="ps-7 text-[13px] leading-5 text-foreground/90">
+        {editing ? (
+          <div>
+            <CommentComposer
+              ref={inputRef}
+              ariaLabel={t("comments.edit")}
+              value={draft.draft.text}
+              onChange={draft.setText}
+              members={members}
+              onMentionAdd={(mention) =>
+                draft.setMentions((previous) => [...previous, mention])
+              }
+              onSubmit={save}
+              onEscape={close}
+              autoFocus
+              disabled={edit.isPending}
+            />
+            <div className="mt-1 flex justify-end gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={edit.isPending}
+                onClick={() => {
+                  draft.discard();
+                  close();
+                }}
+              >
+                {t("comments.cancel")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={edit.isPending || !draft.draft.text.trim()}
+                onClick={save}
+              >
+                {t("comments.save")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          renderCommentBody(comment.content, comment.mentions)
+        )}
+        {pending && showMutationStatus && (
+          <span role="status" className="block text-xs text-muted-foreground">
+            {t("comments.saving")}
+          </span>
+        )}
+        {comment.mutation?.ambiguous && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={checking}
+            onClick={checkSaved}
+          >
+            {t("comments.checkSaved")}
+          </Button>
+        )}
+        {comment.mutation?.status === "error" && showMutationStatus && (
+          <span role="alert" className="block text-xs text-destructive">
+            {t(
+              comment.mutation.ambiguous
+                ? "comments.saveUnconfirmed"
+                : "empty.genericError",
+            )}
+          </span>
+        )}
       </div>
     </div>
   );

@@ -62,15 +62,13 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
       if (await provider.isConfiguredForRequest()) return provider;
     }
   }
-  if (builderFileUploadProvider.isConfigured()) {
-    return builderFileUploadProvider;
-  }
   try {
-    // Either Builder credential kind counts. Checking only the private key
-    // reported every OAuth-only connection as having no upload provider.
-    const { hasBuilderApiCredentialCustody } =
-      await import("../server/builder-api-auth.js");
-    if (await hasBuilderApiCredentialCustody()) {
+    const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
+      await Promise.all([
+        import("../server/builder-api-auth.js"),
+        import("../server/builder-oauth.js"),
+      ]);
+    if (await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE)) {
       return builderFileUploadProvider;
     }
   } catch {
@@ -113,9 +111,14 @@ export async function uploadFile(
   // silently swallowed as a "no credentials" case.
   let hasBuilderCredential = false;
   try {
-    const { hasBuilderApiCredentialCustody } =
-      await import("../server/builder-api-auth.js");
-    hasBuilderCredential = await hasBuilderApiCredentialCustody();
+    const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
+      await Promise.all([
+        import("../server/builder-api-auth.js"),
+        import("../server/builder-oauth.js"),
+      ]);
+    hasBuilderCredential = await canAuthorizeBuilderApiRequest(
+      BUILDER_ASSETS_WRITE_SCOPE,
+    );
   } catch (err) {
     // DB unavailable or credential store not ready — can't resolve a
     // credential. Return an unavailable-provider state below; never fall back

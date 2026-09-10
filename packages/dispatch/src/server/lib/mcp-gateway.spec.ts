@@ -215,6 +215,50 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "analytics"]);
   });
 
+  it("projects first-party app URLs onto the beta request lane", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        url: "https://analytics.agent-native.com",
+      },
+    ]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.find((app) => app.id === "analytics")?.url).toBe(
+      "https://beta.analytics.agent-native.com/",
+    );
+  });
+
+  it("projects the workspace Netlify alias onto the beta request lane", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        id: "cs-account-health",
+        name: "CS Account Health",
+        url: "https://builder-agent-native-workspace.netlify.app/cs-account-health",
+      },
+    ]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.find((app) => app.id === "cs-account-health")?.url).toBe(
+      "https://beta.agent-workspace.builder.io/cs-account-health",
+    );
+  });
+
   it("includes Dispatch itself so agents can target extension routes", async () => {
     mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
     const apps = await runWithRequestContext(
@@ -371,14 +415,16 @@ describe("askGrantedDispatchMcpApp", () => {
           { type: "text", text: "Build a weekly active users dashboard." },
         ],
       },
-      {
+      expect.objectContaining({
         async: true,
+        deadlineMs: expect.any(Number),
+        idempotencyKey: expect.stringMatching(/^ask-app:/),
         metadata: {
           userEmail: "owner@example.test",
           orgDomain: "builder.io",
           requestOrigin: "http://localhost:8092",
         },
-      },
+      }),
     );
     expect(result).toMatchObject({
       app: "analytics",
@@ -387,6 +433,31 @@ describe("askGrantedDispatchMcpApp", () => {
       taskId: "task-1",
       status: "completed",
     });
+  });
+
+  it("reuses the MCP request identity for transport retries", async () => {
+    const requestContext = {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      requestOrigin: "http://localhost:8092",
+      mcpRequestId: "session-1:request-42",
+    };
+
+    await runWithRequestContext(requestContext, () =>
+      askGrantedDispatchMcpApp("analytics", "Retry this request.", {
+        async: true,
+      }),
+    );
+    await runWithRequestContext(requestContext, () =>
+      askGrantedDispatchMcpApp("analytics", "Retry this request.", {
+        async: true,
+      }),
+    );
+
+    const firstKey = mocks.a2aSend.mock.calls[0]?.[1].idempotencyKey;
+    const secondKey = mocks.a2aSend.mock.calls[1]?.[1].idempotencyKey;
+    expect(firstKey).toMatch(/^ask-app:v1:[0-9a-f]{64}$/);
+    expect(secondKey).toBe(firstKey);
   });
 
   it("preserves authenticated structured mutation receipts from the target app", async () => {
@@ -698,6 +769,14 @@ describe("askGrantedDispatchMcpApp", () => {
       message:
         'ask_app is still working. Call ask_app_status with taskId "task-working" to retrieve the final response.',
     });
+    expect(mocks.a2aSend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        async: true,
+        deadlineMs: expect.any(Number),
+        idempotencyKey: expect.stringMatching(/^ask-app:/),
+      }),
+    );
   });
 
   it("counts submission and every poll against one inline deadline", async () => {
@@ -1063,44 +1142,102 @@ describe("openGrantedDispatchMcpApp", () => {
     });
   });
 
-  it("retries transient target MCP connection failures while pre-minting embeds", async () => {
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    mocks.managerCallTool
-      .mockRejectedValueOnce(
-        new Error(
-          'MCP server "target" is not connected: The server did not complete the Streamable HTTP MCP handshake.',
-        ),
-      )
-      .mockResolvedValueOnce({
-        structuredContent: {
-          startUrl:
-            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
-        },
-      });
+  it.each([408, 429, 502, 503, 504])(
+    "retries transient typed HTTP %i target MCP failures with HTML bodies",
+    async (status) => {
+      const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+      mocks.managerCallTool
+        .mockRejectedValueOnce(
+          Object.assign(
+            new Error(
+              'MCP server "target" is not connected: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.',
+            ),
+            { code: status },
+          ),
+        )
+        .mockResolvedValueOnce({
+          structuredContent: {
+            startUrl:
+              "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+          },
+        });
 
-    const result = await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        requestOrigin: "http://localhost:8092",
-      },
-      () =>
-        openGrantedDispatchMcpApp({
-          app: "analytics",
-          path: "/dashboards",
-          embed: true,
-        }),
+      const result = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "analytics",
+            path: "/dashboards",
+            embed: true,
+          }),
+      );
+
+      expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+      expect(mocks.managerStart).toHaveBeenCalledTimes(2);
+      expect(mocks.managerStop).toHaveBeenCalledTimes(2);
+      expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({
+        app: "analytics",
+        embedStartUrl:
+          "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      });
+      randomSpy.mockRestore();
+    },
+  );
+
+  it("does not retry an HTML 404 whose body mentions a gateway status", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          'MCP server "target" is not connected: That URL returned a web page instead of an MCP response. Cloudflare HTTP 502 is unrelated.',
+        ),
+        { code: 404 },
+      ),
     );
 
-    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
-    expect(mocks.managerStart).toHaveBeenCalledTimes(2);
-    expect(mocks.managerStop).toHaveBeenCalledTimes(2);
-    expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({
-      app: "analytics",
-      embedStartUrl:
-        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
-    });
-    randomSpy.mockRestore();
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/Cloudflare HTTP 502 is unrelated/);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a typed permanent 4xx MCP error", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "Streamable HTTP error: Error POSTing to endpoint: <!doctype html><html>422</html>",
+        ),
+        { code: 422 },
+      ),
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/Streamable HTTP error/);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
   });
 
   it("returns the normal open URL when embed preminting fails", async () => {
@@ -1256,6 +1393,73 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
+  it("keeps canonical workspace SSO apps eligible on the beta lane", async () => {
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: [],
+    });
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        url: "https://analytics.agent-native.com",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://beta.analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "analytics",
+          path: "/overview",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "analytics",
+      startUrl:
+        "https://beta.analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+    });
+    expect(mocks.managerConstructor).toHaveBeenCalled();
+  });
+
+  it("rejects beta workspace SSO apps on the production lane", async () => {
+    mocks.discoverAgents.mockResolvedValue([]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "analytics",
+        name: "Analytics",
+        description: "Dashboards and metrics",
+        path: "/",
+        url: "https://beta.analytics.agent-native.com",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "analytics",
+            path: "/overview",
+          }),
+      ),
+    ).rejects.toThrow(/not registered/);
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
   it("uses a built-in home URL when discovery returns a deep agent link", async () => {
     mocks.getBuiltinAgents.mockReturnValue([
       {
@@ -1301,6 +1505,17 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         chrome: "full",
       },
     );
+    // Regression: the target MCP connection must use the home origin, not
+    // the discovered agent URL, which can be a deep share link
+    // (https://clips.agent-native.com/share/deep-link) that turns "/mcp"
+    // into a query-string suffix and hits Clips' HTML page instead of MCP.
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          url: "https://clips.agent-native.com/mcp",
+        }),
+      },
+    });
     expect(result).toMatchObject({
       app: "clips",
       startUrl:

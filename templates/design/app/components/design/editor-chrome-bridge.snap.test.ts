@@ -365,10 +365,14 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "selectionTargetForHit",
   );
+  const svgAncestor = extractFunction(
+    editorChromeBridgeScript,
+    "outermostSvgAncestor",
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    `${rootCheck}\n${svgAncestor}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }
@@ -422,6 +426,29 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
     } as unknown as Element;
 
     expect(selectionTargetForHit(child)).toBe(child);
+  });
+
+  it("promotes a hit on svg geometry to the outermost svg, whose box is not 0-height", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const svg = { ownerSVGElement: null } as unknown as Element;
+    const path = { ownerSVGElement: svg } as unknown as Element;
+
+    expect(selectionTargetForHit(path)).toBe(svg);
+  });
+
+  it("promotes through a nested svg to the outermost one", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const outer = { ownerSVGElement: null } as unknown as Element;
+    const inner = { ownerSVGElement: outer } as unknown as Element;
+    const path = { ownerSVGElement: inner } as unknown as Element;
+
+    expect(selectionTargetForHit(path)).toBe(outer);
   });
 });
 

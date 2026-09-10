@@ -1,6 +1,7 @@
 import { listFileUploadProviders } from "@agent-native/core/file-upload";
 import {
-  hasBuilderApiCredentialCustody,
+  BUILDER_ASSETS_WRITE_SCOPE,
+  canAuthorizeBuilderApiRequest,
   runWithRequestContext,
 } from "@agent-native/core/server";
 
@@ -18,7 +19,7 @@ function appDatabaseUrl(): string {
 
 function isLikelyLocalDatabase(): boolean {
   const url = appDatabaseUrl();
-  return url === "" || url.startsWith("file:") || !url.includes("://");
+  return url === "" || url.startsWith("pglite:");
 }
 
 export function requiresConfiguredVideoStorage(): boolean {
@@ -51,7 +52,7 @@ export async function hasRequestVideoStorage(
     }
 
     try {
-      return await hasBuilderApiCredentialCustody();
+      return await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE);
     } catch {
       return false;
     }

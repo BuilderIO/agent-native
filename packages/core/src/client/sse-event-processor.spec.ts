@@ -2206,7 +2206,7 @@ describe("SSE event processor error classification", () => {
         type: "agent-chat:run-error",
         detail: {
           message:
-            "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+            "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
           details: "401 status code (no body)",
           tabId: "tab-provider-auth",
         },
@@ -2219,7 +2219,7 @@ describe("SSE event processor error classification", () => {
       content: [
         {
           type: "text",
-          text: "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+          text: "Error: The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         },
       ],
       status: { type: "incomplete", reason: "error" },
@@ -2227,7 +2227,7 @@ describe("SSE event processor error classification", () => {
         custom: {
           runError: {
             message:
-              "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+              "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
             details: "401 status code (no body)",
           },
         },
@@ -3849,6 +3849,106 @@ describe("SSE event processor error classification", () => {
     expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
   });
 
+  it("does not auto-continue a terminal stop message without an abort code", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "The agent stopped before finishing.",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-stop-message",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          message: "The agent stopped before finishing.",
+          recoverable: true,
+        }),
+      }),
+    );
+  });
+
+  it("does not auto-continue provider credential rejection", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error:
+              "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-provider-credential",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          message:
+            "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+          recoverable: true,
+        }),
+      }),
+    );
+  });
+
   it("does not auto-continue a breaker stop that preserved its underlying transient code", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -4405,12 +4505,20 @@ describe("journal-recovery tool replay coalescing", () => {
       // Continuation chunk replays the same call via the tool-call journal
       // (id-less re-emit with the marker result).
       { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
-      { type: "tool_done", tool: "edit-screen", result: JOURNAL_MARKER },
+      {
+        type: "tool_done",
+        tool: "edit-screen",
+        result: JOURNAL_MARKER,
+        artifacts: [{ kind: "design", id: "design_replayed", fileCount: 3 }],
+      },
     ]);
 
     const toolCards = content.filter((p) => p.type === "tool-call");
     expect(toolCards).toHaveLength(1);
     expect(toolCards[0].result).toBe("real result");
+    expect(toolCards[0].artifacts).toEqual([
+      { kind: "design", id: "design_replayed", fileCount: 3 },
+    ]);
   });
 
   it("resolves an interrupted spinner with the ledger-recovered result and removes the replay artifact", async () => {
@@ -4420,13 +4528,27 @@ describe("journal-recovery tool replay coalescing", () => {
       // Next chunk replays it; the id-less tool_done name-matches the original
       // pending card, leaving the replay's own start as a stuck spinner.
       { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
-      { type: "tool_done", tool: "edit-screen", result: LEDGER_MARKER },
+      {
+        type: "tool_done",
+        tool: "edit-screen",
+        result: LEDGER_MARKER,
+        artifacts: [
+          {
+            kind: "design",
+            id: "design_recovered",
+            fileCount: 2,
+          },
+        ],
+      },
     ]);
 
     const toolCards = content.filter((p) => p.type === "tool-call");
     expect(toolCards).toHaveLength(1);
     expect(toolCards[0].result).toBe(LEDGER_MARKER);
     expect(toolCards[0].toolCallId).toBe("srv_1");
+    expect(toolCards[0].artifacts).toEqual([
+      { kind: "design", id: "design_recovered", fileCount: 2 },
+    ]);
   });
 
   it("keeps genuinely repeated identical calls that are not journal replays", async () => {

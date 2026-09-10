@@ -25,6 +25,28 @@ const messages = {
     themeTitle: "Theme",
     themeDescription: "Toggle dark / light",
   },
+  common: {
+    cancel: "Cancel",
+    confirmDisconnect: "Confirm disconnect",
+    disconnect: "Disconnect",
+    disconnecting: "Disconnecting…",
+  },
+  onboarding: {
+    back: "Back",
+    chooseRole: "Choose your role",
+    customizeRole: "Let’s customize this for you.",
+    roleQuestion: "What best describes your role?",
+    roleProduct: "Product",
+    roleDesign: "Design",
+    roleDeveloper: "Developer",
+    roleMarketing: "Marketing",
+    roleSales: "Sales",
+    roleOps: "Ops",
+    roleIndividual: "Individual",
+    roleOther: "Other",
+    skipForNow: "Skip for now",
+    saveRoleError: "Could not save your role.",
+  },
   settings: {
     title: "Settings",
     pageTitle: "Settings",
@@ -42,10 +64,33 @@ const messages = {
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
     backHome: "Back to home",
+    builderConnection: {
+      manage: "Manage Builder.io connection",
+    },
     mcpConnectionsTitle: "Agent integrations",
     mcpConnectionsDescription:
       "Connect tools and services so the agent can use them.",
     openMcpConnections: "Open integrations",
+    mcpTitle: "MCP",
+    mcpDescription:
+      "Connect this app to Claude, ChatGPT, Cursor, Codex, or another MCP host.",
+    mcpUrlLabel: "MCP server URL",
+    mcpUrlHint:
+      "Copy this URL into the AI host you want to use. The canonical path is /mcp.",
+    mcpOpenDocs: "Open MCP connection docs",
+    a2aAgentCard: "A2A agent card",
+    a2aOpenDocs: "Open A2A documentation",
+    mcpClientSetup: "Connect an AI host",
+    mcpClientSetupDescription:
+      "Choose a host for step-by-step setup, or paste the URL into any MCP-compatible client.",
+    mcpChooseAssistant: "Choose your AI assistant",
+    mcpCommand: "Command",
+    mcpConfig: "MCP config",
+    mcpCopy: "Copy",
+    mcpCopied: "Copied",
+    mcpStaticTokenDescription:
+      "Open the full connect page to create a token for clients that cannot complete OAuth.",
+    mcpOpenConnectPage: "Open full connect page",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -98,6 +143,23 @@ const messages = {
       "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
     scopeWorkspaceDescription:
       "Everyone in this workspace uses this key, including integration, webhook, scheduled job, automation, and agent-to-agent runs.",
+    sourceVault: "Vault",
+    sourceWorkspace: "Workspace",
+    sourceEnvironment: "Environment",
+    statusUnavailable: "Unavailable",
+    managedInVault:
+      "Managed in the workspace Vault. Every app in this workspace uses this value.",
+    openVault: "Open Vault",
+    setForWorkspace: "Set for everyone in this workspace.",
+    fromEnvironment: "Provided by the deployment environment.",
+    usePersonalKey: "Use a personal key instead",
+    overridesVault:
+      "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
+    overridesWorkspace:
+      "This personal key overrides the workspace value. Remove it to use the shared key.",
+    customKey: "Custom key",
+    customKeyHint: "Add any key by name",
+    addCustomKeyNamed: "Add “{{name}}” as a custom key",
   },
   agentResources: {
     openDocs: "Open {{section}} documentation",
@@ -281,6 +343,35 @@ const messages = {
       status: "Status",
       opens: "Opens",
       lastEvent: "Last event",
+      app: "App",
+      sendLogTitle: "Send log",
+      sendLogTemplate: "Template",
+      sendLogProvider: "Provider",
+      sendLogResponseStatus: "Response status",
+      sendLogError: "Error",
+      sendLogTo: "To",
+      sendLogFrom: "From",
+      sendLogContainsOperator: "contains",
+      sendLogExcludeOperator: "exclude",
+      sendLogContainsPlaceholder: "e.g. name@example.com",
+      sendLogExcludePlaceholder: "e.g. @builder.io",
+      sendLogAddressFilterLabel: "{{dimension}} {{operator}}",
+      sendLogRemoveAddressFilter: "Remove {{filter}}",
+      sendLogAllTemplates: "All templates",
+      sendLogSearchTemplates: "Search templates…",
+      sendLogNoTemplatesFound: "No templates found.",
+      sendLogAllStatuses: "All statuses",
+      sendLogSent: "Sent",
+      sendLogFailed: "Failed",
+      sendLogAllProviders: "All providers",
+      sendLogClearFilters: "Clear filters",
+      sendLogEmpty: "No sends match these filters in this date range.",
+      sendLogTimestamp: "Timestamp",
+      sendLogPrevious: "Previous",
+      sendLogNext: "Next",
+      sendLogBodyHtml: "HTML",
+      sendLogBodyText: "Text",
+      sendLogBodyFrameTitle: "Sent email body",
     },
     pages: {
       appsDescription:
@@ -382,6 +473,18 @@ const messages = {
         "Workspace-wide Builder.io credit spend, chat volume, user activity, and app access.",
       metricsDescriptionLlm:
         "Workspace-wide LLM spend, chat volume, user activity, and app access.",
+      appAdoption: "App adoption",
+      appAdoptionFor: "{{name}} adoption",
+      yourAppActivity: "Your app activity",
+      appAdoptionDefinition:
+        "Active means a tracked action. App opens and views are not included.",
+      ownerUnavailable: "Owner unavailable",
+      dailyActiveUsers: "Daily active",
+      weeklyActiveUsers: "Weekly active",
+      trackedActions: "Tracked actions",
+      trackedActionBreakdown: "Tracked action breakdown",
+      noTrackedActions: "No tracked actions in this window.",
+      viewAppMetrics: "View app metrics",
       llmCalls: "LLM calls",
       activeUsers: "Active users",
       workspaceAppsStat: "Workspace apps",
@@ -677,17 +780,17 @@ const messages = {
     timezone: "Timezone",
     pageTitle: "Automations",
     pageDescription:
-      "Manage agent tasks that run on a schedule or in response to events.",
+      "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
     personalDescription:
-      "Scheduled and event-triggered automations that run for you.",
+      "Scheduled, event-triggered, and webhook-triggered automations that run for you.",
     organizationDescription:
-      "Scheduled and event-triggered automations shared with this organization.",
+      "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",
     organizationMemberNote: "You can manage automations you created.",
     loading: "Loading…",
     loadError: "Could not load all automations.",
     organizationEmptyTitle: "No organization automations yet",
     organizationEmptyDescription:
-      "Describe a scheduled or event-triggered automation for this organization.",
+      "Describe a scheduled, event-triggered, or webhook-triggered automation for this organization.",
     organizationPrompt:
       "Create a shared organization automation that does this: ",
     enabled: "Enabled",
@@ -712,6 +815,26 @@ const messages = {
     editScheduleTitle: "Edit schedule — {{name}}",
     editScheduleDescription:
       "The clock time below is read in the timezone you pick, so 8:00 means 8:00 there.",
+    repeat: "Repeat",
+    repeatEvery: "Repeat every",
+    scheduleUnit: "Unit",
+    hours: "hour(s)",
+    days: "day(s)",
+    day: "day",
+    weeks: "week(s)",
+    months: "month(s)",
+    atMinute: "At minute",
+    onDay: "On",
+    dayOfMonth: "Day of month",
+    atTime: "At",
+    weeklyIntervalAdvanced:
+      "Every few weeks needs the Advanced cron editor below.",
+    dailyIntervalAdvanced:
+      "Every few days needs the Advanced cron editor below.",
+    schedulePreview: "Runs {{time}}.",
+    advancedSchedule: "Advanced - cron expression",
+    show: "Show",
+    hide: "Hide",
     cronExpression: "Cron expression",
     cronFormatHint: "minute hour day-of-month month day-of-week",
     cronFieldCount: "A cron expression needs exactly 5 fields.",
@@ -731,8 +854,24 @@ const messages = {
     instructions: "Instructions",
     mcpTools: "Connected agent tools",
     automationEventTrigger: "On {{event}}",
+    webhook: "Webhook",
+    automationWebhookDetails: "Runs when a webhook is received.",
+    automationWebhookTrigger: "On webhook",
+    schedulePreset: {
+      hourly: "Every hour",
+      dailyMidnight: "Every day at midnight",
+      dailyNoon: "Every day at noon",
+      weekdays: "Every weekday",
+      weekly: "Every week",
+      custom: "Custom",
+      customDetail: "Set your own repeat pattern",
+    },
     scheduledTrigger: "Scheduled",
     eventTrigger: "Event-triggered",
+    webhookTrigger: "Webhook-triggered",
+    webhookUrl: "Webhook URL",
+    webhookUrlHint:
+      "Paste this URL into a service that sends HTTP POST webhooks.",
     deleteAutomationTitle: "Delete automation?",
     deleteAutomationDescription:
       "This permanently removes the automation and cannot be undone.",
@@ -746,7 +885,7 @@ const messages = {
     personal: "Personal",
     organization: "Organization",
     settingsSummary:
-      "Manage scheduled and event-triggered agent tasks together from the Automations page.",
+      "Manage scheduled, event-triggered, and webhook-triggered agent tasks together from the Automations page.",
     openAutomations: "Open Automations",
     nextRunNeverScheduler: "Never — no scheduler in this deploy",
     nextRunSchedulerUnknown:
@@ -758,11 +897,11 @@ const messages = {
     scheduleUnavailableTitle: "Schedules won't run in this deploy",
     scheduleUnavailableLocalTitle: "Schedules don't run in local development",
     scheduleUnavailableDisabled:
-      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Event-triggered automations and Run now still work.",
+      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Event- and webhook-triggered automations and Run now still work.",
     scheduleUnavailableNoScheduler:
-      "This hosting target has no durable scheduler, so no scheduled automation will fire. Event-triggered automations and Run now still work.",
+      "This hosting target has no durable scheduler, so no scheduled automation will fire. Event- and webhook-triggered automations and Run now still work.",
     scheduleUnavailableLocal:
-      "Schedules stay off on a dev machine unless you opt in. Event-triggered automations and Run now still work.",
+      "Schedules stay off on a dev machine unless you opt in. Event- and webhook-triggered automations and Run now still work.",
     scheduleUnavailableDisabledFix:
       "To enable recurring jobs, set AGENT_NATIVE_DISABLE_RECURRING_JOBS=false in the build environment.",
     scheduleUnavailableLocalFix:
@@ -1196,6 +1335,14 @@ const messages = {
         useCase: "Product analytics, charts, dashboards, cohorts, experiments",
         setupNote:
           "Amplitude MCP uses OAuth over streaming HTTP. The default endpoint is for US data residency; use Amplitude's EU endpoint when the account requires EU residency.",
+      },
+      sigma: {
+        description:
+          "Search, explore, and analyze Sigma workbooks and dashboards.",
+        useCase:
+          "Analytics, dashboards, workbooks, data exploration, business intelligence",
+        setupNote:
+          "Sigma's MCP URL is organization-specific. In Sigma, open Profile > Integrations > Connect Sigma to AI tools, copy the URL, and paste it here. Sigma MCP currently supports search, metadata exploration, and analysis; dashboard or workbook creation and import are not exposed by this connection.",
       },
       notion: {
         description: "Search pages and team knowledge.",

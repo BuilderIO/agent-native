@@ -15,6 +15,8 @@ import {
   getAngleFromCenter,
   getCameraForBounds,
   getDraftGeometryFromPoints,
+  quantizeToStep,
+  WHOLE_PIXEL_SNAP_STEP,
   getFrameBounds,
   getFrameGroupBounds,
   getNudgeDelta,
@@ -672,7 +674,7 @@ describe("computeDragSnap precedence", () => {
         },
       ],
       far,
-      { thresholdScreenPx: 6, zoom: 100, pixelGrid: true },
+      { thresholdScreenPx: 6, zoom: 100, snapStep: WHOLE_PIXEL_SNAP_STEP },
     );
     expect(snap.dx).toBeCloseTo(-0.3);
     expect(snap.dy).toBeCloseTo(0.2);
@@ -682,7 +684,7 @@ describe("computeDragSnap precedence", () => {
     const snap = computeDragSnap(
       [{ id: "moving", geometry: { x: 10.3, y: 0, width: 100, height: 100 } }],
       [{ id: "target", geometry: { x: 8.5, y: 0, width: 100, height: 100 } }],
-      { thresholdScreenPx: 6, zoom: 100, pixelGrid: true },
+      { thresholdScreenPx: 6, zoom: 100, snapStep: WHOLE_PIXEL_SNAP_STEP },
     );
     expect(snap.dx).toBeCloseTo(-1.8);
   });
@@ -758,7 +760,7 @@ describe("computeDragSnap respects a Shift-locked axis", () => {
       {
         thresholdScreenPx: 6,
         zoom: 100,
-        pixelGrid: true,
+        snapStep: WHOLE_PIXEL_SNAP_STEP,
         lockedAxes: { y: true },
       },
     );
@@ -803,7 +805,7 @@ describe("review regressions", () => {
     const snap = computeDragSnap([f(500, 203)], [f(0, 200)], {
       zoom: 100,
       thresholdScreenPx: 6,
-      pixelGrid: true,
+      snapStep: WHOLE_PIXEL_SNAP_STEP,
       lockedAxes: { y: true },
     });
     expect(snap.dy).toBe(0);
@@ -830,7 +832,7 @@ describe("review regressions", () => {
     const snap = computeDragSnap(
       [f(380, 0)],
       [f(0, 0), f(200.3, 0), f(575, 0)],
-      { zoom: 100, thresholdScreenPx: 6, pixelGrid: true },
+      { zoom: 100, thresholdScreenPx: 6, snapStep: WHOLE_PIXEL_SNAP_STEP },
     );
     expect(
       snap.dx,
@@ -1845,6 +1847,177 @@ describe("getDraftGeometryFromPoints shape-draw modifiers", () => {
   });
 });
 
+describe("whole-pixel canvas geometry", () => {
+  it("draws a shape on whole pixels even from a fractional zoomed pointer", () => {
+    expect(
+      getDraftGeometryFromPoints(
+        { x: 192.1, y: 168.4 },
+        { x: 320.62, y: 268.9 },
+      ),
+    ).toEqual({ x: 192, y: 168, width: 129, height: 100 });
+  });
+
+  it("draws from the center on whole pixels too — the half-extent is where the .5 comes from", () => {
+    expect(
+      getDraftGeometryFromPoints(
+        { x: 100, y: 100 },
+        { x: 143.5, y: 120 },
+        { fromCenter: true },
+      ),
+    ).toEqual({ x: 57, y: 80, width: 87, height: 40 });
+  });
+
+  it("lands a resize on whole pixels at the whole-pixel step", () => {
+    const snap = computeResizeSnap(
+      { x: 40.6, y: 80.2, width: 320.4, height: 240.7 },
+      [],
+      "se",
+      {
+        zoom: 100,
+        thresholdScreenPx: 6,
+        minWidth: 1,
+        minHeight: 1,
+        snapStep: WHOLE_PIXEL_SNAP_STEP,
+      },
+    );
+    expect(snap.frame).toEqual({ x: 41, y: 80, width: 320, height: 241 });
+  });
+
+  it("leaves a guide-claimed edge on its guide rather than rounding it off the line", () => {
+    const snap = computeResizeSnap(
+      { x: 0, y: 0, width: 199.6, height: 100 },
+      [
+        {
+          id: "neighbour",
+          geometry: { x: 200.5, y: 0, width: 50, height: 100 },
+        },
+      ],
+      "e",
+      {
+        zoom: 100,
+        thresholdScreenPx: 6,
+        minWidth: 1,
+        minHeight: 1,
+        snapStep: WHOLE_PIXEL_SNAP_STEP,
+      },
+    );
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.frame.width).toBe(200.5);
+  });
+
+  it("keeps an aspect-locked resize on its ratio and quantizes only the origin", () => {
+    const snap = computeResizeSnap(
+      { x: 40.6, y: 80.2, width: 200.5, height: 100.25 },
+      [],
+      "nw",
+      {
+        zoom: 100,
+        thresholdScreenPx: 6,
+        minWidth: 1,
+        minHeight: 1,
+        snapStep: WHOLE_PIXEL_SNAP_STEP,
+        preserveAspectRatio: true,
+      },
+    );
+    expect(snap.frame).toEqual({
+      x: 41,
+      y: 80,
+      width: 200.5,
+      height: 100.25,
+    });
+  });
+
+  it("does not quantize until a caller asks for a step", () => {
+    const snap = computeResizeSnap(
+      { x: 40.6, y: 80.2, width: 320.4, height: 240.7 },
+      [],
+      "se",
+      { zoom: 100, thresholdScreenPx: 6, minWidth: 1, minHeight: 1 },
+    );
+    expect(snap.frame.x).toBe(40.6);
+  });
+
+  it("lands on the nearest multiple of a step, and on whole px without one", () => {
+    expect(quantizeToStep(19, 8)).toBe(16);
+    expect(quantizeToStep(21, 8)).toBe(24);
+    expect(quantizeToStep(192.1, 8)).toBe(192);
+    expect(quantizeToStep(192.1, WHOLE_PIXEL_SNAP_STEP)).toBe(192);
+    expect(quantizeToStep(192.6)).toBe(193);
+  });
+
+  it("passes a non-finite value through instead of coercing it to a plausible zero", () => {
+    expect(quantizeToStep(Number.NaN)).toBeNaN();
+    expect(quantizeToStep(Number.POSITIVE_INFINITY)).toBe(
+      Number.POSITIVE_INFINITY,
+    );
+  });
+});
+
+describe("layout grid snapping", () => {
+  const moving = [
+    { id: "a", geometry: { x: 100, y: 100, width: 80, height: 40 } },
+  ];
+
+  it("lands a drag on the frame's grid, not just on a whole pixel", () => {
+    const snap = computeDragSnap(
+      [{ id: "a", geometry: { x: 103.4, y: 118.9, width: 80, height: 40 } }],
+      [],
+      { zoom: 100, thresholdScreenPx: 6, snapStep: 8 },
+    );
+    expect(103.4 + snap.dx).toBe(104);
+    expect(118.9 + snap.dy).toBe(120);
+  });
+
+  it("leaves an alignment guide's axis on the guide instead of pulling it to the grid", () => {
+    const snap = computeDragSnap(
+      [{ id: "a", geometry: { x: 101, y: 100, width: 80, height: 40 } }],
+      [{ id: "b", geometry: { x: 102, y: 400, width: 80, height: 40 } }],
+      { zoom: 100, thresholdScreenPx: 6, snapStep: 8 },
+    );
+    expect(snap.guides.some((guide) => guide.orientation === "vertical")).toBe(
+      true,
+    );
+    expect(101 + snap.dx).toBe(102);
+  });
+
+  it("does not snap at all while the bypass modifier is held", () => {
+    const snap = computeDragSnap(
+      [{ id: "a", geometry: { x: 103.4, y: 118.9, width: 80, height: 40 } }],
+      [],
+      { zoom: 100, thresholdScreenPx: 6, snapStep: 8, bypass: true },
+    );
+    expect(snap.dx).toBe(0);
+    expect(snap.dy).toBe(0);
+  });
+
+  it("lands a resize on the grid too", () => {
+    const snap = computeResizeSnap(
+      { x: 100, y: 100, width: 83.5, height: 41.2 },
+      [],
+      "se",
+      {
+        zoom: 100,
+        thresholdScreenPx: 6,
+        minWidth: 1,
+        minHeight: 1,
+        snapStep: 8,
+      },
+    );
+    expect(snap.frame.width).toBe(80);
+    expect(snap.frame.height).toBe(40);
+  });
+
+  it("keeps the whole-pixel floor for a frame with no grid", () => {
+    const snap = computeDragSnap(moving, [], {
+      zoom: 100,
+      thresholdScreenPx: 6,
+      snapStep: WHOLE_PIXEL_SNAP_STEP,
+    });
+    expect(snap.dx).toBe(0);
+    expect(snap.dy).toBe(0);
+  });
+});
+
 describe("canvas group bounds and camera math", () => {
   it("computes the bounding box for selected frames", () => {
     expect(
@@ -1956,7 +2129,7 @@ describe("canvas ruler and pixel grid math", () => {
 });
 
 describe("canvas nudge math", () => {
-  it("maps arrow keys to deltas and multiplies by shift", () => {
+  it("maps arrow keys to deltas and takes the big step with shift", () => {
     expect(getNudgeDelta("ArrowLeft")).toEqual({
       dx: -1,
       dy: 0,
@@ -1965,10 +2138,23 @@ describe("canvas nudge math", () => {
     });
     expect(getNudgeDelta("ArrowDown", { shiftKey: true })).toEqual({
       dx: 0,
-      dy: 10,
-      step: 10,
+      dy: 8,
+      step: 8,
       snap: { bypass: false, reason: null },
     });
+  });
+
+  it("takes the caller's configured nudge amounts over the defaults", () => {
+    expect(
+      getNudgeDelta(
+        "ArrowRight",
+        { shiftKey: true },
+        { baseStep: 2, bigStep: 24 },
+      ),
+    ).toMatchObject({ dx: 24, step: 24 });
+    expect(
+      getNudgeDelta("ArrowRight", {}, { baseStep: 2, bigStep: 24 }),
+    ).toMatchObject({ dx: 2, step: 2 });
   });
 
   it("marks snap bypass metadata when a bypass modifier is held", () => {

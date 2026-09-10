@@ -21,7 +21,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ import { cn } from "@/lib/utils";
 import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
+  isSameScheduledDraft,
   splitQuotedContent,
 } from "./compose-draft-context";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
@@ -69,12 +70,53 @@ import { SendLaterButton } from "./SendLaterButton";
 
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 
+type ComposeAccount = { email: string; displayName?: string };
+
+function ComposeFieldRow({
+  label,
+  children,
+  trailing,
+}: {
+  label: string;
+  children: ReactNode;
+  trailing?: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-10 items-center gap-2 border-b border-border px-4">
+      <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+        {label}
+      </span>
+      {children}
+      {trailing}
+    </div>
+  );
+}
+
+function accountDisplayName(account: ComposeAccount) {
+  return account.displayName?.trim() || account.email;
+}
+
+function AccountChip({ account }: { account: ComposeAccount }) {
+  const displayName = accountDisplayName(account);
+
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md bg-accent px-2 py-0.5 text-xs text-accent-foreground">
+      <span className="truncate font-medium">{displayName}</span>
+      {displayName !== account.email && (
+        <span className="truncate text-muted-foreground/70">
+          {account.email}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function FromAccountSelector({
   accounts,
   value,
   onChange,
 }: {
-  accounts: Array<{ email: string; displayName?: string }>;
+  accounts: ComposeAccount[];
   value: string | undefined;
   onChange: (email: string) => void;
 }) {
@@ -87,6 +129,9 @@ function FromAccountSelector({
       ? localStorage.getItem(LAST_SEND_ACCOUNT_KEY)!
       : accounts[0]?.email) ||
     "";
+  const selectedAccount =
+    accounts.find((account) => account.email === resolvedValue) ??
+    (resolvedValue ? { email: resolvedValue } : accounts[0]);
 
   // Sync the sticky default into the draft if it wasn't set
   useEffect(() => {
@@ -96,10 +141,7 @@ function FromAccountSelector({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex items-center border-b border-border px-4">
-      <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-        From
-      </span>
+    <ComposeFieldRow label="From">
       <Select
         value={resolvedValue}
         onValueChange={(email) => {
@@ -107,20 +149,27 @@ function FromAccountSelector({
           onChange(email);
         }}
       >
-        <SelectTrigger className="flex-1 border-0 bg-transparent py-2 text-sm shadow-none focus:ring-0 h-auto px-0 cursor-pointer">
-          <SelectValue />
+        <SelectTrigger className="h-10 min-w-0 flex-1 cursor-pointer border-0 bg-transparent p-0 text-sm shadow-none focus:ring-0">
+          <SelectValue className="min-w-0 flex-1">
+            {selectedAccount && <AccountChip account={selectedAccount} />}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {accounts.map((acct) => (
             <SelectItem key={acct.email} value={acct.email}>
-              {acct.displayName
-                ? `${acct.displayName} <${acct.email}>`
-                : acct.email}
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate">{accountDisplayName(acct)}</span>
+                {accountDisplayName(acct) !== acct.email && (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {acct.email}
+                  </span>
+                )}
+              </span>
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </ComposeFieldRow>
   );
 }
 
@@ -200,6 +249,9 @@ export function ComposeModal({
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const sendingIdsRef = useRef<Set<string>>(new Set());
+  const schedulingRef = useRef(false);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
 
   // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
@@ -222,7 +274,7 @@ export function ComposeModal({
   }, [activeDraft?.id, initialExpanded, onInitialExpandedConsumed]);
 
   const handleSend = async () => {
-    if (!activeDraft || !activeId) return;
+    if (!activeDraft || !activeId || schedulingRef.current) return;
     if (sendingIdsRef.current.has(activeId)) return;
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
@@ -321,12 +373,14 @@ export function ComposeModal({
   };
 
   const handleSendLater = async (runAt: number) => {
-    if (!activeDraft || !activeId) return;
+    if (!activeDraft || !activeId || schedulingRef.current) return;
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
     }
 
+    schedulingRef.current = true;
+    const schedulingId = activeId;
     const draftSnapshot = { ...activeDraft };
 
     try {
@@ -343,8 +397,13 @@ export function ComposeModal({
         runAt,
       });
 
-      // Job created successfully — now discard the draft
-      onDiscard(activeId);
+      // Preserve edits made while the scheduling request was in flight.
+      const currentDraft = draftsRef.current.find(
+        (draft) => draft.id === schedulingId,
+      );
+      if (currentDraft && isSameScheduledDraft(currentDraft, draftSnapshot)) {
+        onDiscard(schedulingId);
+      }
 
       const scheduledDate = new Date(runAt).toLocaleString("en-US", {
         weekday: "short",
@@ -356,6 +415,8 @@ export function ComposeModal({
       toast(`Scheduled for ${scheduledDate}`);
     } catch {
       toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
+    } finally {
+      schedulingRef.current = false;
     }
   };
 
@@ -416,7 +477,7 @@ export function ComposeModal({
 
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
     if (e.key === "Escape") {
       e.preventDefault();
@@ -493,8 +554,12 @@ export function ComposeModal({
       const attachments = await uploadFiles(files);
       const existing = activeDraft.attachments ?? [];
       onUpdate(activeId, { attachments: [...existing, ...attachments] });
-    } catch {
-      toast.error(t("mail.toasts.failedToAttachFile"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("mail.toasts.failedToAttachFile"),
+      );
     }
   };
 
@@ -732,10 +797,34 @@ export function ComposeModal({
                 }
               />
             )}
-            <div className="flex items-center border-b border-border px-4">
-              <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                To
-              </span>
+            <ComposeFieldRow
+              label="To"
+              trailing={
+                <button
+                  type="button"
+                  aria-label={`${t("mail.draftQueue.cc")} / ${t("mail.draftQueue.bcc")}`}
+                  aria-expanded={showCcBcc}
+                  onClick={() => {
+                    const next = !showCcBcc;
+                    setShowCcBcc(next);
+                    if (next) {
+                      if (activeDraft.cc === undefined)
+                        onUpdate(activeId!, { cc: "" });
+                      if (activeDraft.bcc === undefined)
+                        onUpdate(activeId!, { bcc: "" });
+                    }
+                  }}
+                  className="flex size-4 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <IconChevronDown
+                    className={cn(
+                      "size-4 transition-transform",
+                      showCcBcc && "rotate-180",
+                    )}
+                  />
+                </button>
+              }
+            >
               <RecipientInput
                 value={activeDraft.to}
                 onChange={(val) => onUpdate(activeId!, { to: val })}
@@ -743,52 +832,26 @@ export function ComposeModal({
                 field="to"
                 onMoveRecipient={moveRecipient}
               />
-              <button
-                onClick={() => {
-                  const next = !showCcBcc;
-                  setShowCcBcc(next);
-                  if (next) {
-                    if (activeDraft.cc === undefined)
-                      onUpdate(activeId!, { cc: "" });
-                    if (activeDraft.bcc === undefined)
-                      onUpdate(activeId!, { bcc: "" });
-                  }
-                }}
-                className="text-muted-foreground hover:text-foreground transition-colors p-1"
-              >
-                <IconChevronDown
-                  className={cn(
-                    "h-4 w-4 transition-transform",
-                    showCcBcc && "rotate-180",
-                  )}
-                />
-              </button>
-            </div>
+            </ComposeFieldRow>
 
             {showCcBcc && (
               <>
-                <div className="flex items-center border-b border-border px-4">
-                  <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                    Cc
-                  </span>
+                <ComposeFieldRow label="Cc">
                   <RecipientInput
                     value={activeDraft.cc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { cc: val })}
                     field="cc"
                     onMoveRecipient={moveRecipient}
                   />
-                </div>
-                <div className="flex items-center border-b border-border px-4">
-                  <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                    Bcc
-                  </span>
+                </ComposeFieldRow>
+                <ComposeFieldRow label="Bcc">
                   <RecipientInput
                     value={activeDraft.bcc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { bcc: val })}
                     field="bcc"
                     onMoveRecipient={moveRecipient}
                   />
-                </div>
+                </ComposeFieldRow>
               </>
             )}
 
@@ -917,7 +980,7 @@ export function ComposeModal({
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
-                            handleGenerate();
+                            void handleGenerate();
                           }
                           if (e.key === "Escape") {
                             e.stopPropagation();
@@ -965,6 +1028,7 @@ export function ComposeModal({
                 onSendLater={handleSendLater}
                 disabled={!activeDraft.to.trim()}
                 isSending={sendEmail.isPending}
+                isScheduling={scheduleEmail.isPending}
               />
             </div>
           </div>

@@ -1,46 +1,48 @@
 ---
 title: "はじめに"
-description: "Agent-Nativeアプリを作成し、エージェントとUIから同じアクションを呼び出します。"
+description: "チャットUIを備えたエージェントを作成し、エージェントとUIから同じアクションを呼び出します。"
 ---
 
 # はじめに
 
-Agent-Nativeは、人とAIエージェントの両方に対応するアプリを構築するための
-オープンソースのTypeScriptフレームワークです。アプリの機能を一度だけ
-[アクション](/docs/actions-overview)として定義します。アクションは型付き関数で、
-React UIはコードから呼び出し、エージェントはツールとして使います。
+<GettingStartedPaths />
 
-このガイドでは、Chatアプリを作成し、付属の`hello`アクションをエージェントとUIから呼び出します。
+Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築するための
+オープンソースTypeScriptフレームワークです。各機能を一度だけ
+[アクション](/docs/actions-overview)として定義します。アクションは、エージェントが
+ツールとして使用し、UIがコードから呼び出す型付き関数です。
+
+このガイドでは、チャットUIを備えたエージェントを作成し、付属の`hello`アクションをエージェントとUIから呼び出します。
 
 ## 前提条件
 
-- [Node.js](https://nodejs.org) 22以降
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22以降
+- [pnpm](https://pnpm.io)がインストールされ、`PATH`から実行できること
 - エージェント用のLLM接続: Builder.io、AnthropicまたはOpenAIのAPIキー、またはローカルのOllamaモデル
 
-## アプリを作成する
+## エージェントを作成する
 
-新しいディレクトリでChatアプリを作成します。
+新しいディレクトリでChatテンプレートから始めます。
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
 
-テンプレートには、ブラウザアプリ、認証、永続的な会話、ライブ同期、
-アプリケーションコンテキスト、`actions/`ディレクトリが含まれます。このガイドで使う
-小さな`hello`アクションも含まれています。
+テンプレートには、エージェント用のブラウザUI、認証、永続的な会話、
+ライブ同期、アプリケーションコンテキスト、`actions/`ディレクトリが含まれます。
+このガイドで使う小さな`hello`アクションも含まれています。
 
 ## 開発サーバーを起動する
 
-アプリを起動します。
+開発サーバーを起動します。
 
 ```bash
 pnpm dev
 ```
 
-アプリは`http://localhost:8080`で開きます。自動で開かない場合は、ブラウザでそのURLにアクセスしてください。
+ブラウザUIは自動で開きます。開かない場合は`pnpm dev`が表示するローカルURLを使ってください。8080が使用中ならポート番号が増えます。
 
 <Callout tone="info">
 
@@ -54,7 +56,7 @@ Welcome画面で**Continue as local dev**を選択します。ローカル開発
 
 アクションは、React UIがコードから呼び出せ、エージェントがツールとして使える型付き関数です。Chatテンプレートにはシンプルな`hello`アクションが含まれているため、自分で書く前にこのパターンを試せます。
 
-アプリで次のように依頼します。
+エージェントパネルで次のように依頼します。
 
 > Call the hello action for Alex.
 
@@ -66,7 +68,7 @@ Hello, Alex!
 
 ## アクションを確認する
 
-`actions/hello.ts`を開きます。
+ローカルの `my-app` ディレクトリで、コードエディターから `actions/hello.ts` を開きます。
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -95,7 +97,8 @@ export default defineAction({
 
 ## Reactからアクションを呼び出す
 
-`app/routes/hello.tsx`にルートを追加します。
+テンプレートには`actions/hello.ts`が含まれますが、そのページはありません。
+`app/routes/hello.tsx`を作成します。
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -127,7 +130,7 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-新しいルートを検出できるように開発サーバーを再起動してから、`http://localhost:8080/hello`を開いてください。
+新しいルートを検出できるように開発サーバーを再起動してから、`http://localhost:<port>/hello`を開いてください。
 
 </Callout>
 
@@ -152,13 +155,13 @@ return { message: `Welcome, ${name}.` };
 | [HTTP API](/docs/http-api)              | スクリプト、バックエンド、連携からアクションを呼び出す。           |
 | [CLI](/docs/actions-other-surfaces#cli) | ターミナルからアクションを実行またはテストする。                   |
 | [MCP](/docs/actions-other-surfaces#mcp) | 外部AIクライアントにアクションをツールとして検出・呼び出しさせる。 |
-| [A2A](/docs/actions-other-surfaces#a2a) | 別のAgent-Nativeアプリに、このアプリで作業するよう依頼する。       |
+| [A2A](/docs/actions-other-surfaces#a2a) | 別のエージェントから自分のエージェントに作業を委任する。           |
 
-すべての呼び出し元が同じアクション定義を使います。呼び出し元ごとに別の実装は不要です。この共有アクションモデルはAgent-Nativeの中心です。アプリが変化しても、UI、エージェント、連携の間で動作、検証、権限が揃ったままになります。
+すべての呼び出し元が同じアクション定義を使います。呼び出し元ごとに別の実装は不要です。この共有アクションモデルはAgent-Nativeの中心です。機能を追加しても、UI、エージェント、連携の間で動作、検証、権限が揃ったままになります。
 
 ## 作成したもの
 
-Agent-Nativeアプリを作成し、`hello`アクションをエージェントとReact UIから呼び出し、挨拶を一度変更して両方が更新されることを確認しました。これから書くすべてのアクションも同じパターンに従います。
+チャットUIを備えたエージェントを作成し、同じ`hello`アクションをエージェントとReact UIから呼び出し、挨拶を一度変更して両方が更新されることを確認しました。これから書くすべてのアクションも同じパターンに従います。
 
 ## 次のステップ
 
@@ -175,5 +178,9 @@ UIとエージェントがアクション、データ、コンテキストを共
 ### [アクション](/docs/actions-overview)
 
 読み取り、書き込み、承認のアクションを定義し、UI、エージェント、外部クライアントから呼び出します。
+
+### [アプリをデプロイ](/docs/deploy-an-app)
+
+ローカル開発から、永続データベース、本番認証、対応するデプロイ先へ進みます。
 
 </Cards>

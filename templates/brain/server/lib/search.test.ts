@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const testString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URLSearchParams
+      ? value.toString()
+      : (JSON.stringify(value) ?? "");
+
 type Condition =
   | { op: "access" }
   | { op: "and"; conditions: Condition[] }
@@ -113,7 +120,7 @@ const mocks = vi.hoisted(() => {
   };
 
   function likeNeedle(value: unknown) {
-    return String(value ?? "")
+    return testString(value ?? "")
       .replace(/^%|%$/g, "")
       .replace(/\\([\\%_])/g, "$1")
       .toLowerCase();
@@ -136,7 +143,7 @@ const mocks = vi.hoisted(() => {
       return condition.vals.includes(row[condition.col.name]);
     }
     if (condition.op === "like") {
-      const value = String(row[condition.col.name] ?? "").toLowerCase();
+      const value = testString(row[condition.col.name] ?? "").toLowerCase();
       return value.includes(likeNeedle(condition.val));
     }
     return false;
@@ -145,8 +152,8 @@ const mocks = vi.hoisted(() => {
   const applyOrder = (items: Row[], order?: { column?: Column }) => {
     if (!order?.column) return items;
     return [...items].sort((a, b) =>
-      String(b[order.column!.name] ?? "").localeCompare(
-        String(a[order.column!.name] ?? ""),
+      testString(b[order.column!.name] ?? "").localeCompare(
+        testString(a[order.column!.name] ?? ""),
       ),
     );
   };

@@ -19,6 +19,7 @@ import { fileURLToPath } from "url";
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+import { PROVIDER_PACKAGES } from "../agent/engine/ai-sdk-engine.js";
 import { addAppToWorkspace, createApp } from "./create.js";
 import {
   _scaffoldWorkspaceRoot,
@@ -291,13 +292,26 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     }
   });
 
-  it("includes the Postgres runtime for hosted SQL databases", async () => {
+  it("includes local and hosted SQL runtimes", async () => {
     await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
+    expect(pkg.dependencies?.["@electric-sql/pglite"]).toBeDefined();
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
 
-  it("allows Tesseract builds through pnpm-workspace.yaml", async () => {
+  it("includes every built-in AI SDK runtime for deployed chat apps", async () => {
+    await createApp("test-app", { template: "chat" });
+    const pkg = readPkg(path.join(tmpDir, "test-app"));
+
+    for (const packageName of ["ai", ...Object.values(PROVIDER_PACKAGES)]) {
+      expect(
+        pkg.dependencies?.[packageName],
+        `${packageName} must be a direct chat runtime dependency`,
+      ).toBeDefined();
+    }
+  });
+
+  it("allows required native builds through pnpm-workspace.yaml", async () => {
     await createApp("test-app", { template: "chat" });
     const root = path.join(tmpDir, "test-app");
     const pkg = readPkg(root);
@@ -308,6 +322,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
 
     expect(pkg.pnpm).toBeUndefined();
     expect(workspaceYaml).toContain("allowBuilds:");
+    expect(workspaceYaml).toContain("node-pty: true");
     expect(workspaceYaml).toContain("tesseract.js: true");
     expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
   });
@@ -1652,9 +1667,9 @@ describe("workspace scaffold defaults", () => {
 
   it("does not copy local agent-native runtime state", () => {
     expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);
-    expect(_shouldSkipScaffoldEntry("app.db")).toBe(true);
-    expect(_shouldSkipScaffoldEntry("app.db-shm")).toBe(true);
-    expect(_shouldSkipScaffoldEntry("app.db-wal")).toBe(true);
+    expect(
+      _shouldSkipScaffoldEntry("pglite", path.join("data", "pglite")),
+    ).toBe(true);
   });
 
   it("does not copy generated visual plan previews", () => {

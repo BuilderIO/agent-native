@@ -29,6 +29,8 @@ const mocks = vi.hoisted(() => {
 
   const db = { select: vi.fn(() => selectChain), insert, update };
 
+  let designData: Record<string, unknown> = {};
+
   return {
     db,
     insert,
@@ -37,10 +39,15 @@ const mocks = vi.hoisted(() => {
     setExistingRows: (rows: Array<Record<string, unknown>>) => {
       existingRows = rows;
     },
+    getDesignData: () => designData,
+    setDesignData: (data: Record<string, unknown>) => {
+      designData = data;
+    },
     assertAccess: vi.fn().mockResolvedValue(undefined),
     seedFromText: vi.fn().mockResolvedValue(undefined),
     and: vi.fn((...args) => ({ and: args })),
     eq: vi.fn((left, right) => ({ left, right })),
+    mutateDesignData: vi.fn(),
   };
 });
 
@@ -70,13 +77,33 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+vi.mock("../server/lib/design-data-mutation.js", () => ({
+  mutateDesignData: mocks.mutateDesignData,
+}));
+
 import action from "./create-file.js";
 
 describe("create-file: node-id annotation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.setExistingRows([]);
+    mocks.setDesignData({});
     mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.mutateDesignData.mockImplementation(
+      async (options: {
+        mutate: (
+          current: Record<string, unknown>,
+          context: { updatedAt: string },
+        ) => Record<string, unknown>;
+        isApplied: (current: Record<string, unknown>) => boolean;
+      }) => {
+        const updatedAt = "2026-09-04T00:00:00.000Z";
+        const next = options.mutate(mocks.getDesignData(), { updatedAt });
+        mocks.setDesignData(next);
+        expect(options.isApplied(next)).toBe(true);
+        return { data: next, updatedAt };
+      },
+    );
   });
 
   it("stamps missing data-agent-native-node-id attributes on new HTML content", async () => {
@@ -168,5 +195,103 @@ describe("create-file: node-id annotation", () => {
     expect(
       insertedValues.content.match(/<script>[\s\S]*?<\/script>/)?.[0],
     ).not.toContain("data-agent-native-node-id");
+  });
+});
+
+describe("create-file: canvas placement and landing URL", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.setExistingRows([]);
+    mocks.setDesignData({});
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.mutateDesignData.mockImplementation(
+      async (options: {
+        mutate: (
+          current: Record<string, unknown>,
+          context: { updatedAt: string },
+        ) => Record<string, unknown>;
+        isApplied: (current: Record<string, unknown>) => boolean;
+      }) => {
+        const updatedAt = "2026-09-04T00:00:00.000Z";
+        const next = options.mutate(mocks.getDesignData(), { updatedAt });
+        mocks.setDesignData(next);
+        expect(options.isApplied(next)).toBe(true);
+        return { data: next, updatedAt };
+      },
+    );
+  });
+
+  it("gives a new renderable screen a default desktop placement and an overview landing URL", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "index.html",
+      content: "<main>Todo app</main>",
+      fileType: "html",
+    });
+
+    expect(mocks.mutateDesignData).toHaveBeenCalledTimes(1);
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    expect(canvasFrames[result.id]).toEqual({
+      x: 0,
+      y: 0,
+      width: 1440,
+      height: 1024,
+    });
+    expect(result.urlPath).toBe(
+      `/design/design-1?view=overview&screen=${result.id}`,
+    );
+  });
+
+  it("places a second created screen in the next free row, clear of the first", async () => {
+    mocks.setDesignData({
+      canvasFrames: { existing: { x: 0, y: 0, width: 1440, height: 1024 } },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "second.html",
+      content: "<main>Second screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    expect(canvasFrames[result.id]).toEqual({
+      x: 0,
+      y: 1024 + 96,
+      width: 1440,
+      height: 1024,
+    });
+  });
+
+  it("does not place or focus a non-renderable file", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "styles.css",
+      content: ".btn { color: red; }",
+      fileType: "css",
+    });
+
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(result.renderable).toBe(false);
+    expect(result.urlPath).toBeNull();
+  });
+
+  it("does not place or focus renderable content that is empty", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "index.html",
+      content: "   ",
+      fileType: "html",
+    });
+
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(result.renderable).toBe(false);
+    expect(result.urlPath).toBeNull();
   });
 });

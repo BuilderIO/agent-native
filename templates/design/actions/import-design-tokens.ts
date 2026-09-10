@@ -23,6 +23,7 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   isSafeCssTokenValue,
   isSafeCssVarName,
@@ -439,8 +440,9 @@ export default defineAction({
     "apply-design-token-edit. For Figma/.fig and full local-code indexing, use " +
     "the Builder-backed design-system import flow.",
   schema: tokenImportSchema,
-  run: async ({ designId, source, files, text }) => {
+  run: async ({ designId, source, files, text }, context) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
     let importFiles: { filename: string; content: string }[] = [];

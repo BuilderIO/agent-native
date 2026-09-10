@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resetGithubStarCountCacheForTests } from "../../lib/github-star-count";
 import { loader as rootLoader, resolveLayoutLocale } from "../root";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import { loader as defaultDocLoader } from "../routes/docs.$slug";
@@ -25,6 +26,7 @@ function loaderArgs(
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetGithubStarCountCacheForTests();
 });
 
 describe("localized docs fallback", () => {
@@ -133,7 +135,7 @@ describe("localized docs fallback", () => {
     }
 
     expect(response?.status).toBe(302);
-    expect(response?.headers.get("Location")).toBe("/fr-FR/docs");
+    expect(response?.headers.get("Location")).toBe("/fr-fr/docs/");
   });
 
   it("loads default docs slugs instead of treating them as locales", async () => {
@@ -153,9 +155,40 @@ describe("localized docs fallback", () => {
       }
 
       expect(response?.status).toBe(301);
-      expect(response?.headers.get("Location")).toBe("/docs/agent-resources");
+      expect(response?.headers.get("Location")).toBe("/docs/agent-resources/");
     },
   );
+
+  it("redirects the retired Frames page to Agent Surfaces", async () => {
+    let response: Response | undefined;
+    try {
+      await defaultDocLoader(loaderArgs({ slug: "frames" }));
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(301);
+    expect(response?.headers.get("Location")).toBe("/docs/agent-surfaces/");
+  });
+
+  it("preserves the locale when redirecting the retired Frames page", async () => {
+    let response: Response | undefined;
+    try {
+      await localizedDocLoader(
+        loaderArgs(
+          { locale: "fr-FR", slug: "frames" },
+          "https://docs.test/fr-FR/docs/frames",
+        ),
+      );
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(301);
+    expect(response?.headers.get("Location")).toBe(
+      "/fr-fr/docs/agent-surfaces/",
+    );
+  });
 
   it.each([
     "/fr-FR/docs/workspace",
@@ -176,7 +209,7 @@ describe("localized docs fallback", () => {
 
     expect(response?.status).toBe(301);
     expect(response?.headers.get("Location")).toBe(
-      "/fr-FR/docs/agent-resources",
+      "/fr-fr/docs/agent-resources/",
     );
   });
 
@@ -184,25 +217,25 @@ describe("localized docs fallback", () => {
     const items = getDocsNavItems("fr-FR");
 
     expect(items.find((item) => item.id === "getting-started")?.to).toBe(
-      "/fr-FR/docs",
+      "/fr-fr/docs/",
     );
     expect(items.find((item) => item.id === "creating-templates")?.to).toBe(
-      "/fr-FR/docs/creating-templates",
+      "/fr-fr/docs/creating-templates/",
     );
     expect(items.find((item) => item.id === "internationalization")?.to).toBe(
-      "/fr-FR/docs/internationalization",
+      "/fr-fr/docs/internationalization/",
     );
     const toolkitSection = getDocsNavSections("fr-FR").find(
       (section) => section.id === "toolkits",
     );
     expect(
       toolkitSection?.items.find((item) => item.id === "toolkit-ui")?.to,
-    ).toBe("/fr-FR/docs/toolkit-ui");
+    ).toBe("/fr-fr/docs/toolkit-ui/");
     const resourcesSection = getDocsNavSections("fr-FR").find(
       (section) => section.id === "agent-resources",
     );
     expect(resourcesSection?.title).toBe("Agent Resources");
-    expect(resourcesSection?.items[0]?.to).toBe("/fr-FR/docs/agent-resources");
+    expect(resourcesSection?.items[0]?.to).toBe("/fr-fr/docs/agent-resources/");
   });
 
   it("indexes translated docs at localized canonical paths", async () => {
@@ -211,12 +244,12 @@ describe("localized docs fallback", () => {
     expect(
       index.some(
         (entry) =>
-          entry.path === "/fr-FR/docs" &&
+          entry.path === "/fr-fr/docs/" &&
           entry.page.toLowerCase().includes("démarrage"),
       ),
     ).toBe(true);
     expect(
-      index.some((entry) => entry.path === "/fr-FR/docs/internationalization"),
+      index.some((entry) => entry.path === "/fr-fr/docs/internationalization/"),
     ).toBe(true);
   }, 60_000);
 
@@ -225,7 +258,7 @@ describe("localized docs fallback", () => {
       "/docs/multi-app-workspace.md",
     );
     expect(docsMarkdownPathForPath("/fr-FR/docs/internationalization")).toBe(
-      "/fr-FR/docs/internationalization.md",
+      "/fr-fr/docs/internationalization.md",
     );
     expect(docsMarkdownPathForPath("/fr-FR/docs/durable-background-runs")).toBe(
       "/docs/durable-background-runs.md",
@@ -234,6 +267,16 @@ describe("localized docs fallback", () => {
   });
 
   it("hydrates route locale messages from the server for prefixed docs paths", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ stargazers_count: 4647 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
     const data = await rootLoader(
       loaderArgs({}, "https://docs.test/zh-CN/docs/internationalization"),
     );
@@ -243,5 +286,15 @@ describe("localized docs fallback", () => {
     expect(data.messages).toMatchObject({
       header: expect.objectContaining({ docs: expect.any(String) }),
     });
+  });
+
+  it("does not fetch GitHub while rendering the SSR root data", async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const data = await rootLoader(loaderArgs({}, "https://docs.test/apps"));
+
+    expect(data.starCount).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

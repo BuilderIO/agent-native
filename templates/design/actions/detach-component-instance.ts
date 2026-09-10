@@ -44,6 +44,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
@@ -185,7 +186,7 @@ export default defineAction({
       })
       .optional(),
   }),
-  run: async ({ designId, nodeId, fileId, source }) => {
+  run: async ({ designId, nodeId, fileId, source }, context) => {
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
@@ -206,6 +207,7 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const db = getDb();
 
     const conditions = [

@@ -1,9 +1,5 @@
 /**
  * delete-deck — remove a deck and its version history.
- *
- * Hidden from the agent: deck deletion has always been a UI-only operation and
- * this action exists to give the editor the same permission rule it had on the
- * route it replaced.
  */
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -20,23 +16,53 @@ export default defineAction({
     id: z.string().min(1).describe("Deck ID"),
   }),
   http: { method: "DELETE" },
-  agentTool: false,
   run: async ({ id }) => {
     try {
       // assertAccess loads the row and verifies the caller has admin role on
       // this resource — it must run BEFORE the delete so we don't leak
       // existence to callers who lack access.
       const access = await assertAccess("deck", id, "admin");
+      const owner = access.resource.ownerEmail as string;
+      const orgId =
+        typeof access.resource.orgId === "string"
+          ? access.resource.orgId
+          : undefined;
       const db = getDb();
+      const shares = await db
+        .select({
+          principalType: schema.deckShares.principalType,
+          principalId: schema.deckShares.principalId,
+        })
+        .from(schema.deckShares)
+        .where(eq(schema.deckShares.resourceId, id));
+      const ownerRecipients = new Set<string>();
+      const orgRecipients = new Set<string>();
+      const normalizedOwner = owner.trim().toLowerCase();
+      if (normalizedOwner) ownerRecipients.add(normalizedOwner);
+      if (access.resource.visibility === "org" && orgId) {
+        orgRecipients.add(orgId);
+      }
+      for (const share of shares) {
+        if (
+          share.principalType === "user" &&
+          typeof share.principalId === "string"
+        ) {
+          const recipient = share.principalId.trim().toLowerCase();
+          if (recipient) ownerRecipients.add(recipient);
+        } else if (
+          share.principalType === "org" &&
+          typeof share.principalId === "string"
+        ) {
+          const recipient = share.principalId.trim();
+          if (recipient) orgRecipients.add(recipient);
+        }
+      }
       await db
         .delete(schema.deckVersions)
         .where(
           and(
             eq(schema.deckVersions.deckId, id),
-            eq(
-              schema.deckVersions.ownerEmail,
-              access.resource.ownerEmail as string,
-            ),
+            eq(schema.deckVersions.ownerEmail, owner),
           ),
         );
       const result = await db
@@ -47,7 +73,16 @@ export default defineAction({
       if (result.length === 0) {
         throw deckHttpError(404, "Deck not found");
       }
-      notifyClients(id, "deck-deleted");
+      if (access.resource.visibility === "public") {
+        await notifyClients(id, { type: "deck-deleted", visibility: "public" });
+      } else {
+        for (const recipient of ownerRecipients) {
+          await notifyClients(id, { type: "deck-deleted", owner: recipient });
+        }
+        for (const recipient of orgRecipients) {
+          await notifyClients(id, { type: "deck-deleted", orgId: recipient });
+        }
+      }
       return { success: true };
     } catch (err) {
       // 404 rather than 403 so callers can't probe for decks they can't see.

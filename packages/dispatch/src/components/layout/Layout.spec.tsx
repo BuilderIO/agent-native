@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: ({ children }: { children: React.ReactNode }) => (
     <div data-agent-sidebar>{children}</div>
   ),
+  ExternalAgentNudge: () => null,
   focusAgentChat: vi.fn(),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
@@ -101,9 +102,17 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   openCommandMenu: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/ui", () => ({
-  FeedbackButton: () => <div>Feedback</div>,
-}));
+vi.mock("@agent-native/core/client/ui", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/ui")>();
+  return {
+    ...actual,
+    AgentNativeIcon: (props: React.SVGProps<SVGSVGElement>) => (
+      <svg data-agent-native-icon {...props} />
+    ),
+    FeedbackButton: () => <div>Feedback</div>,
+  };
+});
 
 vi.mock("@agent-native/core/client/org", () => ({
   InvitationBanner: () => null,
@@ -254,7 +263,11 @@ describe("Dispatch NavContent", () => {
             initialEntries={[chatFirstMode ? "/chat" : "/overview"]}
           >
             <TooltipProvider>
-              <NavContent chatFirstMode={chatFirstMode} collapsed={collapsed} />
+              <NavContent
+                chatFirstMode={chatFirstMode}
+                collapsed={collapsed}
+                collapsible
+              />
             </TooltipProvider>
           </MemoryRouter>,
         );
@@ -268,8 +281,11 @@ describe("Dispatch NavContent", () => {
       const organization = [...(footer?.querySelectorAll("div") ?? [])].find(
         (element) => element.textContent?.trim() === "Organization",
       );
-      const footerActions = footer?.querySelector(
-        "[data-sidebar-footer-actions]",
+      const feedback = [...(footer?.querySelectorAll("div") ?? [])].find(
+        (element) => element.textContent?.trim() === "Feedback",
+      );
+      const collapse = footer?.querySelector(
+        'button[aria-label="Expand sidebar"], button[aria-label="Collapse sidebar"]',
       );
 
       expect(footer?.className).toContain("mt-auto");
@@ -281,16 +297,18 @@ describe("Dispatch NavContent", () => {
       expect(adminLink).not.toBeNull();
       expect(settingsLink).not.toBeNull();
       expect(organization).toBeDefined();
-      expect(footerActions).not.toBeNull();
+      expect(feedback).toBeDefined();
+      expect(collapse).not.toBeNull();
       expect(adminLink!.compareDocumentPosition(settingsLink!)).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
-      expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+      expect(settingsLink!.compareDocumentPosition(feedback!)).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
-      expect(organization!.compareDocumentPosition(footerActions!)).toBe(
+      expect(feedback!.compareDocumentPosition(organization!)).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
+      expect(collapse).not.toBeNull();
     },
   );
 
@@ -410,13 +428,13 @@ describe("Dispatch NavContent", () => {
       );
     });
 
-    const sidebarLabel = container.querySelector(
-      "[data-dispatch-sidebar-label]",
+    const sidebarLabel = [...container.querySelectorAll("span")].find(
+      (element) => element.textContent?.trim() === "Dispatch",
     );
     expect(sidebarLabel?.textContent?.trim()).toBe("Dispatch");
     expect(container.textContent).not.toContain("Agent-Native Dispatch");
     expect(
-      sidebarLabel?.closest('a[data-dispatch-logo][href="/overview"]'),
+      sidebarLabel?.closest('a[href="/overview"], a[href*="/overview"]'),
     ).not.toBeNull();
 
     const settingsLink = container.querySelector('a[href="/settings"]');
@@ -424,21 +442,21 @@ describe("Dispatch NavContent", () => {
     const organization = [...container.querySelectorAll("div")].find(
       (element) => element.textContent?.trim() === "Organization",
     );
-    const footerActions = container.querySelector(
-      "[data-sidebar-footer-actions]",
+    const feedback = [...container.querySelectorAll("div")].find(
+      (element) => element.textContent?.trim() === "Feedback",
     );
 
     expect(settingsLink).not.toBeNull();
     expect(adminLink).not.toBeNull();
     expect(organization).toBeDefined();
-    expect(footerActions).not.toBeNull();
-    expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+    expect(feedback).toBeDefined();
+    expect(settingsLink!.compareDocumentPosition(feedback!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(adminLink!.compareDocumentPosition(settingsLink!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(organization!.compareDocumentPosition(footerActions!)).toBe(
+    expect(feedback!.compareDocumentPosition(organization!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
@@ -530,11 +548,11 @@ describe("Dispatch NavContent", () => {
     expect(
       container.querySelector("[data-chat-first-app] span[style]"),
     ).not.toBeNull();
+    expect(container.textContent).toContain("Feedback");
     expect(
-      container.querySelector("[data-sidebar-footer-feedback]"),
-    ).not.toBeNull();
-    expect(
-      container.querySelector("[data-sidebar-footer-collapse]"),
+      container.querySelector(
+        'button[aria-label="Expand sidebar"], button[aria-label="Collapse sidebar"]',
+      ),
     ).not.toBeNull();
   });
 
@@ -595,10 +613,12 @@ describe("Dispatch NavContent", () => {
       '[data-agent-native="chat-history-list"]',
     );
     expect(historyList?.className).toContain("an-chat-history--rail");
-    expect(
-      container.querySelector('img[src="/agent-native-icon-light.svg"]')
-        ?.parentElement?.className,
-    ).not.toContain("border");
+    const sidebarLogo = container.querySelector(
+      'a[href="/overview"] svg[data-agent-native-icon], [data-sidebar-header] svg[data-agent-native-icon]',
+    );
+    expect(sidebarLogo?.className).toContain("text-primary");
+    expect(sidebarLogo?.className).toContain("h-3.5");
+    expect(sidebarLogo?.className).toContain("w-6");
     expect(container.textContent).not.toContain("Workspace control plane");
 
     const threadButton = [...container.querySelectorAll("button")].find(

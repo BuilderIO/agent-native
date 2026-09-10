@@ -35,6 +35,75 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mentionner des fichiers, des agents ou des ressources",
   "commands.new": "Identique à /clear",
   "commands.plan": "Passer à la planification en lecture seule",
+  "onboarding.back": "Retour",
+  "onboarding.chooseRole": "Choisissez votre rôle",
+  "onboarding.customizeRole": "Personnalisons cette expérience pour vous.",
+  "onboarding.roleQuestion": "Quel choix décrit le mieux votre rôle ?",
+  "onboarding.roleProduct": "Produit",
+  "onboarding.roleDesign": "Design",
+  "onboarding.roleDeveloper": "Développement",
+  "onboarding.roleMarketing": "Marketing",
+  "onboarding.roleSales": "Ventes",
+  "onboarding.roleOps": "Opérations",
+  "onboarding.roleIndividual": "Individuel",
+  "onboarding.roleOther": "Autre",
+  "onboarding.skipForNow": "Ignorer pour l’instant",
+  "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
+  "onboarding.builderActivateCredits":
+    "Activer les crédits gratuits Builder.io",
+  "onboarding.builderConnectCredits":
+    "Connecter les crédits gratuits Builder.io",
+  "onboarding.builderActivateDescription":
+    "Créez ou réutilisez votre compte Builder.io et activez ses crédits gratuits en un clic.",
+  "onboarding.builderActiveCredits":
+    "Inclus avec les crédits gratuits Builder.io actifs",
+  "onboarding.builderCredits": "Inclus avec les crédits gratuits Builder.io",
+  "onboarding.builderActivateTitle": "Activer les crédits gratuits",
+  "onboarding.builderAccountExistsTitle": "Vous avez déjà un compte Builder.io",
+  "onboarding.builderAccountExistsDescription":
+    "Connectez-vous pour l’associer.",
+  "onboarding.builderActivationDescription":
+    "Nous créerons automatiquement votre compte Builder.io en un clic.",
+  "onboarding.builderCreateAndActivate": "Créer et activer",
+  "onboarding.builderConsentPrefix": "En continuant, vous acceptez les",
+  "onboarding.builderTerms": "Conditions",
+  "onboarding.builderPrivacy": "Règles de confidentialité",
+  "onboarding.builderConsentAnd": "et",
+  "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
+  "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
+  "onboarding.builderConnecting": "Connexion aux crédits gratuits Builder.io",
+  "onboarding.builderProvisioningDescription":
+    "Création ou réutilisation de votre compte Builder.io. Cela prend généralement quelques secondes.",
+  "onboarding.builderConnectionDescription":
+    "Terminez la connexion en un clic dans la nouvelle fenêtre.",
+  "onboarding.capability.llm.keySummary":
+    "Connectez un fournisseur d’IA ou un modèle local",
+  "onboarding.capability.fileStorage.keySummary":
+    "Stockage Builder ou bucket compatible S3",
+  "onboarding.capability.voiceInput.label": "Entrée vocale",
+  "onboarding.capability.voiceInput.keySummary":
+    "Reconnaissance vocale du navigateur ou conversion parole-texte",
+  "onboarding.capability.voiceInput.why":
+    "L’entrée vocale transforme les demandes parlées en texte ; la saisie reste toujours disponible.",
+  "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Crédits Builder ou clé d’un fournisseur d’images",
+  "onboarding.capability.assetsImageGeneration.why":
+    "La génération d’images est le flux principal pour créer des ressources à votre marque.",
+  "onboarding.capability.assetsVideoGeneration.label": "Génération vidéo",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Clé API Gemini",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "La génération vidéo est facultative ; le flux principal d’Assets est la génération d’images.",
+  "onboarding.capability.clipsObjectStorage.label": "Stockage objet",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Stockage Builder ou bucket compatible S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Les vidéos enregistrées ont besoin d’un stockage objet durable avant de pouvoir être lues ou partagées.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Clé d’un fournisseur de conversion parole-texte",
+  "onboarding.capability.about": "À propos de {{label}}",
+  "onboarding.capability.why": "Pourquoi {{label}} est nécessaire",
+  "onboarding.openAiKeySettings": "Ouvrir les paramètres des clés IA",
   "aboutAgentNative.title": "À propos d’Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environnement",
@@ -44,6 +113,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "Interface utilisateur",
+  "agentHostNudge.sidebarTitle": "Utiliser le chat de {{agent}}",
+  "agentHostNudge.sidebarDescription":
+    "Vous discutez déjà avec {{agent}}. Demandez-lui de travailler directement avec cette app.",
+  "agentHostNudge.promptTitle": "Demander plutôt à {{agent}}",
+  "agentHostNudge.promptDescription":
+    "Vous pouvez demander à {{agent}} de créer ou modifier ceci ici.",
+  "agentHostNudge.useThisChat": "Utiliser ce chat",
+  "agentHostNudge.useThisPrompt": "Utiliser cette invite",
   "common.cancel": "Annuler",
   "common.collapse": "Réduire",
   "common.connect": "Connecter",
@@ -159,6 +236,24 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "Le flux précédent de l’agent s’est terminé pendant la récupération. Continuez ou réessayez pour vous reconnecter à l’exécution.",
   "recovery.reconnectBuilder": "Reconnecter Builder.io",
+  "secrets.addCustomKeyNamed": 'Ajouter "{{name}}" comme clé personnalisée',
+  "secrets.customKey": "Clé personnalisée",
+  "secrets.customKeyHint": "Ajoutez n'importe quelle clé par son nom",
+  "secrets.fromEnvironment": "Fourni par l'environnement de déploiement.",
+  "secrets.managedInVault":
+    "Géré dans le Vault de l'espace de travail. Chaque application de cet espace de travail utilise cette valeur.",
+  "secrets.openVault": "Ouvrir Vault",
+  "secrets.overridesVault":
+    "Cette clé personnelle remplace la valeur du Vault de l'espace de travail. Supprimez-la pour utiliser la clé du Vault.",
+  "secrets.overridesWorkspace":
+    "Cette clé personnelle remplace la valeur de l'espace de travail. Supprimez-la pour utiliser la clé partagée.",
+  "secrets.setForWorkspace":
+    "Défini pour tout le monde dans cet espace de travail.",
+  "secrets.sourceEnvironment": "Environnement",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Espace de travail",
+  "secrets.statusUnavailable": "Indisponible",
+  "secrets.usePersonalKey": "Utiliser une clé personnelle à la place",
   "selection.attached": "{{formattedCount}} caractères de la sélection joints",
   "selection.clear": "Effacer le contexte de la sélection",
   "setup.addOwnKeys": "Ajouter vos propres clés",

@@ -413,3 +413,17 @@ Claude Code calls: run-query(sql: "SELECT count(*) FROM signups WHERE created_at
 Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
 → The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
 ```
+
+## fetch による先行検出
+
+Agent-Native は `GET /.well-known/mcp.json` に HTTP 互換カタログも提供します。
+エージェントは実行中のブラウザがなくても `fetch` や `curl` で取得できます。
+アクションのエンドポイント、JSON スキーマ、読み取り専用かどうか、認証の要否を
+記述し、ツールは `POST /mcp/tool/:name` で呼び出せます。認証、認可、検証、
+テナントのスコープは引き続きサーバー側で処理されます。
+
+これは Agent-Native の互換性規約であり、WebMCP や MCP Streamable HTTP の一部
+ではありません。`/mcp` は標準 MCP エンドポイントとして残り、対応ブラウザでは
+`document.modelContext` のページローカルツールも利用できます。Clips は
+`agentContextUrl` と完全なトランスクリプトおよび JPEG フレームの URL を公開する
+ため、コンテンツを HTTP で直接取得できます。

@@ -41,7 +41,7 @@ export default function CodeBlock({
   }, [code, lang]);
 
   function handleCopy() {
-    navigator.clipboard.writeText(code.trim());
+    void navigator.clipboard.writeText(code.trim());
     setCopied(true);
     trackEvent("copy code block", { lang, snippet: code.trim().slice(0, 100) });
     if (timeoutRef.current) clearTimeout(timeoutRef.current);

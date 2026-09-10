@@ -16,6 +16,7 @@ on:
       - ".changeset/**"
       - ".github/workflows/changeset-check.yml"
       - "scripts/check-changeset.mjs"
+      - "scripts/guard-no-major-changeset.mjs"
 
 permissions:
   contents: read
@@ -38,3 +39,6 @@ jobs:
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
         run: node scripts/check-changeset.mjs
+
+      - name: Enforce package bump policy
+        run: node scripts/guard-no-major-changeset.mjs

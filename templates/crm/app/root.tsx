@@ -9,7 +9,14 @@ import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { CrmCommandMenu } from "@/components/layout/CrmCommandMenu";
@@ -74,16 +81,30 @@ function SyncBridge() {
   return null;
 }
 
+function AppContent() {
+  return (
+    <>
+      <SyncBridge />
+      <CrmCommandMenu />
+      <CrmLayout>
+        <Outlet />
+      </CrmLayout>
+    </>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-        <SyncBridge />
-        <CrmCommandMenu />
-        <CrmLayout>
-          <Outlet />
-        </CrmLayout>
+      <AppProviders
+        queryClient={queryClient}
+        isPublicPath={isMarketingPath}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        {isMarketingPath ? <Outlet /> : <AppContent />}
       </AppProviders>
     </AppToolkitProvider>
   );

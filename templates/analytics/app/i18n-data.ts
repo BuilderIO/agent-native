@@ -1,8 +1,10 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     whatsNew: "What's new",
   },
@@ -493,7 +495,6 @@ const enUS = {
     connectionAppId: "App ID",
     connectionAppUrl: "App URL",
     connectionDatabaseUrl: "Database URL",
-    connectionAuthToken: "Auth token (optional)",
     saveConnection: "Save connection",
     deleteConnection: "Delete connection",
     deleteConnectionTitle: "Delete database connection?",
@@ -624,6 +625,10 @@ const enUS = {
     unhideFailed: "Couldn't unhide dashboard",
     addPanel: "Add panel",
     dashboardActions: "Dashboard details and actions",
+    certifyForAi: "Certify for AI queries",
+    certifiedForAi: "Certified for AI queries",
+    certificationSaved: "Dashboard certified for AI queries",
+    certificationFailed: "Couldn't certify dashboard: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
     public: "Public",
@@ -4956,6 +4961,10 @@ function mergeMessages(overrides: {
     dialogs: { ...enUS.dialogs, ...overrides.dialogs },
     commandPalette: { ...enUS.commandPalette, ...overrides.commandPalette },
     common: { ...enUS.common, ...overrides.common },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
     dataDictionary: { ...enUS.dataDictionary, ...overrides.dataDictionary },
     dataSources: { ...enUS.dataSources, ...overrides.dataSources },
     analyticsBackend: {
@@ -6968,6 +6977,13 @@ export const messagesByLocale = {
   }),
 } satisfies Record<LocaleCode, Messages>;
 
+for (const locale of Object.keys(creativeContextMessagesByLocale) as Array<
+  keyof typeof creativeContextMessagesByLocale
+>) {
+  messagesByLocale[locale].creativeContext =
+    creativeContextMessagesByLocale[locale];
+}
+
 type AnalyticsPartialMessages = {
   [K in Section]?: Partial<Messages[K]>;
 };
@@ -7050,6 +7066,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "添加图表",
+      dashboardFallback: "仪表板",
+      archived: '已归档 "{{name}}"',
       archiveFailed: "无法存档仪表板",
       configNotFound: "未找到配置",
       dashboardActions: "仪表板操作",
@@ -7133,7 +7151,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "应用 ID",
       connectionAppUrl: "应用 URL",
       connectionDatabaseUrl: "数据库 URL",
-      connectionAuthToken: "认证令牌（可选）",
       saveConnection: "保存连接",
       deleteConnection: "删除连接",
       deleteConnectionTitle: "删除数据库连接？",
@@ -7145,6 +7162,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "添加描述",
       addFirstPanel: "添加您的第一个面板",
       addPanel: "添加面板",
+      dashboardFallback: "仪表板",
+      archived: '已归档 "{{name}}"',
       archiveFailed: "无法存档仪表板",
       clearAll: "全部清除",
       collapseFilters: "折叠过滤器",
@@ -7290,6 +7309,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "Agregar gráfico",
+      dashboardFallback: "panel",
+      archived: 'Panel archivado: "{{name}}"',
       archiveFailed: "No se pudo archivar el panel",
       configNotFound: "Configuración no encontrada",
       dashboardActions: "Acciones del panel",
@@ -7376,7 +7397,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ID de app",
       connectionAppUrl: "URL de app",
       connectionDatabaseUrl: "URL de base de datos",
-      connectionAuthToken: "Token de autenticación (opcional)",
       saveConnection: "Guardar conexión",
       deleteConnection: "Eliminar conexión",
       deleteConnectionTitle: "¿Eliminar conexión de base de datos?",
@@ -7388,6 +7408,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "Agregar descripción",
       addFirstPanel: "Añade tu primer panel",
       addPanel: "Agregar panel",
+      dashboardFallback: "panel",
+      archived: 'Panel archivado: "{{name}}"',
       archiveFailed: "No se pudo archivar el panel",
       clearAll: "Borrar todo",
       collapseFilters: "Contraer filtros",
@@ -7540,6 +7562,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "Ajouter un graphique",
+      dashboardFallback: "tableau de bord",
+      archived: 'Tableau de bord "{{name}}" archivé',
       archiveFailed: "Impossible d'archiver le tableau de bord",
       configNotFound: "Configuration introuvable",
       dashboardActions: "Actions du tableau de bord",
@@ -7626,7 +7650,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ID de l'app",
       connectionAppUrl: "URL de l'app",
       connectionDatabaseUrl: "URL de la base de données",
-      connectionAuthToken: "Jeton d'authentification (facultatif)",
       saveConnection: "Enregistrer la connexion",
       deleteConnection: "Supprimer la connexion",
       deleteConnectionTitle: "Supprimer la connexion à la base de données ?",
@@ -7638,6 +7661,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "Ajouter une description",
       addFirstPanel: "Ajoutez votre premier panneau",
       addPanel: "Ajouter un panneau",
+      dashboardFallback: "tableau de bord",
+      archived: 'Tableau de bord "{{name}}" archivé',
       archiveFailed: "Impossible d'archiver le tableau de bord",
       clearAll: "Tout effacer",
       collapseFilters: "Réduire les filtres",
@@ -7792,6 +7817,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "Diagramm hinzufügen",
+      dashboardFallback: "Dashboard",
+      archived: "Dashboard „{{name}}“ archiviert",
       archiveFailed: "Das Dashboard konnte nicht archiviert werden",
       configNotFound: "Konfiguration nicht gefunden",
       dashboardActions: "Dashboard-Aktionen",
@@ -7878,7 +7905,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "App-ID",
       connectionAppUrl: "App-URL",
       connectionDatabaseUrl: "Datenbank-URL",
-      connectionAuthToken: "Authentifizierungstoken (optional)",
       saveConnection: "Verbindung speichern",
       deleteConnection: "Verbindung löschen",
       deleteConnectionTitle: "Datenbankverbindung löschen?",
@@ -7890,6 +7916,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "Beschreibung hinzufügen",
       addFirstPanel: "Fügen Sie Ihr erstes Panel hinzu",
       addPanel: "Panel hinzufügen",
+      dashboardFallback: "Dashboard",
+      archived: "Dashboard „{{name}}“ archiviert",
       archiveFailed: "Das Dashboard konnte nicht archiviert werden",
       clearAll: "Alles löschen",
       collapseFilters: "Filter ausblenden",
@@ -8038,6 +8066,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "チャートの追加",
+      dashboardFallback: "ダッシュボード",
+      archived: "「{{name}}」をアーカイブしました",
       archiveFailed: "ダッシュボードをアーカイブできませんでした",
       configNotFound: "構成が見つかりません",
       dashboardActions: "ダッシュボードのアクション",
@@ -8123,7 +8153,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "アプリ ID",
       connectionAppUrl: "アプリ URL",
       connectionDatabaseUrl: "データベース URL",
-      connectionAuthToken: "認証トークン（任意）",
       saveConnection: "接続を保存",
       deleteConnection: "接続を削除",
       deleteConnectionTitle: "データベース接続を削除しますか？",
@@ -8135,6 +8164,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "説明を追加",
       addFirstPanel: "最初のパネルを追加する",
       addPanel: "パネルの追加",
+      dashboardFallback: "ダッシュボード",
+      archived: "「{{name}}」をアーカイブしました",
       archiveFailed: "ダッシュボードをアーカイブできませんでした",
       clearAll: "すべてクリア",
       collapseFilters: "フィルターを折りたたむ",
@@ -8283,6 +8314,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "차트 추가",
+      dashboardFallback: "대시보드",
+      archived: '"{{name}}" 대시보드를 보관처리했습니다.',
       archiveFailed: "대시보드를 보관처리할 수 없습니다.",
       configNotFound: "구성을 찾을 수 없습니다.",
       dashboardActions: "대시보드 작업",
@@ -8367,7 +8400,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "앱 ID",
       connectionAppUrl: "앱 URL",
       connectionDatabaseUrl: "데이터베이스 URL",
-      connectionAuthToken: "인증 토큰(선택 사항)",
       saveConnection: "연결 저장",
       deleteConnection: "연결 삭제",
       deleteConnectionTitle: "데이터베이스 연결을 삭제할까요?",
@@ -8379,6 +8411,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "설명 추가",
       addFirstPanel: "첫 번째 패널 추가",
       addPanel: "패널 추가",
+      dashboardFallback: "대시보드",
+      archived: '"{{name}}" 대시보드를 보관처리했습니다.',
       archiveFailed: "대시보드를 보관처리할 수 없습니다.",
       clearAll: "모두 지우기",
       collapseFilters: "필터 접기",
@@ -8529,6 +8563,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "Adicionar gráfico",
+      dashboardFallback: "painel",
+      archived: 'Painel "{{name}}" arquivado',
       archiveFailed: "Não foi possível arquivar o painel",
       configNotFound: "Configuração não encontrada",
       dashboardActions: "Ações do painel",
@@ -8615,7 +8651,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ID do app",
       connectionAppUrl: "URL do app",
       connectionDatabaseUrl: "URL do banco de dados",
-      connectionAuthToken: "Token de autenticação (opcional)",
       saveConnection: "Salvar conexão",
       deleteConnection: "Excluir conexão",
       deleteConnectionTitle: "Excluir conexão de banco de dados?",
@@ -8627,6 +8662,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "Adicionar descrição",
       addFirstPanel: "Adicione seu primeiro painel",
       addPanel: "Adicionar painel",
+      dashboardFallback: "painel",
+      archived: 'Painel "{{name}}" arquivado',
       archiveFailed: "Não foi possível arquivar o painel",
       clearAll: "Limpar tudo",
       collapseFilters: "Recolher filtros",
@@ -8776,6 +8813,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "चार्ट जोड़ें",
+      dashboardFallback: "डैशबोर्ड",
+      archived: "“{{name}}” संग्रहीत किया गया",
       archiveFailed: "डैशबोर्ड संग्रहीत नहीं किया जा सका",
       configNotFound: "कॉन्फ़िगरेशन नहीं मिला",
       dashboardActions: "डैशबोर्ड क्रियाएँ",
@@ -8860,7 +8899,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ऐप ID",
       connectionAppUrl: "ऐप URL",
       connectionDatabaseUrl: "डेटाबेस URL",
-      connectionAuthToken: "Auth token (वैकल्पिक)",
       saveConnection: "कनेक्शन सहेजें",
       deleteConnection: "कनेक्शन हटाएं",
       deleteConnectionTitle: "डेटाबेस कनेक्शन हटाएं?",
@@ -8872,6 +8910,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "विवरण जोड़ें",
       addFirstPanel: "अपना पहला पैनल जोड़ें",
       addPanel: "पैनल जोड़ें",
+      dashboardFallback: "डैशबोर्ड",
+      archived: "“{{name}}” संग्रहीत किया गया",
       archiveFailed: "डैशबोर्ड संग्रहीत नहीं किया जा सका",
       clearAll: "सब साफ़ करें",
       collapseFilters: "फ़िल्टर संक्षिप्त करें",
@@ -9019,6 +9059,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "إضافة الرسم البياني",
+      dashboardFallback: "لوحة المعلومات",
+      archived: 'تمت أرشفة "{{name}}"',
       archiveFailed: "تعذر أرشفة لوحة التحكم",
       configNotFound: "لم يتم العثور على التكوين",
       dashboardActions: "إجراءات لوحة القيادة",
@@ -9103,7 +9145,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "معرّف التطبيق",
       connectionAppUrl: "رابط التطبيق",
       connectionDatabaseUrl: "رابط قاعدة البيانات",
-      connectionAuthToken: "رمز المصادقة (اختياري)",
       saveConnection: "حفظ الاتصال",
       deleteConnection: "حذف الاتصال",
       deleteConnectionTitle: "هل تريد حذف اتصال قاعدة البيانات؟",
@@ -9115,6 +9156,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "أضف الوصف",
       addFirstPanel: "أضف اللوحة الأولى الخاصة بك",
       addPanel: "إضافة لوحة",
+      dashboardFallback: "لوحة المعلومات",
+      archived: 'تمت أرشفة "{{name}}"',
       archiveFailed: "تعذر أرشفة لوحة التحكم",
       clearAll: "مسح الكل",
       collapseFilters: "Collapse filters",
@@ -9406,6 +9449,10 @@ const translatedAnalyticsDebtCorrections = {
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "أضف وصفًا",
+      certifyForAi: "اعتماد لاستعلامات الذكاء الاصطناعي",
+      certifiedForAi: "معتمد لاستعلامات الذكاء الاصطناعي",
+      certificationSaved: "تم اعتماد لوحة المعلومات لاستعلامات الذكاء الاصطناعي",
+      certificationFailed: "تعذر اعتماد لوحة المعلومات: {{message}}",
       collapseFilters: "طي عوامل التصفية",
       refreshing: "جارٍ التحديث...",
     },
@@ -9437,6 +9484,11 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "Inaktive Lücken werden abgespielt",
     },
     sqlDashboard: {
+      certifyForAi: "Für KI-Abfragen zertifizieren",
+      certifiedForAi: "Für KI-Abfragen zertifiziert",
+      certificationSaved: "Dashboard für KI-Abfragen zertifiziert",
+      certificationFailed:
+        "Dashboard konnte nicht zertifiziert werden: {{message}}",
       refreshing: "Wird aktualisiert...",
     },
   },
@@ -9464,6 +9516,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "Reproduciendo pausas inactivas",
     },
     sqlDashboard: {
+      certifyForAi: "Certificar para consultas de IA",
+      certifiedForAi: "Certificado para consultas de IA",
+      certificationSaved: "Panel certificado para consultas de IA",
+      certificationFailed: "No se pudo certificar el panel: {{message}}",
       refreshing: "Actualizando...",
     },
   },
@@ -9495,6 +9551,10 @@ const translatedAnalyticsDebtCorrections = {
     },
     sqlDashboard: {
       formatSql: "Formater SQL",
+      certifyForAi: "Certifier pour les requêtes IA",
+      certifiedForAi: "Certifié pour les requêtes IA",
+      certificationSaved: "Tableau certifié pour les requêtes IA",
+      certificationFailed: "Impossible de certifier le tableau : {{message}}",
       refreshing: "Actualisation...",
     },
   },
@@ -9522,6 +9582,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "निष्क्रिय अंतराल चलाए जा रहे हैं",
     },
     sqlDashboard: {
+      certifyForAi: "AI क्वेरी के लिए प्रमाणित करें",
+      certifiedForAi: "AI क्वेरी के लिए प्रमाणित",
+      certificationSaved: "डैशबोर्ड को AI क्वेरी के लिए प्रमाणित किया गया",
+      certificationFailed: "डैशबोर्ड प्रमाणित नहीं हो सका: {{message}}",
       refreshing: "रीफ़्रेश हो रहा है...",
     },
   },
@@ -9549,6 +9613,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "非アクティブな間隔を再生中",
     },
     sqlDashboard: {
+      certifyForAi: "AI クエリ用に認定",
+      certifiedForAi: "AI クエリ用に認定済み",
+      certificationSaved: "ダッシュボードを AI クエリ用に認定しました",
+      certificationFailed: "ダッシュボードを認定できませんでした: {{message}}",
       refreshing: "更新中...",
     },
   },
@@ -9576,6 +9644,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "비활성 구간을 재생하는 중",
     },
     sqlDashboard: {
+      certifyForAi: "AI 쿼리용 인증",
+      certifiedForAi: "AI 쿼리용 인증됨",
+      certificationSaved: "대시보드가 AI 쿼리용으로 인증됨",
+      certificationFailed: "대시보드를 인증할 수 없음: {{message}}",
       refreshing: "새로고침 중...",
     },
   },
@@ -9603,6 +9675,11 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "Reproduzindo lacunas inativas",
     },
     sqlDashboard: {
+      certifyForAi: "Certificar para consultas de IA",
+      certifiedForAi: "Certificado para consultas de IA",
+      certificationSaved: "Dashboard certificado para consultas de IA",
+      certificationFailed:
+        "Não foi possível certificar o dashboard: {{message}}",
       refreshing: "Atualizando...",
     },
   },
@@ -9630,6 +9707,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "正在播放非活动间隔",
     },
     sqlDashboard: {
+      certifyForAi: "认证用于 AI 查询",
+      certifiedForAi: "已认证用于 AI 查询",
+      certificationSaved: "仪表板已认证用于 AI 查询",
+      certificationFailed: "无法认证仪表板：{{message}}",
       refreshing: "正在刷新...",
     },
   },

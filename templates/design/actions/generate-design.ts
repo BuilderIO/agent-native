@@ -29,6 +29,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -55,12 +56,17 @@ import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
-/** Editor deep link so external agents can surface "Open design". */
-function designDeepLink(designId: string): string {
+/**
+ * Editor deep link so external agents can surface "Open design". Passing
+ * `screenId` lands the open-route redirect on the overview canvas focused on
+ * that screen (see `resolveOpenPath` in server/plugins/core-routes.ts) rather
+ * than the bare design.
+ */
+function designDeepLink(designId: string, screenId?: string): string {
   return buildDeepLink({
     app: "design",
     view: "editor",
-    params: { designId },
+    params: { designId, screen: screenId },
   });
 }
 
@@ -500,9 +506,10 @@ const generateDesignAction = defineAction({
     "Do not use this action to replace a selected variant screen after a " +
     "variant pick; call `get-design-snapshot` for the selected `fileId` and " +
     "`edit-design` that same `fileId` instead. " +
-    "When `designSystemId` is provided, first use `get-design-system` and apply " +
-    "its `agentContext` tokens/docs before writing the file content; do not " +
-    "treat the id alone as enough design-system context. " +
+    "Before writing, use `designSystem.agentContext` from create-design or " +
+    "get-design-system, or call get-design-snapshot for an existing design; " +
+    "apply its tokens/docs before writing file content. Do not treat an id " +
+    "alone as enough design-system context. " +
     "Every web design must be responsive. This action adds responsive editor " +
     "breakpoints: by default a Desktop 1440x900 base frame plus a Mobile " +
     "breakpoint (no auto tablet, no duplicate desktop). Pass `devices` to honor " +
@@ -694,21 +701,25 @@ const generateDesignAction = defineAction({
       height: 680,
     }),
   },
-  run: async ({
-    designId,
-    prompt,
-    files,
-    designSystemId,
-    projectType,
-    tweaks,
-    canvasFrames,
-    primaryViewport,
-    devices,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) => {
+  run: async (
+    {
+      designId,
+      prompt,
+      files,
+      designSystemId,
+      projectType,
+      tweaks,
+      canvasFrames,
+      primaryViewport,
+      devices,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    context,
+  ) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
     }
@@ -1279,9 +1290,21 @@ const generateDesignAction = defineAction({
       creativeContextProvenance,
     );
 
+    // Land on the overview canvas focused on the first renderable screen
+    // rather than the bare design (which used to drop into the editor's
+    // default single-screen preview instead of the canvas).
+    const firstRenderableSavedFile = savedFiles.find((file) => {
+      const source = files.find(
+        (candidate) => candidate.filename === file.filename,
+      );
+      return source ? isRenderableDesignFile(source) : false;
+    });
+
     return {
       designId,
-      urlPath: `/design/${designId}`,
+      urlPath: firstRenderableSavedFile
+        ? `/design/${encodeURIComponent(designId)}?view=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
+        : `/design/${encodeURIComponent(designId)}`,
       renderable: true,
       savedFiles,
       placedFrames,
@@ -1299,8 +1322,12 @@ const generateDesignAction = defineAction({
     if (!result || typeof result !== "object") return null;
     const designId = (result as { designId?: string }).designId;
     if (!designId) return null;
+    const urlPath = (result as { urlPath?: string }).urlPath;
+    const screenId = urlPath
+      ? new URL(urlPath, "http://an.invalid").searchParams.get("screen")
+      : null;
     return {
-      url: designDeepLink(designId),
+      url: designDeepLink(designId, screenId ?? undefined),
       label: "Open design",
       view: "editor",
     };

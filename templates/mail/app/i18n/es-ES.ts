@@ -44,12 +44,18 @@ const messages = {
       noMatches: "Sin coincidencias",
       localResults: "En esta bandeja de entrada",
       searchingGmail: "Buscando en Gmail...",
+      saveAsTab: "Guardar como pestaña",
+      saveAsTabPrompt: "Nombra esta pestaña",
+      saveAsTabFailed: "No se pudo guardar la pestaña. Inténtalo de nuevo.",
+      filtersLimitReached: "Puedes guardar hasta 20 filtros.",
     },
     tabSettings: {
       views: "Vistas",
       categories: "Categorías",
       rename: "Cambiar nombre",
       renameTab: "Renombrar pestaña",
+      savedFilters: "Filtros guardados",
+      combinedInbox: "Bandeja de entrada combinada",
       help: "Los elementos marcados se muestran como pestañas. Los emails con etiquetas se separan de la bandeja de entrada.",
     },
     accounts: {
@@ -383,6 +389,62 @@ const messages = {
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
+    aiFilter: {
+      title: "Filtro de IA",
+      subtitle: "Una etiqueta reversible que aprende de tus decisiones.",
+      lunaBadge: "Luna cuando esté disponible",
+      toggle: "Activar filtro de IA",
+      autoFilterTitle: "Filtrar automáticamente con alta confianza",
+      autoFilterDescription:
+        "Mueve solo las coincidencias claras fuera de Recibidos; revisa el resto aquí.",
+      autoFilterToggle: "Filtrar automáticamente mensajes de alta confianza",
+      thresholdLabel: "Umbral de confianza para el filtrado automático",
+      labelName: "Etiqueta de Gmail",
+      labelHelp:
+        "agent-native-filtered seguirá visible en Gmail y otros clientes. No es Spam de Gmail.",
+      reviewLabel: "Revisar filtrados",
+      instructionsTitle: "Instrucciones",
+      instructionCount: "{{count}} instrucción(es)",
+      instructionPlaceholder:
+        "p. ej. Los asuntos como «question for you, Steve» no son deseados",
+      addInstruction: "Añadir",
+      noInstructions: "Aún no hay instrucciones.",
+      instructionExample:
+        "Prueba «todos los correos de campañas políticas no son deseados».",
+      toggleInstruction: "Activar instrucción: {{instruction}}",
+      deleteInstruction: "Eliminar instrucción",
+      activityTitle: "Actividad reciente",
+      suggestionCount: "{{count}} por revisar",
+      viewAll: "Ver todo",
+      noActivity: "Aún no hay actividad del filtro de IA.",
+      unknownSender: "Remitente desconocido",
+      noSubject: "(sin asunto)",
+      filterTitle: "Filtrar con IA",
+      keepTitle: "Conservar en Recibidos",
+      filterDescription:
+        "Esto archivará {{count}} conversación(es) y añadirá la etiqueta agent-native-filtered.",
+      keepDescription:
+        "Esto restaurará {{count}} conversación(es) a Recibidos y enseñará al filtro.",
+      labelNote:
+        "Añade la etiqueta agent-native-filtered y archiva la conversación. Puedes deshacerlo cuando quieras.",
+      learningNote:
+        "Conserva el mensaje en Recibidos y enseña al filtro a no repetir el error.",
+      rememberLabel: "Recordar para futuros mensajes (opcional)",
+      correctLabel: "¿Qué debería aprender? (opcional)",
+      rememberPlaceholder:
+        "p. ej. Los mensajes similares de campañas políticas no son deseados",
+      correctPlaceholder:
+        "p. ej. Este remitente es un cliente; conservar sus futuros mensajes en Recibidos",
+      commentHint:
+        "Tu nota se convierte en una regla editable o en un ejemplo de aprendizaje.",
+      filterButton: "Filtrar",
+      keepButton: "Conservar",
+      filteredToast: "Se filtraron {{count}} conversación(es).",
+      keptToast: "Se conservaron {{count}} conversación(es) en Recibidos.",
+      actionFailed: "No se pudo actualizar el filtro de IA.",
+      settingsFailed: "No se pudieron guardar los ajustes del filtro de IA.",
+      instructionFailed: "No se pudo guardar la instrucción del filtro de IA.",
+    },
     draftQueue: {
       title: "Cola de borradores",
       queueDraft: "Poner borrador en cola",
@@ -567,6 +629,7 @@ const messages = {
     deleteSnippetDescription:
       'Eliminar el fragmento "{{name}}"? Esta accion no se puede deshacer.',
     automations: "Automatizaciones",
+    aiFilter: "Filtro de IA",
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",

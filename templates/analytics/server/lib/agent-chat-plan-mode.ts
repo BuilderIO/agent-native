@@ -36,6 +36,7 @@ export const INITIAL_TOOL_NAMES = [
   "search-analytics-query-catalog",
   "search-dashboard-references",
   "query-agent-native-analytics",
+  "show-workspace-file",
   "bigquery",
   "search-bigquery-schema",
   "list-data-dictionary",

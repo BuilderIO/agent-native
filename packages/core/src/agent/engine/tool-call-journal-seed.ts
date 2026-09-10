@@ -1,3 +1,7 @@
+import {
+  isArtifactReceipt,
+  type ArtifactReceipt,
+} from "../../artifacts/detect.js";
 import { getCurrentTurnEventsForThread } from "../run-store.js";
 import {
   classifyToolCallJournal,
@@ -29,6 +33,7 @@ export interface PriorTurnToolResultSummary {
   input?: unknown;
   content: string;
   isError: boolean;
+  artifacts?: ArtifactReceipt[];
 }
 
 /**
@@ -129,11 +134,13 @@ export async function loadPriorTurnToolCallJournal(
       else openInputsByTool.set(event.tool, [event.input]);
     } else if (event.type === "tool_done") {
       const fifoInput = openInputsByTool.get(event.tool)?.shift();
+      const artifacts = event.artifacts?.filter(isArtifactReceipt);
       priorToolResults.push({
         name: event.tool,
         input: event.input ?? fifoInput,
         content: event.result,
         isError: event.isError === true,
+        ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
       });
     }
   }

@@ -9,6 +9,9 @@
  */
 export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
+  // The Frames page was retired. Agent Surfaces is the current chooser for
+  // app and agent hosting patterns.
+  frames: "agent-surfaces",
   "database-adapters": "deployment",
   // database.mdx was a near-duplicate of the Server section's own database
   // page; the Server version is the complete one (adds scoping + sync).
@@ -53,11 +56,19 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // to the Agent / Developer Guide).
   "template-calendar-scheduling": "template-calendar-features",
   "template-calendar-booking-links": "template-calendar-features",
+  // Forms' Building & Publishing and Responses & Insights pages merged into
+  // one Features doc as part of the app-doc-format rework (Overview /
+  // Features / Talk to the Agent / Cross-App Use / Developer Guide).
+  "template-forms-building-publishing": "template-forms-features",
+  "template-forms-responses": "template-forms-features",
 };
 
 /** True for a docs URL whose loader answers with a redirect, not a document. */
 export function isRedirectedDocsPath(pagePath: string): boolean {
   if (!pagePath.includes("/docs/")) return false;
-  const slug = pagePath.split("/").pop();
+  // Page paths carry the canonical trailing slash, so splitting the raw path
+  // yields an empty last segment and matches no redirect. A miss here silently
+  // prerenders a redirected slug as a 200, freezing the wrong page into a file.
+  const slug = pagePath.replace(/\/+$/, "").split("/").pop();
   return Boolean(slug) && Object.hasOwn(DOCS_SLUG_REDIRECTS, slug!);
 }

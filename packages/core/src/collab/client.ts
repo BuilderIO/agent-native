@@ -44,6 +44,7 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
+import { useAvatarUrl } from "../client/use-avatar.js";
 import { subscribeSyncEvents, type SyncEvent } from "../client/use-db-sync.js";
 import { REALTIME_CAP_NO_AWARENESS } from "../realtime-protocol.js";
 export {
@@ -71,6 +72,17 @@ export interface UseCollaborativeDocOptions {
   user?: CollabUser;
 }
 
+export type CollabInitializationErrorCategory =
+  | "forbidden-or-not-found"
+  | "server"
+  | "network"
+  | "invalid-payload";
+
+export type CollabInitializationState =
+  | { status: "loading" }
+  | { status: "ready" }
+  | { status: "error"; category: CollabInitializationErrorCategory };
+
 export interface UseCollaborativeDocResult {
   /** The Yjs document instance. Stable per docId — never changes identity. */
   ydoc: Y.Doc | null;
@@ -80,6 +92,10 @@ export interface UseCollaborativeDocResult {
   isLoading: boolean;
   /** Whether the doc is synced with the server. */
   isSynced: boolean;
+  /** Typed initial-state outcome. A document is writable only when ready. */
+  initialization: CollabInitializationState;
+  /** Retry a failed initial-state read. No transport starts until it succeeds. */
+  retry: () => void;
   /** Active users on this document (from awareness). */
   activeUsers: CollabUser[];
   /** True briefly when the AI agent makes an edit (for presence indicator). */
@@ -111,7 +127,8 @@ function collabUsersEqual(a: CollabUser[], b: CollabUser[]): boolean {
     if (
       left.email !== right.email ||
       left.name !== right.name ||
-      left.color !== right.color
+      left.color !== right.color ||
+      left.avatarUrl !== right.avatarUrl
     ) {
       return false;
     }
@@ -278,6 +295,7 @@ function scheduleAwarenessPush(
 interface CollabDocSnapshot {
   isLoading: boolean;
   isSynced: boolean;
+  initialization: CollabInitializationState;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -306,6 +324,7 @@ interface CollabDocSubscription {
 const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
   isLoading: false,
   isSynced: false,
+  initialization: { status: "loading" as const },
   activeUsers: [],
   agentActive: false,
   agentPresent: false,
@@ -374,6 +393,7 @@ class CollabDocConnection {
     this.snapshot = {
       isLoading: true,
       isSynced: false,
+      initialization: { status: "loading" },
       activeUsers: [],
       agentActive: false,
       agentPresent: false,
@@ -539,19 +559,26 @@ class CollabDocConnection {
       prev &&
       prev.name === user.name &&
       prev.email === user.email &&
-      prev.color === user.color
+      prev.color === user.color &&
+      prev.avatarUrl === user.avatarUrl
     ) {
       return;
     }
+    const avatarUrl =
+      typeof user.avatarUrl === "string" && user.avatarUrl.trim()
+        ? user.avatarUrl
+        : undefined;
     this.lastSetUser = {
       name: user.name,
       email: user.email,
       color: user.color,
+      ...(avatarUrl ? { avatarUrl } : {}),
     };
     this.awareness.setLocalStateField("user", {
       name: user.name,
       email: user.email,
       color: user.color,
+      ...(avatarUrl ? { avatarUrl } : {}),
     });
     // Also publish this tab's visibility so peers can elect a VISIBLE client
     // to apply external snapshots (see isReconcileLeadClient) — a backgrounded
@@ -612,7 +639,12 @@ class CollabDocConnection {
     // storm that gets worse as more people join the doc). Only active once a
     // local user identity has been published (matches the previous per-hook
     // gating on `user`). The poll cycle remains the authoritative baseline.
-    if (this.lastSetUser && origin === "local" && !this.disposed) {
+    if (
+      this.lastSetUser &&
+      this.snapshot.isSynced &&
+      origin === "local" &&
+      !this.disposed
+    ) {
       scheduleAwarenessPush(
         this.baseUrl,
         this.docId,
@@ -627,8 +659,11 @@ class CollabDocConnection {
   // -------------------------------------------------------------------------
 
   private start(): void {
-    this.attachUpdateHandler();
     this.fetchInitialState();
+  }
+
+  private startTransport(): void {
+    this.attachUpdateHandler();
     this.startSync();
 
     // SSE fast-path for awareness: listen on the SHARED framework transport
@@ -644,44 +679,101 @@ class CollabDocConnection {
   }
 
   private fetchInitialState(): void {
-    fetch(`${this.baseUrl}/${this.docId}/state`)
-      .then(async (res) => {
+    fetch(`${this.baseUrl}/${this.docId}/state`).then(
+      async (res) => {
         if (this.disposed) return;
         if (res.status === 404 || res.status === 403) {
-          this.markDocMissing();
+          this.markInitializationFailed("forbidden-or-not-found");
+          return;
+        }
+        if (!res.ok) {
+          this.markInitializationFailed("server");
           return;
         }
         const data = (await res.json().catch(() => null)) as {
           state?: string;
         } | null;
         if (this.disposed) return;
-        if (data?.state) {
-          const binary = base64ToUint8Array(data.state);
-          if (binary.length > 4) {
+        if (typeof data?.state !== "string" || data.state.length === 0) {
+          this.markInitializationFailed("invalid-payload");
+          return;
+        }
+        if (data.state) {
+          try {
+            const binary = base64ToUint8Array(data.state);
+            // Y.applyUpdate is not transactional: a malformed update can
+            // mutate a document before throwing. Validate against a disposable
+            // document so retries always start from the last authoritative
+            // live state.
+            const validationDoc = new Y.Doc();
+            try {
+              Y.applyUpdate(validationDoc, binary, "remote");
+            } finally {
+              validationDoc.destroy();
+            }
             Y.applyUpdate(this.ydoc, binary, "remote");
+          } catch {
+            this.markInitializationFailed("invalid-payload");
+            return;
           }
         }
-        this.setSnapshot({ isLoading: false, isSynced: true });
-      })
-      .catch(() => {
+        this.setSnapshot({
+          isLoading: false,
+          isSynced: true,
+          initialization: { status: "ready" },
+        });
+        this.startTransport();
+      },
+      () => {
         if (this.disposed) return;
-        this.setSnapshot({ isLoading: false, isSynced: true });
-      });
+        this.markInitializationFailed("network");
+      },
+    );
   }
 
   /**
-   * The initial state fetch returned 404/403 — the doc doesn't exist or isn't
-   * accessible. Stop doc-update traffic (poll loop, update POSTs, collab SSE
-   * handling) so we don't spam the console with errors against it. The
-   * awareness SSE subscription stays (matches previous behavior).
+   * A failed initial state must never turn an uninitialized Y.Doc into a
+   * writable empty document. Keep every outbound channel detached until an
+   * retry completes with a validated state payload.
    */
-  private markDocMissing(): void {
+  private markInitializationFailed(
+    category: CollabInitializationErrorCategory,
+  ): void {
     this.docMissing = true;
-    this.flushPendingUpdates(true);
+    this.pendingUpdates = [];
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
     this.detachUpdateHandler();
     this.stopSync();
-    this.setSnapshot({ isLoading: false, isSynced: true });
+    this.unsubscribeAwarenessEvents?.();
+    this.unsubscribeAwarenessEvents = null;
+    this.setSnapshot({
+      isLoading: false,
+      isSynced: false,
+      initialization: { status: "error", category },
+    });
   }
+
+  private retryInitialization(): void {
+    if (this.disposed) return;
+    this.detachUpdateHandler();
+    this.stopSync();
+    this.unsubscribeAwarenessEvents?.();
+    this.unsubscribeAwarenessEvents = null;
+    this.docMissing = false;
+    this.setSnapshot({
+      isLoading: true,
+      isSynced: false,
+      initialization: { status: "loading" },
+    });
+    this.fetchInitialState();
+  }
+
+  retry = (): void => {
+    this.retryInitialization();
+  };
 
   // -------------------------------------------------------------------------
   // Local update batching
@@ -1179,6 +1271,13 @@ export function useCollaborativeDoc(
     requestSource,
     user,
   } = options;
+  const storedAvatarUrl = useAvatarUrl(user?.email);
+  const resolvedUser = useMemo(() => {
+    if (!user || !storedAvatarUrl || storedAvatarUrl === user.avatarUrl) {
+      return user;
+    }
+    return { ...user, avatarUrl: storedAvatarUrl };
+  }, [storedAvatarUrl, user]);
 
   // Bumped when the effect finds the memoized connection was disposed in the
   // render→effect gap (rare: a suspended transition outliving the linger
@@ -1238,15 +1337,31 @@ export function useCollaborativeDoc(
   // Publish local user identity for cursor labels (set once per tab; the
   // connection dedupes repeated identical identities across subscribers).
   useEffect(() => {
-    if (!conn || conn.detached || !user) return;
-    conn.setUser({ name: user.name, email: user.email, color: user.color });
-  }, [conn, user?.name, user?.email, user?.color]);
+    if (!conn || conn.detached || !resolvedUser) return;
+    conn.setUser(resolvedUser);
+  }, [conn, resolvedUser]);
 
   return {
-    ydoc: conn ? conn.ydoc : null,
-    awareness: conn ? conn.awareness : null,
+    // The document is authoritative only after a validated initial state has
+    // been applied. Hiding it while loading or failed also prevents a caller
+    // from contaminating a later retry with pre-initialization local edits.
+    ydoc: conn && snapshot.initialization.status === "ready" ? conn.ydoc : null,
+    awareness:
+      conn && snapshot.initialization.status === "ready"
+        ? conn.awareness
+        : null,
     isLoading: snapshot.isLoading,
     isSynced: snapshot.isSynced,
+    initialization: snapshot.initialization,
+    retry: conn
+      ? () => {
+          if (conn.disposed) {
+            setGeneration((current) => current + 1);
+            return;
+          }
+          conn.retry();
+        }
+      : () => {},
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,
     agentPresent: snapshot.agentPresent,

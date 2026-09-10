@@ -4,6 +4,11 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  canReadDraftAsset,
+  resolveDraftReadScope,
+  unrestrictedDraftReadScope,
+} from "../server/lib/library-access.js";
 import { ASSET_MEDIA_TYPES, IMAGE_CATEGORIES } from "../shared/api.js";
 import {
   assetMatchesSearch,
@@ -13,7 +18,7 @@ import {
 import {
   buildAssetLineage,
   requireLibrary,
-  serializeAsset,
+  serializeAssetListItem,
 } from "./_helpers.js";
 
 export default defineAction({
@@ -94,7 +99,29 @@ export default defineAction({
     const candidateRunIdSet = new Set(candidateRunIds ?? []);
     const [rows, lineageRows] = await Promise.all([
       db
-        .select()
+        .select({
+          id: schema.assets.id,
+          libraryId: schema.assets.libraryId,
+          collectionId: schema.assets.collectionId,
+          folderId: schema.assets.folderId,
+          mediaType: schema.assets.mediaType,
+          role: schema.assets.role,
+          status: schema.assets.status,
+          title: schema.assets.title,
+          description: schema.assets.description,
+          altText: schema.assets.altText,
+          prompt: schema.assets.prompt,
+          model: schema.assets.model,
+          aspectRatio: schema.assets.aspectRatio,
+          mimeType: schema.assets.mimeType,
+          width: schema.assets.width,
+          height: schema.assets.height,
+          durationSeconds: schema.assets.durationSeconds,
+          objectKey: schema.assets.objectKey,
+          thumbnailObjectKey: schema.assets.thumbnailObjectKey,
+          generationRunId: schema.assets.generationRunId,
+          metadata: schema.assets.metadata,
+        })
         .from(schema.assets)
         .where(and(...filters))
         .orderBy(desc(schema.assets.createdAt)),
@@ -120,15 +147,18 @@ export default defineAction({
         ),
     ]);
     const lineageById = buildAssetLineage(lineageRows);
+    const candidatesRequested =
+      includeCandidates || status === "candidate" || candidateRunIdSet.size > 0;
+    // Drafts are the author's until approved, so a candidate-bearing read
+    // narrows to this caller's own. Plain asset reads pay no lookup.
+    const scope = candidatesRequested
+      ? await resolveDraftReadScope(libraryIds)
+      : unrestrictedDraftReadScope();
     const assets = rows
       .filter((asset) =>
-        shouldIncludeAssetInLibraryResults(
-          asset,
-          includeCandidates ||
-            status === "candidate" ||
-            candidateRunIdSet.size > 0,
-        ),
+        shouldIncludeAssetInLibraryResults(asset, candidatesRequested),
       )
+      .filter((asset) => canReadDraftAsset(scope, asset))
       .filter((asset) => {
         if (!candidateRunIdSet.size) return true;
         if (!(asset.role === "generated" && asset.status === "candidate")) {
@@ -140,7 +170,7 @@ export default defineAction({
       })
       .filter((asset) => assetMatchesSearch(asset, normalizedQuery, category))
       .map((asset) => ({
-        ...serializeAsset(asset, lineageById.get(asset.id) ?? null),
+        ...serializeAssetListItem(asset, lineageById.get(asset.id) ?? null),
         libraryTitle: libraryTitleById.get(asset.libraryId) ?? null,
       }));
     return { count: assets.length, assets };

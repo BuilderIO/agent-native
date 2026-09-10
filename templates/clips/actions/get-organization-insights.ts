@@ -13,11 +13,13 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
+import { profileNameFor } from "../server/lib/user-identities.js";
 
 function startOfDay(d: Date): Date {
   const out = new Date(d);
@@ -214,6 +216,13 @@ export default defineAction({
     const topCreators = Object.values(creatorStats)
       .sort((a, b) => b.views + b.engagement - (a.views + a.engagement))
       .slice(0, args.topN);
+    const creatorProfiles = await getUserProfiles(
+      topCreators.map((creator) => creator.email),
+    );
+    const topCreatorsWithProfiles = topCreators.map((creator) => ({
+      ...creator,
+      name: profileNameFor(creator.email, null, creatorProfiles),
+    }));
 
     // Trend: per-day tallies for the period.
     const trendMap = new Map<
@@ -240,7 +249,7 @@ export default defineAction({
       period: { days: args.days, start: startIso, end: endIso },
       totals,
       topVideos,
-      topCreators,
+      topCreators: topCreatorsWithProfiles,
       trend,
       // True when the organization has more recordings/engagement rows than
       // the bounded scan below covers — totals/trend reflect only the most

@@ -143,14 +143,14 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
 
-  // Public, unauthenticated uptime status pages (`/status/<slug>`) render
-  // SSR-first without the authenticated app chrome (sidebar/chat/command
-  // palette). See app/routes/status.$slug.tsx and the `/status` public path in
-  // server/plugins/auth.ts.
+  // Public, unauthenticated routes render SSR-first without the authenticated
+  // app chrome (sidebar/chat/command palette). See the status routes and the
+  // `/` workspace-app public path in server/plugins/auth.ts.
   const isPublicStatusPath =
     location.pathname === "/status" || location.pathname.startsWith("/status/");
+  const isMarketingPath = location.pathname === "/";
 
-  if (isPublicStatusPath) {
+  if (isPublicStatusPath || isMarketingPath) {
     return (
       <AppToolkitProvider>
         <AppProviders

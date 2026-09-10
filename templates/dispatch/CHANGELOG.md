@@ -3,6 +3,24 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-04
+
+### Improved
+
+- Dispatch metrics now handle unavailable active-user values, rank apps by tracked usage, show nine cards before expanding, and remove the Recent prompts panel.
+
+## 2026-08-31
+
+### Improved
+
+- Dispatch sign-in now shows its product preview and learn-more link
+
+## 2026-08-26
+
+### Fixed
+
+- Signing out now goes straight to the sign-in page instead of briefly returning to the app with a loading error.
+
 ## 2026-08-20
 
 ### Fixed

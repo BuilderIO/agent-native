@@ -32,12 +32,12 @@ import {
  *
  *   - A 5-minute process-wide memoization (`cached`) — every request
  *     for 5 min shares one upstream fetch.
- *   - A stale-while-error fallback — if GitHub ever errors out AND we
- *     have a previously-successful payload (even expired), we return
- *     it. Avoids a download outage during a transient GitHub hiccup or
- *     a rate-limit burst.
- *   - HTTP `cache-control: max-age=60` on the response so downstream
- *     CDNs + the browser cache this aggressively.
+ *   - A stale-while-revalidate refresh — once the cache expires, we return the
+ *     previous payload immediately and refresh it in the background.
+ *   - A stale-while-error fallback — if GitHub ever errors out AND we have a
+ *     previously-successful payload (even expired), we keep serving it.
+ *   - Durable HTTP cache headers with short freshness and a long stale window
+ *     for downstream CDNs + the browser.
  */
 
 const RELEASES_URL_BASE =
@@ -47,6 +47,16 @@ const PER_PAGE = 100;
 // by then, something else is wrong and the 404 is correct.
 const MAX_PAGES = 10;
 const CACHE_TTL_MS = 5 * 60_000;
+const CACHE_RETRY_BACKOFF_MS = 60_000;
+
+export const CLIPS_RELEASE_CACHE_HEADERS = {
+  "cache-control":
+    "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+  "cdn-cache-control":
+    "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+  "netlify-cdn-cache-control":
+    "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
+} as const;
 
 export type ClipsReleaseChannel = "production" | "nightly";
 
@@ -201,6 +211,9 @@ const cache = new Map<
   { data: DownloadManifest; ts: number }
 >();
 const inFlight = new Map<ClipsReleaseChannel, Promise<DownloadManifest>>();
+const retryAfter = new Map<ClipsReleaseChannel, number>();
+
+type WaitUntil = (promise: Promise<unknown>) => void;
 
 class UpstreamError extends Error {
   statusCode: number;
@@ -347,31 +360,69 @@ async function buildManifest(
   };
 }
 
-async function getManifest(
-  channel: ClipsReleaseChannel = "production",
+function refreshManifest(
+  channel: ClipsReleaseChannel,
 ): Promise<DownloadManifest> {
-  const now = Date.now();
-  const cached = cache.get(channel);
-  if (cached && now - cached.ts < CACHE_TTL_MS) return cached.data;
   const pending = inFlight.get(channel);
   if (pending) return pending;
   const request = (async () => {
     try {
       const data = await buildManifest(channel);
       cache.set(channel, { data, ts: Date.now() });
+      retryAfter.delete(channel);
       return data;
-    } catch (err) {
-      // Stale-while-error: if we have an older payload, serve it. Only
-      // bubble the error if the cache is empty.
-      if (cached) return cached.data;
-      throw err;
-    } finally {
-      inFlight.delete(channel);
+    } catch (error) {
+      retryAfter.set(channel, Date.now() + CACHE_RETRY_BACKOFF_MS);
+      throw error;
     }
   })();
-  inFlight.set(channel, request);
-  return request;
+  inFlight.set(
+    channel,
+    request.finally(() => {
+      inFlight.delete(channel);
+    }),
+  );
+  return inFlight.get(channel)!;
 }
+
+function refreshInBackground(
+  channel: ClipsReleaseChannel,
+  waitUntil?: WaitUntil,
+): void {
+  const refresh = refreshManifest(channel).catch(() => undefined);
+  if (waitUntil) {
+    waitUntil(refresh);
+  } else {
+    void refresh;
+  }
+}
+
+async function getManifest(
+  channel: ClipsReleaseChannel = "production",
+  waitUntil?: WaitUntil,
+): Promise<DownloadManifest> {
+  const now = Date.now();
+  const cached = cache.get(channel);
+  if (cached) {
+    if (
+      now - cached.ts >= CACHE_TTL_MS &&
+      now >= (retryAfter.get(channel) ?? 0)
+    ) {
+      refreshInBackground(channel, waitUntil);
+    }
+    return cached.data;
+  }
+  return refreshManifest(channel);
+}
+
+export const __clipsLatestTest = {
+  getManifest,
+  reset() {
+    cache.clear();
+    inFlight.clear();
+    retryAfter.clear();
+  },
+};
 
 export function normalizeClipsReleaseChannel(
   value: unknown,
@@ -383,7 +434,11 @@ export default defineEventHandler(async (event) => {
   const channel = normalizeClipsReleaseChannel(getQuery(event).channel);
   let manifest: DownloadManifest;
   try {
-    manifest = await getManifest(channel);
+    const waitUntil =
+      typeof event.waitUntil === "function"
+        ? (promise: Promise<unknown>) => event.waitUntil(promise)
+        : undefined;
+    manifest = await getManifest(channel, waitUntil);
   } catch (err) {
     const e = err as {
       statusCode?: number;
@@ -397,7 +452,7 @@ export default defineEventHandler(async (event) => {
   }
   setResponseHeaders(event, {
     "content-type": "application/json; charset=utf-8",
-    "cache-control": "public, max-age=60",
+    ...CLIPS_RELEASE_CACHE_HEADERS,
   });
   return manifest;
 });

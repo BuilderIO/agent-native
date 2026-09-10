@@ -1,5 +1,37 @@
 import type { ElementInfo } from "../types";
 
+/** The properties `ElementInfo.inlineStyles` carries. Pinned against the
+ *  bridge's own list by `bridge.guard.spec.ts`. */
+export const AUTHORED_INLINE_STYLE_PROPERTIES = [
+  "position",
+  "left",
+  "right",
+  "top",
+  "bottom",
+  "width",
+  "height",
+  "transform",
+  "whiteSpace",
+] as const;
+
+/** Patch authored values onto an existing inline-style snapshot. A commit that
+ *  updates only `computedStyles` leaves the authored and resolved views of the
+ *  same property disagreeing until the next fresh selection payload. */
+export function patchAuthoredInlineStyles(
+  inlineStyles: Record<string, string> | undefined,
+  committed: Record<string, string>,
+): Record<string, string> | undefined {
+  // Absence is meaningful downstream, so an older payload without a snapshot
+  // must not gain one here.
+  if (inlineStyles === undefined) return undefined;
+  const next = { ...inlineStyles };
+  for (const property of AUTHORED_INLINE_STYLE_PROPERTIES) {
+    const value = committed[property];
+    if (value !== undefined) next[property] = value;
+  }
+  return next;
+}
+
 export function authoredStyleValue(
   element: ElementInfo,
   property: string,

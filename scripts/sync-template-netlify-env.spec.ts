@@ -5,10 +5,20 @@ import {
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
   resolveNetlifyApiContext,
+  resolveNetlifyEnvScopes,
   resolveNetlifyTemplateName,
 } from "./sync-template-netlify-env";
 
 describe("isAllowedHostedTemplateEnvKey", () => {
+  it("allows the exact Better Auth origin allowlist", () => {
+    expect(isAllowedHostedTemplateEnvKey("BETTER_AUTH_TRUSTED_ORIGINS")).toBe(
+      true,
+    );
+    expect(isForbiddenHostedTemplateEnvKey("BETTER_AUTH_TRUSTED_ORIGINS")).toBe(
+      false,
+    );
+  });
+
   it("allows the browser-restricted Google Picker configuration", () => {
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_API_KEY")).toBe(true);
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_APP_ID")).toBe(true);
@@ -40,6 +50,13 @@ describe("isAllowedHostedTemplateEnvKey", () => {
 describe("isForbiddenHostedTemplateEnvKey", () => {
   it("rejects the backend Demo mode switch", () => {
     expect(isForbiddenHostedTemplateEnvKey("DEMO_MODE")).toBe(true);
+  });
+
+  it("rejects Amplitude tracking keys", () => {
+    expect(isForbiddenHostedTemplateEnvKey("AMPLITUDE_API_KEY")).toBe(true);
+    expect(isForbiddenHostedTemplateEnvKey("VITE_AMPLITUDE_API_KEY")).toBe(
+      true,
+    );
   });
 });
 
@@ -112,6 +129,24 @@ describe("resolveNetlifyApiContext", () => {
   it("preserves ordinary Netlify contexts", () => {
     expect(resolveNetlifyApiContext("deploy-preview")).toBe("deploy-preview");
     expect(resolveNetlifyApiContext("production")).toBe("production");
+  });
+});
+
+describe("resolveNetlifyEnvScopes", () => {
+  it("limits the fleet-wide Sentry upload token to builds", () => {
+    expect(
+      resolveNetlifyEnvScopes("SENTRY_AUTH_TOKEN", [
+        "builds",
+        "functions",
+        "runtime",
+      ]),
+    ).toEqual(["builds"]);
+  });
+
+  it("preserves configured scopes for other keys", () => {
+    expect(
+      resolveNetlifyEnvScopes("SENTRY_DSN", ["functions", "runtime"]),
+    ).toEqual(["functions", "runtime"]);
   });
 });
 

@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  MAX_FIG_UPLOAD_MB,
   uploadDesignFile,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
@@ -38,7 +39,6 @@ import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
-import { MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
@@ -61,7 +61,8 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const onImportRef = useRef(onImport);
   onImportRef.current = onImport;
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const importSource = useActionMutation("import-design-source");
@@ -129,7 +130,9 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       } else {
         toast.success(notification.title);
       }
-      navigate(`/design/${result?.designId ?? context.designId}?view=overview`);
+      void navigate(
+        `/design/${result?.designId ?? context.designId}?view=overview`,
+      );
     },
     [context.designId, formatNumber, navigate, queryClient, t],
   );
@@ -310,7 +313,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       if (validationError === "too-large") {
         toast.error(t("designEditor.import.errors.uploadFailed"), {
           description: t("designEditor.import.errors.figFileTooLarge", {
-            max: MAX_UPLOAD_MB,
+            max: MAX_FIG_UPLOAD_MB,
           }),
         });
         if (figFileInputRef.current) figFileInputRef.current.value = "";
@@ -321,12 +324,39 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       setFigUploadProgress(0);
       setFigUploadBusy(true);
       try {
-        const result = await uploadDesignFile({
-          designId: context.designId,
-          file,
-          fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
-          onProgress: ({ percent }) => setFigUploadProgress(percent),
-        });
+        // Decode here rather than uploading the file. A Netlify function
+        // request is capped around 6MB and a real `.fig` runs to tens of
+        // megabytes, which is what the server route's chunking works around;
+        // decoding in the browser means the file never crosses the network at
+        // all. The upload route stays as the fallback, so a file this decoder
+        // cannot read still imports exactly as it did before.
+        let result: ImportResult;
+        try {
+          // Loaded on demand: the decoder and the kiwi walker are ~5.5k lines
+          // plus three codec packages, and an editor that never opens a `.fig`
+          // should not pay for them on first paint.
+          const { importFigInBrowser } =
+            await import("@/lib/fig-client-import");
+          result = await importFigInBrowser({
+            designId: context.designId,
+            file,
+            onProgress: ({ phase, ratio }) =>
+              setFigUploadProgress(
+                phase === "decoding" ? 5 : Math.round((ratio ?? 0) * 90) + 5,
+              ),
+          });
+        } catch (localError) {
+          console.warn(
+            "[fig-import] in-browser decode failed; falling back to the upload route.",
+            localError,
+          );
+          result = await uploadDesignFile({
+            designId: context.designId,
+            file,
+            fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
+            onProgress: ({ percent }) => setFigUploadProgress(percent),
+          });
+        }
         await finishImport(result, t("designEditor.import.uploadSuccess"));
         setFigmaRateLimitError(null);
       } catch (error) {
@@ -571,7 +601,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
             <div className="space-y-2 p-2">
               <p className="text-[11px] leading-snug text-muted-foreground">
                 {t("designEditor.import.figUploadDescription", {
-                  max: MAX_UPLOAD_MB,
+                  max: MAX_FIG_UPLOAD_MB,
                 })}
               </p>
               <input

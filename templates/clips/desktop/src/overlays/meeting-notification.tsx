@@ -11,6 +11,8 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 
+import { CLIPS_MEETINGS } from "../../../shared/experiments";
+import { loadDesktopAuthToken } from "../app";
 import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
   detectMeetingJoinProvider,
@@ -19,6 +21,7 @@ import {
   type MeetingJoinProvider,
 } from "../lib/meeting-notification-timing";
 import { openMeetingJoinUrl } from "../lib/open-meeting-join-url";
+import { loadStoredServerUrl } from "../lib/url";
 
 interface NotificationData {
   type: "calendar" | "adhoc";
@@ -129,7 +132,15 @@ export function MeetingNotification() {
   const [pending, setPending] = useState(false);
   const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<NotificationData | null>(null);
+  /** What this reminder was showing when it stepped aside for a starting pill.
+   *  Held only until that start reports success or failure. */
+  const startingRef = useRef<NotificationData | null>(null);
   const dismissedKeysRef = useRef(new Map<string, number>());
+  const meetingsExperimentEnabledRef = useRef<boolean | null>(null);
+  const pendingNotificationRef = useRef<{
+    payload: NotificationData;
+    options?: { hydrated?: boolean };
+  } | null>(null);
   // Real DOM hover only fires while this overlay window is key, which macOS
   // won't grant it without a click (`show_without_activation` never
   // activates). `polledHovered` mirrors the Rust-side global cursor poll
@@ -159,6 +170,79 @@ export function MeetingNotification() {
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let preferenceVersion = 0;
+    let unlisten: (() => void) | null = null;
+
+    const applyValues = (values: unknown): boolean => {
+      if (!values || typeof values !== "object" || Array.isArray(values)) {
+        return false;
+      }
+      const enabled =
+        (values as Record<string, unknown>)[CLIPS_MEETINGS.key] === true;
+      meetingsExperimentEnabledRef.current = enabled;
+      if (!enabled) {
+        pendingNotificationRef.current = null;
+        startingRef.current = null;
+        hideNotification();
+        return true;
+      }
+      const pending = pendingNotificationRef.current;
+      pendingNotificationRef.current = null;
+      if (pending) showNotification(pending.payload, pending.options);
+      return true;
+    };
+    const serverUrl = loadStoredServerUrl();
+    const authToken = loadDesktopAuthToken(serverUrl);
+
+    const startFetch = () => {
+      const requestVersion = preferenceVersion;
+      void fetch(`${serverUrl}/_agent-native/actions/get-experiments`, {
+        credentials: "include",
+        ...(authToken
+          ? { headers: { Authorization: `Bearer ${authToken}` } }
+          : {}),
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`experiment read failed (${response.status})`);
+          }
+          return response.json();
+        })
+        .then((payload) => {
+          if (!cancelled && requestVersion === preferenceVersion) {
+            applyValues(payload?.result ?? payload);
+          }
+        })
+        .catch(() => {});
+    };
+
+    const updateListener = listen<{ values?: Record<string, boolean> }>(
+      "clips:experiments-updated",
+      (event) => {
+        if (cancelled || !applyValues(event.payload?.values)) return;
+        preferenceVersion += 1;
+      },
+    );
+    updateListener
+      .then((cleanup) => {
+        if (cancelled) {
+          cleanup();
+        } else {
+          unlisten = cleanup;
+          startFetch();
+        }
+      })
+      .catch(() => {
+        if (!cancelled) startFetch();
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     resizeNotificationWindow(Boolean(data && menuOpen));
@@ -205,7 +289,24 @@ export function MeetingNotification() {
     payload: NotificationData,
     options?: { hydrated?: boolean },
   ) {
+    const experimentState = meetingsExperimentEnabledRef.current;
+    if (experimentState === false) return;
+    if (experimentState === null) {
+      pendingNotificationRef.current = {
+        payload,
+        ...(options ? { options } : {}),
+      };
+      return;
+    }
     if (isDismissed(payload)) return;
+    // A newer reminder owns this card now. Whatever start was holding it open
+    // for a possible failure has lost its claim, so it cannot reappear over
+    // this one later.
+    startingRef.current = null;
+    // A visible reminder means a pill is likely within a minute or two. Build
+    // its webview now, hidden: on the first meeting of a session that build
+    // otherwise lands between the click and anything appearing.
+    invoke("recording_pill_prewarm").catch(() => {});
     setData(payload);
     setError(null);
     setMenuOpen(false);
@@ -237,11 +338,13 @@ export function MeetingNotification() {
       }).catch(() => {});
     };
 
-    trackListen(
-      listen<NotificationData>("meetings:show-notification", (ev) => {
+    const showListener = listen<NotificationData>(
+      "meetings:show-notification",
+      (ev) => {
         showNotification(ev.payload);
-      }),
+      },
     );
+    trackListen(showListener);
 
     trackListen(
       listen<{ hovered: boolean }>("meetings:notification-hover", (ev) => {
@@ -249,32 +352,74 @@ export function MeetingNotification() {
       }),
     );
 
+    const hideListener = listen<TranscriptionStatusPayload>(
+      "meetings:hide-notification",
+      (ev) => {
+        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+        // Startup hides this as soon as the pill is on screen, before capture
+        // has attached. Keep what was on screen so a failure after that point
+        // still has something to reappear as.
+        startingRef.current = dataRef.current;
+        hideNotification();
+      },
+    );
+    trackListen(hideListener);
+    const errorListener = listen<TranscriptionStatusPayload>(
+      "meetings:transcription-error",
+      (ev) => {
+        // `hideNotification` nulls `dataRef`, so matching only against it
+        // drops the error for exactly the case that produces one: a start
+        // that failed after the reminder stepped aside.
+        const starting = startingRef.current;
+        const restoring =
+          !dataRef.current &&
+          starting !== null &&
+          starting.meetingId === ev.payload.meetingId;
+        if (!restoring && ev.payload.meetingId !== dataRef.current?.meetingId)
+          return;
+        if (restoring) {
+          setData(starting);
+          setMenuOpen(false);
+        }
+        startingRef.current = null;
+        setPending(false);
+        setError(ev.payload.error || "Could not start notes.");
+        scheduleAutoHide(15_000);
+      },
+    );
+    trackListen(errorListener);
+    const startedListener = listen<TranscriptionStatusPayload>(
+      "meetings:transcription-started",
+      (ev) => {
+        if (startingRef.current?.meetingId === ev.payload.meetingId) {
+          startingRef.current = null;
+        }
+      },
+    );
+    trackListen(startedListener);
+
     // Cold overlay boot: hydrate any payload stored before this webview
     // mounted (calendar or adhoc).
-    invoke<NotificationData | null>("take_pending_meeting_notification")
+    //
+    // Every listener has to be live first, because `take` is destructive and
+    // each event lost in the gap is lost permanently. A hide landing before the
+    // hide listener registers leaves a card nothing can take back; a show
+    // landing before the show listener registers is dropped while the payload it
+    // duplicated has already been consumed, so no card appears at all.
+    Promise.all([showListener, hideListener, errorListener, startedListener])
+      .then(() =>
+        invoke<NotificationData | null>("take_pending_meeting_notification"),
+      )
       .then((pending) => {
         if (stopped || !pending) return;
+        // The take is asynchronous, so a live `meetings:show-notification` may
+        // have arrived while it was in flight. That payload is newer than this
+        // one by definition, and hydration is only a cold-boot fallback, so it
+        // must not replace what the live path already put on screen.
+        if (dataRef.current) return;
         showNotification(pending, { hydrated: true });
       })
       .catch(() => {});
-
-    trackListen(
-      listen<TranscriptionStatusPayload>("meetings:hide-notification", (ev) => {
-        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
-        hideNotification();
-      }),
-    );
-    trackListen(
-      listen<TranscriptionStatusPayload>(
-        "meetings:transcription-error",
-        (ev) => {
-          if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
-          setPending(false);
-          setError(ev.payload.error || "Could not start notes.");
-          scheduleAutoHide(15_000);
-        },
-      ),
-    );
 
     return () => {
       stopped = true;
@@ -329,6 +474,9 @@ export function MeetingNotification() {
 
   function dismissNotification() {
     const current = dataRef.current;
+    // An explicit dismissal outranks a pending start: this reminder must not
+    // come back on its own, even to report a failure.
+    startingRef.current = null;
     if (current) {
       dismissedKeysRef.current.set(
         notificationKey(current),

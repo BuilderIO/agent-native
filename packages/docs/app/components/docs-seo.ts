@@ -6,6 +6,8 @@ import {
   docsMarkdownPathForSlug,
   docsPathForSlug,
   docsSlugFromPathname,
+  routeLocaleFromPathname,
+  sitePathForLocale,
   type DocsLocale,
 } from "./docs-locale";
 
@@ -22,16 +24,19 @@ function normalizePath(pathname: string) {
   return pathname.replace(/\/$/, "") || "/";
 }
 
+/**
+ * The canonical URL for any page path: the single form that answers 200.
+ * `sitePathForLocale` owns the shape for both docs and non-docs paths, so this
+ * resolves the alias and the locale and then defers to it rather than
+ * re-deriving the shape and drifting from it.
+ */
 export function canonicalPathForPath(pathname: string) {
   const path = normalizePath(pathname);
-  const slug = docsSlugFromPathname(path);
-  if (slug === "getting-started") {
-    return docsPathForSlug(
-      "getting-started",
-      docsLocaleFromPathname(path) ?? DEFAULT_DOCS_LOCALE,
-    );
-  }
-  return CANONICAL_ALIASES[path] ?? path;
+  const aliased = CANONICAL_ALIASES[path] ?? path;
+  return sitePathForLocale(
+    aliased,
+    routeLocaleFromPathname(aliased) ?? DEFAULT_DOCS_LOCALE,
+  );
 }
 
 function canonicalDocsPathForSlug(slug: string, locale: DocsLocale) {

@@ -3,6 +3,117 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-10
+
+### Fixed
+
+- Builder and other MCP connections now open setup in a new tab.
+
+## 2026-09-09
+
+### Improved
+
+- Attendee and viewer avatars use a slimmer border.
+
+### Fixed
+
+- The Agent sidebar now fits below the app toolbar without clipping its composer.
+- Desktop recorder switches now keep their checked state clear and legible in dark mode.
+- Recording pages now open the same contextual Agent panel used throughout the app.
+
+## 2026-09-08
+
+### Improved
+
+- The Cmd+K command menu now searches and navigates across recordings, meetings, dictations, folders, and spaces.
+
+### Fixed
+
+- Fixed desktop comment threads by keeping them in a full-height viewer tab, polished the side-panel tabs and spacing, added move, minimize, and close controls to desktop Clips windows, corrected the shared New recording action’s split-button corners, made library sub-item selection clear in the sidebar, and added visible folder tiles plus scoped recording actions to library and space views.
+
+## 2026-09-04
+
+### Fixed
+
+- Clips desktop shows its real version again in About and Get Info, and nightly builds resume.
+- Meeting notes now stop within about 15 seconds of a Zoom, Teams, or Meet call ending, even while music or a video keeps playing afterward.
+
+## 2026-09-01
+
+### Improved
+
+- The recorder playhead now docks automatically when dragged near a screen edge, returns to floating mode when pulled away, remembers its screen position, and transitions more smoothly into Restart and Delete confirmations.
+
+### Fixed
+
+- Calendar reconnects wait for Google to finish before refreshing meetings.
+
+## 2026-09-01
+
+### Improved
+
+- Clip editing uses a text-only Edit button for a cleaner toolbar.
+
+### Fixed
+
+- Clips camera bubbles now close reliably when the popover is dismissed.
+
+## 2026-08-29
+
+### Improved
+
+- Clips loading states now use an even more subtle whole-surface shine.
+
+## 2026-08-28
+
+### Improved
+
+- The Chrome extension download option keeps a concise browser-log explanation and links to setup docs.
+- Clips loading placeholders now use a softer whole-surface shine.
+- The shared comment composer now has a cleaner borderless presentation.
+
+## 2026-08-26
+
+### Fixed
+
+- Detected Zoom and Teams calls no longer create duplicate meetings or leave a prompt on screen after recording starts
+
+## 2026-08-25
+
+### Fixed
+
+- Skipping to the middle or end of a long recording no longer sticks on buffering
+
+## 2026-08-24
+
+### Improved
+
+- Shared Clips now expose agent-readable transcript and frame metadata from public links.
+
+### Fixed
+
+- Recording from the Chrome extension no longer dead-ends on "Permission dismissed" when Chrome has quietly dropped the extension's microphone or camera access: Clips now reopens the permission page and starts the recording once you allow it again.
+- Muted microphone alerts now return you to recording setup before recording starts.
+
+## 2026-08-23
+
+### Fixed
+
+- Asking the agent what is in your library or shared clips no longer fails on the first request right after the app starts.
+
+## 2026-08-22
+
+### Fixed
+
+- The Chrome extension no longer records tab/system audio when "Include microphone" is turned off.
+- The recordings library no longer returns an error on the first request right after the app starts.
+
+## 2026-08-21
+
+### Fixed
+
+- The camera bubble now recovers on its own when macOS refuses to start its video, instead of sitting as a black circle until you clicked it.
+
 ## 2026-08-20
 
 ### Improved
@@ -21,6 +132,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Added
 
 - Clips Nightly builds are available for trying the latest updates.
+
+### Improved
+
+- Desktop Settings is tighter and quicker to scan: General, Recording, Meetings, and Dictation each hold one short card where every setting says what it actually does, permissions and update status moved into General, and rarely-needed controls like the server URL, transcription engine, and region guides now live under a new Advanced tab, and Rewind gets a settings tab of its own.
 
 ### Fixed
 

@@ -326,8 +326,10 @@ async function performActionFetch<T>(
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
   let url = `${ACTION_PREFIX}/${name}`;
+  const browserTabId = getBrowserTabId();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "X-Agent-Native-Browser-Tab": browserTabId,
     // Tag browser-originated action calls so the server can set
     // `ctx.caller = "frontend"` (vs a bare programmatic `"http"` POST).
     // Mirrors the X-Agent-Native-Tool-Bridge: 1 convention. The header is
@@ -339,7 +341,7 @@ async function performActionFetch<T>(
           // The server copies this onto the emitted action sync event.
           // useDbSync can then ignore the echo in this tab while other tabs
           // still refresh.
-          "X-Request-Source": getBrowserTabId(),
+          "X-Request-Source": browserTabId,
         }
       : {}),
   };
@@ -907,6 +909,8 @@ export function useActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
+    /** Override the default 60s fetch timeout for long-running actions. */
+    timeoutMs?: number;
   },
 ) {
   const queryClient = useQueryClient();
@@ -914,6 +918,7 @@ export function useActionMutation<
     method: methodOpt,
     onSuccess,
     skipActionQueryInvalidation = false,
+    timeoutMs,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -924,12 +929,14 @@ export function useActionMutation<
   return useMutation<D, Error, V>({
     ...restOptions,
     mutationFn: (params) =>
-      actionFetch<D>(actionName, method, params as Record<string, any>),
+      actionFetch<D>(actionName, method, params as Record<string, any>, {
+        timeoutMs,
+      }),
     onSuccess: (...args: [any, any, any]) => {
       // Most mutations change app data broadly. High-volume background
       // mutations can opt out and perform narrower invalidation in onSuccess.
       if (!skipActionQueryInvalidation) {
-        queryClient.invalidateQueries({ queryKey: ["action"] });
+        void queryClient.invalidateQueries({ queryKey: ["action"] });
       }
       return (onSuccess as Function)?.(...args);
     },

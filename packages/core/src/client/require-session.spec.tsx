@@ -253,6 +253,28 @@ describe("RequireSession", () => {
     expect(container.textContent).toContain("Reload page starts the app over");
   });
 
+  it("unmounts the app shell while signing out without redirecting", () => {
+    // Sign-out owns the navigation: it must finish revoking the server session
+    // before the browser leaves, so a redirect from here would race it. But the
+    // shell has to come down immediately — this is the window where its queries
+    // had no cookie and painted "Couldn't load data" over the app.
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "signing-out",
+      error: null,
+      retry: vi.fn(),
+    });
+    render(
+      <RequireSession>
+        <Child />
+      </RequireSession>,
+    );
+    expect(container.querySelector('[data-testid="protected"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Loading"]')).not.toBeNull();
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
   it("bypass renders children even with no session", () => {
     useSessionMock.mockReturnValue({
       session: null,

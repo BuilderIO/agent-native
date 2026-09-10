@@ -396,7 +396,7 @@ export function addFillLayerPatch(params: {
  * any time the base row's own remove button was clicked.
  */
 export function removeBaseFillPatch(
-  fillProperty: "color" | "backgroundColor",
+  fillProperty: "color" | "backgroundColor" | "fill",
 ): Record<string, string> {
   return { [fillProperty]: "transparent" };
 }

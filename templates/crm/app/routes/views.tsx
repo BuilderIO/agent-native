@@ -12,6 +12,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconArrowLeft,
   IconBookmark,
@@ -21,7 +22,7 @@ import {
   IconTable,
   IconUsers,
 } from "@tabler/icons-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -287,6 +288,15 @@ function SavedViewSurface({
     "save-crm-saved-view" as never,
   );
 
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(view.name, "Saved view")} — CRM`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [view.name]);
+
   const onGrouping = useCallback(
     (state: {
       statusAttributes: Array<{ id: string; label: string }>;
@@ -361,7 +371,7 @@ function SavedViewSurface({
       onSaved();
       toast.success(t("views.savedToast"));
       if (branch === "new") {
-        navigate(`/views?view=${encodeURIComponent(saved.id)}`);
+        void navigate(`/views?view=${encodeURIComponent(saved.id)}`);
       } else {
         setParams(clearBoardDraft(params), { replace: true });
       }
@@ -552,6 +562,15 @@ function AdHocListSurface({ listId, name }: { listId: string; name: string }) {
   const [params, setParams] = useSearchParams();
   const mode = params.get("mode") === "table" ? "table" : "board";
 
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(name, "List")} — CRM`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [name]);
+
   return (
     <>
       <PageHeader
@@ -609,7 +628,7 @@ function CreateSavedViewDialog() {
         audience: "personal",
       });
       setOpen(false);
-      navigate(`/views?view=${encodeURIComponent(saved.id)}`);
+      void navigate(`/views?view=${encodeURIComponent(saved.id)}`);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("views.saveFailedToast"),

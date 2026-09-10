@@ -48,7 +48,7 @@ export function ExplorerView({
     )?.files;
     if (!files) return [];
     return files.map((file) => ({
-      path: String(file.path ?? ""),
+      path: typeof file.path === "string" ? file.path : "",
       displayName:
         typeof file.path === "string"
           ? prettyScreenName(baseName(file.path))
@@ -144,7 +144,7 @@ export function ExplorerView({
 
   useEffect(() => {
     return api.onFilesChanged(() => {
-      refetchSourceFilesRef.current();
+      void refetchSourceFilesRef.current();
       for (const providerKey of localhostProviderKeys
         .split(",")
         .filter(Boolean)) {

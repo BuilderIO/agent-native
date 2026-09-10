@@ -1,3 +1,6 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { docsUrl } from "@agent-native/core/shared";
+import { cn } from "@agent-native/toolkit";
 import {
   Badge,
   Button,
@@ -10,21 +13,16 @@ import {
   SelectValue,
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
   Textarea,
 } from "@agent-native/toolkit/ui";
 import {
   IconCheck,
+  IconExternalLink,
   IconFileText,
-  IconLink,
   IconPlus,
-  IconShieldCheck,
+  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -38,7 +36,6 @@ import {
   useManageCreativeContext,
   type CreativeContextMembership,
   type CreativeContextMembershipRank,
-  type CreativeContextPolicy,
   type CreativeContextSummary,
 } from "./actions.js";
 
@@ -83,6 +80,7 @@ export function normalizeCreativeContextResources(
 }
 
 const VISIBILITY_RANK = { private: 0, org: 1, public: 2 } as const;
+type CreativeContextTranslate = ReturnType<typeof useT>;
 
 export function requiresBroaderPublication(
   resource: CreativeContextResourceDescriptor,
@@ -111,27 +109,6 @@ export function creativeContextSafePreviewUrl(url: string | undefined) {
   }
 }
 
-function policyCopy(policy: CreativeContextPolicy) {
-  switch (policy) {
-    case "review":
-      return "New resources wait for reviewer approval before they are reused.";
-    case "admins-only":
-      return "Only administrators can approve or remove resources.";
-    default:
-      return "New resources are published after submission.";
-  }
-}
-
-function formatResourceTimestamp(value: string | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function ResourcePreview({
   resource,
 }: {
@@ -143,13 +120,13 @@ function ResourcePreview({
       <img
         src={imageUrl}
         alt={resource.preview?.alt ?? ""}
-        className="size-11 rounded-md border border-border object-cover"
+        className="size-8 rounded-md border border-border object-cover shrink-0"
       />
     );
   }
   return (
-    <div className="flex size-11 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-      <IconFileText className="size-5" />
+    <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
+      <IconFileText className="size-4" />
     </div>
   );
 }
@@ -210,6 +187,7 @@ export async function submitCreativeContextResources({
 
 function MembershipRow({
   membership,
+  t,
   updateAvailable,
   canReview,
   canWithdraw,
@@ -218,6 +196,7 @@ function MembershipRow({
   onAction,
 }: {
   membership: CreativeContextMembership;
+  t: CreativeContextTranslate;
   updateAvailable: boolean;
   canReview: boolean;
   canWithdraw: boolean;
@@ -228,70 +207,108 @@ function MembershipRow({
   ) => void;
 }) {
   const pending = Boolean(membership.pendingSubmissionId);
+  const rankLabel = {
+    canonical: t("creativeContext.share.canonical", {
+      defaultValue: "Canonical",
+    }),
+    exemplar: t("creativeContext.exemplar", {
+      defaultValue: "Exemplar",
+    }),
+    normal: t("creativeContext.share.reference", {
+      defaultValue: "Reference",
+    }),
+  }[membership.rank];
+
   return (
-    <article className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3">
-      <div>
-        <p className="text-sm font-medium">
-          {pending ? "Pending resource" : "Published resource"}
-        </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {membership.rank}{" "}
-          {membership.purpose ? `· ${membership.purpose}` : ""}
-        </p>
+    <article className="rounded-lg border border-border/70 bg-muted/20 p-2.5 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Badge
+            variant={pending ? "outline" : "secondary"}
+            className="shrink-0 text-[11px]"
+          >
+            {pending
+              ? t("creativeContext.share.pendingReview", {
+                  defaultValue: "Pending review",
+                })
+              : t("creativeContext.share.published", {
+                  defaultValue: "In context",
+                })}
+          </Badge>
+          <span className="truncate text-xs font-medium text-foreground">
+            {rankLabel}
+          </span>
+          {membership.purpose ? (
+            <span className="truncate text-xs text-muted-foreground">
+              · {membership.purpose}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {pending && canWithdraw ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={busy}
+              onClick={() => onAction("withdraw")}
+            >
+              {t("creativeContext.share.withdraw", {
+                defaultValue: "Withdraw",
+              })}
+            </Button>
+          ) : null}
+          {pending && canReview ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={busy}
+                onClick={() => onAction("approve")}
+              >
+                <IconCheck className="size-3.5 me-1" />
+                {t("creativeContext.approve", { defaultValue: "Approve" })}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={busy}
+                onClick={() => onAction("request-changes")}
+              >
+                {t("creativeContext.share.requestChanges", {
+                  defaultValue: "Request changes",
+                })}
+              </Button>
+            </>
+          ) : null}
+          {canRemove ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+              disabled={busy}
+              onClick={() => onAction("remove")}
+              aria-label={t("creativeContext.share.remove", {
+                defaultValue: "Remove",
+              })}
+            >
+              <IconTrash className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {pending ? (
-          <Badge variant="outline">Pending review</Badge>
-        ) : (
-          <Badge variant="secondary">Published</Badge>
-        )}
-        {updateAvailable ? (
-          <Badge variant="outline">Update available</Badge>
-        ) : null}
-        {pending && canWithdraw ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() => onAction("withdraw")}
-          >
-            Withdraw
-          </Button>
-        ) : null}
-        {pending && canReview ? (
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy}
-            onClick={() => onAction("approve")}
-          >
-            <IconCheck /> Approve
-          </Button>
-        ) : null}
-        {pending && canReview ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => onAction("request-changes")}
-          >
-            Request changes
-          </Button>
-        ) : null}
-        {canRemove ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => onAction("remove")}
-          >
-            <IconX /> Remove
-          </Button>
-        ) : null}
-      </div>
+      {updateAvailable ? (
+        <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium pt-1 border-t border-border/40">
+          {t("creativeContext.updateAvailable", {
+            defaultValue: "Document modified since publishing.",
+          })}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -299,16 +316,24 @@ function MembershipRow({
 function ContextSelect({
   contexts,
   contextId,
+  t,
   onValueChange,
+  disabled = false,
 }: {
   contexts: CreativeContextSummary[];
   contextId: string;
+  t: CreativeContextTranslate;
   onValueChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <Select value={contextId} onValueChange={onValueChange}>
-      <SelectTrigger>
-        <SelectValue placeholder="Choose a context" />
+      <SelectTrigger className="w-full text-xs h-9" disabled={disabled}>
+        <SelectValue
+          placeholder={t("creativeContext.share.chooseContext", {
+            defaultValue: "Choose a context",
+          })}
+        />
       </SelectTrigger>
       {/* This tab is embedded inside ShareButton's high z-index popover
           (see z-[100010]+ overrides in design/content/slides toolbars).
@@ -332,6 +357,7 @@ export function CreativeContextShareTab({
   resources,
   className,
 }: CreativeContextShareTabProps) {
+  const t = useT();
   const contextsQuery = useCreativeContexts();
   const manageContext = useManageCreativeContext();
   const manageMembership = useManageContextMembership();
@@ -341,7 +367,6 @@ export function CreativeContextShareTab({
     resources,
   );
   const primaryResource = selectedResources[0];
-  const updatedAt = formatResourceTimestamp(primaryResource?.updatedAt);
   const [contextId, setContextId] = useState("");
   const membershipsQuery = useContextMemberships(
     contextId ? { contextId } : null,
@@ -354,13 +379,17 @@ export function CreativeContextShareTab({
   const [purpose, setPurpose] = useState("");
   const [note, setNote] = useState("");
   const [newContextName, setNewContextName] = useState("");
+  const [showCreateContext, setShowCreateContext] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitSummary, setSubmitSummary] = useState<string | null>(null);
   const [confirmedBroaderPublication, setConfirmedBroaderPublication] =
     useState(false);
   const busy = manageContext.isPending || manageMembership.isPending;
   const selectedContext = contexts.find((context) => context.id === contextId);
-  const canCreateContext = contexts.some((context) => context.access.canAdmin);
+  const canCreateContext =
+    contextsQuery.data?.canCreateContext === true ||
+    contexts.some((context) => context.access.canAdmin);
   const needsBroaderPublicationConfirmation = selectedResources.some((item) =>
     requiresBroaderPublication(item, selectedContext),
   );
@@ -395,15 +424,32 @@ export function CreativeContextShareTab({
       });
       setPurpose("");
       setNote("");
+      setShowDetails(false);
       setConfirmedBroaderPublication(false);
       setSubmitSummary(
         result.failed
-          ? `${result.submitted} submitted; ${result.failed} could not be submitted.`
-          : `${result.submitted} ${result.submitted === 1 ? "resource" : "resources"} submitted.`,
+          ? t("creativeContext.share.partialSubmission", {
+              submitted: result.submitted,
+              failed: result.failed,
+              defaultValue:
+                "{{submitted}} submitted; {{failed}} could not be submitted.",
+            })
+          : t(
+              result.submitted === 1
+                ? "creativeContext.share.resourceSubmitted"
+                : "creativeContext.share.resourcesSubmitted",
+              {
+                count: result.submitted,
+                defaultValue:
+                  result.submitted === 1
+                    ? "{{count}} resource submitted."
+                    : "{{count}} resources submitted.",
+              },
+            ),
       );
       await refresh();
     } catch {
-      setError("Could not submit this resource to the selected context.");
+      setError(t("creativeContext.submitUpdateFailed"));
     }
   }
 
@@ -418,10 +464,11 @@ export function CreativeContextShareTab({
         approvalPolicy: "open",
       });
       setNewContextName("");
+      setShowCreateContext(false);
       await contextsQuery.refetch();
       if (result.context?.id) setContextId(result.context.id);
     } catch {
-      setError("Could not create a context.");
+      setError(t("creativeContext.saveFailed"));
     }
   }
 
@@ -439,198 +486,291 @@ export function CreativeContextShareTab({
       });
       await refresh();
     } catch {
-      setError("Could not update this context membership.");
+      setError(t("creativeContext.saveFailed"));
     }
   }
 
+  const isPublished = memberships.some((m) => Boolean(m.publishedItem));
+
   return (
-    <section className={className} aria-label="Creative context">
-      <div className="flex items-start gap-3 border-b border-border/70 pb-4">
-        {primaryResource ? (
+    <section
+      className={cn("space-y-3", className)}
+      aria-label={t("creativeContext.share.title", {
+        defaultValue: "Creative context",
+      })}
+    >
+      {primaryResource ? (
+        <div className="flex min-w-0 items-center gap-2.5 border-b border-border/60 pb-2.5">
           <ResourcePreview resource={primaryResource} />
-        ) : null}
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">
+          <p className="min-w-0 truncate text-sm font-medium text-foreground">
             {selectedResources.length === 1
-              ? primaryResource?.title
-              : `${selectedResources.length} selected resources`}
+              ? primaryResource.title
+              : t("creativeContext.share.selectedResources", {
+                  count: selectedResources.length,
+                  defaultValue: "{{count}} selected resources",
+                })}
           </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {selectedResources.length === 1
-              ? (primaryResource?.preview?.label ??
-                primaryResource?.resourceType)
-              : "Each resource is submitted separately"}
-          </p>
-          {selectedResources.length === 1 && updatedAt ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Current version · {updatedAt}
-            </p>
+        </div>
+      ) : null}
+
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-xs font-medium text-muted-foreground">
+            {t("creativeContext.share.contextLabel", {
+              defaultValue: "Target context",
+            })}
+          </label>
+          {canCreateContext && !showCreateContext ? (
+            <button
+              type="button"
+              onClick={() => setShowCreateContext(true)}
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <IconPlus className="size-3" />
+              {t("creativeContext.share.newContext", {
+                defaultValue: "New context",
+              })}
+            </button>
           ) : null}
         </div>
-      </div>
-      <Tabs defaultValue="contexts" className="mt-4">
-        <TabsList className="w-full justify-start">
-          <TabsTrigger value="contexts">Contexts</TabsTrigger>
-          <TabsTrigger value="policy">Policy</TabsTrigger>
-        </TabsList>
-        <TabsContent value="contexts" className="space-y-3">
+
+        {showCreateContext ? (
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={newContextName}
+              onChange={(event) => setNewContextName(event.target.value)}
+              placeholder={t("creativeContext.share.newContextName", {
+                defaultValue: "New context name",
+              })}
+              className="h-8 text-xs flex-1"
+              autoFocus
+              disabled={busy}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void createContext();
+                if (e.key === "Escape") {
+                  setShowCreateContext(false);
+                  setNewContextName("");
+                }
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 px-2.5 text-xs shrink-0"
+              disabled={busy || !newContextName.trim()}
+              onClick={() => void createContext()}
+            >
+              {t("creativeContext.share.create", { defaultValue: "Create" })}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs shrink-0"
+              onClick={() => {
+                setShowCreateContext(false);
+                setNewContextName("");
+              }}
+            >
+              <IconX className="size-3.5" />
+            </Button>
+          </div>
+        ) : contexts.length ? (
           <ContextSelect
             contexts={contexts}
             contextId={contextId}
+            t={t}
             onValueChange={setContextId}
+            disabled={busy}
           />
-          {selectedContext ? (
-            <p className="text-xs text-muted-foreground">
-              {selectedContext.description ||
-                `${selectedContext.memberCount} published resources`}{" "}
-              · {policyCopy(selectedContext.approvalPolicy)}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No contexts are available yet.
-            </p>
-          )}
-          {contextId && selectedResources.length === 1 ? (
-            <div className="space-y-2">
-              {memberships.map((membership) => (
-                <MembershipRow
-                  key={membership.id}
-                  membership={membership}
-                  updateAvailable={Boolean(
-                    primaryResource?.updatedAt &&
-                    membership.publishedItem?.sourceModifiedAt &&
-                    primaryResource.updatedAt !==
-                      membership.publishedItem.sourceModifiedAt,
-                  )}
-                  canReview={selectedContext?.access.canReview === true}
-                  canWithdraw={
-                    selectedContext?.access.canReview === true ||
-                    selectedContext?.access.canSubmit === true
-                  }
-                  canRemove={selectedContext?.access.canAdmin === true}
-                  busy={busy}
-                  onAction={(operation) => void act(membership.id, operation)}
-                />
-              ))}
-              {!memberships.length && !membershipsQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground">
-                  This resource has not been submitted to this context.
-                </p>
-              ) : null}
-            </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {t("creativeContext.share.noContexts", {
+              defaultValue: "No contexts are available yet.",
+            })}
+          </p>
+        )}
+      </div>
+
+      {contextId && selectedResources.length === 1 && memberships.length ? (
+        <div className="space-y-1.5 pt-1">
+          {memberships.map((membership) => (
+            <MembershipRow
+              key={membership.id}
+              membership={membership}
+              t={t}
+              updateAvailable={Boolean(
+                primaryResource?.updatedAt &&
+                membership.publishedItem?.sourceModifiedAt &&
+                primaryResource.updatedAt !==
+                  membership.publishedItem.sourceModifiedAt,
+              )}
+              canReview={selectedContext?.access.canReview === true}
+              canWithdraw={
+                selectedContext?.access.canReview === true ||
+                selectedContext?.access.canSubmit === true
+              }
+              canRemove={selectedContext?.access.canAdmin === true}
+              busy={busy}
+              onAction={(operation) => void act(membership.id, operation)}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {contextId && selectedResources.length ? (
+        <div className="space-y-2.5 pt-1">
+          {needsBroaderPublicationConfirmation ? (
+            <label className="flex items-start gap-2.5 rounded-md border border-border/70 bg-muted/30 p-2.5 text-xs text-muted-foreground cursor-pointer select-none">
+              <Checkbox
+                checked={confirmedBroaderPublication}
+                onCheckedChange={(checked) =>
+                  setConfirmedBroaderPublication(checked === true)
+                }
+                className="mt-0.5"
+              />
+              <span className="leading-snug">
+                {t("creativeContext.share.broaderPublication", {
+                  defaultValue:
+                    "This context is shared more broadly than this resource. Publishing creates a governed copy available to the context's audience.",
+                })}
+              </span>
+            </label>
           ) : null}
-          {contextId && selectedResources.length ? (
-            <div className="rounded-md border border-dashed border-border p-3">
-              <p className="text-sm font-medium">
-                {memberships.some((membership) => membership.publishedItem)
-                  ? "Submit update for "
-                  : "Add "}
-                {selectedResources.length === 1
-                  ? "this resource"
-                  : `${selectedResources.length} resources`}
-              </p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <Select
-                  value={rank}
-                  onValueChange={(value) =>
-                    setRank(value as CreativeContextMembershipRank)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent
-                    data-agent-native-share-overlay=""
-                    className="z-[100020]"
+
+          {showDetails ? (
+            <div className="space-y-2.5 rounded-lg border border-border/70 bg-muted/20 p-2.5">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    {t("creativeContext.share.role", { defaultValue: "Role" })}
+                  </label>
+                  <Select
+                    value={rank}
+                    onValueChange={(value) =>
+                      setRank(value as CreativeContextMembershipRank)
+                    }
                   >
-                    <SelectItem value="canonical">Canonical</SelectItem>
-                    <SelectItem value="exemplar">Exemplar</SelectItem>
-                    <SelectItem value="normal">Reference</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  value={purpose}
-                  onChange={(event) => setPurpose(event.target.value)}
-                  placeholder="Purpose"
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent
+                      data-agent-native-share-overlay=""
+                      className="z-[100020]"
+                    >
+                      <SelectItem value="canonical">
+                        {t("creativeContext.share.canonical", {
+                          defaultValue: "Canonical",
+                        })}
+                      </SelectItem>
+                      <SelectItem value="exemplar">
+                        {t("creativeContext.exemplar", {
+                          defaultValue: "Exemplar",
+                        })}
+                      </SelectItem>
+                      <SelectItem value="normal">
+                        {t("creativeContext.share.reference", {
+                          defaultValue: "Reference",
+                        })}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    {t("creativeContext.share.purposeLabel", {
+                      defaultValue: "Purpose (optional)",
+                    })}
+                  </label>
+                  <Input
+                    value={purpose}
+                    onChange={(event) => setPurpose(event.target.value)}
+                    placeholder={t("creativeContext.share.purpose", {
+                      defaultValue: "e.g. Reference standard",
+                    })}
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  {t("creativeContext.share.reviewerNoteLabel", {
+                    defaultValue: "Note for reviewers (optional)",
+                  })}
+                </label>
+                <Textarea
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  placeholder={t("creativeContext.share.reviewerNote", {
+                    defaultValue:
+                      "Details on what changed or how to apply this...",
+                  })}
+                  rows={2}
+                  className="text-xs resize-none"
                 />
               </div>
-              <Textarea
-                className="mt-2"
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder="Note for reviewers"
-                rows={2}
-              />
-              {needsBroaderPublicationConfirmation ? (
-                <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-                  <Checkbox
-                    checked={confirmedBroaderPublication}
-                    onCheckedChange={(checked) =>
-                      setConfirmedBroaderPublication(checked === true)
-                    }
-                  />
-                  <span>
-                    This context is shared more broadly than this resource.
-                    Publishing creates a governed copy available to the
-                    context's audience.
-                  </span>
-                </label>
-              ) : null}
-              <Button
-                type="button"
-                className="mt-3"
-                size="sm"
-                disabled={
-                  busy ||
-                  selectedContext?.access.canSubmit !== true ||
-                  (needsBroaderPublicationConfirmation &&
-                    !confirmedBroaderPublication)
-                }
-                onClick={() => void submit()}
-              >
-                <IconLink /> Submit
-              </Button>
             </div>
           ) : null}
-          {canCreateContext ? (
-            <div className="flex gap-2 border-t border-border/60 pt-3">
-              <Input
-                value={newContextName}
-                onChange={(event) => setNewContextName(event.target.value)}
-                placeholder="New context name"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={busy || !newContextName.trim()}
-                onClick={() => void createContext()}
-              >
-                <IconPlus /> New
-              </Button>
-            </div>
-          ) : null}
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-          {submitSummary ? (
-            <p className="text-xs text-muted-foreground">{submitSummary}</p>
-          ) : null}
-        </TabsContent>
-        <TabsContent
-          value="policy"
-          className="space-y-3 text-sm text-muted-foreground"
-        >
-          <div className="flex gap-2 rounded-md border border-border p-3">
-            <IconShieldCheck className="mt-0.5 size-4 shrink-0" />
-            <p>
-              Open contexts publish submitted resources, review contexts wait
-              for approval, and admins-only contexts require an administrator.
-            </p>
+
+          <div className="flex items-center justify-between gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={() => setShowDetails(!showDetails)}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showDetails
+                ? t("creativeContext.share.hideOptions", {
+                    defaultValue: "Fewer options",
+                  })
+                : t("creativeContext.share.moreOptions", {
+                    defaultValue: "Add notes or change role...",
+                  })}
+            </button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={
+                busy ||
+                selectedContext?.access.canSubmit !== true ||
+                (needsBroaderPublicationConfirmation &&
+                  !confirmedBroaderPublication)
+              }
+              onClick={() => void submit()}
+            >
+              {isPublished
+                ? t("creativeContext.submitUpdate", {
+                    defaultValue: "Update in context",
+                  })
+                : t("creativeContext.addToContext", {
+                    defaultValue: "Add to context",
+                  })}
+            </Button>
           </div>
-          {selectedContext ? (
-            <p>{policyCopy(selectedContext.approvalPolicy)}</p>
-          ) : null}
-        </TabsContent>
-      </Tabs>
+        </div>
+      ) : null}
+
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      {submitSummary ? (
+        <p className="text-xs text-muted-foreground">{submitSummary}</p>
+      ) : null}
+
+      <div className="pt-2 border-t border-border/50">
+        <a
+          href={docsUrl("toolkit-capability-packages", {
+            hash: "package-maturity-and-ownership",
+          })}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground underline-offset-2 hover:underline transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span>
+            {t("creativeContext.share.documentation", {
+              defaultValue: "Creative Context documentation",
+            })}
+          </span>
+          <IconExternalLink className="size-3" />
+        </a>
+      </div>
     </section>
   );
 }
@@ -645,21 +785,24 @@ export function CreativeContextShareSheet({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const t = useT();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>Creative context</SheetTitle>
-          <SheetDescription>
-            Place this resource in a governed context for future reuse.
-          </SheetDescription>
+          <SheetTitle>
+            {t("creativeContext.share.title", {
+              defaultValue: "Creative context",
+            })}
+          </SheetTitle>
         </SheetHeader>
-        <CreativeContextShareTab
-          resource={resource}
-          resources={resources}
-          canManage={canManage}
-          className="mt-5"
-        />
+        <div className="mt-6">
+          <CreativeContextShareTab
+            resource={resource}
+            resources={resources}
+            canManage={canManage}
+          />
+        </div>
       </SheetContent>
     </Sheet>
   );

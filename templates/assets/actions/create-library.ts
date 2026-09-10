@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { seedDefaultGenerationPresets } from "../server/lib/generation-presets.js";
+import { ensureDefaultTemplates } from "../server/lib/generation-presets.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
 import { serializeLibrary } from "./_helpers.js";
 
@@ -57,7 +57,7 @@ export default defineAction({
     };
     const db = getDb();
     await db.insert(schema.assetLibraries).values(row);
-    await seedDefaultGenerationPresets({ db, libraryId: row.id, now });
+    await ensureDefaultTemplates({ db, ownerEmail, orgId: row.orgId, now });
     return serializeLibrary(row);
   },
 });

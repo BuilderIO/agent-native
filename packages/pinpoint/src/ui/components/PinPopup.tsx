@@ -70,7 +70,7 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
       const file = props.context.framework?.sourceFile;
       if (!file) return;
       const { openFile } = await import("../../utils/open-file.js");
-      openFile(file);
+      void openFile(file);
     } catch {
       // Can't open file
     }
@@ -277,7 +277,9 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
       {/* Comment textarea with voice mic */}
       <div class="pp-popup__input-row">
         <textarea
-          ref={textareaRef}
+          ref={(element) => {
+            textareaRef = element;
+          }}
           class="pp-popup__textarea"
           placeholder="Add your feedback..."
           value={comment()}

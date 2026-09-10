@@ -156,6 +156,53 @@ string copy and cannot import the module, so a one-sided edit drops the config
 silently in deployed builds. `posthog-config.spec.ts` pins the two outputs
 together.
 
+## MCP Server Events
+
+The MCP server an app exposes reports its own usage. `packages/core/src/mcp/analytics.ts`
+emits one event per protocol request, and the emission points sit in the shared
+server builder (`build-server.ts`), so the HTTP mount and the stdio transport
+report identically.
+
+| Event                  | Fires on                                      |
+| ---------------------- | --------------------------------------------- |
+| `$mcp_initialize`      | the client/server handshake (HTTP mount only) |
+| `$mcp_tools_list`      | `tools/list`                                  |
+| `$mcp_tool_call`       | `tools/call`, success or failure              |
+| `$mcp_resources_list`  | `resources/list`                              |
+| `$mcp_resource_read`   | `resources/read`                              |
+
+Names come from PostHog's MCP analytics vocabulary
+(https://posthog.com/docs/mcp-analytics/events) on purpose, so PostHog's MCP
+dashboards read these events with no mapping layer — but they go through
+`track()` like every other event, so Mixpanel, Amplitude, a webhook, and
+Agent-Native Analytics receive the same ones.
+
+Shared properties: `$mcp_source` (`http` / `stdio`), `$mcp_server_name`,
+`$mcp_server_version`, `$mcp_app_id`, `$mcp_client_name`, `$mcp_client_version`,
+`$mcp_client_user_agent`, `$mcp_vendor_client`, `$mcp_protocol_version`. Per
+event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
+(`read` / `write`), `$mcp_listed_tool_names`, `$mcp_duration_ms`,
+`$mcp_is_error`, `$mcp_error_type`, `$mcp_error_message`, `$mcp_resource_name`,
+`$mcp_resource_uri`.
+
+- **A client's own name is only on the wire at `initialize`.** The mount is
+  stateless — one server per request — so no later event can recover it.
+  `$mcp_initialize` carries the `clientInfo` from the handshake; every other
+  event falls back to the 2026-era per-request `_meta` and the HTTP user agent,
+  and `$mcp_vendor_client` buckets both spellings onto one row.
+- **A failed call is reported with its reason, not just `isError`.** The
+  `tools/call` handler renders "unknown tool", "forbidden scope", and a thrown
+  action error as the same shape of error result, so each sets `$mcp_error_type`
+  where it returns rather than having it guessed back out of the response text.
+- **Payloads stay out.** `$mcp_response` is never emitted. `$mcp_parameters` is
+  off by default and redacted when on — tool arguments carry user content.
+
+Off switches: `MCP_ANALYTICS=false` (`observability.mcpEvents`) disables the
+events; `MCP_ANALYTICS_PARAMETERS=true` (`observability.mcpCaptureParameters`)
+opts into arguments. They sit in `observability` with the other capture
+switches, not in `analytics` — they gate every provider, not the first-party
+Agent-Native Analytics sender whose key lives there.
+
 ## Default Baseline Events
 
 Template roots call `configureTracking()` once during app startup. That installs default browser pageview tracking for hosted apps:
@@ -230,6 +277,30 @@ Other framework-level baseline events:
 - `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
 
 For new lifecycle events, call `track()` server-side when the server is the source of truth, and `trackEvent()` client-side only for browser interactions.
+
+### Lifecycle taxonomy
+
+Lifecycle event names use lowercase `snake_case`; lifecycle properties use the
+same convention. The shared dimensions are `app_name`, `template_name`,
+`user_id`, `user_email`, `workspace_id`, `session_id`, `output_id`,
+`output_type`, `source`, and `referrer`. App/template values are canonical ids
+without the `agent-native-` prefix. Identity is also stored in the event's
+top-level user/session columns for joins.
+
+The canonical lifecycle events are `app_entered`, `core_action_started`,
+`core_action_completed`, `core_action_failed`, `output_viewed`,
+`output_shared`, `cta_clicked`, `return_usage`, and `cross_app_used`. The
+framework also emits `action_started`, `action_completed`, and
+`action_failed` for mutating `defineAction()` calls so UI, agent, MCP, A2A,
+automation, and CLI activity share one action-level trail. Read-only actions
+and high-frequency refresh, polling, navigation, and application-state actions
+are excluded.
+
+App entry is emitted once per app and browser session. Tracking is action-level
+only: it does not install mouse, pointer, scroll, keypress, or DOM autocapture.
+Existing legacy events remain available and emit their canonical lifecycle
+counterpart where the meaning is unambiguous, so downstream dashboards can
+migrate without losing historical names.
 
 ## Provider Interface
 

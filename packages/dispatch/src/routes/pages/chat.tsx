@@ -239,7 +239,7 @@ export default function ChatRoute() {
           selectedEffort: prompt?.selectedEffort,
         });
       }
-      navigate(`${location.pathname}${location.search}${location.hash}`, {
+      void navigate(`${location.pathname}${location.search}${location.hash}`, {
         replace: true,
         state: null,
       });

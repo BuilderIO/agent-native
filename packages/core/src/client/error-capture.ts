@@ -451,8 +451,8 @@ function installNavigationBreadcrumbs(runtime: ErrorCaptureRuntime): void {
     }
   };
   try {
-    const originalPush = window.history.pushState;
-    const originalReplace = window.history.replaceState;
+    const originalPush = window.history.pushState.bind(window.history);
+    const originalReplace = window.history.replaceState.bind(window.history);
     window.history.pushState = function pushState(...args) {
       const result = originalPush.apply(this, args);
       record("navigate");

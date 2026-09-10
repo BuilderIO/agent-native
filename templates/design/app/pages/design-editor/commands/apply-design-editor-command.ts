@@ -2,9 +2,16 @@ import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { InspectorTab } from "@/components/design/EditPanel";
-import { getScreenPreviewViewport } from "@/components/design/multi-screen/frame-geometry";
+import {
+  getScreenPreviewViewport,
+  resolveFrameGeometrySync,
+} from "@/components/design/multi-screen/frame-geometry";
 import type { ElementInfo } from "@/components/design/types";
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
+import {
+  getCreatedScreenNavigationPlan,
+  type CreatedScreenNavigationPlan,
+} from "@/pages/design-editor/created-screen-navigation";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   clampZoom,
@@ -55,6 +62,14 @@ export interface ApplyDesignEditorCommandArgs {
     update: SetStateAction<number>,
   ) => void;
   viewModeRef: RefObject<"single" | "overview">;
+  /**
+   * Reveals a screen on the overview canvas the same way a freshly-created
+   * screen is revealed (`focusCreatedScreen`/`getCreatedScreenNavigationPlan`).
+   * Optional so a command-only caller (tests, or a future non-canvas surface)
+   * can omit it; when present it's called whenever this command names a
+   * screen and lands in overview mode with real geometry to fit.
+   */
+  requestCameraFit?: (camera: CreatedScreenNavigationPlan["camera"]) => void;
 }
 
 export function runApplyDesignEditorCommand(
@@ -79,6 +94,7 @@ export function runApplyDesignEditorCommand(
     setViewMode,
     setZoomForView,
     viewModeRef,
+    requestCameraFit,
   }: ApplyDesignEditorCommandArgs,
   command: DesignEditorCommand | Record<string, unknown>,
 ) {
@@ -191,6 +207,52 @@ export function runApplyDesignEditorCommand(
     if (!selectionId) setSelectedElement(null);
     applyCommandTool("move");
     setViewMode("overview");
+    // A command that names a screen (only ever a URL `screen=`/`fileId=`
+    // query param or an equivalent `navigate` app-state write, never an
+    // ordinary in-canvas interaction — see screen-command-utils.ts) means
+    // "land here, focused on this screen", the same reveal a freshly created
+    // screen gets from focusCreatedScreen. Use the canvas's initial layout
+    // when the screen has no persisted geometry yet.
+    const targetScreen = targetFile
+      ? overviewScreens.find((screen) => screen.id === targetFile.id)
+      : undefined;
+    if (targetScreen && requestCameraFit) {
+      const geometry = resolveFrameGeometrySync({
+        screens: overviewScreens.map((screen) => ({
+          id: screen.id,
+          metadata: {
+            width: screen.width ?? 1280,
+            height: screen.height ?? 2560,
+          },
+          breakpointWidths: screen.breakpointWidths,
+          layoutGroupId: screen.layoutGroupId,
+        })),
+        // The command has no access to the canvas's private live ref; an empty
+        // current map makes this resolve the same responsive initial layout.
+        currentGeometryById: {},
+        persistedGeometryById: canvasFrameGeometryById,
+      }).next[targetScreen.id];
+      if (
+        !geometry ||
+        !Number.isFinite(geometry.x) ||
+        !Number.isFinite(geometry.y) ||
+        !Number.isFinite(geometry.width) ||
+        !Number.isFinite(geometry.height)
+      ) {
+        return false;
+      }
+      requestCameraFit(
+        getCreatedScreenNavigationPlan({
+          screenId: targetScreen.id,
+          geometry: {
+            x: geometry.x as number,
+            y: geometry.y as number,
+            width: geometry.width as number,
+            height: geometry.height as number,
+          },
+        }).camera,
+      );
+    }
   } else if (editorView === "single") {
     viewModeRef.current = "single";
     if (!selectionId) setSelectedElement(null);

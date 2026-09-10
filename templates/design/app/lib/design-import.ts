@@ -1,3 +1,5 @@
+import { parseFigmaFileKey } from "@shared/figma-url";
+
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
 import {
@@ -90,6 +92,26 @@ export function getFigmaClipboardContent(
   const text = clipboardData.getData("text/plain");
   if (text && hasFigmaClipboardPayload(text)) return text;
   return null;
+}
+
+/**
+ * True when the clipboard plainly came from Figma but carries nothing
+ * `getFigmaClipboardContent` can import — a "Copy link to selection" URL, or a
+ * marker pair that arrived truncated. Callers need this apart from a null
+ * payload: a null payload is an ordinary paste and must stay silent, while
+ * this one is a paste the user expected to become a screen and must not.
+ */
+export function isAttemptedFigmaPaste(
+  clipboardData: Pick<DataTransfer, "getData"> | null | undefined,
+): boolean {
+  if (!clipboardData) return false;
+  if (getFigmaClipboardContent(clipboardData)) return false;
+  const text = (clipboardData.getData("text/plain") ?? "").trim();
+  // "figmeta" is written by nothing but a Figma clipboard copy, so it proves
+  // the intent even when the closing marker never made it across.
+  if (/figmeta/i.test(clipboardData.getData("text/html") ?? "")) return true;
+  if (/figmeta/i.test(text)) return true;
+  return /^https?:\/\/\S+$/i.test(text) && parseFigmaFileKey(text) !== null;
 }
 
 export function importResultSummary(

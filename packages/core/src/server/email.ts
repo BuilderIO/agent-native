@@ -16,7 +16,11 @@ import {
   getScopedEmailProviderCategory,
   recordEmailSend,
 } from "../email-catalog/log.js";
-import { resolveSecret } from "./credential-provider.js";
+import { redactSensitiveEmailBodyContent } from "../email-catalog/redact-body.js";
+import {
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 import { getRequestOrgId } from "./request-context.js";
 
@@ -43,6 +47,10 @@ export interface SendEmailArgs {
   subject: string;
   html: string;
   text?: string;
+  /** Keep security-sensitive links out of provider click-tracking redirects. */
+  disableClickTracking?: boolean;
+  /** Use deployment credentials for process-owned sends, not request-scoped overrides. */
+  useDeploymentCredentials?: boolean;
   from?: string;
   /**
    * Display-name-only override. Keeps the configured (domain-verified) sending
@@ -115,11 +123,16 @@ interface EmailTransportConfig {
   from?: string;
 }
 
-async function resolveEmailTransport(): Promise<EmailTransportConfig> {
+async function resolveEmailTransport(
+  useDeploymentCredentials = false,
+): Promise<EmailTransportConfig> {
+  const resolve = useDeploymentCredentials
+    ? (key: string) => readDeployCredentialEnv(key) ?? null
+    : resolveSecret;
   const [resendApiKey, sendgridApiKey, from] = await Promise.all([
-    resolveSecret("RESEND_API_KEY"),
-    resolveSecret("SENDGRID_API_KEY"),
-    resolveSecret("EMAIL_FROM"),
+    resolve("RESEND_API_KEY"),
+    resolve("SENDGRID_API_KEY"),
+    resolve("EMAIL_FROM"),
   ]);
   const resolvedFrom = from ?? undefined;
   if (resendApiKey) {
@@ -139,6 +152,34 @@ async function resolveEmailTransport(): Promise<EmailTransportConfig> {
   return { provider: "dev", from: resolvedFrom };
 }
 
+function classifyEmailReadiness(config: EmailTransportConfig): EmailReadiness {
+  if (config.provider === "dev") {
+    return { status: "not-configured", provider: "dev" };
+  }
+  if (config.provider === "sendgrid" && !config.from) {
+    return { status: "misconfigured", provider: "sendgrid" };
+  }
+  return { status: "ready", provider: config.provider };
+}
+
+/**
+ * Auth uses one Better Auth instance per process, so its email policy must
+ * come from deployment configuration rather than a request-scoped secret.
+ * Scoped email keys still support transactional app mail, but cannot safely
+ * configure unauthenticated magic-link or signup-verification flows.
+ */
+export function getDeploymentEmailReadiness(): EmailReadiness {
+  const provider = readDeployCredentialEnv("RESEND_API_KEY")
+    ? "resend"
+    : readDeployCredentialEnv("SENDGRID_API_KEY")
+      ? "sendgrid"
+      : "dev";
+  return classifyEmailReadiness({
+    provider,
+    from: readDeployCredentialEnv("EMAIL_FROM") || undefined,
+  });
+}
+
 export async function isEmailConfigured(): Promise<boolean> {
   return (await getEmailReadiness()).status === "ready";
 }
@@ -151,14 +192,7 @@ export async function isEmailConfigured(): Promise<boolean> {
  */
 export async function getEmailReadiness(): Promise<EmailReadiness> {
   try {
-    const config = await resolveEmailTransport();
-    if (config.provider === "dev") {
-      return { status: "not-configured", provider: "dev" };
-    }
-    if (config.provider === "sendgrid" && !config.from) {
-      return { status: "misconfigured", provider: "sendgrid" };
-    }
-    return { status: "ready", provider: config.provider };
+    return classifyEmailReadiness(await resolveEmailTransport());
   } catch {
     return { status: "unavailable", provider: "unknown" };
   }
@@ -257,13 +291,108 @@ function resolveAppSender(
 interface DeliveryOutcome {
   provider: EmailProvider;
   from: string;
+  /** Exact outbound JSON body sent to the provider, when one was built. */
+  requestPayload?: string;
+  /** Raw HTTP status code from the provider, when a response was received. */
+  responseStatus?: number;
+  /** Raw HTTP response body text from the provider, when a response was received. */
+  responseBody?: string;
+}
+
+/**
+ * Thrown when a provider request completed (we got an HTTP response) but the
+ * status was not 2xx. Carries the raw request/response so the audit log can
+ * distinguish "the provider rejected it" from a thrown error that never
+ * reached the provider (network failure, timeout, credential resolution).
+ */
+class EmailProviderError extends Error {
+  readonly provider: EmailProvider;
+  readonly from: string;
+  readonly requestPayload: string;
+  readonly responseStatus: number;
+  readonly responseBody: string;
+
+  constructor(
+    message: string,
+    details: {
+      provider: EmailProvider;
+      from: string;
+      requestPayload: string;
+      responseStatus: number;
+      responseBody: string;
+    },
+  ) {
+    super(message);
+    this.name = "EmailProviderError";
+    this.provider = details.provider;
+    this.from = details.from;
+    this.requestPayload = details.requestPayload;
+    this.responseStatus = details.responseStatus;
+    this.responseBody = details.responseBody;
+  }
+}
+
+/**
+ * Serialize a provider payload for the audit log, stripping attachment bytes
+ * and the duplicated HTML/text body. Attachment `content` is base64 file data
+ * with no diagnostic value for "who did this go to". The body itself is
+ * logged separately via `htmlBody`/`textBody` on `recordEmailSend` (below)
+ * rather than inline here, so it is stored once instead of once per provider
+ * shape. Before it is stored, `redactSensitiveEmailBodyContent` scrubs magic
+ * links, reset links, and OTP/verification codes, since `email_log` is
+ * readable by every org admin via `authorizeTransactionalEmailRead` and a
+ * live credential in the body would let any of them impersonate or reset the
+ * recipient.
+ */
+const MAX_LOGGED_TEXT_LENGTH = 8_000;
+
+function truncateForLog(value: string): string {
+  if (value.length <= MAX_LOGGED_TEXT_LENGTH) return value;
+  const omitted = value.length - MAX_LOGGED_TEXT_LENGTH;
+  return `${value.slice(0, MAX_LOGGED_TEXT_LENGTH)}<truncated, ${omitted} more characters>`;
+}
+
+function omittedBodyMarker(value: unknown): unknown {
+  return typeof value === "string" ? `<omitted, ${value.length} chars>` : value;
+}
+
+function redactPayloadForLog(payload: Record<string, unknown>): string {
+  const loggable: Record<string, unknown> = { ...payload };
+  // Resend shape: top-level `html` / `text` fields.
+  if ("html" in loggable) loggable.html = omittedBodyMarker(loggable.html);
+  if ("text" in loggable) loggable.text = omittedBodyMarker(loggable.text);
+  // SendGrid shape: `content: [{ type, value }]`.
+  if (Array.isArray(loggable.content)) {
+    loggable.content = (loggable.content as Record<string, unknown>[]).map(
+      (entry) => ({ ...entry, value: omittedBodyMarker(entry.value) }),
+    );
+  }
+  if (Array.isArray(loggable.attachments) && loggable.attachments.length) {
+    loggable.attachments = (
+      loggable.attachments as Record<string, unknown>[]
+    ).map(({ content: _content, ...rest }) => ({
+      ...rest,
+      contentOmitted: true,
+    }));
+  }
+  return truncateForLog(JSON.stringify(loggable));
+}
+
+/**
+ * A response body that failed to read is not the same as a genuinely empty
+ * one — collapsing both to "" would make a truncated/aborted read look like a
+ * provider that legitimately returned nothing.
+ */
+function unreadableResponseBody(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `<response body unreadable: ${message}>`;
 }
 
 async function deliverEmail(
   args: SendEmailArgs,
   signal?: AbortSignal,
 ): Promise<DeliveryOutcome> {
-  const config = await resolveEmailTransport();
+  const config = await resolveEmailTransport(args.useDeploymentCredentials);
   signal?.throwIfAborted();
   const provider = config.provider;
   const branded = resolveAppSender(config.from, args.appSender);
@@ -300,6 +429,7 @@ async function deliverEmail(
     if (args.references) headers["References"] = args.references;
     if (Object.keys(headers).length) payload.headers = headers;
 
+    const requestPayload = redactPayloadForLog(payload);
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -309,11 +439,28 @@ async function deliverEmail(
       body: JSON.stringify(payload),
       signal,
     });
+    const responseBody = truncateForLog(
+      await res.text().catch(unreadableResponseBody),
+    );
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Resend error ${res.status}: ${body}`);
+      throw new EmailProviderError(
+        `Resend error ${res.status}: ${responseBody}`,
+        {
+          provider,
+          from,
+          requestPayload,
+          responseStatus: res.status,
+          responseBody,
+        },
+      );
     }
-    return { provider, from };
+    return {
+      provider,
+      from,
+      requestPayload,
+      responseStatus: res.status,
+      responseBody,
+    };
   }
 
   if (provider === "sendgrid") {
@@ -347,6 +494,11 @@ async function deliverEmail(
         : undefined,
     ].filter((value): value is string => Boolean(value));
     if (categories.length) sgPayload.categories = categories;
+    if (args.disableClickTracking) {
+      sgPayload.tracking_settings = {
+        click_tracking: { enable: false },
+      };
+    }
     const sgHeaders: Record<string, string> = {};
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
     if (args.references) sgHeaders["References"] = args.references;
@@ -364,6 +516,7 @@ async function deliverEmail(
       }));
     }
 
+    const requestPayload = redactPayloadForLog(sgPayload);
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
@@ -373,11 +526,28 @@ async function deliverEmail(
       body: JSON.stringify(sgPayload),
       signal,
     });
+    const responseBody = truncateForLog(
+      await res.text().catch(unreadableResponseBody),
+    );
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`SendGrid error ${res.status}: ${body}`);
+      throw new EmailProviderError(
+        `SendGrid error ${res.status}: ${responseBody}`,
+        {
+          provider,
+          from,
+          requestPayload,
+          responseStatus: res.status,
+          responseBody,
+        },
+      );
     }
-    return { provider, from };
+    return {
+      provider,
+      from,
+      requestPayload,
+      responseStatus: res.status,
+      responseBody,
+    };
   }
 
   // Dev fallback — no provider configured. Logging the full body exposes
@@ -405,32 +575,47 @@ async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
 ): Promise<void> {
-  let outcome: DeliveryOutcome | undefined;
-  try {
-    outcome = await deliverEmail(args, signal);
-  } catch (error) {
-    await recordEmailSend({
-      templateId: args.templateId,
-      app: args.app ?? getAppConfig().app.slug ?? "unknown",
-      orgId: args.orgId ?? getRequestOrgId(),
-      recipient: args.to,
-      sender: outcome?.from ?? args.from ?? "unknown",
-      subject: args.subject,
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-      provider: outcome?.provider ?? "unknown",
-    });
-    throw error;
-  }
-  await recordEmailSend({
+  const baseRecord = {
     templateId: args.templateId,
     app: args.app ?? getAppConfig().app.slug ?? "unknown",
     orgId: args.orgId ?? getRequestOrgId(),
     recipient: args.to,
-    sender: outcome.from,
     subject: args.subject,
+    htmlBody: truncateForLog(redactSensitiveEmailBodyContent(args.html)),
+    textBody: args.text
+      ? truncateForLog(redactSensitiveEmailBodyContent(args.text))
+      : undefined,
+  };
+  let outcome: DeliveryOutcome | undefined;
+  try {
+    outcome = await deliverEmail(args, signal);
+  } catch (error) {
+    // A response was received but the provider rejected it: the error carries
+    // the raw request/response so "provider said no" stays distinguishable
+    // from "we never reached the provider" (network failure, timeout,
+    // credential resolution failure), which sets none of these three fields.
+    const providerError =
+      error instanceof EmailProviderError ? error : undefined;
+    await recordEmailSend({
+      ...baseRecord,
+      sender: providerError?.from ?? args.from ?? "unknown",
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      provider: providerError?.provider ?? "unknown",
+      requestPayload: providerError?.requestPayload,
+      responseStatus: providerError?.responseStatus,
+      responseBody: providerError?.responseBody,
+    });
+    throw error;
+  }
+  await recordEmailSend({
+    ...baseRecord,
+    sender: outcome.from,
     status: "sent",
     provider: outcome.provider,
+    requestPayload: outcome.requestPayload,
+    responseStatus: outcome.responseStatus,
+    responseBody: outcome.responseBody,
   });
 }
 

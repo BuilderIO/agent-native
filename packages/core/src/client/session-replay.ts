@@ -7,11 +7,25 @@ import {
   type SessionReplayIframeStartMessage,
   type SessionReplayIframeStopMessage,
 } from "../session-replay-iframe-protocol.js";
+import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
 import { scrubUrl } from "./url-scrub.js";
+
+function isSyntheticBrowserTraffic(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    isSyntheticTrafficValue(
+      (
+        window as Window & {
+          __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: unknown;
+        }
+      ).__AGENT_NATIVE_SYNTHETIC_TRAFFIC__,
+    )
+  );
+}
 
 type ReplayEvent = Record<string, unknown>;
 type QueuedReplayEvent = {
@@ -2065,6 +2079,7 @@ function rollbackReplaySequenceReservation(
 }
 
 export async function flushSessionReplay(reason = "manual"): Promise<void> {
+  if (isSyntheticBrowserTraffic()) return;
   const state = getState();
   if (!state.options) return;
   if (state.pendingReplayUpload) {
@@ -2396,11 +2411,11 @@ function installUrlMonitor(state: SessionReplayState): void {
   const options = state.options;
   const check = () => {
     if (!isUrlRecordable(window.location.href, options)) {
-      stopSessionReplay("url-blocked");
+      void stopSessionReplay("url-blocked");
     }
   };
-  const originalPushState = window.history.pushState;
-  const originalReplaceState = window.history.replaceState;
+  const originalPushState = window.history.pushState.bind(window.history);
+  const originalReplaceState = window.history.replaceState.bind(window.history);
   window.history.pushState = function pushState(...args) {
     const result = originalPushState.apply(this, args);
     queueMicrotask(check);
@@ -2567,7 +2582,7 @@ function toCaptureSerializable(
   if (typeof value === "function") return "[function]";
   if (typeof value === "symbol") return String(value);
   if (value instanceof Error) return `${value.name}: ${value.message}`;
-  if (typeof value !== "object") return String(value);
+  if (typeof value !== "object") return "[unserializable]";
   if (seen.has(value)) return "[circular]";
   if (depth >= MAX_CONSOLE_SERIALIZE_DEPTH) {
     return Array.isArray(value) ? "[array]" : "[object]";
@@ -2606,10 +2621,10 @@ function serializeConsoleArg(value: unknown): string {
     ) {
       return String(value);
     }
-    return (
-      JSON.stringify(toCaptureSerializable(value, 0, new WeakSet())) ??
-      String(value)
+    const serialized = JSON.stringify(
+      toCaptureSerializable(value, 0, new WeakSet()),
     );
+    return typeof serialized === "string" ? serialized : "[unserializable]";
   } catch {
     try {
       return Object.prototype.toString.call(value);
@@ -3158,8 +3173,14 @@ function installNetworkCapture(
   }
 
   if (typeof XMLHttpRequest !== "undefined" && XMLHttpRequest.prototype) {
-    const originalOpen = XMLHttpRequest.prototype.open;
-    const originalSend = XMLHttpRequest.prototype.send;
+    const originalOpen = Reflect.get(
+      XMLHttpRequest.prototype,
+      "open",
+    ) as typeof XMLHttpRequest.prototype.open;
+    const originalSend = Reflect.get(
+      XMLHttpRequest.prototype,
+      "send",
+    ) as typeof XMLHttpRequest.prototype.send;
     const xhrInfo = new WeakMap<
       XMLHttpRequest,
       { method: string; url: string }
@@ -3304,6 +3325,9 @@ function installCaptureInterceptors(state: SessionReplayState): void {
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (isSyntheticBrowserTraffic()) {
+    return { started: false, reason: "disabled" };
+  }
   if (options.enabled === false) return { started: false, reason: "disabled" };
   if (options.shouldStart && !options.shouldStart()) {
     return { started: false, reason: "disabled" };
@@ -3752,10 +3776,10 @@ export function emitSessionReplayException(input: {
 
 export type SessionReplayAgentChatEvent = {
   phase: "surface-mounted" | "run-observed" | "run-stopped";
-  surface: string;
-  threadId?: string;
-  runId?: string;
-  tabId?: string;
+  surface: string | number;
+  threadId?: string | number;
+  runId?: string | number;
+  tabId?: string | number;
 };
 
 /**
@@ -3768,8 +3792,12 @@ export function emitSessionReplayAgentChatEvent(
 ): void {
   const state = getState();
   if (!state.active || !state.addCustomEvent) return;
-  const bounded = (value: string | undefined, max = 160) =>
-    value?.trim().slice(0, max) || undefined;
+  const bounded = (value: string | number | undefined, max = 160) => {
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? String(value).slice(0, max) : undefined;
+    }
+    return value?.trim().slice(0, max) || undefined;
+  };
   emitReplayCustomEvent(state, SESSION_REPLAY_AGENT_CHAT_EVENT_TAG, {
     phase: input.phase,
     surface: bounded(input.surface, 80) ?? "app",

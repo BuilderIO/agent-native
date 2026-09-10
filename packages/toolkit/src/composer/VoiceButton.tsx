@@ -72,6 +72,7 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
   const realtimeCopy = useRealtimeVoiceModeCopy();
   const voiceProviders = adapters.voice!.useProviderStatus!();
   const builderConnect = adapters.builder!.useConnectFlow!({
+    provisionAccount: true,
     trackingSource: "realtime_voice",
     trackingFlow: "voice_transcription",
     onConnected: () => voiceProviders.refresh(),
@@ -132,6 +133,8 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
         openAiConfigured={voiceProviders.status?.openai === true}
         connectingBuilder={builderConnect.connecting}
         onConnectBuilder={builderConnect.start}
+        builderConnectFlow={builderConnect}
+        builderConnectPopover={adapters.builder?.BuilderConnectPopover}
         onUseOpenAiKey={() => {
           if (voiceProviders.status?.openai) void realtimeVoice.start();
           else openOpenAiKeySettings();

@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   buildReviewThreads,
@@ -28,9 +29,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -622,6 +624,8 @@ export function ReviewCanvasPins({
 
   useEffect(() => {
     if (
+      !active ||
+      hidden ||
       !canvas ||
       !repromptDraftRequest ||
       repromptDraftRequest.fileId !== targetId ||
@@ -657,8 +661,10 @@ export function ReviewCanvasPins({
     setDraftComposerOpen(true);
     onRepromptDraftConsumed?.(repromptDraftRequest.nonce);
   }, [
+    active,
     canvas,
     frameNodeGeometry,
+    hidden,
     onRepromptDraftConsumed,
     repromptDraftRequest,
     targetId,
@@ -829,7 +835,7 @@ export function ReviewCanvasPins({
 
   const submitReprompt = useCallback(
     async (pin: ReviewDraftPin) => {
-      const instruction = pin.draft.trim();
+      const instruction = pin.draft;
       const resolved = resolveReviewAnchor(pin.anchor, () => null);
       const nodeId = resolved?.anchor.nodeId;
       const targetSelector =
@@ -837,7 +843,7 @@ export function ReviewCanvasPins({
           ? pin.metadata.targetSelector
           : undefined;
       if (
-        !instruction ||
+        !instruction.trim() ||
         (!nodeId && !targetSelector) ||
         !sourceVersionHash ||
         sourceType !== "inline" ||
@@ -924,7 +930,7 @@ export function ReviewCanvasPins({
 
   const submitSelectionQuestion = useCallback(
     async (pin: ReviewDraftPin) => {
-      const instruction = pin.draft.trim();
+      const instruction = pin.draft;
       const resolved = resolveReviewAnchor(pin.anchor, () => null);
       const nodeId = resolved?.anchor.nodeId;
       const targetSelector =
@@ -932,7 +938,7 @@ export function ReviewCanvasPins({
           ? pin.metadata.targetSelector
           : undefined;
       if (
-        !instruction ||
+        !instruction.trim() ||
         (!nodeId && !targetSelector) ||
         sourceType !== "inline" ||
         agentSubmitting
@@ -1009,7 +1015,7 @@ export function ReviewCanvasPins({
     !activeThreadId &&
     !repromptDraftRequest;
 
-  return (
+  return createPortal(
     <>
       {pinPlacementEnabled ? (
         <div
@@ -1164,7 +1170,8 @@ export function ReviewCanvasPins({
           ) : null}
         </ReviewPin>
       ) : null}
-    </>
+    </>,
+    document.body,
   );
 }
 
@@ -1267,7 +1274,7 @@ function DraftComposer({
       <Button
         type="button"
         size="sm"
-        variant="outline"
+        variant={initialAgentMode === "preview" ? "default" : "outline"}
         className="h-8 min-w-0 flex-1 gap-1.5 rounded-e-none"
         disabled={submitting || !value.trim()}
         onClick={() => onSmartSubmit(sendMode)}
@@ -1284,7 +1291,7 @@ function DraftComposer({
           <Button
             type="button"
             size="sm"
-            variant="outline"
+            variant={initialAgentMode === "preview" ? "default" : "outline"}
             className="h-8 shrink-0 rounded-s-none border-s-0 px-2"
             disabled={submitting}
             aria-label={t("designEditor.nodeRewrite.agentModeOptions")}
@@ -1292,7 +1299,12 @@ function DraftComposer({
             <IconChevronDown className="size-3" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuContent
+          data-review-popover
+          data-review-mode-menu
+          align="end"
+          className="w-56"
+        >
           <DropdownMenuRadioGroup
             value={modeOverride}
             onValueChange={(nextMode) =>
@@ -1356,6 +1368,7 @@ function DraftComposer({
           onSubmit(target);
         }}
         submittingTarget={commentSubmitting ? resolutionTarget : null}
+        showCommentAction={initialAgentMode !== "preview"}
         showAgentAction={showAgentAction}
         agentAction={agentAction}
         placeholder={t("review.placeholder")}
@@ -1407,6 +1420,7 @@ function ReviewThreadPopover({
 }) {
   const t = useT();
   const rootAuthor = reviewAuthorLabel(thread.root, t("review.reviewer"));
+  const avatarUrl = useAvatarUrl(thread.root.authorEmail);
   return (
     <div
       data-review-popover
@@ -1419,6 +1433,7 @@ function ReviewThreadPopover({
     >
       <div className="flex items-start gap-2.5 p-3">
         <Avatar className="size-7 shrink-0">
+          {avatarUrl ? <AvatarImage src={avatarUrl} alt={rootAuthor} /> : null}
           <AvatarFallback className="text-[10px] font-semibold text-muted-foreground">
             {reviewAuthorInitials(rootAuthor)}
           </AvatarFallback>

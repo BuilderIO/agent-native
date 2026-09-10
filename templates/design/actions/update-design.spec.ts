@@ -201,6 +201,15 @@ describe("update-design data concurrency", () => {
     mocks.assertAccess.mockResolvedValue(undefined);
   });
 
+  it("rejects an ID-only update instead of reporting a content change", async () => {
+    const previousUpdatedAt = mocks.state.row.updatedAt;
+
+    await expect(action.run({ id: "design-1" } as never)).rejects.toThrow(
+      "At least one design field or data operation is required.",
+    );
+    expect(mocks.state.row.updatedAt).toBe(previousUpdatedAt);
+  });
+
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {
     mocks.resetReadGate(2);
     const moveA = {
@@ -301,7 +310,7 @@ describe("update-design data concurrency", () => {
       operationRevision: 1,
     } as never);
 
-    expect(newer).toEqual({ id: "design-1", updated: true });
+    expect(newer).toEqual({ id: "design-1", updated: true, changed: true });
     expect(stale).toEqual({ id: "design-1", updated: true, stale: true });
     expect(
       (JSON.parse(mocks.state.row.data!) as typeof BASE_DATA).canvasFrames[

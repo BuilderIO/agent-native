@@ -111,6 +111,7 @@ export interface SharedSlideAnimation {
   id: string;
   elementIndex: number;
   elementPath?: number[];
+  byParagraph?: boolean;
   type: SharedAnimationType;
 }
 
@@ -195,6 +196,8 @@ function normalizeSlideAnimation(
     return issue("unsupported-type");
   }
   const type = rawType as SharedAnimationType;
+  const byParagraph =
+    typeof value.byParagraph === "boolean" ? value.byParagraph : undefined;
 
   // When an explicit `elementIndex` is present, trust it. Otherwise derive
   // from the last segment of `elementPath` - keeps the index correlated
@@ -213,6 +216,7 @@ function normalizeSlideAnimation(
       id: normalizeString(value.id, `animation-${index + 1}`),
       elementIndex: resolvedElementIndex,
       ...(elementPath ? { elementPath } : {}),
+      ...(byParagraph !== undefined ? { byParagraph } : {}),
       type,
     },
   };

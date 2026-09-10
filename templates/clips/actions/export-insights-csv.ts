@@ -17,7 +17,7 @@ import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const s = String(value);
+  const s = typeof value === "string" ? value : (JSON.stringify(value) ?? "");
   if (/[",\n\r]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }

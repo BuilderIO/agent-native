@@ -33,7 +33,7 @@ import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
-  isRecordingExpired,
+  isRecordingExpiredForViewer,
 } from "../server/lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
 import {
@@ -41,11 +41,13 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
+import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
   normalizeBuilderCreditsStatus,
 } from "../shared/builder-credits.js";
+import { displayCommentMentions } from "../shared/comment-mentions.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -121,7 +123,12 @@ export default defineAction({
     const db = getDb();
     const rec: any = access.resource;
 
-    if (isRecordingExpired(rec.expiresAt)) {
+    if (
+      isRecordingExpiredForViewer({
+        expiresAt: rec.expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
       throw new ForbiddenError("Recording has expired");
     }
 
@@ -204,6 +211,7 @@ export default defineAction({
         asc(schema.recordingComments.videoTimestampMs),
         asc(schema.recordingComments.createdAt),
       );
+    const hydratedComments = await hydrateCommentAuthorNames(comments);
 
     const reactions = await db
       .select()
@@ -365,6 +373,7 @@ export default defineAction({
         animatedThumbnailEnabled: Boolean(rec.animatedThumbnailEnabled),
         visibility: rec.visibility,
         ownerEmail: rec.ownerEmail,
+        folderId: rec.folderId,
         spaceIds: parseSpaceIds(rec.spaceIds),
         createdAt: rec.createdAt,
         updatedAt: rec.updatedAt,
@@ -411,7 +420,7 @@ export default defineAction({
           }
         : null,
       builderCredits,
-      comments: comments.map((c) => ({
+      comments: hydratedComments.map((c) => ({
         id: c.id,
         recordingId: c.recordingId,
         threadId: c.threadId,
@@ -419,6 +428,7 @@ export default defineAction({
         authorEmail: c.authorEmail,
         authorName: c.authorName,
         content: c.content,
+        mentions: displayCommentMentions(c.mentionsJson),
         videoTimestampMs: c.videoTimestampMs,
         emojiReactionsJson: c.emojiReactionsJson,
         resolved: Boolean(c.resolved),

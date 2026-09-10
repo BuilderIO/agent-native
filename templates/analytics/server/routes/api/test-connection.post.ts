@@ -8,6 +8,7 @@ import {
 } from "../../lib/credentials";
 import { executeProviderApiRequest } from "../../lib/provider-api";
 import {
+  BUILDER_ANALYTICS_CREDENTIAL_KEYS,
   CLAY_ANALYTICS_CREDENTIAL_KEYS,
   HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
   resolveAnalyticsGongCredentials,
@@ -117,6 +118,30 @@ export default defineEventHandler(async (event) => {
             path: "/api/projects/{projectId}/",
           });
           return providerApiConnectionResult("PostHog", result);
+        }
+
+        case "builder": {
+          const credential = await resolveAnalyticsProviderCredential({
+            provider: "builder",
+            keys: BUILDER_ANALYTICS_CREDENTIAL_KEYS,
+            ctx,
+          });
+          const key = credential?.value;
+          if (!key)
+            return {
+              ok: false,
+              error: "Missing Builder.io public API key",
+            };
+          const url = new URL(
+            "https://cdn.builder.io/api/v3/content/blog-article",
+          );
+          url.searchParams.set("apiKey", key);
+          url.searchParams.set("limit", "1");
+          url.searchParams.set("fields", "id");
+          const res = await fetch(url);
+          if (!res.ok)
+            return { ok: false, error: "Invalid Builder.io API key" };
+          return { ok: true };
         }
 
         case "postgresql": {

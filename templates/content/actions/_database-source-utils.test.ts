@@ -23,6 +23,7 @@ import {
   builderBodyChangeForUnsourcedLocalCreate,
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
+  builderBodyHydrationNextAttemptAt,
   builderBodyNeedsSourceComponentWrite,
   knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
@@ -34,7 +35,6 @@ import {
   builderBodyBaselineHasSameVersionConflict,
   builderAuthoritativeRawBodyHash,
   builderBodyHydrationBulkChunkLimit,
-  bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
   builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,
@@ -49,6 +49,7 @@ import {
   normalizeSourceFreshness,
   refreshBuilderBodySourceValuesFromStoredLossless,
   serializeBuilderCmsSourceReadMetadataRecord,
+  serializeSourceField,
   serializeSourceMetadataRecord,
   sourceSnapshotValuesJsonProjectionSql,
   sourceSnapshotDocumentSelection,
@@ -286,18 +287,8 @@ describe("database source helpers", () => {
     }
   });
 
-  it("sizes bulk chunks from the D1 parameter budget and column count", () => {
-    expect(bulkChunkSizeForColumnCount(15, "d1")).toBe(6);
-    expect(bulkChunkSizeForColumnCount(13, "d1")).toBe(6);
-    expect(bulkChunkSizeForColumnCount(2, "d1")).toBe(45);
-    expect(bulkChunkSizeForColumnCount(1, "d1")).toBe(90);
-    expect(bulkChunkSizeForColumnCount(15, "postgres")).toBe(60);
-  });
-
   it("uses one fewer transaction for the 584-row Postgres hydration case", () => {
-    expect(builderBodyHydrationBulkChunkLimit("postgres")).toBe(200);
-    expect(builderBodyHydrationBulkChunkLimit("sqlite")).toBe(112);
-    expect(builderBodyHydrationBulkChunkLimit("d1")).toBe(11);
+    expect(builderBodyHydrationBulkChunkLimit()).toBe(200);
   });
 
   it("serializes queued Builder body hydration with an unset item status as pending", () => {
@@ -318,6 +309,32 @@ describe("database source helpers", () => {
     expect(normalizeSourceFreshness("fresh")).toBe("fresh");
     expect(normalizeSourceFreshness("stale")).toBe("stale");
     expect(normalizeSourceFreshness("mysterious fog")).toBe("unknown");
+  });
+
+  it("rejects unreadable source field write policy during serialization", () => {
+    const row = {
+      id: "field-1",
+      propertyId: "property-1",
+      localFieldKey: "property-1",
+      sourceFieldKey: "field",
+      sourceFieldLabel: "Field",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "unknown",
+      readOnly: 0,
+      provenance: "test",
+      freshness: "fresh",
+      lastSyncedAt: null,
+    };
+    expect(() => serializeSourceField(row as never, "Field")).toThrow(
+      "Invalid Content source field write owner: unknown",
+    );
+    expect(() =>
+      serializeSourceField(
+        { ...row, writeOwner: "local", readOnly: 2 } as never,
+        "Field",
+      ),
+    ).toThrow("Invalid Content source field read-only value: 2");
   });
 
   it("omits heavy Builder body payloads from read snapshots", () => {
@@ -342,11 +359,7 @@ describe("database source helpers", () => {
   });
 
   it("strips heavy Builder bodies in the database snapshot projection", () => {
-    const sqliteProjection = sourceSnapshotValuesJsonProjectionSql("sqlite");
-    const postgresProjection =
-      sourceSnapshotValuesJsonProjectionSql("postgres");
-
-    expect(sqliteProjection).toContain("json_remove");
+    const postgresProjection = sourceSnapshotValuesJsonProjectionSql();
     expect(postgresProjection).toContain("::jsonb");
     for (const key of [
       BUILDER_CMS_BODY_CONTENT_KEY,
@@ -354,7 +367,6 @@ describe("database source helpers", () => {
       BUILDER_CMS_BODY_READABLE_MAP_KEY,
       BUILDER_CMS_BODY_SIDECARS_KEY,
     ]) {
-      expect(sqliteProjection).toContain(key);
       expect(postgresProjection).toContain(key);
     }
   });
@@ -875,6 +887,16 @@ describe("database source helpers", () => {
     expect(builderBodyHydrationAttemptIsTerminal(5)).toBe(true);
   });
 
+  it("backs Builder body retries off without exceeding five minutes", () => {
+    const attemptedAt = "2026-08-21T12:00:00.000Z";
+    expect(builderBodyHydrationNextAttemptAt(1, attemptedAt)).toBe(
+      "2026-08-21T12:00:30.000Z",
+    );
+    expect(builderBodyHydrationNextAttemptAt(5, attemptedAt)).toBe(
+      "2026-08-21T12:05:00.000Z",
+    );
+  });
+
   it("prioritizes opened Builder body hydration ahead of background work", () => {
     expect(
       builderBodyHydrationPriorityForRequest({ documentId: "doc-open" }),
@@ -1204,7 +1226,10 @@ describe("database source helpers", () => {
       },
     });
     const currentContent = String(
-      entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY],
+      typeof entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]
+        : (JSON.stringify(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ??
+            ""),
     );
     const change = await builderBodyChangeForLocalContent({
       row: { sourceValuesJson: JSON.stringify(entry.sourceValues) },
@@ -1374,9 +1399,18 @@ describe("database source helpers", () => {
         },
       },
     });
-    const content = String(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]);
+    const content =
+      typeof entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]
+        : (JSON.stringify(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ??
+          "");
     const losslessContent = String(
-      entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+      typeof entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY] ===
+        "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]
+        : (JSON.stringify(
+            entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+          ) ?? ""),
     );
 
     expect(content).toContain("<5");
@@ -1447,7 +1481,11 @@ describe("database source helpers", () => {
     }>;
     const textHtml = blocks
       .filter((block) => block.component?.name === "Text")
-      .map((block) => String(block.component?.options?.text ?? ""))
+      .map((block) =>
+        typeof block.component?.options?.text === "string"
+          ? block.component.options.text
+          : (JSON.stringify(block.component?.options?.text ?? "") ?? ""),
+      )
       .join("\n");
     const image = blocks.find(
       (block) => block.component?.name === "Image",

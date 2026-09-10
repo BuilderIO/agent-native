@@ -71,6 +71,20 @@ describe("update-event working locations", () => {
     deleteEventMock.mockResolvedValue(undefined);
   });
 
+  it("rejects namespaced shared-calendar events before any mutation", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-google-calendar:opaque-source-shared-event",
+          title: "Changed",
+        }),
+      ),
+    ).rejects.toThrow("Shared Google calendar events are read-only");
+
+    expect(updateEventMock).not.toHaveBeenCalled();
+    expect(moveEventMock).not.toHaveBeenCalled();
+  });
+
   it("moves an event to another connected Google account", async () => {
     getAuthStatusMock.mockResolvedValue({
       accounts: [{ email: "secondary@example.com" }],
@@ -85,6 +99,7 @@ describe("update-event working locations", () => {
       allDay: false,
       source: "google",
       accountEmail: "owner@example.com",
+      organizer: { email: "owner@example.com", self: true },
       attendees: [{ email: "guest@example.com" }],
       createdAt: "2026-07-06T00:00:00.000Z",
       updatedAt: "2026-07-06T00:00:00.000Z",
@@ -117,6 +132,84 @@ describe("update-event working locations", () => {
       accountEmail: "secondary@example.com",
       updated: ["accountEmail"],
     });
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects moving an event when the current user is not its organizer", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "secondary@example.com" }],
+    });
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      title: "Team meeting",
+      description: "Agenda",
+      location: "Conference room",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      organizer: { email: "organizer@example.com", self: false },
+      attendees: [
+        { email: "owner@example.com", self: true, organizer: false },
+        { email: "organizer@example.com", organizer: true },
+      ],
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          accountEmail: "owner@example.com",
+          targetAccountEmail: "secondary@example.com",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      statusCode: 400,
+      message: "Only the event organizer can move or reschedule this event.",
+    });
+
+    expect(moveEventMock).not.toHaveBeenCalled();
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects rescheduling an event when the current user is not its organizer", async () => {
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      title: "Team meeting",
+      description: "Agenda",
+      location: "Conference room",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      organizer: { email: "organizer@example.com", self: false },
+      attendees: [
+        { email: "owner@example.com", self: true, organizer: false },
+        { email: "organizer@example.com", organizer: true },
+      ],
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          accountEmail: "owner@example.com",
+          start: "2026-07-07T16:00:00.000Z",
+          end: "2026-07-07T16:30:00.000Z",
+        }),
+      ),
+    ).rejects.toThrow(
+      "Only the event organizer can move or reschedule this event.",
+    );
+
+    expect(moveEventMock).not.toHaveBeenCalled();
     expect(updateEventMock).not.toHaveBeenCalled();
   });
 
@@ -482,6 +575,27 @@ describe("update-event working locations", () => {
     );
   });
 
+  it("passes Google Meet removal through to the calendar service", async () => {
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        action.run({
+          id: "google-event-1",
+          removeGoogleMeet: true,
+        }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "event-1",
+      { accountEmail: "owner@example.com" },
+      expect.objectContaining({ removeGoogleMeet: true }),
+    );
+    expect(result).toMatchObject({
+      id: "google-event-1",
+      removedGoogleMeet: true,
+    });
+  });
+
   it("does not try to convert a normal event into a working-location event", async () => {
     getEventMock.mockResolvedValue({
       id: "google-event-1",
@@ -550,5 +664,94 @@ describe("update-event working locations", () => {
       }),
       expect.any(Object),
     );
+  });
+});
+
+describe("update-event approval gate", () => {
+  it("gates a guest notification and a cross-calendar move, not a field edit", async () => {
+    const gate = action.needsApproval;
+    if (typeof gate !== "function") throw new Error("expected a predicate");
+
+    expect(await gate({ id: "google-a", title: "Renamed" } as never)).toBe(
+      false,
+    );
+    expect(await gate({ id: "google-a", sendUpdates: "all" } as never)).toBe(
+      true,
+    );
+    expect(
+      await gate({ id: "google-a", notificationMessage: "Moved" } as never),
+    ).toBe(true);
+    expect(
+      await gate({
+        id: "google-a",
+        targetAccountEmail: "other@example.com",
+      } as never),
+    ).toBe(true);
+  });
+
+  it("gates adding a guest, which invites them by default", async () => {
+    const gate = action.needsApproval;
+    if (typeof gate !== "function") throw new Error("expected a predicate");
+
+    // run() leaves sendUpdates at Google's "all" default once addAttendees
+    // names anyone, in either raw shape the schema accepts.
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: [{ email: "guest@example.com" }],
+      } as never),
+    ).toBe(true);
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: "guest@example.com",
+      } as never),
+    ).toBe(true);
+    // An explicit sendUpdates wins over that default, so nothing is mailed.
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: [{ email: "guest@example.com" }],
+        sendUpdates: "none",
+      } as never),
+    ).toBe(false);
+    // Nobody named, nothing sent.
+    expect(await gate({ id: "google-a", addAttendees: [] } as never)).toBe(
+      false,
+    );
+    expect(await gate({ id: "google-a", addAttendees: "  " } as never)).toBe(
+      false,
+    );
+    // Replacing the list does not reach the sendUpdates default.
+    expect(
+      await gate({
+        id: "google-a",
+        attendees: [{ email: "guest@example.com" }],
+      } as never),
+    ).toBe(false);
+  });
+
+  it("does not stop an update whose attendee input names nobody reachable", async () => {
+    const gate = action.needsApproval;
+    if (typeof gate !== "function") throw new Error("expected a predicate");
+
+    // An entry with no address is dropped before run() counts attendees, so it
+    // invites nobody and must not cost an approval.
+    expect(
+      await gate({ id: "google-a", addAttendees: "not-an-address" } as never),
+    ).toBe(false);
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: [{ email: "not-an-address" }],
+      } as never),
+    ).toBe(false);
+    // One real address among unreachable ones still invites that person.
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: "nope, guest@example.com",
+      } as never),
+    ).toBe(true);
   });
 });

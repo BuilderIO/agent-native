@@ -20,7 +20,7 @@ export function TemplateSplitFeature({
         <div className="min-w-0 border-b border-[var(--docs-border)] lg:border-b-0 lg:border-e">
           {leading}
         </div>
-        <div className="min-w-0 bg-[var(--bg-secondary)]">{trailing}</div>
+        <div className="min-w-0 bg-[var(--bg-subtle)]">{trailing}</div>
       </div>
     </section>
   );

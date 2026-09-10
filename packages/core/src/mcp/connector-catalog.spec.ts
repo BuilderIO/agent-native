@@ -91,6 +91,7 @@ vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
   isJtiRevoked: vi.fn(async () => false),
   touchTokenUsed: vi.fn(async () => {}),
+  lookupConnectTokenOrg: vi.fn(async () => ({ status: "missing" })),
 }));
 
 vi.mock("../server/embed-session.js", () => ({
@@ -449,6 +450,33 @@ describe("connector-catalog tier", () => {
     });
   });
 
+  describe("keyToolNames — filtered to the served surface", () => {
+    it("names only tools this tier actually serves, dropping the rest", async () => {
+      // "db-exec" is a real action (see fullActions) but the connector tier
+      // excludes it; "get-plan" is in CONNECTOR_CATALOG and is served.
+      const token = await signA2AToken("alice@example.com");
+      const mcpConfig = {
+        ...connectorConfig,
+        keyToolNames: ["get-plan", "db-exec"],
+      };
+      const out = await call(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "test-client", version: "1.0.0" },
+          },
+        },
+        { headers: { authorization: `Bearer ${token}` }, mcpConfig },
+      );
+      expect(out.result.instructions).toContain("get-plan");
+      expect(out.result.instructions).not.toContain("db-exec");
+    });
+  });
+
   it("advertises and calls the Calendar and Mail deterministic connector reads", async () => {
     const deterministicReads = {
       "list-events": {
@@ -717,6 +745,73 @@ describe("connector-catalog tier", () => {
       expect(called.result.content.map((c: any) => c.text).join(" ")).toContain(
         "archived",
       );
+    });
+
+    it("dispatches allowlisted Content writes directly without invoking the app agent", async () => {
+      const createDocument = vi.fn(async () => ({ id: "doc-1" }));
+      const editDocument = vi.fn(async () => ({ id: "doc-1", edited: true }));
+      const askAgent = vi.fn(async () => "delegated answer");
+      const contentActions = {
+        "create-document": {
+          tool: { description: "Create and persist a Content document" },
+          mcpTool: true,
+          run: createDocument,
+        },
+        "edit-document": {
+          tool: { description: "Surgically edit a Content document" },
+          mcpTool: true,
+          run: editDocument,
+        },
+      };
+      const contentConfig = {
+        ...connectorConfig,
+        name: "Content",
+        appId: "content",
+        connectorCatalog: undefined,
+        externalAgents: { writes: "allowlisted" as const },
+        actions: contentActions,
+        productionActions: contentActions,
+        askAgent,
+      };
+      const token = await signA2AToken("alice@example.com");
+      const headers = { authorization: `Bearer ${token}` };
+
+      const created = await call(
+        {
+          jsonrpc: "2.0",
+          id: 70,
+          method: "tools/call",
+          params: {
+            name: "create-document",
+            arguments: { title: "Draft" },
+          },
+        },
+        { headers, mcpConfig: contentConfig },
+      );
+      const edited = await call(
+        {
+          jsonrpc: "2.0",
+          id: 71,
+          method: "tools/call",
+          params: {
+            name: "edit-document",
+            arguments: { id: "doc-1", find: "old", replace: "new" },
+          },
+        },
+        { headers, mcpConfig: contentConfig },
+      );
+
+      expect(created.result.isError).toBeFalsy();
+      expect(edited.result.isError).toBeFalsy();
+      expect(createDocument).toHaveBeenCalledWith(
+        { title: "Draft" },
+        expect.objectContaining({ caller: "mcp" }),
+      );
+      expect(editDocument).toHaveBeenCalledWith(
+        { id: "doc-1", find: "old", replace: "new" },
+        expect.objectContaining({ caller: "mcp" }),
+      );
+      expect(askAgent).not.toHaveBeenCalled();
     });
 
     it("keeps `mcpTool: false` uncallable on the full-catalog opt-in", async () => {
@@ -1336,5 +1431,87 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
         delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
       }
     });
+  });
+});
+
+describe("external-agent exposure — endsTurn without mcpTool", () => {
+  // Covers the gap between the pure resolver (action.spec.ts:
+  // "resolves external exposure from mcpTool, falling back to agentTool") and
+  // the served MCP surface: an in-app question form (`endsTurn: true`) must
+  // stay off tools/list and tools/call even when a template explicitly lists
+  // it in `connectorCatalog` — the resolver decision is enforced upstream of
+  // catalog membership, not merely advisory.
+  beforeEach(() => {
+    process.env.A2A_SECRET = A2A_SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+  });
+
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+    vi.clearAllMocks();
+  });
+
+  const askQuestion = {
+    tool: { description: "Ask the user a clarifying question" },
+    endsTurn: true,
+    run: async () => ({ ok: true }),
+  };
+
+  function endsTurnConfig(entry: Record<string, unknown>) {
+    const actions = { "ask-question": entry };
+    return {
+      name: "Plan",
+      appId: "plan",
+      description: "Plan agent",
+      actions,
+      productionActions: actions,
+      connectorCatalog: ["ask-question"],
+    };
+  }
+
+  it("is absent from tools/list even when catalog-listed", async () => {
+    const token = await signA2AToken("alice@example.com");
+    const out = await call(
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+      {
+        headers: { authorization: `Bearer ${token}` },
+        mcpConfig: endsTurnConfig(askQuestion),
+      },
+    );
+    const names: string[] = out.result.tools.map((t: any) => t.name);
+    expect(names).not.toContain("ask-question");
+  });
+
+  it("is refused by tools/call even when catalog-listed", async () => {
+    const token = await signA2AToken("alice@example.com");
+    const out = await call(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "ask-question", arguments: {} },
+      },
+      {
+        headers: { authorization: `Bearer ${token}` },
+        mcpConfig: endsTurnConfig(askQuestion),
+      },
+    );
+    expect(out.result.isError).toBe(true);
+    expect(out.result.content[0].text).toMatch(/Unknown tool/);
+  });
+
+  it("appears in tools/list once mcpTool: true opts it back in", async () => {
+    const token = await signA2AToken("alice@example.com");
+    const out = await call(
+      { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} },
+      {
+        headers: { authorization: `Bearer ${token}` },
+        mcpConfig: endsTurnConfig({ ...askQuestion, mcpTool: true }),
+      },
+    );
+    const names: string[] = out.result.tools.map((t: any) => t.name);
+    expect(names).toContain("ask-question");
   });
 });

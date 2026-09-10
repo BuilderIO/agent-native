@@ -1,11 +1,14 @@
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AppSidebar,
+  AppSidebarNavItem,
+  FeedbackButton,
+  type AppSidebarItemDefinition,
+} from "@agent-native/core/client/ui";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconCalendar,
@@ -22,9 +25,8 @@ import {
   IconCheck,
   IconEye,
   IconEyeOff,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
   IconSearch,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -63,6 +65,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useOverlayCalendarStatus } from "@/hooks/use-events";
 import {
   useExternalCalendars,
   useRemoveExternalCalendar,
@@ -72,6 +75,7 @@ import {
   useGoogleAuthStatus,
   useGoogleDesktopAuth,
 } from "@/hooks/use-google-auth";
+import { useGoogleCalendars } from "@/hooks/use-google-calendars";
 import {
   useOverlayPeople,
   useRemoveOverlayPerson,
@@ -81,7 +85,6 @@ import { useSettings } from "@/hooks/use-settings";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import {
   CALENDAR_COLORS,
-  defaultColorForAccount,
   type CalendarColorMode,
 } from "@/lib/calendar-view-preferences";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
@@ -91,7 +94,7 @@ import { cn } from "@/lib/utils";
 import { useCalendarContext } from "./AppLayout";
 
 const navItems = [
-  { path: "/", labelKey: "navigation.calendar", icon: IconCalendar },
+  { path: "/home", labelKey: "navigation.calendar", icon: IconCalendar },
   {
     path: "/booking-links",
     labelKey: "navigation.bookingLinks",
@@ -205,11 +208,13 @@ function MiniCalendar({
   const { data: settings } = useSettings();
   const weekStartsOn = getWeekStartsOn(settings?.weekStart);
 
-  // Sync viewMonth when selectedDate changes to a different month
+  // Sync viewMonth when selectedDate changes without undoing explicit month navigation.
   useEffect(() => {
-    if (!isSameMonth(viewMonth, selectedDate)) {
-      setViewMonth(startOfMonth(selectedDate));
-    }
+    setViewMonth((currentMonth) =>
+      isSameMonth(currentMonth, selectedDate)
+        ? currentMonth
+        : startOfMonth(selectedDate),
+    );
   }, [selectedDate]);
 
   const days = useMemo(() => {
@@ -372,15 +377,16 @@ function GoogleConnectSidebarButton() {
   );
 }
 
-/** A conic-gradient dot indicating "multiple colors" (by-type mode) */
+/** A conic-gradient dot indicating "multiple colors" (by-type mode). */
 function MultiColorDot({ className }: { className?: string }) {
-  const colors = Object.values(EVENT_CATEGORY_COLORS).filter((_, i) => i < 4);
+  const colors = Object.values(EVENT_CATEGORY_COLORS).slice(0, 4);
   const pct = 100 / colors.length;
   const stops = colors
-    .map((c, i) => `${c} ${i * pct}% ${(i + 1) * pct}%`)
+    .map((color, index) => `${color} ${index * pct}% ${(index + 1) * pct}%`)
     .join(", ");
   return (
     <span
+      aria-hidden="true"
       className={cn("inline-block shrink-0 rounded-full", className)}
       style={{ background: `conic-gradient(${stops})` }}
     />
@@ -421,213 +427,236 @@ function ColorPickerPopover({
   );
 }
 
-function GoogleAccountsSection({
-  accounts,
-  canAddAccount,
+function GoogleCalendarsSections({
   onClose,
+  section = "owned",
 }: {
-  accounts: Array<{ email: string }>;
-  canAddAccount: boolean;
   onClose: () => void;
+  section?: "owned" | "other";
 }) {
   const t = useT();
-  const { toggleHiddenCalendar, isHiddenCalendar } = useCalendarContext();
+  const { setAddCalendarOpen, setAddCalendarDefaultTab } = useCalendarContext();
+  const [showAllCalendars, setShowAllCalendars] = useState(false);
+  const { data: calendars, enabled } = useGoogleCalendars();
   const {
-    prefs: { colorMode, singleColor, accountColorModes, accountColors },
-    updateAccountColor,
+    prefs: {
+      accountColorModes,
+      accountColors,
+      colorMode,
+      googleCalendarColors,
+      googleCalendarVisibility,
+      singleColor,
+    },
     updateAccountColorMode,
+    updateGoogleCalendarColor,
+    updateGoogleCalendarVisibility,
   } = useViewPreferences();
-  const accountEmails = useMemo(
-    () => accounts.map((account) => account.email),
-    [accounts],
+  const readableCalendars = useMemo(
+    () =>
+      (calendars ?? []).filter(
+        (calendar) => calendar.accessRole !== "freeBusyReader",
+      ),
+    [calendars],
   );
-  const {
-    isDesktopGoogleAuth,
-    isGoogleDesktopAuthPending,
-    startDesktopGoogleAuth,
-  } = useGoogleDesktopAuth({
-    onError: (issue) =>
-      toast.error(issue.message || issue.error || t("settings.googleFailed")),
-    onSuccess: () => window.location.reload(),
-  });
-
-  function handleAddAccount() {
-    if (isDesktopGoogleAuth) {
-      startDesktopGoogleAuth({
-        addAccount: true,
-        previousAccountCount: accounts.length,
-      });
-      return;
-    }
-    const returnPath = `${window.location.pathname}${window.location.search}`;
-    startWorkspaceProviderOAuth("google_calendar", {
-      appId: "calendar",
-      returnPath,
-      scope: "user",
-    });
-  }
-
-  function accountColorMode(email: string): CalendarColorMode {
-    return accountColorModes[email] ?? colorMode;
-  }
-
-  function accountColor(email: string): string {
+  const ownedCalendars = readableCalendars.filter(
+    (calendar) => calendar.accessRole === "owner",
+  );
+  const otherCalendars = readableCalendars.filter(
+    (calendar) => calendar.accessRole !== "owner",
+  );
+  function renderCalendarRow(calendar: (typeof readableCalendars)[number]) {
+    const preferenceKey = calendar.canonicalKey;
+    const displayName =
+      section === "owned" && calendar.primary
+        ? calendar.accountEmail
+        : calendar.name;
+    const visible =
+      googleCalendarVisibility[preferenceKey] ??
+      (calendar.primary || calendar.selected);
+    const sourceColor = googleCalendarColors[preferenceKey];
+    const mode: CalendarColorMode | undefined = calendar.primary
+      ? (accountColorModes[calendar.accountEmail] ?? colorMode)
+      : undefined;
+    const color =
+      sourceColor ??
+      (mode === "single"
+        ? (accountColors[calendar.accountEmail] ?? singleColor)
+        : (calendar.color ?? CALENDAR_COLORS[6]));
+    const isDefault = !sourceColor && mode !== "multi";
     return (
-      accountColors[email] ??
-      singleColor ??
-      defaultColorForAccount(email, accountEmails)
+      <div
+        key={preferenceKey}
+        className="group flex min-h-7 items-center gap-2 px-2 text-xs"
+      >
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={`${t("eventForm.color")}: ${displayName}`}
+              className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "block size-2.5 rounded-full ring-1 ring-border",
+                  !visible && "opacity-40",
+                )}
+                style={{ backgroundColor: color }}
+              />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="right" align="start" className="w-auto p-2">
+            <div className="mb-1.5 text-xs font-medium">
+              {t("eventForm.color")}
+            </div>
+            <div className="flex max-w-[132px] flex-wrap gap-1.5">
+              {calendar.primary && (
+                <Tooltip delayDuration={700}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateAccountColorMode(
+                          calendar.accountEmail,
+                          "multi",
+                          preferenceKey,
+                        )
+                      }
+                      aria-label={t("sidebar.colorByMeetingType")}
+                      className="relative flex size-5 items-center justify-center rounded-full"
+                    >
+                      <MultiColorDot className="size-5" />
+                      {mode === "multi" && !sourceColor && (
+                        <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[160px] text-xs">
+                    {t("sidebar.colorByMeetingType")}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              <button
+                type="button"
+                onClick={() => updateGoogleCalendarColor(preferenceKey, null)}
+                aria-label={t("eventForm.default")}
+                className="relative size-5 rounded-full ring-1 ring-border"
+                style={{
+                  backgroundColor: calendar.color || CALENDAR_COLORS[6],
+                }}
+              >
+                {isDefault && (
+                  <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
+                )}
+              </button>
+              {CALENDAR_COLORS.map((candidate) => (
+                <button
+                  key={candidate}
+                  type="button"
+                  onClick={() =>
+                    updateGoogleCalendarColor(preferenceKey, candidate)
+                  }
+                  aria-label={candidate}
+                  className="relative size-5 rounded-full"
+                  style={{ backgroundColor: candidate }}
+                >
+                  {googleCalendarColors[preferenceKey] === candidate && (
+                    <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            visible ? "text-muted-foreground" : "text-muted-foreground/40",
+          )}
+        >
+          {displayName}
+        </span>
+        <button
+          type="button"
+          onClick={() =>
+            updateGoogleCalendarVisibility(preferenceKey, !visible)
+          }
+          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={
+            visible ? t("sidebar.hideCalendar") : t("sidebar.showCalendar")
+          }
+          aria-pressed={visible}
+        >
+          {visible ? (
+            <IconEye className="size-3" />
+          ) : (
+            <IconEyeOff className="size-3" />
+          )}
+        </button>
+      </div>
     );
-  }
-
-  function handlePickColor(email: string, color: string) {
-    updateAccountColor(email, color);
-  }
-
-  function handleSetColorMode(email: string, mode: CalendarColorMode) {
-    updateAccountColorMode(email, mode);
   }
 
   return (
     <div className="px-1.5 py-1.5">
-      <div className="mb-1 flex min-h-8 items-center justify-between px-3">
-        <div className="flex items-center">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            {t("sidebar.myCalendars")}
-          </span>
-        </div>
-        <div className="flex items-center">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/settings"
-                onClick={onClose}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-              >
-                <IconSettings className="h-3.5 w-3.5" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent>
-              {t("sidebar.googleCalendarSettings")}
-            </TooltipContent>
-          </Tooltip>
-          {canAddAccount && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleAddAccount}
-                  disabled={isGoogleDesktopAuthPending}
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                >
-                  <IconPlus className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("sidebar.addGoogleAccount")}</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      </div>
-
-      {accounts.map((account) => {
-        const mode = accountColorMode(account.email);
-        const color = accountColor(account.email);
-        return (
-          <div
-            key={account.email}
-            className="group flex min-h-7 items-center gap-2 px-3"
-          >
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                >
-                  {mode === "multi" ? (
-                    <MultiColorDot
-                      className={cn(
-                        "h-2.5 w-2.5",
-                        isHiddenCalendar("accounts", account.email) &&
-                          "opacity-40",
-                      )}
-                    />
-                  ) : (
-                    <span
-                      className={cn(
-                        "block h-2.5 w-2.5 rounded-full",
-                        isHiddenCalendar("accounts", account.email) &&
-                          "opacity-40",
-                      )}
-                      style={{ backgroundColor: color }}
-                    />
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent side="right" align="start" className="w-auto p-2">
-                <div className="flex flex-wrap gap-1.5" style={{ width: 132 }}>
-                  {/* Multicolor "by type" option */}
-                  <Tooltip delayDuration={700}>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleSetColorMode(account.email, "multi")
-                        }
-                        className="relative flex h-5 w-5 items-center justify-center rounded-full"
-                      >
-                        <MultiColorDot className="h-5 w-5" />
-                        {mode === "multi" && (
-                          <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="top"
-                      className="max-w-[160px] text-xs"
-                    >
-                      {t("sidebar.colorByMeetingType")}
-                    </TooltipContent>
-                  </Tooltip>
-                  {/* Single color options */}
-                  {CALENDAR_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => handlePickColor(account.email, c)}
-                      className="relative h-5 w-5 rounded-full"
-                      style={{ backgroundColor: c }}
-                    >
-                      {c === color && mode === "single" && (
-                        <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-            <p
-              className={cn(
-                "min-w-0 flex-1 truncate text-xs",
-                isHiddenCalendar("accounts", account.email)
-                  ? "text-muted-foreground/40"
-                  : "text-muted-foreground",
-              )}
-            >
-              {account.email}
-            </p>
+      {section === "owned" && (
+        <div className="mb-1 flex min-h-8 items-center justify-between px-3">
+          <div className="flex items-center">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t("sidebar.myCalendars")}
+            </span>
+          </div>
+          <div className="flex items-center">
             <button
               type="button"
-              onClick={() => toggleHiddenCalendar("accounts", account.email)}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
+              aria-label={t("sidebar.addGoogleAccount")}
+              onClick={() => {
+                setAddCalendarDefaultTab("google");
+                setAddCalendarOpen(true);
+              }}
+              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             >
-              {isHiddenCalendar("accounts", account.email) ? (
-                <IconEyeOff className="h-3 w-3" />
-              ) : (
-                <IconEye className="h-3 w-3" />
-              )}
+              <IconPlus className="h-3.5 w-3.5" />
             </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to="/settings"
+                  onClick={onClose}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                >
+                  <IconSettings className="h-3.5 w-3.5" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("sidebar.googleCalendarSettings")}
+              </TooltipContent>
+            </Tooltip>
           </div>
-        );
-      })}
+        </div>
+      )}
+
+      {enabled &&
+        (section === "owned"
+          ? ownedCalendars
+          : showAllCalendars
+            ? otherCalendars
+            : otherCalendars.slice(0, 8)
+        ).map(renderCalendarRow)}
+      {enabled && section === "other" && otherCalendars.length > 8 && (
+        <button
+          type="button"
+          onClick={() => setShowAllCalendars((current) => !current)}
+          className="mx-3 mt-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {
+            showAllCalendars
+              ? t("common.showLess") // i18n-key-ignore generated calendar catalog
+              : t("common.showMore") // i18n-key-ignore generated calendar catalog
+          }{" "}
+          ({otherCalendars.length - 8})
+        </button>
+      )}
     </div>
   );
 }
@@ -654,6 +683,11 @@ export function Sidebar({
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const removePerson = useRemoveOverlayPerson();
   const updatePersonColor = useUpdateOverlayPersonColor();
+  const overlayEmails = useMemo(
+    () => overlayPeople.map((person) => person.email),
+    [overlayPeople],
+  );
+  const overlayStatusByEmail = useOverlayCalendarStatus(overlayEmails);
   const { data: rawExternalCalendars } = useExternalCalendars();
   const externalCalendars = Array.isArray(rawExternalCalendars)
     ? rawExternalCalendars
@@ -682,39 +716,12 @@ export function Sidebar({
 
   function handleMiniCalendarDateSelect(date: Date) {
     setSelectedDate(date);
-    if (location.pathname !== "/") {
-      navigate("/");
+    if (location.pathname !== "/home") {
+      void navigate("/home");
     }
     onClose();
   }
 
-  const collapseButton = onCollapsedChange ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 text-muted-foreground"
-          onClick={() => onCollapsedChange(!collapsed)}
-          aria-label={
-            collapsed
-              ? t("sidebar.expandSidebar")
-              : t("sidebar.collapseSidebar")
-          }
-        >
-          {collapsed ? (
-            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-          ) : (
-            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
-      </TooltipContent>
-    </Tooltip>
-  ) : null;
   const searchButton = (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -732,13 +739,21 @@ export function Sidebar({
       <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
-  const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-      className={collapsed ? "h-8 w-8" : "min-w-0"}
-    />
+  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map(
+    (item) => ({
+      to: item.path,
+      label: t(item.labelKey),
+      icon: item.icon,
+      active: location.pathname.startsWith(item.path),
+      onClick: onClose,
+    }),
   );
+
+  const feedbackButton = (
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
+  );
+
+  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
   return (
     <>
@@ -750,463 +765,348 @@ export function Sidebar({
         />
       )}
 
-      <aside
-        data-open={open ? "true" : "false"}
-        data-collapsed={collapsed ? "true" : "false"}
+      <AppSidebar
+        collapsed={collapsed}
+        collapsible={Boolean(onCollapsedChange)}
+        onCollapsedChange={onCollapsedChange}
+        brandName={t("navigation.brand")}
+        brandHref="/home"
+        secondaryItems={secondaryItems}
+        feedback={feedbackButton}
+        orgSwitcher={orgSwitcher}
+        footerExtras={
+          <>
+            {searchButton}
+            <DevDatabaseLink />
+          </>
+        }
         className={cn(
-          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full min-w-0 flex-col overflow-hidden bg-sidebar transition-[width,translate] duration-200 ease-out lg:static",
-          collapsed ? "w-12" : "w-56",
+          "calendar-app-sidebar",
+          // Match calendar's lg mobile breakpoint (shared sidebar defaults to md).
+          "max-lg:!fixed max-lg:inset-y-0 max-lg:start-0 max-lg:z-50 lg:!static",
+          open
+            ? "translate-x-0"
+            : "-translate-x-full rtl:translate-x-full lg:translate-x-0",
         )}
       >
-        {/* Logo */}
-        <div
-          className={cn(
-            "flex h-12 shrink-0 items-center justify-between gap-2.5",
-            collapsed ? "px-1" : "px-4",
-          )}
-        >
-          <Link
-            to="/"
-            onClick={(event) => {
-              onClose();
-              if (
-                !onCollapsedChange ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey ||
-                event.button !== 0
-              ) {
-                return;
-              }
-              event.preventDefault();
-              onCollapsedChange(!collapsed);
-            }}
-            className={cn(
-              "flex items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              collapsed ? "size-8 justify-center" : "flex-1",
-            )}
-            aria-label={
-              onCollapsedChange
-                ? collapsed
-                  ? t("sidebar.expandSidebar")
-                  : t("sidebar.collapseSidebar")
-                : collapsed
-                  ? t("navigation.brand")
-                  : undefined
-            }
-            data-sidebar-brand-toggle
-          >
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={16}
-              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+        {collapsed ? (
+          navItems.map((item) => {
+            const isActive =
+              item.path === "/"
+                ? location.pathname === "/"
+                : location.pathname.startsWith(item.path);
+            return (
+              <AppSidebarNavItem
+                key={item.path}
+                to={item.path}
+                label={t(item.labelKey)}
+                icon={item.icon}
+                active={isActive}
+                onClick={onClose}
+              />
+            );
+          })
+        ) : (
+          <>
+            {/* Mini calendar */}
+            <MiniCalendar
+              selectedDate={selectedDate}
+              onDateSelect={handleMiniCalendarDateSelect}
             />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={16}
-              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
-            />
-            {!collapsed && (
-              <span className="text-base font-semibold tracking-tight">
-                {t("navigation.brand")}
-              </span>
-            )}
-          </Link>
-        </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {collapsed ? (
-            <nav className="flex flex-col items-center gap-1 px-1 py-2">
+            {/* Nav */}
+            <div className="space-y-0.5">
               {navItems.map((item) => {
                 const isActive =
                   item.path === "/"
                     ? location.pathname === "/"
                     : location.pathname.startsWith(item.path);
+
                 return (
-                  <Tooltip key={item.path}>
-                    <TooltipTrigger asChild>
-                      <Link
-                        to={item.path}
-                        onClick={onClose}
-                        aria-label={t(item.labelKey)}
-                        className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground",
-                          isActive && "bg-primary/10 text-primary",
-                        )}
-                      >
-                        <item.icon className="h-4 w-4" />
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {t(item.labelKey)}
-                    </TooltipContent>
-                  </Tooltip>
+                  <AppSidebarNavItem
+                    key={item.path}
+                    to={item.path}
+                    label={t(item.labelKey)}
+                    icon={item.icon}
+                    active={isActive}
+                    onClick={onClose}
+                  />
                 );
               })}
-            </nav>
-          ) : (
-            <>
-              {/* Mini calendar */}
-              <MiniCalendar
-                selectedDate={selectedDate}
-                onDateSelect={handleMiniCalendarDateSelect}
-              />
+            </div>
 
-              {/* Nav */}
-              <nav className="space-y-0.5 p-2.5">
-                {navItems.map((item) => {
-                  const isActive =
-                    item.path === "/"
-                      ? location.pathname === "/"
-                      : location.pathname.startsWith(item.path);
+            {/* Google status / connect CTA */}
+            {!googleStatus.isLoading &&
+              !isConnected &&
+              (googleStatus.data?.configured === true ||
+                canOfferGoogleOAuthSetup) && <GoogleConnectSidebarButton />}
 
-                  return (
-                    <Link
-                      key={item.path}
-                      to={item.path}
-                      onClick={onClose}
-                      className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                        isActive
-                          ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                      )}
+            {isConnected && (googleStatus.data?.accounts?.length ?? 0) > 0 && (
+              <GoogleCalendarsSections onClose={onClose} />
+            )}
+
+            {/* Other Calendars — people overlays + external ICS feeds combined */}
+            <div className="px-1.5 py-1.5">
+              <div className="flex min-h-8 items-center justify-between px-3">
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {t("sidebar.otherCalendars")}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
+                        <IconInfoCircle className="h-3 w-3" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="right"
+                      className="pointer-events-none"
                     >
-                      <item.icon className="h-4 w-4" />
-                      {t(item.labelKey)}
-                    </Link>
-                  );
-                })}
-              </nav>
-
-              {/* Google status / connect CTA */}
-              {!googleStatus.isLoading &&
-                !isConnected &&
-                (googleStatus.data?.configured === true ||
-                  canOfferGoogleOAuthSetup) && <GoogleConnectSidebarButton />}
-
+                      <p>{t("sidebar.otherCalendarsDescription")}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <button
+                  type="button"
+                  aria-label={t("eventForm.addCalendar")}
+                  onClick={() => {
+                    setAddCalendarDefaultTab("people");
+                    setAddCalendarOpen(true);
+                  }}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </button>
+              </div>
               {isConnected &&
                 (googleStatus.data?.accounts?.length ?? 0) > 0 && (
-                  <GoogleAccountsSection
-                    accounts={googleStatus.data!.accounts!}
-                    canAddAccount={
-                      googleStatus.data?.configured === true ||
-                      canOfferGoogleOAuthSetup
-                    }
-                    onClose={onClose}
-                  />
+                  <GoogleCalendarsSections onClose={onClose} section="other" />
                 )}
-
-              {/* Other Calendars — people overlays + external ICS feeds combined */}
-              <div className="px-1.5 py-1.5">
-                <div className="flex min-h-8 items-center justify-between px-3">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                      {t("sidebar.otherCalendars")}
-                    </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
-                          <IconInfoCircle className="h-3 w-3" />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">
-                        <p>{t("sidebar.otherCalendarsDescription")}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddCalendarDefaultTab("people");
-                      setAddCalendarOpen(true);
-                    }}
-                    className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                  >
-                    <IconPlus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
-                  <div className="mt-1 space-y-1">
-                    {overlayPeople.length > 0 && (
-                      <Collapsible
-                        open={peopleGroupOpen}
-                        onOpenChange={setPeopleGroupOpen}
-                      >
-                        <CollapsibleTrigger asChild>
-                          <button
-                            type="button"
-                            className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
+                <div className="mt-1 space-y-1">
+                  {overlayPeople.length > 0 && (
+                    <Collapsible
+                      open={peopleGroupOpen}
+                      onOpenChange={setPeopleGroupOpen}
+                    >
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        >
+                          {peopleGroupOpen ? (
+                            <IconChevronDown className="h-3 w-3" />
+                          ) : (
+                            <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
+                          )}
+                          <span className="min-w-0 flex-1 text-start">
+                            People
+                          </span>
+                          <span className="text-[10px]">
+                            {overlayPeople.length}
+                          </span>
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-0.5">
+                        {overlayPeople.map((person) => (
+                          <div
+                            key={person.email}
+                            className="group flex min-h-7 items-center gap-2 px-2 text-xs"
                           >
-                            {peopleGroupOpen ? (
-                              <IconChevronDown className="h-3 w-3" />
-                            ) : (
-                              <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
-                            )}
-                            <span className="min-w-0 flex-1 text-start">
-                              People
-                            </span>
-                            <span className="text-[10px]">
-                              {overlayPeople.length}
-                            </span>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="space-y-0.5">
-                          {overlayPeople.map((person) => (
-                            <div
-                              key={person.email}
-                              className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+                            <ColorPickerPopover
+                              color={person.color}
+                              onColorChange={(color) =>
+                                updatePersonColor.mutate({
+                                  email: person.email,
+                                  color,
+                                })
+                              }
                             >
-                              <ColorPickerPopover
-                                color={person.color}
-                                onColorChange={(color) =>
-                                  updatePersonColor.mutate({
-                                    email: person.email,
-                                    color,
-                                  })
-                                }
+                              <button
+                                type="button"
+                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
                               >
-                                <button
-                                  type="button"
-                                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                                >
+                                <span
+                                  className={cn(
+                                    "block h-2.5 w-2.5 rounded-full",
+                                    isHiddenCalendar("people", person.email) &&
+                                      "opacity-40",
+                                  )}
+                                  style={{ backgroundColor: person.color }}
+                                />
+                              </button>
+                            </ColorPickerPopover>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate",
+                                isHiddenCalendar("people", person.email)
+                                  ? "text-muted-foreground/40"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {person.name || person.email}
+                            </span>
+                            {overlayStatusByEmail?.get(
+                              person.email.toLowerCase(),
+                            )?.status === "error" && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
                                   <span
-                                    className={cn(
-                                      "block h-2.5 w-2.5 rounded-full",
-                                      isHiddenCalendar(
-                                        "people",
-                                        person.email,
-                                      ) && "opacity-40",
+                                    tabIndex={0}
+                                    className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    aria-label={t(
+                                      "sidebar.overlayCalendarUnavailable",
+                                      { email: person.name || person.email },
                                     )}
-                                    style={{ backgroundColor: person.color }}
-                                  />
-                                </button>
-                              </ColorPickerPopover>
-                              <span
-                                className={cn(
-                                  "min-w-0 flex-1 truncate",
+                                  >
+                                    <IconAlertTriangle
+                                      className="h-3 w-3 text-muted-foreground/60"
+                                      aria-hidden="true"
+                                    />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">
+                                  {t("sidebar.overlayCalendarUnavailable", {
+                                    email: person.name || person.email,
+                                  })}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            <div className="flex items-center">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  toggleHiddenCalendar("people", person.email)
+                                }
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                aria-label={
                                   isHiddenCalendar("people", person.email)
-                                    ? "text-muted-foreground/40"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                {person.name || person.email}
-                              </span>
-                              <div className="flex items-center">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        toggleHiddenCalendar(
-                                          "people",
-                                          person.email,
-                                        )
-                                      }
-                                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                    >
-                                      {isHiddenCalendar(
-                                        "people",
-                                        person.email,
-                                      ) ? (
-                                        <IconEyeOff className="h-3 w-3" />
-                                      ) : (
-                                        <IconEye className="h-3 w-3" />
-                                      )}
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    {isHiddenCalendar("people", person.email)
-                                      ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")}
-                                  </TooltipContent>
-                                </Tooltip>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    removePerson.mutate(person.email)
-                                  }
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-                                >
-                                  <IconX className="h-3 w-3" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-
-                    {externalCalendars.length > 0 && (
-                      <Collapsible
-                        open={feedsGroupOpen}
-                        onOpenChange={setFeedsGroupOpen}
-                      >
-                        <CollapsibleTrigger asChild>
-                          <button
-                            type="button"
-                            className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                          >
-                            {feedsGroupOpen ? (
-                              <IconChevronDown className="h-3 w-3" />
-                            ) : (
-                              <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
-                            )}
-                            <span className="min-w-0 flex-1 text-start">
-                              Feeds
-                            </span>
-                            <span className="text-[10px]">
-                              {externalCalendars.length}
-                            </span>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="space-y-0.5">
-                          {externalCalendars.map((cal) => (
-                            <div
-                              key={cal.id}
-                              className="group flex min-h-7 items-center gap-2 px-3 text-xs"
-                            >
-                              <ColorPickerPopover
-                                color={cal.color}
-                                onColorChange={(color) =>
-                                  updateExternalColor.mutate({
-                                    id: cal.id,
-                                    color,
-                                  })
+                                    ? t("sidebar.showCalendar")
+                                    : t("sidebar.hideCalendar")
                                 }
                               >
-                                <button
-                                  type="button"
-                                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                                >
-                                  <span
-                                    className={cn(
-                                      "block h-2.5 w-2.5 rounded-full",
-                                      isHiddenCalendar("external", cal.id) &&
-                                        "opacity-40",
-                                    )}
-                                    style={{ backgroundColor: cal.color }}
-                                  />
-                                </button>
-                              </ColorPickerPopover>
-                              <span
-                                className={cn(
-                                  "min-w-0 flex-1 truncate",
-                                  isHiddenCalendar("external", cal.id)
-                                    ? "text-muted-foreground/40"
-                                    : "text-muted-foreground",
+                                {isHiddenCalendar("people", person.email) ? (
+                                  <IconEyeOff className="h-3 w-3" />
+                                ) : (
+                                  <IconEye className="h-3 w-3" />
                                 )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  removePerson.mutate(person.email)
+                                }
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
                               >
-                                {cal.name}
-                              </span>
-                              <div className="flex items-center">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        toggleHiddenCalendar("external", cal.id)
-                                      }
-                                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                    >
-                                      {isHiddenCalendar("external", cal.id) ? (
-                                        <IconEyeOff className="h-3 w-3" />
-                                      ) : (
-                                        <IconEye className="h-3 w-3" />
-                                      )}
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    {isHiddenCalendar("external", cal.id)
-                                      ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")}
-                                  </TooltipContent>
-                                </Tooltip>
-                                <button
-                                  type="button"
-                                  onClick={() => removeExternal.mutate(cal.id)}
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-                                >
-                                  <IconX className="h-3 w-3" />
-                                </button>
-                              </div>
+                                <IconX className="h-3 w-3" />
+                              </button>
                             </div>
-                          ))}
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
 
-        <nav
-          className={cn(
-            "shrink-0",
-            collapsed
-              ? "flex flex-col items-center gap-1 px-1 py-2"
-              : "space-y-0.5 p-2.5",
-          )}
-        >
-          {bottomNavItems.map((item) => {
-            const isActive = location.pathname.startsWith(item.path);
-            const link = (
-              <Link
-                to={item.path}
-                onClick={onClose}
-                aria-label={collapsed ? t(item.labelKey) : undefined}
-                className={cn(
-                  "flex items-center rounded-lg font-medium transition-colors",
-                  collapsed
-                    ? "h-10 w-10 justify-center"
-                    : "gap-3 px-3 py-2 text-sm",
-                  isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {!collapsed && t(item.labelKey)}
-              </Link>
-            );
-            return collapsed ? (
-              <Tooltip key={item.path}>
-                <TooltipTrigger asChild>{link}</TooltipTrigger>
-                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
-              </Tooltip>
-            ) : (
-              <div key={item.path}>{link}</div>
-            );
-          })}
-        </nav>
-
-        {!collapsed ? (
-          <div className="shrink-0">
-            <div className="px-3 py-2">
-              <OrgSwitcher reserveSpace />
+                  {externalCalendars.length > 0 && (
+                    <Collapsible
+                      open={feedsGroupOpen}
+                      onOpenChange={setFeedsGroupOpen}
+                    >
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        >
+                          {feedsGroupOpen ? (
+                            <IconChevronDown className="h-3 w-3" />
+                          ) : (
+                            <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
+                          )}
+                          <span className="min-w-0 flex-1 text-start">
+                            Feeds
+                          </span>
+                          <span className="text-[10px]">
+                            {externalCalendars.length}
+                          </span>
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-0.5">
+                        {externalCalendars.map((cal) => (
+                          <div
+                            key={cal.id}
+                            className="group flex min-h-7 items-center gap-2 px-2 text-xs"
+                          >
+                            <ColorPickerPopover
+                              color={cal.color}
+                              onColorChange={(color) =>
+                                updateExternalColor.mutate({
+                                  id: cal.id,
+                                  color,
+                                })
+                              }
+                            >
+                              <button
+                                type="button"
+                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                              >
+                                <span
+                                  className={cn(
+                                    "block h-2.5 w-2.5 rounded-full",
+                                    isHiddenCalendar("external", cal.id) &&
+                                      "opacity-40",
+                                  )}
+                                  style={{ backgroundColor: cal.color }}
+                                />
+                              </button>
+                            </ColorPickerPopover>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate",
+                                isHiddenCalendar("external", cal.id)
+                                  ? "text-muted-foreground/40"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {cal.name}
+                            </span>
+                            <div className="flex items-center">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  toggleHiddenCalendar("external", cal.id)
+                                }
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                aria-label={
+                                  isHiddenCalendar("external", cal.id)
+                                    ? t("sidebar.showCalendar")
+                                    : t("sidebar.hideCalendar")
+                                }
+                              >
+                                {isHiddenCalendar("external", cal.id) ? (
+                                  <IconEyeOff className="h-3 w-3" />
+                                ) : (
+                                  <IconEye className="h-3 w-3" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeExternal.mutate(cal.id)}
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
+                              >
+                                <IconX className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </div>
+              )}
             </div>
-
-            <div className="flex items-center gap-1 px-1.5 py-1.5">
-              <DevDatabaseLink />
-            </div>
-          </div>
-        ) : null}
-        <SidebarFooterActions
-          collapsed={collapsed}
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
-      </aside>
+          </>
+        )}
+      </AppSidebar>
     </>
   );
 }

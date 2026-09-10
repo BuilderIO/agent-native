@@ -201,7 +201,7 @@ if (workflow) {
     );
   }
   const hasAuthSelectionCommandWithStatus =
-    /set \+e[\s\\]+BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
+    /set \+e[\s\\]+BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=\$\{\{\s*matrix\.project\s*\}\}[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
       workflow,
     );
   const selectionStatusCapture = workflow.indexOf('selection_status="$?"');
@@ -278,7 +278,12 @@ if (workflow) {
     type WorkflowJob = {
       needs?: string | string[];
       if?: string;
-      strategy?: { "max-parallel"?: unknown };
+      strategy?: {
+        "max-parallel"?: unknown;
+        matrix?: {
+          include?: Array<{ project?: unknown }>;
+        };
+      };
     };
     const parsed = parse(workflow) as {
       jobs?: Record<string, WorkflowJob>;
@@ -308,6 +313,40 @@ if (workflow) {
       issues.push(
         `${workflowPath} must cap the public matrix at four runners so the sharded sweep cannot burst shared backend capacity.`,
       );
+    }
+
+    const authenticatedProjects =
+      jobs.authed?.strategy?.matrix?.include?.map((entry) => entry.project) ??
+      [];
+    const configuredProjects = new Set(
+      [...config.matchAll(/\bname:\s*["']([^"']+)["']/g)].map(
+        (match) => match[1],
+      ),
+    );
+    if (authenticatedProjects.length === 0) {
+      issues.push(
+        `${workflowPath} authed must declare authenticated matrix projects so registry, chat, and journey failures remain independently visible.`,
+      );
+    }
+    const seenAuthenticatedProjects = new Set<string>();
+    for (const project of authenticatedProjects) {
+      if (typeof project !== "string" || !project) {
+        issues.push(
+          `${workflowPath} authed contains an authenticated matrix entry without a project name.`,
+        );
+        continue;
+      }
+      if (seenAuthenticatedProjects.has(project)) {
+        issues.push(
+          `${workflowPath} authed lists authenticated project ${project} more than once.`,
+        );
+      }
+      seenAuthenticatedProjects.add(project);
+      if (!configuredProjects.has(project)) {
+        issues.push(
+          `${workflowPath} authed matrix project ${project} is not configured in ${configPath}.`,
+        );
+      }
     }
 
     if (

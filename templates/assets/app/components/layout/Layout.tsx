@@ -60,7 +60,7 @@ export function Layout({ children }: LayoutProps) {
   const imageModelMenu = useImageModelMenu();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isCreateRoute =
-    location.pathname === "/" || location.pathname.startsWith("/chat/");
+    location.pathname === "/home" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -71,7 +71,8 @@ export function Layout({ children }: LayoutProps) {
   );
   useAgentChatHomeHandoffLinks({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
-    isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
+    isChatPath: (pathname) =>
+      pathname === "/home" || pathname.startsWith("/chat/"),
     // Only preserve the transition when chat activity has recorded an active
     // handoff; an empty home chat should keep the destination sidebar closed.
     requireActiveHandoff: true,
@@ -151,7 +152,7 @@ export function Layout({ children }: LayoutProps) {
 
   function openCreateChatFullscreen() {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/home");
   }
 
   return (

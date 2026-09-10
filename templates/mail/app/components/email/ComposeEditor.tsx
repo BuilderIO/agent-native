@@ -185,6 +185,7 @@ export const ComposeEditor = forwardRef<
       }),
       Markdown.configure({
         html: false,
+        linkify: true,
         transformPastedText: true,
         transformCopiedText: true,
       }),

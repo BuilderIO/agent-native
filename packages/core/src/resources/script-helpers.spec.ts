@@ -3,18 +3,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockResourceGetByPath = vi.fn();
 const mockResourcePut = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
+const mockResourceDeleteIfCurrent = vi.fn();
+const mockIsLegacyOrganizationWorkspaceFile = vi.fn();
 const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
 const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
+const mockGetOrgRoleForEmail = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
-  sharedResourceOwner: () => "__shared__",
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${orgId}` : "__shared__",
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourceDeleteByPath: (...args: any[]) => mockResourceDeleteByPath(...args),
+  resourceDeleteIfCurrent: (...args: any[]) =>
+    mockResourceDeleteIfCurrent(...args),
+  isLegacyOrganizationWorkspaceFile: (...args: any[]) =>
+    mockIsLegacyOrganizationWorkspaceFile(...args),
   resourceList: (...args: any[]) => mockResourceList(...args),
   resourceListAccessible: (...args: any[]) =>
     mockResourceListAccessible(...args),
@@ -24,6 +32,11 @@ vi.mock("./store.js", () => ({
     mockEnsurePersonalDefaults(...args),
 }));
 
+vi.mock("../mcp/actions/service-token-access.js", () => ({
+  getOrgRoleForEmail: (...args: any[]) => mockGetOrgRoleForEmail(...args),
+}));
+
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   readResource,
   writeResource,
@@ -40,6 +53,9 @@ describe("resources script-helpers", () => {
     originalEnv = { ...process.env };
     vi.clearAllMocks();
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
+    mockGetOrgRoleForEmail.mockResolvedValue("admin");
+    mockResourceDeleteIfCurrent.mockResolvedValue(true);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -75,6 +91,31 @@ describe("resources script-helpers", () => {
       expect(mockResourceGetByPath).toHaveBeenCalledWith(
         "__shared__",
         "file.md",
+      );
+    });
+
+    it("reads the legacy shared fallback for an active organization", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceGetByPath
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ content: "legacy" });
+
+      const result = await runWithRequestContext({ orgId: "org-1" }, () =>
+        readResource("file.md", { shared: true }),
+      );
+
+      expect(result).toBe("legacy");
+      expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
+        1,
+        "__organization__:org-1",
+        "file.md",
+        { orgId: "org-1" },
+      );
+      expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
+        2,
+        "__shared__",
+        "file.md",
+        { orgId: "org-1" },
       );
     });
 
@@ -153,6 +194,20 @@ describe("resources script-helpers", () => {
       );
     });
 
+    it("rejects organization shared writes from members", async () => {
+      mockGetOrgRoleForEmail.mockResolvedValue("member");
+
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@test.com", orgId: "org-1" },
+          () => writeResource("shared.md", "content", { shared: true }),
+        ),
+      ).rejects.toThrow(
+        "Only organization owners and admins can edit organization files",
+      );
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
     it("passes agent scratch metadata when provided", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourcePut.mockResolvedValue({});
@@ -200,6 +255,62 @@ describe("resources script-helpers", () => {
       const result = await deleteResource("nope.md");
       expect(result).toBe(false);
     });
+
+    it("deletes an organization override and its tagged legacy fallback", async () => {
+      const organizationResource = {
+        id: "org-resource",
+        path: "notes/todo.md",
+        owner: "__organization__:org-1",
+        content: "organization",
+      };
+      const legacyResource = {
+        id: "legacy-resource",
+        path: "notes/todo.md",
+        owner: "__shared__",
+        content: "legacy",
+      };
+      mockResourceGetByPath
+        .mockResolvedValueOnce(organizationResource)
+        .mockResolvedValueOnce(legacyResource);
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+      const result = await runWithRequestContext(
+        { userEmail: "alice@test.com", orgId: "org-1" },
+        () => deleteResource("notes/todo.md", { shared: true }),
+      );
+
+      expect(result).toBe(true);
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        1,
+        organizationResource,
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        2,
+        legacyResource,
+      );
+      expect(mockResourceDeleteByPath).not.toHaveBeenCalled();
+    });
+
+    it("deletes a tagged legacy fallback when no organization override exists", async () => {
+      const legacyResource = {
+        id: "legacy-resource",
+        path: "notes/todo.md",
+        owner: "__shared__",
+        content: "legacy",
+      };
+      mockResourceGetByPath
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(legacyResource);
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+      const result = await runWithRequestContext(
+        { userEmail: "alice@test.com", orgId: "org-1" },
+        () => deleteResource("notes/todo.md", { shared: true }),
+      );
+
+      expect(result).toBe(true);
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacyResource);
+    });
   });
 
   describe("listResources", () => {
@@ -232,6 +343,34 @@ describe("resources script-helpers", () => {
 
       await listResources(undefined, { shared: true });
       expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined);
+    });
+
+    it("merges organization resources with legacy shared defaults", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceList
+        .mockResolvedValueOnce([{ path: "org.md" }])
+        .mockResolvedValueOnce([{ path: "default.md" }, { path: "org.md" }]);
+
+      const result = await runWithRequestContext({ orgId: "org-1" }, () =>
+        listResources(undefined, { shared: true }),
+      );
+
+      expect(result.map((resource) => resource.path)).toEqual([
+        "org.md",
+        "default.md",
+      ]);
+      expect(mockResourceList).toHaveBeenNthCalledWith(
+        1,
+        "__organization__:org-1",
+        undefined,
+        { orgId: "org-1" },
+      );
+      expect(mockResourceList).toHaveBeenNthCalledWith(
+        2,
+        "__shared__",
+        undefined,
+        { orgId: "org-1" },
+      );
     });
 
     it("lists workspace resources when scope is workspace", async () => {

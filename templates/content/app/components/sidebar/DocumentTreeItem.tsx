@@ -13,7 +13,7 @@ import {
   IconFolder,
   IconFileText,
   IconPlus,
-  IconStar,
+  IconPin,
   IconTrash,
   IconDots,
 } from "@tabler/icons-react";
@@ -31,6 +31,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
 import { cn } from "@/lib/utils";
 
 import { documentSidebarActionAvailability } from "./document-sidebar-actions";
@@ -102,6 +103,7 @@ export function DocumentTreeItem({
   const { canEdit, canManage, canFavorite, hasMenuActions } =
     documentSidebarActionAvailability(node, { favoriteAvailable: true });
   const canCreateChild = canEdit && !isLocalFileNode;
+  const creativeContextEnabled = useCreativeContextExperiment();
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const indent = depth * 12 + 12;
   const rowWidth =
@@ -229,9 +231,10 @@ export function DocumentTreeItem({
                       onToggleFavorite(node.id, !node.isFavorite);
                     }}
                   >
-                    <IconStar
+                    <IconPin
                       size={14}
-                      className={cn("me-2", node.isFavorite && "fill-current")}
+                      className="me-2"
+                      strokeWidth={node.isFavorite ? 2.2 : 1.7}
                     />
                     {node.isFavorite
                       ? t("sidebar.unpinFromSidebar")
@@ -239,7 +242,7 @@ export function DocumentTreeItem({
                   </DropdownMenuItem>
                 )}
                 {canFavorite && canManage && <DropdownMenuSeparator />}
-                {canEdit && !isLocalFileNode && (
+                {canEdit && !isLocalFileNode && creativeContextEnabled && (
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -324,20 +327,22 @@ export function DocumentTreeItem({
         </div>
       </div>
 
-      <CreativeContextShareSheet
-        open={contextSheetOpen}
-        onOpenChange={setContextSheetOpen}
-        resource={{
-          appId: "content",
-          resourceType: "document",
-          resourceId: node.id,
-          title: node.title || "Untitled",
-          updatedAt: node.updatedAt,
-          visibility: node.visibility,
-          preview: { kind: "document", label: "Document" },
-        }}
-        canManage={canManage}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={contextSheetOpen}
+          onOpenChange={setContextSheetOpen}
+          resource={{
+            appId: "content",
+            resourceType: "document",
+            resourceId: node.id,
+            title: node.title || "Untitled",
+            updatedAt: node.updatedAt,
+            visibility: node.visibility,
+            preview: { kind: "document", label: "Document" },
+          }}
+          canManage={canManage}
+        />
+      ) : null}
 
       {hasChildren && expanded && (
         <SortableContext

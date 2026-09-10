@@ -133,7 +133,7 @@ export function useUpdateVisibleTaskFields() {
     "update-visible-task-fields",
     {
       onSettled: () => {
-        invalidateVisibleTaskFields(queryClient);
+        void invalidateVisibleTaskFields(queryClient);
       },
     },
   );

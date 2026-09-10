@@ -45,7 +45,7 @@ export default defineAction({
       .describe("How confident this correction is (0..1)"),
   }),
   run: async (args) => {
-    const ownerEmail = await getRequestUserEmail();
+    const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
       throw createError({
         statusCode: 401,

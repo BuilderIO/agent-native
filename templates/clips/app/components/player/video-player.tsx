@@ -18,6 +18,7 @@ import {
 } from "react";
 
 import { resolveMediaDurationMs } from "@/components/player/media-duration";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,6 +63,7 @@ import type {
   ReactionHandlerResult,
   ReactionSummary,
 } from "./reactions-tray";
+import { timelineMarkerMs } from "./scrubber-position";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -350,6 +352,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const suppressNextClickRef = useRef(false);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    const autoPlayAttemptedSourceRef = useRef("");
     const playAttemptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
@@ -396,11 +399,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [showControls, setShowControls] = useState(true);
     const [captionsOn, setCaptionsOn] = useState(false);
     const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
+    const [markerLanes, setMarkerLanes] = useState<Map<number, number>>(
+      new Map(),
+    );
     const [isFullscreen, setIsFullscreen] = useState(false);
     const nativeFullscreenRef = useRef(false);
     const [isPip, setIsPip] = useState(false);
     const [, setCanPlay] = useState(false);
-    const [isPlayPending, setIsPlayPending] = useState(false);
+    // Native autoplay has its own async play attempt; keep the loading overlay
+    // visible until media starts or a pause/error makes click-to-play available.
+    const [isPlayPending, setIsPlayPending] = useState(() => !!autoPlay);
     const [isBuffering, setIsBuffering] = useState(false);
     const [playError, setPlayError] = useState<string | null>(null);
     const clearPlayAttemptWatchdog = useCallback(() => {
@@ -492,6 +500,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 {
                   id: comment.id,
                   content: comment.content,
+                  authorEmail: comment.authorEmail,
+                  authorName: comment.authorName,
                   videoTimestampMs: editedMs,
                 },
               ];
@@ -1121,7 +1131,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         );
         v.currentTime = visibleMs / 1000;
         setCurrentMs(visibleMs);
+        if (visibleMs > 0) setHasPlaybackStarted(true);
         onSeek?.(visibleMs);
+        onTimeUpdate?.(visibleMs, resolvedDurationMs);
       },
       [
         activeVideoSrc,
@@ -1208,6 +1220,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         );
         v.currentTime = visibleMs / 1000;
         setCurrentMs(visibleMs);
+        if (visibleMs > 0) setHasPlaybackStarted(true);
       }
     }, [
       activeVideoSrc,
@@ -1331,12 +1344,34 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setLoomStartMs(null);
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
+      autoPlayAttemptedSourceRef.current = "";
       clearPlayAttemptWatchdog();
       setCanPlay(false);
-      setIsPlayPending(false);
+      setIsPlayPending(!!autoPlay);
       setIsBuffering(false);
       setPlayError(null);
-    }, [activeVideoSourceIdentity, clearPlayAttemptWatchdog, recordingId]);
+    }, [
+      activeVideoSourceIdentity,
+      autoPlay,
+      clearPlayAttemptWatchdog,
+      recordingId,
+    ]);
+
+    useEffect(() => {
+      if (!autoPlay || !domVideoSrc || !activeVideoSrc || isLoomEmbed) return;
+      if (autoPlayAttemptedSourceRef.current === activeVideoSrc) return;
+
+      const v = videoRef.current;
+      if (!v) return;
+
+      autoPlayAttemptedSourceRef.current = activeVideoSrc;
+      if (!v.paused && !v.ended) return;
+
+      // Native autoplay can reject without dispatching a media event. Route a
+      // tracked attempt through the same promise and watchdog as click-to-play
+      // so blocked embeds immediately regain an actionable play control.
+      requestPlay();
+    }, [activeVideoSrc, autoPlay, domVideoSrc, isLoomEmbed, requestPlay]);
 
     useEffect(() => {
       setThumbnailLoadFailed(false);
@@ -1648,7 +1683,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           : "ready"
         : null;
     const centerOverlayLabel =
-      isPlayPending && !hasPlaybackStarted
+      isPlayPending && !hasPlaybackStarted && !autoPlay
         ? "Starting playback"
         : isPlayPending || isBuffering
           ? "Buffering"
@@ -1969,7 +2004,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             aria-hidden="true"
             onError={() => setThumbnailLoadFailed(true)}
             className={cn(
-              "pointer-events-none absolute inset-0 z-[1] h-full w-full",
+              "pointer-events-none absolute inset-0 h-full w-full",
               cover ? "object-cover" : "object-contain",
             )}
           />
@@ -2008,18 +2043,31 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ) : null}
 
         {/* Timestamped comments */}
-        {!hideChrome && !isLoomEmbed && hasPlaybackStarted ? (
+        {!hideChrome && !isLoomEmbed && hasPlaybackStarted && !showEndCta ? (
           <PlaybackCommentOverlay
             comments={comments}
             currentMs={currentMs}
             playbackRate={speed}
+            durationMs={scrubberTimeline.durationMs}
+            getTimelinePositionMs={(comment) =>
+              isExcluded(comment.videoTimestampMs, edits)
+                ? null
+                : originalToEdited(comment.videoTimestampMs, edits)
+            }
+            getTimelineLane={(comment) => {
+              const editedMs = isExcluded(comment.videoTimestampMs, edits)
+                ? null
+                : originalToEdited(comment.videoTimestampMs, edits);
+              if (editedMs === null) return null;
+              return markerLanes.get(timelineMarkerMs(editedMs)) ?? 0;
+            }}
             onClick={onCommentClick}
           />
         ) : null}
 
         {/* Floating CTA (throughout placement) */}
         {showThroughoutCta ? (
-          <div data-player-ui className="absolute bottom-16 right-4 z-30">
+          <div data-player-ui className="absolute bottom-16 right-4 z-50">
             <CtaButton
               cta={cta!}
               onClick={() => onCtaClick?.(cta!.id)}
@@ -2032,7 +2080,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {showEndCta ? (
           <div
             data-player-ui
+            data-player-end-cta
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            style={{ zIndex: 60 }}
           >
             <div className="flex flex-col items-center gap-4 text-white">
               <p className="text-lg font-medium">{t("videoPlayer.thanks")}</p>
@@ -2041,8 +2091,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onClick={() => onCtaClick?.(cta!.id)}
                 large
               />
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 data-player-ui
                 aria-label={t("videoPlayer.playClip")}
                 onClick={(e) => {
@@ -2057,11 +2109,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   }
                   requestPlay();
                 }}
-                className="pointer-events-auto inline-flex items-center gap-2 rounded-md border border-white/30 bg-white/10 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="border-player-control-foreground/30 bg-player-control-foreground/10 text-player-control-foreground hover:bg-player-control-foreground/20 hover:text-player-control-foreground focus-visible:ring-player-control-foreground pointer-events-auto h-8 px-2.5 text-xs"
               >
-                <IconPlayerPlay className="h-4 w-4 fill-current" />
+                <IconPlayerPlay className="fill-current" />
                 {t("videoPlayer.playClip")}
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}
@@ -2070,8 +2122,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {!hideChrome && !isLoomEmbed ? (
           <div
             className={cn(
-              "absolute inset-x-0 bottom-0 z-20 transition-opacity duration-200",
-              controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none",
+              "absolute inset-x-0 bottom-0 opacity-100 transition-opacity duration-200",
+              controlsVisible ? "" : "sm:opacity-0 sm:pointer-events-none",
             )}
           >
             <PlayerControls
@@ -2088,6 +2140,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               comments={scrubberTimeline.comments}
               chapters={scrubberTimeline.chapters}
               reactions={scrubberTimeline.reactions}
+              onMarkerLanesChange={setMarkerLanes}
               hasCaptions={!!transcriptSegments?.length}
               onPlayPause={() => {
                 togglePlayback();
@@ -2174,31 +2227,35 @@ function CenterPlaybackOverlay({
           </div>
         ) : (
           <>
-            <button
+            <Button
               data-player-ui
               type="button"
+              variant="secondary"
+              size="icon"
               aria-label={t("videoPlayer.playClip")}
               onClick={(e) => {
                 e.stopPropagation();
                 onPlay();
               }}
-              className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              className="bg-player-control-foreground text-player-control ring-player-control-foreground/35 hover:bg-player-control-foreground hover:text-player-control focus-visible:ring-player-control-foreground focus-visible:ring-offset-player-control pointer-events-auto size-[clamp(2.75rem,8cqw,4rem)] rounded-full shadow-xl ring-1 hover:scale-105 [&_svg]:size-[clamp(1.25rem,3.5cqw,1.75rem)]"
             >
-              <IconPlayerPlay className="h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
-            </button>
+              <IconPlayerPlay className="fill-current" />
+            </Button>
 
             <div
               data-player-ui
-              className="pointer-events-auto flex items-center gap-2 rounded-md bg-black/75 px-3 py-2 text-sm font-semibold text-white shadow-xl ring-1 ring-white/10 backdrop-blur-md"
+              className="bg-player-control/75 text-player-control-foreground ring-player-control-foreground/10 pointer-events-auto flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold shadow-lg ring-1 backdrop-blur-md"
             >
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <Button
                     type="button"
-                    className="rounded-md px-2 py-1 tabular-nums transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    variant="ghost"
+                    size="sm"
+                    className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground focus-visible:ring-player-control-foreground/70 h-6 rounded px-1.5 text-xs tabular-nums"
                   >
                     {formatSpeedLabel(speed)}
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="center"

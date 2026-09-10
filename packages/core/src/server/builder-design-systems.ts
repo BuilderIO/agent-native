@@ -1,11 +1,17 @@
+import { randomUUID } from "node:crypto";
+
 import type { DesignSystemSourceInput } from "@builder.io/ai-utils";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import { FeatureNotConfiguredError } from "./credential-provider.js";
 import {
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "./builder-api-auth.js";
+import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
+import {
+  FeatureNotConfiguredError,
   getBuilderProxyOrigin,
   resolveSecret,
-  resolveBuilderCredentials,
 } from "./credential-provider.js";
 import {
   canonicalGitHubRepoUrl,
@@ -22,6 +28,9 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 // files off a single unbounded request body.
 const GCS_CHUNK_SIZE = 16 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
+const RETRYABLE_INDEX_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const INDEX_ATTEMPT_TIMEOUT_MS = 20_000;
+const INDEX_RETRY_DELAYS_MS = [600, 1800] as const;
 
 export interface BuilderDesignSystemIndexFile {
   name: string;
@@ -161,12 +170,6 @@ export type BuilderDesignSystemStatus =
   | "error"
   | "failed"
   | "cancelled";
-
-interface BuilderDesignSystemCredentials {
-  privateKey: string;
-  publicKey: string;
-  userId: string | null;
-}
 
 interface UploadStartResponse {
   uploads?: Array<{ idx: number; uploadUrl: string; uploadToken: string }>;
@@ -488,17 +491,57 @@ async function isPublicGitHubSource(
 export async function fetchBuilderDesignSystemDecodeJobStatus(
   jobId: string,
 ): Promise<BuilderDesignSystemDecodeJobStatus> {
-  const credentials = await resolveBuilderDesignSystemCredentials();
+  const authorization = await resolveBuilderDesignSystemAuthorization(
+    "builder:designsystem:read",
+  );
   const url = makeBuilderDesignSystemUrl(
     "decode-jobs/" + encodeURIComponent(jobId),
-    credentials,
+    authorization,
   );
   const response = await fetchWithTimeout(url, {
     method: "GET",
-    headers: makeBuilderHeaders(credentials),
+    headers: makeBuilderHeaders(authorization),
   });
   await assertOk(response, "Builder design-system decode-job status failed");
   return (await response.json()) as BuilderDesignSystemDecodeJobStatus;
+}
+
+export interface BuilderDesignSystemRecord {
+  projectId?: string;
+  branchName?: string;
+}
+
+/**
+ * Looks up the project + branch a Builder-indexed design system lives on.
+ * `builderUrl` is frozen at index time and often falls back to the docs page
+ * because the Fusion branch isn't cut yet -- this lets a caller resolve the
+ * real project/branch preview link later, once it exists.
+ */
+export async function fetchBuilderDesignSystemRecord(
+  designSystemId: string,
+): Promise<BuilderDesignSystemRecord | null> {
+  const authorization = await resolveBuilderDesignSystemAuthorization(
+    "builder:designsystem:read",
+  );
+  const url = makeBuilderDesignSystemUrl(
+    encodeURIComponent(designSystemId),
+    authorization,
+  );
+  const response = await fetchWithTimeout(url, {
+    method: "GET",
+    headers: makeBuilderHeaders(authorization),
+  });
+  if (response.status === 404) return null;
+  await assertOk(response, "Builder design-system lookup failed");
+  const json = (await response.json()) as {
+    projectId?: unknown;
+    branchName?: unknown;
+  };
+  return {
+    projectId: typeof json.projectId === "string" ? json.projectId : undefined,
+    branchName:
+      typeof json.branchName === "string" ? json.branchName : undefined,
+  };
 }
 
 function trimTrailingSlash(value: string): string {
@@ -522,22 +565,31 @@ function getBuilderAppHost(): string {
 
 function makeBuilderDesignSystemUrl(
   path: string,
-  credentials: BuilderDesignSystemCredentials,
+  authorization: BuilderRequestAuthorization,
 ): URL {
   const base = `${trimTrailingSlash(getBuilderDesignSystemsBaseUrl())}/`;
   const url = new URL(path.replace(/^\/+/, ""), base);
-  url.searchParams.set("apiKey", credentials.publicKey);
-  if (credentials.userId) url.searchParams.set("userId", credentials.userId);
+  if (authorization.legacyPublicKey) {
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
+    if (authorization.userId)
+      url.searchParams.set("userId", authorization.userId);
+  }
   return url;
 }
 
 function makeBuilderHeaders(
-  credentials: BuilderDesignSystemCredentials,
+  authorization: BuilderRequestAuthorization,
 ): Record<string, string> {
   return {
-    Authorization: `Bearer ${credentials.privateKey}`,
-    "x-builder-api-key": credentials.publicKey,
-    ...(credentials.userId ? { "x-builder-user-id": credentials.userId } : {}),
+    Authorization: authorization.authorization,
+    ...(authorization.legacyPublicKey
+      ? {
+          "x-builder-api-key": authorization.legacyPublicKey,
+          ...(authorization.userId
+            ? { "x-builder-user-id": authorization.userId }
+            : {}),
+        }
+      : {}),
   };
 }
 
@@ -625,9 +677,16 @@ export function buildBuilderDesignSystemIndexFiles({
   return files;
 }
 
-async function resolveBuilderDesignSystemCredentials(): Promise<BuilderDesignSystemCredentials> {
-  const credentials = await resolveBuilderCredentials();
-  if (!credentials.privateKey || !credentials.publicKey) {
+async function resolveBuilderDesignSystemAuthorization(
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<BuilderRequestAuthorization> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope,
+  });
+  if (
+    !authorization ||
+    (authorization.source === "legacy" && !authorization.legacyPublicKey)
+  ) {
     throw new FeatureNotConfiguredError({
       requiredCredential: "BUILDER_PRIVATE_KEY",
       message:
@@ -635,11 +694,7 @@ async function resolveBuilderDesignSystemCredentials(): Promise<BuilderDesignSys
       builderConnectUrl: "/_agent-native/builder/connect",
     });
   }
-  return {
-    privateKey: credentials.privateKey,
-    publicKey: credentials.publicKey,
-    userId: credentials.userId ?? null,
-  };
+  return authorization;
 }
 
 function mimeTypeForFile(file: BuilderDesignSystemIndexFile): string {
@@ -711,6 +766,36 @@ async function queryCommittedOffset(
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchBuilderDesignSystemIndex(
+  url: string | URL,
+  init: RequestInit,
+  idempotencyKey: string,
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("Idempotency-Key", idempotencyKey);
+  const request = { ...init, headers };
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        request,
+        INDEX_ATTEMPT_TIMEOUT_MS,
+      );
+      if (
+        response.ok ||
+        !RETRYABLE_INDEX_STATUSES.has(response.status) ||
+        attempt >= INDEX_RETRY_DELAYS_MS.length
+      ) {
+        return response;
+      }
+      if (response.body) await response.body.cancel();
+    } catch (error) {
+      if (attempt >= INDEX_RETRY_DELAYS_MS.length) throw error;
+    }
+    await delay(INDEX_RETRY_DELAYS_MS[attempt]);
+  }
 }
 
 async function uploadToResumableUrl(
@@ -1096,10 +1181,12 @@ async function fetchBuilderDesignSystemDocsResponse(
   designSystemId: string,
   options: BuilderDesignSystemDocsOptions,
 ): Promise<BuilderDesignSystemDocsResponse> {
-  const credentials = await resolveBuilderDesignSystemCredentials();
+  const authorization = await resolveBuilderDesignSystemAuthorization(
+    "builder:designsystem:read",
+  );
   const url = makeBuilderDesignSystemUrl(
     `${encodeURIComponent(designSystemId)}/docs`,
-    credentials,
+    authorization,
   );
   if (options.page !== undefined)
     url.searchParams.set("page", String(options.page));
@@ -1111,7 +1198,7 @@ async function fetchBuilderDesignSystemDocsResponse(
 
   const response = await fetchWithTimeout(url, {
     method: "GET",
-    headers: makeBuilderHeaders(credentials),
+    headers: makeBuilderHeaders(authorization),
   });
   await assertOk(response, "Builder design-system docs fetch failed");
   const json = (await response.json()) as unknown;
@@ -1182,7 +1269,7 @@ export async function hydrateBuilderDesignSystemReference(
     docs.push(...response.docs);
     completionConfirmed ||= response.completionConfirmed;
     builderStatus = response.status ?? builderStatus;
-    if (response.docs.length < pageSize) break;
+    if (response.docs.length < pageSize || options.minimal) break;
     page += 1;
     if (pageNumber === MAX_BUILDER_DOC_PAGES - 1) {
       throw new Error(
@@ -1219,13 +1306,15 @@ export async function startBuilderDesignSystemUpload(
   attachments: BuilderDesignSystemUploadAttachment[],
 ): Promise<BuilderDesignSystemUploadSlot[]> {
   if (attachments.length === 0) return [];
-  const credentials = await resolveBuilderDesignSystemCredentials();
+  const authorization = await resolveBuilderDesignSystemAuthorization(
+    "builder:designsystem:write",
+  );
   const uploadStart = await fetchWithTimeout(
-    makeBuilderDesignSystemUrl("upload/start", credentials),
+    makeBuilderDesignSystemUrl("upload/start", authorization),
     {
       method: "POST",
       headers: {
-        ...makeBuilderHeaders(credentials),
+        ...makeBuilderHeaders(authorization),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ attachments }),
@@ -1258,13 +1347,16 @@ export async function indexBuilderDesignSystem(
       "Provide at least one .fig/code/text file or a GitHub repository URL to index with Builder.",
     );
   }
-  const credentials = await resolveBuilderDesignSystemCredentials();
-  const index = await fetchWithTimeout(
-    makeBuilderDesignSystemUrl("index", credentials),
+  const authorization = await resolveBuilderDesignSystemAuthorization(
+    "builder:designsystem:write",
+  );
+  const idempotencyKey = `agent-native-dsi-${randomUUID()}`;
+  const index = await fetchBuilderDesignSystemIndex(
+    makeBuilderDesignSystemUrl("index", authorization),
     {
       method: "POST",
       headers: {
-        ...makeBuilderHeaders(credentials),
+        ...makeBuilderHeaders(authorization),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -1277,6 +1369,7 @@ export async function indexBuilderDesignSystem(
           : {}),
       }),
     },
+    idempotencyKey,
   );
   await assertOk(index, "Builder design-system indexing failed");
   const indexed = (await index.json()) as IndexResponse;

@@ -48,6 +48,9 @@ function formatTimestamp(ms: number): string {
  * partial for each source is rendered separately so the two streams don't
  * clobber each other.
  */
+/** How far off the bottom still counts as following the live edge. */
+const PIN_SLACK_PX = 28;
+
 export function LiveTranscript({
   onLinesChange,
   initialLines,
@@ -61,6 +64,8 @@ export function LiveTranscript({
   const [micPartial, setMicPartial] = useState("");
   const [sysPartial, setSysPartial] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  /** Whether the reader is at the live edge, so growth should follow it. */
+  const pinnedRef = useRef(true);
   // Whether the current session's preloaded history has been merged in. Guards
   // against the preload event firing more than once (the host emits it on both
   // the get-meeting fetch and clips:pill-ready), which would duplicate lines.
@@ -140,8 +145,22 @@ export function LiveTranscript({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [finals, micPartial, sysPartial]);
+
+  // Losing height — the answer sheet opening, a window resize — scrolls the
+  // newest line out of view, and nothing brings it back until the next line
+  // arrives. Re-pin on resize instead, but only while the reader is at the
+  // live edge: someone who scrolled up to re-read must not be yanked down.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Partials never reach `appendFinalTranscript`, so speaker bleed shows up
   // here as a live "You" bubble mirroring what the remote side is still
@@ -156,7 +175,15 @@ export function LiveTranscript({
   }, [micPartial, sysPartial, finals]);
 
   return (
-    <div ref={scrollRef} className="lt-chat">
+    <div
+      ref={scrollRef}
+      className="lt-chat"
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinnedRef.current =
+          el.scrollHeight - el.scrollTop - el.clientHeight <= PIN_SLACK_PX;
+      }}
+    >
       {finals.length === 0 && !spokenMicPartial && !sysPartial ? (
         <div className="lt-empty">Listening…</div>
       ) : null}

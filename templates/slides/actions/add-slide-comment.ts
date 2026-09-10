@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import {
-  getRequestRunContext,
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server";
@@ -9,6 +8,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
+import { serializeSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
 
 function displayNameFromEmail(email: string): string {
   const local = email.split("@")[0] || email;
@@ -26,23 +26,32 @@ export default defineAction({
       .string()
       .optional()
       .describe("Selected text this comment is anchored to"),
+    anchor: z
+      .object({
+        x: z.number().finite().min(0).max(100),
+        y: z.number().finite().min(0).max(100),
+        targetText: z.string().max(200).optional(),
+      })
+      .optional()
+      .describe("Point on the slide, in percentages from its top-left"),
     threadId: z
       .string()
       .optional()
       .describe("Thread ID — omit to start a new thread"),
     parentId: z.string().optional().describe("Parent comment ID — for replies"),
   }),
-  run: async (args) => {
-    const { deckId, slideId, content, quotedText, parentId } = args;
+  run: async (args, ctx) => {
+    const { deckId, slideId, content, quotedText, anchor, parentId } = args;
     await assertAccess("deck", deckId, "commenter");
 
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) throw new Error("no authenticated user");
-    const authorName = getRequestRunContext()
-      ? "AI Agent"
-      : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
+    const authorName =
+      ctx?.caller === "tool"
+        ? "AI Agent"
+        : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
     const db = getDb();
     await db.insert(schema.slideComments).values({
@@ -53,6 +62,7 @@ export default defineAction({
       parentId: parentId ?? null,
       content,
       quotedText: quotedText ?? null,
+      anchor: serializeSlideCommentAnchor(anchor),
       authorEmail,
       authorName,
     });

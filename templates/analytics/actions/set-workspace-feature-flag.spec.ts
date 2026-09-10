@@ -32,10 +32,16 @@ describe("set-workspace-feature-flag", () => {
   });
 
   it("delegates the mutation for an authorized Analytics operator", async () => {
-    await expect(action.run(input, { caller: "frontend" })).resolves.toEqual({
+    const context = {
+      caller: "tool" as const,
+      threadId: "thread-1",
+      runId: "run-1",
+      turnId: "turn-1",
+    };
+    await expect(action.run(input, context)).resolves.toEqual({
       key: input.key,
     });
-    expect(setWorkspaceFeatureFlag).toHaveBeenCalledWith(admin, input);
+    expect(setWorkspaceFeatureFlag).toHaveBeenCalledWith(admin, input, context);
   });
 
   it("rejects decimal rollout percentages before delegating a write", () => {

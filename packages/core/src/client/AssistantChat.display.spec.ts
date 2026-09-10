@@ -32,16 +32,19 @@ import {
   dedupeReconnectContentAgainstMessages,
   shouldShowReconnectOverlay,
   hoistQueuedMessageToFront,
+  promoteQueuedMessage,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
   installAssistantUiMessageRepositoryRecovery,
   latestNonRecoveryUserMessageText,
+  matchesUserStoppedRun,
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatComposerPlaceholder,
+  restoreAssistantChatHistoryVersion,
   shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
@@ -52,6 +55,103 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("assistant chat resource history restore", () => {
+  it("awaits preparation, applies the committed result, and then refetches history", async () => {
+    const events: string[] = [];
+    const version = {
+      id: "version-1",
+      createdAt: "2026-09-09T10:00:00.000Z",
+    };
+    const history = {
+      list: {
+        action: "list-versions",
+        getVersions: () => [version],
+      },
+      restore: {
+        action: "restore-version",
+        args: async () => {
+          events.push("prepare");
+          return { versionId: version.id, expectedUpdatedAt: "current" };
+        },
+        onRestored: async (restored: { id: string }) => {
+          events.push(`apply-${restored.id}`);
+        },
+      },
+    };
+
+    await restoreAssistantChatHistoryVersion({
+      history,
+      version,
+      restore: async (args) => {
+        events.push(`restore-${String(args.expectedUpdatedAt)}`);
+        return { id: "restored" };
+      },
+      refetch: async () => {
+        events.push("refetch");
+      },
+      onRefetchError: vi.fn(),
+    });
+
+    expect(events).toEqual([
+      "prepare",
+      "restore-current",
+      "apply-restored",
+      "refetch",
+    ]);
+  });
+
+  it("still refetches committed history when applying the result fails", async () => {
+    const applicationError = new Error("editor apply failed");
+    const refetch = vi.fn(async () => undefined);
+    const version = { id: "version-1", createdAt: 1 };
+
+    await expect(
+      restoreAssistantChatHistoryVersion({
+        history: {
+          list: { action: "list-versions", getVersions: () => [version] },
+          restore: {
+            action: "restore-version",
+            args: async () => ({ versionId: version.id }),
+            onRestored: async () => {
+              throw applicationError;
+            },
+          },
+        },
+        version,
+        restore: async () => ({ id: "restored" }),
+        refetch,
+        onRefetchError: vi.fn(),
+      }),
+    ).rejects.toBe(applicationError);
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not coerce a falsy application failure into success", async () => {
+    const version = { id: "version-1", createdAt: 1 };
+    const result = await restoreAssistantChatHistoryVersion({
+      history: {
+        list: { action: "list-versions", getVersions: () => [version] },
+        restore: {
+          action: "restore-version",
+          args: async () => ({ versionId: version.id }),
+          onRestored: async () => {
+            throw undefined;
+          },
+        },
+      },
+      version,
+      restore: async () => ({ id: "restored" }),
+      refetch: async () => undefined,
+      onRefetchError: vi.fn(),
+    }).then(
+      () => ({ rejected: false, error: undefined }),
+      (error: unknown) => ({ rejected: true, error }),
+    );
+
+    expect(result).toEqual({ rejected: true, error: undefined });
+  });
+});
 
 describe("shouldShowAssistantChatModelSelector", () => {
   it("keeps the framework selector by default and lets hosts replace only its visual control", () => {
@@ -70,6 +170,19 @@ describe("shouldShowAssistantChatModelSelector", () => {
 });
 
 describe("AssistantChat thread restore and composer recovery", () => {
+  it("keeps recovery-card fork snapshots compact", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const snapshotStart = source.lastIndexOf("exportThreadSnapshot()");
+    const snapshotEnd = source.indexOf("      },", snapshotStart);
+    const snapshotSource = source.slice(snapshotStart, snapshotEnd);
+
+    expect(snapshotSource).toContain(
+      "threadData: JSON.stringify(stripBase64FromRepo(repo))",
+    );
+  });
+
   it("only suppresses unauthenticated restore failures for desktop chat", () => {
     expect(
       shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 401),
@@ -160,6 +273,15 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain("const composerDraftScope = tabId || threadId;");
     expect(source).toContain("initialTextKey={composerDraftScope}");
     expect(source).toContain("draftScope={composerDraftScope}");
+  });
+
+  it("publishes restored composer drafts to host affordances", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('const restoredText = initialComposerText ?? "";');
+    expect(source).toContain("onComposerTextChange?.(restoredText);");
   });
 
   it("synchronizes app context before a scope-switch paint", () => {
@@ -465,6 +587,37 @@ describe("hoistQueuedMessageToFront", () => {
         (message) => message.id,
       ),
     ).toEqual(["a", "b"]);
+  });
+});
+
+describe("promoteQueuedMessage", () => {
+  it("marks the promoted turn sent and keeps it ahead of pending messages", () => {
+    expect(promoteQueuedMessage([{ id: "a" }, { id: "b" }], "b")).toEqual([
+      { id: "b", promoted: true },
+      { id: "a" },
+    ]);
+  });
+});
+
+describe("send-now promotion", () => {
+  it("keeps promotion optimistic and leaves the active run untouched", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const sendQueuedMessageNow = useCallback");
+    const end = source.indexOf("const visibleQueuedMessages", start);
+    const promotionSource = source.slice(start, end);
+
+    expect(promotionSource).toContain("startRun: false");
+    expect(promotionSource).toContain("promoteQueuedMessage(prev, id)");
+    expect(source).toContain("return hoistQueuedMessageToFront(messages, id)");
+    expect(promotionSource).not.toContain("stopActiveRunRef.current");
+    expect(source).toContain(
+      "const currentNext = queuedMessagesRef.current[0]",
+    );
+    expect(source).toContain("currentNext.id !== next.id");
+    expect(source).toContain("if (currentNext.promoted)");
+    expect(source).toContain("threadRuntime.startRun({");
   });
 });
 
@@ -1499,6 +1652,9 @@ describe("missing agent engine setup", () => {
       "if (!hideUserMessage) resumeFollowingRef.current()",
     );
     expect(messageScroller).toContain('"agentChat.composer.scrollToBottom"');
+    expect(messageScroller).toContain(
+      '"relative flex min-h-0 flex-1 flex-col overflow-hidden"',
+    );
     expect(source).toContain("<MessageScrollerButton />");
     expect(source).toMatch(/<MessageScrollerProvider[\s\S]*?\bautoScroll\b/);
     expect(source).not.toContain("autoScroll={false}");
@@ -1510,8 +1666,13 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("modelCatalogConfirmsMissing");
     expect(source).toContain('agentEngineConfigured.state === "missing" &&');
     expect(source).toContain("isProviderAuthenticationError(");
-    expect(source).toContain("showRunningInUI || !shouldShowRunError");
+    expect(source).toContain("!isBuilderReconnectRunError(visibleRunError)");
+    expect(source).toContain("!showProviderAuthSetup");
+    expect(source).toContain("retryAfterRunError();");
+    expect(source).toContain("handleProviderSetupDismiss");
     expect(source).toContain("onConnected={handleProviderSetupConnected}");
+    expect(source).toContain("onDismiss={");
+    expect(source).toContain("onRetry={");
     expect(source).toMatch(
       /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
     );
@@ -1701,6 +1862,35 @@ describe("resolveAssistantChatRunningState", () => {
         isAutoResuming: true,
       }),
     ).toEqual({ isRunning: false, showRunningInUI: false });
+  });
+});
+
+describe("matchesUserStoppedRun", () => {
+  it("keeps a stop effective across delayed terminal updates", () => {
+    const stopped = {
+      threadId: "thread-1",
+      runId: "run-1",
+      turnId: "turn-1",
+    };
+
+    expect(matchesUserStoppedRun(stopped, "thread-1", "run-1", "turn-1")).toBe(
+      true,
+    );
+    expect(matchesUserStoppedRun(stopped, "thread-1", "run-2", "turn-1")).toBe(
+      true,
+    );
+    expect(matchesUserStoppedRun(stopped, "thread-1", "run-2", "turn-2")).toBe(
+      false,
+    );
+    expect(matchesUserStoppedRun(stopped, "thread-2", "run-1", "turn-1")).toBe(
+      false,
+    );
+    expect(
+      matchesUserStoppedRun({ threadId: "thread-1" }, "thread-1", "run-2"),
+    ).toBe(false);
+    expect(matchesUserStoppedRun(null, "thread-1", "run-1", "turn-1")).toBe(
+      false,
+    );
   });
 });
 
@@ -2173,6 +2363,22 @@ describe("assistantChatAutoscrollStatusKey", () => {
 });
 
 describe("chat submit and stop hardening", () => {
+  it("scopes external stop state to the current assistant message", () => {
+    const chatSource = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const messageSource = readFileSync(
+      "src/client/chat/message-components.tsx",
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(chatSource).toContain("ExternalUserStoppedRunContext.Provider");
+    expect(messageSource).toContain("ExternalUserStoppedRunContext");
+    expect(messageSource).toContain("(externalUserStopped && isLast)");
+  });
+
   it("wires reconnect ownership into the inner chat and rejects stale callbacks", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
@@ -2248,8 +2454,19 @@ describe("chat submit and stop hardening", () => {
       encoding: "utf8",
     });
 
+    expect(source).toContain("onStop?: () => void | Promise<unknown>;");
+    expect(source).toContain(
+      "const handleComposerStop = useCallback(async () => {",
+    );
+    expect(source).toContain("hostStopSucceeded = (await onStop()) !== false;");
+    expect(source).toContain("hostStopSucceeded = false;");
+    expect(source).toContain("if (!hostStopSucceeded) return;");
+    expect(source).toContain(
+      "stopActiveRun({ preserveQueuedMessages: true });",
+    );
+    expect(source).toContain("onClick={handleComposerStop}");
     expect(source).toMatch(
-      /stopActiveRun\(\{\s*preserveQueuedMessages: true,\s*\}\)/,
+      /stopActiveRun\(\{\s*preserveQueuedMessages: true,?\s*\}\)/,
     );
   });
 

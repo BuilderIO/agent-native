@@ -9,7 +9,16 @@ import {
 } from "./generation.js";
 import type { GenerateProviderInput } from "./generation.js";
 
-const resolveBuilderGatewayCredentialsMock = vi.hoisted(() => vi.fn());
+const requestUrl = (input: string | URL | Request): string =>
+  input instanceof Request
+    ? input.url
+    : input instanceof URL
+      ? input.href
+      : input;
+const requestBodyText = (body: BodyInit | null | undefined): string =>
+  typeof body === "string" ? body : "";
+
+const resolveBuilderGatewayAuthMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const googleGenerateContentMock = vi.hoisted(() => vi.fn());
@@ -39,7 +48,7 @@ vi.mock("@agent-native/core/server", () => {
     getBuilderImageGenerationBaseUrl: vi.fn(
       () => "https://builder.test/agent-native/images/v1",
     ),
-    resolveBuilderGatewayCredentials: resolveBuilderGatewayCredentialsMock,
+    resolveBuilderGatewayAuth: resolveBuilderGatewayAuthMock,
     resolveHasBuilderPrivateKey: resolveHasBuilderPrivateKeyMock,
     resolveSecret: resolveSecretMock,
   };
@@ -111,11 +120,11 @@ function requestIdempotencyKeys(
   fetchMock: ReturnType<typeof vi.fn>,
 ): (string | undefined)[] {
   return fetchMock.mock.calls
-    .filter(([url]) => String(url).endsWith("/generations"))
+    .filter(([url]) => requestUrl(url).endsWith("/generations"))
     .map(([, init]) => {
       const body = (init as RequestInit | undefined)?.body;
       return body
-        ? (JSON.parse(String(body)) as { idempotencyKey?: string })
+        ? (JSON.parse(requestBodyText(body)) as { idempotencyKey?: string })
             .idempotencyKey
         : undefined;
     });
@@ -125,12 +134,10 @@ describe("generateWithManagedImageProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "true");
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: "bpk-builder-key",
-      publicKey: "space-test",
+    resolveBuilderGatewayAuthMock.mockResolvedValue({
+      authorization: "Bearer bpk-builder-key",
+      spaceId: "space-test",
       userId: null,
-      orgName: null,
-      orgKind: null,
     });
     resolveHasBuilderPrivateKeyMock.mockResolvedValue(true);
     resolveSecretMock.mockResolvedValue(null);
@@ -164,13 +171,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("keeps missing Builder credentials on reconnect guidance", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
 
     await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
       expect.objectContaining({
@@ -181,16 +182,11 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
-  // The gateway lane resolves a space id into `publicKey`, so the copy names the
-  // credential rather than the legacy env var it used to be read from.
-  it("fails before calling Builder when the space id is missing", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: "bpk-builder-key",
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+  // resolveBuilderGatewayAuth() itself requires a complete token+space-id pair
+  // and returns null for a partial one, so generation.ts never sees "which half
+  // is missing" -- it only has to stop before calling Builder on a null auth.
+  it("fails before calling Builder when the gateway auth is unusable", async () => {
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -198,20 +194,14 @@ describe("generateWithManagedImageProvider", () => {
       expect.objectContaining({
         name: "FeatureNotConfiguredError",
         requiredCredential: "BUILDER_PRIVATE_KEY",
-        message: expect.stringContaining("Builder space id is missing"),
+        message: expect.stringContaining("connected or reconnected"),
       }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("uses OpenAI as a manual image fallback when Builder is unavailable", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -246,13 +236,7 @@ describe("generateWithManagedImageProvider", () => {
 
   it("fails loudly when board references would use manual OpenAI fallback", async () => {
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -285,13 +269,7 @@ describe("generateWithManagedImageProvider", () => {
 
   it("refuses to reroute gpt board-reference runs into the manual Gemini fallback", async () => {
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "GEMINI_API_KEY" ? "gemini-test" : null,
     );
@@ -321,13 +299,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("passes board references through the manual Gemini fallback", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "GEMINI_API_KEY" ? "gemini-test" : null,
     );
@@ -382,13 +354,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("preserves gpt-image-1 for transparent OpenAI fallback requests", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -427,7 +393,7 @@ describe("generateWithManagedImageProvider", () => {
       }),
     );
     const body = JSON.parse(
-      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+      requestBodyText((fetchMock.mock.calls[0][1] as RequestInit).body),
     ) as Record<string, unknown>;
     expect(body).toMatchObject({
       model: "gpt-image-1",
@@ -440,7 +406,7 @@ describe("generateWithManagedImageProvider", () => {
   it("forwards transparent background requests through Builder", async () => {
     const fetchMock = vi.fn(
       async (url: string | URL | Request, _init?: RequestInit) => {
-        if (String(url).endsWith("/generations")) {
+        if (requestUrl(url).endsWith("/generations")) {
           return builderGenerationSuccess();
         }
         return builderImageBytes();
@@ -474,10 +440,10 @@ describe("generateWithManagedImageProvider", () => {
     const calls = fetchMock.mock.calls as Array<
       [string | URL | Request, RequestInit]
     >;
-    expect(String(calls[0][0])).toBe(
+    expect(requestUrl(calls[0][0])).toBe(
       "https://builder.test/agent-native/images/v1/generations",
     );
-    const body = JSON.parse(String(calls[0][1].body)) as Record<
+    const body = JSON.parse(requestBodyText(calls[0][1].body)) as Record<
       string,
       unknown
     >;
@@ -498,7 +464,7 @@ describe("generateWithManagedImageProvider", () => {
   it("forwards edit mode and mask references through Builder", async () => {
     const fetchMock = vi.fn(
       async (url: string | URL | Request, _init?: RequestInit) => {
-        if (String(url).endsWith("/generations")) {
+        if (requestUrl(url).endsWith("/generations")) {
           return builderGenerationSuccess();
         }
         return builderImageBytes();
@@ -542,7 +508,7 @@ describe("generateWithManagedImageProvider", () => {
       }),
     );
     const body = JSON.parse(
-      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+      requestBodyText((fetchMock.mock.calls[0][1] as RequestInit).body),
     ) as Record<string, unknown>;
     expect(body).toMatchObject({
       model: "gpt-image-2",
@@ -568,13 +534,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("guards restyle and edit runs when only OpenAI fallback is available", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -602,13 +562,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("guards mask edit mode from plain manual fallback generation", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -680,7 +634,7 @@ describe("generateWithManagedImageProvider", () => {
         ),
       }),
     );
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain(
+    expect(fetchMock.mock.calls.map(([url]) => requestUrl(url))).not.toContain(
       "https://api.openai.com/v1/images/generations",
     );
   });
@@ -716,7 +670,7 @@ describe("generateWithManagedImageProvider", () => {
         ),
       }),
     );
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain(
+    expect(fetchMock.mock.calls.map(([url]) => requestUrl(url))).not.toContain(
       "https://api.openai.com/v1/images/generations",
     );
   });
@@ -757,7 +711,7 @@ describe("generateWithManagedImageProvider", () => {
   it("recovers when a transient Builder retry succeeds", async () => {
     const fetchMock = vi.fn(
       async (url: string | URL | Request, _init?: RequestInit) => {
-        const href = String(url);
+        const href = requestUrl(url);
         if (href.endsWith("/generations") && fetchMock.mock.calls.length <= 2) {
           return new Response(
             JSON.stringify({ error: { message: "Provider warming up" } }),
@@ -811,7 +765,7 @@ describe("generateWithManagedImageProvider", () => {
       }),
     ]);
     const requestBody = JSON.parse(
-      String((fetchMock.mock.calls[2][1] as RequestInit).body),
+      requestBodyText((fetchMock.mock.calls[2][1] as RequestInit).body),
     ) as Record<string, unknown>;
     expect(requestBody.model).toBe("gemini-3.1-flash-image-preview");
   });
@@ -819,7 +773,7 @@ describe("generateWithManagedImageProvider", () => {
   it("polls the same idempotency key while the service reports the request in progress", async () => {
     let generationCalls = 0;
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
-      if (String(url).endsWith("/generations")) {
+      if (requestUrl(url).endsWith("/generations")) {
         generationCalls += 1;
         if (generationCalls <= 2) {
           return new Response(
@@ -858,7 +812,7 @@ describe("generateWithManagedImageProvider", () => {
   it("polls after a client-side abort instead of regenerating", async () => {
     let generationCalls = 0;
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
-      if (String(url).endsWith("/generations")) {
+      if (requestUrl(url).endsWith("/generations")) {
         generationCalls += 1;
         if (generationCalls === 1) {
           const abort = new Error("The operation was aborted.");

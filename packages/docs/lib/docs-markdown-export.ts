@@ -25,13 +25,19 @@ function boolText(value: unknown, label: string): string | undefined {
 }
 
 function escapeTableCell(value: unknown): string {
-  return String(value ?? "")
-    .replace(/\|/g, "\\|")
-    .replace(/\r?\n/g, "<br>");
+  return typeof value === "string"
+    ? value
+    : (JSON.stringify(value) ?? "")
+        .replace(/\|/g, "\\|")
+        .replace(/\r?\n/g, "<br>");
 }
 
 function fenced(language: string, code: unknown): string {
-  return [`\`\`\`${language}`, String(code ?? "").trimEnd(), "```"].join("\n");
+  return [
+    `\`\`\`${language}`,
+    (typeof code === "string" ? code : (JSON.stringify(code) ?? "")).trimEnd(),
+    "```",
+  ].join("\n");
 }
 
 const ID_START = /[A-Za-z_]/;
@@ -257,7 +263,9 @@ function formatFileTree(
 }
 
 function formatTable(data: Record<string, unknown>): string {
-  const columns = asArray(data.columns).map((column) => String(column ?? ""));
+  const columns = asArray(data.columns).map((column) =>
+    typeof column === "string" ? column : (JSON.stringify(column) ?? ""),
+  );
   const rows = asArray(data.rows).map((row) => asArray(row));
   if (columns.length === 0) return "";
   return [

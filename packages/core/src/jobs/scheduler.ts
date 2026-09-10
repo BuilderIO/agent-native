@@ -20,8 +20,11 @@ import {
 } from "./cron.js";
 import {
   buildJobResourceContent,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
   parseJobResource,
+  patchJobFrontmatterFields,
+  recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
 import {
@@ -176,6 +179,8 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
 
   let primaryFailed = false;
+  let shouldThrowReleaseError = false;
+  let releaseErrorToThrow: unknown;
   try {
     await processRecurringJobsWithLease(deps);
   } catch (error) {
@@ -193,9 +198,13 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         "[recurring-jobs] Scheduler lease release failed:",
         releaseError instanceof Error ? releaseError.message : releaseError,
       );
-      if (!primaryFailed) throw releaseError;
+      if (!primaryFailed) {
+        shouldThrowReleaseError = true;
+        releaseErrorToThrow = releaseError;
+      }
     }
   }
+  if (shouldThrowReleaseError) throw releaseErrorToThrow;
 }
 
 async function processRecurringJobsWithLease(
@@ -256,8 +265,17 @@ async function processRecurringJobsWithLease(
       // the shared scheduler. Once a job declares an owner, only that app may
       // evaluate or execute it. Without this boundary every app's scheduled
       // worker can claim the same organization resource.
-      if (!jobBelongsToApp(meta, deps.appId)) continue;
-      healthOrgIds.add(meta.orgId ?? null);
+      if (
+        !jobBelongsToApp(meta, deps.appId) &&
+        !isRecoveredFactoryJob(meta, resource.path, deps.appId, resource.owner)
+      ) {
+        continue;
+      }
+      healthOrgIds.add(
+        recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) ??
+          meta.orgId ??
+          null,
+      );
 
       // A host-targeted run is reconciled from the durable relay command. It
       // must never fall back to this scheduler after the laptop disconnects.
@@ -826,9 +844,20 @@ export async function runQueuedAutomation(
 async function updateResource(
   resource: Resource,
   meta: JobFrontmatter,
-  body: string,
+  _body: string,
 ): Promise<boolean> {
-  const content = buildJobContent(meta, body);
+  const content = patchJobFrontmatterFields(resource.content, {
+    lastRun: meta.lastRun,
+    lastCheck: meta.lastCheck,
+    lastStatus: meta.lastStatus,
+    lastError: meta.lastError,
+    nextRun: meta.nextRun,
+    remoteRequestId: meta.remoteRequestId,
+    remoteCommandId: meta.remoteCommandId,
+    remoteRunId: meta.remoteRunId,
+    remoteAutomationRunId: meta.remoteAutomationRunId,
+    remoteAdvanceSchedule: meta.remoteAdvanceSchedule,
+  });
   const written = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,

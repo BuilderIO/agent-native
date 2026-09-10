@@ -3,6 +3,8 @@ import {
   useContext,
   useMemo,
   type ComponentType,
+  type MouseEventHandler,
+  type ReactElement,
   type ReactNode,
 } from "react";
 
@@ -51,7 +53,18 @@ export interface ComposerBuilderConnectFlow {
   connecting: boolean;
   statusResolved: boolean;
   error: string | null;
-  start: () => void;
+  agentNativeProvisioningEnabled?: boolean;
+  accountExists?: boolean;
+  start: (options?: { provisionAccount?: boolean }) => void;
+}
+
+export interface ComposerBuilderConnectPopoverProps {
+  flow: ComposerBuilderConnectFlow;
+  children: ReactElement<{
+    onClick?: MouseEventHandler<HTMLElement>;
+  }>;
+  onConnect?: (provisionAccount: boolean) => void;
+  onTriggerClick?: MouseEventHandler<HTMLElement>;
 }
 
 export interface AgentChatContextItem {
@@ -80,6 +93,7 @@ export interface ComposerAgentChatOpenThreadRequest {
 export interface ComposerBuilderConnectFlowOptions {
   enabled?: boolean;
   popupUrl?: string;
+  provisionAccount?: boolean;
   trackingSource?: string;
   trackingFlow?: string;
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
@@ -123,7 +137,7 @@ export interface ComposerRuntimeAdapters {
     fetchAgentEngineConfiguredState?: (
       enabled: boolean,
       options: { timeoutMs: number },
-    ) => Promise<"missing" | "configured" | string>;
+    ) => Promise<"missing" | "configured" | (string & {})>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
     reasoning?: {
@@ -147,6 +161,7 @@ export interface ComposerRuntimeAdapters {
     useConnectFlow?: (
       options: ComposerBuilderConnectFlowOptions,
     ) => ComposerBuilderConnectFlow;
+    BuilderConnectPopover?: ComponentType<ComposerBuilderConnectPopoverProps>;
     tryDelegateBuildRequest?: (text: string) => boolean;
     isTrustedFrameMessage?: (event: MessageEvent) => boolean;
     isTrustedBuilderMessage?: (event: MessageEvent) => boolean;
@@ -188,7 +203,15 @@ const fallbackTranslate: ComposerTranslate = (key, options) => {
 
   return template.replace(/{{\s*([\w$.-]+)\s*}}/g, (match, name: string) => {
     const value = options?.[name];
-    return value == null ? match : String(value);
+    return value == null
+      ? match
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : typeof value === "string" ||
+            typeof value === "number" ||
+            typeof value === "boolean"
+          ? String(value)
+          : JSON.stringify(value);
   });
 };
 const fallbackModels = {
@@ -214,6 +237,8 @@ const fallbackBuilderFlow = {
   connecting: false,
   statusResolved: false,
   error: null,
+  agentNativeProvisioningEnabled: false,
+  accountExists: false,
   start: () => {},
 };
 

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -561,6 +561,23 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
   );
 }
 
+// Written from `getPublishPackages()`'s already-filtered list (excludes
+// private and non-allowlisted packages), not reconstructed from
+// `packages/*` directory names, so a reader of this output can't be handed a
+// package that was never actually eligible to publish.
+async function writePublishedPackagesOutput(
+  packages: PublishPackage[],
+): Promise<void> {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) {
+    return;
+  }
+  const payload = JSON.stringify(
+    packages.map((pkg) => ({ name: pkg.name, version: pkg.version })),
+  );
+  await appendFile(outputPath, `published-packages=${payload}\n`);
+}
+
 async function main() {
   const packages = await getPublishPackages();
   const packagesNeedingTags: PublishPackage[] = [];
@@ -645,6 +662,8 @@ async function main() {
       console.log(`New tag:  ${tagName(pkg)}`);
     }
   }
+
+  await writePublishedPackagesOutput(packagesNeedingTags);
 
   if (failures.length > 0) {
     throw new Error(

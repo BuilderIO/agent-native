@@ -1,9 +1,13 @@
 import type { RefObject } from "react";
+import { toast } from "sonner";
 
 import { isDesignHotkeyEditableTarget } from "@/hooks/useDesignHotkeys";
 import { readDesignClipboardPayloadFromDataTransfer } from "@/lib/design-clipboard";
 import type { DesignClipboardPayload } from "@/lib/design-import";
-import { getFigmaClipboardContent } from "@/lib/design-import";
+import {
+  getFigmaClipboardContent,
+  isAttemptedFigmaPaste,
+} from "@/lib/design-import";
 
 export interface EditorPasteArgs {
   adoptDesignClipboardPayload: (
@@ -18,6 +22,7 @@ export interface EditorPasteArgs {
   importFigmaClipboardIntoDesign: (content: string) => Promise<void>;
   lastWrittenClipboardMarkerRef: RefObject<string | null>;
   lastWrittenClipboardPlainTextRef: RefObject<string | null>;
+  t: (key: string, options?: Record<string, unknown>) => string;
 }
 
 export function runEditorPaste(
@@ -30,10 +35,21 @@ export function runEditorPaste(
     importFigmaClipboardIntoDesign,
     lastWrittenClipboardMarkerRef,
     lastWrittenClipboardPlainTextRef,
+    t,
   }: EditorPasteArgs,
   event: ClipboardEvent,
 ) {
   if (event.defaultPrevented) return;
+  // Ahead of the editable-target guard on purpose. A Figma clipboard is base64
+  // buffer metadata, never text a focused field wants, so the guard below used
+  // to swallow every Cmd+V made while the agent composer or a panel textarea
+  // held focus — the whole paste vanished with nothing shown.
+  const figmaContent = getFigmaClipboardContent(event.clipboardData);
+  if (figmaContent) {
+    event.preventDefault();
+    void importFigmaClipboardIntoDesign(figmaContent);
+    return;
+  }
   if (isDesignHotkeyEditableTarget(event.target)) return;
   // U8/paste-multi: collect every pasted image file, not just the first —
   // see handlePastedImageFiles' doc comment for the full rationale.
@@ -47,10 +63,10 @@ export function runEditorPaste(
       return;
     }
   }
-  const figmaContent = getFigmaClipboardContent(event.clipboardData);
-  if (figmaContent) {
-    event.preventDefault();
-    void importFigmaClipboardIntoDesign(figmaContent);
+  if (isAttemptedFigmaPaste(event.clipboardData)) {
+    toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
+      description: t("designEditor.import.figmaPasteUnreadable"),
+    });
     return;
   }
   if (!canEditDesign) return;

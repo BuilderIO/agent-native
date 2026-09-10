@@ -10,7 +10,7 @@ import {
 
 declare const __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__:
   | AgentNativeRouteWarmupConfigInput
-  | string
+  | (string & {})
   | undefined;
 
 type ReactRouterManifestRoute = {
@@ -19,6 +19,8 @@ type ReactRouterManifestRoute = {
   path?: string;
   index?: boolean;
   module?: string;
+  hasLoader?: boolean;
+  hasClientLoader?: boolean;
   clientActionModule?: string;
   clientLoaderModule?: string;
   hydrateFallbackModule?: string;
@@ -58,7 +60,7 @@ export interface AgentNativeRouteWarmupProps {
 }
 
 function parseBuildTimeRouteWarmupConfig(
-  raw: AgentNativeRouteWarmupConfigInput | string | undefined,
+  raw: AgentNativeRouteWarmupConfigInput | (string & {}) | undefined,
 ): AgentNativeRouteWarmupConfigInput | undefined {
   if (typeof raw !== "string") return raw;
   const trimmed = raw.trim();
@@ -116,7 +118,9 @@ function isFrameworkOrApiPath(pathname: string): boolean {
     appPath === "/_agent-native" ||
     appPath.startsWith("/_agent-native/") ||
     appPath === "/api" ||
-    appPath.startsWith("/api/")
+    appPath.startsWith("/api/") ||
+    appPath === "/cdn-cgi" ||
+    appPath.startsWith("/cdn-cgi/")
   );
 }
 
@@ -147,11 +151,98 @@ function dataRouteUrlForHref(href: string): string | null {
   const url = hrefUrl(href);
   if (!url || !isWarmableRouteUrl(url)) return null;
 
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
-  if (pathname === "/") return null;
-  url.pathname = `${pathname}.data`;
+  const basename = normalizeBasename(window.__reactRouterContext?.basename);
+  if (basename !== "/" && url.pathname === basename) {
+    url.pathname = `${basename}/_.data`;
+  } else {
+    url.pathname = url.pathname.endsWith("/")
+      ? `${url.pathname}_.data`
+      : `${url.pathname}.data`;
+  }
   url.hash = "";
   return url.href;
+}
+
+function dataRouteUrlsForHref(href: string): string[] {
+  const dataUrl = dataRouteUrlForHref(href);
+  if (!dataUrl) return [];
+
+  const manifest = window.__reactRouterManifest;
+  if (!manifest?.routes) return [dataUrl];
+  const routes = manifest.routes;
+
+  const url = hrefUrl(href);
+  if (!url) return [];
+  const matches =
+    matchRoutes(
+      getManifestRouteTree(manifest) as unknown as RouteObject[],
+      url.pathname,
+      normalizeBasename(window.__reactRouterContext?.basename),
+    ) ?? [];
+  if (matches.length === 0) return [];
+
+  const loaderRoutes = matches.filter((match) => {
+    const routeId = match.route.id;
+    return routeId ? routes[routeId]?.hasLoader === true : false;
+  });
+  if (loaderRoutes.length === 0) return [];
+
+  const serverLoaderRoutes = loaderRoutes.filter((match) => {
+    const routeId = match.route.id;
+    const route = routeId ? routes[routeId] : undefined;
+    if (!route) return false;
+    return !route.hasClientLoader && !route.clientLoaderModule;
+  });
+  const clientLoaderRoutes = loaderRoutes.filter((match) => {
+    const routeId = match.route.id;
+    const route = routeId ? routes[routeId] : undefined;
+    return (
+      route?.hasClientLoader === true || Boolean(route?.clientLoaderModule)
+    );
+  });
+
+  const routeDataUrls: string[] = [];
+  const addRouteDataUrl = (routeIds?: string[]) => {
+    const routeDataUrl = new URL(dataUrl);
+    stripEmptyIndexParams(routeDataUrl);
+    if (routeIds?.length) {
+      routeDataUrl.searchParams.set("_routes", routeIds.join(","));
+    }
+    routeDataUrls.push(routeDataUrl.href);
+  };
+
+  // React Router's single-fetch navigation combines ordinary server loaders
+  // into one request, while routes with client loaders fetch their server
+  // loader independently. Keep those cache keys identical to navigation.
+  if (serverLoaderRoutes.length > 0) {
+    addRouteDataUrl(
+      clientLoaderRoutes.length > 0
+        ? serverLoaderRoutes
+            .map((match) => match.route.id)
+            .filter((routeId): routeId is string => Boolean(routeId))
+        : undefined,
+    );
+  }
+
+  for (const match of clientLoaderRoutes) {
+    const routeId = match.route.id;
+    if (!routeId) continue;
+    const routeDataUrl = new URL(dataUrl);
+    stripEmptyIndexParams(routeDataUrl);
+    routeDataUrl.searchParams.set("_routes", routeId);
+    routeDataUrls.push(routeDataUrl.href);
+  }
+
+  return routeDataUrls;
+}
+
+function stripEmptyIndexParams(url: URL): void {
+  const indexValues = url.searchParams.getAll("index");
+  if (!indexValues.some((value) => value === "")) return;
+  url.searchParams.delete("index");
+  for (const value of indexValues) {
+    if (value) url.searchParams.append("index", value);
+  }
 }
 
 function hasReactRouterManifestRoutes(): boolean {
@@ -213,6 +304,20 @@ function getManifestRouteTree(
   cachedManifestRoutesSignature = routesSignature;
   cachedManifestRouteTree = tree;
   return tree;
+}
+
+export function isClientRouteUrl(url: URL): boolean {
+  if (!isWarmableRouteUrl(url)) return false;
+  const manifest = window.__reactRouterManifest;
+  if (!manifest?.routes) return false;
+
+  return Boolean(
+    matchRoutes(
+      getManifestRouteTree(manifest) as unknown as RouteObject[],
+      url.pathname,
+      normalizeBasename(window.__reactRouterContext?.basename),
+    )?.length,
+  );
 }
 
 function assetUrlForManifestPath(assetPath: string): string | null {
@@ -380,6 +485,11 @@ export function AgentNativeRouteWarmup({
     if (resolved.strategy === "off") {
       return;
     }
+    const connection = (
+      navigator as Navigator & { connection?: { saveData?: boolean } }
+    ).connection;
+    if (connection?.saveData) return;
+
     // Legacy SPA builds still mount AppProviders but do not expose React
     // Router framework `.data` endpoints or a route asset manifest. Only warm
     // route data/modules when that manifest is present; otherwise this would
@@ -394,11 +504,6 @@ export function AgentNativeRouteWarmup({
     const warmData = resolved.data && hasRouteAssets;
     const warmModules = resolved.modules && hasRouteAssets;
     if (!warmData && !warmModules) return;
-
-    const connection = (
-      navigator as Navigator & { connection?: { saveData?: boolean } }
-    ).connection;
-    if (connection?.saveData) return;
 
     if (warmModules) seedExistingModulepreloads();
 
@@ -470,12 +575,13 @@ export function AgentNativeRouteWarmup({
     function warmHref(href: string) {
       if (warmModules) warmRouteAssetsForHref(href);
       if (!warmData) return;
-      const dataUrl = dataRouteUrlForHref(href);
-      if (!dataUrl || warmedDataRoutes.has(dataUrl)) return;
-      warmedDataRoutes.add(dataUrl);
-      if (queuedDataRoutes.has(dataUrl)) return;
-      queuedDataRoutes.add(dataUrl);
-      queue.push({ dataUrl, href });
+      for (const dataUrl of dataRouteUrlsForHref(href)) {
+        if (warmedDataRoutes.has(dataUrl)) continue;
+        warmedDataRoutes.add(dataUrl);
+        if (queuedDataRoutes.has(dataUrl)) continue;
+        queuedDataRoutes.add(dataUrl);
+        queue.push({ dataUrl, href });
+      }
       pump();
     }
 
@@ -582,7 +688,10 @@ export const __routeWarmupInternalsForTests = {
   getManifestRouteTree,
   hasReactRouterManifestRoutes,
   hasWarmableRouteAssets,
+  isClientRouteUrl,
   parseBuildTimeRouteWarmupConfig,
+  dataRouteUrlForHref,
+  dataRouteUrlsForHref,
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,

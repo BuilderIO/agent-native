@@ -78,6 +78,83 @@ async function replaceDocument(page: Page, html: string): Promise<void> {
   await page.waitForTimeout(50);
 }
 
+async function replaceDocumentWithSelection(
+  page: Page,
+  html: string,
+  selectedSelector: string,
+  selectorCandidates: string[],
+): Promise<void> {
+  await page.evaluate(
+    ({ content, selector, candidates }) => {
+      window.postMessage(
+        {
+          type: "replace-document-content",
+          content,
+          selectedSelector: selector,
+          selectorCandidates: candidates,
+          forceFullDocument: true,
+        },
+        "*",
+      );
+    },
+    {
+      content: html,
+      selector: selectedSelector,
+      candidates: selectorCandidates,
+    },
+  );
+  await page.waitForTimeout(50);
+}
+
+/** Records the `sourceId` of every element-select the bridge posts upward. */
+async function captureSelections(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { __selects: string[] }).__selects = seen;
+    window.addEventListener("message", (event) => {
+      const data = (event as MessageEvent).data;
+      if (data?.type === "element-select") {
+        seen.push(String(data.payload?.sourceId ?? ""));
+      }
+    });
+  });
+}
+
+async function readSelections(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const window_ = window as unknown as { __selects: string[] };
+    const seen = window_.__selects.slice();
+    window_.__selects.length = 0;
+    return seen;
+  });
+}
+
+async function selectionOverlayVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const overlay = document.querySelector(
+      '[data-agent-native-edit-overlay="selection"]',
+    ) as HTMLElement | null;
+    return !!overlay && overlay.style.display !== "none";
+  });
+}
+
+async function selectBySelector(
+  page: Page,
+  selector: string,
+  candidates: string[],
+): Promise<void> {
+  await page.evaluate(
+    ({ selector: sel, candidates: list }) => {
+      window.postMessage(
+        { type: "select-element", selector: sel, selectorCandidates: list },
+        "*",
+      );
+    },
+    { selector, candidates },
+  );
+  await page.waitForTimeout(50);
+}
+
 async function withBridgedPage(
   body: string,
   run: (page: Page) => Promise<void>,
@@ -1043,6 +1120,66 @@ describe("morph findings from the sixth review round", () => {
           ),
         ).toBe("RUNTIME");
       });
+    },
+  );
+});
+
+describe("a forced replacement re-anchors only stable identity", () => {
+  it(
+    "keeps a node-id selection selected through a layout-flow replacement",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(BASE_BODY, async (page) => {
+        await captureSelections(page);
+        await selectBySelector(page, '[data-agent-native-node-id="b"]', [
+          '[data-agent-native-node-id="b"]',
+        ]);
+        await readSelections(page);
+
+        await replaceDocumentWithSelection(
+          page,
+          documentHtml(
+            [
+              card("a", "Alpha"),
+              '<article data-agent-native-node-id="b" class="card" style="display:grid"><h3 data-agent-native-node-id="b-title">Beta</h3></article>',
+              card("c", "Gamma"),
+            ].join(""),
+          ),
+          '[data-agent-native-node-id="b"]',
+          ['[data-agent-native-node-id="b"]'],
+        );
+
+        expect(await selectionOverlayVisible(page)).toBe(true);
+        expect(await readSelections(page)).toContain("b");
+      });
+    },
+  );
+
+  it(
+    "does not hand a positional selector to the sibling that shifted into it",
+    { timeout: 30_000 },
+    async () => {
+      const positional =
+        '[data-agent-native-node-id="an-main"] > div:nth-of-type(1)';
+      await withBridgedPage(
+        '<div class="one">One</div><div class="two">Two</div>',
+        async (page) => {
+          await captureSelections(page);
+          await selectBySelector(page, positional, [positional]);
+          expect(await selectionOverlayVisible(page)).toBe(true);
+          await readSelections(page);
+
+          await replaceDocumentWithSelection(
+            page,
+            documentHtml('<div class="two">Two</div>'),
+            positional,
+            [positional],
+          );
+
+          expect(await selectionOverlayVisible(page)).toBe(false);
+          expect(await readSelections(page)).toEqual([]);
+        },
+      );
     },
   );
 });

@@ -607,7 +607,11 @@ export function normalizeAssertions(input: unknown): Assertion[] {
     }
     if (!raw || typeof raw !== "object") continue;
     const entry = raw as Record<string, unknown>;
-    const type = String(entry.type ?? "") as AssertionType;
+    const type = (
+      typeof entry.type === "string"
+        ? entry.type
+        : (JSON.stringify(entry.type) ?? "")
+    ) as AssertionType;
     if (!ASSERTION_TYPES.includes(type)) continue;
     if (type === "max_latency_ms") {
       // A latency budget of 0 (or negative/NaN) is meaningless — drop it
@@ -618,7 +622,11 @@ export function normalizeAssertions(input: unknown): Assertion[] {
       out.push({ type, value: Math.min(raw, 600_000) });
       continue;
     }
-    const value = String(entry.value ?? "").trim();
+    const value = (
+      typeof entry.value === "string"
+        ? entry.value
+        : (JSON.stringify(entry.value) ?? "")
+    ).trim();
     if (!value) continue;
     if (byteLength(value) > MAX_ASSERTION_VALUE_BYTES) {
       throw badRequest(
@@ -626,7 +634,11 @@ export function normalizeAssertions(input: unknown): Assertion[] {
       );
     }
     if (type === "header_contains" || type === "header_equals") {
-      const header = String(entry.header ?? "").trim();
+      const header = (
+        typeof entry.header === "string"
+          ? entry.header
+          : (JSON.stringify(entry.header) ?? "")
+      ).trim();
       if (!header) continue;
       if (header.length > MAX_ASSERTION_HEADER_LENGTH) {
         throw badRequest(
@@ -892,9 +904,9 @@ export function evaluateCheck(params: EvaluateCheckParams): {
 // on every new socket, so reuse keeps the exact same SSRF protection.
 // `undefined` = not built yet; the resolved value may be `null` on runtimes
 // without undici / node:dns, in which case callers fall back to plain `fetch`.
-let sharedSsrfDispatcherPromise: Promise<unknown | null> | undefined;
+let sharedSsrfDispatcherPromise: Promise<unknown> | undefined;
 
-function getSharedSsrfDispatcher(): Promise<unknown | null> {
+function getSharedSsrfDispatcher(): Promise<unknown> {
   if (!sharedSsrfDispatcherPromise) {
     sharedSsrfDispatcherPromise = createSsrfSafeDispatcher().catch(() => null);
   }
@@ -904,7 +916,7 @@ function getSharedSsrfDispatcher(): Promise<unknown | null> {
 async function prepareMonitorFetch(
   url: string,
   opts: { allowPrivateHosts: boolean },
-): Promise<{ dispatcher: unknown | undefined }> {
+): Promise<{ dispatcher: unknown }> {
   const dispatcher = opts.allowPrivateHosts
     ? undefined
     : ((await getSharedSsrfDispatcher()) ?? undefined);
@@ -1151,7 +1163,7 @@ export async function runMonitorCheck(
     });
   }
 
-  let dispatcher: unknown | undefined;
+  let dispatcher: unknown;
   try {
     const ssrfStart = Date.now();
     ({ dispatcher } = await prepareMonitorFetch(monitor.url, {
@@ -1160,7 +1172,11 @@ export async function runMonitorCheck(
     diagnostics.timings.ssrfSetupMs = Date.now() - ssrfStart;
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : String(err ?? "check failed");
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : (JSON.stringify(err) ?? "check failed");
     const isConfig = message.startsWith("SSRF blocked");
     const errorText = message.slice(0, 500);
     diagnostics.timings.ssrfSetupMs = Date.now() - totalStart;
@@ -1278,7 +1294,11 @@ export async function runMonitorCheck(
     });
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : String(err ?? "check failed");
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : (JSON.stringify(err) ?? "check failed");
     const isConfig = message.startsWith("SSRF blocked");
     // Only our timer sets `timedOut`. Prefer the real SSRF/config message when
     // both happened (e.g. abort fired while a redirect DNS check was in flight).

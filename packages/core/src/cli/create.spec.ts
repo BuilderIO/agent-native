@@ -14,6 +14,7 @@ import {
   _communityTemplateTrustMessage,
   _fixPackageJsonName,
   _fixWebManifestName,
+  _ensureScaffoldEmailBrandingConfig,
   _discoverEnclosingRepo,
   _getCoreDependencyVersion,
   _extractTarball,
@@ -149,6 +150,49 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(pkg.name).not.toContain("{{");
   });
 
+  it("gives generated apps editable transactional email branding", async () => {
+    await createApp("try-marisco", { template: "chat" });
+    const configPath = path.join(
+      tmpDir,
+      "try-marisco",
+      "server",
+      "plugins",
+      "agent-native-email-branding.ts",
+    );
+
+    expect(fs.readFileSync(configPath, "utf-8")).toContain(
+      'name: "Try Marisco"',
+    );
+    expect(fs.readFileSync(configPath, "utf-8")).toContain(
+      'sourceTemplate: "chat"',
+    );
+    expect(fs.readFileSync(configPath, "utf-8")).toContain('homePath: "/home"');
+  });
+
+  it("does not force an authenticated home on headless or community scaffolds", () => {
+    for (const [index, templateName] of [
+      "headless",
+      "community:acme/customer-portal",
+    ].entries()) {
+      const root = path.join(tmpDir, `custom-${index}`);
+      fs.mkdirSync(root, { recursive: true });
+
+      _ensureScaffoldEmailBrandingConfig(root, `custom-${index}`, templateName);
+
+      expect(
+        fs.readFileSync(
+          path.join(
+            root,
+            "server",
+            "plugins",
+            "agent-native-email-branding.ts",
+          ),
+          "utf-8",
+        ),
+      ).not.toContain("homePath");
+    }
+  });
+
   it("keeps the blank scaffold headless instead of generating UI files", async () => {
     await createApp("my-app", { template: "blank" });
     const root = path.join(tmpDir, "my-app");
@@ -188,6 +232,7 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(fs.readFileSync(gitignore, "utf-8")).toContain(
       "node-compile-cache/",
     );
+    expect(fs.readFileSync(gitignore, "utf-8")).toContain("data/*.lock");
   });
 
   it("normalizes @agent-native/core for blank standalone apps", async () => {

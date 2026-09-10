@@ -1,5 +1,5 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { archiveFailureToastMessage } from "@shared/archive-errors";
 import { markdownPreviewSnippet } from "@shared/markdown";
@@ -7,15 +7,18 @@ import type {
   ComposeAttachment,
   EmailMessage,
   Label,
+  SavedMailFilter,
   UserSettings,
 } from "@shared/types";
 import {
+  keepPreviousData,
+  type QueryClient,
   useQuery,
   useInfiniteQuery,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -26,11 +29,14 @@ import {
   ensureThread,
   invalidateCachedThread,
   getCachedThread,
+  refreshCachedThread,
   setCachedThread,
+  supersedeCachedThreadFetch,
 } from "@/lib/thread-cache";
 import { bodyToHtml } from "@/lib/utils";
 
 const EMAIL_PAGE_SIZE = 25;
+const EMAIL_PREFETCH_TIMEOUT_MS = 15_000;
 
 function isAuthFailure(error: unknown): boolean {
   return (
@@ -241,7 +247,7 @@ function delayedInvalidate(
   ms = 3000,
 ) {
   setTimeout(() => {
-    for (const key of keys) qc.invalidateQueries({ queryKey: key });
+    for (const key of keys) void qc.invalidateQueries({ queryKey: key });
   }, ms);
 }
 
@@ -374,6 +380,113 @@ const optimisticOverrides = new Map<
 >();
 const OVERRIDE_DURATION = 60_000; // 60s — covers Gmail's consistency window
 
+const readMutations = new Map<
+  string,
+  {
+    version: number;
+    confirmedState?: boolean;
+    pending: Map<number, boolean>;
+  }
+>();
+
+export function beginReadMutation(
+  emailId: string,
+  currentState: boolean | undefined,
+  isRead: boolean,
+): number {
+  const existing = readMutations.get(emailId);
+  const version = (existing?.version ?? 0) + 1;
+  const mutation = existing ?? {
+    version,
+    confirmedState: currentState,
+    pending: new Map<number, boolean>(),
+  };
+  mutation.version = version;
+  mutation.pending.set(version, isRead);
+  readMutations.set(emailId, mutation);
+  return version;
+}
+
+export function confirmReadMutation(
+  emailId: string,
+  version: number,
+  isRead: boolean,
+): boolean | undefined | null {
+  const current = readMutations.get(emailId);
+  if (!current?.pending.delete(version)) return null;
+  current.confirmedState = isRead;
+  if (current.pending.size > 0) {
+    const latestVersion = Math.max(...current.pending.keys());
+    return current.pending.get(latestVersion);
+  }
+  readMutations.delete(emailId);
+  return current.confirmedState;
+}
+
+export function rollbackReadMutation(
+  emailId: string,
+  version: number,
+): boolean | undefined | null {
+  const current = readMutations.get(emailId);
+  if (!current?.pending.has(version)) return null;
+  const latestVersion = Math.max(...current.pending.keys());
+  current.pending.delete(version);
+  if (current.pending.size === 0) {
+    readMutations.delete(emailId);
+    return current.confirmedState;
+  }
+  if (version !== latestVersion) return null;
+  const nextVersion = Math.max(...current.pending.keys());
+  return current.pending.get(nextVersion);
+}
+
+function applyReadMutationStates(
+  qc: QueryClient,
+  states: Map<string, boolean | undefined | null>,
+  threadId?: string,
+) {
+  const resolved = new Map<string, boolean>();
+  for (const [emailId, state] of states) {
+    if (state === undefined) {
+      clearOptimisticOverrideProperty(emailId, "isRead");
+    } else if (state !== null) {
+      setOptimisticOverride(emailId, { isRead: state });
+      resolved.set(emailId, state);
+    }
+  }
+  if (resolved.size === 0) return;
+  qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+    mapInfiniteEmails(old, (emails) =>
+      emails.map((email) =>
+        resolved.has(email.id)
+          ? { ...email, isRead: resolved.get(email.id)! }
+          : email,
+      ),
+    ),
+  );
+  if (!threadId) return;
+  const thread = getCachedThread(threadId);
+  if (!thread) return;
+  setCachedThread(
+    threadId,
+    thread.map((message) =>
+      resolved.has(message.id)
+        ? { ...message, isRead: resolved.get(message.id)! }
+        : message,
+    ),
+  );
+}
+
+function refreshThreadAfterMutations(thread: {
+  threadId: string;
+  accountEmail?: string;
+}) {
+  void gmailMutationQueue
+    .flush()
+    .then(() => refreshCachedThread(thread.threadId, thread.accountEmail))
+    .catch(() => {});
+}
+
 /** Set optimistic property overrides for an email (read, star, etc.) */
 export function setOptimisticOverride(
   emailId: string,
@@ -389,6 +502,18 @@ export function setOptimisticOverride(
 /** Clear optimistic overrides — used on mutation error rollback. */
 export function clearOptimisticOverride(emailId: string) {
   optimisticOverrides.delete(emailId);
+}
+
+function clearOptimisticOverrideProperty(
+  emailId: string,
+  property: keyof EmailMessage,
+) {
+  const existing = optimisticOverrides.get(emailId);
+  if (!existing) return;
+  const props = { ...existing.props };
+  delete props[property];
+  if (Object.keys(props).length === 0) optimisticOverrides.delete(emailId);
+  else optimisticOverrides.set(emailId, { ...existing, props });
 }
 
 function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
@@ -503,14 +628,15 @@ interface EmailsPage {
   totalEstimate?: number;
 }
 
-export function useEmails(
-  view: string = "inbox",
+function emailQueryOptions(
+  view: string,
   search?: string,
   label?: string,
-  options?: { enabled?: boolean },
+  prefetchTimeoutMs?: number,
 ) {
-  const q = useInfiniteQuery({
-    queryKey: ["emails", view, search, label],
+  const queryKey = ["emails", view, search, label] as const;
+  return {
+    queryKey,
     queryFn: ({
       pageParam,
       signal,
@@ -531,17 +657,63 @@ export function useEmails(
       if (forceRefreshAt) {
         params.set("forceRefresh", String(forceRefreshAt));
       }
-      return apiFetch<EmailsPage>(`/api/emails?${params}`, { signal });
+      const requestSignal = prefetchTimeoutMs
+        ? AbortSignal.any([signal, AbortSignal.timeout(prefetchTimeoutMs)])
+        : signal;
+      return apiFetch<EmailsPage>(`/api/emails?${params}`, {
+        signal: requestSignal,
+      });
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
+    staleTime: search ? 30_000 : 60_000,
+    retry: false,
+  };
+}
+
+export function prefetchEmails(
+  queryClient: QueryClient,
+  view: string,
+  search?: string,
+  label?: string,
+) {
+  const queryKey = ["emails", view, search, label] as const;
+  const prefetchKey = ["email-prefetch", view, search, label] as const;
+  // Keep timeout/cancellation-only prefetch requests off the foreground cache
+  // key so a tab opened mid-prefetch always uses the normal query function.
+  return queryClient
+    .prefetchInfiniteQuery({
+      ...emailQueryOptions(view, search, label, EMAIL_PREFETCH_TIMEOUT_MS),
+      queryKey: prefetchKey,
+    })
+    .then(() => {
+      const data = queryClient.getQueryData(prefetchKey);
+      if (data && queryClient.getQueryData(queryKey) === undefined) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    })
+    .finally(() => {
+      queryClient.removeQueries({ queryKey: prefetchKey, exact: true });
+    });
+}
+
+export function useEmails(
+  view: string = "inbox",
+  search?: string,
+  label?: string,
+  options?: { enabled?: boolean },
+) {
+  const q = useInfiniteQuery({
+    ...emailQueryOptions(view, search, label),
+    // Keep the current list rendered while a search or tab query loads. Mail
+    // navigation is client-side, so a new query must not look like a reload.
+    placeholderData: keepPreviousData,
     // Gmail's per-user quota is tight. Keep pages modest and refetches
     // conservative; thread list hydration is quota-expensive even when batched.
     // Search queries get a short cache window so repeated renders/back
     // navigation do not re-hydrate the same expensive Gmail search immediately.
     // refetchOnWindowFocus stays off: with useInfiniteQuery it replays every
     // cached page (50+ Gmail calls each) on tab focus and trips the quota.
-    staleTime: search ? 30_000 : 60_000,
     // On error, back off (don't disable polling entirely). One transient
     // 429 / network blip used to stop auto-refresh forever — now we stretch
     // the interval based on consecutive failures, capped at 5 minutes, so the
@@ -558,7 +730,6 @@ export function useEmails(
       return base;
     },
     refetchOnWindowFocus: false,
-    retry: false,
     enabled: options?.enabled ?? true,
   });
 
@@ -569,6 +740,11 @@ export function useEmails(
     return applyRecentSentEmails(visible, view, search, label);
   }, [q.data, view, search, label]);
 
+  // Placeholder InfiniteData includes the previous query's page token. Keep
+  // pagination disabled until the new query owns the pages.
+  const canPaginate = !q.isPlaceholderData;
+  const hasCurrentQueryData = Boolean(q.data) && !q.isPlaceholderData;
+
   return {
     data,
     isLoading: q.isLoading,
@@ -577,26 +753,30 @@ export function useEmails(
     // Keep stale data visible when a background refetch fails (usually Gmail
     // quota cooldown). Showing the full error state while data exists makes
     // the inbox appear to flash/reload even though the old page is usable.
-    isError: q.isError && !q.data,
-    error: q.isError && !q.data ? toError(q.error) : null,
+    isError: q.isError && !hasCurrentQueryData,
+    error: q.isError && !hasCurrentQueryData ? toError(q.error) : null,
+    totalEstimate: q.data?.pages[0]?.totalEstimate,
     refetch: q.refetch,
-    hasNextPage: q.hasNextPage,
+    hasNextPage: canPaginate && q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
-    isFetchingNextPage: q.isFetchingNextPage,
-    isFetchNextPageError: q.isFetchNextPageError,
+    isFetchingNextPage: canPaginate && q.isFetchingNextPage,
+    isFetchNextPageError: canPaginate && q.isFetchNextPageError,
   };
 }
 
-export function useEmail(id: string | undefined) {
+export function useEmail(
+  id: string | undefined,
+  accountEmail: string | undefined,
+) {
   return useQuery<EmailMessage>({
-    queryKey: ["email", id],
+    queryKey: ["email", accountEmail, id],
     queryFn: () =>
       callAction<EmailMessage>(
         "get-email",
-        { id: id! },
+        { accountEmail: accountEmail!, id: id! },
         { method: "GET" },
       ).then(assertActionSuccess),
-    enabled: !!id,
+    enabled: !!id && !!accountEmail,
     retry: (failureCount, error) => !isAuthFailure(error) && failureCount < 1,
   });
 }
@@ -665,24 +845,80 @@ export function useMarkRead() {
         accountEmail,
         flag: isRead,
       }),
-    onMutate: async ({ id, isRead }) => {
+    onMutate: async ({ id, isRead, accountEmail, threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
+      const target = previous
+        .flatMap(([, data]) => flattenInfiniteEmails(data))
+        .find((email) => email.id === id);
+      const resolvedThreadId = threadId || target?.threadId || target?.id;
+      const previousThread = resolvedThreadId
+        ? getCachedThread(resolvedThreadId)
+        : undefined;
+      const previousReadState = previousThread?.find(
+        (message) => message.id === id,
+      )?.isRead;
+      const mutationVersion = beginReadMutation(
+        id,
+        previousReadState ?? target?.isRead,
+        isRead,
+      );
       setOptimisticOverride(id, { isRead });
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
           emails.map((e) => (e.id === id ? { ...e, isRead } : e)),
         ),
       );
-      return { previous };
+      const restartThread = resolvedThreadId
+        ? supersedeCachedThreadFetch(resolvedThreadId)
+        : false;
+      if (resolvedThreadId) {
+        if (previousThread) {
+          setCachedThread(
+            resolvedThreadId,
+            previousThread.map((message) =>
+              message.id === id ? { ...message, isRead } : message,
+            ),
+          );
+        }
+      }
+      return {
+        mutationVersion,
+        threadId: resolvedThreadId,
+        refreshThread:
+          resolvedThreadId && restartThread
+            ? { threadId: resolvedThreadId, accountEmail }
+            : undefined,
+      };
+    },
+    onSuccess: (_data, { id, isRead }, context) => {
+      if (!context) return;
+      applyReadMutationStates(
+        qc,
+        new Map([
+          [id, confirmReadMutation(id, context.mutationVersion, isRead)],
+        ]),
+        context.threadId,
+      );
     },
     onError: (_err, { id }, context) => {
-      clearOptimisticOverride(id);
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      const confirmedState = context
+        ? rollbackReadMutation(id, context.mutationVersion)
+        : null;
+      applyReadMutationStates(
+        qc,
+        new Map([[id, confirmedState]]),
+        context?.threadId,
+      );
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.refreshThread) {
+        refreshThreadAfterMutations(context.refreshThread);
+      }
+      delayedInvalidate(qc, [["emails"], ["labels"]]);
+    },
   });
 }
 
@@ -696,13 +932,22 @@ export function useMarkThreadRead() {
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
-      // Capture unread entries BEFORE optimistic update
       const allEmails =
         previous.flatMap(([, data]) => flattenInfiniteEmails(data)) ?? [];
-      const unreadIds = allEmails
-        .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
-        .map((e) => e.id);
       const previousThread = getCachedThread(threadId);
+      const unreadIds = new Set(
+        [...allEmails, ...(previousThread ?? [])]
+          .filter(
+            (email) =>
+              (email.threadId || email.id) === threadId && !email.isRead,
+          )
+          .map((email) => email.id),
+      );
+      const mutations = [...unreadIds].map((id) => ({
+        id,
+        version: beginReadMutation(id, false, true),
+      }));
+      const restartThread = supersedeCachedThreadFetch(threadId);
       // Set overrides so refetches don't revert read state
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
@@ -721,18 +966,44 @@ export function useMarkThreadRead() {
           previousThread.map((message) => ({ ...message, isRead: true })),
         );
       }
-      return { previous, overrideIds: [...unreadIds], previousThread };
+      return {
+        mutations,
+        refreshThread: restartThread
+          ? {
+              threadId,
+              accountEmail: allEmails.find(
+                (email) => (email.threadId || email.id) === threadId,
+              )?.accountEmail,
+            }
+          : undefined,
+      };
+    },
+    onSuccess: (_data, threadId, context) => {
+      const confirmed = new Map<string, boolean | undefined | null>();
+      for (const mutation of context?.mutations ?? []) {
+        confirmed.set(
+          mutation.id,
+          confirmReadMutation(mutation.id, mutation.version, true),
+        );
+      }
+      applyReadMutationStates(qc, confirmed, threadId);
     },
     onError: (_err, threadId, context) => {
-      for (const id of context?.overrideIds ?? []) {
-        clearOptimisticOverride(id);
+      const rollback = new Map<string, boolean | undefined | null>();
+      for (const mutation of context?.mutations ?? []) {
+        rollback.set(
+          mutation.id,
+          rollbackReadMutation(mutation.id, mutation.version),
+        );
       }
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.previousThread) {
-        setCachedThread(threadId, context.previousThread);
-      }
+      applyReadMutationStates(qc, rollback, threadId);
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: (_data, _error, _threadId, context) => {
+      if (context?.refreshThread) {
+        refreshThreadAfterMutations(context.refreshThread);
+      }
+      delayedInvalidate(qc, [["emails"], ["labels"]]);
+    },
   });
 }
 
@@ -1343,7 +1614,7 @@ export function useSendEmail() {
       }
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
     },
   });
 }
@@ -1465,19 +1736,129 @@ export function useContacts() {
 
 export const EMPTY_LABELS: Label[] = [];
 
-export function useLabels() {
-  return useQuery<Label[]>({
-    queryKey: ["labels"],
-    queryFn: () => apiFetch("/api/labels"),
-    // A failed background refresh must not erase the last complete label map.
-    // The layout still surfaces isError so an initial failure has an explicit
-    // retry path instead of looking like an empty mailbox.
-    placeholderData: (previousData) => previousData,
-    staleTime: 60_000,
-  });
+export function useLabels(accountEmails?: readonly string[]) {
+  const accountFilter = accountEmails?.length
+    ? [...new Set(accountEmails.map((email) => email.toLowerCase()))].sort()
+    : undefined;
+  return useActionQuery<Label[]>(
+    "list-labels",
+    accountFilter?.length ? { accountEmails: accountFilter } : {},
+    {
+      // A failed background refresh must not erase the last complete label map.
+      // The layout still surfaces isError so an initial failure has an explicit
+      // retry path instead of looking like an empty mailbox.
+      placeholderData: (previousData) => previousData,
+      staleTime: 60_000,
+    },
+  );
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
+
+let pinnedLabelsUpdateTail: Promise<void> = Promise.resolve();
+let savedFiltersUpdateTail: Promise<void> = Promise.resolve();
+let pinnedLabelsUpdateToken = 0;
+let pinnedLabelsOwnerEmail: string | undefined;
+let confirmedPinnedLabels: string[] | undefined;
+const savedFiltersBaseByPatch = new WeakMap<object, SavedMailFilter[]>();
+const pendingPinnedLabelsIntents: Array<{
+  base: string[];
+  next: string[];
+}> = [];
+
+function normalizePinnedLabelsOwner(email?: string): string | undefined {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || undefined;
+}
+
+function resetPinnedLabelsState(ownerEmail: string | undefined) {
+  if (pinnedLabelsOwnerEmail === ownerEmail) return;
+  pinnedLabelsOwnerEmail = ownerEmail;
+  pinnedLabelsUpdateTail = Promise.resolve();
+  pinnedLabelsUpdateToken += 1;
+  confirmedPinnedLabels = undefined;
+  pendingPinnedLabelsIntents.length = 0;
+}
+
+export function rebasePinnedLabelsUpdate(
+  confirmed: readonly string[],
+  base: readonly string[],
+  next: readonly string[],
+): string[] {
+  const unique = (values: readonly string[]) => [...new Set(values)];
+  const confirmedList = unique(confirmed);
+  const baseList = unique(base);
+  const nextList = unique(next);
+  const baseSet = new Set(baseList);
+  const nextSet = new Set(nextList);
+  const baseRetained = baseList.filter((id) => nextSet.has(id));
+  const nextRetained = nextList.filter((id) => baseSet.has(id));
+  const intentReordered = nextRetained.some(
+    (id, index) => id !== baseRetained[index],
+  );
+  const concurrentAdds = confirmedList.filter(
+    (id) => !baseSet.has(id) && !nextSet.has(id),
+  );
+
+  if (intentReordered) return [...nextList, ...concurrentAdds];
+
+  const rebased = confirmedList.filter(
+    (id) => !baseSet.has(id) || nextSet.has(id),
+  );
+  const addedAfter = new Map<string, number>();
+
+  for (const [index, id] of nextList.entries()) {
+    if (baseSet.has(id)) continue;
+
+    const previous = nextList
+      .slice(0, index)
+      .reverse()
+      .find((candidate) => baseSet.has(candidate) && nextSet.has(candidate));
+    const following = nextList
+      .slice(index + 1)
+      .find((candidate) => baseSet.has(candidate) && nextSet.has(candidate));
+
+    if (previous) {
+      const position = rebased.indexOf(previous);
+      if (position >= 0) {
+        const offset = addedAfter.get(previous) ?? 0;
+        rebased.splice(position + 1 + offset, 0, id);
+        addedAfter.set(previous, offset + 1);
+        continue;
+      }
+    }
+    if (following) {
+      const position = rebased.indexOf(following);
+      if (position >= 0) {
+        rebased.splice(position, 0, id);
+        continue;
+      }
+    }
+    rebased.push(id);
+  }
+
+  return rebased;
+}
+
+export function serializePinnedLabelsUpdate<T>(
+  task: () => Promise<T>,
+): Promise<T> {
+  const run = pinnedLabelsUpdateTail.then(task, task);
+  pinnedLabelsUpdateTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+function serializeSavedFiltersUpdate<T>(task: () => Promise<T>): Promise<T> {
+  const run = savedFiltersUpdateTail.then(task, task);
+  savedFiltersUpdateTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
 export function useSettings() {
   return useQuery<UserSettings>({
@@ -1489,27 +1870,140 @@ export function useSettings() {
 
 export function useUpdateSettings() {
   const qc = useQueryClient();
+  const { data: settings, isLoading: settingsLoading } = useSettings();
+  const ownerEmail = normalizePinnedLabelsOwner(settings?.email);
+
+  useEffect(() => {
+    resetPinnedLabelsState(ownerEmail);
+  }, [ownerEmail]);
+
   return useMutation({
-    mutationFn: (data: Partial<UserSettings>) =>
-      callAction(
-        "update-mail-preferences",
-        { ...data, requestSource: TAB_ID },
-        { method: "PUT" },
-      ),
+    mutationFn: (data: Partial<UserSettings>) => {
+      if ("savedFilters" in data) {
+        const base = savedFiltersBaseByPatch.get(data) ?? [];
+        return serializeSavedFiltersUpdate(() =>
+          callAction(
+            "update-mail-preferences",
+            {
+              ...data,
+              savedFiltersBase: base,
+              requestSource: TAB_ID,
+            },
+            { method: "PUT" },
+          ),
+        );
+      }
+      if (!("pinnedLabels" in data)) {
+        return callAction(
+          "update-mail-preferences",
+          { ...data, requestSource: TAB_ID },
+          { method: "PUT" },
+        );
+      }
+
+      const currentSettings = qc.getQueryData<UserSettings>(["settings"]);
+      const currentOwnerEmail = normalizePinnedLabelsOwner(
+        currentSettings?.email,
+      );
+      if (settingsLoading || !currentSettings || !currentOwnerEmail) {
+        throw new Error("Mail preferences are still loading");
+      }
+
+      return serializePinnedLabelsUpdate(() => {
+        if (pinnedLabelsOwnerEmail !== currentOwnerEmail) {
+          throw new Error("Mail preferences changed accounts");
+        }
+        const intent = pendingPinnedLabelsIntents.shift();
+        const confirmed = confirmedPinnedLabels ?? intent?.base ?? [];
+        const rebased = intent
+          ? rebasePinnedLabelsUpdate(confirmed, intent.base, intent.next)
+          : (data.pinnedLabels ?? []);
+
+        return callAction(
+          "update-mail-preferences",
+          {
+            ...data,
+            pinnedLabels: rebased,
+            ...(intent && { pinnedLabelsBase: intent.base }),
+            requestSource: TAB_ID,
+          },
+          { method: "PUT" },
+        );
+      });
+    },
     onMutate: async (data) => {
       // Optimistic update: immediately merge into cached settings
       await qc.cancelQueries({ queryKey: ["settings"] });
       const prev = qc.getQueryData<UserSettings>(["settings"]);
+      const hasPinnedLabels = "pinnedLabels" in data;
+      if ("savedFilters" in data) {
+        savedFiltersBaseByPatch.set(data, prev?.savedFilters ?? []);
+      }
+      if (hasPinnedLabels) {
+        const owner = normalizePinnedLabelsOwner(prev?.email);
+        if (settingsLoading || !prev || !owner) {
+          return { prev, data, token: undefined, owner };
+        }
+        resetPinnedLabelsState(owner);
+        pendingPinnedLabelsIntents.push({
+          base: prev?.pinnedLabels ?? [],
+          next: data.pinnedLabels ?? [],
+        });
+        if (!confirmedPinnedLabels) {
+          confirmedPinnedLabels = prev?.pinnedLabels ?? [];
+        }
+      }
+      const token = hasPinnedLabels ? ++pinnedLabelsUpdateToken : undefined;
       if (prev) {
         qc.setQueryData(["settings"], { ...prev, ...data });
       }
-      return { prev };
+      return {
+        prev,
+        data,
+        token,
+        owner: normalizePinnedLabelsOwner(prev?.email),
+      };
     },
     onError: (_err, _data, ctx) => {
-      // Rollback on error
-      if (ctx?.prev) qc.setQueryData(["settings"], ctx.prev);
+      if (!ctx?.prev) return;
+
+      const current = qc.getQueryData<UserSettings>(["settings"]);
+      if (!current) return;
+
+      if (
+        ctx.token !== undefined &&
+        (ctx.token !== pinnedLabelsUpdateToken ||
+          ctx.owner !== pinnedLabelsOwnerEmail)
+      ) {
+        return;
+      }
+
+      const rollback: Partial<UserSettings> = {};
+      let changed = false;
+      for (const key of Object.keys(ctx.data) as (keyof UserSettings)[]) {
+        if (current[key] === ctx.data[key]) {
+          Object.assign(rollback, { [key]: ctx.prev[key] });
+          changed = true;
+        }
+      }
+
+      if (!changed) return;
+      qc.setQueryData(["settings"], { ...current, ...rollback });
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+    onSuccess: (data, variables, _context) => {
+      if (
+        "pinnedLabels" in variables &&
+        normalizePinnedLabelsOwner(data.email) === pinnedLabelsOwnerEmail
+      ) {
+        confirmedPinnedLabels = data.pinnedLabels;
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      if ("savedFilters" in variables) {
+        savedFiltersBaseByPatch.delete(variables);
+      }
+      return qc.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
 }
 

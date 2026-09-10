@@ -64,4 +64,17 @@ describe("seekVideoToTime", () => {
 
     await rejected;
   });
+
+  it("rejects a stalled seek immediately when capture is aborted", async () => {
+    const fake = createFakeVideo({ readyState: 0 });
+    const controller = new AbortController();
+    const seeking = seekVideoToTime(fake.video, 1_200, {
+      signal: controller.signal,
+      timeoutMs: 5_000,
+    });
+
+    controller.abort();
+
+    await expect(seeking).rejects.toMatchObject({ name: "AbortError" });
+  });
 });

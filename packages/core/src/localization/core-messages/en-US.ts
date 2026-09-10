@@ -29,6 +29,73 @@ const messages = {
   "commands.mention": "Mention files, agents, or resources",
   "commands.new": "Same as /clear",
   "commands.plan": "Switch to read-only planning",
+  "onboarding.back": "Back",
+  "onboarding.chooseRole": "Choose your role",
+  "onboarding.customizeRole": "Let’s customize this for you.",
+  "onboarding.roleQuestion": "What best describes your role?",
+  "onboarding.roleProduct": "Product",
+  "onboarding.roleDesign": "Design",
+  "onboarding.roleDeveloper": "Developer",
+  "onboarding.roleMarketing": "Marketing",
+  "onboarding.roleSales": "Sales",
+  "onboarding.roleOps": "Ops",
+  "onboarding.roleIndividual": "Individual",
+  "onboarding.roleOther": "Other",
+  "onboarding.skipForNow": "Skip for now",
+  "onboarding.saveRoleError": "Could not save your role.",
+  "onboarding.builderActivateCredits": "Activate Builder.io free credits",
+  "onboarding.builderConnectCredits": "Connect Builder.io free credits",
+  "onboarding.builderActivateDescription":
+    "Create or reuse your Builder.io account and activate its free credits in one click.",
+  "onboarding.builderActiveCredits":
+    "Included with active Builder.io free credits",
+  "onboarding.builderCredits": "Included with Builder.io free credits",
+  "onboarding.builderActivateTitle": "Activate free credits",
+  "onboarding.builderAccountExistsTitle":
+    "You already have a Builder.io account",
+  "onboarding.builderAccountExistsDescription": "Log in to connect it.",
+  "onboarding.builderActivationDescription":
+    "We'll automatically create your Builder.io account for you in one click.",
+  "onboarding.builderCreateAndActivate": "Create and activate",
+  "onboarding.builderConsentPrefix": "By continuing, you agree to Builder.io's",
+  "onboarding.builderTerms": "Terms",
+  "onboarding.builderPrivacy": "Privacy",
+  "onboarding.builderConsentAnd": "and",
+  "onboarding.builderExistingAccount": "I have a Builder.io account",
+  "onboarding.builderActivating": "Activating Builder.io free credits",
+  "onboarding.builderConnecting": "Connecting Builder.io free credits",
+  "onboarding.builderProvisioningDescription":
+    "Creating or reusing your Builder.io account. This usually takes a few seconds.",
+  "onboarding.builderConnectionDescription":
+    "Finish the one-click connection in the new window.",
+  "onboarding.capability.llm.keySummary":
+    "Connect an AI provider or local model",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder storage or an S3-compatible bucket",
+  "onboarding.capability.voiceInput.label": "Voice input",
+  "onboarding.capability.voiceInput.keySummary":
+    "Browser speech recognition or speech-to-text",
+  "onboarding.capability.voiceInput.why":
+    "Voice input turns spoken requests into text; typing always works without it.",
+  "onboarding.capability.assetsImageGeneration.label": "Image generation",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder credits or an image provider key",
+  "onboarding.capability.assetsImageGeneration.why":
+    "Image generation is the core workflow for creating on-brand assets.",
+  "onboarding.capability.assetsVideoGeneration.label": "Video generation",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API key",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "Video generation is optional; the core Assets workflow is image generation.",
+  "onboarding.capability.clipsObjectStorage.label": "Object storage",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder storage or an S3-compatible bucket",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Recorded videos need durable object storage before they can be played back or shared.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Speech-to-text provider key",
+  "onboarding.capability.about": "About {{label}}",
+  "onboarding.capability.why": "Why {{label}} is needed",
+  "onboarding.openAiKeySettings": "Open AI key settings",
   "aboutAgentNative.title": "About Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environment",
@@ -38,6 +105,14 @@ const messages = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "UI",
+  "agentHostNudge.sidebarTitle": "Use {{agent}}'s chat",
+  "agentHostNudge.sidebarDescription":
+    "You're already chatting with {{agent}}. Ask it to work with this app directly.",
+  "agentHostNudge.promptTitle": "Ask {{agent}} instead",
+  "agentHostNudge.promptDescription":
+    "You can prompt {{agent}} to create or change this here.",
+  "agentHostNudge.useThisChat": "Use this chat",
+  "agentHostNudge.useThisPrompt": "Use this prompt",
   "common.cancel": "Cancel",
   "common.collapse": "Collapse",
   "common.connect": "Connect",
@@ -458,6 +533,23 @@ const messages = {
   "recovery.streamEnded":
     "The previous agent stream ended while the run was recovering. Continue or retry to reconnect to the run.",
   "recovery.reconnectBuilder": "Reconnect Builder.io",
+  "secrets.addCustomKeyNamed": "Add “{{name}}” as a custom key",
+  "secrets.customKey": "Custom key",
+  "secrets.customKeyHint": "Add any key by name",
+  "secrets.fromEnvironment": "Provided by the deployment environment.",
+  "secrets.managedInVault":
+    "Managed in the workspace Vault. Every app in this workspace uses this value.",
+  "secrets.openVault": "Open Vault",
+  "secrets.overridesVault":
+    "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
+  "secrets.overridesWorkspace":
+    "This personal key overrides the workspace value. Remove it to use the shared key.",
+  "secrets.setForWorkspace": "Set for everyone in this workspace.",
+  "secrets.sourceEnvironment": "Environment",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Workspace",
+  "secrets.statusUnavailable": "Unavailable",
+  "secrets.usePersonalKey": "Use a personal key instead",
   "selection.attached": "{{formattedCount}} characters of selection attached",
   "selection.attached_one":
     "{{formattedCount}} character of selection attached",

@@ -46,7 +46,7 @@ async function verifyCallerToken(
   if (payload.email !== expectedSigner) {
     // Log the caller's claimed email — service-account identities aren't
     // sensitive, and this is invaluable when debugging misconfig vs attack.
-    throw new Error(`unexpected signer: ${payload.email}`);
+    throw new Error(`unexpected signer: ${String(payload.email)}`);
   }
   return payload;
 }

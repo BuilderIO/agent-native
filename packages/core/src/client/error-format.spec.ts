@@ -236,11 +236,11 @@ describe("formatChatErrorText", () => {
     const normalized = normalizeChatError(raw, "authentication_error");
 
     expect(normalized.message).toBe(
-      "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+      "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
     );
     expect(normalized.details).toBe(raw);
     expect(formatChatErrorText(raw, undefined, "authentication_error")).toBe(
-      "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+      "Error: The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
     );
   });
 
@@ -248,12 +248,12 @@ describe("formatChatErrorText", () => {
     const normalized = normalizeChatError("401 status code (no body)");
 
     expect(normalized.message).toBe(
-      "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+      "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
     );
     expect(normalized.details).toBe("401 status code (no body)");
     expect(normalized.message).not.toContain("no body");
     expect(formatChatErrorText("401 status code (no body)")).toBe(
-      "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+      "Error: The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
     );
   });
 
@@ -262,7 +262,7 @@ describe("formatChatErrorText", () => {
       normalizeChatError("The model provider rejected the saved API key."),
     ).toMatchObject({
       message:
-        "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+        "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
     });
   });
 

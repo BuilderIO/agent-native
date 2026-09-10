@@ -1,7 +1,7 @@
 ---
-title: "Externe Agenten: Claude, ChatGPT, Codex, Cursor, Cowork"
-description: "Verbinden Sie Claude, ChatGPT, Codex, Cursor, Claude Cowork oder einen beliebigen MCP-kompatiblen Host mit einer gehosteten agentennativen App – und leiten Sie Artefakte dann mit MCP Apps und Deep Links zurück in das laufende UI."
-search: "Claude ChatGPT Claude Code Codex Cursor Claude Cowork MCP Apps Agent-nativ Verbindung lokaler Agent Tools externe Agenten"
+title: "Externe Agenten: Claude, ChatGPT, Codex, Cursor, Cowork, Grok"
+description: "Verbinden Sie Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok oder einen beliebigen MCP-kompatiblen Host mit einer gehosteten agentennativen App – und leiten Sie Artefakte dann mit MCP Apps und Deep Links zurück in das laufende UI."
+search: "Claude Anthropic ChatGPT OpenAI Claude Code Codex Cursor Claude Cowork Grok xAI MCP Apps Agent-nativ Verbindung lokaler Agent Tools externe Agenten"
 ---
 
 # Externe Agenten
@@ -93,7 +93,18 @@ Die Identitätsregel ist das Sicherheitsscharnier: Der Link besteht nur aus `vie
 
 ## Einfache Einrichtung {#easy-setup}
 
-Fügen Sie einen Remote-MCP-Connector zum Host hinzu, auf dem Sie Agent-Native verwenden möchten.
+Jede Agent-Native-App stellt eine kanonische MCP-URL bereit:
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+Öffnen Sie in der App **Settings → Integrations** und suchen Sie nach dem Ihnen
+bekannten Hostnamen: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT,
+OpenAI, Codex, Grok oder xAI. Das einzige Ergebnis für externe Hosts öffnet
+**Settings → MCP** und wählt die passendste Anleitung aus. Kopieren Sie die
+**MCP server URL** und fügen Sie sie in den KI-Host ein. Die URL ist die
+Basis-URL der bereitgestellten App plus `/mcp`.
 
 Für arbeitsplatz- oder app-übergreifendes Arbeiten verwenden Sie Dispatch:
 
@@ -115,17 +126,17 @@ https://<your-app>.agent-native.com/mcp
 
 Jede gehostete App verfügt auch über eine Hilfsseite unter
 `https://&lt;app&gt;/mcp/connect` mit dem kopierbaren URL und
-hostspezifische Registerkarten für Claude, ChatGPT, Cursor, Claude-Code, Codex und Andere.
+hostspezifische Registerkarten für Claude, ChatGPT, Cursor, Claude Code, Codex, Grok und Andere.
 
-### Der In-App-Tab Access {#access-tab}
+<a id="access-tab"></a>
 
-Apps, die `AgentTabsPage` einbinden, stellen denselben Verbindungsablauf im Tab
-**Access** bereit. Er zeigt die MCP-URL, bei Verfügbarkeit eine A2A-Agent-Card
-und die gemeinsamen Einrichtungsanleitungen für Claude, ChatGPT, Cursor, Claude
-Code, Codex und andere Clients. Beginnen Sie dort und öffnen Sie `/mcp/connect`
-für den vollständigen Ablauf und den Token-Fallback. Dies ist eine Oberfläche
-für die Verbindungseinrichtung, keine allgemeine Zugriffskonsole; Grants,
-Bereichsänderung und Widerruf werden in diesem Tab noch nicht verwaltet.
+### Die In-App-MCP-Einstellung {#mcp-settings}
+
+Die Standard-App-Einstellungen enthalten neben **Integrations** einen **MCP**-Tab.
+Er zeigt die kanonische MCP-URL der App, bei Verfügbarkeit eine A2A-Agent-Card
+und dieselben Einrichtungsanleitungen wie die vollständige Verbindungsseite.
+Verwenden Sie **Settings → MCP** als Startpunkt in der App oder öffnen Sie
+`/mcp/connect` direkt für den vollständigen Ablauf und den Token-Fallback.
 
 ### Claude und ChatGPT OAuth {#oauth}
 
@@ -134,10 +145,16 @@ Claude / Claude Desktop: Fügen Sie einen benutzerdefinierten Connector hinzu, f
 und aktivieren Sie den Connector in einem Chat. Der Claude-Code verwendet denselben URL: Fügen Sie ihn als
 Remote-HTTP MCP-Server, führen Sie `/mcp` aus und wählen Sie dann **Authentifizieren**.
 
-ChatGPT: Verwenden Sie einen Arbeitsbereich, in dem sich benutzerdefinierte MCP-Konnektoren oder Entwicklermodus-Apps befinden
-aktiviert, erstellen Sie einen benutzerdefinierten Connector/eine benutzerdefinierte App, fügen Sie denselben MCP URL ein, wählen Sie OAuth,
-Tools scannen/entdecken, sich mit Agent-Native anmelden, die Bereiche genehmigen und aktivieren
-der Connector in einem Chat.
+ChatGPT: Benutzerdefinierte MCP-Apps benötigen einen unterstützten ChatGPT-Web-
+Arbeitsbereich. Wenn Sie Zugriff haben, öffnen Sie **Settings → Apps → Advanced
+settings**, aktivieren Sie bei Bedarf den Entwicklermodus, wählen Sie **Create
+app**, fügen Sie dieselbe MCP-URL ein, wählen Sie OAuth, scannen Sie die Tools,
+melden Sie sich mit Agent-Native an, genehmigen Sie die angeforderten Bereiche
+und aktivieren Sie die App in einem Chat. Business-, Enterprise- und Edu-
+Arbeitsbereiche unterstützen vollständiges MCP einschließlich Schreibaktionen;
+Pro unterstützt Lesen und Abrufen im Entwicklermodus. Wenn **Apps** oder
+**Create app** fehlt, erlaubt Ihr Tarif oder Ihre Workspace-Richtlinie diese
+Einrichtung nicht.
 
 OAuth-Zuschüsse gelten pro Host und pro Benutzer. Der Host speichert die Token und
 vermittelt Tool-/Ressourcenaufrufe, sodass Inline-MCP-App-Vorschauen niemals Rohdaten erhalten
@@ -502,6 +519,8 @@ Dadurch steht jedem kompatiblen Host die gleiche App-Oberfläche zur Verfügung,
 
 In der Praxis sollte jede agentennative App mit beidem erstellt werden: MCP Apps für die Inline-Überprüfung/-Bearbeitung in fähigen Hosts und `link` für universelles Round-Trip zurück zur vollständigen App. CLI/Code-Editor-Clients, die keinen Iframe rendern, greifen auf den Deep Link zurück. Tools zur menschlichen Auswahl können diesem Fallback einen Einfügeschritt hinzufügen: Beispielsweise öffnet sich die Assets-Auswahl über den Fallback-Link, lässt den Benutzer Medien im Browser auswählen und kopiert dann eine Übergabezusammenfassung, die der Benutzer wieder in den Chat einfügt.
 
+Externe Agenten erhalten die echten Erstellungs-/Aktualisierungswerkzeuge der App – dieselben benannten Aktionen, die auch der In-App-Agent aufruft – sodass sie, wenn ein Nutzer neuen Inhalt anfordert (ein Design, eine Präsentation, ein Formular, ein Dokument), diesen direkt verfassen und mit diesen Werkzeugen speichern sollten, statt die Arbeit über `ask_app` zu delegieren. Aktionen, die mit `endsTurn: true` markiert sind – etwa ein In-App-Fragenformular, das auf die Antwort des Nutzers im Chat dieser App wartet – sind vor MCP, WebMCP und A2A verborgen, sofern nicht `mcpTool: true` gesetzt ist – siehe [endsTurn in Actions definieren](/docs/actions-defining). Tool-Eingaben und -Ergebnisse tragen auf WebMCP bis zu 500.000 Zeichen, sodass ein ganzer Bildschirm, eine Präsentation oder ein Dokument in einem einzigen Schreibvorgang Platz findet – siehe [WebMCP](/docs/webmcp). Seiten-lokale WebMCP-Aufrufe tragen die Browser-Tab-ID (denselben `getBrowserTabId()`-Wert, den auch das UI verwendet – siehe [Kontextbewusstsein](/docs/context-awareness)), sodass sich tab-bezogene Navigation und Auswahl auf genau den Tab auflösen, den der Agent gerade steuert, selbst wenn er verborgen ist.
+
 ### Erstklassige MCP App Bridge {#mcp-app-bridge}
 
 `embedApp()` startet vom `link`-Ziel der Aktion, erstellt eine kurzlebige Einbettungssitzung und startet die signierte App-Route. Das Claude-Web verwendet einen Single-Frame-Transplantationspfad. ChatGPT erhält einen kontrollierten Routen-Iframe mit `window.openai`-Host-ZxQ24QXZs. Alle Pfade rendern die normale React-Route. Direkt hydrierte Routen rufen `ui/update-model-context`, `ui/message`, `ui/open-link` und `ui/request-display-mode` über die Host-Brücke auf; Der ChatGPT-Pfad leitet dieselben Anforderungen über `agentNative.mcpHost.*` postMessage weiter. `embedApp({ height })` ist standardmäßig `560px` und wird auf `320-900px` geklemmt.
@@ -812,6 +831,7 @@ Der als Fallback gehostete `connect`-Fluss kopiert niemals das gemeinsame Geheim
 ## Verwandt {#related}
 
 - [MCP Apps](/docs/mcp-apps) – Erstellen von MCP-Apps, UIs, der Embed-Bridge und der Host-Bridge API.
+- [WebMCP](/docs/webmcp) – seitenlokale Tools, das 500.000-Zeichen-Limit für Eingabe/Ergebnis und der Browser-Tab-ID-Header.
 - [MCP Protocol](/docs/mcp-protocol) – der automatisch gemountete MCP-Server und das `ask-agent`-Meta-Tool.
 - [MCP Clients](/docs/mcp-clients) – die symmetrische Richtung: Ihre App nutzt lokale/remote MCP-Server.
 - [A2A Protocol](/docs/a2a-protocol) – das `ask-agent`-Metatool und JSON-RPC-Peer-Aufrufe.

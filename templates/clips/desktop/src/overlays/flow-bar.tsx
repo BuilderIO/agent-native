@@ -2,7 +2,7 @@ import { IconX } from "@tabler/icons-react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 
-import { onAudioLevel } from "../lib/transcription-engine";
+import { LiveWaveform } from "../components/live-waveform";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
@@ -26,9 +26,6 @@ export function FlowBar() {
   const [state, setState] = useState<FlowState>("recording");
   const [transcript, setTranscript] = useState("");
   const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const levelRef = useRef(0);
-  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -56,12 +53,6 @@ export function FlowBar() {
     );
 
     trackListen(
-      onAudioLevel(({ level }) => {
-        levelRef.current = Math.max(0, Math.min(1, level));
-      }),
-    );
-
-    trackListen(
       listen<{ text: string }>("voice:dictation-preview", (ev) => {
         setTranscript(ev.payload.text.trim());
       }),
@@ -84,76 +75,6 @@ export function FlowBar() {
     const preview = transcriptRef.current;
     if (preview) preview.scrollTop = preview.scrollHeight;
   }, [transcript]);
-
-  // Waveform canvas rendering loop — only runs during the "recording" state.
-  useEffect(() => {
-    if (state !== "recording") {
-      if (rafRef.current != null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      return;
-    }
-
-    const BAR_COUNT = 14;
-    const BAR_WIDTH = 2;
-    const BAR_GAP = 3;
-    // A bar waveform reads the same well below display refresh rate
-    // (60-120Hz); cap the actual draw work to ~20fps while still scheduling
-    // via rAF every frame so the loop still pauses when the bar is hidden.
-    const FRAME_INTERVAL_MS = 1000 / 20;
-    let lastDrawMs = 0;
-
-    function draw(timestamp: number) {
-      rafRef.current = requestAnimationFrame(draw);
-      if (timestamp - lastDrawMs < FRAME_INTERVAL_MS) return;
-      lastDrawMs = timestamp;
-
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const dpr = window.devicePixelRatio || 1;
-      const logicalW = BAR_COUNT * (BAR_WIDTH + BAR_GAP) - BAR_GAP;
-      const logicalH = 18;
-      if (canvas.width !== logicalW * dpr || canvas.height !== logicalH * dpr) {
-        canvas.width = logicalW * dpr;
-        canvas.height = logicalH * dpr;
-        canvas.style.width = `${logicalW}px`;
-        canvas.style.height = `${logicalH}px`;
-        ctx.scale(dpr, dpr);
-      }
-
-      ctx.clearRect(0, 0, logicalW, logicalH);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-
-      const level = levelRef.current;
-      const now = Date.now();
-
-      for (let i = 0; i < BAR_COUNT; i++) {
-        // Each bar gets a slightly different phase so the waveform looks
-        // organic rather than uniform. The level controls overall amplitude.
-        const phase = Math.sin(now / 200 + i * 0.6) * 0.5 + 0.5;
-        const barLevel = Math.max(0.08, level * phase);
-        const h = barLevel * logicalH;
-        const x = i * (BAR_WIDTH + BAR_GAP);
-        const y = (logicalH - h) / 2;
-        ctx.beginPath();
-        ctx.roundRect(x, y, BAR_WIDTH, h, 1);
-        ctx.fill();
-      }
-    }
-
-    rafRef.current = requestAnimationFrame(draw);
-
-    return () => {
-      if (rafRef.current != null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-    };
-  }, [state]);
 
   const handleCancel = () => {
     // Broadcast to the popover webview where voice-dictation.ts lives —
@@ -183,7 +104,12 @@ export function FlowBar() {
       <div className={`flow-bar flow-bar-${state}`}>
         {(state === "recording" || state === "idle") && (
           <div className="flow-bar-recording">
-            <canvas ref={canvasRef} className="flow-bar-canvas" />
+            <LiveWaveform
+              className="flow-bar-meter"
+              sources="mic"
+              bars={14}
+              barGap={3}
+            />
           </div>
         )}
 

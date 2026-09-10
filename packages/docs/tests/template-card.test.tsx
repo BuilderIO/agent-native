@@ -3,12 +3,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
-import { getTemplateDocsPath } from "../app/components/template-docs";
+import { sitePathForLocale } from "../app/components/docs-locale";
 import { TemplateCard, templates } from "../app/components/TemplateCard";
 import { docsI18nCatalog } from "../app/i18n";
 
 describe("TemplateCard", () => {
-  it("renders View Docs links to template docs pages", () => {
+  it("links the whole card to the app page", () => {
     for (const template of templates) {
       const html = renderToStaticMarkup(
         <MemoryRouter>
@@ -23,15 +23,12 @@ describe("TemplateCard", () => {
         </MemoryRouter>,
       );
 
-      expect(html).toContain(`href="${getTemplateDocsPath(template)}"`);
-      expect(html).not.toContain(
-        `href="/templates/${template.slug}">View Docs`,
+      expect(html).toContain(
+        `href="${sitePathForLocale(`/apps/${template.slug}`)}"`,
       );
-      if (template.screenshot) {
-        expect(html).toContain('loading="lazy"');
-        expect(html).toContain('decoding="async"');
-        expect(html).not.toContain(`rel="preload" as="image"`);
-      }
+      expect(html).toContain('loading="lazy"');
+      expect(html).toContain('decoding="async"');
+      expect(html).not.toContain(`rel="preload" as="image"`);
     }
   });
 });

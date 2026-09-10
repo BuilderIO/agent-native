@@ -124,9 +124,11 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
           },
         );
         if (!res.ok) throw new Error("Update failed");
-        queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
-        queryClient.invalidateQueries({ queryKey: ["extensions"] });
-        navigate(extensionPath(extensionId, name.trim()));
+        void queryClient.invalidateQueries({
+          queryKey: ["extension", extensionId],
+        });
+        void queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        void navigate(extensionPath(extensionId, name.trim()));
       } else {
         const res = await fetch(agentNativePath("/_agent-native/extensions"), {
           method: "POST",
@@ -135,8 +137,8 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
         });
         if (!res.ok) throw new Error("Create failed");
         const created = await res.json();
-        queryClient.invalidateQueries({ queryKey: ["extensions"] });
-        navigate(extensionPath(created.id, created.name ?? name.trim()));
+        void queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        void navigate(extensionPath(created.id, created.name ?? name.trim()));
       }
     } finally {
       setSaving(false);
@@ -162,7 +164,7 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
           queryKey: ["slot-installs", s.slotId],
         }),
       );
-      navigate("/extensions");
+      void navigate("/extensions");
     } catch {
       if (prev) queryClient.setQueryData(["extensions"], prev);
     } finally {
@@ -182,7 +184,9 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
         { method: "DELETE" },
       );
     } finally {
-      queryClient.invalidateQueries({ queryKey: ["slot-installs", slotId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["slot-installs", slotId],
+      });
     }
   };
 

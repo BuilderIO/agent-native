@@ -1,41 +1,22 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import type {
-  ContentDatabaseItem,
-  ContentDatabaseTableQuery,
-} from "../shared/api.js";
 import { blocksContentHash } from "../shared/blocks-field-identity.js";
-import { renderDatabaseCsv } from "../shared/database-csv-export.js";
-import { applyContentDatabaseTableQuery } from "../shared/database-query.js";
 import {
-  buildDocumentExport,
-  collectionItemsMarkdown,
-  type CollectionExportItem,
-} from "../shared/document-export.js";
+  renderCollectionCsv,
+  renderCollectionHtml,
+  renderCollectionMarkdownArchive,
+} from "../shared/database-collection-export.js";
+import { buildDocumentExport } from "../shared/document-export.js";
 import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
 } from "../shared/properties.js";
-import { resolveContentDocumentAccess } from "./_content-document-access.js";
-import { listContentOrganizationMemberships } from "./_content-space-access.js";
-import {
-  CONTENT_DATABASE_MAX_READ_LIMIT,
-  getDatabaseByDocumentId,
-} from "./_database-utils.js";
-import {
-  listPropertiesForAllDocumentDatabases,
-  listPropertiesForDatabase,
-  listPropertiesForDatabaseDocuments,
-  parseDatabaseViewConfig,
-} from "./_property-utils.js";
-
-const COLLECTION_EXPORT_ACCESS_CONCURRENCY = 8;
+import { buildCollectionExportProjection } from "./_collection-export.js";
+import { getDatabaseByDocumentId } from "./_database-utils.js";
+import { listPropertiesForAllDocumentDatabases } from "./_property-utils.js";
 
 const collectionSchema = z.object({
   scope: z.discriminatedUnion("kind", [
@@ -84,218 +65,24 @@ const collectionSchema = z.object({
     }),
   ]),
   propertyIds: z.array(z.string().min(1)).max(200),
+  includePrimaryBody: z.boolean().default(false),
+  blockPropertyIds: z.array(z.string().min(1)).max(200).default([]),
 });
 
 type CollectionExport = z.infer<typeof collectionSchema>;
 
-function assertValidQuery(
-  query: ContentDatabaseTableQuery,
-  propertyIds: ReadonlySet<string>,
-) {
-  for (const key of [...query.filters, ...query.sorts].map(({ key }) => key)) {
-    if (key !== "name" && !propertyIds.has(key)) {
-      throw new Error(`Unknown database property "${key}" in export query`);
-    }
-  }
-}
-
-async function databaseCsvContent(
-  documentId: string,
-  collection: CollectionExport,
-) {
-  const database = await getDatabaseByDocumentId(documentId);
-  if (!database) throw new Error("CSV export requires a database document");
-
-  const properties = await listPropertiesForDatabase(database.id);
-  const propertyById = new Map(
-    properties.map((property) => [property.definition.id, property]),
+function exportBaseName(title: string | null | undefined) {
+  return (
+    (title || "untitled")
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "untitled"
   );
-  if (new Set(collection.propertyIds).size !== collection.propertyIds.length) {
-    throw new Error("CSV export property IDs must be unique");
-  }
-  const selectedProperties = collection.propertyIds.map((propertyId) => {
-    const property = propertyById.get(propertyId);
-    if (!property) throw new Error(`Unknown database property "${propertyId}"`);
-    return property;
-  });
-
-  const query =
-    collection.scope.kind === "current_view" ? collection.scope.query : null;
-  const scope = collection.scope;
-  if (scope.kind === "current_view") {
-    const view = parseDatabaseViewConfig(database.viewConfigJson).views.find(
-      (candidate) => candidate.id === scope.viewId,
-    );
-    if (!view) throw new Error(`Database view "${scope.viewId}" not found`);
-    assertValidQuery(query!, new Set(propertyById.keys()));
-  }
-  const blocksAreNeeded =
-    selectedProperties.some((property) =>
-      isBlocksPropertyType(property.definition.type),
-    ) ||
-    (!!query &&
-      (query.search.trim().length > 0 ||
-        [...query.filters, ...query.sorts].some((constraint) => {
-          const property = propertyById.get(constraint.key);
-          return !!property && isBlocksPropertyType(property.definition.type);
-        })));
-
-  const userEmail = getRequestUserEmail();
-  const memberships = userEmail
-    ? await listContentOrganizationMemberships(userEmail)
-    : [];
-  const accessClauses = [accessFilter(schema.documents, schema.documentShares)];
-  for (const membership of memberships) {
-    accessClauses.push(
-      accessFilter(schema.documents, schema.documentShares, {
-        userEmail: userEmail!,
-        orgId: membership.orgId,
-      }),
-    );
-  }
-  const rows = await getDb()
-    .select({
-      item: schema.contentDatabaseItems,
-      document: schema.documents,
-    })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.documents,
-      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.databaseId, database.id),
-        isNull(schema.documents.trashedAt),
-        or(...accessClauses),
-      ),
-    )
-    .orderBy(
-      asc(schema.contentDatabaseItems.position),
-      asc(schema.contentDatabaseItems.createdAt),
-      asc(schema.contentDatabaseItems.id),
-    )
-    .limit(CONTENT_DATABASE_MAX_READ_LIMIT + 1);
-  if (rows.length > CONTENT_DATABASE_MAX_READ_LIMIT) {
-    throw new Error(
-      `CSV export supports up to ${CONTENT_DATABASE_MAX_READ_LIMIT} accessible rows.`,
-    );
-  }
-  if (blocksAreNeeded) {
-    for (const { item } of rows) {
-      if (
-        item.bodyHydrationStatus !== "hydrated" &&
-        item.bodyHydrationStatus !== "unavailable"
-      ) {
-        throw new Error(
-          `Database item "${item.documentId}" is not ready for export`,
-        );
-      }
-    }
-  }
-  const documents = rows.map((row) => row.document);
-  const propertiesByDocumentId = await listPropertiesForDatabaseDocuments(
-    database.id,
-    documents,
-  );
-  const queryItems: ContentDatabaseItem[] = rows.map((row) => ({
-    id: row.item.id,
-    databaseId: row.item.databaseId,
-    document: {
-      id: row.document.id,
-      parentId: row.document.parentId,
-      title: row.document.title,
-      content: row.document.content,
-      description: row.document.description ?? undefined,
-      icon: row.document.icon,
-      position: row.document.position,
-      isFavorite: row.document.isFavorite === 1,
-      hideFromSearch: row.document.hideFromSearch === 1,
-      createdAt: row.document.createdAt,
-      updatedAt: row.document.updatedAt,
-    },
-    position: row.item.position,
-    properties: propertiesByDocumentId.get(row.document.id) ?? [],
-  }));
-  const selectedRows = query
-    ? applyContentDatabaseTableQuery(queryItems, properties, query)
-    : queryItems;
-  return renderDatabaseCsv(
-    selectedProperties.map((property) => ({
-      id: property.definition.id,
-      name: property.definition.name,
-      property,
-    })),
-    selectedRows.map((row) => ({
-      title: row.document.title,
-      values: new Map(
-        row.properties.map((property) => [
-          property.definition.id,
-          property.value,
-        ]),
-      ),
-    })),
-  );
-}
-
-async function databaseExportContent(documentId: string) {
-  const database = await getDatabaseByDocumentId(documentId);
-  if (!database) return null;
-
-  const members = await getDb()
-    .select({
-      documentId: schema.contentDatabaseItems.documentId,
-      bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
-    })
-    .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, database.id))
-    .orderBy(
-      asc(schema.contentDatabaseItems.position),
-      asc(schema.contentDatabaseItems.createdAt),
-      asc(schema.contentDatabaseItems.id),
-    );
-  const items: CollectionExportItem[] = [];
-
-  for (
-    let offset = 0;
-    offset < members.length;
-    offset += COLLECTION_EXPORT_ACCESS_CONCURRENCY
-  ) {
-    const batch = members.slice(
-      offset,
-      offset + COLLECTION_EXPORT_ACCESS_CONCURRENCY,
-    );
-    const resolved = await Promise.all(
-      batch.map(async (member) => ({
-        member,
-        access: await resolveContentDocumentAccess(member.documentId),
-      })),
-    );
-
-    for (const { member, access } of resolved) {
-      if (!access || access.resource.trashedAt) continue;
-      if (
-        member.bodyHydrationStatus !== "hydrated" &&
-        member.bodyHydrationStatus !== "unavailable"
-      ) {
-        throw new Error(
-          `Database item "${member.documentId}" is not ready for export`,
-        );
-      }
-
-      items.push({
-        title: access.resource.title,
-        content: access.resource.content,
-      });
-    }
-  }
-
-  return collectionItemsMarkdown(items);
 }
 
 export default defineAction({
   description:
-    "Export a Content document as PDF-ready HTML, Markdown, or standalone HTML. PDF exports are print-ready HTML intended for the browser print dialog.",
+    "Export a Content page or bounded Database/View collection as CSV, a Markdown package, standalone HTML, or PDF-ready HTML for the browser print dialog.",
   schema: z.object({
     id: z.string().describe("Document ID (required)"),
     format: z
@@ -304,7 +91,9 @@ export default defineAction({
       .describe("Export format: pdf, markdown, html, or csv."),
     collection: collectionSchema
       .optional()
-      .describe("Database CSV export scope and selected property IDs."),
+      .describe(
+        "Database export scope, selected scalar property IDs, primary body choice, and selected additional Blocks property IDs.",
+      ),
     title: z
       .string()
       .max(500)
@@ -323,29 +112,65 @@ export default defineAction({
     if (!access) throw new Error(`Document "${id}" not found`);
 
     const doc = access.resource;
-    if (format === "csv") {
-      if (!collection)
-        throw new Error("CSV export requires collection options");
-      const content = await databaseCsvContent(doc.id, collection);
+    const database = await getDatabaseByDocumentId(doc.id);
+    const effectiveCollection: CollectionExport | null = collection
+      ? collection
+      : database && format !== "csv"
+        ? {
+            scope: { kind: "all_members" },
+            propertyIds: [],
+            includePrimaryBody: true,
+            blockPropertyIds: [],
+          }
+        : null;
+    if (format === "csv" && !effectiveCollection) {
+      throw new Error("CSV export requires collection options");
+    }
+    if (effectiveCollection) {
+      const projection = await buildCollectionExportProjection(
+        doc.id,
+        effectiveCollection,
+      );
+      const baseName = exportBaseName(doc.title);
+      const deepLink = buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId: doc.id },
+      });
+      if (format === "csv") {
+        const content = renderCollectionCsv(projection);
+        return {
+          id: doc.id,
+          title: doc.title || "Untitled",
+          format,
+          filename: `${baseName}.csv`,
+          mimeType: "text/csv;charset=utf-8",
+          content,
+          print: false,
+          deepLink,
+        };
+      }
+      if (format === "markdown") {
+        const archiveFiles = renderCollectionMarkdownArchive(projection);
+        return {
+          id: doc.id,
+          title: doc.title || "Untitled",
+          format,
+          filename: `${baseName}.zip`,
+          mimeType: "application/zip",
+          content: archiveFiles[0]?.content ?? "",
+          archiveFiles,
+          print: false,
+          deepLink,
+        };
+      }
       return {
-        id: doc.id,
-        title: doc.title || "Untitled",
-        format,
-        filename: `${
-          (doc.title || "untitled")
-            .replace(/[^a-z0-9]+/gi, "-")
-            .replace(/^-+|-+$/g, "")
-            .toLowerCase() || "untitled"
-        }.csv`,
-        mimeType: "text/csv;charset=utf-8",
-        content,
-        print: false,
-        deepLink: buildDeepLink({
-          app: "content",
-          view: "editor",
-          params: { documentId: doc.id },
-        }),
+        ...renderCollectionHtml(projection, format),
+        deepLink,
       };
+    }
+    if (format === "csv") {
+      throw new Error("CSV export requires collection options");
     }
     const properties = await listPropertiesForAllDocumentDatabases(doc);
     const blocksFields = properties
@@ -381,11 +206,10 @@ export default defineAction({
           identity,
         };
       });
-    const collectionContent = await databaseExportContent(doc.id);
     const payload = buildDocumentExport({
       id: doc.id,
       title: title ?? doc.title,
-      content: collectionContent ?? content ?? doc.content,
+      content: content ?? doc.content,
       updatedAt: doc.updatedAt,
       format,
       blocksFields,

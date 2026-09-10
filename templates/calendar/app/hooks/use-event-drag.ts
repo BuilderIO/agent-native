@@ -183,10 +183,10 @@ export function useEventDrag({
     },
     [
       events,
+      days,
       scrollContainerRef,
       getGridTop,
       getScrollTop,
-      startHour,
       hourHeight,
       timezone,
     ],

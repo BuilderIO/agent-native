@@ -1,3 +1,5 @@
+import { mcpSettingsMessagesForLocale } from "../../localization/mcp-settings-messages.js";
+import type { LocaleCode } from "../../localization/shared.js";
 import type { SettingsSearchEntry } from "./SettingsTabsPage.js";
 
 export type SettingsSectionId =
@@ -130,7 +132,7 @@ const SETTINGS_SECTION_SEARCH_META: Record<
   },
   database: {
     label: "Database",
-    keywords: "postgres sqlite neon supabase turso storage sql pglite",
+    keywords: "postgres neon supabase storage sql pglite",
   },
   uploads: {
     label: "File uploads",
@@ -188,7 +190,10 @@ export interface AgentSettingsSearchTab {
   searchEntries?: SettingsSearchEntry[];
 }
 
-export function getAgentSettingsSearchTabs(): AgentSettingsSearchTab[] {
+export function getAgentSettingsSearchTabs(
+  locale: LocaleCode = "en-US",
+): AgentSettingsSearchTab[] {
+  const mcpMessages = mcpSettingsMessagesForLocale(locale);
   return [
     {
       id: "agent",
@@ -203,6 +208,21 @@ export function getAgentSettingsSearchTabs(): AgentSettingsSearchTab[] {
       keywords:
         "integrations agent integrations connections secrets email browser tools",
       searchEntries: buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+    },
+    {
+      id: "mcp",
+      label: "MCP",
+      keywords:
+        "mcp model context protocol server url external agent host connect claude chatgpt cursor codex",
+      searchEntries: [
+        {
+          id: "mcp-server-url",
+          label: mcpMessages.mcpUrlLabel,
+          keywords:
+            "remote host external agent connect claude chatgpt cursor codex",
+          description: mcpMessages.mcpClientSetup,
+        },
+      ],
     },
     {
       id: "usage",

@@ -25,6 +25,7 @@ export interface GuestNotificationOptions {
 
 type GuestPromptUpdates = Partial<CalendarEvent> & {
   addGoogleMeet?: boolean;
+  removeGoogleMeet?: boolean;
   addZoom?: boolean;
 };
 

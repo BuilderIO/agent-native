@@ -69,6 +69,7 @@ export {
   cssBlendMode,
   gradientAngleDegreesFromHandles,
   gradientGeometryFromTransform,
+  gradientRayAngleDegreesFromHandles,
   handlePositionsFromArrayTransform,
   handlePositionsFromObjectTransform,
   invert2x3,
@@ -90,8 +91,14 @@ export {
   collectFallbackNodeIds,
   collectFontUsage,
   collectImageFillRefs,
+  figmaDrawnText,
+  hasPrivateUseCharacters,
   gradientAngleDegrees,
   mapFigmaNodeToHtml,
+  textDecorationCss,
+  textUnderlinePositionCss,
+  textTransformCss,
+  FIGMA_BLUR_RADIUS_TO_CSS_BLUR,
   type FidelityEntry,
   type FidelityLevel,
   type FidelityReport,
@@ -117,6 +124,7 @@ export {
 export {
   compareRasterImages,
   cropImageRegion,
+  downscaleImageToFit,
   extractCssColors,
   extractDominantColors,
   fingerprintMedia,
@@ -124,6 +132,7 @@ export {
   readBoundedResponseBytes,
   type CroppedImageRegion,
   type MediaFingerprint,
+  type ResizedImage,
 } from "./media.js";
 export {
   extractStaticWebsiteContext,

@@ -67,6 +67,31 @@ still reads as the active context. In table views, clicking a row title opens
 that side preview; inline title editing lives behind the hover pencil
 affordance.
 
+## Ordinary database setup through MCP
+
+Resolve an exact authorized space before creating an ordinary database. Creation,
+safe property edits, saved table-view edits, and recoverable database Trash/restore
+use caller intent keys and verified receipts. Repeat an unchanged request with its
+original key after a lost response; a different payload needs a different key.
+
+Database discovery returns the mutation target, schema revision, configuration
+revision, supported setup operations, and field write restrictions. Use these
+fresh values for the next mutation. Stale revisions require a read and a new
+decision, not an automatic overwrite. Property and view names are labels; their
+stable IDs identify edits. Sparse patches preserve omitted fields, and empty
+lists explicitly clear supported settings.
+
+Ordinary setup supports stored property types, additive options, metadata edits,
+the existing text natural key, and table presentation. It refuses destructive
+type/option changes, source-managed schema edits, and relationship/computed-field
+authoring. Source status is readable, but this surface does not define joins,
+row unions, source bindings, or write-mode changes. Discovery of a source-backed
+row never establishes permission to write its fields.
+
+Read back each changed object separately, then use its Open in Content link.
+Rows retain both membership and Page identity in their links. Trash remains
+recoverable; never substitute permanent deletion for ordinary cleanup.
+
 ## Property types
 
 Document properties are SQL-backed, Notion-style structured metadata rather

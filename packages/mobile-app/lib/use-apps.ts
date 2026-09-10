@@ -24,7 +24,7 @@ export function useApps() {
   }, []);
 
   useEffect(() => {
-    reload();
+    void reload();
     return AppStore.subscribe(reload);
   }, [reload]);
 

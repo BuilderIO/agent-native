@@ -363,6 +363,12 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       "const editableContent = renderBreakpointContent?.(",
     );
     expect(canvasSource).toContain("editableContent ? (");
+    expect(source).toContain(
+      "handleIframeContextMenu({ ...payload, breakpointWidthPx })",
+    );
+    expect(source).toContain(
+      "commentPinsHidden={commentsHidden || !screenIsActive}",
+    );
   });
 
   it("keeps the current responsive scope visible and offers a bounded-only option", () => {
@@ -373,10 +379,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
 
   it("keeps the responsive scope control inline beside the breakpoints", () => {
     expect(source).toContain(
-      'className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5"',
+      'className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center gap-[var(--design-baseline-half)]"',
     );
     expect(source).toContain(
-      'className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"',
+      'className="flex min-w-0 flex-1 flex-nowrap items-center gap-[var(--design-baseline-half)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"',
     );
     expect(source).toContain(
       'className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"',
@@ -520,6 +526,32 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     );
     expect(overviewScreensSource).toContain("!breakpointFramesHidden &&");
     expect(source).toContain("breakpointFramesHidden,");
+  });
+
+  it("optimistically patches breakpointSet and shows pending feedback on add/remove", () => {
+    expect(source).toContain("optimisticAddBreakpointData");
+    expect(source).toContain("optimisticRemoveBreakpointData");
+    expect(source).toContain("beginOptimisticBreakpointSetPatch");
+    expect(source).toContain("breakpointMutationPending={");
+    expect(source).toContain("addBreakpointMutation.isPending");
+    expect(source).toContain("removeBreakpointMutation.isPending");
+    const addHandler = source.slice(
+      source.indexOf("const addDesignBreakpoint"),
+      source.indexOf("const handleBreakpointBarAdd"),
+    );
+    expect(addHandler).toContain("beginOptimisticBreakpointSetPatch");
+    expect(addHandler.indexOf("optimisticAddBreakpointData")).toBeLessThan(
+      addHandler.indexOf("addBreakpointMutation"),
+    );
+    expect(addHandler).toContain("id: optimisticId");
+    const removeHandler = source.slice(
+      source.indexOf("const handleBreakpointBarRemove"),
+      source.indexOf("const handleBreakpointChangeWidth"),
+    );
+    expect(removeHandler).toContain("optimisticRemoveBreakpointData");
+    expect(
+      removeHandler.indexOf("optimisticRemoveBreakpointData"),
+    ).toBeLessThan(removeHandler.indexOf("removeBreakpointMutation"));
   });
 
   it("stamps the active breakpoint scope onto pending gesture edits", () => {

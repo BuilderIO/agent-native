@@ -15,6 +15,7 @@ import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath, appBasePath } from "./api-path.js";
 import { isInBuilderFrame } from "./builder-frame.js";
 import { PromptComposer } from "./composer/index.js";
+import { BuilderConnectPopover } from "./settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { useDevMode } from "./use-dev-mode.js";
 
@@ -194,6 +195,7 @@ export function NewWorkspaceAppFlow({
   // status read for anyone already connected.
   const connectFlow = useBuilderConnectFlow({
     enabled: failureReason === "builder-not-connected",
+    provisionAccount: true,
     trackingSource: "new_workspace_app_flow",
     trackingFlow: "create_app",
     onConnected: () => {
@@ -416,16 +418,17 @@ export function NewWorkspaceAppFlow({
               </div>
               {failureReason === "builder-not-connected" ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => connectFlow.start()}
-                    disabled={connectFlow.connecting}
-                    className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {connectFlow.connecting
-                      ? "Connecting..."
-                      : "Connect Builder"}
-                  </button>
+                  <BuilderConnectPopover flow={connectFlow}>
+                    <button
+                      type="button"
+                      disabled={connectFlow.connecting}
+                      className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {connectFlow.connecting
+                        ? "Connecting..."
+                        : "Connect Builder"}
+                    </button>
+                  </BuilderConnectPopover>
                   <a
                     href={LOCAL_APP_DOCS_URL}
                     target="_blank"

@@ -23,6 +23,7 @@ import {
   useCollaborativeDoc,
   _collabDocRegistrySizeForTests,
   _resetCollabDocRegistryForTests,
+  type CollabUser,
   type UseCollaborativeDocResult,
 } from "./client.js";
 
@@ -48,6 +49,13 @@ class FakeEventSource {
   }
 }
 
+function emptyStateResponse(): Response {
+  // A valid Yjs update for a document whose `content` text is "seed".
+  return new Response(
+    JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
+  );
+}
+
 /** Routes collab/poll endpoints to canned JSON and counts state fetches. */
 function makeFetchMock() {
   const stateFetches: string[] = [];
@@ -55,7 +63,7 @@ function makeFetchMock() {
     const url = String(input);
     if (/\/collab\/[^/]+\/state/.test(url)) {
       stateFetches.push(url);
-      return new Response(JSON.stringify({ state: null }));
+      return emptyStateResponse();
     }
     if (url.includes("/_agent-native/poll")) {
       return new Response(JSON.stringify({ version: 1, events: [] }));
@@ -75,7 +83,7 @@ function Probe({
 }: {
   docId: string | null;
   onResult: (result: UseCollaborativeDocResult) => void;
-  user?: { name: string; email: string; color: string };
+  user?: CollabUser;
 }) {
   const result = useCollaborativeDoc({ docId, user });
   onResult(result);
@@ -136,6 +144,8 @@ describe("useCollaborativeDoc connection registry", () => {
     );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(a?.ydoc).toBeTruthy();
@@ -146,6 +156,163 @@ describe("useCollaborativeDoc connection registry", () => {
     // Both subscribers converge on the same synced state.
     expect(a?.isSynced).toBe(true);
     expect(b?.isSynced).toBe(true);
+  });
+
+  it.each([
+    [
+      "403",
+      () => new Response("forbidden", { status: 403 }),
+      "forbidden-or-not-found",
+    ],
+    [
+      "404",
+      () => new Response("missing", { status: 404 }),
+      "forbidden-or-not-found",
+    ],
+    ["500", () => new Response("error", { status: 500 }), "server"],
+    [
+      "malformed success",
+      () => new Response(JSON.stringify({ state: null })),
+      "invalid-payload",
+    ],
+    [
+      "empty success",
+      () => new Response(JSON.stringify({ state: "" })),
+      "invalid-payload",
+    ],
+  ] as const)(
+    "fails closed for initial %s responses without posting an update on pagehide",
+    async (_name, response, category) => {
+      const mock = vi.fn(async (input: RequestInfo | URL) => {
+        if (/\/collab\/[^/]+\/state/.test(String(input))) return response();
+        return new Response(JSON.stringify({}));
+      });
+      vi.stubGlobal("fetch", mock);
+
+      let result: UseCollaborativeDocResult | undefined;
+      mount(<Probe docId="failed-doc" onResult={(r) => (result = r)} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(result?.isLoading).toBe(false);
+      expect(result?.isSynced).toBe(false);
+      expect(result?.initialization).toEqual({ status: "error", category });
+      expect(result?.ydoc).toBeNull();
+      expect(result?.awareness).toBeNull();
+      expect(FakeEventSource.instances).toHaveLength(0);
+      expect(
+        mock.mock.calls.filter(([input]) =>
+          /\/(?:update|awareness)$|\/_agent-native\/poll/.test(String(input)),
+        ),
+      ).toHaveLength(0);
+      result?.ydoc?.getText("content").insert(0, "must not send");
+      window.dispatchEvent(new Event("pagehide"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(
+        mock.mock.calls.filter(([input]) => String(input).includes("/update")),
+      ).toHaveLength(0);
+    },
+  );
+
+  it("fails closed after a network rejection and enables updates only after retry succeeds", async () => {
+    let attempts = 0;
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state/.test(url)) {
+        attempts++;
+        if (attempts === 1) throw new Error("offline");
+        return emptyStateResponse();
+      }
+      if (url.includes("/_agent-native/poll")) {
+        return new Response(JSON.stringify({ version: 1, events: [] }));
+      }
+      return new Response(JSON.stringify({ states: [] }));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    mount(<Probe docId="retry-doc" onResult={(r) => (result = r)} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result?.initialization).toEqual({
+      status: "error",
+      category: "network",
+    });
+    expect(result?.ydoc).toBeNull();
+    expect(FakeEventSource.instances).toHaveLength(0);
+    result?.ydoc?.getText("content").insert(0, "before retry");
+    window.dispatchEvent(new Event("pagehide"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) => String(input).includes("/update")),
+    ).toHaveLength(0);
+
+    act(() => result?.retry());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result?.initialization).toEqual({ status: "ready" });
+    expect(result?.isSynced).toBe(true);
+    expect(result?.ydoc?.getText("content").toString()).toBe("seed");
+    result?.ydoc?.getText("content").insert(0, "after retry");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) => String(input).includes("/update")),
+    ).toHaveLength(1);
+  });
+
+  it("discards partial Yjs mutations before retrying malformed initial state", async () => {
+    let attempts = 0;
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state/.test(url)) {
+        attempts++;
+        if (attempts === 1) {
+          // Truncated update: this version of Yjs applies "poison" before
+          // throwing, which proves validation must happen off the live doc.
+          return new Response(
+            JSON.stringify({
+              state: "AQGp2K6eCgAEAQdjb250ZW50BnBvaXNvbg==",
+            }),
+          );
+        }
+        return emptyStateResponse();
+      }
+      if (url.includes("/_agent-native/poll")) {
+        return new Response(JSON.stringify({ version: 1, events: [] }));
+      }
+      return new Response(JSON.stringify({ states: [] }));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    mount(<Probe docId="malformed-retry-doc" onResult={(r) => (result = r)} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result?.initialization).toEqual({
+      status: "error",
+      category: "invalid-payload",
+    });
+
+    act(() => result?.retry());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result?.initialization).toEqual({ status: "ready" });
+    expect(result?.ydoc?.getText("content").toString()).toBe("seed");
   });
 
   it("keeps different docIds on independent connections", async () => {
@@ -261,6 +428,57 @@ describe("useCollaborativeDoc connection registry", () => {
     });
     expect(_collabDocRegistrySizeForTests()).toBe(1);
     expect(result?.ydoc?.isDestroyed).toBe(false);
+  });
+
+  it("publishes and updates the local avatar in awareness identity", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="doc-avatar"
+        onResult={(next) => (result = next)}
+        user={{
+          name: "Local",
+          email: "local@example.com",
+          color: "local-color",
+          avatarUrl: "https://example.com/first.jpg",
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result?.awareness?.getLocalState()?.user).toEqual({
+      name: "Local",
+      email: "local@example.com",
+      color: "local-color",
+      avatarUrl: "https://example.com/first.jpg",
+    });
+
+    act(() => {
+      root.render(
+        <Probe
+          docId="doc-avatar"
+          onResult={(next) => (result = next)}
+          user={{
+            name: "Local",
+            email: "local@example.com",
+            color: "local-color",
+            avatarUrl: "https://example.com/second.jpg",
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result?.awareness?.getLocalState()?.user).toMatchObject({
+      avatarUrl: "https://example.com/second.jpg",
+    });
   });
 
   it("does not re-broadcast local awareness state when a REMOTE awareness event arrives (no storm)", async () => {

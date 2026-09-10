@@ -10,8 +10,8 @@ describe("docs content parsing", () => {
     expect(doc?.title).toBe("Agent Resources");
     expect(doc?.body).not.toContain("Which workspace doc?");
     expect(await loadDoc("workspace")).toBeUndefined();
-    expect(paths).toContain("/docs/agent-resources");
-    expect(paths).not.toContain("/docs/workspace");
+    expect(paths).toContain("/docs/agent-resources/");
+    expect(paths).not.toContain("/docs/workspace/");
   }, 15_000);
 
   it("keeps headings after self-closing MDX components in the TOC", async () => {
@@ -38,7 +38,7 @@ describe("docs content parsing", () => {
 
   it("keeps fenced markdown headings out of the search section index", async () => {
     const sections = (await buildSearchIndex()).filter(
-      (entry) => entry.path === "/docs/creating-templates",
+      (entry) => entry.path === "/docs/creating-templates/",
     );
 
     expect(sections.some((entry) => entry.section === "Actions")).toBe(false);

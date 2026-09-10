@@ -237,7 +237,9 @@ export default defineEventHandler(async (event) => {
   const session = await getSession(event).catch(() => null);
   const sessionEmail = session?.email;
   const viewerEmail = sessionEmail ?? null;
-  const resolvedViewerName = viewerName ?? sessionEmail?.split("@")[0] ?? null;
+  const resolvedViewerName = sessionEmail
+    ? session?.name?.trim() || viewerName || sessionEmail.split("@")[0] || null
+    : viewerName;
   const now = new Date().toISOString();
   const kind = body.kind;
   const scrubbedToEnd = body.scrubbedToEnd ?? false;

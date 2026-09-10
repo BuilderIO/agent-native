@@ -92,7 +92,7 @@ export function DataTable({
       const comparison =
         typeof aValue === "number" && typeof bValue === "number"
           ? aValue - bValue
-          : String(aValue).localeCompare(String(bValue));
+          : JSON.stringify(aValue).localeCompare(JSON.stringify(bValue));
       return sortDirection === "asc" ? comparison : -comparison;
     });
   }, [rows, sortColumn, sortDirection]);
@@ -228,7 +228,13 @@ function formatValue(value: unknown): string {
   if (value == null) return "-";
   if (typeof value === "number")
     return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(4);
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
+  return typeof value === "object"
+    ? JSON.stringify(value)
+    : typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ? String(value)
+      : "-";
 }
 
 function DataTableLoadingSkeleton() {

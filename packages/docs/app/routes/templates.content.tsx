@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -103,15 +104,16 @@ export default function ContentTemplate() {
     <TemplateLandingShell>
       <TemplateHero
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
         title={t("templateLanding.content.s003")}
+        customizeTemplate={template}
         description={<p className="m-0">{t("templateLanding.content.s004")}</p>}
         headingAction={
           <a
-            href="https://content.agent-native.com"
+            href={firstPartyAppUrl("https://content.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
             className="primary-button"
@@ -168,7 +170,7 @@ export default function ContentTemplate() {
                 aria-hidden="true"
                 size={24}
                 stroke={1.5}
-                style={{ color: template.color }}
+                className="text-[var(--fg-secondary)]"
               />
               <h3 className="m-0 text-xl font-medium leading-tight text-[var(--fg)]">
                 {item.title}
@@ -232,8 +234,7 @@ export default function ContentTemplate() {
                   <IconCheck
                     aria-hidden="true"
                     size={18}
-                    className="mt-0.5 shrink-0"
-                    style={{ color: template.color }}
+                    className="mt-0.5 shrink-0 text-[var(--fg-secondary)]"
                   />
                   <span>{item}</span>
                 </li>
@@ -254,7 +255,9 @@ export default function ContentTemplate() {
                 t("templateLanding.content.s035"),
               ].map((step, index) => (
                 <div key={step} className="flex gap-2 text-[var(--fg)]">
-                  <span style={{ color: template.color }}>{index + 1}.</span>
+                  <span className="text-[var(--fg-secondary)]">
+                    {index + 1}.
+                  </span>
                   <span>{step}</span>
                 </div>
               ))}
@@ -285,7 +288,7 @@ export default function ContentTemplate() {
             },
             {
               id: "content",
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { name: template.name },
               emphasized: true,
             },
           ]}
@@ -362,7 +365,7 @@ export default function ContentTemplate() {
       <TemplateLandingFaq
         idPrefix="content-faq"
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }

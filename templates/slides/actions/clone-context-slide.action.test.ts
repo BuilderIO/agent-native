@@ -65,13 +65,18 @@ vi.mock("@agent-native/creative-context/store", () => ({
   getCreativeContextItemByExternalId: mocks.getCreativeContextItemByExternalId,
 }));
 
-vi.mock("drizzle-orm", () => ({ eq: () => ({}) }));
+vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ and: conditions }),
+  eq: () => ({}),
+  isNull: () => ({}),
+}));
 
 vi.mock("../server/db/index.js", () => {
   const row = {
     id: "deck-1",
     title: "Target deck",
     ownerEmail: "owner@example.test",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     data: "",
   };
   const db = {
@@ -88,6 +93,7 @@ vi.mock("../server/db/index.js", () => {
           set: (values: { data: string }) => ({
             where: async () => {
               mocks.updatedDeck = JSON.parse(values.data);
+              return { rowsAffected: 1 };
             },
           }),
         }),

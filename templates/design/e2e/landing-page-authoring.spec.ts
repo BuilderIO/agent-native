@@ -1,5 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
+import { expandAllLayers } from "./helpers";
+
 /**
  * Each test asserts the Figma-correct outcome, so a failure is the bug report.
  * Test names cite clips.agent-native.com/share/jJM4kC0KAkUB.
@@ -130,12 +133,9 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  await page
-    .getByRole("button", { name: "Expand layer" })
-    .first()
-    .click()
-    .catch(() => {});
+  // No blind settle: expandAllLayers waits for the first layer row, which
+  // the editor cannot render before it has parsed the document.
+  await expandAllLayers(page);
   await page.waitForTimeout(800);
 }
 
@@ -210,12 +210,16 @@ async function addText(
   await page.waitForTimeout(1600);
 }
 
+/**
+ * Callers assert this list is EMPTY, so a swallowed read failure returning
+ * `[]` made "no toast" indistinguishable from "could not read". A zero-match
+ * locator already returns `[]`, so the catch only hid real errors.
+ */
 async function readToasts(page: Page): Promise<string[]> {
-  return page
+  const all = await page
     .locator("[data-sonner-toast], [role='alert']")
-    .allTextContents()
-    .then((all) => all.map((t) => t.trim()).filter(Boolean))
-    .catch(() => []);
+    .allTextContents();
+  return all.map((t) => t.trim()).filter(Boolean);
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -224,7 +228,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
   surfacedErrors = [];
   page.on("console", (msg) => {
     if (msg.type() !== "error") return;
@@ -312,6 +316,14 @@ test("8:35 — a frame adopts an element drawn inside it", async ({ page }) => {
   const html = await indexHtml(page, designId);
   const frameAt = html.indexOf('data-an-primitive="frame"');
   const textAt = html.indexOf('data-an-primitive="text"');
+  // indexOf's -1 is a sentinel, not a position: without these, a missing frame
+  // reads as "index -1" and the ordering comparison below becomes meaningless.
+  expect(frameAt, "no frame was committed to compare against").toBeGreaterThan(
+    -1,
+  );
+  expect(textAt, "no text was committed to compare against").toBeGreaterThan(
+    -1,
+  );
   const frameCloses = html.indexOf("</div>", frameAt);
   expect(
     textAt > frameAt && textAt < frameCloses,
@@ -595,7 +607,7 @@ test("4:39 — aligning a multi-selection moves every selected layer", async ({
     page.locator('[role="treeitem"][aria-selected="true"]'),
   ).toHaveCount(2);
 
-  await page.locator('button[aria-label="Start"]').first().click();
+  await page.locator('button[aria-label="Align top"]').first().click();
   await page.waitForTimeout(2500);
 
   const styles = primitiveStyles(await indexHtml(page, designId), "rectangle");

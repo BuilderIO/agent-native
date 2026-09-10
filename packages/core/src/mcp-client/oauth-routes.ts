@@ -4,8 +4,6 @@ import type { StoredOAuthClientInformation } from "@modelcontextprotocol/client"
 import {
   deleteCookie,
   defineEventHandler,
-  getChunkedCookie,
-  getCookie,
   getMethod,
   getQuery,
   setChunkedCookie,
@@ -14,7 +12,7 @@ import {
 } from "h3";
 
 import { getOrgContext } from "../org/context.js";
-import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
+import { encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
 import {
   CredentialStoreUnavailableError,
@@ -24,29 +22,53 @@ import { getH3App } from "../server/framework-request-handler.js";
 import {
   getAppBasePath,
   getAppUrl,
+  encodeOAuthState,
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
+import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   finishMcpOAuthAuthorization,
+  isGoogleWorkspaceMcpServer,
   startMcpOAuthAuthorization,
+  type McpOAuthCredentialBundle,
   type McpOAuthDiscoveryState,
   validateMcpOAuthCallbackIssuer,
 } from "./oauth-client.js";
+import {
+  MCP_OAUTH_FLOW_COOKIE as FLOW_COOKIE,
+  MCP_OAUTH_FLOW_COOKIE_CHUNK_SIZE as FLOW_COOKIE_CHUNK_SIZE,
+  MCP_OAUTH_FLOW_COOKIE_MAX_CHUNKS as FLOW_COOKIE_MAX_CHUNKS,
+  readMcpOAuthFlowCookiePayload,
+} from "./oauth-flow-cookie.js";
 import {
   addOAuthRemoteServer,
   listRemoteServers,
   normalizeServerName,
   replaceOAuthRemoteServer,
   validateRemoteUrl,
+  type StoredRemoteMcpServer,
   type RemoteMcpScope,
 } from "./remote-store.js";
 
-const FLOW_COOKIE = "an_mcp_oauth_flow";
+export function resolveTrustedMcpOAuthAuthorizationScope(
+  serverUrl: URL,
+): string | undefined {
+  return serverUrl.origin === "https://mcp.builder.io" &&
+    serverUrl.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !serverUrl.search &&
+    !serverUrl.hash
+    ? "mcp:publish:read"
+    : undefined;
+}
+
+function isBuilderPublishMcpServer(serverUrl: URL): boolean {
+  return resolveTrustedMcpOAuthAuthorizationScope(serverUrl) !== undefined;
+}
+
 const FLOW_TTL_SECONDS = 10 * 60;
-const FLOW_COOKIE_CHUNK_SIZE = 2_800;
-const FLOW_COOKIE_MAX_CHUNKS = 8;
-const CHUNKED_COOKIE_PREFIX = "__chunked__";
+const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
   serverOrigins: ReadonlyArray<string>;
@@ -92,13 +114,41 @@ export interface McpOAuthFlow {
   codeVerifier: string;
   clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
+  authorizationScope?: string;
   returnUrl?: string;
   replaceServerId?: string;
   expiresAt: number;
 }
 
 export interface McpOAuthRoutesOptions {
-  reconfigure: () => Promise<void>;
+  reconfigure: (target: {
+    scope: RemoteMcpScope;
+    scopeId: string;
+    server: StoredRemoteMcpServer;
+  }) => Promise<boolean>;
+}
+
+export function resolveMcpOAuthReturnPath(
+  connected: boolean,
+  flow: Pick<McpOAuthFlow, "name" | "returnUrl">,
+): string {
+  if (!connected) return "/settings/integrations";
+  return (
+    flow.returnUrl ??
+    `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`
+  );
+}
+
+export function bindMcpOAuthAuthorizationScope(
+  flow: Pick<McpOAuthFlow, "authorizationScope">,
+  credentials: McpOAuthCredentialBundle,
+): McpOAuthCredentialBundle {
+  return flow.authorizationScope && !credentials.tokens.scope
+    ? {
+        ...credentials,
+        tokens: { ...credentials.tokens, scope: flow.authorizationScope },
+      }
+    : credentials;
 }
 
 export function redirectWithStagedCookies(
@@ -240,16 +290,40 @@ async function handleMcpOAuthStart(
     };
   }
 
+  const useRootGoogleCallback =
+    isWorkspaceOAuthCallbackRelayEnabled() &&
+    isGoogleWorkspaceMcpServer(urlCheck.url!);
+  const workspaceAppId = useRootGoogleCallback
+    ? getWorkspaceOAuthAppId()
+    : undefined;
+  if (useRootGoogleCallback && !workspaceAppId) {
+    setResponseStatus(event, 400);
+    return { error: "Workspace MCP OAuth is missing its app callback id." };
+  }
   const redirectUri = resolveOAuthRedirectUri(
     event,
-    "/_agent-native/mcp/servers/oauth/callback",
+    useRootGoogleCallback
+      ? "/_agent-native/google/callback"
+      : "/_agent-native/mcp/servers/oauth/callback",
   );
   if (!redirectUri) {
     setResponseStatus(event, 400);
     return { error: "Invalid MCP OAuth redirect URI." };
   }
+  if (useRootGoogleCallback && !isRootGoogleCallback(redirectUri)) {
+    setResponseStatus(event, 400);
+    return {
+      error: "Google Workspace MCP OAuth must use the shared callback.",
+    };
+  }
 
-  const state = crypto.randomUUID();
+  const state = useRootGoogleCallback
+    ? encodeOAuthState({
+        redirectUri,
+        app: workspaceAppId,
+        provider: MCP_WORKSPACE_STATE_PROVIDER,
+      })
+    : crypto.randomUUID();
   const safeReturnUrl = returnUrl ? safeReturnPath(returnUrl) : undefined;
   const requestContext = {
     userEmail: session.email,
@@ -263,10 +337,14 @@ async function handleMcpOAuthStart(
       if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
         return null;
       }
+      const authorizationScope = resolveTrustedMcpOAuthAuthorizationScope(
+        urlCheck.url!,
+      );
       return startMcpOAuthAuthorization({
         serverUrl: urlCheck.url!.toString(),
         redirectUrl: redirectUri,
         state,
+        ...(authorizationScope ? { scope: authorizationScope } : {}),
         ...(clientInformation ? { clientInformation } : {}),
       });
     });
@@ -291,6 +369,13 @@ async function handleMcpOAuthStart(
       clientInformation: started.clientInformation,
       ...(started.discoveryState
         ? { discoveryState: started.discoveryState }
+        : {}),
+      ...(resolveTrustedMcpOAuthAuthorizationScope(urlCheck.url!)
+        ? {
+            authorizationScope: resolveTrustedMcpOAuthAuthorizationScope(
+              urlCheck.url!,
+            ),
+          }
         : {}),
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
       ...(reconnectServerId ? { replaceServerId: reconnectServerId } : {}),
@@ -339,6 +424,9 @@ export function resolveMcpOAuthScope(
   requestedScope: unknown,
   options?: { allowManagedOrgReconnect?: boolean },
 ): RemoteMcpScope | null {
+  if (isBuilderPublishMcpServer(serverUrl)) {
+    return requestedScope === "org" ? "org" : null;
+  }
   if (
     isManagedMcpOAuthServer(serverUrl) &&
     requestedScope === "org" &&
@@ -444,27 +532,33 @@ async function handleMcpOAuthCallback(
           iss,
         }),
     );
+    const credentials = bindMcpOAuthAuthorizationScope(
+      flow,
+      finished.credentials,
+    );
     const result = flow.replaceServerId
       ? await replaceOAuthRemoteServer(
           flow.scope,
           flow.scopeId,
           flow.replaceServerId,
-          finished.credentials,
+          credentials,
         )
       : await addOAuthRemoteServer(flow.scope, flow.scopeId, {
           name: flow.name,
           url: flow.url,
           description: flow.description,
-          credentials: finished.credentials,
+          credentials,
         });
     if (!result.ok) {
       setResponseStatus(event, 400);
       return { error: result.error };
     }
-    await options.reconfigure();
-    const returnPath =
-      flow.returnUrl ??
-      `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`;
+    const connected = await options.reconfigure({
+      scope: flow.scope,
+      scopeId: flow.scopeId,
+      server: result.server,
+    });
+    const returnPath = resolveMcpOAuthReturnPath(connected, flow);
     return redirectWithStagedCookies(
       event,
       getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
@@ -496,22 +590,10 @@ export function setMcpOAuthFlowCookie(
 }
 
 export function readMcpOAuthFlowCookie(event: H3Event): McpOAuthFlow | null {
-  const primaryCookie = getCookie(event, FLOW_COOKIE);
-  if (!primaryCookie) return null;
-  if (primaryCookie.startsWith(CHUNKED_COOKIE_PREFIX)) {
-    const rawCount = primaryCookie.slice(CHUNKED_COOKIE_PREFIX.length);
-    if (!/^\d+$/.test(rawCount)) return null;
-    const chunkCount = Number(rawCount);
-    if (chunkCount < 2 || chunkCount > FLOW_COOKIE_MAX_CHUNKS) return null;
-  }
-  const encrypted = getChunkedCookie(event, FLOW_COOKIE);
-  if (!encrypted) return null;
-  try {
-    const parsed = JSON.parse(decryptSecretValue(encrypted)) as McpOAuthFlow;
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
+  const result = readMcpOAuthFlowCookiePayload(event);
+  return result.status === "ok"
+    ? (result.value as unknown as McpOAuthFlow)
+    : null;
 }
 
 export function clearMcpOAuthFlowCookies(event: H3Event): void {
@@ -538,8 +620,40 @@ export function isValidMcpOAuthFlow(
     scopeMatches &&
     typeof flow.scopeId === "string" &&
     typeof flow.redirectUri === "string" &&
-    flow.redirectUri.includes("/_agent-native/mcp/servers/oauth/callback")
+    isMcpOAuthRedirectUri(flow.redirectUri)
   );
+}
+
+function getWorkspaceOAuthAppId(): string | undefined {
+  const appId = getAppBasePath().replace(/^\/+|\/+$/g, "");
+  return isValidWorkspaceAppIdFormat(appId) ? appId : undefined;
+}
+
+function isRootGoogleCallback(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.pathname === "/_agent-native/google/callback" &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    // coercion-ok: malformed callback URLs are invalid validation candidates.
+    return false;
+  }
+}
+
+function isMcpOAuthRedirectUri(value: string): boolean {
+  try {
+    const pathname = new URL(value).pathname;
+    return (
+      pathname.endsWith("/_agent-native/mcp/servers/oauth/callback") ||
+      pathname.endsWith("/_agent-native/google/callback")
+    );
+  } catch {
+    // coercion-ok: malformed redirect URLs are invalid validation candidates.
+    return false;
+  }
 }
 
 function isOrgAdmin(role: unknown): boolean {

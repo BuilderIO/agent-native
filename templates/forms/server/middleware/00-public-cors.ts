@@ -1,8 +1,8 @@
 /**
  * CORS for public embed endpoints.
  *
- * The public form schema (`/api/forms/public/*`) and submission
- * (`/api/submit/*`) routes are designed to be called cross-origin from
+ * The public form schema (`/api/forms/public/*`), file upload
+ * (`/api/upload/*`), and submission (`/api/submit/*`) routes are designed to be called cross-origin from
  * embedded feedback popovers, so they always return a permissive CORS
  * header. Preflight OPTIONS are short-circuited to 204 so they skip the
  * auth guard.
@@ -16,7 +16,11 @@ import {
   setResponseHeader,
 } from "h3";
 
-const PUBLIC_EMBED_PREFIXES = ["/api/forms/public/", "/api/submit/"];
+const PUBLIC_EMBED_PREFIXES = [
+  "/api/forms/public/",
+  "/api/upload/",
+  "/api/submit/",
+];
 
 export default defineEventHandler((event) => {
   const pathname = getRequestURL(event).pathname;
@@ -28,7 +32,7 @@ export default defineEventHandler((event) => {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "Content-Type,Accept",
+    "Content-Type,Accept,Idempotency-Key",
   );
 
   if (getMethod(event) === "OPTIONS") {

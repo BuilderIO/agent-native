@@ -4,6 +4,7 @@ import { z } from "zod";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 
 export default defineAction({
+  title: "Navigate Slides",
   description:
     "Navigate the UI to a specific deck, slide, or view. Writes a navigate command to application state which the UI reads and auto-deletes.",
   schema: z.object({

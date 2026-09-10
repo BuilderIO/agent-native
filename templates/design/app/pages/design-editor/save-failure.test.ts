@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
+  isDesignSaveSuccessConflict,
+  patchProofStatusAfterPersistedSave,
 } from "./save-failure";
 
 describe("Design save failure classification", () => {
@@ -59,5 +61,12 @@ describe("Design save failure classification", () => {
     ).toBe(
       "The edit was not applied because it would make the design HTML invalid.",
     );
+  });
+
+  it("treats a 200 stale-mirror skip as a conflict", () => {
+    expect(isDesignSaveSuccessConflict(false)).toBe(true);
+    expect(isDesignSaveSuccessConflict(true)).toBe(false);
+    expect(patchProofStatusAfterPersistedSave(false)).toBe("failed");
+    expect(patchProofStatusAfterPersistedSave(true)).toBe("applied");
   });
 });

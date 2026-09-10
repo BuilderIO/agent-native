@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -161,7 +162,7 @@ export default defineAction({
     "Insert a rendered Figma component or component set into a Design file, preserving Figma file/node/component provenance. Use list-figma-library-assets first to get renderUrl and metadata.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async (args) => {
+  run: async (args, context) => {
     const target = await resolveTarget(args);
     if (!target.designId) {
       throw new Error(
@@ -198,6 +199,7 @@ export default defineAction({
         : (files.find(isHtmlFile) ?? null);
     if (!file) throw new Error("No editable HTML design file found.");
     await assertAccess("design", file.designId, "editor");
+    await snapshotDesignBeforeAgentEdit(file.designId, context);
 
     // Read the LIVE base (collab text when present, else the SQL row) right
     // before transforming, and carry its versionHash through to the write

@@ -28,7 +28,7 @@ description: "빌드, 런타임, 시크릿, 호스팅 동작에 대한 프로덕
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 프리뷰에 안전한 Builder 인증 릴레이를 위한 전용 32자 이상 공유 HMAC 시크릿입니다. 인증이 격리된 프리뷰 데이터베이스에 반드시 도달해야 하는 경우에만, 승인된 기업 콜백 배포와 프리뷰 배포에 동일한 값을 설정하세요.                                                                                                                               |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 기업 콜백 전용, 정확히 신뢰할 수 있는 프리뷰 오리진의 쉼표로 구분된 허용 목록입니다(예: `https://0123456789abcdef01234567--content.netlify.app`). 기업 콜백 배포에서만 설정하세요. Netlify 오리진은 변경 불가능한, 배포별 24자리 16진수 퍼머링크를 사용해야 합니다. 변경 가능한 `deploy-preview-*` 별칭, 와일드카드, 도메인 접미사는 거부됩니다. |
 
-데이터베이스 연결 변수(`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, 앱별 `<APP_NAME>_DATABASE_URL`)는 [Database](/docs/server-database#production)에 있습니다.
+데이터베이스 연결 변수(`DATABASE_URL`, 앱별 `<APP_NAME>_DATABASE_URL`)는 [Database](/docs/server-database#production)에 있습니다.
 
 ## 프로덕션에 민감한 구성 {#env-required-prod}
 

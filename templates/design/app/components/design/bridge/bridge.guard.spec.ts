@@ -46,6 +46,8 @@ declare global {
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const designRoot = resolve(__dirname, "../../../..");
+import { AUTHORED_INLINE_STYLE_PROPERTIES } from "../edit-panel/interaction-state-helpers";
+
 const bridgeDir = __dirname;
 const generatedDir = join(designRoot, ".generated", "bridge");
 
@@ -6095,6 +6097,117 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge un-nests an absolute child dropped outside its clipped frame onto the screen",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #frame {
+        position: absolute; left: 40px; top: 40px;
+        width: 200px; height: 160px; background: #f4f4f8;
+        overflow: hidden;
+      }
+      #child {
+        position: absolute; left: 20px; top: 20px;
+        width: 60px; height: 40px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="frame" data-an-primitive="frame" data-agent-native-node-id="frame">
+      <div id="child" data-agent-native-node-id="child">Child</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      // Child center is at (90, 80). Drop on empty screen to the right of
+      // the frame (frame right edge is 240).
+      await page.mouse.click(90, 80);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.mouse.move(90, 80);
+      await page.mouse.down();
+      await page.mouse.move(100, 90, { steps: 4 });
+      const midDragVisible = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        const rect = child.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      await page.mouse.move(320, 80, { steps: 8 });
+      const pastEdgeVisible = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        const frame = document.querySelector<HTMLElement>("#frame")!;
+        const childRect = child.getBoundingClientRect();
+        const frameRect = frame.getBoundingClientRect();
+        return {
+          width: childRect.width,
+          height: childRect.height,
+          pastFrame: childRect.left >= frameRect.right - 1,
+        };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        return {
+          parentTag: child.parentElement?.tagName.toLowerCase() ?? null,
+          parentId: child.parentElement?.id ?? null,
+          position: window.getComputedStyle(child).position,
+        };
+      });
+
+      expect(midDragVisible).toBe(true);
+      expect(pastEdgeVisible.width).toBeGreaterThan(0);
+      expect(pastEdgeVisible.height).toBeGreaterThan(0);
+      expect(pastEdgeVisible.pastFrame).toBe(true);
+      expect(result.parentTag).toBe("body");
+      expect(result.parentId).not.toBe("frame");
+      expect(result.position).toBe("absolute");
+
+      const sibling = await page.evaluate(() => {
+        const frame = document.querySelector("#frame");
+        const child = document.querySelector("#child");
+        return frame?.nextElementSibling === child;
+      });
+      expect(sibling).toBe(true);
+
+      const messages = await readBridgeMessages(page);
+      const structureMessage = messages.find(
+        (m) => m.type === "visual-structure-change",
+      ) as { dropMode?: string; placement?: string } | undefined;
+      expect(structureMessage).toBeTruthy();
+      expect(structureMessage?.dropMode).toBe("absolute-container");
+      expect(structureMessage?.placement).toBe("after");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Multi-select group move (Figma parity) ──────────────────────────────────
 //
 // Dragging any member of a 2+ selection moves the WHOLE group: same delta per
@@ -6308,6 +6421,88 @@ it(
 );
 
 it(
+  "editor chrome bridge lifts SCROLLABLE clipping ancestors during a drag",
+  { timeout: 30_000 },
+  async () => {
+    // `auto` and `scroll` clip absolutely-positioned descendants to the
+    // ancestor's padding box exactly as `hidden` does, so a child dragged out
+    // of a scrollable frame disappears mid-gesture unless the lift covers them.
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { position: relative; background: white; }
+      #screen { position: absolute; left: 0; top: 0; width: 900px; height: 700px; }
+      #scroller {
+        position: absolute; left: 100px; top: 100px;
+        width: 300px; height: 200px; background: #f0f0f4;
+        overflow: auto;
+      }
+      #item {
+        position: absolute; left: 20px; top: 20px;
+        width: 60px; height: 40px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="screen" data-agent-native-node-id="screen">
+      <div id="scroller" data-an-primitive="frame" data-agent-native-node-id="scroller">
+        <div id="item" data-agent-native-node-id="item"></div>
+      </div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const box = (await page.locator("#item").boundingBox())!;
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      await page.mouse.click(startX, startY);
+      await page.waitForTimeout(30);
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX + 5, startY + 5, { steps: 2 });
+      // Mid-gesture, still holding: the scrollable ancestor must not clip.
+      await page.mouse.move(600, 500, { steps: 8 });
+      const midDrag = await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>("#scroller")!;
+        const cs = window.getComputedStyle(scroller);
+        return { overflow: cs.overflow, overflowX: cs.overflowX };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(50);
+
+      expect(midDrag).toEqual({
+        overflow: "visible",
+        overflowX: "visible",
+      });
+      // And the lift is undone once the gesture ends.
+      const afterDrop = await page.evaluate(
+        () =>
+          window.getComputedStyle(
+            document.querySelector<HTMLElement>("#scroller")!,
+          ).overflow,
+      );
+      expect(afterDrop).toBe("auto");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge round-trips flow child through freeform root, flow, and absolute container",
   { timeout: 30_000 },
   async () => {
@@ -6432,9 +6627,20 @@ it(
         "absolute-container",
         "flow-insert",
       ]);
-      expect(
-        structureMessages.every((message) => message.placement === "inside"),
-      ).toBe(true);
+      // Assert the list, not `every(...)`: a boolean says "false" without
+      // naming which drop reported the wrong placement.
+      //
+      // The freeform-root drop is deliberately "after", not "inside" — body
+      // has no node-id, so persist cannot resolve `html > body` as an
+      // inside-anchor, and anchoring after the current parent lands the same
+      // freeform root while giving persist a real id. See the comment above
+      // the `container === document.body` branch in editor-chrome.bridge.ts.
+      expect(structureMessages.map((message) => message.placement)).toEqual([
+        "after",
+        "inside",
+        "inside",
+        "inside",
+      ]);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -10008,6 +10214,8 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Cmd/Ctrl+Shift+R paste to replace", key: "r", shift: true },
   { name: "Cmd/Ctrl+Shift+H toggle hidden", key: "h", shift: true },
   { name: "Cmd/Ctrl+Shift+L toggle locked", key: "l", shift: true },
+  { name: "Cmd/Ctrl+Backslash toggle sidebars", key: "\\" },
+  { name: "Cmd/Ctrl+Shift+Backslash minimal UI", key: "|", shift: true },
   { name: "Cmd/Ctrl+G group", key: "g" },
   // BUG-UNGROUP-HOTKEY: Shift+Cmd+G ungroups (see useDesignHotkeys.ts's Cmd+G
   // family) — was dead because handleDesignHotkey itself swallowed it, not
@@ -10260,7 +10468,7 @@ it(
 );
 
 it(
-  "editor chrome bridge forwards Shift+\\ and leaves host Cmd/Ctrl chords alone",
+  "editor chrome bridge forwards Cmd+\\ and Cmd+Shift+\\, but leaves Shift+\\ and other host chords alone",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -10287,8 +10495,34 @@ it(
       await page.evaluate(() => {
         document.body.dispatchEvent(
           new KeyboardEvent("keydown", {
+            key: "\\",
+            code: "Backslash",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(60);
+      expect(await readBridgeMessages(page)).toContainEqual(
+        expect.objectContaining({
+          type: "design-hotkey",
+          code: "Backslash",
+          shiftKey: false,
+          metaKey: true,
+          ctrlKey: false,
+        }),
+      );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+      });
+
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
             key: "|",
             code: "Backslash",
+            metaKey: true,
             shiftKey: true,
             bubbles: true,
             cancelable: true,
@@ -10301,10 +10535,32 @@ it(
           type: "design-hotkey",
           code: "Backslash",
           shiftKey: true,
-          metaKey: false,
+          metaKey: true,
           ctrlKey: false,
         }),
       );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+      });
+
+      // The shifted chord is no longer the Design chrome shortcut.
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "|",
+            code: "Backslash",
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(60);
+      expect(
+        (await readBridgeMessages(page)).some(
+          (message) => message.type === "design-hotkey",
+        ),
+      ).toBe(false);
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
       });
@@ -10342,25 +10598,6 @@ it(
       await page.keyboard.down("Meta");
       await page.keyboard.press("l");
       await page.keyboard.up("Meta");
-      // Bare Cmd+\ belongs to the desktop coding host. Design only claims
-      // Figma's modifier-free Shift+\ minimize-UI chord.
-      await page.evaluate(() => {
-        document.body.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "\\",
-            code: "Backslash",
-            metaKey: true,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-      await page.waitForTimeout(60);
-
-      const messages = await readBridgeMessages(page);
-      expect(messages.some((message) => message.type === "design-hotkey")).toBe(
-        false,
-      );
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -11022,6 +11259,202 @@ it(
         gap: "10px",
       });
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+// ── Free-form drop affordance is decided by layout, not by tag ─────────────
+//
+// Clip B 14:15 (7xCLOlVaAj3n): dragging into a group whose Flow was set to
+// "Normal flow" drew a full-width insertion line — "insert between these
+// two" — when the truthful affordance is "put it inside this". A wrapNodes
+// group wrapper carries no data-an-primitive and generated containers are
+// often <section>, so the old tag check excluded exactly the free-form cases
+// the box was built for.
+
+it(
+  "hit-test bridge treats an unmarked absolute group with children as a free-form container",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      // Byte-for-byte the wrapper shape applyWrapNodes emits for Cmd+G.
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="group" data-agent-native-node-id="group" data-agent-native-layer-name="Group 2" style="position:absolute;left:300px;top:180px;width:220px;height:160px">
+          <div data-agent-native-node-id="c1" style="position:absolute;left:0;top:0;width:40px;height:40px"></div>
+          <div data-agent-native-node-id="c2" style="position:absolute;left:0;top:80px;width:40px;height:40px"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "group-container",
+                x: 460,
+                y: 260,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string; placement: string; dropMode: string };
+
+      expect(reply.anchorNodeId).toBe("group");
+      expect(reply.placement).toBe("inside");
+      expect(reply.dropMode).toBe("absolute-container");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "hit-test bridge treats an unmarked absolute <section> with children as a free-form container",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <section id="sec" data-agent-native-node-id="sec" style="position:absolute;left:300px;top:180px;width:220px;height:160px">
+          <div data-agent-native-node-id="c1" style="position:absolute;left:0;top:0;width:40px;height:40px"></div>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "section-container",
+                x: 460,
+                y: 300,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string; placement: string; dropMode: string };
+
+      expect(reply.anchorNodeId).toBe("sec");
+      expect(reply.dropMode).toBe("absolute-container");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it("keeps isAbsolutePrimitiveContainer identical in both bridges", () => {
+  const extract = (filename: string) => {
+    const source = readFileSync(join(bridgeDir, filename), "utf-8");
+    const start = source.indexOf(
+      "  function isAbsolutePrimitiveContainer(el: Element | null): boolean {",
+    );
+    expect(
+      start,
+      `${filename} defines isAbsolutePrimitiveContainer`,
+    ).toBeGreaterThan(-1);
+    const end = source.indexOf("\n  }\n", start);
+    return source.slice(start, end);
+  };
+
+  // The two bridges are separate injected IIFEs with no shared module, so the
+  // only thing keeping their drop-target answers from diverging is this pin.
+  expect(extract("hit-test.bridge.ts")).toBe(
+    extract("editor-chrome.bridge.ts"),
+  );
+});
+
+it("keeps the authored inline-style key list in sync with the bridge", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var INLINE_STYLE_PROPERTIES = [");
+  expect(start).toBeGreaterThan(-1);
+  const bridgeKeys = [
+    ...bridge
+      .slice(start, bridge.indexOf("];", start))
+      .matchAll(/"([a-zA-Z]+)"/g),
+  ].map((m) => m[1]);
+
+  // A commit patches ElementInfo.inlineStyles using the host-side copy of this
+  // list; a key the bridge reports but the host omits reads back stale.
+  expect([...AUTHORED_INLINE_STYLE_PROPERTIES]).toEqual(bridgeKeys);
+});
+
+// PR #3585 review: keying free-form on the CONTAINER's own position swept in
+// ordinary absolutely positioned cards and modals, whose children are in
+// normal flow and do have slots. Free-form is about how a container positions
+// its children.
+it(
+  "hit-test bridge keeps an absolute card with in-flow children on the flow path",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="card" data-agent-native-node-id="card" style="position:absolute;left:300px;top:180px;width:260px;background:#fff;padding:16px">
+          <h2 data-agent-native-node-id="t">Title</h2>
+          <p data-agent-native-node-id="p">Body copy</p>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            const rect = document
+              .querySelector("#card p")!
+              .getBoundingClientRect();
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "card-flow",
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as { dropMode: string };
+
+      expect(reply.dropMode).toBe("flow-insert");
     } finally {
       await browser.close();
     }

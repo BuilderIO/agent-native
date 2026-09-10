@@ -21,7 +21,11 @@ import {
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -61,26 +65,40 @@ const reuseLabelSchema = z
   });
 
 export default defineAction({
-  description: "Create a new document.",
+  description:
+    "Create and persist a new Markdown document in Content. Use parentId to nest it or spaceId for a top-level page; returns the stable document ID for subsequent get-document or edit-document calls.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z.object({
     id: z
       .string()
       .optional()
-      .describe("Pre-generated document ID (for optimistic UI)"),
+      .describe(
+        "Optional pre-generated document ID for optimistic UI; omit for normal external creation.",
+      ),
     spaceId: z
       .string()
       .optional()
-      .describe("Content space for a new top-level document"),
-    title: z.string().describe("Document title"),
-    content: z.string().optional().describe("Markdown content"),
+      .describe("Content space ID for a new top-level document."),
+    title: z.string().describe("Title for the new document."),
+    content: z
+      .string()
+      .optional()
+      .describe(
+        "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
+          'shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+      ),
     description: z
       .string()
       .optional()
       .describe(
         "Stable guidance describing why this page exists and what belongs in it",
       ),
-    parentId: z.string().nullish().describe("Parent document ID for nesting"),
-    icon: z.string().optional().describe("Emoji icon"),
+    parentId: z
+      .string()
+      .nullish()
+      .describe("Parent document ID for nesting; null creates a root page."),
+    icon: z.string().optional().describe("Optional emoji icon."),
     contextPackId: z
       .string()
       .optional()
@@ -228,7 +246,7 @@ export default defineAction({
       async () => {
         // Get max position among siblings
         const maxPos = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             parentId
@@ -242,7 +260,7 @@ export default defineAction({
                 ),
           );
 
-        const position = (maxPos[0]?.max ?? -1) + 1;
+        const position = nextAppendPosition(maxPos[0]?.max);
 
         await db.transaction(async (tx) => {
           await tx.insert(schema.documents).values({

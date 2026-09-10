@@ -1,8 +1,13 @@
-export const SLACK_MENTION_GUARD =
-  "Never post Slack messages, reactions, or plaintext @handles yourself. Call start-builder-for-item; that action pings Builder with a Slack user id. Plaintext @builder.io does not notify anyone.";
+import { renameFactoryActionMentions } from "./factory-action-names.js";
 
-export const SLACK_HANDOFF_INSTRUCTION = `Do not post to Slack, add reactions, or type @handles yourself. Call
-start-builder-for-item; that action adds 👀 and pings Builder with a Slack
+const PASTED_SKIP_GUARD =
+  "After classifying each processed item, call dispatch-factory-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.";
+
+const PASTED_MENTION_GUARD =
+  "Never post Slack messages, reactions, or plaintext @handles yourself. Call dispatch-factory-item; that action pings Builder with a Slack user id. Plaintext @builder.io does not notify anyone.";
+
+const PASTED_HANDOFF_INSTRUCTION = `Do not post to Slack, add reactions, or type @handles yourself. Call
+dispatch-factory-item; that action adds 👀 and pings Builder with a Slack
 user id so it runs /address-feedback. The posted reply points Builder at the
 relevant repository skills, the representative source, every related source,
 and the need to fix the underlying boundary across the whole cluster. Never
@@ -12,10 +17,52 @@ non-bug report.`;
 const OBSOLETE_SLACK_TAG_PARAGRAPH =
   /The Builder reply must tag @builder\.io[\s\S]*?non-bug\s+report\.\s*/;
 
+const RETIRED_UNCONDITIONAL_ROBOT_FACE = `For each item, call dispatch-factory-item with clearBug true or false,
+productUxImplications false unless it is a pure product or design decision
+with no single correct fix, a short reason, and reaction robot_face 🤖.`;
+
+const RETIRED_CLAIMED_SKIP_VIA_CLEAR_BUG_FALSE = `Look at the parent message reactions from get-slack-feedback-context. If the
+parent already has eyes 👀 or robot_face 🤖, it has already been looked at:
+call dispatch-factory-item with clearBug false, omit reaction, and a short
+reason that names the existing marker. Do not start Builder work on it.
+
+For every other item, call dispatch-factory-item with clearBug true or false,
+productUxImplications false unless it is a pure product or design decision
+with no single correct fix, and a short reason. Pass reaction robot_face 🤖
+only when clearBug is true and the parent has neither eyes nor robot_face.
+Omit reaction on skips.`;
+
+const RETIRED_CLAIMED_SKIP_OMITS_CLEAR_BUG = `Look at the parent message reactions from get-slack-feedback-context. If the
+parent already has eyes 👀 or robot_face 🤖, it has already been looked at:
+call dispatch-factory-item with alreadyClaimed true, omit reaction, and a short
+reason that names the existing marker. Do not start Builder work on it.
+
+For every other item, call dispatch-factory-item with clearBug true or false,
+productUxImplications false unless it is a pure product or design decision
+with no single correct fix, and a short reason. Pass reaction robot_face 🤖
+only when clearBug is true and the parent has neither eyes nor robot_face.
+Omit reaction on skips.`;
+
+export const SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS = `Look at the parent message reactions from get-slack-feedback-context. If the
+parent already has eyes 👀 or robot_face 🤖, it has already been looked at:
+call dispatch-factory-item with alreadyClaimed true (clearBug may be omitted
+or false), omit reaction, and a short reason that names the existing marker.
+Do not start Builder work on it.
+
+For every other item, call dispatch-factory-item with clearBug true or false,
+productUxImplications false unless it is a pure product or design decision
+with no single correct fix, and a short reason. Pass reaction robot_face 🤖
+only when clearBug is true and the parent has neither eyes nor robot_face.
+Omit reaction on skips.`;
+
+function stripPastedGuard(content: string, pasted: string): string {
+  return content.split(pasted).join("");
+}
+
 export function repairSlackFeedbackPrompt(content: string): string {
-  let next = content.replace(
+  let next = renameFactoryActionMentions(content).replace(
     OBSOLETE_SLACK_TAG_PARAGRAPH,
-    `${SLACK_HANDOFF_INSTRUCTION}\n\n`,
+    "",
   );
   if (/tag @builder\.io/i.test(next)) {
     next = next
@@ -23,8 +70,17 @@ export function repairSlackFeedbackPrompt(content: string): string {
       .filter((line) => !/tag @builder\.io/i.test(line))
       .join("\n");
   }
-  if (!next.includes(SLACK_MENTION_GUARD)) {
-    next = `${next.trimEnd()}\n\n${SLACK_MENTION_GUARD}\n`;
-  }
-  return next;
+  next = stripPastedGuard(next, PASTED_HANDOFF_INSTRUCTION);
+  next = stripPastedGuard(next, PASTED_MENTION_GUARD);
+  next = stripPastedGuard(next, PASTED_SKIP_GUARD);
+  next = next
+    .split(RETIRED_UNCONDITIONAL_ROBOT_FACE)
+    .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
+  next = next
+    .split(RETIRED_CLAIMED_SKIP_VIA_CLEAR_BUG_FALSE)
+    .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
+  next = next
+    .split(RETIRED_CLAIMED_SKIP_OMITS_CLEAR_BUG)
+    .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
+  return `${next.replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
 }

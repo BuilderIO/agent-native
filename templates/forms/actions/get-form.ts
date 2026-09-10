@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -23,7 +23,10 @@ export default defineAction({
   run: async (args) => {
     const access = await resolveAccess("form", args.id);
     if (!access) {
-      throw new Error(`Form ${args.id} not found`);
+      fail(`Form ${args.id} not found`, {
+        errorCode: "form_not_found",
+        statusCode: 404,
+      });
     }
 
     const row = access.resource as typeof schema.forms.$inferSelect;

@@ -1,12 +1,19 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Guards for on-demand `ensureTable()` DDL so the common already-migrated path
  * takes NO `ACCESS EXCLUSIVE` lock on Postgres.
  *
  * Lives in its own module (like `./widen-columns.js`) so stores can import it
- * without every `vi.mock("../db/client.js")` test needing to stub it: the
- * helpers resolve `isPostgres()` / `getDbExec()` through `client.js`, so a test
- * that mocks the client to SQLite (`isPostgres: () => false`) makes the
- * Postgres-only existence checks no-ops automatically.
+ * without every `vi.mock("../db/client.js")` test needing to stub it.
  *
  * ## Why
  *
@@ -24,14 +31,11 @@
  * missing — and when DDL must run, wrap it in a short `lock_timeout` so a
  * contended lock fails fast instead of hanging.
  *
- * All of this is Postgres-only behaviour gated on `isPostgres()`. On SQLite
- * (local dev) there is no such lock problem, so callers keep their existing
- * behaviour there.
+ * All checks and DDL in this module use Postgres system catalogs.
  */
 
 import {
   getDbExec,
-  isPostgres,
   isProductionServerlessFunctionRuntime,
   type DbExec,
 } from "./client.js";
@@ -78,8 +82,8 @@ function schemaEnsureDisabled(): boolean {
  *
  * `pgTableExists`/`pgIndexExists` accept an `injectedClient` because the hosted
  * multi-app gateway probes a DIFFERENT app's Postgres database from a process
- * whose own global DB may be absent or SQLite. A single shared `Set` would
- * answer one app's probe with another app's schema — a correctness bug, not a
+ * whose own global DB may be absent. A single shared `Set` would answer one
+ * app's probe with another app's schema - a correctness bug, not a
  * perf regression. The global singleton gets its own slot; injected clients are
  * keyed on the client object itself.
  */
@@ -145,15 +149,15 @@ async function loadSchemaSnapshot(
     const tables = new Set<string>();
     const columns = new Set<string>();
     for (const row of columnData) {
-      const table = String(row.table_name ?? "").toLowerCase();
-      const column = String(row.column_name ?? "").toLowerCase();
+      const table = stringifyValue(row.table_name ?? "").toLowerCase();
+      const column = stringifyValue(row.column_name ?? "").toLowerCase();
       if (!table) continue;
       tables.add(table);
       if (column) columns.add(`${table}.${column}`);
     }
     const indexes = new Set<string>();
     for (const row of indexData) {
-      const name = String(row.indexname ?? "").toLowerCase();
+      const name = stringifyValue(row.indexname ?? "").toLowerCase();
       if (name) indexes.add(name);
     }
     return { tables, columns, indexes };
@@ -226,9 +230,8 @@ async function snapshotHas(
 
 /**
  * True when running against Postgres AND the given table already exists in the
- * `public` schema. Returns `false` on SQLite (callers gate their own behaviour
- * there), for invalid identifiers, and `undefined` when `information_schema`
- * is unreadable. Unknown must stay distinct from absent: treating a timed-out
+ * `public` schema. Returns `false` for invalid identifiers and `undefined` when
+ * `information_schema` is unreadable. Unknown must stay distinct from absent: treating a timed-out
  * probe as missing starts a DDL lock storm on a busy serverless database.
  *
  * This is a plain read (no lock), so it never blocks on an `ACCESS EXCLUSIVE`
@@ -237,12 +240,8 @@ async function snapshotHas(
 export async function pgTableExists(
   table: string,
   injectedClient?: DbExec,
-  dialectIsPostgres?: boolean,
 ): Promise<boolean | undefined> {
-  // The dialect override travels with an injected client: a multi-app process
-  // (the hosted Realtime Gateway) probes a per-app Postgres DB even when its
-  // own process-global DB is absent or SQLite.
-  if (!(dialectIsPostgres ?? isPostgres()) || !PLAIN_IDENTIFIER.test(table)) {
+  if (!PLAIN_IDENTIFIER.test(table)) {
     return false;
   }
   if (schemaEnsureDisabled()) return true;
@@ -266,9 +265,9 @@ export async function pgTableExists(
 }
 
 /**
- * True when running against Postgres AND the given column already exists on the
- * given table in the `public` schema. Returns `false` on SQLite, for invalid
- * identifiers, and `undefined` when `information_schema` is unreadable.
+ * True when the given column already exists on the given table in `public`.
+ * Returns `false` for invalid identifiers and `undefined` when
+ * `information_schema` is unreadable.
  *
  * Plain read — no lock taken.
  */
@@ -277,7 +276,6 @@ export async function pgColumnExists(
   column: string,
   injectedClient?: DbExec,
 ): Promise<boolean | undefined> {
-  if (!isPostgres()) return false;
   if (!PLAIN_IDENTIFIER.test(table) || !PLAIN_IDENTIFIER.test(column)) {
     return false;
   }
@@ -306,9 +304,9 @@ export async function pgColumnExists(
 }
 
 /**
- * True when running against Postgres AND a valid, ready index with the given
- * name already exists in the `public` schema. Returns `false` on SQLite, for invalid
- * identifiers, and `undefined` when `pg_indexes` is unreadable.
+ * True when a valid, ready index with the given name exists in `public`.
+ * Returns `false` for invalid identifiers and `undefined` when `pg_indexes`
+ * is unreadable.
  *
  * `CREATE INDEX` (without CONCURRENTLY) takes a `SHARE` lock that blocks
  * writes, so on a fresh background-worker process behind a concurrent
@@ -318,12 +316,8 @@ export async function pgColumnExists(
 export async function pgIndexExists(
   indexName: string,
   injectedClient?: DbExec,
-  dialectIsPostgres?: boolean,
 ): Promise<boolean | undefined> {
-  if (
-    !(dialectIsPostgres ?? isPostgres()) ||
-    !PLAIN_IDENTIFIER.test(indexName)
-  ) {
+  if (!PLAIN_IDENTIFIER.test(indexName)) {
     return false;
   }
   if (schemaEnsureDisabled()) return true;
@@ -381,11 +375,8 @@ export async function pgIndexExists(
  *        The caller's `_initPromise` rejects and the next call retries instead
  *        of running forever against absent schema.
  *
- * On SQLite the probe is always `false` (helpers no-op there) and the SQLite
- * branch of each store keeps its own create-then-catch behaviour, so this is a
- * Postgres-path primitive in practice. Returns `true` when the object exists
- * after this call (either pre-existing-after-timeout-race or freshly created),
- * `false` only when it already existed up front (no DDL issued).
+ * Returns `true` when the object exists after this call and `false` only when
+ * it already existed up front.
  */
 export async function ensureSchemaObject(options: {
   /** Lock-free existence check; `true` ⇒ present, `undefined` ⇒ unreadable. */
@@ -398,11 +389,8 @@ export async function ensureSchemaObject(options: {
   lockTimeout?: string;
   /** Injectable client for tests. */
   injectedClient?: DbExec;
-  /** Dialect override for injected per-app clients; defaults to the global. */
-  dialectIsPostgres?: boolean;
 }): Promise<boolean> {
-  const { probe, ddl, label, lockTimeout, injectedClient, dialectIsPostgres } =
-    options;
+  const { probe, ddl, label, lockTimeout, injectedClient } = options;
   const initiallyExists = await probe();
   if (initiallyExists === true) return false;
   if (initiallyExists === undefined) {
@@ -413,7 +401,6 @@ export async function ensureSchemaObject(options: {
   const ran = await runGuardedDdl(ddl, {
     lockTimeout,
     injectedClient,
-    dialectIsPostgres,
   });
   // The cached picture predates this object. Drop it before anyone probes again,
   // or a sibling `ensureTable` in the same boot is told the object it just
@@ -441,9 +428,7 @@ export async function ensureSchemaObject(options: {
 }
 
 /**
- * Convenience wrapper: ensure a TABLE exists (probe via `pgTableExists`).
- * No-op-returns `false` on SQLite (probe is always false there) — callers run
- * the SQLite create on their own branch, so this is used on the Postgres path.
+ * Convenience wrapper: ensure a table exists using `pgTableExists`.
  */
 export async function ensureTableExists(
   table: string,
@@ -451,17 +436,14 @@ export async function ensureTableExists(
   options: {
     lockTimeout?: string;
     injectedClient?: DbExec;
-    dialectIsPostgres?: boolean;
   } = {},
 ): Promise<boolean> {
   return ensureSchemaObject({
-    probe: () =>
-      pgTableExists(table, options.injectedClient, options.dialectIsPostgres),
+    probe: () => pgTableExists(table, options.injectedClient),
     ddl: createSql,
     label: `table ${table}`,
     lockTimeout: options.lockTimeout,
     injectedClient: options.injectedClient,
-    dialectIsPostgres: options.dialectIsPostgres,
   });
 }
 
@@ -534,24 +516,17 @@ export async function ensureIndexExists(
   options: {
     lockTimeout?: string;
     injectedClient?: DbExec;
-    dialectIsPostgres?: boolean;
   } = {},
 ): Promise<boolean> {
-  if ((options.dialectIsPostgres ?? isPostgres()) && !schemaEnsureDisabled()) {
+  if (!schemaEnsureDisabled()) {
     await dropInvalidIndex(indexName, options.injectedClient ?? getDbExec());
   }
   return ensureSchemaObject({
-    probe: () =>
-      pgIndexExists(
-        indexName,
-        options.injectedClient,
-        options.dialectIsPostgres,
-      ),
+    probe: () => pgIndexExists(indexName, options.injectedClient),
     ddl: createIndexSql,
     label: `index ${indexName}`,
     lockTimeout: options.lockTimeout,
     injectedClient: options.injectedClient,
-    dialectIsPostgres: options.dialectIsPostgres,
   });
 }
 
@@ -569,16 +544,10 @@ export async function ensureIndexExistsConcurrently(
   createIndexSql: string,
   options: {
     injectedClient?: DbExec;
-    dialectIsPostgres?: boolean;
   } = {},
 ): Promise<boolean> {
-  if (!(options.dialectIsPostgres ?? isPostgres())) return false;
   const client = options.injectedClient ?? getDbExec();
-  const initiallyExists = await pgIndexExists(
-    indexName,
-    client,
-    options.dialectIsPostgres,
-  );
+  const initiallyExists = await pgIndexExists(indexName, client);
   if (initiallyExists === true) return false;
   if (initiallyExists === undefined) {
     throw new Error(
@@ -596,11 +565,7 @@ export async function ensureIndexExistsConcurrently(
 
   await client.execute(createIndexSql);
   invalidateSchemaSnapshot(client);
-  const existsAfterCreate = await pgIndexExists(
-    indexName,
-    client,
-    options.dialectIsPostgres,
-  );
+  const existsAfterCreate = await pgIndexExists(indexName, client);
   if (existsAfterCreate !== true) {
     throw new Error(
       `ensureIndexExistsConcurrently: index "${indexName}" is still missing after CREATE INDEX CONCURRENTLY`,
@@ -613,7 +578,7 @@ export async function ensureIndexExistsConcurrently(
 export function isLockTimeoutError(err: unknown): boolean {
   const anyErr = err as { code?: unknown; message?: unknown } | null;
   if (anyErr?.code === "55P03") return true;
-  const msg = String(anyErr?.message ?? anyErr ?? "");
+  const msg = stringifyValue(anyErr?.message ?? anyErr ?? "");
   return /lock[_ ]?timeout|canceling statement due to lock timeout/i.test(msg);
 }
 
@@ -632,8 +597,6 @@ export function isLockTimeoutError(err: unknown): boolean {
  * contended boot retries, and the caller's memoization should still resolve so
  * the path isn't retried in a tight loop. Any non-lock-timeout error rethrows.
  *
- * SQLite path: no lock problem — just run the DDL directly.
- *
  * @returns `true` if the DDL ran to completion, `false` if it was skipped due to
  *          a lock-timeout (so the caller can decide whether to log).
  */
@@ -643,14 +606,9 @@ export async function runGuardedDdl(
     lockTimeout?: string;
     idleInTransactionTimeout?: string;
     injectedClient?: DbExec;
-    dialectIsPostgres?: boolean;
   } = {},
 ): Promise<boolean> {
   const client = options.injectedClient ?? getDbExec();
-  if (!(options.dialectIsPostgres ?? isPostgres())) {
-    await client.execute(ddl);
-    return true;
-  }
 
   const lockTimeout = options.lockTimeout ?? "3s";
   // Comfortably longer than any DDL this guard runs (it only ever executes

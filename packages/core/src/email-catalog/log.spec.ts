@@ -4,16 +4,21 @@ const execute = vi.fn(async () => ({ rows: [] }));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
-  getDialect: () => "sqlite",
-  isPostgres: () => false,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn(async () => undefined),
+  ensureColumnExists: vi.fn(async () => undefined),
   ensureIndexExists: vi.fn(async () => undefined),
+  ensureColumnExists: vi.fn(async () => undefined),
 }));
 
-import { getEmailSendStats, listEmailLog, recordEmailSend } from "./log.js";
+import {
+  getEmailLogEntryBody,
+  getEmailSendStats,
+  listEmailLog,
+  recordEmailSend,
+} from "./log.js";
 
 describe("email log app scoping", () => {
   beforeEach(() => {
@@ -44,7 +49,160 @@ describe("email log app scoping", () => {
         sql: expect.stringContaining(
           "WHERE org_id = ? AND app = ? AND template_id = ?",
         ),
-        args: ["org-1", "calendar", "calendar.booking-confirmed", 25],
+        args: ["org-1", "calendar", "calendar.booking-confirmed", 25, 0],
+      }),
+    );
+  });
+
+  it("never selects the html/text body columns", async () => {
+    await listEmailLog({ orgId: "org-1", app: "calendar" });
+    const call = execute.mock.calls[0][0] as { sql: string };
+    expect(call.sql).not.toContain("html_body");
+    expect(call.sql).not.toContain("text_body");
+  });
+
+  it("combines exact template inclusion with bound multi-template exclusions", async () => {
+    await listEmailLog({
+      orgId: "org-1",
+      app: "calendar",
+      templateId: "calendar.booking-confirmed",
+      excludeTemplateIds: ["core.magic-link", "core.organization-invite"],
+      limit: 25,
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining(
+          "WHERE org_id = ? AND app = ? AND template_id = ? AND (template_id IS NULL OR template_id NOT IN (?, ?))",
+        ),
+        args: [
+          "org-1",
+          "calendar",
+          "calendar.booking-confirmed",
+          "core.magic-link",
+          "core.organization-invite",
+          25,
+          0,
+        ],
+      }),
+    );
+  });
+
+  it("preserves sends with no template ID when excluding templates", async () => {
+    execute.mockClear();
+    execute.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "1",
+          template_id: null,
+          app: "calendar",
+          recipient: "guest@example.com",
+          sender: "calendar@example.com",
+          subject: "Booking confirmed",
+          status: "sent",
+          error: null,
+          provider: "sendgrid",
+          request_payload: null,
+          response_status: null,
+          response_body: null,
+          created_at: 1000,
+        },
+      ],
+    });
+
+    const rows = await listEmailLog({
+      orgId: "org-1",
+      app: "calendar",
+      excludeTemplateIds: ["core.magic-link"],
+      limit: 25,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].templateId).toBeNull();
+  });
+
+  it("combines status, provider, recipient, and date-range filters", async () => {
+    await listEmailLog({
+      orgId: "org-1",
+      app: "calendar",
+      status: "failed",
+      provider: "resend",
+      to: "guest@",
+      from: "calendar@",
+      sinceMs: 1000,
+      untilMs: 2000,
+      limit: 10,
+      offset: 20,
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining(
+          "WHERE org_id = ? AND app = ? AND status = ? AND provider = ? " +
+            "AND recipient LIKE ? ESCAPE '\\' AND sender LIKE ? ESCAPE '\\' " +
+            "AND created_at >= ? AND created_at <= ?",
+        ),
+        args: [
+          "org-1",
+          "calendar",
+          "failed",
+          "resend",
+          "%guest@%",
+          "%calendar@%",
+          1000,
+          2000,
+          10,
+          20,
+        ],
+      }),
+    );
+  });
+
+  it("combines inclusion and exclusion filters in argument order", async () => {
+    await listEmailLog({
+      orgId: "org-1",
+      app: "calendar",
+      to: "customer@",
+      excludeTo: "internal@",
+      from: "example.com",
+      excludeFrom: "no-reply@",
+      limit: 25,
+      offset: 50,
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining(
+          "WHERE org_id = ? AND app = ? AND recipient LIKE ? ESCAPE '\\' AND recipient NOT LIKE ? ESCAPE '\\' " +
+            "AND sender LIKE ? ESCAPE '\\' AND sender NOT LIKE ? ESCAPE '\\'",
+        ),
+        args: [
+          "org-1",
+          "calendar",
+          "%customer@%",
+          "%internal@%",
+          "%example.com%",
+          "%no-reply@%",
+          25,
+          50,
+        ],
+      }),
+    );
+  });
+
+  it("escapes LIKE wildcard characters in substring filters", async () => {
+    await listEmailLog({
+      orgId: "org-1",
+      app: "calendar",
+      to: "no_reply@100%.com",
+      limit: 25,
+    });
+
+    const backslash = String.fromCharCode(92);
+    const escaped = "%no" + backslash + "_reply@100" + backslash + "%.com%";
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: expect.arrayContaining([escaped]),
       }),
     );
   });
@@ -72,5 +230,70 @@ describe("email log app scoping", () => {
         args: expect.arrayContaining(["org-1"]),
       }),
     );
+  });
+
+  it("persists the raw request/response fields on each send", async () => {
+    await recordEmailSend({
+      orgId: "org-1",
+      app: "calendar",
+      recipient: "guest@example.com",
+      sender: "calendar@example.com",
+      subject: "Booking confirmed",
+      status: "failed",
+      provider: "resend",
+      error: "Resend error 422: invalid recipient",
+      requestPayload: '{"to":"guest@example.com"}',
+      responseStatus: 422,
+      responseBody: '{"message":"invalid recipient"}',
+    });
+
+    const insertCall = execute.mock.calls.find(
+      ([input]) =>
+        typeof input === "object" &&
+        input !== null &&
+        "sql" in input &&
+        String(input.sql).includes("INSERT INTO email_log"),
+    );
+    expect(insertCall?.[0]).toEqual(
+      expect.objectContaining({
+        args: expect.arrayContaining([
+          '{"to":"guest@example.com"}',
+          422,
+          '{"message":"invalid recipient"}',
+        ]),
+      }),
+    );
+  });
+
+  it("fetches a body scoped to its organization and app", async () => {
+    execute.mockResolvedValueOnce({
+      rows: [{ html_body: "<p>Hi</p>", text_body: "Hi" }],
+    });
+
+    const body = await getEmailLogEntryBody({
+      orgId: "org-1",
+      app: "calendar",
+      id: "log-1",
+    });
+
+    expect(body).toEqual({ htmlBody: "<p>Hi</p>", textBody: "Hi" });
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("WHERE id = ? AND org_id = ? AND app = ?"),
+        args: ["log-1", "org-1", "calendar"],
+      }),
+    );
+  });
+
+  it("returns null for a body fetch outside the caller organization/app scope", async () => {
+    execute.mockResolvedValueOnce({ rows: [] });
+
+    const body = await getEmailLogEntryBody({
+      orgId: "org-2",
+      app: "calendar",
+      id: "log-1",
+    });
+
+    expect(body).toBeNull();
   });
 });

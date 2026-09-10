@@ -205,7 +205,7 @@ export interface GongCallDetail {
 export interface GongSpeaker {
   name: string;
   email: string | null;
-  affiliation: "Internal" | "External" | string;
+  affiliation: "Internal" | "External" | (string & {});
 }
 
 export interface EnrichedMonologue {

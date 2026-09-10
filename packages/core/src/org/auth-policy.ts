@@ -14,7 +14,9 @@ function providerFromRow(row: Record<string, unknown>): RequiredAuthProvider {
   const provider = row.provider == null ? "" : String(row.provider);
   if (!provider) return null;
   if (provider !== "google") {
-    throw new Error(`Unsupported organization auth provider: ${provider}`);
+    throw new Error(
+      `Unsupported organization auth provider: ${String(provider)}`,
+    );
   }
   return "google";
 }
@@ -22,7 +24,7 @@ function providerFromRow(row: Record<string, unknown>): RequiredAuthProvider {
 function isMissingOrgAuthPolicySchema(error: unknown): boolean {
   const candidate = error as { code?: unknown; message?: unknown };
   if (candidate.code === "42P01" || candidate.code === "42703") return true;
-  return /no such table:\s*(organizations|org_members|org_invitations)|no such column:\s*required_auth_provider|relation ["']?(organizations|org_members|org_invitations)["']? does not exist|column ["']?required_auth_provider["']? does not exist/i.test(
+  return /relation ["']?(organizations|org_members|org_invitations)["']? does not exist|column ["']?required_auth_provider["']? does not exist/i.test(
     String(candidate.message ?? error),
   );
 }
@@ -76,6 +78,7 @@ export async function getRequiredAuthProviderForEmail(
                   FROM org_members m
                   WHERE m.org_id = o.id
                     AND LOWER(m.email) = ?
+                    AND m.federation_removal_pending_at IS NULL
                 )
                 OR EXISTS (
                   SELECT 1
@@ -122,7 +125,7 @@ export async function getAuthEmailForUserId(userId: string): Promise<string> {
 function isMissingLegacySessionTable(error: unknown): boolean {
   const candidate = error as { code?: unknown; message?: unknown };
   if (candidate.code === "42P01") return true;
-  return /no such table:\s*sessions|relation ["']?sessions["']? does not exist/i.test(
+  return /relation ["']?sessions["']? does not exist/i.test(
     String(candidate.message ?? error),
   );
 }
@@ -139,7 +142,9 @@ export async function setRequiredAuthProvider(
   revokedLegacySessions: number;
 }> {
   if (provider !== "google" && provider !== null) {
-    throw new Error(`Unsupported organization auth provider: ${provider}`);
+    throw new Error(
+      `Unsupported organization auth provider: ${String(provider)}`,
+    );
   }
 
   const db = getDbExec();
@@ -161,6 +166,7 @@ export async function setRequiredAuthProvider(
             FROM "user" u
             INNER JOIN org_members m ON LOWER(m.email) = LOWER(u.email)
             WHERE m.org_id = ?
+              AND m.federation_removal_pending_at IS NULL
           )`,
     args: [orgId],
   });
@@ -170,7 +176,8 @@ export async function setRequiredAuthProvider(
     legacyResult = await db.execute({
       sql: `DELETE FROM sessions
             WHERE LOWER(email) IN (
-              SELECT LOWER(email) FROM org_members WHERE org_id = ?
+              SELECT LOWER(email) FROM org_members
+              WHERE org_id = ? AND federation_removal_pending_at IS NULL
             )`,
       args: [orgId],
     });

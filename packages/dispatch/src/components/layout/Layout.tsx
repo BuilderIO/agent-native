@@ -63,8 +63,11 @@ import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { RunsTray } from "@agent-native/core/client/progress";
-import { FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AppSidebarFooter,
+  AppSidebarHeader,
+  FeedbackButton,
+} from "@agent-native/core/client/ui";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -83,7 +86,6 @@ import {
   IconLayoutSidebarLeftExpand,
   IconSettings,
   IconShield,
-  IconSearch,
   IconWorld,
   IconDeviceDesktop,
   IconPlus,
@@ -111,6 +113,7 @@ import {
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
   navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
   workspaceAppRoute,
@@ -664,7 +667,7 @@ function DispatchChatsSection({
   const chatHistoryError = threadsLoadError ? (
     <button
       type="button"
-      onClick={() => void refreshThreads()}
+      onClick={() => refreshThreads()}
       className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
     >
       <span>Could not load chats</span>
@@ -1042,27 +1045,8 @@ export function NavContent({
       </TooltipContent>
     </Tooltip>
   ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
-    </Tooltip>
-  );
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-      className={collapsed ? "size-8" : "min-w-0"}
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
   const chatFirstCreateAppTrigger = (
     <CreateAppPopover
@@ -1095,7 +1079,7 @@ export function NavContent({
         onNavigate?.();
       }}
       onOpenAllApps={() => {
-        navigate(dispatchNavLinkTarget("/apps"));
+        void navigate(dispatchNavLinkTarget("/apps"));
         onNavigate?.();
       }}
       createAppTrigger={chatFirstCreateAppTrigger}
@@ -1220,73 +1204,13 @@ export function NavContent({
       </ul>
     </nav>
   );
-  const organizationPicker = (
-    <div
-      className={cn("py-2", collapsed ? "flex justify-center px-1" : "px-3")}
-    >
-      <OrgSwitcher compact={collapsed} reserveSpace currentAppId="dispatch" />
-    </div>
-  );
-  const sidebarFooterActions = (
-    <SidebarFooterActions
-      collapsed={collapsed}
-      feedback={feedbackButton}
-      search={searchButton}
-      collapse={collapseButton}
-    />
-  );
-
   return (
     <>
-      <div
-        className={cn(
-          "flex h-12 shrink-0 items-center border-b border-sidebar-border",
-          collapsed ? "justify-center px-0" : "px-4",
-        )}
-      >
-        <Link
-          to={dispatchNavLinkTarget("/overview")}
-          aria-label={`${DISPATCH_SIDEBAR_LABEL} overview`}
-          data-dispatch-logo
-          className={cn(
-            "flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-            collapsed ? "justify-center" : "gap-2",
-          )}
-        >
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            width={35}
-            height={20}
-            className={cn(
-              "block shrink-0 object-contain object-center dark:hidden",
-              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
-            )}
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            width={35}
-            height={20}
-            className={cn(
-              "hidden shrink-0 object-contain object-center dark:block",
-              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
-            )}
-          />
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <div
-                data-dispatch-sidebar-label
-                className="truncate text-lg font-bold tracking-tight text-foreground"
-              >
-                {DISPATCH_SIDEBAR_LABEL}
-              </div>
-            </div>
-          )}
-        </Link>
-      </div>
+      <AppSidebarHeader
+        brandName={DISPATCH_SIDEBAR_LABEL}
+        brandHref={dispatchNavLinkTarget("/overview")}
+        collapsed={collapsed}
+      />
 
       {chatFirstMode ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -1300,11 +1224,11 @@ export function NavContent({
               activeTab: chatFirstActivePrimaryTab,
               onNewChat: onChatFirstNewChat,
               onOpenIntegrations: () => {
-                navigate(dispatchNavLinkTarget("/admin/integrations"));
+                void navigate(dispatchNavLinkTarget("/admin/integrations"));
                 onNavigate?.();
               },
               onOpenScheduled: () => {
-                navigate(dispatchNavLinkTarget("/admin/automations"));
+                void navigate(dispatchNavLinkTarget("/admin/automations"));
                 onNavigate?.();
               },
             }}
@@ -1330,8 +1254,23 @@ export function NavContent({
         data-dispatch-sidebar-footer={chatFirstMode ? "chat-first" : "standard"}
       >
         {bottomNavigation}
-        {organizationPicker}
-        {sidebarFooterActions}
+        <AppSidebarFooter
+          collapsed={collapsed}
+          collapsible={false}
+          feedback={feedbackButton}
+          orgSwitcher={
+            <OrgSwitcher
+              compact={collapsed}
+              reserveSpace
+              currentAppId="dispatch"
+              className={cn(
+                "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
+                collapsed ? "!size-9 !p-0 [&>svg]:!size-4" : "min-w-0 flex-1",
+              )}
+            />
+          }
+          footerExtras={collapseButton}
+        />
       </div>
     </>
   );
@@ -1526,11 +1465,10 @@ export function Layout({
         isPathMountedWorkspaceApp(registration)
           ? workspaceAppDirectHref(registration, "/")
           : null;
-      if (directHref) {
-        navigateToWorkspaceApp(directHref);
-        return;
+      if (directHref && shouldOpenWorkspaceAppInTopWindow()) {
+        if (navigateToWorkspaceApp(directHref)) return;
       }
-      navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+      void navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
     },
     [chatFirstAppRegistrations, navigate],
   );
@@ -1777,7 +1715,6 @@ export function Layout({
       chatFirstAppsQuery.isLoading,
       chatFirstGrantedAppsQuery.isLoading,
       chatFirstSurfaceTabsStore,
-      closeChatFirstSessionWatch,
       openChatFirstPane,
       navigate,
       persistChatFirstPane,
@@ -2050,12 +1987,25 @@ export function Layout({
       if (event.source !== frame.contentWindow) return;
 
       const open = event.data.data?.open;
+      const focus = event.data.data?.focus === true;
       if (open === true) {
-        window.dispatchEvent(new Event("agent-panel:open"));
+        window.dispatchEvent(
+          focus
+            ? new CustomEvent("agent-panel:open", {
+                detail: { focus: true },
+              })
+            : new Event("agent-panel:open"),
+        );
       } else if (open === false) {
         window.dispatchEvent(new Event("agent-panel:close"));
       } else {
-        window.dispatchEvent(new Event("agent-panel:toggle"));
+        window.dispatchEvent(
+          focus
+            ? new CustomEvent("agent-panel:toggle", {
+                detail: { focus: true },
+              })
+            : new Event("agent-panel:toggle"),
+        );
       }
     };
 
@@ -2301,7 +2251,7 @@ export function Layout({
     );
   }
   function openRunThread(threadId: string) {
-    navigate("/chat", {
+    void navigate("/chat", {
       state: {
         dispatchThread: {
           id: `${Date.now()}-${threadId}`,
@@ -2518,7 +2468,7 @@ export function Layout({
             data-collapsed={sidebarCollapsed ? "true" : "false"}
             className={cn(
               "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-              sidebarCollapsed ? "w-14" : "w-56",
+              sidebarCollapsed ? "w-14" : "w-[260px]",
             )}
           >
             <NavContent

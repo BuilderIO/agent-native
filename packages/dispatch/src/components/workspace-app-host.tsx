@@ -49,6 +49,10 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 
+// The server mint spends up to a 95s cold-boot budget waiting on a target app
+// that is still starting; aborting sooner reports a booting app as unreachable.
+const EMBED_SESSION_TIMEOUT_MS = 100_000;
+
 interface EmbedSessionResult {
   startUrl: string;
 }
@@ -303,12 +307,14 @@ export function WorkspaceAppFrame({
     EmbedSessionInput
   >("create_embed_session", {
     skipActionQueryInvalidation: true,
+    timeoutMs: EMBED_SESSION_TIMEOUT_MS,
   });
   const createWorkspaceSsoEmbedSession = useActionMutation<
     EmbedSessionResult,
     EmbedSessionInput
   >("create-workspace-app-embed-session", {
     skipActionQueryInvalidation: true,
+    timeoutMs: EMBED_SESSION_TIMEOUT_MS,
   });
   const appHref = workspaceAppHref({
     id: app.id,

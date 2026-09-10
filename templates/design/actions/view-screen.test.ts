@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => {
     queryReviewComments: vi.fn(),
     eq: vi.fn((left, right) => ({ left, right })),
     selectChain,
+    getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
   };
 });
 
@@ -83,6 +88,10 @@ vi.mock("../shared/canvas-frames.js", () => ({
   parseCanvasFrameGeometryById: mocks.parseCanvasFrameGeometryById,
 }));
 
+vi.mock("./get-design-system.js", () => ({
+  default: { run: mocks.getDesignSystemRun },
+}));
+
 import action from "./view-screen.js";
 
 describe("view-screen", () => {
@@ -110,6 +119,78 @@ describe("view-screen", () => {
       agentQueueCount: 0,
     });
     mocks.queryReviewComments.mockResolvedValue([]);
+  });
+
+  it("reports the design's own linked design system, not just a template's", async () => {
+    // Choosing a system on an empty design writes it to the design row and
+    // nowhere else, so the agent's first read has to carry it.
+    mocks.resolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        title: "Shared checkout",
+        designSystemId: "system-7",
+        data: '{"canvasFrames":[]}',
+      },
+    });
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.getDesignSystemRun).toHaveBeenCalledWith(
+      expect.objectContaining({ compact: "true" }),
+    );
+    expect(result.design?.designSystemId).toBe("system-7");
+    expect(result.design?.designSystem).toMatchObject({
+      status: "available",
+      scope: "summary",
+      id: "system-7",
+      agentContext: "Use --brand-accent: #123456.",
+      next: expect.any(String),
+    });
+  });
+
+  it("reports no linked design system rather than guessing one", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design?.designSystemId).toBeNull();
   });
 
   it("uses active file before overview multi-selection", async () => {

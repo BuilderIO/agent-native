@@ -5,6 +5,10 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
@@ -14,7 +18,9 @@ import { isProductionServerlessRuntime } from "../lib/production-serverless-runt
 import {
   deriveGroundingActionNames,
   draftClaimsAnalyticsMetrics,
+  draftRestatesPriorEvidence,
   failedDataQueryAttemptMessage,
+  hasCatalogSearchAttempt,
   hasDashboardConstructionAttempt,
   hasDashboardMutationAttempt,
   hasExplicitPartialDisclosure,
@@ -46,6 +52,139 @@ const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 // promptly instead of holding the dashboard composer for the 12-minute default.
 export const ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 3 * 60_000;
 
+const DASHBOARD_EDIT_TOOLS = new Set([
+  "compose-dashboard",
+  "mutate-dashboard",
+  "rename-dashboard",
+  "reorder-dashboard-panels",
+  "restore-dashboard-revision",
+  "save-explorer-config",
+  "save-explorer-dashboard",
+  "save-sql-dashboard",
+  "update-dashboard",
+  "update-dashboard-demo",
+  "update-dashboard-summary",
+]);
+const ANALYSIS_EDIT_TOOLS = new Set([
+  "rename-analysis",
+  "restore-analysis-revision",
+  "save-analysis",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+function analyticsToolTarget(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+  scopeType: "dashboard" | "analysis",
+): unknown {
+  if (scopeType === "dashboard") {
+    if (
+      tool === "compose-dashboard" ||
+      tool === "mutate-dashboard" ||
+      tool === "reorder-dashboard-panels" ||
+      tool === "update-dashboard" ||
+      tool === "update-dashboard-demo" ||
+      tool === "update-dashboard-summary"
+    ) {
+      return input?.dashboardId ?? input?.id;
+    }
+    return input?.id ?? input?.dashboardId;
+  }
+  return input?.analysisId ?? input?.id;
+}
+
+function hasAnalyticsEdit(
+  run: { events: readonly unknown[] },
+  tools: ReadonlySet<string>,
+  scopeType: "dashboard" | "analysis",
+  scopeId: string,
+): boolean {
+  return run.events.some((entry, index) => {
+    const record = eventRecord(entry);
+    if (!record) return false;
+    const input = inputForCompletedTool(run.events, index, record);
+    return (
+      record.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      tools.has(record.tool) &&
+      analyticsToolTarget(record.tool, input, scopeType) === scopeId
+    );
+  });
+}
+
+async function autosaveAnalyticsAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  const email = getRequestUserEmail();
+  if (!email) return;
+  const ctx = { email, orgId: getRequestOrgId() || null };
+  if (
+    scope.type === "dashboard" &&
+    hasAnalyticsEdit(run, DASHBOARD_EDIT_TOOLS, "dashboard", scope.id)
+  ) {
+    const { createDashboardRevisionSnapshot } =
+      await import("../lib/dashboards-store.js");
+    await createDashboardRevisionSnapshot(scope.id, ctx, {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    });
+    return;
+  }
+  if (
+    scope.type === "analysis" &&
+    hasAnalyticsEdit(run, ANALYSIS_EDIT_TOOLS, "analysis", scope.id)
+  ) {
+    const { createAnalysisRevisionSnapshot } =
+      await import("../lib/dashboards-store.js");
+    await createAnalysisRevisionSnapshot(scope.id, ctx, {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    });
+  }
+}
+
 const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   app: "analytics",
   view: "data-sources",
@@ -54,6 +193,22 @@ const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
 
 const DASHBOARD_BUILD_PAUSE_PATTERN =
   /\b(?:want me to|would you like me to|shall i|should i|can i|may i|do you want me to)\b[\s\S]{0,160}\b(?:proceed|continue|seed|populate|save|embed|finish|run|apply|create|build)\b/i;
+
+// create-extension is authoring, not a dashboard save (see the save set
+// below), but a non-error result is still proof the requested artifact now
+// exists.
+function hasSuccessfulExtensionCreation(
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+): boolean {
+  return (toolResults ?? []).some(
+    (result) =>
+      !result.isError &&
+      String(result.name ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-") === "create-extension",
+  );
+}
 
 function hasSuccessfulDashboardSave(
   toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
@@ -64,7 +219,9 @@ function hasSuccessfulDashboardSave(
     "compose-dashboard",
     // An extension edit is the whole job when the dashboard panel IS the
     // extension. Leaving it out meant a turn that saved exactly what the user
-    // asked for still had to prove itself with a data query.
+    // asked for still had to prove itself with a data query. create-extension
+    // is deliberately not here: it creates the shell, and the partial-build
+    // branch above relies on it not counting as the finished save.
     "update-extension",
   ]);
   return (toolResults ?? []).some((result) => {
@@ -108,6 +265,7 @@ function hasPartialDashboardBuild(
 }
 
 export const BOUNDED_STRUCTURED_LOOKUP_GUIDANCE =
+  "TRUST SIGNALS: Prefer a current `dashboardCertified: true` saved panel; a `favorite: true` panel is a weaker relevance signal. " +
   "BOUNDED STRUCTURED LOOKUP FAST PATH — Treat existing analytics work like an engineer treats existing code: grep before writing. For an ordinary count, aggregate, grouped metric, trend, or record lookup, first call `search-analytics-query-catalog` once with focused metric/entity terms. It searches accessible dashboard names, chart titles/descriptions/saved queries, shipped dashboard patterns, and data-dictionary definitions together. Prefer the strongest approved dictionary or saved-chart match, preserve its source and business logic, adapt only the requested filters and explicit time window, then run one bounded query against that source. A user-named source wins, but still use a matching saved definition when it supplies the source's proven query shape. If there is no useful match, inspect the most likely source schema before asking a clarification about business meaning; do not ask the user to provide internal dataset, table, column, or SQL identifiers. Do not fan out across providers. Do not separately list every dashboard, call data-source status, browse the whole dictionary, load provider catalogs/corpus tools, or query a second source after a strong match. Once the query succeeds, answer immediately with its source, time window, filters, row count, and only necessary caveats. Do not enrich, cross-check, retry, or add breakdowns unless the user requested them, the first query failed, or its result conflicts with the known definition. The words `all`, `total`, or `exact` in a structured aggregate do not by themselves make it a corpus investigation. Never repeat an identical invalid or failed tool call; correct its arguments once or surface the error. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
 
 export const INTERNAL_PRODUCT_USAGE_GUIDANCE =
@@ -262,6 +420,116 @@ function configuredDataSourceLabels(
   return [...labels];
 }
 
+const UNVERIFIED_DRAFT_RETRY_INSTRUCTION =
+  ' If you cannot run a query, restate every number, count, or trend in the draft as explicitly unverified (prefix the sentence with "Unverified:") rather than asserting it.';
+
+function exhaustedDraftPrefixFor({
+  toolResults,
+  setupMarkdown,
+  includeConnectOption,
+}: {
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"];
+  setupMarkdown: string;
+  includeConnectOption: boolean;
+}): string {
+  const configuredSources = configuredDataSourceLabels(toolResults);
+  const connectedSentence = configuredSources.length
+    ? ` Connected sources: ${configuredSources.join(", ")}.`
+    : "";
+  const nextOptions = [
+    "ask me to query an existing dashboard (I'll search certified ones first)",
+    "narrow the question to one metric and time range",
+  ];
+  if (includeConnectOption) {
+    nextOptions.push(`connect the missing source: ${setupMarkdown}`);
+  }
+  return (
+    "Unverified — no live data query ran for this answer, so every figure and trend below is unconfirmed." +
+    connectedSentence +
+    ` Next options: ${nextOptions.join(", ")}.`
+  );
+}
+
+function isRealUserTextMessage(message: {
+  role?: string;
+  content?: unknown;
+}): boolean {
+  if (message?.role !== "user" || !Array.isArray(message.content)) {
+    return false;
+  }
+  const parts = message.content as Array<{ type?: string }>;
+  return (
+    parts.some((part) => part?.type === "text") &&
+    !parts.some((part) => part?.type === "tool-result")
+  );
+}
+
+// `context.toolResults` only carries this turn's tool calls, so a follow-up
+// question that reasons over an earlier turn's grounded result ("which of
+// those was highest?") looks exactly like an ungrounded turn to the catch-all
+// below. `context.messages` carries the full structured thread —
+// tool-call/tool-result content parts from earlier turns included — so pull
+// grounding evidence from the two assistant turns immediately before this
+// one: the tool results themselves, plus the text of the tool inputs and the
+// answers given from them, which is where the metric being queried is named.
+// A real user text message (not a synthetic tool-result carrier) marks a turn
+// boundary; this is a heuristic over message shape, not a stored turn id,
+// because the guard context does not expose one. Deliberately scoped to the
+// catch-all only: the connect-source branches must still judge this turn's
+// own evidence, not history.
+function priorTurnEvidence(
+  messages: AgentLoopFinalResponseGuardContext["messages"],
+): {
+  toolResults: Array<{ name?: string; isError?: boolean; content?: string }>;
+  text: string;
+} {
+  const collected: Array<{
+    name?: string;
+    isError?: boolean;
+    content?: string;
+  }> = [];
+  const textParts: string[] = [];
+  let turnBoundariesCrossed = 0;
+  // Skip the last entry: it is always this turn's fresh user request.
+  for (let i = messages.length - 2; i >= 0; i--) {
+    const message = messages[i] as { role?: string; content?: unknown };
+    if (isRealUserTextMessage(message)) {
+      turnBoundariesCrossed += 1;
+      // The second boundary is the start of the second prior turn; nothing
+      // before it is in the window.
+      if (turnBoundariesCrossed >= 2) break;
+      continue;
+    }
+    if (!Array.isArray(message?.content)) continue;
+    for (const part of message.content as Array<{
+      type?: string;
+      text?: string;
+      input?: unknown;
+      toolName?: string;
+      isError?: boolean;
+      content?: string;
+    }>) {
+      if (part?.type === "text" && typeof part.text === "string") {
+        textParts.push(part.text);
+      } else if (part?.type === "tool-call") {
+        textParts.push(
+          typeof part.input === "string"
+            ? part.input
+            : JSON.stringify(part.input ?? ""),
+        );
+      } else if (part?.type === "tool-result") {
+        collected.push({
+          name: part.toolName,
+          isError: part.isError,
+          content: part.content,
+        });
+        textParts.push(String(part.content ?? ""));
+      }
+    }
+  }
+  return { toolResults: collected, text: textParts.join("\n") };
+}
+
 interface DataSourceStatusSummary {
   checked: boolean;
   externalSourceLabels: string[];
@@ -278,7 +546,10 @@ const GENERIC_EXTERNAL_SOURCE_REQUEST_TERMS = /\b(warehouse|crm|payments?)\b/i;
 
 const EXTERNAL_SOURCE_PROVIDER_ALIASES = [
   ...credentialProviderConfigs.map(({ provider, label }) => ({
-    terms: [provider, label],
+    // "Builder" also names the product whose first-party metrics live in
+    // Analytics; require a content qualifier before routing to Builder.io.
+    terms:
+      provider === "builder" ? [label, "Builder content"] : [provider, label],
     aliases: [provider, label],
   })),
   { terms: ["ga4"], aliases: ["ga4", "google analytics"] },
@@ -493,10 +764,18 @@ function dataSourceStatusSummary(
         continue;
       }
       const record = source as Record<string, unknown>;
-      const provider = String(record.provider ?? "")
+      const provider = (
+        typeof record.provider === "string"
+          ? record.provider
+          : (JSON.stringify(record.provider) ?? "")
+      )
         .trim()
         .toLowerCase();
-      const via = String(record.via ?? "")
+      const via = (
+        typeof record.via === "string"
+          ? record.via
+          : (JSON.stringify(record.via) ?? "")
+      )
         .trim()
         .toLowerCase();
       if (provider === "first-party" || via === "built-in") continue;
@@ -524,7 +803,11 @@ function dataSourceStatusSummary(
         continue;
       }
       const record = provider as Record<string, unknown>;
-      const providerId = String(record.provider ?? "")
+      const providerId = (
+        typeof record.provider === "string"
+          ? record.provider
+          : (JSON.stringify(record.provider) ?? "")
+      )
         .trim()
         .toLowerCase();
       if (providerId === "first-party") continue;
@@ -773,16 +1056,22 @@ export function realDataFinalGuard(
     return null;
   }
   // Dashboard construction/template-clone turns may inspect and clone an
-  // existing dashboard/extension without running a metric query, as long as
-  // the draft does not invent numbers. Check this before the generic
-  // "no data query ran" fallback so a template-based extension clone is not
-  // treated the same as an unanswerable analytics-result question.
+  // existing dashboard/extension, or author one outright (create-extension,
+  // compose-dashboard), without running a metric query, as long as the draft
+  // does not invent numbers. Check this before the generic "no data query
+  // ran" fallback so a template-based extension clone is not treated the
+  // same as an unanswerable analytics-result question. A create-extension
+  // turn that paused mid-build was already caught above; one that finished
+  // ("Done — I created the extension") is completed work, not a turn that
+  // still has to go find a template. Saves are judged by their result
+  // content in the branch above, so only the creation itself counts here.
   if (
     dashboardConstructionRequest &&
     !draftClaimsAnalyticsMetrics(context.text)
   ) {
     if (
       hasDashboardConstructionAttempt(context.toolResults) ||
+      hasSuccessfulExtensionCreation(context.toolResults) ||
       isSafeNoDataAnalyticsResponse(context.text)
     ) {
       return null;
@@ -814,12 +1103,24 @@ export function realDataFinalGuard(
     };
   }
   if (dataQueryAttempted) return null;
+  // A draft with no analytics claim is not asserting anything this guard has
+  // to protect, so the two "no query ran and nothing else applies" branches
+  // below only fire when the draft actually claims a metric. The guard's own
+  // canned give-up sentence is the one exception: a model must not use it to
+  // end a turn it never actually attempted, so that still forces a retry.
+  const draftMakesAnalyticsClaim =
+    draftClaimsAnalyticsMetrics(context.text) ||
+    isGenericNoDataFallback(context.text);
   // Whether the built-in source is worth trying is decided by tool evidence,
   // not by how the draft is worded, so it is asked once for every draft shape.
   // A source that already failed this turn is not an untried source: steering
   // the model back into it is how a permanently failing precondition turns
   // into a retry loop.
-  if (firstPartySourceShouldBeTried && !failedQueryMessage) {
+  if (
+    firstPartySourceShouldBeTried &&
+    !failedQueryMessage &&
+    draftMakesAnalyticsClaim
+  ) {
     return {
       retryMessage:
         "The user asked for live analytics, and the built-in first-party Analytics source is available even though no external provider is connected. Call `query-agent-native-analytics` for first-party product, usage, conversion, or observability data and answer from that result. If the request specifically names an external provider, explain what is missing and include the real Connect data sources link.",
@@ -827,6 +1128,11 @@ export function realDataFinalGuard(
         "I couldn't complete a grounded first-party Analytics query yet. Please retry and I'll use the built-in Analytics source before asking you to connect an external provider.",
       maxRetries: 2,
       expandToolSurface: true,
+      exhaustedDraftPrefix: exhaustedDraftPrefixFor({
+        toolResults: context.toolResults,
+        setupMarkdown,
+        includeConnectOption: false,
+      }),
     };
   }
   if (isSafeNoDataAnalyticsResponse(context.text)) {
@@ -871,15 +1177,57 @@ export function realDataFinalGuard(
     };
   }
 
+  // A follow-up question reasoning over a PRIOR turn's grounded result ("which
+  // of those was highest?", "so roughly a third?") has no tool calls of its
+  // own this turn — check the last two turns of thread history before
+  // treating that the same as a turn that never queried anything. The credit
+  // only covers a draft whose figures all come from those earlier results: a
+  // new number for a new question ("and churn?") is a new claim, and the
+  // previous turn's query says nothing about it.
+  const prior = priorTurnEvidence(context.messages ?? []);
+  if (
+    hasDataQueryAttempt(prior.toolResults) &&
+    draftRestatesPriorEvidence(context.text, prior)
+  ) {
+    return null;
+  }
+  if (!draftMakesAnalyticsClaim) return null;
+
   const configuredSources = configuredDataSourceLabels(context.toolResults);
   const configuredSourceGuidance = configuredSources.length
     ? ` \`data-source-status\` already confirmed these connected sources: ${configuredSources.join(", ")}. Do not claim that no sources are connected and do not ask the user to reconnect them. Immediately call the relevant query action for one of those sources.`
     : "";
+  const catalogSearched = hasCatalogSearchAttempt(context.toolResults);
+  const exhaustedDraftPrefix = exhaustedDraftPrefixFor({
+    toolResults: context.toolResults,
+    setupMarkdown,
+    includeConnectOption: !catalogSearched,
+  });
+
+  if (catalogSearched) {
+    // A turn that already searched the query catalog or dashboard references
+    // did discovery work, whether or not it found a match. The retry must not
+    // read as "nothing was found" — it wasn't proven either way — and the
+    // fallback must not point at connecting a data source, since nothing here
+    // shows one is missing.
+    return {
+      retryMessage:
+        "You already ran catalog/dashboard-reference discovery this turn. If it returned a usable dashboard or query, adapt and run it now and cite the dashboard; if not, run the next discovery pass (list-data-dictionary, search-bigquery-schema, or data-source-status) and one bounded query." +
+        UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
+      fallbackMessage:
+        "I searched the dashboard/query catalog but didn't finish a real source query. Please retry; I'll adapt a matching dashboard or query if one exists, or run the next discovery pass and query it directly.",
+      maxRetries: 2,
+      expandToolSurface: true,
+      exhaustedDraftPrefix,
+    };
+  }
+
   return {
     retryMessage:
       "This looks like an analytics result request, but no real source query ran. If you are making data claims, run one relevant data-source action or connected provider MCP tool now and answer from that result." +
       configuredSourceGuidance +
-      " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead.",
+      " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead." +
+      UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
     fallbackMessage: configuredSources.length
       ? `I found connected data sources (${configuredSources.join(", ")}), but the model still did not run a real source query. Please retry the request; you do not need to reconnect those sources.`
       : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
@@ -892,6 +1240,7 @@ export function realDataFinalGuard(
     // some model families spend the retry on tool-search narration and hit
     // the canned fallback without ever running a query.
     expandToolSurface: true,
+    exhaustedDraftPrefix,
   };
 }
 
@@ -937,6 +1286,7 @@ export async function searchDashboardMentions(query: string, event?: any) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
+  onAgentTurnComplete: autosaveAnalyticsAfterAgentTurn,
   // Resource prompt hydration performs additive schema checks. Keep that
   // work out of production serverless cold starts; it is not needed for the
   // dashboard's domain prompt and can contend with the request's DB queries.
@@ -966,9 +1316,9 @@ export default createAgentChatPlugin({
     connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
     externalAgents: {
       // Keep the direct MCP surface deliberately curated. External agents
-      // should use ask_app by default; cataloged actions are optional stable
-      // semantic reads for callers with an exact, fully known contract. They
-      // are never a fallback for slow or failed delegation.
+      // should use cataloged actions for exact, fully known semantic reads;
+      // ask_app is the fallback for interpretation or unavailable capability.
+      // Writes remain ask_app-only for the app's safety boundary.
       authenticatedReads: "off",
       writes: "ask_app_only",
     },
@@ -999,6 +1349,7 @@ export default createAgentChatPlugin({
       "For named deal, account, renewal, churn-risk, or customer deep dives that need HubSpot and Gong context, `account-deep-dive` can provide a bounded evidence bundle. Do not answer a requested transcript deep dive from call metadata alone. " +
       "When the user refers to the current dashboard artifact, this analysis, this project, or asks to spin off, adapt, modify, or reuse a saved analysis, call `view-screen` first and use the returned dashboard details; for an explicitly named legacy analysis id, call `get-analysis` before responding and preserve its legacy deep link only for compatibility. " +
       "If a query action fails because its arguments are invalid, correct the arguments once. Never repeat the identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error instead of trying unrelated providers. " +
+      "EXPORT DELIVERY: For a user-requested CSV, Markdown, or other file, deliver it in the same chat turn. For compact first-party tabular results, use `query-agent-native-analytics` so the chat table's Download CSV control is visible. For a durable export, write only verified successful data to a non-scratch workspace path, then call `show-workspace-file` with that exact path so chat renders a direct download card. Never save an error or failed response as the requested export, and never finish with only a path or filename. " +
       "For ordinary ad-hoc structured data questions, answer the explicit question after the first relevant successful query or bounded evidence batch. The words all, total, or exact do not require cross-source validation when a single structured query fully covers the requested source and filters. " +
       "If the user challenges coverage, asks why more records were not included, or asks for the updated answer, rerun the relevant source query or revise from the corrected cohort and provide the updated deliverable directly. Do not claim a dashboard artifact was revised unless the revised answer is included in the response or saved with `update-dashboard`. " +
       "Unstructured source records are valid analytics evidence: Pylon tickets, Jira issues, Gong calls/transcripts, Slack messages, and similar text records may be coded for themes, mention counts, sentiment, objections, and qualitative patterns as long as the answer states the inspected sample size and does not imply unsupported statistical certainty. " +

@@ -1,6 +1,7 @@
 import { agentNative } from "@agent-native/core/vite";
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
+import { wgslVitePlugin } from "@vgpu/wgsl/loader-vite";
 import { defineConfig } from "vite";
 
 import { sitemapPlugin } from "./app/vite-sitemap-plugin";
@@ -13,6 +14,10 @@ const agentNativePlugins = agentNative as unknown as (
 export default defineConfig({
   plugins: [
     tailwindcss(),
+    // Turns the hero ocean's `.wgsl` modules into importable strings. Must run
+    // ahead of the React Router plugins so the shader files are already plain
+    // JS by the time the route graph is walked.
+    wgslVitePlugin(),
     ...reactRouterPlugins(),
     sitemapPlugin(),
     ...agentNativePlugins({
@@ -35,6 +40,14 @@ export default defineConfig({
       // code still landed in the SSR bundle. lowlight stays real (core's doc
       // block highlighter runs server-side via preloadDocBlocksContent), and so
       // do yjs/y-protocols/lib0 (core collab uses yjs on the server).
+      // Deliberately NOT stubbing "vgpu": the hero ocean renderer imports its
+      // named exports at module scope, and a stub exports nothing, so the SSR
+      // build fails on MISSING_EXPORT rather than tree-shaking cleanly. It is
+      // also unnecessary -- the Dawn native adapter is reachable only through
+      // the `vgpu/node` entry, which nothing here imports. The browser runtime
+      // that does land in the server graph is inert JS, and
+      // tests/hero-background-bundle.test.ts holds the line that matters:
+      // no @vgpu/adapter-node and no .node binary in dist/server.
       ssrStubs: [
         "shiki",
         "mermaid",

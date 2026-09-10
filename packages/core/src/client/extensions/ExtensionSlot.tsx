@@ -218,7 +218,9 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
         },
       );
     } finally {
-      queryClient.invalidateQueries({ queryKey: ["slot-installs", slotId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["slot-installs", slotId],
+      });
     }
   };
 

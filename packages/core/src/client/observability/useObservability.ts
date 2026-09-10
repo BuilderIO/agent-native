@@ -164,10 +164,10 @@ export function useSubmitFeedback() {
       return res.json() as Promise<{ id: string }>;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["observability", "feedback"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["observability", "feedback-stats"],
       });
     },

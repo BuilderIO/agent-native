@@ -177,6 +177,28 @@ describe("shouldApplyRemotePreviewContent (flash-free reconcile routing)", () =>
       }),
     ).toBe(true);
   });
+
+  it("paints when the canvas is stale even if latest-active already matches", () => {
+    expect(
+      shouldApplyRemotePreviewContent({
+        isLocalEdit: false,
+        previousContent: NEW_HTML,
+        nextContent: NEW_HTML,
+        paintedContent: OLD_HTML,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not paint a same-content echo when the canvas already matches", () => {
+    expect(
+      shouldApplyRemotePreviewContent({
+        isLocalEdit: false,
+        previousContent: NEW_HTML,
+        nextContent: NEW_HTML,
+        paintedContent: NEW_HTML,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("shouldAdoptExternalReconcileContent (same-millisecond tie-break fix)", () => {

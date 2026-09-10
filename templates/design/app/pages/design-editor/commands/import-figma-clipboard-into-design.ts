@@ -1,6 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import type { QueryClient } from "@tanstack/react-query";
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { RefObject } from "react";
 import type { NavigateFunction } from "react-router";
 import { toast } from "sonner";
 
@@ -14,9 +14,8 @@ export interface ImportFigmaClipboardIntoDesignArgs {
   id: string | undefined;
   navigate: NavigateFunction;
   queryClient: QueryClient;
-  setFigmaHydrationFileIds: Dispatch<SetStateAction<string[]>>;
-  setFigmaHydrationImageCount: Dispatch<SetStateAction<number>>;
-  setFigmaHydrationOpen: Dispatch<SetStateAction<boolean>>;
+  /** Prompts about image fills the clipboard could not carry. */
+  showPastedImagesNotice: (args: { count: number; fileIds: string[] }) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
@@ -27,14 +26,19 @@ export async function runImportFigmaClipboardIntoDesign(
     id,
     navigate,
     queryClient,
-    setFigmaHydrationFileIds,
-    setFigmaHydrationImageCount,
-    setFigmaHydrationOpen,
+    showPastedImagesNotice,
     t,
   }: ImportFigmaClipboardIntoDesignArgs,
   content: string,
 ) {
-  if (!id) return;
+  // A paste that lands before the editor has a design id must say so; a bare
+  // return here is indistinguishable from the paste never firing.
+  if (!id) {
+    toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
+      description: "Open a design before pasting from Figma." /* i18n-ignore */,
+    });
+    return;
+  }
   if (!canEditDesign) {
     toast.error("Import requires editor access" /* i18n-ignore */);
     return;
@@ -77,22 +81,17 @@ export async function runImportFigmaClipboardIntoDesign(
       importResultSummary(result, t("designEditor.import.figmaSuccess")),
       figmaStrategyLabel ? { description: figmaStrategyLabel } : undefined,
     );
+    let handledUnresolvedImages = false;
     if (
       result?.strategy === "localKiwi" &&
       (result?.unresolvedImages ?? 0) > 0 &&
       result?.files?.length
     ) {
-      const count = result.unresolvedImages!;
-      const fileIds = result.files.map((f) => f.id);
-      setFigmaHydrationFileIds(fileIds);
-      setFigmaHydrationImageCount(count);
-      setFigmaHydrationOpen(true);
-      toast.info(
-        t("designEditor.import.figmaPasteImagesNeedToken", {
-          count,
-          plural: count === 1 ? "" : "s",
-        }),
-      );
+      handledUnresolvedImages = true;
+      showPastedImagesNotice({
+        count: result.unresolvedImages!,
+        fileIds: result.files.map((f) => f.id),
+      });
     } else if (result?.figmaApiKeyMissing) {
       toast.info(t("designEditor.import.figmaPasteApiKeyHint"));
     } else if (
@@ -101,12 +100,20 @@ export async function runImportFigmaClipboardIntoDesign(
     ) {
       toast.info(t("designEditor.import.figmaPasteMatchGuidance"));
     }
-    if (result?.warnings?.length) {
+    // The unresolved-image warning is the notice above, worded for the server.
+    // Repeating it here stacked three toasts on one paste, two of them saying
+    // the same thing.
+    const remainingWarnings = handledUnresolvedImages
+      ? (result?.warnings ?? []).filter(
+          (warning) => !/images? could not be loaded/i.test(warning),
+        )
+      : (result?.warnings ?? []);
+    if (remainingWarnings.length) {
       toast.warning(t("designEditor.import.warningsToast"), {
-        description: result.warnings[0],
+        description: remainingWarnings[0],
       });
     }
-    navigate(`/design/${result?.designId ?? id}?view=overview`);
+    void navigate(`/design/${result?.designId ?? id}?view=overview`);
   } catch (error) {
     toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
       description:

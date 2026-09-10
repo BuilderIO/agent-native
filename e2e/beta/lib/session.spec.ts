@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import {
   hasSessionCredentials,
+  sessionFailureReason,
   sessionTokenFor,
   shouldRetrySessionExchange,
 } from "./session";
+
+test("requires the +autoz marker for automated QA identities", () => {
+  assert.equal(isAutozQaEmail("qa+autoz-run@example.com"), true);
+  assert.equal(isAutozQaEmail("qa+qa-test-bot-run@example.com"), false);
+  assert.equal(isAutozQaEmail("qa@example.com"), false);
+});
 
 test("retries transient server failures but not final or client responses", () => {
   assert.equal(shouldRetrySessionExchange(502, 1), true);
@@ -55,4 +63,39 @@ test("recognizes a per-app token as an authenticated credential", () => {
       delete process.env.BETA_E2E_STORAGE_STATE_FILE;
     else process.env.BETA_E2E_STORAGE_STATE_FILE = previousStorageStateFile;
   }
+});
+
+test("classifies session failures without guessing that a credential expired", () => {
+  assert.match(
+    sessionFailureReason({
+      status: 503,
+      body: '{"error":"Session lookup timed out"}',
+      tokenProvided: true,
+    }),
+    /endpoint was unavailable/,
+  );
+  assert.match(
+    sessionFailureReason({
+      status: 200,
+      body: '{"error":"Not authenticated"}',
+      tokenProvided: true,
+    }),
+    /did not honor/,
+  );
+  assert.match(
+    sessionFailureReason({
+      status: 200,
+      body: "not json",
+      tokenProvided: false,
+    }),
+    /unreadable/,
+  );
+  assert.doesNotMatch(
+    sessionFailureReason({
+      status: 200,
+      body: '{"error":"Not authenticated"}',
+      tokenProvided: true,
+    }),
+    /expire|30 days/i,
+  );
 });

@@ -1,10 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
+import { assertCanApprove } from "../server/lib/library-access.js";
 import { getAssetOrThrow, serializeLibrary } from "./_helpers.js";
 
 /**
@@ -21,7 +21,7 @@ export default defineAction({
     assetId: z.string(),
   }),
   run: async ({ libraryId, assetId }) => {
-    await assertAccess("asset-library", libraryId, "editor");
+    await assertCanApprove(libraryId, "Setting the canonical logo");
     const asset = await getAssetOrThrow(assetId);
     if (asset.libraryId !== libraryId) {
       throw new Error("Asset does not belong to this library.");

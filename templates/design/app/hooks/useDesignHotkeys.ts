@@ -205,8 +205,7 @@ export interface UseDesignHotkeysProps {
    * modifiers held) or SHIFT_TOOL_SHORTCUTS (which has no "a" entry).
    */
   onAddAutoLayout?: DesignHotkeyHandler;
-  /** Figma's Shift+\ "Minimize UI" shortcut, applied here to the full Design
-   *  chrome (left rail, right panel, and bottom toolbar). */
+  /** Cmd/Ctrl+\ toggles the left and right Design sidebars. */
   /**
    * Whether Design can act on its own chords at all. False on a read-only or
    * signed-out prototype, where consuming Cmd+Z/Cmd+D/Cmd+G would cost the
@@ -214,6 +213,9 @@ export interface UseDesignHotkeysProps {
    */
   canClaimBoundChords?: boolean;
   onToggleUi?: DesignHotkeyHandler;
+  /** Cmd/Ctrl+Shift+\ toggles the minimal Design chrome mode. */
+  onToggleMinimalUi?: DesignHotkeyHandler;
+  onToggleLayoutGrids?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
   /** Figma's Ctrl+Shift+? — open the keyboard-shortcuts reference panel. */
@@ -283,6 +285,20 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   }
   const tagName = editable.tagName.toLowerCase();
   return tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+export function isDesignHistoryHotkeyTarget(target: EventTarget | null) {
+  if (!target || typeof Element === "undefined") return false;
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("[data-design-history-hotkeys]"));
+}
+
+function isDesignHistoryHotkey(event: KeyboardEvent) {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")
+  );
 }
 
 /** Chat bodies and panel labels are selectable but not editable targets, so the
@@ -362,7 +378,11 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
       if (
         current.ignoreEditableTargets !== false &&
         isDesignHotkeyEditableTarget(event.target) &&
-        !isShowKeyboardShortcutsHotkey(event)
+        !isShowKeyboardShortcutsHotkey(event) &&
+        !(
+          isDesignHistoryHotkey(event) &&
+          isDesignHistoryHotkeyTarget(event.target)
+        )
       ) {
         return;
       }
@@ -765,22 +785,31 @@ export function handleDesignHotkey(
     return run(props.onAddAutoLayout);
   }
 
-  // Figma's Shift+\ "Minimize UI" chord avoids the bare Cmd+\ shortcut that
-  // desktop coding hosts can reserve for closing their focused pane. Use the
-  // physical key code because Shift+\ produces "|" on US keyboard layouts.
-  if (
-    !primary &&
-    !event.altKey &&
-    event.shiftKey &&
-    event.code === "Backslash"
-  ) {
-    return run(props.onToggleUi);
+  // Cmd/Ctrl+Shift+\ toggles the minimal Design chrome mode, while the
+  // unshifted chord toggles the sidebars. Use the physical key code so both
+  // shortcuts remain stable across keyboard layouts.
+  if (primary && !event.altKey && event.code === "Backslash") {
+    return event.shiftKey
+      ? claim(props.onToggleMinimalUi)
+      : claim(props.onToggleUi);
   }
 
   // Figma: Shift+C — Show/Hide comments. Plain "c" (no modifiers) is the
   // comment-pin TOOL_SHORTCUTS entry, so shift+c can't shadow it.
   if (!primary && !event.altKey && event.shiftKey && key === "c") {
     return run(props.onToggleComments);
+  }
+
+  // Figma's Mac and Windows forms differ outright here: Control G vs Ctrl
+  // Shift 4. Literal Control on both, never the remapped `primary` flag, and
+  // Digit4 by physical code because Shift+4 is "$" on US layouts.
+  if (event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (!event.shiftKey && key === "g") {
+      return run(props.onToggleLayoutGrids);
+    }
+    if (event.shiftKey && event.code === "Digit4") {
+      return run(props.onToggleLayoutGrids);
+    }
   }
 
   return false;

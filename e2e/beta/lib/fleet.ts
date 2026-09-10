@@ -21,6 +21,7 @@ export interface BetaSite {
   id: string;
   siteId: string;
   host: string;
+  e2e?: boolean;
 }
 
 /**
@@ -37,6 +38,10 @@ const GOOGLE_ONLY_APPS = new Set(["mail", "calendar"]);
  * so it should be a decision someone makes, not a side effect of deploying.
  */
 const CHAT_APPS = ["chat", "slides", "analytics", "content", "dispatch"];
+const AUTHENTICATED_ENTRY_PATHS: Record<string, string> = {
+  content: "/home",
+  slides: "/home",
+};
 
 function readSites(): BetaSite[] {
   const file = path.join(repoRoot, "scripts", "netlify-beta-sites.json");
@@ -57,7 +62,12 @@ function readSites(): BetaSite[] {
         `${file}[${index}] host ${site.host} is not a beta host. This suite must never be pointed at production.`,
       );
     }
-    return { id: site.id, siteId: site.siteId, host: site.host };
+    return {
+      id: site.id,
+      siteId: site.siteId,
+      host: site.host,
+      e2e: site.e2e,
+    };
   });
 }
 
@@ -71,7 +81,8 @@ export const ALL_SITES: BetaSite[] = readSites();
  */
 export function selectedSites(): BetaSite[] {
   const raw = process.env.BETA_E2E_APPS?.trim();
-  if (!raw || raw === "all") return ALL_SITES;
+  const selectableSites = ALL_SITES.filter((site) => site.e2e !== false);
+  if (!raw || raw === "all") return selectableSites;
   const wanted = raw
     .split(",")
     .map((value) => value.trim().toLowerCase())
@@ -83,7 +94,7 @@ export function selectedSites(): BetaSite[] {
       `BETA_E2E_APPS=${JSON.stringify(raw)} names no app. Use "all" or a comma-separated list of app ids.`,
     );
   }
-  const known = new Map(ALL_SITES.map((site) => [site.id, site]));
+  const known = new Map(selectableSites.map((site) => [site.id, site]));
   const unknown = wanted.filter((id) => !known.has(id));
   if (unknown.length > 0) {
     throw new Error(
@@ -106,6 +117,11 @@ export function siteById(id: string): BetaSite {
 export function originFor(site: BetaSite | string): string {
   const host = typeof site === "string" ? siteById(site).host : site.host;
   return `https://${host}`;
+}
+
+export function authenticatedEntryPath(site: BetaSite | string): string {
+  const id = typeof site === "string" ? site : site.id;
+  return AUTHENTICATED_ENTRY_PATHS[id] ?? "/";
 }
 
 /** The production twin of a beta host, used for isolation checks. */

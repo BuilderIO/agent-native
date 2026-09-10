@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyGenerationRunFinished } from "../server/lib/generation-run-notifications.js";
 import { nowIso, parseJson } from "../server/lib/json.js";
+import { assertCanDraftAuthoredBy } from "../server/lib/library-access.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
 import { upsertVariantSlot } from "./variant-slots.js";
@@ -142,12 +142,24 @@ export default defineAction({
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
-    await assertAccess("asset-library", run.libraryId, "editor");
+    // Reconciling mutates the run row (status, error, outputs), so a
+    // below-editor caller may only refresh a run they started.
+    const draftAccess = await assertCanDraftAuthoredBy(
+      run.libraryId,
+      run.ownerEmail,
+      "A generation run",
+    );
+    // Reconciliation is where an async candidate finally becomes readable, so
+    // it is the last place the caller can learn it still needs an editor.
+    const approval = draftAccess.canApprove
+      ? {}
+      : { draftPendingApproval: true };
     if ((run.mediaType ?? "image") !== "video") {
       const refreshed = await refreshImageRun(run);
       return {
         run: serializeGenerationRun(refreshed.run),
         assets: refreshed.assets.map(serializeAsset),
+        ...approval,
       };
     }
     if (run.status === "completed" || run.status === "failed") {
@@ -158,6 +170,7 @@ export default defineAction({
       return {
         run: serializeGenerationRun(run),
         assets: assets.map(serializeAsset),
+        ...approval,
       };
     }
     const refreshed = await completeVideoGenerationRun(run);
@@ -167,6 +180,7 @@ export default defineAction({
         refreshed.status === "completed"
           ? [serializeAsset(refreshed.asset)]
           : [],
+      ...approval,
     };
   },
 });

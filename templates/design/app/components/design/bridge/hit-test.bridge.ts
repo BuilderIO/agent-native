@@ -244,21 +244,85 @@
     );
   }
 
+  var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
+    img: true,
+    video: true,
+    picture: true,
+    audio: true,
+    canvas: true,
+    svg: true,
+    path: true,
+    input: true,
+    textarea: true,
+    select: true,
+    br: true,
+    hr: true,
+    iframe: true,
+  };
+  var BRIDGE_ADOPTING_PRIMITIVES: Record<string, boolean> = {
+    frame: true,
+    rectangle: true,
+    rect: true,
+  };
+
+  // KEEP IN SYNC with editor-chrome.bridge.ts — pinned by bridge.guard.spec.ts.
+  // Layout decides, not the tag: a group has no data-an-primitive and a
+  // generated container is often a <section>.
+
+  // keep in sync with editor-chrome.bridge.ts isFreeformRelativeContainer
+  // Complements isAbsolutePrimitiveContainer above, which requires the
+  // container itself to be absolute/fixed. A generated screen wraps content in
+  // a `position:relative` full-bleed div, and calling that flow strips a
+  // dropped layer's left/top into the corner. Every child must be out of flow:
+  // one absolute badge in a flex row does not make the row freeform.
+  function isFreeformRelativeContainer(el: Element | null): boolean {
+    if (!el || el === document.body || el === document.documentElement) {
+      return false;
+    }
+    if (window.getComputedStyle(el).position === "static") return false;
+    var children = el.children;
+    if (children.length === 0) return false;
+    for (var i = 0; i < children.length; i += 1) {
+      if (isOverlayElement(children[i])) continue;
+      var childPosition = window.getComputedStyle(children[i]).position;
+      if (childPosition !== "absolute" && childPosition !== "fixed") {
+        return false;
+      }
+    }
+    return true;
+  }
+
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
-    if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+    if (!el || el.nodeType !== 1) return false;
+    if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
     var primitive = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    if (
-      primitive !== "rectangle" &&
-      primitive !== "rect" &&
-      primitive !== "frame"
-    )
+    if (primitive) {
+      // A declared frame or rectangle is authored free-form even when empty;
+      // other drawn shapes stay leaves, matching what
+      // appendCanvasPrimitiveToHtml enforces on draw.
+      if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+      // Unmarked markup is judged by how it positions its CHILDREN, not by its
+      // own position: an absolutely positioned card whose children are in
+      // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
+    }
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
+  }
+
+  function hasAbsolutePositionedChild(el: Element): boolean {
+    var kids = el.children;
+    for (var i = 0; i < kids.length; i += 1) {
+      if (isOverlayElement(kids[i])) continue;
+      var kidPosition = window.getComputedStyle(kids[i]).position;
+      if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+    }
+    return false;
   }
 
   function absolutePrimitiveContainerTargetForPoint(
@@ -278,7 +342,10 @@
       var cursor: Element | null = hits[i];
       var candidate: Element | null = null;
       while (cursor && cursor !== document.body) {
-        if (isAbsolutePrimitiveContainer(cursor)) {
+        if (
+          isAbsolutePrimitiveContainer(cursor) ||
+          isFreeformRelativeContainer(cursor)
+        ) {
           candidate = cursor;
           break;
         }
@@ -678,7 +745,10 @@
           dropMode: "flow-insert",
         };
       }
-      if (isAbsolutePrimitiveContainer(cursor)) {
+      if (
+        isAbsolutePrimitiveContainer(cursor) ||
+        isFreeformRelativeContainer(cursor)
+      ) {
         return {
           anchor: cursor,
           placement: "inside",
@@ -830,6 +900,75 @@
     scheduleReviewLayout();
   }
 
+  var NON_SELECTABLE_TAGS = [
+    "script",
+    "style",
+    "template",
+    "link",
+    "meta",
+    "title",
+    "noscript",
+    "br",
+  ];
+  var MIN_SELECTABLE_EXTENT_PX = 4;
+
+  // keep in sync with editor-chrome.bridge.ts collectSelectableElements
+  // Same layer set as the editable bridge, by a shorter route: that one promotes
+  // svg internals to their <svg>, this one skips them, and both land on the
+  // <svg> itself. Answers only when editor chrome is absent (see the flag).
+  function collectSelectableElementInfos(): unknown[] {
+    var nodes = Array.prototype.slice.call(
+      document.body ? document.body.querySelectorAll("*") : [],
+    ) as Element[];
+    var infos: unknown[] = [];
+    nodes.forEach(function (node) {
+      if (
+        NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 ||
+        isEditorInjectedElement(node) ||
+        isTemplateCloneElement(node) ||
+        (node as SVGElement).ownerSVGElement
+      ) {
+        return;
+      }
+      var rect = node.getBoundingClientRect();
+      if (
+        rect.width < MIN_SELECTABLE_EXTENT_PX ||
+        rect.height < MIN_SELECTABLE_EXTENT_PX
+      ) {
+        // keep in sync with editor-chrome.bridge.ts isPaddedAwayFromView
+        var cs = window.getComputedStyle(node);
+        if (cs.display === "none" || cs.visibility === "hidden") return;
+      }
+      var padX =
+        rect.width < MIN_SELECTABLE_EXTENT_PX
+          ? MIN_SELECTABLE_EXTENT_PX / 2
+          : 0;
+      var padY =
+        rect.height < MIN_SELECTABLE_EXTENT_PX
+          ? MIN_SELECTABLE_EXTENT_PX / 2
+          : 0;
+      var nodeId = getNodeId(node);
+      infos.push({
+        tagName: node.tagName.toLowerCase(),
+        sourceId: nodeId || undefined,
+        // Not minted here: a whole-document sweep must stay read-only, and the
+        // host resolves an id-less node through this structural selector.
+        selector: nodeId
+          ? undefined
+          : buildSourceEquivalentSelector(node) || undefined,
+        layerName:
+          node.getAttribute("data-agent-native-layer-name") || undefined,
+        boundingRect: {
+          x: rect.left - padX,
+          y: rect.top - padY,
+          width: rect.width + padX * 2,
+          height: rect.height + padY * 2,
+        },
+      });
+    });
+    return infos;
+  }
+
   window.addEventListener("message", function (e: MessageEvent) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
@@ -944,6 +1083,33 @@
     }
     if (e.data.type === "agent-native:hit-test-preview-clear") {
       hideInsertionGuide();
+      return;
+    }
+    // The only bridge injected when editor chrome is off (read-only, Interact,
+    // thumbnail overview): with no answer the host cannot tell a timeout from
+    // "nothing here is selectable".
+    if (e.data.type === "agent-native:collect-selectable-rects") {
+      // The editable bridge owns this reply when it is present; see the flag it
+      // sets in editor-chrome.bridge.ts.
+      if (
+        (window as unknown as Record<string, boolean>).__agentNativeEditorChrome
+      ) {
+        return;
+      }
+      // Deliberately uncaught: an undeliverable reply already surfaces as
+      // {status:"unanswered"} on the host's own timeout, and swallowing the
+      // throw here would hide the only signal that this bridge tried to answer.
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:selectable-rects-result",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          payload: collectSelectableElementInfos(),
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type !== "agent-native:hit-test") return;

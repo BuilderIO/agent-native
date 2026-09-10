@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ElementInfo } from "../types";
 import { cssElementSize } from "./element-classification";
 import {
+  patchAuthoredInlineStyles,
   authoredStyleValue,
   elementWithInteractionStateStyles,
   resolveInteractionStateValue,
@@ -175,5 +176,43 @@ describe("elementWithInteractionStateStyles", () => {
     const base = makeElement({ computedStyles: { color: "blue" } });
     expect(elementWithInteractionStateStyles(base, undefined)).toBe(base);
     expect(elementWithInteractionStateStyles(base, {})).toBe(base);
+  });
+});
+
+// A sizing commit writes `width: fit-content`, but the inspector reads the
+// authored value. Patching only `computedStyles` left the two views of the same
+// property disagreeing, so the control reported Fixed on an element that had
+// just been set to Hug and really was hugging on canvas.
+describe("patchAuthoredInlineStyles", () => {
+  it("carries a committed authored size onto the snapshot", () => {
+    expect(
+      patchAuthoredInlineStyles(
+        { width: "180px" },
+        { width: "fit-content", flexGrow: "0" },
+      ),
+    ).toEqual({ width: "fit-content" });
+  });
+
+  it("leaves an absent snapshot absent — absence is meaningful downstream", () => {
+    expect(
+      patchAuthoredInlineStyles(undefined, { width: "fit-content" }),
+    ).toBeUndefined();
+  });
+
+  it("ignores properties the snapshot never carries", () => {
+    expect(patchAuthoredInlineStyles({}, { color: "red" })).toEqual({});
+  });
+
+  it("keeps unrelated authored values", () => {
+    expect(
+      patchAuthoredInlineStyles(
+        { position: "absolute", left: "10px" },
+        { height: "fit-content" },
+      ),
+    ).toEqual({
+      position: "absolute",
+      left: "10px",
+      height: "fit-content",
+    });
   });
 });

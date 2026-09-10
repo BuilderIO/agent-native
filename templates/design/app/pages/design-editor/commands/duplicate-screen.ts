@@ -110,7 +110,7 @@ export function runDuplicateScreen(
       // a whole-design refetch re-downloads every screen's HTML, which is
       // what made adding a frame feel slow.
       if (!nextId) {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
       } else {
@@ -183,7 +183,7 @@ export function runDuplicateScreen(
             },
           );
           void updateDesignAsync({ id, dataOperations } as any).catch(() => {
-            queryClient.invalidateQueries({
+            void queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
           });

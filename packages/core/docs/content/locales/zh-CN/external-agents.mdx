@@ -1,7 +1,7 @@
 ---
-title: "外部代理：Claude、ChatGPT、Codex、光标、Cowork"
-description: "将 Claude、ChatGPT、Codex、Cursor、Claude Cowork 或任何 MCP 兼容主机连接到托管代理本机应用程序，然后使用 MCP 应用程序和深层链接将往返工件返回到正在运行的 UI。"
-search: "Claude ChatGPT Claude 代码 Codex 光标 Claude Cowork MCP 应用程序代理-本地连接本地代理工具外部代理"
+title: "外部代理：Claude、ChatGPT、Codex、光标、Cowork、Grok"
+description: "将 Claude、ChatGPT、Codex、Cursor、Claude Cowork、Grok 或任何 MCP 兼容主机连接到托管代理本机应用程序，然后使用 MCP 应用程序和深层链接将往返工件返回到正在运行的 UI。"
+search: "Claude Anthropic ChatGPT OpenAI Claude 代码 Codex 光标 Claude Cowork Grok xAI MCP 应用程序代理-本地连接本地代理工具外部代理"
 ---
 
 # 外部代理
@@ -93,7 +93,17 @@ search: "Claude ChatGPT Claude 代码 Codex 光标 Claude Cowork MCP 应用程�
 
 ## 轻松设置 {#easy-setup}
 
-将一个远程 MCP 连接器添加到要使用 Agent-Native 的主机。
+每个 Agent-Native 应用都提供一个规范的 MCP URL：
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+在应用中打开 **Settings → Integrations**，然后搜索您熟悉的主机名称：
+Claude、Claude Cowork、Claude Code、Anthropic、ChatGPT、OpenAI、Codex、Grok
+或 xAI。唯一的外部主机结果会打开 **Settings → MCP**，并选中最匹配的指南。
+复制 **MCP server URL** 并粘贴到 AI 主机中。URL 是已部署应用的基础 URL 加上
+`/mcp`。
 
 对于工作区或跨应用程序工作，请使用 Dispatch：
 
@@ -115,15 +125,15 @@ https://<your-app>.agent-native.com/mcp
 
 每个托管应用程序还有一个帮助页面
 `https://&lt;app&gt;/mcp/connect` 与可复制的 URL 和
-Claude、ChatGPT、光标、Claude 代码、Codex 和其他的主机特定选项卡。
+Claude、ChatGPT、光标、Claude 代码、Codex、Grok 和其他的主机特定选项卡。
 
-### 应用内的 Access 选项卡 {#access-tab}
+<a id="access-tab"></a>
 
-挂载 `AgentTabsPage` 的应用也会在 **Access** 选项卡中提供相同的连接流程。
-它显示 MCP URL、可用时的 A2A 代理卡片，以及 Claude、ChatGPT、Cursor、Claude
-Code、Codex 和其他客户端的共享设置指南。可将它作为应用内的起点，并打开
-`/mcp/connect` 查看完整流程和令牌回退。这是连接设置界面，不是通用访问控制
-台；该选项卡目前还不管理 grants、范围编辑或撤销。
+### 应用内的 MCP 设置 {#mcp-settings}
+
+标准应用 Settings 在 **Integrations** 旁边提供 **MCP** 选项卡。它显示应用的规范
+MCP URL、可用时的 A2A 代理卡片，以及与完整连接页面相同的设置指南。使用
+**Settings → MCP** 作为应用内起点，或直接打开 `/mcp/connect` 查看完整流程和令牌回退。
 
 ### Claude 和 ChatGPT OAuth {#oauth}
 
@@ -132,10 +142,12 @@ Claude / Claude 桌面：添加自定义连接器，粘贴 MCP URL，点击
 并在聊天中启用连接器。 Claude 代码使用相同的 URL：将其添加为
 远程HTTP MCP服务器，运行`/mcp`，然后选择**验证**。
 
-ChatGPT：使用自定义 MCP 连接器或开发人员模式应用所在的工作区
-启用，创建自定义连接器/应用程序，粘贴相同的 MCP URL，选择 OAuth，
-扫描/发现工具，使用 Agent-Native 登录，批准范围并启用
-聊天中的连接器。
+ChatGPT：自定义 MCP 应用需要受支持的 ChatGPT web 工作区。如果你有访问权限，请打开
+**Settings → Apps → Advanced settings**，在需要时启用开发者模式，选择 **Create app**，
+粘贴相同的 MCP URL，选择 OAuth，扫描工具，使用 Agent-Native 登录，批准请求的范围，
+然后在聊天中启用该应用。Business、Enterprise 和 Edu 工作区支持完整 MCP，包括写入
+操作；Pro 在开发者模式下支持读取和获取。如果没有 **Apps** 或 **Create app**，则你的
+套餐或工作区策略不允许此设置。
 
 OAuth 授权针对每个主机和每个用户。主机存储令牌并
 调解工具/资源调用，因此内联 MCP 应用预览永远不会收到原始数据
@@ -497,6 +509,8 @@ CSP 和沙箱权限等安全元数据存在于资源中
 
 实际上，每个代理本机应用程序都应使用以下两种方式编写：用于在有能力的主机中进行内联审查/编辑的 MCP 应用程序，以及用于通用往返返回完整应用程序的 `link` 应用程序。不渲染 iframe 的 CLI/代码编辑器客户端会回退到深层链接。人工选择工具可以向回退添加粘贴步骤：例如，资产选择器从回退链接打开，让用户在浏览器中选择媒体，然后复制用户粘贴回聊天中的交接摘要。
 
+外部代理可以使用应用真正的创建/更新工具——与应用内代理调用的是同一批命名操作——因此当用户要求新内容(设计、幻灯片、表单、文档)时,应直接撰写并用这些工具保存,而不是把工作委托给 `ask_app`。标记为 `endsTurn: true` 的操作(例如在该应用自身聊天中等待用户回答的应用内提问表单),除非设置 `mcpTool: true`,否则会对 MCP、WebMCP 和 A2A 隐藏——见[定义 Actions 中的 endsTurn](/docs/actions-defining)。工具的输入和结果在 WebMCP 上最多可携带 500,000 个字符,因此整个界面、幻灯片或文档可以一次写入——见[WebMCP](/docs/webmcp)。页面本地的 WebMCP 调用还会携带浏览器标签页 ID(与 UI 使用的是同一个 `getBrowserTabId()` 值——见[情境意识](/docs/context-awareness)),因此按标签页划分的导航与选择会解析到代理正在操作的那个标签页,即便它被隐藏。
+
 ### 一流的MCP应用桥 {#mcp-app-bridge}
 
 `embedApp()` 从操作的 `link` 目标开始，创建一个短期嵌入会话，并启动该签名的应用程序路由。 Claude web采用单框架移植路径； ChatGPT 通过 `window.openai` 主机 API 获得受控路由 iframe。所有路径均呈现正常的 React 路线。直接水合路由通过主桥调用`ui/update-model-context`、`ui/message`、`ui/open-link`、`ui/request-display-mode`； ChatGPT 路径通过 `agentNative.mcpHost.*` postMessage 中继相同的请求。 `embedApp({ height })` 默认为 `560px`，并钳位为 `320-900px`。
@@ -803,6 +817,7 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 ## 相关 {#related}
 
 - [MCP Apps](/docs/mcp-apps) — 编写 MCP 应用程序 UI、嵌入桥和主桥 API。
+- [WebMCP](/docs/webmcp) — 页面本地工具、500,000 字符的输入/结果上限,以及浏览器标签页 ID 请求头。
 - [MCP Protocol](/docs/mcp-protocol) — 自动安装的 MCP 服务器和 `ask-agent` 元工具。
 - [MCP Clients](/docs/mcp-clients) — 对称方向：您的应用使用本地/远程 MCP 服务器。
 - [A2A Protocol](/docs/a2a-protocol) — `ask-agent` 元工具和 JSON-RPC 对等调用。

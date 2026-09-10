@@ -16,6 +16,12 @@ import type { BrowserContext } from "@playwright/test";
  */
 
 const KEY_ROUTE = "/_agent-native/agent-engine/api-key";
+const ENGINE_STATUS_ROUTE = "/_agent-native/agent-engine/status";
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models";
+const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
+const OPENAI_E2E_MODEL = "gpt-5.6-luna";
+const OPENAI_VALIDATION_TIMEOUT_MS = 15_000;
 
 export type KeySource = "dedicated" | "shared";
 
@@ -57,6 +63,105 @@ export interface KeyInstallResult {
   installed: boolean;
   status: number;
   body: string;
+  runtimeStatus: {
+    status: number;
+    body: string;
+  };
+}
+
+export function isConfirmedOpenAiKeyInstall(
+  result: Pick<KeyInstallResult, "status" | "body">,
+): boolean {
+  if (result.status < 200 || result.status >= 300) return false;
+  try {
+    const body = JSON.parse(result.body) as {
+      ok?: unknown;
+      key?: unknown;
+      baseUrlKey?: unknown;
+      scope?: unknown;
+    };
+    return (
+      body.ok === true &&
+      body.key === "OPENAI_API_KEY" &&
+      body.baseUrlKey === "OPENAI_BASE_URL" &&
+      body.scope === "user"
+    );
+  } catch {
+    return false; // coercion-ok: malformed response is explicitly unconfirmed
+  }
+}
+
+export function isConfirmedOpenAiEngineStatus(
+  result: Pick<KeyInstallResult["runtimeStatus"], "status" | "body">,
+): boolean {
+  if (result.status < 200 || result.status >= 300) return false;
+  try {
+    const body = JSON.parse(result.body) as {
+      configured?: unknown;
+      engine?: unknown;
+    };
+    return body.configured === true && body.engine === "ai-sdk:openai";
+  } catch {
+    return false; // coercion-ok: malformed response is explicitly unconfirmed
+  }
+}
+
+/** Validate the exact credential once before installing it on any beta host. */
+export async function validateOpenAiKey(apiKey: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(OPENAI_MODELS_ENDPOINT, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(OPENAI_VALIDATION_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new Error(
+      `Could not validate the selected OpenAI credential: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `OpenAI rejected the selected credential (HTTP ${response.status}).`,
+      );
+    }
+    throw new Error(
+      `OpenAI credential validation was inconclusive (HTTP ${response.status}).`,
+    );
+  }
+
+  let execution: Response;
+  try {
+    execution = await fetch(OPENAI_RESPONSES_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: OPENAI_E2E_MODEL,
+        input: "Reply with OK.",
+        max_output_tokens: 16,
+        store: false,
+      }),
+      signal: AbortSignal.timeout(OPENAI_VALIDATION_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new Error(
+      `Could not validate the selected OpenAI credential for ${OPENAI_E2E_MODEL}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (execution.ok) return;
+  if (execution.status === 401 || execution.status === 403) {
+    throw new Error(
+      `OpenAI rejected the selected credential for ${OPENAI_E2E_MODEL} (HTTP ${execution.status}).`,
+    );
+  }
+  throw new Error(
+    `OpenAI could not validate the selected credential for ${OPENAI_E2E_MODEL} (HTTP ${execution.status}).`,
+  );
 }
 
 /**
@@ -75,27 +180,46 @@ export async function installOpenAiKey(
       timeout: 45_000,
     });
     const result = await page.evaluate(
-      async ([route, key]) => {
+      async ([route, statusRoute, key, baseUrl]) => {
         const response = await fetch(route, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             provider: "openai",
             value: key,
+            baseUrl,
             scope: "user",
           }),
         });
-        return {
+        const install = {
           status: response.status,
           body: (await response.text()).slice(0, 400),
         };
+        const runtime = await fetch(statusRoute, {
+          cache: "no-store",
+        });
+        return {
+          ...install,
+          runtimeStatus: {
+            status: runtime.status,
+            body: (await runtime.text()).slice(0, 400),
+          },
+        };
       },
-      [KEY_ROUTE, apiKey] as const,
+      [
+        KEY_ROUTE,
+        ENGINE_STATUS_ROUTE,
+        apiKey,
+        OPENAI_DEFAULT_BASE_URL,
+      ] as const,
     );
     return {
-      installed: result.status >= 200 && result.status < 300,
+      installed:
+        isConfirmedOpenAiKeyInstall(result) &&
+        isConfirmedOpenAiEngineStatus(result.runtimeStatus),
       status: result.status,
       body: result.body,
+      runtimeStatus: result.runtimeStatus,
     };
   } finally {
     await page.close();

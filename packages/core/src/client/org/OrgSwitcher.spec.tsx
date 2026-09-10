@@ -8,6 +8,8 @@ import type { OrgSwitcherAppLink } from "./workspace-app-links.js";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
+  beginSignOut: vi.fn(),
+  completeSignOut: vi.fn(),
   notifySessionInvalidated: vi.fn(),
   useOrg: vi.fn(),
   useSession: vi.fn(),
@@ -16,6 +18,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("react-router", () => ({
+  Link: ({
+    to,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
+    <a href={to} {...props} />
+  ),
   useNavigate: () => mocks.navigate,
 }));
 
@@ -37,6 +45,8 @@ vi.mock("./hooks.js", () => {
 });
 
 vi.mock("../use-session.js", () => ({
+  beginSignOut: mocks.beginSignOut,
+  completeSignOut: mocks.completeSignOut,
   notifySessionInvalidated: mocks.notifySessionInvalidated,
   useSession: mocks.useSession,
 }));
@@ -46,8 +56,15 @@ vi.mock("../use-demo-mode-status.js", () => ({
 }));
 
 vi.mock("../i18n.js", () => ({
-  useT: () => (key: string) =>
-    key === "settings.profileMenuItem" ? "Profile" : key,
+  useT: () => (key: string, options?: { defaultValue?: string }) => {
+    const messages: Record<string, string> = {
+      "contextXray.provenance.tools": "Tools",
+      "settings.profileMenuItem": "Profile",
+      "settings.profileTitle": "Account",
+      "settings.workspaceTitle": "Workspace",
+    };
+    return messages[key] ?? options?.defaultValue ?? key;
+  },
 }));
 
 vi.mock("./workspace-app-links.js", async (importOriginal) => {
@@ -68,6 +85,8 @@ describe("OrgSwitcher", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
+    mocks.beginSignOut.mockReset();
+    mocks.completeSignOut.mockReset();
     mocks.notifySessionInvalidated.mockReset();
     mocks.useSession.mockReset();
     mocks.useDemoModeStatus.mockReset();
@@ -148,6 +167,114 @@ describe("OrgSwitcher", () => {
     expect(button).not.toBeNull();
     expect(button?.getAttribute("aria-label")).toBe("Brent's workspace");
     expect(button?.textContent).toBe("");
+  });
+
+  it("renders app utility links in the workspace menu", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "owner" }],
+        domainMatches: [],
+        pendingInvitations: [],
+        role: "owner",
+      },
+      isLoading: false,
+    });
+
+    render(
+      <OrgSwitcher
+        utilityLinks={[
+          {
+            id: "browser-extension",
+            label: "Browser extension",
+            href: "https://example.com/extension",
+            external: true,
+          },
+          {
+            id: "desktop-download",
+            label: "Desktop app",
+            href: "/download",
+          },
+        ]}
+      />,
+    );
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+
+    const utilityLinks = Array.from(
+      document.body.querySelectorAll<HTMLAnchorElement>("a"),
+    );
+    const extensionLink = utilityLinks.find(
+      (link) => link.textContent?.trim() === "Browser extension",
+    );
+    const desktopLink = utilityLinks.find(
+      (link) => link.textContent?.trim() === "Desktop app",
+    );
+
+    expect(extensionLink?.getAttribute("href")).toBe(
+      "https://example.com/extension",
+    );
+    expect(extensionLink?.getAttribute("target")).toBe("_blank");
+    expect(extensionLink?.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(desktopLink?.getAttribute("href")).toBe("/download");
+  });
+
+  it("groups workspace menu actions by purpose", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "owner" }],
+        domainMatches: [],
+        pendingInvitations: [],
+        role: "owner",
+      },
+      isLoading: false,
+    });
+
+    render(
+      <OrgSwitcher
+        utilityLinks={[
+          {
+            id: "desktop-download",
+            label: "Desktop app",
+            href: "/download",
+          },
+        ]}
+      />,
+    );
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+
+    const sectionLabels = Array.from(document.body.querySelectorAll("div"))
+      .filter((element) => element.className.includes("uppercase"))
+      .map((element) => element.textContent?.trim())
+      .filter((label): label is string => Boolean(label));
+    expect(sectionLabels).toEqual([
+      "Organizations",
+      "Workspace",
+      "Account",
+      "Tools",
+    ]);
+
+    const menuButtons = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).map((button) => button.textContent?.trim() ?? "");
+    const actionOrder = [
+      "Invite member",
+      "Organization settings",
+      "Create organization",
+    ].map((label) => menuButtons.findIndex((text) => text.includes(label)));
+    expect(actionOrder[0]).toBeGreaterThanOrEqual(0);
+    expect(actionOrder[1]).toBeGreaterThan(actionOrder[0]);
+    expect(actionOrder[2]).toBeGreaterThan(actionOrder[1]);
   });
 
   it("makes demo mode visible and removes the redacted email from sign out", () => {
@@ -261,7 +388,7 @@ describe("OrgSwitcher", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/settings/account");
   });
 
-  it("invalidates mounted sessions and warns before returning to sign-in after a failed sign out", async () => {
+  it("reloads after a failed sign out without returning to sign-in", async () => {
     const originalLocation = window.location;
     const reload = vi.fn();
     const replace = vi.fn();
@@ -312,16 +439,17 @@ describe("OrgSwitcher", () => {
       expect(fetchMock).toHaveBeenCalledWith("/_agent-native/auth/logout", {
         method: "POST",
         credentials: "include",
+        signal: expect.any(AbortSignal),
       });
-      expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();
-      expect(replace).toHaveBeenCalledWith(
-        expect.stringContaining("/sign-in?c="),
-      );
+      expect(mocks.beginSignOut).toHaveBeenCalledOnce();
+      expect(mocks.completeSignOut).not.toHaveBeenCalled();
+      expect(mocks.notifySessionInvalidated).not.toHaveBeenCalled();
+      expect(reload).toHaveBeenCalledOnce();
+      expect(replace).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
-        "Logout request returned an error before sign-in",
+        "Sign-out request returned an error",
         503,
       );
-      expect(reload).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
       Object.defineProperty(window, "location", {
@@ -469,5 +597,181 @@ describe("OrgSwitcher", () => {
     expect(
       document.body.querySelector<HTMLAnchorElement>('a[href="/analytics"]'),
     ).not.toBeNull();
+  });
+
+  it.each(["owner", "admin", "member"] as const)(
+    "shows Dispatch to organization %s members",
+    (role) => {
+      mocks.appLinks.mockReturnValue({
+        apps: [
+          {
+            id: "dispatch",
+            name: "Dispatch",
+            href: "/dispatch/overview",
+            isDispatch: true,
+            status: "ready",
+          },
+          {
+            id: "analytics",
+            name: "Analytics",
+            href: "/analytics",
+            isDispatch: false,
+            status: "ready",
+          },
+        ],
+        dispatchAllAppsHref: "/dispatch/apps",
+        dispatchHref: "/dispatch/overview",
+        isLoading: false,
+        isWorkspace: false,
+      });
+      mocks.useOrg.mockReturnValue({
+        data: {
+          email: `${role}@example.com`,
+          orgId: "org-1",
+          orgName: "Acme",
+          role,
+          orgs: [{ orgId: "org-1", orgName: "Acme", role }],
+          pendingInvitations: [],
+          domainMatches: [],
+        },
+        isLoading: false,
+      });
+
+      render(<OrgSwitcher />);
+      act(() => {
+        container.querySelector<HTMLButtonElement>("button")!.click();
+      });
+      const appsButton = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((button) => button.textContent?.trim().startsWith("Apps"));
+      expect(appsButton).not.toBeNull();
+
+      act(() => {
+        appsButton!.click();
+      });
+
+      expect(
+        document.body.querySelector<HTMLAnchorElement>(
+          'a[href="/dispatch/overview"]',
+        ),
+      ).not.toBeNull();
+    },
+  );
+
+  it("does not synthesize Dispatch after an org registry revokes access", () => {
+    mocks.appLinks.mockReturnValue({
+      apps: [
+        {
+          id: "analytics",
+          name: "Analytics",
+          href: "/analytics",
+          isDispatch: false,
+          status: "ready",
+        },
+      ],
+      dispatchAllAppsHref: "/dispatch/apps",
+      dispatchHref: "/dispatch/overview",
+      isLoading: false,
+      isWorkspace: true,
+    });
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "member@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "member",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "member" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+    const appsButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim().startsWith("Apps"));
+    expect(appsButton).not.toBeNull();
+
+    act(() => {
+      appsButton!.click();
+    });
+
+    expect(
+      document.body.querySelector<HTMLAnchorElement>(
+        'a[href="/dispatch/overview"]',
+      ),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("more in Dispatch");
+  });
+
+  it("shows Dispatch and its all-apps link to organization members", () => {
+    mocks.appLinks.mockReturnValue({
+      apps: [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          href: "/dispatch/overview",
+          isDispatch: true,
+          status: "ready",
+        },
+        {
+          id: "analytics",
+          name: "Analytics",
+          href: "/analytics",
+          isDispatch: false,
+          status: "ready",
+        },
+        ...Array.from({ length: 10 }, (_, index) => ({
+          id: `app-${index}`,
+          name: `App ${index}`,
+          href: `/app-${index}`,
+          isDispatch: false,
+          status: "ready" as const,
+        })),
+      ],
+      dispatchAllAppsHref: "/dispatch/apps",
+      dispatchHref: "/dispatch/overview",
+      isLoading: false,
+      isWorkspace: false,
+    });
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "member@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "member",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "member" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+    const appsButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim().startsWith("Apps"));
+    expect(appsButton).not.toBeNull();
+
+    act(() => {
+      appsButton!.click();
+    });
+
+    expect(
+      document.body.querySelector<HTMLAnchorElement>(
+        'a[href="/dispatch/overview"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector<HTMLAnchorElement>('a[href="/analytics"]'),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain("more in Dispatch");
   });
 });

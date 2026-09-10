@@ -19,7 +19,7 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { displayViewerName } from "../shared/view-analytics.js";
+import { hydrateViewerNames } from "../server/lib/user-identities.js";
 
 export default defineAction({
   description:
@@ -46,11 +46,12 @@ export default defineAction({
       .orderBy(desc(schema.recordingViews.viewedAt))
       .limit(args.limit);
 
+    const viewRows = await hydrateViewerNames(rows);
     return {
-      views: rows.map((v) => ({
+      views: viewRows.map((v) => ({
         id: v.id,
         viewerEmail: v.viewerEmail,
-        viewerName: displayViewerName(v.viewerName),
+        viewerName: v.viewerName,
         viewedAt: v.viewedAt,
       })),
     };

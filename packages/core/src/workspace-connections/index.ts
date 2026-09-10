@@ -29,6 +29,7 @@ export {
   listWorkspaceConnectionProviderCatalogForApp,
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  listWorkspaceConnectionsForUser,
   listWorkspaceConnectionsForApp,
   markWorkspaceConnectionUsed,
   resolveWorkspaceConnectionForApp,

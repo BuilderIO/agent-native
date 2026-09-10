@@ -120,6 +120,28 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
             "继承 `agentTool`。设为 false 可对经由 MCP 和 A2A 的外部代理隐藏,设为 true 则声明它属于精选目录。见“访问与授权”。",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "当一次成功调用会把控制权交给用户时(问题表单、信息采集对话框)设为 true;此时应让它成为该轮次中的第一次或唯一一次调用。除非设置 mcpTool: true,否则会对 MCP、WebMCP 和 A2A 隐藏——外部调用方无法收到应用内的回答。见“外部代理”。",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "供 MCP 主机和桌面应用读取的、纯粹且同步的深层链接构建函数。见“其他界面”。",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "在 MCP-App 主机内内联嵌入真实的应用路由。见“其他界面”。",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -189,6 +211,8 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
 
 这份 schema 承担两项职责。它会转换为供 Claude API 工具定义使用的 JSON Schema,并在 `run()` 触发前对运行时输入进行校验。无效输入永远不会到达你的处理函数。
 
+在 `.describe()` 中说明枚举值和默认值,让同一工具族里的主 id 名称保持一致(统一用 `id`,而不是 `id`/`deckId` 混用),并让单行描述足以支撑从精简目录中调用这个工具——每个应用内置的 `actions` 技能带有这份检查清单。
+
 ## 校验返回值 {#output-schema}
 
 `schema` 校验的是*输入*。要同时校验一个 action **返回**的内容,传入一个 `outputSchema`(任何兼容 Standard Schema 的 schema:Zod、Valibot、ArkType,与 `schema` 相同的接口)。框架会在 `run()` 之前校验输入,并在 `run()` 解析完成之后校验结果。
@@ -217,6 +241,10 @@ export default defineAction({
 | `"fallback"` | 返回提供的 `outputFallback` 值,代替无效的结果。                               |
 
 当 `run()` 成功时,框架会返回校验后的值,所以 `outputSchema` 上的任何默认值或类型转换都会生效,和输入的处理方式一样。如果你没有传入 `outputSchema`,返回值不会有任何变化。
+
+## 结果契约 {#result-contracts}
+
+一个 create 或 update 的结果,读它的不只是调用方自己。返回 `id`(这样 `link` 才能构建指向编辑视图的深层链接)、一行 `message`,以及——当这次操作只是一个应由代理继续推进的流程中的一步时——点明下一个工具的 `nextRequiredAction`。绝不要把它写成在等待用户:MCP/WebMCP/A2A 调用方无法收到应用内的回答。即使一个较大的结果被截断,代理循环也会在续写提示中保留 `nextRequiredAction`,MCP 调用方会将其看作 `Next: …`。
 
 ## HTTP 配置 {#http}
 

@@ -1,10 +1,11 @@
 import {
   AGENT_READABLE_RESOURCE_PAYLOAD_TYPE,
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  normalizeDocumentTitle,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import type { SharedDeckResponse } from "@shared/api";
-import type { LoaderFunctionArgs } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData, useParams } from "react-router";
 
 import messages from "@/i18n/en-US";
@@ -50,9 +51,16 @@ export async function loader({
   return { deck: data as SharedDeckResponse, basePath };
 }
 
-export function meta() {
-  return [{ title: messages.raw.routeSharedTitle }];
-}
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => [
+  {
+    title: loaderData?.deck?.title
+      ? `${normalizeDocumentTitle(
+          loaderData.deck.title,
+          messages.raw.routeSharedTitle,
+        )} — Slides`
+      : messages.raw.routeSharedTitle,
+  },
+];
 
 export default function SharedPresentationRoute() {
   const data = useLoaderData<typeof loader>();

@@ -11,6 +11,8 @@ export interface SourceImportSlideSnapshot {
 export interface SourceImportMetadata {
   mode: "source-preserving";
   format: SourceImportFormat;
+  /** The copy keeps source geometry for export but no longer locks structure. */
+  editableSnapshot?: boolean;
   fidelity: "source-faithful" | "partial";
   importedAt: string;
   slideCount: number;
@@ -19,6 +21,15 @@ export interface SourceImportMetadata {
   imagesSkipped?: number;
   /** Count of PPTX `graphicFrame` shapes (tables, or the charts/SmartArt/OLE objects that have no shape structure to reconstruct) that could not be fully converted — same fidelity-signal contract as `imagesSkipped`. */
   tablesDegraded?: number;
+}
+
+export interface SourceImportCoverage {
+  complete: boolean;
+  ordered: boolean;
+  expectedSlideIds: string[];
+  actualSlideIds: string[];
+  missingSlideIds: string[];
+  unexpectedSlideIds: string[];
 }
 
 export function buildSourceImportMetadata(args: {
@@ -92,6 +103,41 @@ export function sourceImportForDeck(
     return null;
   }
   return record as SourceImportMetadata;
+}
+
+export function sourceImportCoverage(
+  metadata: SourceImportMetadata | null,
+  actualSlideIds: readonly string[],
+): SourceImportCoverage | null {
+  if (!metadata) return null;
+
+  const expectedSlideIds =
+    Array.isArray(metadata.slideIds) && metadata.slideIds.length > 0
+      ? [...metadata.slideIds]
+      : metadata.slides.map((slide) => slide.id);
+  const actual = [...actualSlideIds];
+  const expectedSet = new Set(expectedSlideIds);
+  const missingSlideIds = expectedSlideIds.filter(
+    (slideId) => !actual.includes(slideId),
+  );
+  const unexpectedSlideIds = actual.filter(
+    (slideId) => !expectedSet.has(slideId),
+  );
+  const ordered =
+    expectedSlideIds.length === actual.length &&
+    expectedSlideIds.every((slideId, index) => actual[index] === slideId);
+
+  return {
+    complete:
+      ordered &&
+      missingSlideIds.length === 0 &&
+      unexpectedSlideIds.length === 0,
+    ordered,
+    expectedSlideIds,
+    actualSlideIds: actual,
+    missingSlideIds,
+    unexpectedSlideIds,
+  };
 }
 
 function extractImageUrls(content: string): string[] {

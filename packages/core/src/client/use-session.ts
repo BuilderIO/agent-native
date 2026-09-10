@@ -16,12 +16,21 @@ export type { AuthSession };
  * failure, or a timeout. It is NOT the visitor being signed out, and a caller
  * that collapses the two either strands the user on a spinner forever or
  * bounces a signed-in user to the sign-in page over a transient blip.
+ *
+ * `"signing-out"` is the user having asked to leave. It is NOT
+ * `"unauthenticated"`: the server session may still be live for the length of
+ * the revoke request, and the sign-out flow — not a gate — owns the navigation
+ * away. Collapsing it into `"authenticated"` (which is what a cache
+ * invalidation alone does) leaves the app shell mounted with no cookie for the
+ * whole revoke-plus-navigate window, long enough for its queries to 401 and
+ * paint a load failure over the app the user is trying to leave.
  */
 export type SessionStatus =
   | "loading"
   | "authenticated"
   | "unauthenticated"
-  | "unavailable";
+  | "unavailable"
+  | "signing-out";
 
 interface UseSessionResult {
   session: AuthSession | null;
@@ -44,6 +53,10 @@ let trackedSessionIdentity: string | null | undefined;
 let sessionGeneration = 0;
 let sessionInvalidationListenersInstalled = false;
 const sessionInvalidationSubscribers = new Set<() => void>();
+// One-way for the life of the document. A sign-out is a decision, not a
+// reading, so nothing may flip this back — including an in-flight session
+// response that was issued while the cookie was still valid and lands after.
+let signingOut = false;
 
 function hasFreshSessionCache(): boolean {
   return (
@@ -118,6 +131,7 @@ function installSessionInvalidationListeners(): void {
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
       invalidateSessionCache();
+      setTimeout(invalidateSessionCache, SESSION_CACHE_TTL_MS);
     }
   });
   document.addEventListener("visibilitychange", () => {
@@ -142,7 +156,36 @@ export function notifySessionInvalidated(): void {
   }
 }
 
+/** True once this document has started signing out. Never true again after. */
+export function isSigningOut(): boolean {
+  return signingOut;
+}
+
+/**
+ * Enter the terminal `"signing-out"` state for this document.
+ *
+ * Call this BEFORE revoking the server session, not after. Invalidating the
+ * cache instead only asks mounted consumers to re-read, which keeps answering
+ * `"authenticated"` from the previous read until the network replies — and the
+ * app shell stays mounted, and its queries 401. Prefer `signOut()` from
+ * `sign-out.ts`, which sequences this with the revoke and the navigation.
+ */
+export function beginSignOut(): void {
+  signingOut = true;
+  publishSessionIdentity(null);
+  invalidateSessionCache();
+}
+
+/** Notify other browsing contexts after the server has confirmed revocation. */
+export function completeSignOut(): void {
+  notifyParentAuthState("unauthenticated");
+  notifySessionInvalidated();
+}
+
 function fetchSharedSession(): Promise<AuthSession | null | undefined> {
+  // Already leaving: the answer is known, and asking the server again can only
+  // reintroduce the session this document just gave up.
+  if (signingOut) return Promise.resolve(null);
   // A surface with no agent-native backend is genuinely signed out. `undefined`
   // would read as "unavailable" and retry until it gave up with an error.
   if (agentNativeApiDisabledReason()) return Promise.resolve(null);
@@ -249,6 +292,20 @@ export function useSession(): UseSessionResult {
     };
   }, [invalidationToken, retryToken]);
 
+  // Read after every hook so the hook order stays unconditional. A sign-out
+  // overrides whatever the last completed read said: `status` state is only
+  // written when a fetch resolves, so without this the previous
+  // "authenticated" answer (and its session object) stays on screen for the
+  // whole revoke-plus-navigate window.
+  if (signingOut) {
+    return {
+      session: null,
+      isLoading: true,
+      status: "signing-out",
+      error: null,
+      retry,
+    };
+  }
   // Callers that only read `isLoading`/`session` (most of the codebase, not
   // yet migrated to `status`) must not see "unavailable" as "signed out" —
   // that bounces an authenticated user through sign-in-only UI over a

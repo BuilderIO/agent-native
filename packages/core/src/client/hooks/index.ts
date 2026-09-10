@@ -26,10 +26,13 @@ export {
 } from "../use-demo-mode-status.js";
 export { useReconciledState } from "../use-external-value.js";
 export {
+  beginSignOut,
+  isSigningOut,
   notifySessionInvalidated,
   useSession,
   type AuthSession,
 } from "../use-session.js";
+export { signOut, type SignOutOptions } from "../sign-out.js";
 export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
@@ -44,7 +47,11 @@ export {
   type KeepaliveActionCallResult,
 } from "../use-action.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";
-export { AppProviders, type AppProvidersProps } from "../app-providers.js";
+export {
+  AgentNativeWebMcpActionRegistration,
+  AppProviders,
+  type AppProvidersProps,
+} from "../app-providers.js";
 export {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_MESSAGE,

@@ -217,10 +217,12 @@ interface ZipArchive {
 export async function parsePptxPresentation(
   fileBuffer: Uint8Array,
 ): Promise<ParsedPptxPresentation> {
-  const { loadZip, parseXml } = await loadPptxDependencies();
+  const dependencies = await loadPptxDependencies();
+  const loadZip = dependencies.loadZip.bind(dependencies);
+  const parseXml = dependencies.parseXml.bind(dependencies);
   const zip = await loadZip(fileBuffer);
-  const presentationXml = await zip
-    .file("ppt/presentation.xml")
+  const presentationXml = await zip.file
+    .bind(zip)("ppt/presentation.xml")
     ?.async("string");
   if (!presentationXml)
     throw new Error("Invalid PPTX: missing ppt/presentation.xml");

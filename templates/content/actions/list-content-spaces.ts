@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
@@ -16,6 +18,7 @@ import {
 export default defineAction({
   description:
     "List Content spaces that are already provisioned and currently authorized for the signed-in user.",
+  mcpTool: true,
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
@@ -89,6 +92,7 @@ export default defineAction({
       filesDocumentId: string;
       orgId: string | null;
       role: string;
+      canCreateDatabase: boolean;
       catalogItemId: string;
       catalogDocumentId: string;
       catalogPosition: number;
@@ -117,11 +121,37 @@ export default defineAction({
         filesDocumentId,
         orgId: row.space.orgId,
         role,
+        canCreateDatabase:
+          !row.space.orgId ||
+          memberships.some(
+            (membership) =>
+              membership.orgId === row.space.orgId &&
+              ["owner", "admin", "member"].includes(membership.role),
+          ),
         catalogItemId: row.mapping.databaseItemId,
         catalogDocumentId: row.mapping.documentId,
         catalogPosition: row.item.position,
       });
     }
+    const provisionedOrgIds = new Set(
+      spaces.flatMap((space) => (space.orgId ? [space.orgId] : [])),
+    );
+    const needsReconciliation =
+      !spaces.some((space) => space.id === personalSpaceId) ||
+      memberships.some(
+        (membership) => !provisionedOrgIds.has(membership.orgId),
+      ) ||
+      !filesDocumentIdByDatabaseId.has(favoritesIds.databaseId);
+    const reconciliationKey = createHash("sha256")
+      .update(
+        [
+          personalSpaceId,
+          ...memberships
+            .map((membership) => `${membership.orgId}:${membership.role}`)
+            .sort(),
+        ].join("|"),
+      )
+      .digest("hex");
     return {
       catalogDatabaseId: catalogIds.databaseId,
       catalogDocumentId: catalogIds.documentId,
@@ -132,6 +162,8 @@ export default defineAction({
         : null,
       favoritesDocumentId:
         filesDocumentIdByDatabaseId.get(favoritesIds.databaseId) ?? null,
+      needsReconciliation,
+      reconciliationKey,
       spaces,
     };
   },

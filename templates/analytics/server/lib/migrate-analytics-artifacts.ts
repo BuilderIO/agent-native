@@ -8,8 +8,9 @@ import {
 } from "@agent-native/core/db/schema";
 import { recordChange } from "@agent-native/core/server";
 import { listOrgSettings } from "@agent-native/core/settings";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
+import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 
 const migrationExtensions = table("tools", {
@@ -281,19 +282,22 @@ async function readMigrationState(
     analysisRows.map((row: { id: string }) => row.id),
   );
 
-  const dashboards: DashboardSource[] = dashboardRows.map((row: any) => ({
-    id: row.id,
-    kind: row.kind,
-    title: row.title,
-    config: parseJson(row.config),
-    ownerEmail: row.ownerEmail,
-    orgId: row.orgId,
-    visibility: row.visibility,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    archivedAt: row.archivedAt ?? null,
-    hiddenAt: row.hiddenAt ?? null,
-  }));
+  const dashboards: DashboardSource[] = dashboardRows.map((row: any) => {
+    const config = parseJson(row.config);
+    return {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      config: row.kind === "sql" ? normalizeDashboardConfig(config) : config,
+      ownerEmail: row.ownerEmail,
+      orgId: row.orgId,
+      visibility: row.visibility,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      archivedAt: row.archivedAt ?? null,
+      hiddenAt: row.hiddenAt ?? null,
+    };
+  });
 
   for (const row of legacyDashboards.rows) {
     if (materializedDashboardIds.has(row.id)) continue;
@@ -301,7 +305,8 @@ async function readMigrationState(
       id: row.id,
       kind: row.kind,
       title: dashboardTitle(row.data),
-      config: row.data,
+      config:
+        row.kind === "sql" ? normalizeDashboardConfig(row.data) : row.data,
       ownerEmail: ctx.userEmail,
       orgId: ctx.orgId,
       visibility: "org",
@@ -750,6 +755,7 @@ export async function migrateAnalyticsArtifacts(
   }
   await db.transaction(async (tx: any) => {
     for (const row of state.dashboards) {
+      const createdBy = row.visibility === "private" ? row.ownerEmail : null;
       await tx
         .insert(schema.dashboards)
         .values({
@@ -761,6 +767,7 @@ export async function migrateAnalyticsArtifacts(
           orgId: row.orgId,
           visibility: row.visibility,
           createdAt: row.createdAt,
+          createdBy,
           updatedAt: row.updatedAt,
           updatedBy: ctx.userEmail,
           archivedAt: row.archivedAt,
@@ -768,6 +775,18 @@ export async function migrateAnalyticsArtifacts(
           hiddenBy: null,
         })
         .onConflictDoNothing();
+      if (createdBy) {
+        await tx
+          .update(schema.dashboards)
+          .set({ createdBy })
+          .where(
+            and(
+              eq(schema.dashboards.id, row.id),
+              eq(schema.dashboards.orgId, row.orgId),
+              isNull(schema.dashboards.createdBy),
+            ),
+          );
+      }
     }
     for (const row of state.analyses) {
       await tx
@@ -930,6 +949,8 @@ export async function migrateAnalyticsArtifacts(
           orgId: analysis.orgId,
           visibility: analysis.visibility,
           createdAt: analysis.createdAt,
+          createdBy:
+            analysis.visibility === "private" ? analysis.ownerEmail : null,
           updatedAt: now,
           updatedBy: ctx.userEmail,
           hiddenAt: analysis.hiddenAt,
@@ -994,6 +1015,8 @@ export async function migrateAnalyticsArtifacts(
           orgId: extension.orgId,
           visibility: extension.visibility,
           createdAt: extension.createdAt,
+          createdBy:
+            extension.visibility === "private" ? extension.ownerEmail : null,
           updatedAt: now,
           updatedBy: ctx.userEmail,
           hiddenAt: extension.hiddenAt,

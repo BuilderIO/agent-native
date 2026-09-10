@@ -87,8 +87,10 @@ function useIntegrationConnect(provider: MailIntegrationProvider) {
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY });
-      qc.invalidateQueries({ queryKey: ["integration-data", provider] });
+      void qc.invalidateQueries({
+        queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+      });
+      void qc.invalidateQueries({ queryKey: ["integration-data", provider] });
     },
   });
 }
@@ -100,8 +102,10 @@ function useIntegrationDisconnect(provider: MailIntegrationProvider) {
       await deleteClientAppState(provider, { requestSource: TAB_ID });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY });
-      qc.invalidateQueries({ queryKey: ["integration-data", provider] });
+      void qc.invalidateQueries({
+        queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+      });
+      void qc.invalidateQueries({ queryKey: ["integration-data", provider] });
     },
   });
 }
@@ -168,7 +172,7 @@ export function useGongCalls(email: string | undefined) {
 }
 
 /** Check if a React Query error is an auth/key error */
-export function isAuthError(error: Error | null | unknown): boolean {
+export function isAuthError(error: unknown): boolean {
   if (!error || !(error instanceof Error)) return false;
   return error.message === "unauthorized" || error.message === "401";
 }

@@ -24,7 +24,7 @@ describe("Analytics layout sidebar route policy", () => {
     );
   });
 
-  it("keeps sidebar navigation scrolling separate from its pinned footer", () => {
+  it("keeps sidebar navigation compact and separate from its pinned footer", () => {
     const source = readFileSync(
       new URL("./Sidebar.tsx", import.meta.url),
       "utf8",
@@ -34,11 +34,14 @@ describe("Analytics layout sidebar route policy", () => {
       'className="flex min-h-0 flex-1 flex-col overflow-hidden py-2"',
     );
     expect(source).toContain(
-      'className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4"',
+      'className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium"',
     );
     expect(source).toContain('className="flex min-w-0 flex-col gap-1 pb-1"');
     expect(source).toContain(
-      'className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium lg:px-4"',
+      'className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium"',
+    );
+    expect(source).toContain(
+      'className="flex h-12 shrink-0 items-center border-b border-border px-4"',
     );
     expect(source).not.toContain(
       'className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2"',
@@ -79,7 +82,7 @@ describe("Analytics layout sidebar route policy", () => {
     );
   });
 
-  it("keeps the collapsed rail compact without changing expanded spacing", () => {
+  it("keeps both collapsed and expanded sidebar spacing compact", () => {
     const source = readFileSync(
       new URL("./Sidebar.tsx", import.meta.url),
       "utf8",
@@ -92,7 +95,7 @@ describe("Analytics layout sidebar route policy", () => {
       '"flex h-9 w-9 items-center justify-center rounded-md transition-colors"',
     );
     expect(source).toContain(
-      'className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4"',
+      'className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium"',
     );
   });
 });

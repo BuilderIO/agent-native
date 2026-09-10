@@ -6,9 +6,9 @@ import {
 } from "./AgentTabsPage.js";
 
 describe("Agent access documentation links", () => {
-  it("points MCP and A2A access fields to their protocol docs", () => {
+  it("points MCP and A2A access fields to their user-facing docs", () => {
     expect(AGENT_ACCESS_DOCS_HREF).toEqual({
-      mcp: "https://www.agent-native.com/docs/mcp-protocol",
+      mcp: "https://www.agent-native.com/docs/external-agents",
       a2a: "https://www.agent-native.com/docs/a2a-protocol",
     });
   });

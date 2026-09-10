@@ -328,6 +328,7 @@ export async function sendDashboardReportSubscription(
         : {}),
       timeoutMs: emailTimeoutMs,
       templateId: ANALYTICS_DASHBOARD_REPORT_EMAIL_ID,
+      useDeploymentCredentials: true,
     });
   }
 

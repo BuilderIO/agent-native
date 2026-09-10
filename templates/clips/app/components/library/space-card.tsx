@@ -9,10 +9,12 @@ import {
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
@@ -104,13 +106,15 @@ export function SpaceCard({
                       .slice(0, 2)
                       .toUpperCase();
                     return (
-                      <div
+                      <ClipsAvatar
                         key={email}
+                        email={email}
+                        alt={email}
+                        fallback={initials}
+                        className="h-5 w-5 border border-background"
+                        fallbackClassName="bg-primary/15 text-[9px] font-medium text-primary"
                         title={email}
-                        className="flex h-5 w-5 items-center justify-center rounded-full border border-background bg-primary/15 text-[9px] font-medium text-primary"
-                      >
-                        {initials}
-                      </div>
+                      />
                     );
                   })}
                   {members.length > 5 && (
@@ -123,30 +127,39 @@ export function SpaceCard({
             </div>
           </Link>
         </ContextMenuTrigger>
-        {canManageOrg && (
-          <ContextMenuContent>
-            <ContextMenuItem
-              onSelect={() => {
-                setTimeout(() => {
-                  setRenameValue(space.name);
-                  setRenameSpaceId(space.id);
-                }, 0);
-              }}
-            >
-              <IconEdit className="h-4 w-4 mr-2" />
-              {t("spaceDialog.renameSpace")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => {
-                setTimeout(() => setDeleteSpaceId(space.id), 0);
-              }}
-              className="text-destructive focus:text-destructive"
-            >
-              <IconTrash className="h-4 w-4 mr-2" />
-              {t("spaceDialog.deleteSpace")}
-            </ContextMenuItem>
-          </ContextMenuContent>
-        )}
+        <ContextMenuContent>
+          <ContextMenuItem asChild>
+            <Link to={`/spaces/${space.id}`}>
+              <IconUsersGroup className="h-4 w-4 me-2" />
+              {t("clipsFinalRaw.view")}
+            </Link>
+          </ContextMenuItem>
+          {canManageOrg && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onSelect={() => {
+                  setTimeout(() => {
+                    setRenameValue(space.name);
+                    setRenameSpaceId(space.id);
+                  }, 0);
+                }}
+              >
+                <IconEdit className="h-4 w-4 me-2" />
+                {t("spaceDialog.renameSpace")}
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() => {
+                  setTimeout(() => setDeleteSpaceId(space.id), 0);
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                <IconTrash className="h-4 w-4 me-2" />
+                {t("spaceDialog.deleteSpace")}
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
       </ContextMenu>
 
       <SpaceDialogs

@@ -1,6 +1,7 @@
 import { listFileUploadProviders } from "@agent-native/core/file-upload";
 import {
-  resolveHasBuilderPrivateKey,
+  CredentialStoreUnavailableError,
+  hasBuilderApiCredentialCustody,
   runWithRequestContext,
 } from "@agent-native/core/server";
 
@@ -8,7 +9,7 @@ import {
  * Session replay chunk bytes are stored through the framework file-upload /
  * private-blob path (Builder.io CDN by default, or an S3-compatible bucket).
  * In production we require a configured provider — storing replay chunks inline
- * in SQL is a local/dev-only fallback. This mirrors the Clips video-storage
+ * in SQL is a local PGlite development fallback. This mirrors the Clips video-storage
  * contract so replay capture fails loudly (and the UI can prompt setup) instead
  * of silently recording empty, unplayable sessions.
  */
@@ -24,13 +25,13 @@ function appDatabaseUrl(): string {
   return process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || "";
 }
 
-function isLikelyLocalDatabase(): boolean {
-  const url = appDatabaseUrl();
-  return url === "" || url.startsWith("file:") || !url.includes("://");
+function isPGliteDatabase(): boolean {
+  const url = appDatabaseUrl().toLowerCase();
+  return url === "" || url.startsWith("pglite:");
 }
 
 export function requiresConfiguredReplayStorage(): boolean {
-  return process.env.NODE_ENV === "production" || !isLikelyLocalDatabase();
+  return process.env.NODE_ENV === "production" || !isPGliteDatabase();
 }
 
 export interface ReplayStorageResolveContext {
@@ -63,8 +64,9 @@ export async function hasRequestReplayStorage(
     }
 
     try {
-      return await resolveHasBuilderPrivateKey();
-    } catch {
+      return await hasBuilderApiCredentialCustody();
+    } catch (err) {
+      if (err instanceof CredentialStoreUnavailableError) throw err;
       return false;
     }
   };
