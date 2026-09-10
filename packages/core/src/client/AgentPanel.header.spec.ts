@@ -672,7 +672,7 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain("if (open && !showWhenOpen) return null");
     expect(source).toContain("aria-pressed={open}");
     expect(source).toContain('data-state={open ? "open" : "closed"}');
-    expect(source).toContain("{icon ?? <IconMessageDots");
+    expect(source).toContain("IconLayoutSidebarRight");
     expect(source).toContain("{onCollapse && showCollapseButton && (");
     expect(source).toContain("showCollapseButton={showCollapseButton}");
   });
