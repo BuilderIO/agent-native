@@ -118,7 +118,7 @@ describe("LayersPanel search affordance", () => {
 });
 
 describe("LayersPanel row hierarchy", () => {
-  it("renders one explicit 16px flex indent per hierarchy level", async () => {
+  it("renders compact Figma-like density with one flex indent per level", async () => {
     expect([0, 1, 2, 7].map(layerRowIndentCount)).toEqual([1, 2, 3, 8]);
 
     const host = document.createElement("div");
@@ -153,6 +153,12 @@ describe("LayersPanel row hierarchy", () => {
       );
     });
 
+    const panel = host.querySelector<HTMLElement>("[data-layers-panel]");
+    expect(panel).not.toBeNull();
+    expect(panel?.className).toContain("[--design-row-height:24px]");
+    expect(panel?.className).toContain("[--design-icon-size:12px]");
+    expect(panel?.className).toContain("text-[11px]");
+
     const rows = Array.from(
       host.querySelectorAll<HTMLElement>("[data-layer-row-content]"),
     );
@@ -170,15 +176,26 @@ describe("LayersPanel row hierarchy", () => {
         row.classList.contains("h-[var(--design-row-height)]"),
       ),
     ).toBe(true);
+    expect(rows.every((row) => row.classList.contains("text-[11px]"))).toBe(
+      true,
+    );
+    expect(
+      rows.every((row) => {
+        const icon = row.querySelector<HTMLElement>(
+          "[data-layer-row-button] > span",
+        );
+        return icon?.classList.contains("size-[var(--design-icon-size)]");
+      }),
+    ).toBe(true);
     expect(rows.map((row) => row.dataset.layerSelection)).toEqual([
       "primary",
       "descendant",
       "descendant",
     ]);
-    expect(rows[0]?.classList.contains("rounded-t-[5px]")).toBe(true);
-    expect(rows[1]?.classList.contains("rounded-t-[5px]")).toBe(false);
-    expect(rows[1]?.classList.contains("rounded-b-[5px]")).toBe(false);
-    expect(rows[2]?.classList.contains("rounded-b-[5px]")).toBe(true);
+    expect(rows[0]?.classList.contains("rounded-t-[4px]")).toBe(true);
+    expect(rows[1]?.classList.contains("rounded-t-[4px]")).toBe(false);
+    expect(rows[1]?.classList.contains("rounded-b-[4px]")).toBe(false);
+    expect(rows[2]?.classList.contains("rounded-b-[4px]")).toBe(true);
 
     const nestedIndents = rows[2].querySelectorAll<HTMLElement>(
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",

@@ -1,0 +1,14 @@
+---
+title: "Recepção anônima do Clips"
+description: "Colete uma gravação privada do Clips de um visitante sem login usando um link assinado de curta duração."
+---
+
+# Recepção anônima do Clips
+
+Esse fluxo permite que um visitante envie uma gravação privada sem entrar no Clips. O produto confiável cria o link de recepção. O link fica separado dos links de leitura do agente.
+
+Se a resposta de criação for perdida, a mesma solicitação assinada pode ser repetida com segurança depois que a gravação for vinculada; uma segunda gravação não será criada.
+
+Após o envio, a mensagem de conclusão contém apenas o ID da gravação e não concede acesso de leitura do agente ao visitante. O host confiável deve usar `create-intake-agent-link` depois de se autenticar.
+
+Consulte o [guia completo em inglês](/docs/template-clips-anonymous-intake) para integração, limites de segurança e requisitos de hospedagem própria.
