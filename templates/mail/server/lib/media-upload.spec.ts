@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const uploadFile = vi.hoisted(() => vi.fn());
+const runWithRequestContext = vi.hoisted(() =>
+  vi.fn((_context: unknown, callback: () => unknown) => callback()),
+);
 const uploadStore = vi.hoisted(() => ({
   get: vi.fn(),
   put: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({ uploadFile }));
+vi.mock("@agent-native/core/server", () => ({ runWithRequestContext }));
 vi.mock("./upload-store.js", () => ({
   getStoredUpload: uploadStore.get,
   putStoredUpload: uploadStore.put,
@@ -49,6 +53,10 @@ describe("storeMediaUpload", () => {
         mimeType: "application/pdf",
         recordAsset: false,
       }),
+    );
+    expect(runWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com" },
+      expect.any(Function),
     );
     expect(uploadStore.put).toHaveBeenCalledWith(
       "owner@example.com",
