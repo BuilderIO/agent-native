@@ -31,9 +31,13 @@ function queuedFetch(responses: Response[]) {
 }
 
 describe("production cache contract probe helpers", () => {
-  it("recognizes a cache hit without treating stored or vary-miss as a hit", () => {
+  it("recognizes hit and stale cache reuse without treating stored or vary-miss as a hit", () => {
     assert.equal(cacheStatusHasHit('"Netlify Durable"; hit; ttl=599'), true);
     assert.equal(cacheStatusHasHit('"Netlify Edge"; hit; ttl=599'), true);
+    assert.equal(
+      cacheStatusHasHit('"Netlify Edge"; fwd=stale; fwd-status=304; stored'),
+      true,
+    );
     assert.equal(
       cacheStatusHasHit('"Netlify Durable"; fwd=vary-miss; stored'),
       false,
@@ -47,6 +51,13 @@ describe("production cache contract probe helpers", () => {
       true,
     );
     assert.equal(contentTypeMatches("text/x-script", "text/x-script"), true);
+    assert.equal(
+      contentTypeMatches("text/plain; charset=UTF-8", [
+        "text/x-script",
+        "text/plain",
+      ]),
+      true,
+    );
     assert.equal(contentTypeMatches("text/htmlish", "text/html"), false);
     assert.equal(
       contentTypeMatches("application/json", "text/x-script"),

@@ -62,7 +62,9 @@ const REAL_PROBES_BY_HOST = {
     { pathname: "/apps", contentType: "text/html", requireRepeatHit: true },
     {
       pathname: "/apps/_.data",
-      contentType: "text/x-script",
+      // Netlify serves prerendered React Router data as text/plain; SSR
+      // single-fetch responses use text/x-script.
+      contentType: ["text/x-script", "text/plain"],
       requireRepeatHit: true,
     },
     { pathname: "/docs/agent-resources/", contentType: "text/html" },
@@ -72,7 +74,7 @@ const REAL_PROBES_BY_HOST = {
     { pathname: "/apps", contentType: "text/html", requireRepeatHit: true },
     {
       pathname: "/apps/_.data",
-      contentType: "text/x-script",
+      contentType: ["text/x-script", "text/plain"],
       requireRepeatHit: true,
     },
     { pathname: "/docs/agent-resources/", contentType: "text/html" },
@@ -166,13 +168,14 @@ async function probe(host, fetchImpl = fetch) {
 }
 
 export function cacheStatusHasHit(value) {
-  return /(?:^|[;,]\s*)hit(?:\s*[,;]|\s*$)/i.test(value ?? "");
+  return /(?:^|[;,]\s*)(?:hit|fwd=stale)(?:\s*[,;]|\s*$)/i.test(value ?? "");
 }
 
 export function contentTypeMatches(value, expected) {
-  return (
-    (value ?? "").split(";", 1)[0].trim().toLowerCase() ===
-    expected.toLowerCase()
+  const actual = (value ?? "").split(";", 1)[0].trim().toLowerCase();
+  const expectedTypes = Array.isArray(expected) ? expected : [expected];
+  return expectedTypes.some(
+    (expectedType) => actual === expectedType.toLowerCase(),
   );
 }
 
