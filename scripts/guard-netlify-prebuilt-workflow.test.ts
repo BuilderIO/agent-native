@@ -122,6 +122,10 @@ describe("Netlify PR preview workflow guard", () => {
     );
     assert.match(pullRequestPreviewSource, /No successful deploy record/);
     assert.match(reusableSource, /build_args\+=\(--offline\)/);
+    assert.match(
+      reusableSource,
+      /netlify build --context "\$BUILD_CONTEXT" --filter "\$SOURCE_TEMPLATE" --offline/,
+    );
   });
 });
 

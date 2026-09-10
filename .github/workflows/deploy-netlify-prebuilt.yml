@@ -548,7 +548,10 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
-          netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
+          # The trusted rebuild only needs the checked-out Netlify config. Offline
+          # mode avoids site extensions and environment lookups while keeping the
+          # PR upload path entirely inside GitHub Actions.
+          netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE" --offline
 
       - name: Run Plan release migrations
         if: >-
