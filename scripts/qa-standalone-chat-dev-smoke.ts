@@ -671,6 +671,10 @@ function suppressedNoiseBlock(): string {
 function isBenignConsoleError(text: string): boolean {
   if (text.startsWith("Failed to load resource:")) return true;
   if (text.includes("favicon")) return true;
+  if (
+    text.startsWith("Encountered a script tag while rendering React component.")
+  )
+    return true;
   return false;
 }
 
