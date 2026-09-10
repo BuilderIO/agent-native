@@ -100,6 +100,18 @@ describe("Netlify PR preview workflow guard", () => {
       (previewDeploy.with as Workflow).checkout_ref,
       "${{ github.event.pull_request.base.sha }}",
     );
+    const previewDiscover = (preview.jobs as Record<string, Workflow>).discover;
+    const previewDiscoverCheckout = (
+      previewDiscover.steps as Array<Workflow>
+    ).find(
+      (step) =>
+        typeof step.uses === "string" &&
+        step.uses.startsWith("actions/checkout@"),
+    );
+    assert.equal(
+      (previewDiscoverCheckout?.with as Workflow).ref,
+      "${{ github.event.pull_request.base.sha }}",
+    );
     assert.match(
       reusableSource,
       /supplies static files; arbitrary PR Functions never reach Netlify\./,
@@ -336,12 +348,14 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("serializes beta publishers per site and isolates direct dispatches", () => {
-    assert.deepEqual(
-      validateReusableWorkflowConcurrency(
-        readWorkflow(".github/workflows/deploy-netlify-prebuilt.yml"),
-      ),
-      [],
+  it("requires distinct preview and beta child queues", () => {
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(validateReusableWorkflowConcurrency(reusable), []);
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.target == 'preview'[\s\S]*netlify-prebuilt-preview-\{0\}-\{1\}/,
     );
   });
 
@@ -1134,7 +1148,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(migration, /pnpm --filter crm migrate:production/);
   });
 
-  it("keeps production Chat assembly independent of masked runtime secrets", () => {
+  it("keeps Chat assembly independent of masked runtime secrets", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
       "utf8",
@@ -1151,7 +1165,7 @@ describe("production Netlify site concurrency guard", () => {
 
     assert.match(
       build,
-      /if \[\[ \( \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
+      /if \[\[ \( \"\$TARGET\" == \"beta\" \|\| \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
     );
     assert.match(chatNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(chatNetlify, /agentNativePrebuiltAuthSecret/);

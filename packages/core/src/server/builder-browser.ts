@@ -29,6 +29,7 @@ import {
   isAllowedOAuthRedirectUri,
   isConfiguredAppOrigin,
 } from "./google-oauth.js";
+import { isLoopbackOrigin } from "./origin-allowlist.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
@@ -1447,9 +1448,27 @@ function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
   if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
     return getConfiguredBuilderFallbackOrigin(event);
   }
-  return isBuilderCloudRequestHost(headerHost)
-    ? getBuilderBrowserOriginForEvent(event)
-    : getOrigin(event, { useForwardedHost: false });
+  if (isBuilderCloudRequestHost(headerHost)) {
+    return getBuilderBrowserOriginForEvent(event);
+  }
+  const configuredOrigin = getOrigin(event, { useForwardedHost: false });
+  if (!isLoopbackOrigin(configuredOrigin)) return configuredOrigin;
+  // Workspace deploys resolve the configured origin to the workspace gateway,
+  // which is a loopback address. Loopback resolves on the visitor's machine,
+  // so when the request itself arrived on a Builder-hosted preview host the
+  // callback would never reach the server holding this flow's pending row and
+  // the user sees "No active Builder connect flow found". Keep the callback on
+  // the preview origin the connect popup was opened on. A genuinely loopback
+  // request keeps the loopback callback: there the browser and the server do
+  // share a machine.
+  if (
+    !isLoopbackBuilderRequestHost(headerHost) &&
+    isTrustedBuilderRequestHost(headerHost)
+  ) {
+    const previewOrigin = getBuilderBrowserOriginForEvent(event);
+    if (previewOrigin && !isLoopbackOrigin(previewOrigin)) return previewOrigin;
+  }
+  return configuredOrigin;
 }
 
 function isRejectedDirectBuilderCloudHost(

@@ -544,6 +544,23 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "انتهى تدفق الوكيل السابق أثناء استرداد التشغيل. تابع أو أعد المحاولة لإعادة الاتصال بالتشغيل.",
   "recovery.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
+  "secrets.addCustomKeyNamed": 'إضافة "{{name}}" كمفتاح مخصص',
+  "secrets.customKey": "مفتاح مخصص",
+  "secrets.customKeyHint": "أضف أي مفتاح بالاسم",
+  "secrets.fromEnvironment": "توفّره بيئة النشر.",
+  "secrets.managedInVault":
+    "تتم إدارته في Vault الخاص بمساحة العمل. يستخدم كل تطبيق في مساحة العمل هذه القيمة.",
+  "secrets.openVault": "فتح Vault",
+  "secrets.overridesVault":
+    "يتجاوز هذا المفتاح الشخصي قيمة Vault الخاصة بمساحة العمل. أزِله لاستخدام مفتاح Vault.",
+  "secrets.overridesWorkspace":
+    "يتجاوز هذا المفتاح الشخصي قيمة مساحة العمل. أزِله لاستخدام المفتاح المشترك.",
+  "secrets.setForWorkspace": "مضبوط لجميع الأشخاص في مساحة العمل هذه.",
+  "secrets.sourceEnvironment": "البيئة",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "مساحة العمل",
+  "secrets.statusUnavailable": "غير متاح",
+  "secrets.usePersonalKey": "استخدام مفتاح شخصي بدلاً من ذلك",
   "selection.attached": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_zero": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.attached_one": "تم إرفاق {{formattedCount}} حرف من التحديد",
