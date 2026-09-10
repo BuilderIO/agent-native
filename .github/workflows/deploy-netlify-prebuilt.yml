@@ -490,7 +490,13 @@ jobs:
           if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
+          build_args=(build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE")
+          if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then
+            # The PR build is intentionally secret-free. Offline mode keeps
+            # Netlify CLI from querying site config with a deployment token.
+            build_args+=(--offline)
+          fi
+          netlify "${build_args[@]}"
           unset ANALYTICS_DATABASE_URL_SECRET
 
       - name: Build trusted preview Functions for the PR artifact
@@ -2009,8 +2015,12 @@ jobs:
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
           echo "Static docs smoke check passed: ${url%/}/"
 
-      - name: Purge the production Netlify cache
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
+      - name: Purge the published Netlify cache
+        if: >-
+          (inputs.target == 'production' || inputs.target == 'beta') &&
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') &&
+          success()
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -2025,7 +2035,7 @@ jobs:
               headers: {
                 Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
                 "Content-Type": "application/json",
-                "User-Agent": "agent-native-prebuilt-production-cache-purge",
+                "User-Agent": "agent-native-prebuilt-published-cache-purge",
               },
               body: JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID }),
             });
@@ -2037,9 +2047,9 @@ jobs:
               body = text;
             }
             if (!response.ok) {
-              throw new Error(`Netlify production cache purge failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+              throw new Error(`Netlify published cache purge failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
             }
-            console.log(`Purged the Netlify production cache for ${process.env.NETLIFY_SITE_ID} (HTTP ${response.status}).`);
+            console.log(`Purged the published Netlify cache for ${process.env.NETLIFY_SITE_ID} (HTTP ${response.status}).`);
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;

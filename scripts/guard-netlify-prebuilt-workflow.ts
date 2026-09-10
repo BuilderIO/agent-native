@@ -17,8 +17,8 @@ const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 // all three production lanes must therefore share one per-site queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
-export const PRODUCTION_PURGE_CONDITION =
-  "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()";
+export const PUBLISHED_CACHE_PURGE_CONDITION =
+  "(inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && inputs.deploy_mode == 'production' && (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') && success()";
 
 const reusable = readFileSync(reusablePath, "utf8");
 const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
@@ -126,12 +126,14 @@ export function validateReusablePreviewRecordPlacement(
   return [];
 }
 
-export function validateProductionPurgeCondition(ifValue: unknown): string[] {
+export function validatePublishedCachePurgeCondition(
+  ifValue: unknown,
+): string[] {
   const normalized =
     typeof ifValue === "string" ? ifValue.trim().replace(/\s+/g, " ") : "";
-  if (normalized !== PRODUCTION_PURGE_CONDITION) {
+  if (normalized !== PUBLISHED_CACHE_PURGE_CONDITION) {
     return [
-      `${reusablePath} production cache purge must run only after a successful production deploy`,
+      `${reusablePath} published cache purge must run only after a successful beta or production deploy`,
     ];
   }
   return [];
@@ -572,6 +574,17 @@ const clipsBuild =
   buildStepStart >= 0 && buildStepEnd > buildStepStart
     ? reusable.slice(buildStepStart, buildStepEnd)
     : "";
+const hasOfflineSecretFreePreviewBuild =
+  clipsBuild.includes(
+    'if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then',
+  ) &&
+  clipsBuild.includes("build_args+=(--offline)") &&
+  clipsBuild.includes('netlify "${build_args[@]}"');
+if (!hasOfflineSecretFreePreviewBuild) {
+  issues.push(
+    `${reusablePath} must use Netlify offline mode for the secret-free PR build`,
+  );
+}
 const hasProductionChatBuildOverride =
   clipsBuild.includes(
     'if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',
@@ -680,7 +693,7 @@ const parsedUploadIndex = parsedStepIndex("Upload the prebuilt deploy");
 const parsedPublishWaitIndex = parsedStepIndex(
   "Wait for the Netlify deploy to publish",
 );
-const parsedPurgeIndex = parsedStepIndex("Purge the production Netlify cache");
+const parsedPurgeIndex = parsedStepIndex("Purge the published Netlify cache");
 const parsedLockIndex = parsedStepIndex("Lock the published production deploy");
 const parsedResumeIndex = parsedStepIndex(
   "Resume automatic Netlify builds after production cutover",
@@ -763,7 +776,7 @@ if (
   );
 }
 issues.push(
-  ...validateProductionPurgeCondition(reusableSteps[parsedPurgeIndex]?.if),
+  ...validatePublishedCachePurgeCondition(reusableSteps[parsedPurgeIndex]?.if),
 );
 
 const uploadStart = reusable.indexOf("name: Upload the prebuilt deploy");
@@ -771,7 +784,7 @@ const uploadEnd = reusable.indexOf(
   "name: Wait for the Netlify deploy to publish",
   uploadStart,
 );
-const purgeStart = reusable.indexOf("name: Purge the production Netlify cache");
+const purgeStart = reusable.indexOf("name: Purge the published Netlify cache");
 const purgeEnd = reusable.indexOf(
   "name: Lock the published production deploy",
   purgeStart,
@@ -839,7 +852,7 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
 }
 if (purgeStart < 0 || purgeEnd <= purgeStart) {
   issues.push(
-    `${reusablePath} must purge the production cache before locking the published deploy`,
+    `${reusablePath} must purge the published cache before locking the published deploy`,
   );
 } else {
   const purge = reusable.slice(purgeStart, purgeEnd);
@@ -853,7 +866,7 @@ if (purgeStart < 0 || purgeEnd <= purgeStart) {
     !purge.includes("response.ok")
   ) {
     issues.push(
-      `${reusablePath} production cache purge must POST the site_id to Netlify and fail on a non-success response`,
+      `${reusablePath} published cache purge must POST the site_id to Netlify and fail on a non-success response`,
     );
   }
 }
