@@ -805,6 +805,7 @@ export default function ShareRoute() {
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
+  const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
     : false;
@@ -1569,6 +1570,7 @@ export default function ShareRoute() {
                   <RecordingViewsBadge
                     recordingId={recording.id}
                     viewCount={viewCount}
+                    agentViewCount={agentViewCount}
                     reactionCount={reactions.length}
                     canViewDetails={viewerCanEdit}
                     className="shrink-0 border-0 shadow-none"

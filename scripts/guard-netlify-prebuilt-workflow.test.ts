@@ -1134,7 +1134,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(migration, /pnpm --filter crm migrate:production/);
   });
 
-  it("keeps production Chat assembly independent of masked runtime secrets", () => {
+  it("keeps Chat assembly independent of masked runtime secrets", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
       "utf8",
@@ -1151,7 +1151,7 @@ describe("production Netlify site concurrency guard", () => {
 
     assert.match(
       build,
-      /if \[\[ \( \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
+      /if \[\[ \( \"\$TARGET\" == \"beta\" \|\| \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
     );
     assert.match(chatNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(chatNetlify, /agentNativePrebuiltAuthSecret/);
