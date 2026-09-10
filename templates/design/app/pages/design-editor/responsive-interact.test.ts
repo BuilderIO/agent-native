@@ -128,7 +128,7 @@ describe("responsive Interact wiring", () => {
 
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
     expect(source).toContain(
-      "const minimalUiByDefault = embedded && !hostOwnsChrome;",
+      "embedded && !hostOwnsChrome && !embedChromeRequested",
     );
     expect(source).toContain(
       '<IconLayoutSidebar className="size-4 -scale-x-100" />',
