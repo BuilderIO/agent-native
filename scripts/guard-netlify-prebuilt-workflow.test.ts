@@ -16,6 +16,7 @@ import {
   validateNetlifyPrPreviewWorkflow,
   validateProductionPurgeCondition,
   validateReusableCallerPermissions,
+  validateReusablePreviewRecordPlacement,
   validateReusableWorkflowConcurrency,
   validateReusableWorkflowPermissions,
   validateProductionSiteConcurrency,
@@ -117,6 +118,7 @@ describe("Reusable workflow permission guard", () => {
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
     assert.deepEqual(validateReusableWorkflowPermissions(reusable), []);
+    assert.deepEqual(validateReusablePreviewRecordPlacement(reusable), []);
     assert.match(
       validateReusableWorkflowPermissions({
         ...reusable,
@@ -148,7 +150,7 @@ describe("Reusable workflow permission guard", () => {
         },
         ".github/workflows/deploy-beta-sites-prebuilt.yml",
       ).join("\n"),
-      /deploy reusable deploy job must retain contents access/,
+      /deploy reusable deploy job must explicitly retain contents access/,
     );
     assert.deepEqual(
       validateReusableCallerPermissions(
@@ -178,7 +180,20 @@ describe("Reusable workflow permission guard", () => {
         },
         ".github/workflows/future-caller.yml",
       ).join("\n"),
-      /future_caller reusable deploy job must retain contents access/,
+      /future_caller reusable deploy job must explicitly retain contents access/,
+    );
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          jobs: {
+            future_caller: {
+              uses: "./.github/workflows/deploy-netlify-prebuilt.yml",
+            },
+          },
+        },
+        ".github/workflows/future-caller.yml",
+      ).join("\n"),
+      /future_caller reusable deploy job must explicitly retain contents access/,
     );
   });
 });

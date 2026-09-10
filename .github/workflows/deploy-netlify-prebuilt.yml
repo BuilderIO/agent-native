@@ -1881,43 +1881,6 @@ jobs:
           fi
           node --experimental-strip-types scripts/smoke-check-health.ts "${smoke_args[@]}"
 
-      - name: Write the PR preview deploy record
-        if: >-
-          inputs.target == 'preview' && inputs.deploy &&
-          inputs.pull_request_number > 0 && success()
-        env:
-          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
-          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
-          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
-          SITE_NAME: ${{ steps.target.outputs.site_name }}
-          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
-        run: |
-          set -euo pipefail
-          : "${DEPLOY_ID:?PR preview upload did not return a deploy id.}"
-          : "${DEPLOY_URL:?PR preview upload did not return a deploy URL.}"
-          : "${SOURCE_REF:?PR preview upload did not return a source ref.}"
-          record_dir="$RUNNER_TEMP/netlify-pr-preview-record"
-          mkdir -p "$record_dir"
-          jq -n \
-            --arg deploy_id "$DEPLOY_ID" \
-            --arg deploy_url "$DEPLOY_URL" \
-            --arg pull_request_number "$PULL_REQUEST_NUMBER" \
-            --arg site_name "$SITE_NAME" \
-            --arg source_ref "$SOURCE_REF" \
-            '{deployId: $deploy_id, deployUrl: $deploy_url, pullRequestNumber: ($pull_request_number | tonumber), siteName: $site_name, sourceRef: $source_ref}' \
-            > "$record_dir/record.json"
-
-      - name: Upload the PR preview deploy record
-        if: >-
-          inputs.target == 'preview' && inputs.deploy &&
-          inputs.pull_request_number > 0 && success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: netlify-pr-preview-${{ inputs.pull_request_number }}-${{ inputs.site }}
-          path: ${{ runner.temp }}/netlify-pr-preview-record/record.json
-          if-no-files-found: error
-          retention-days: 1
-
       # The active managed client and its capability are observable only from
       # the live host, so this is a post-publish verification. If the declared
       # managed callback is definitively unregistered, the immediately
@@ -2353,3 +2316,47 @@ jobs:
               echo "- Deploy: build-only; no Netlify deploy was created"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Generate the record name only after every preview smoke check has
+      # passed. The random suffix prevents PR build code from pre-creating the
+      # privileged handoff artifact under a predictable name.
+      - name: Prepare the trusted PR preview deploy record
+        id: pr_preview_record
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.pull_request_number > 0 && success()
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          SITE_NAME: ${{ steps.target.outputs.site_name }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_ID:?PR preview upload did not return a deploy id.}"
+          : "${DEPLOY_URL:?PR preview upload did not return a deploy URL.}"
+          : "${SOURCE_REF:?PR preview upload did not return a source ref.}"
+          record_dir="$RUNNER_TEMP/netlify-pr-preview-record"
+          mkdir -p "$record_dir"
+          artifact_name="netlify-pr-preview-record-${SITE_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$(openssl rand -hex 16)"
+          jq -n \
+            --arg deploy_id "$DEPLOY_ID" \
+            --arg deploy_url "$DEPLOY_URL" \
+            --arg pull_request_number "$PULL_REQUEST_NUMBER" \
+            --arg site_name "$SITE_NAME" \
+            --arg source_ref "$SOURCE_REF" \
+            '{deployId: $deploy_id, deployUrl: $deploy_url, pullRequestNumber: ($pull_request_number | tonumber), siteName: $site_name, sourceRef: $source_ref}' \
+            > "$record_dir/record.json"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the trusted PR preview deploy record
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.pull_request_number > 0 &&
+          steps.pr_preview_record.outcome == 'success' && success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.pr_preview_record.outputs.artifact_name }}
+          path: ${{ runner.temp }}/netlify-pr-preview-record/record.json
+          if-no-files-found: error
+          retention-days: 1

@@ -110,6 +110,7 @@ jobs:
       needs.deploy.result != 'cancelled'
     needs: [discover, deploy]
     permissions:
+      actions: read
       contents: read
       issues: write
       pull-requests: write
@@ -118,11 +119,64 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
-      - name: Download the PR preview deploy record
+      - name: Find the trusted PR preview deploy record
+        id: find_record
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SITE_NAME: ${{ matrix.site }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const siteName = process.env.SITE_NAME;
+            const prefix = `netlify-pr-preview-record-${siteName}-${context.runId}-${process.env.RUN_ATTEMPT}-`;
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const deployJob = jobs.find(
+              (job) =>
+                (job.name === `${siteName} PR preview` ||
+                  job.name.startsWith(`${siteName} PR preview /`)) &&
+                job.conclusion === 'success',
+            );
+            const deployStartedAt = Date.parse(deployJob?.started_at ?? '');
+            if (!Number.isFinite(deployStartedAt)) {
+              core.notice(`No successful deploy job for ${siteName}; skipping its preview comment.`);
+              return;
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const trustedArtifacts = artifacts
+              .filter(
+                (artifact) =>
+                  artifact.name.startsWith(prefix) &&
+                  artifact.expired !== true &&
+                  Date.parse(artifact.created_at) > deployStartedAt,
+              )
+              .sort(
+                (left, right) =>
+                  Date.parse(right.created_at) - Date.parse(left.created_at),
+              );
+            const artifact = trustedArtifacts[0];
+            if (!artifact) {
+              core.notice(`No trusted deploy record for ${siteName}; skipping its preview comment.`);
+              return;
+            }
+            core.setOutput('artifact_id', String(artifact.id));
+
+      - name: Download the trusted PR preview deploy record
+        if: always() && steps.find_record.outputs.artifact_id != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
-          name: netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}
+          artifact-ids: ${{ steps.find_record.outputs.artifact_id }}
           path: ${{ runner.temp }}/netlify-pr-preview-record
 
       - name: Comment the PR preview URL
@@ -131,6 +185,7 @@ jobs:
         env:
           RECORD_FILE: ${{ runner.temp }}/netlify-pr-preview-record/record.json
           SITE_NAME: ${{ matrix.site }}
+          SOURCE_REF: ${{ github.event.pull_request.head.sha }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -140,17 +195,17 @@ jobs:
               return;
             }
             const record = JSON.parse(readFileSync(process.env.RECORD_FILE, 'utf8'));
-            const marker = `<!-- agent-native-netlify-preview:${record.siteName} -->`;
             if (
               record.pullRequestNumber !== context.issue.number ||
               !record.deployId ||
               !record.deployUrl ||
               record.siteName !== process.env.SITE_NAME ||
-              !record.sourceRef
+              record.sourceRef !== process.env.SOURCE_REF
             ) {
               core.setFailed('PR preview upload did not return a complete deploy record.');
               return;
             }
+            const marker = `<!-- agent-native-netlify-preview:${record.siteName} -->`;
             const body = [
               marker,
               `**${record.siteName} preview:** [Open preview](${record.deployUrl})`,

@@ -92,16 +92,38 @@ export function validateReusableCallerPermissions(
     if (job?.uses !== `./${reusablePath}`) continue;
     const permissions = asRecord(job.permissions) ?? workflowPermissions;
     if (
-      permissions &&
-      permissions.contents !== "read" &&
-      permissions.contents !== "write"
+      !permissions ||
+      (permissions.contents !== "read" && permissions.contents !== "write")
     ) {
       issues.push(
-        `${path} ${jobName} reusable deploy job must retain contents access`,
+        `${path} ${jobName} reusable deploy job must explicitly retain contents access`,
       );
     }
   }
   return issues;
+}
+
+export function validateReusablePreviewRecordPlacement(
+  workflow: Record<string, unknown>,
+): string[] {
+  const deploy = asRecord(asRecord(workflow.jobs)?.deploy);
+  const steps = Array.isArray(deploy?.steps) ? deploy.steps.map(asRecord) : [];
+  const stepIndex = (name: string) =>
+    steps.findIndex((step) => step?.name === name);
+  const recordIndex = stepIndex("Prepare the trusted PR preview deploy record");
+  const previewSmokeIndex = stepIndex("Smoke-test the uploaded PR preview");
+  const docsSmokeIndex = stepIndex("Smoke-test the static docs deploy");
+  if (
+    recordIndex < 0 ||
+    previewSmokeIndex < 0 ||
+    docsSmokeIndex < 0 ||
+    recordIndex <= Math.max(previewSmokeIndex, docsSmokeIndex)
+  ) {
+    return [
+      `${reusablePath} must publish PR preview records only after every preview smoke check`,
+    ];
+  }
+  return [];
 }
 
 export function validateProductionPurgeCondition(ifValue: unknown): string[] {
@@ -212,15 +234,23 @@ export function validateNetlifyPrPreviewWorkflow(
     comment?.["runs-on"] !== "ubuntu-latest" ||
     !Array.isArray(comment.needs) ||
     !comment.needs.includes("deploy") ||
+    commentPermissions?.actions !== "read" ||
     commentPermissions?.contents !== "read" ||
     commentPermissions.issues !== "write" ||
     commentPermissions["pull-requests"] !== "write" ||
     Object.keys(commentPermissions ?? {}).some(
       (permission) =>
-        !["contents", "issues", "pull-requests"].includes(permission),
+        !["actions", "contents", "issues", "pull-requests"].includes(
+          permission,
+        ),
     ) ||
     !source.includes("actions/download-artifact@") ||
     !source.includes("actions/github-script@") ||
+    !source.includes("listJobsForWorkflowRun") ||
+    !source.includes("listWorkflowRunArtifacts") ||
+    !source.includes("artifact-ids:") ||
+    !source.includes("started_at") ||
+    !source.includes("created_at") ||
     !source.includes("needs.deploy.result != 'cancelled'") ||
     !source.includes("continue-on-error: true") ||
     !source.includes("No successful deploy record")
@@ -392,6 +422,7 @@ try {
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 issues.push(...validateReusableWorkflowPermissions(reusableDocument ?? {}));
+issues.push(...validateReusablePreviewRecordPlacement(reusableDocument ?? {}));
 for (const [path, workflow] of parsedWorkflows) {
   if (path === reusablePath) continue;
   issues.push(...validateReusableCallerPermissions(workflow, path));
