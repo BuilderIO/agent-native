@@ -220,7 +220,10 @@ export function validateNetlifyPrPreviewWorkflow(
         !["contents", "issues", "pull-requests"].includes(permission),
     ) ||
     !source.includes("actions/download-artifact@") ||
-    !source.includes("actions/github-script@")
+    !source.includes("actions/github-script@") ||
+    !source.includes("needs.deploy.result != 'cancelled'") ||
+    !source.includes("continue-on-error: true") ||
+    !source.includes("No successful deploy record")
   ) {
     issues.push(
       `${pullRequestPath} comment job must own PR comment permissions and consume the trusted deploy record`,

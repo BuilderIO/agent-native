@@ -103,10 +103,11 @@ jobs:
   comment:
     name: ${{ matrix.site }} PR preview comment
     if: >-
+      always() &&
       github.event.action != 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       needs.discover.outputs.has_targets == 'true' &&
-      needs.deploy.result == 'success'
+      needs.deploy.result != 'cancelled'
     needs: [discover, deploy]
     permissions:
       contents: read
@@ -119,25 +120,32 @@ jobs:
     steps:
       - name: Download the PR preview deploy record
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
         with:
           name: netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}
           path: ${{ runner.temp }}/netlify-pr-preview-record
 
       - name: Comment the PR preview URL
+        if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RECORD_FILE: ${{ runner.temp }}/netlify-pr-preview-record/record.json
+          SITE_NAME: ${{ matrix.site }}
         with:
           github-token: ${{ github.token }}
           script: |
-            const { readFileSync } = require('node:fs');
+            const { existsSync, readFileSync } = require('node:fs');
+            if (!existsSync(process.env.RECORD_FILE)) {
+              core.notice(`No successful deploy record for ${process.env.SITE_NAME}; skipping its preview comment.`);
+              return;
+            }
             const record = JSON.parse(readFileSync(process.env.RECORD_FILE, 'utf8'));
             const marker = `<!-- agent-native-netlify-preview:${record.siteName} -->`;
             if (
               record.pullRequestNumber !== context.issue.number ||
               !record.deployId ||
               !record.deployUrl ||
-              !record.siteName ||
+              record.siteName !== process.env.SITE_NAME ||
               !record.sourceRef
             ) {
               core.setFailed('PR preview upload did not return a complete deploy record.');

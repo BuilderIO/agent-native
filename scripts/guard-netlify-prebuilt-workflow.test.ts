@@ -103,6 +103,11 @@ describe("Netlify PR preview workflow guard", () => {
       reusableSource,
       /supplies static files; arbitrary PR Functions never reach Netlify\./,
     );
+    assert.match(
+      pullRequestPreviewSource,
+      /needs\.deploy\.result != 'cancelled'/,
+    );
+    assert.match(pullRequestPreviewSource, /No successful deploy record/);
   });
 });
 
