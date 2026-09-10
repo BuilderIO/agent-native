@@ -1243,6 +1243,7 @@ jobs:
             }
 
       - name: Publish first beta deploy after freshness verification
+        id: beta_first_publish
         if: >-
           inputs.target == 'beta' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
@@ -1250,75 +1251,51 @@ jobs:
           steps.beta_first_publish_freshness.outputs.current == 'true' &&
           steps.deploy.outputs.deploy_id != ''
         env:
-          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
           main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
-          if [[ "${main_sha,,}" != "${GITHUB_SHA,,}" ]]; then
+          if [[ "${main_sha,,}" != "${SOURCE_REF,,}" ]]; then
             echo "::error::First beta deploy became stale before publish; main is now $main_sha."
             exit 1
           fi
-          node --experimental-strip-types <<'NODE'
-          (async () => {
-          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
-          const api = "https://api.netlify.com/api/v1";
-          const netlifyHeaders = {
-            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
-            "User-Agent": "agent-native-prebuilt-beta-first-publish",
-          };
-          const request = (url, options = {}) => requestNetlifyApi(url, {
-            ...options,
-            headers: { ...netlifyHeaders, ...(options.headers || {}) },
-          });
-          async function readJson(response, label) {
-            const text = await response.text();
-            const body = text ? JSON.parse(text) : null;
-            if (!response.ok) {
-              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
-            }
-            return body;
-          }
-          const siteId = process.env.NETLIFY_SITE_ID;
-          const deployId = process.env.DEPLOY_ID;
-          const site = await readJson(
-            await request(`${api}/sites/${siteId}`),
-            "Netlify first beta publish site lookup",
-          );
-          const publishedId = site.published_deploy?.id;
-          if (publishedId && publishedId !== deployId) {
-            console.log(`Netlify first beta deploy ${deployId} was superseded by published deploy ${publishedId}; skipping publish.`);
-            return;
-          }
-          await readJson(
-            await request(`${api}/sites/${siteId}/deploys/${deployId}/restore`, { method: "POST" }),
-            `Netlify first beta deploy ${deployId} publish`,
-          );
-          const deadline = Date.now() + 5 * 60 * 1000;
-          while (Date.now() < deadline) {
-            const current = await readJson(
-              await request(`${api}/sites/${siteId}`),
-              "Netlify first beta publish verification",
-            );
-            if (current.published_deploy?.id === deployId) {
-              console.log(`Published first beta deploy ${deployId} after the final freshness check.`);
-              return;
-            }
-            if (current.published_deploy?.id && current.published_deploy.id !== deployId) {
-              console.log(`Netlify first beta deploy ${deployId} was superseded by published deploy ${current.published_deploy.id}; skipping verification failure.`);
-              return;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 10_000));
-          }
-          throw new Error(`Netlify did not publish first beta deploy ${deployId} within five minutes.`);
-          })().catch((error) => {
-            console.error(error instanceof Error ? error.message : error);
-            process.exitCode = 1;
-          });
-          NODE
+          deploy_json="$RUNNER_TEMP/netlify-first-beta-production.json"
+          netlify deploy \
+            --site "$NETLIFY_SITE_ID" \
+            --dir "$PUBLISH_DIRECTORY" \
+            --functions "$FUNCTIONS_DIRECTORY" \
+            --filter "$SOURCE_TEMPLATE" \
+            --no-build \
+            --prod \
+            --message "GitHub Actions first beta production deploy $SOURCE_REF" \
+            --json | tee "$deploy_json"
+          deploy_details="$(node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const result = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            const deployUrl = result.deploy_url || result.url || "";
+            const deployId = result.deploy_id || result.id || "";
+            process.stdout.write(JSON.stringify({ deployId, deployUrl }));
+          ' "$deploy_json")"
+          deploy_url="$(node --input-type=module -e 'process.stdout.write(JSON.parse(process.argv[1]).deployUrl)' "$deploy_details")"
+          deploy_id="$(node --input-type=module -e 'process.stdout.write(JSON.parse(process.argv[1]).deployId)' "$deploy_details")"
+          if [[ "$deploy_url" != https://* ]]; then
+            echo "::error::Netlify did not return a first beta production URL."
+            exit 1
+          fi
+          if [[ -z "$deploy_id" ]]; then
+            echo "::error::Netlify did not return a first beta production deploy id."
+            exit 1
+          fi
+          echo "deploy_url=$deploy_url" >> "$GITHUB_OUTPUT"
+          echo "deploy_id=$deploy_id" >> "$GITHUB_OUTPUT"
+          echo "Published first beta artifact as production deploy $deploy_id after the final freshness check."
 
       - name: Verify beta source is current after publish
         id: beta_post_freshness
@@ -1351,7 +1328,7 @@ jobs:
           steps.deploy.outputs.deploy_id != '' &&
           steps.beta_post_freshness.outputs.current == 'false'
         env:
-          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
@@ -1411,23 +1388,31 @@ jobs:
                 await sleep(1_000);
                 continue;
               }
-              await readJson(
+              const restored = await readJson(
                 await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, { method: "POST" }),
                 `Netlify beta freshness revert to ${previousId}`,
               );
+              const restoredDeployId = restored?.id;
+              if (!restoredDeployId) {
+                throw new Error(
+                  `Netlify beta freshness revert to ${previousId} did not return a new deploy id.`,
+                );
+              }
               while (Date.now() < deadline) {
                 const current = await readJson(
                   await request(`${api}/sites/${siteId}`),
                   "Netlify beta freshness revert verification",
                 );
-                if (current.published_deploy?.id === previousId) {
-                  console.log(`Restored previous beta deploy ${previousId} after superseding ${deployId}.`);
+                if (current.published_deploy?.id === restoredDeployId) {
+                  console.log(`Restored beta deploy ${previousId} as ${restoredDeployId} after superseding ${deployId}.`);
                   process.exitCode = 1;
                   return;
                 }
                 await sleep(10_000);
               }
-              throw new Error(`Netlify did not restore beta deploy ${previousId} within five minutes.`);
+              throw new Error(
+                `Netlify did not publish rollback deploy ${restoredDeployId} (restore of ${previousId}) within five minutes.`,
+              );
             }
             if (publishedDeployId && publishedDeployId !== previousId) {
               console.log(
@@ -1574,7 +1559,8 @@ jobs:
         if: >-
           inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
           inputs.smoke && inputs.deploy_mode == 'production' &&
-          steps.target.outputs.source_template != '@agent-native/docs'
+          steps.target.outputs.source_template != '@agent-native/docs' &&
+          steps.previous.outputs.published_deploy_id != ''
         continue-on-error: true
         env:
           HOST: ${{ steps.target.outputs.host }}
@@ -1592,7 +1578,7 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          NEW_DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          NEW_DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}
           PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
         run: |
           set -euo pipefail
@@ -1630,26 +1616,34 @@ jobs:
                 `Refusing callback rollback because Netlify now serves ${current?.published_deploy?.id || "an unknown deploy"}, expected ${newId}.`,
               );
             }
-            await readJson(
+            const restored = await readJson(
               await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, {
                 method: "POST",
               }),
               `Netlify callback rollback to ${previousId}`,
             );
+            const restoredDeployId = restored?.id;
+            if (!restoredDeployId) {
+              throw new Error(
+                `Netlify callback rollback to ${previousId} did not return a new deploy id.`,
+              );
+            }
             const deadline = Date.now() + 5 * 60 * 1000;
             while (Date.now() < deadline) {
               const site = await readJson(
                 await request(`${api}/sites/${siteId}`),
                 "Netlify callback rollback verification",
               );
-              if (site?.published_deploy?.id === previousId) {
-                console.log(`Restored previous published deploy ${previousId}.`);
+              if (site?.published_deploy?.id === restoredDeployId) {
+                console.log(`Restored previous published deploy ${previousId} as ${restoredDeployId}.`);
                 process.exitCode = 1;
                 return;
               }
               await new Promise((resolve) => setTimeout(resolve, 10_000));
             }
-            throw new Error(`Netlify did not publish rollback deploy ${previousId} within five minutes.`);
+            throw new Error(
+              `Netlify did not publish rollback deploy ${restoredDeployId} (restore of ${previousId}) within five minutes.`,
+            );
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;

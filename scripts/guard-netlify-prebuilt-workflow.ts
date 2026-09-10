@@ -981,6 +981,17 @@ if (
 }
 
 const reusableBetaFreshness = reusable;
+const firstBetaPublishStart = reusableBetaFreshness.indexOf(
+  "name: Publish first beta deploy after freshness verification",
+);
+const firstBetaPublishEnd = reusableBetaFreshness.indexOf(
+  "name: Verify beta source is current after publish",
+  firstBetaPublishStart,
+);
+const firstBetaPublish =
+  firstBetaPublishStart >= 0 && firstBetaPublishEnd > firstBetaPublishStart
+    ? reusableBetaFreshness.slice(firstBetaPublishStart, firstBetaPublishEnd)
+    : "";
 if (
   reusableBetaFreshness.includes("allowPinnedRecovery") ||
   !reusableBetaFreshness.includes(
@@ -1001,6 +1012,14 @@ if (
   ) ||
   !reusableBetaFreshness.includes(
     "Publish first beta deploy after freshness verification",
+  ) ||
+  !firstBetaPublish.includes("id: beta_first_publish") ||
+  !firstBetaPublish.includes("--prod") ||
+  firstBetaPublish.includes("/restore") ||
+  !firstBetaPublish.includes("main_sha,,}") ||
+  !firstBetaPublish.includes("SOURCE_REF,,}") ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id",
   ) ||
   !reusableBetaFreshness.includes(
     "First publishes are staged as drafts and only published after a current-main check",
@@ -1031,12 +1050,19 @@ if (
   !reusableBetaFreshness.includes(
     "Netlify beta freshness restore precondition",
   ) ||
+  !reusableBetaFreshness.includes("const restoredDeployId = restored?.id") ||
+  !reusableBetaFreshness.includes(
+    "current.published_deploy?.id === restoredDeployId",
+  ) ||
   !reusableBetaFreshness.includes(
     "did not settle before the five-minute cleanup deadline",
   ) ||
   !reusableBetaFreshness.includes("PREVIOUS_DEPLOY_ID") ||
   !reusableBetaFreshness.includes("const publishedDeployId") ||
-  !reusableBetaFreshness.includes("skipping stale cleanup")
+  !reusableBetaFreshness.includes("skipping stale cleanup") ||
+  !reusableBetaFreshness.includes(
+    "steps.previous.outputs.published_deploy_id != ''",
+  )
 ) {
   issues.push(
     `${reusablePath} must reject stale beta sources before upload and revert accepted stale deploys`,

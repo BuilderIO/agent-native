@@ -472,6 +472,15 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(reusableSource, /const publishedDeployId/);
     assert.match(reusableSource, /skipping stale cleanup/);
     assert.match(reusableSource, /Netlify beta freshness restore precondition/);
+    assert.match(reusableSource, /const restoredDeployId = restored\?\.id/);
+    assert.match(
+      reusableSource,
+      /current\.published_deploy\?\.id === restoredDeployId/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.previous\.outputs\.published_deploy_id != ''/,
+    );
     assert.match(
       reusableSource,
       /did not settle before the five-minute cleanup deadline/,
@@ -526,6 +535,24 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       reusableSource,
       /Publish first beta deploy after freshness verification/,
+    );
+    assert.match(reusableSource, /id: beta_first_publish/);
+    assert.match(reusableSource, /--prod/);
+    assert.match(reusableSource, /main_sha,,\}" != "\$\{SOURCE_REF,,\}"/);
+    assert.doesNotMatch(
+      reusableSource.slice(
+        reusableSource.indexOf(
+          "name: Publish first beta deploy after freshness verification",
+        ),
+        reusableSource.indexOf(
+          "name: Verify beta source is current after publish",
+        ),
+      ),
+      /\/restore/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.deploy\.outputs\.deploy_id/,
     );
     assert.match(
       reusableSource,
@@ -606,11 +633,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 11);
+    assert.equal(nodeHeredocs.length, 10);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      11,
+      10,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
