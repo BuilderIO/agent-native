@@ -24,12 +24,9 @@ function readProductionSites(repoRoot = REPO_ROOT): ProductionSites {
 function buildableSites(repoRoot = REPO_ROOT): string[] {
   return Object.keys(readProductionSites(repoRoot))
     .filter((site) => {
-      try {
-        resolveNetlifyPrebuiltTarget("preview", site, repoRoot);
-        return true;
-      } catch {
-        return false;
-      }
+      if (site === "workspace") return false;
+      resolveNetlifyPrebuiltTarget("preview", site, repoRoot);
+      return true;
     })
     .sort();
 }
@@ -123,8 +120,18 @@ function main(): void {
   const outputPath = argumentValue("--github-output");
   if (outputPath) {
     appendFileSync(outputPath, `matrix=${JSON.stringify(matrix)}\n`);
+    appendFileSync(
+      outputPath,
+      `has_targets=${matrix.include.length > 0 ? "true" : "false"}\n`,
+    );
   }
-  console.log(JSON.stringify({ changedPaths, ...matrix }, null, 2));
+  console.log(
+    JSON.stringify(
+      { changedPaths, hasTargets: matrix.include.length > 0, ...matrix },
+      null,
+      2,
+    ),
+  );
 }
 
 const isMainModule =

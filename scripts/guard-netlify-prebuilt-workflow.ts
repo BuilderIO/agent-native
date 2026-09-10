@@ -110,16 +110,17 @@ export function validateNetlifyPrPreviewWorkflow(
   const issues: string[] = [];
   const triggers = asRecord(workflow.on);
   const jobs = asRecord(workflow.jobs);
+  const build = asRecord(jobs?.build);
+  const buildWith = asRecord(build?.with);
+  const buildPermissions = asRecord(build?.permissions);
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
 
-  if (!asRecord(triggers?.pull_request)) {
-    issues.push(`${pullRequestPath} must be triggered by pull_request`);
+  if (!asRecord(triggers?.pull_request_target)) {
+    issues.push(`${pullRequestPath} must be triggered by pull_request_target`);
   }
-  if (triggers?.pull_request_target || source.includes("pull_request_target")) {
-    issues.push(
-      `${pullRequestPath} must not run untrusted code with pull_request_target`,
-    );
+  if (asRecord(triggers?.pull_request) || source.includes("pull_request:")) {
+    issues.push(`${pullRequestPath} must not use pull_request for previews`);
   }
   if (
     !source.includes(
@@ -135,6 +136,32 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} deploy job must call the reusable Netlify workflow`,
     );
   }
+  if (build?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
+    issues.push(
+      `${pullRequestPath} build job must call the reusable Netlify workflow`,
+    );
+  }
+  if (buildWith?.target !== "preview" || buildWith?.deploy !== false) {
+    issues.push(
+      `${pullRequestPath} build job must build previews without deploying`,
+    );
+  }
+  if (buildWith?.artifact_upload !== true || !buildWith?.artifact_name) {
+    issues.push(
+      `${pullRequestPath} build job must upload a named prebuilt artifact`,
+    );
+  }
+  if (
+    asRecord(build?.secrets) ||
+    buildPermissions?.contents !== "read" ||
+    Object.keys(buildPermissions ?? {}).some(
+      (permission) => permission !== "contents",
+    )
+  ) {
+    issues.push(
+      `${pullRequestPath} PR build job must not receive deployment secrets`,
+    );
+  }
   if (deployWith?.target !== "preview") {
     issues.push(`${pullRequestPath} deploy job must pass target=preview`);
   }
@@ -146,6 +173,28 @@ export function validateNetlifyPrPreviewWorkflow(
   if (deployWith?.deploy !== true || deployWith?.deploy_mode !== "draft") {
     issues.push(
       `${pullRequestPath} deploy job must upload draft prebuilt artifacts`,
+    );
+  }
+  if (deployWith?.artifact_download !== true || !deployWith?.artifact_name) {
+    issues.push(
+      `${pullRequestPath} deploy job must download the prebuilt artifact`,
+    );
+  }
+  if (
+    !Array.isArray(deploy?.needs) ||
+    !deploy.needs.includes("discover") ||
+    !deploy.needs.includes("build")
+  ) {
+    issues.push(
+      `${pullRequestPath} deploy job must wait for discovery and the secret-free build`,
+    );
+  }
+  if (
+    !source.includes("needs.discover.outputs.has_targets == 'true'") ||
+    !source.includes("has_targets: ${{ steps.targets.outputs.has_targets }}")
+  ) {
+    issues.push(
+      `${pullRequestPath} must skip preview matrices with no buildable targets`,
     );
   }
   if (

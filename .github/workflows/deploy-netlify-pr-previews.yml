@@ -1,10 +1,10 @@
 name: Deploy Netlify PR previews from GitHub Actions
 
-# pull_request is intentional: fork code is never checked out in a job with
-# deployment credentials. Same-repository PRs build the changed app sites on
-# GitHub-hosted runners and upload aliases to the canonical Netlify projects.
+# pull_request_target is intentional: GitHub loads this workflow from the base
+# revision. The PR build job has no deployment secrets; the separate upload job
+# checks out the trusted base revision and only receives the built artifact.
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
     types: [opened, synchronize, reopened, closed]
 
@@ -24,13 +24,17 @@ jobs:
       github.event.action != 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
+      has_targets: ${{ steps.targets.outputs.has_targets }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Build the changed app site matrix
         id: targets
@@ -44,12 +48,15 @@ jobs:
             --head "$HEAD_SHA" \
             --github-output "$GITHUB_OUTPUT"
 
-  deploy:
-    name: ${{ matrix.site }} PR preview
+  build:
+    name: ${{ matrix.site }} PR preview build
     if: >-
       github.event.action != 'closed' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.discover.outputs.has_targets == 'true'
     needs: discover
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
@@ -59,10 +66,36 @@ jobs:
       site: ${{ matrix.site }}
       build_context: deploy-preview
       source_ref: ${{ github.event.pull_request.head.sha }}
+      deploy: false
+      deploy_mode: draft
+      smoke: false
+      caller: pr-build-${{ github.event.pull_request.number }}
+      artifact_upload: true
+      artifact_name: pr-${{ github.event.pull_request.number }}-${{ matrix.site }}
+
+  deploy:
+    name: ${{ matrix.site }} PR preview
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.discover.outputs.has_targets == 'true'
+    needs: [discover, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: preview
+      site: ${{ matrix.site }}
+      build_context: deploy-preview
+      source_ref: ${{ github.event.pull_request.head.sha }}
+      checkout_ref: ${{ github.event.pull_request.base.sha }}
       deploy: true
       deploy_mode: draft
       smoke: true
       caller: pr-${{ github.event.pull_request.number }}
+      artifact_download: true
+      artifact_name: pr-${{ github.event.pull_request.number }}-${{ matrix.site }}
       pull_request_number: ${{ github.event.pull_request.number }}
       preview_alias: pr-${{ github.event.pull_request.number }}
     secrets: inherit
@@ -101,11 +134,25 @@ jobs:
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
           prefix="GitHub Actions PR preview #${PR_NUMBER} "
+          matching_deploys_file="$RUNNER_TEMP/netlify-pr-preview-deploys-${PR_NUMBER}.txt"
+          : > "$matching_deploys_file"
           while IFS=$'\t' read -r site_name site_id; do
-            deploys="$(netlify api listSiteDeploys --data "{\"site_id\":\"$site_id\",\"per_page\":100}")"
-            while IFS= read -r deploy_id; do
-              [[ -z "$deploy_id" ]] && continue
-              echo "Deleting ${site_name} PR preview deploy ${deploy_id}."
-              netlify api deleteSiteDeploy --data "{\"site_id\":\"$site_id\",\"deploy_id\":\"$deploy_id\"}" >/dev/null
-            done < <(jq -r --arg prefix "$prefix" '.[] | select((.title // "") | startswith($prefix)) | .id' <<<"$deploys")
+            page_number=1
+            while :; do
+              deploys="$(netlify api listSiteDeploys --data "{\"site_id\":\"$site_id\",\"per_page\":100,\"page\":$page_number}")"
+              page_count="$(jq 'length' <<<"$deploys")"
+              jq -r --arg prefix "$prefix" --arg site_id "$site_id" \
+                '.[] | select((.title // "") | startswith($prefix)) | [$site_id, .id] | @tsv' \
+                <<<"$deploys" >> "$matching_deploys_file"
+              if (( page_count < 100 )); then
+                break
+              fi
+              page_number=$((page_number + 1))
+            done
           done < <(jq -r 'to_entries[] | select(.key != "workspace") | [.key, .value.siteId] | @tsv' scripts/netlify-production-sites.json)
+          while IFS=$'\t' read -r site_id deploy_id; do
+            [[ -z "$deploy_id" ]] && continue
+            site_name="$(jq -r --arg site_id "$site_id" 'to_entries[] | select(.value.siteId == $site_id) | .key' scripts/netlify-production-sites.json)"
+            echo "Deleting ${site_name} PR preview deploy ${deploy_id}."
+            netlify api deleteSiteDeploy --data "{\"site_id\":\"$site_id\",\"deploy_id\":\"$deploy_id\"}" >/dev/null
+          done < <(sort -u "$matching_deploys_file")

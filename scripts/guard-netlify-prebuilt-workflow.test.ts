@@ -81,7 +81,7 @@ describe("Google callback deploy verification guard", () => {
 });
 
 describe("Netlify PR preview workflow guard", () => {
-  it("keeps preview builds on trusted pull requests and the prebuilt lane", () => {
+  it("keeps PR builds secret-free and uploads through the trusted prebuilt lane", () => {
     assert.deepEqual(
       validateNetlifyPrPreviewWorkflow(
         readWorkflow(".github/workflows/deploy-netlify-pr-previews.yml"),
@@ -824,12 +824,12 @@ describe("production Netlify site concurrency guard", () => {
     assert(artifact);
     assert.equal(
       artifact.if,
-      "inputs.migration_only != true && (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')",
+      "inputs.migration_only != true && inputs.artifact_download != true && (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')",
     );
     assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
   });
 
-  it("keeps strict health smoke for non-preview apps and probes preview shells", () => {
+  it("keeps strict health smoke for non-preview apps and preview aliases", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
@@ -861,7 +861,11 @@ describe("production Netlify site concurrency guard", () => {
       previewSmoke.if,
       "inputs.target == 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
     );
-    assert.match(String(previewSmoke.run), /curl --fail/);
+    assert.match(String(previewSmoke.run), /scripts\/smoke-check-health\.ts/);
+    assert.match(String(previewSmoke.run), /--canonical-host/);
+    assert.match(String(previewSmoke.run), /--auth-routes/);
+    assert.match(String(previewSmoke.run), /--preview/);
+    assert.match(String(previewSmoke.run), /--allow-missing-health/);
 
     assert(docsSmoke);
     assert.equal(
