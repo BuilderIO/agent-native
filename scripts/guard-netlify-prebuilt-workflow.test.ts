@@ -100,6 +100,18 @@ describe("Netlify PR preview workflow guard", () => {
       (previewDeploy.with as Workflow).checkout_ref,
       "${{ github.event.pull_request.base.sha }}",
     );
+    const previewDiscover = (preview.jobs as Record<string, Workflow>).discover;
+    const previewDiscoverCheckout = (
+      previewDiscover.steps as Array<Workflow>
+    ).find(
+      (step) =>
+        typeof step.uses === "string" &&
+        step.uses.startsWith("actions/checkout@"),
+    );
+    assert.equal(
+      (previewDiscoverCheckout?.with as Workflow).ref,
+      "${{ github.event.pull_request.base.sha }}",
+    );
     assert.match(
       reusableSource,
       /supplies static files; arbitrary PR Functions never reach Netlify\./,
@@ -336,12 +348,14 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("serializes beta publishers per site and isolates direct dispatches", () => {
-    assert.deepEqual(
-      validateReusableWorkflowConcurrency(
-        readWorkflow(".github/workflows/deploy-netlify-prebuilt.yml"),
-      ),
-      [],
+  it("requires distinct preview and beta child queues", () => {
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(validateReusableWorkflowConcurrency(reusable), []);
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.target == 'preview'[\s\S]*netlify-prebuilt-preview-\{0\}-\{1\}/,
     );
   });
 
