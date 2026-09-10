@@ -549,6 +549,10 @@ import { runGroupSelection } from "./design-editor/commands/group-selection";
 import { runIframeContextMenu } from "./design-editor/commands/iframe-context-menu";
 import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
 import { runLayerMarqueeSelectionChange } from "./design-editor/commands/layer-marquee-selection-change";
+import { previewReplacersFor } from "@/components/design/design-canvas/preview-fanout";
+
+import { styleWriteTarget } from "./design-editor/commands/style-write-target";
+
 import { runLayerMove } from "./design-editor/commands/layer-move";
 import { runLayerMoveToScreen } from "./design-editor/commands/layer-move-to-screen";
 import { runLayerRename } from "./design-editor/commands/layer-rename";
@@ -7456,15 +7460,26 @@ function DesignEditor() {
         return "skipped-live-route";
       }
       const replaceContent = (window as any).__designCanvasReplaceContent;
-      if (typeof replaceContent !== "function") return "unavailable";
-      const replaced = replaceContent(
-        nextContent,
-        selector ?? selectedCanvasSelector,
-        selectedCanvasSelectorCandidates,
-        {
-          forceFullDocument: options.forceFullDocument === true,
-        },
+      // Fan out to every canvas mounted for this screen — the primary frame
+      // and one per breakpoint — so a breakpoint is not left showing the
+      // pre-edit document. The primary's result is the reported one.
+      const replacers = previewReplacersFor(
+        activeFile?.id,
+        typeof replaceContent === "function" ? replaceContent : undefined,
       );
+      if (replacers.length === 0) return "unavailable";
+      let replaced = false;
+      replacers.forEach((replacePreview, index) => {
+        const result = replacePreview(
+          nextContent,
+          selector ?? selectedCanvasSelector,
+          selectedCanvasSelectorCandidates,
+          {
+            forceFullDocument: options.forceFullDocument === true,
+          },
+        );
+        if (index === 0) replaced = Boolean(result);
+      });
       if (replaced && activeFile?.id) {
         livePreviewContentRef.current = {
           fileId: activeFile.id,
@@ -10164,8 +10179,16 @@ function DesignEditor() {
       // source is commitVisualStyles' single decision — inline/fusion screens
       // are SQL-backed and persist immediately (breakpoint-aware, one history
       // step); localhost screens queue for the Apply pass.
-      commitVisualStyles(selector, styles, {
-        runtimeApplied: true,
+      // A repeat's rows share one source element, so the gesture only moved
+      // the row it was on: let the runtime push reach the rest, and aim the
+      // write at the template body rather than that one clone.
+      const gestureTarget = styleWriteTarget({
+        selector,
+        selectedElement: elementInfo,
+      });
+      const affectsEveryRow = gestureTarget !== selector;
+      commitVisualStyles(gestureTarget, styles, {
+        runtimeApplied: !affectsEveryRow,
         elementInfo,
         originalStyles: metadata?.originalStyles,
         preserveSelection: metadata?.preserveSelection,

@@ -1466,6 +1466,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       repeatBodyIdCache.set(template, ids);
       return ids;
     }
+    function repeatBodyRootTag(template) {
+      var body = template.content;
+      var root = body ? body.firstElementChild : null;
+      return root ? root.tagName : "";
+    }
     function repeatTemplateOwning(node) {
       var parent = node.parentElement;
       if (!parent) return null;
@@ -1476,7 +1481,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (sib === node || !sib.tagName || sib.tagName.toLowerCase() !== "template" || !sib.hasAttribute("x-for")) {
           continue;
         }
-        if (!ownId || repeatBodyIds(sib).has(ownId)) return sib;
+        if (ownId) {
+          if (repeatBodyIds(sib).has(ownId)) return sib;
+          continue;
+        }
+        if (node.tagName === repeatBodyRootTag(sib)) return sib;
       }
       return null;
     }
@@ -1484,10 +1493,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var node = el;
       while (node && !isDocumentRootElement(node)) {
         if (repeatTemplateOwning(node)) return true;
-        if (hasStableOwnSource(node)) return false;
-        var parent = node.parentElement;
-        if (!parent) return false;
-        node = parent;
+        node = node.parentElement;
       }
       return false;
     }
@@ -1499,6 +1505,37 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return false;
     }
+    function repeatRowsOf(template, row) {
+      var parent = row.parentElement;
+      if (!parent) return [];
+      var rows = [];
+      var siblings = parent.children;
+      for (var i = 0; i < siblings.length; i += 1) {
+        var sibling = siblings[i];
+        if (isOverlayElement(sibling)) continue;
+        if (repeatTemplateOwning(sibling) === template) rows.push(sibling);
+      }
+      return rows;
+    }
+    function rowKeyFor(template, row) {
+      if (!template || !row) return "";
+      var lookup = template._x_lookup;
+      if (!lookup) return "";
+      var map = lookup;
+      if (typeof map.forEach === "function" && typeof map.get === "function") {
+        var fromMap = "";
+        map.forEach(function(value, key2) {
+          if (!fromMap && value === row) fromMap = String(key2);
+        });
+        return fromMap;
+      }
+      var record = lookup;
+      for (var key in record) {
+        if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+        if (record[key] === row) return key;
+      }
+      return "";
+    }
     function repeatRowRootOf(el) {
       var node = el;
       while (node && !isDocumentRootElement(node)) {
@@ -1509,56 +1546,67 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function repeatInstanceInfo(el) {
       if (!isTemplateCloneElement(el) || !el.getAttribute) return null;
-      var sourceNodeId = el.getAttribute("data-agent-native-node-id") || "";
-      if (!sourceNodeId) return null;
-      var sourceSelector = '[data-agent-native-node-id="' + escapeAttribute(sourceNodeId) + '"]';
-      var instances = document.querySelectorAll(sourceSelector);
-      var instanceIndex = 0;
-      for (var i = 0; i < instances.length; i += 1) {
-        if (instances[i] === el) {
-          instanceIndex = i + 1;
-          break;
-        }
-      }
-      if (!instanceIndex) return null;
       var row = repeatRowRootOf(el);
       var template = row ? repeatTemplateOwning(row) : null;
-      var itemIndex = -1;
-      if (row && row.parentElement) {
-        var rowId = row.getAttribute("data-agent-native-node-id");
-        var seen = 0;
-        var siblings = row.parentElement.children;
-        for (var s = 0; s < siblings.length; s += 1) {
-          var sibling = siblings[s];
-          if (sibling.getAttribute("data-agent-native-node-id") !== rowId) {
-            continue;
-          }
-          if (!isTemplateCloneElement(sibling)) continue;
-          if (sibling === row) {
-            itemIndex = seen;
+      if (!row || !template) return null;
+      var rows = repeatRowsOf(template, row);
+      var rowIndex = rows.indexOf(row);
+      if (rowIndex === -1) return null;
+      var sourceNodeId = el.getAttribute("data-agent-native-node-id") || "";
+      var sourceSelector = sourceNodeId ? '[data-agent-native-node-id="' + escapeAttribute(sourceNodeId) + '"]' : "";
+      var instanceIndex = rowIndex + 1;
+      if (sourceSelector) {
+        var matches = document.querySelectorAll(sourceSelector);
+        for (var i = 0; i < matches.length; i += 1) {
+          if (matches[i] === el) {
+            instanceIndex = i + 1;
             break;
           }
-          seen += 1;
         }
       }
       return {
         sourceSelector,
-        instanceCount: instances.length,
+        instanceCount: rows.length,
         instanceIndex,
-        xFor: template ? template.getAttribute("x-for") || "" : "",
-        itemIndex,
+        xFor: template.getAttribute("x-for") || "",
+        itemIndex: rowIndex,
         // Empty when this element's text is literal markup in the template body,
         // which an ordinary markup edit reaches correctly.
-        textBinding: el.getAttribute("x-text") || ""
+        textBinding: el.getAttribute("x-text") || "",
+        keyExpression: template.getAttribute(":key") || "",
+        itemKey: rowKeyFor(template, row)
       };
     }
     function repeatStyleTargets(el) {
       var info = repeatInstanceInfo(el);
       if (!info || info.instanceCount < 2) return [el];
-      var matches = document.querySelectorAll(info.sourceSelector);
-      var targets = [];
-      for (var i = 0; i < matches.length; i += 1) targets.push(matches[i]);
-      return targets.length > 0 ? targets : [el];
+      if (info.sourceSelector) {
+        var matches = document.querySelectorAll(info.sourceSelector);
+        var targets = [];
+        for (var i = 0; i < matches.length; i += 1) targets.push(matches[i]);
+        if (targets.length > 0) return targets;
+      }
+      var row = repeatRowRootOf(el);
+      var template = row ? repeatTemplateOwning(row) : null;
+      if (!row || !template) return [el];
+      var path = [];
+      var walk = el;
+      while (walk && walk !== row && walk.parentElement) {
+        path.unshift(
+          Array.prototype.indexOf.call(walk.parentElement.children, walk)
+        );
+        walk = walk.parentElement;
+      }
+      if (walk !== row) return [el];
+      var siblings = [];
+      repeatRowsOf(template, row).forEach(function(candidate) {
+        var node = candidate;
+        for (var step = 0; step < path.length && node; step += 1) {
+          node = node.children[path[step]] ?? null;
+        }
+        if (node) siblings.push(node);
+      });
+      return siblings.length > 0 ? siblings : [el];
     }
     function selectionTargetForHit(hit) {
       if (!hit || isDocumentRootElement(hit)) return hit;
@@ -2666,14 +2714,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (repeatInstanceOverlays.length) removeRepeatInstanceOverlays();
         return;
       }
-      var siblings = [];
-      var matches = document.querySelectorAll(info.sourceSelector);
-      for (var i = 0; i < matches.length; i += 1) {
-        var instance = matches[i];
-        if (instance !== el && !isLayerInteractionBlocked(instance)) {
-          siblings.push(instance);
-        }
-      }
+      var siblings = repeatStyleTargets(el).filter(function(instance) {
+        return instance !== el && !isLayerInteractionBlocked(instance);
+      });
       if (repeatInstanceAnchor !== el || repeatInstanceOverlays.length !== siblings.length) {
         removeRepeatInstanceOverlays();
         for (var made = 0; made < siblings.length; made += 1) {
@@ -2682,10 +2725,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         repeatInstanceAnchor = el;
       }
       var line = chromeLineScale();
-      siblings.forEach(function(instance2, index) {
+      siblings.forEach(function(instance, index) {
         var overlay = repeatInstanceOverlays[index];
         overlay.style.borderWidth = line + "px";
-        positionOverlay(overlay, instance2);
+        positionOverlay(overlay, instance);
       });
     }
     function makePassiveSelectionOverlay(style) {
@@ -10232,7 +10275,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         return;
       }
-      if (!programmaticFlag && isTemplateCloneElement(target)) {
+      if (!programmaticFlag && isTemplateCloneElement(target) && !(target.getAttribute && target.getAttribute("x-text"))) {
         showRejectedDragBadge(
           "Can't edit repeated items directly",
           e.clientX,

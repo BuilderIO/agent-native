@@ -3,10 +3,10 @@ import { expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-function hydrated(): string {
+function hydrated(textEditing = false): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
-    .replace("__TEXT_EDITING_ENABLED__", "false")
+    .replace("__TEXT_EDITING_ENABLED__", String(textEditing))
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("repeat-clones"))
@@ -26,17 +26,18 @@ const PAGE = `<!doctype html><html><head><style>
   li{height:40px;border:1px solid #ccc;box-sizing:border-box}
 </style></head><body>
   <ul data-agent-native-node-id="an-list">
-    <template x-for="t in todos" data-agent-native-node-id="an-tpl">${ROW}</li></template>
-    ${ROW}row one</li>
-    ${ROW}row two</li>
-    ${ROW}row three</li>
-    ${ROW}row four</li>
+    <template x-for="t in todos" data-agent-native-node-id="an-tpl">${ROW}<span data-agent-native-node-id="an-label" x-text="t"></span></li></template>
+    ${ROW}<span data-agent-native-node-id="an-label" x-text="t">row one</span></li>
+    ${ROW}<span data-agent-native-node-id="an-label" x-text="t">row two</span></li>
+    ${ROW}<span data-agent-native-node-id="an-label" x-text="t">row three</span></li>
+    ${ROW}<span data-agent-native-node-id="an-label" x-text="t">row four</span></li>
     <li data-agent-native-node-id="an-static">add a task</li>
   </ul>
 </body></html>`;
 
 async function withPage<T>(
   run: (page: import("@playwright/test").Page) => Promise<T>,
+  options: { textEditing?: boolean } = {},
 ): Promise<T> {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -44,7 +45,7 @@ async function withPage<T>(
       viewport: { width: 480, height: 480 },
     });
     await page.setContent(PAGE);
-    await page.addScriptTag({ content: hydrated() });
+    await page.addScriptTag({ content: hydrated(options.textEditing) });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
     await page.evaluate(() => {
       const seen: unknown[] = [];
@@ -95,6 +96,8 @@ interface Pick {
     xFor: string;
     itemIndex: number;
     textBinding: string;
+    keyExpression: string;
+    itemKey: string;
   };
 }
 
@@ -187,6 +190,8 @@ it(
         xFor: "t in todos",
         itemIndex: 2,
         textBinding: "",
+        keyExpression: "",
+        itemKey: "",
       });
       expect(staticRow.repeat).toBeUndefined();
     });
@@ -327,5 +332,179 @@ it(
       expect(chrome.selectionTop).toBe(Math.round(row.y));
       expect(chrome.selectionHeight).toBe(Math.round(row.height));
     });
+  },
+);
+
+it(
+  "recognises an element inside a repeated row, not just the row itself",
+  { timeout: 60_000 },
+  async () => {
+    await withPage(async (page) => {
+      // Editing text means selecting the span, whose id is a copy of the
+      // template body's — so an own id proves nothing about authorship here.
+      const label = page.locator("ul > li:nth-of-type(2) span");
+      const box = (await label.boundingBox())!;
+      const before = await picks(page);
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await page.waitForFunction(
+        (count) =>
+          (window as never as { __picks: unknown[] }).__picks.length > count,
+        before.length,
+      );
+
+      const [pick] = (await picks(page)).slice(-1);
+      expect(pick!.repeat?.xFor).toBe("t in todos");
+      expect(pick!.repeat?.itemIndex).toBe(1);
+    });
+  },
+);
+
+it(
+  "lets a data-bound repeated row be text-edited instead of refusing",
+  { timeout: 60_000 },
+  async () => {
+    await withPage(async (page) => {
+      const label = page.locator('ul > li:nth-of-type(2) span');
+      const box = (await label.boundingBox())!;
+      await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+      await page.waitForTimeout(200);
+
+      const state = await page.evaluate(() => {
+        const badge = document.querySelector<HTMLElement>(
+          "[data-agent-native-transform-badge]",
+        );
+        return {
+          refused:
+            badge && window.getComputedStyle(badge).display !== "none"
+              ? badge.textContent
+              : null,
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+        };
+      });
+
+      expect(state.refused).toBeNull();
+      expect(state.editing).toBe(true);
+    }, { textEditing: true });
+  },
+);
+
+/** A generated screen with no stamped ids anywhere — the common case. */
+const UNSTAMPED = `<!doctype html><html><head><style>
+  html,body{margin:0;padding:0}
+  ul{list-style:none;padding:0;margin:0;width:260px}
+  li{height:40px;border:1px solid #ccc;box-sizing:border-box}
+</style></head><body>
+  <ul>
+    <template x-for="task in filteredTasks" :key="task.id"><li><span x-text="task.text"></span></li></template>
+    <li><span x-text="task.text">one</span></li>
+    <li><span x-text="task.text">two</span></li>
+    <li><span x-text="task.text">three</span></li>
+  </ul>
+</body></html>`;
+
+it(
+  "reports a repeat that carries no stamped ids at all",
+  { timeout: 60_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 480, height: 320 },
+      });
+      await page.setContent(UNSTAMPED);
+      await page.addScriptTag({ content: hydrated() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as never as { __picked: unknown }).__picked = null;
+        window.addEventListener("message", (event) => {
+          const data = event.data as { type?: string; payload?: unknown };
+          if (data?.type === "element-select") {
+            (window as never as { __picked: unknown }).__picked = data.payload;
+          }
+        });
+      });
+
+      const row = page.locator("ul > li:nth-of-type(2)");
+      const box = (await row.boundingBox())!;
+      await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
+      await page.waitForFunction(
+        () => (window as never as { __picked: unknown }).__picked !== null,
+      );
+
+      const repeat = await page.evaluate(
+        () =>
+          (
+            window as never as {
+              __picked: { repeat?: Record<string, unknown> };
+            }
+          ).__picked.repeat,
+      );
+
+      expect(repeat).toMatchObject({
+        sourceSelector: "",
+        instanceCount: 3,
+        itemIndex: 1,
+        xFor: "task in filteredTasks",
+        keyExpression: "task.id",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "reads a row's key out of Alpine's Map-based lookup",
+  { timeout: 60_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 480, height: 320 },
+      });
+      await page.setContent(UNSTAMPED);
+      // Alpine 3.15 stores _x_lookup as a Map; a for..in over it sees nothing.
+      await page.evaluate(() => {
+        const template = document.querySelector("template")!;
+        const rows = [...template.parentElement!.children].filter(
+          (el) => el.tagName === "LI",
+        );
+        (template as never as { _x_lookup: Map<unknown, Element> })._x_lookup =
+          new Map(rows.map((row, index) => [index + 1, row]));
+      });
+      await page.addScriptTag({ content: hydrated() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as never as { __picked: unknown }).__picked = null;
+        window.addEventListener("message", (event) => {
+          const data = event.data as { type?: string; payload?: unknown };
+          if (data?.type === "element-select") {
+            (window as never as { __picked: unknown }).__picked = data.payload;
+          }
+        });
+      });
+
+      const row = page.locator("ul > li:nth-of-type(2)");
+      const box = (await row.boundingBox())!;
+      await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
+      await page.waitForFunction(
+        () => (window as never as { __picked: unknown }).__picked !== null,
+      );
+
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as never as {
+                __picked: { repeat?: { itemKey?: string } };
+              }
+            ).__picked.repeat?.itemKey,
+        ),
+      ).toBe("2");
+    } finally {
+      await browser.close();
+    }
   },
 );

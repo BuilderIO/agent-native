@@ -303,11 +303,13 @@ export function runCommitVisualStyles(
     baseContent === activeProjectionContent
       ? activeCodeLayerProjection
       : buildCodeLayerProjection(baseContent);
-  const targetInfo =
-    options.elementInfo ??
-    (styleWriteIsRetargeted(selector, selectedElement)
-      ? null
-      : selectedElement);
+  // An explicitly retargeted selector wins over the payload too: the canvas
+  // gesture path passes both, and resolving from the payload would send the
+  // write back to the one clone the gesture happened to move.
+  const carriedInfo = options.elementInfo ?? selectedElement;
+  const targetInfo = styleWriteIsRetargeted(selector, carriedInfo)
+    ? null
+    : carriedInfo;
   const targetResolution = targetInfo
     ? resolveCodeLayerTargetFromElementInfo(projection, targetInfo)
     : resolveCodeLayerTargetFromBridge(projection, selector);

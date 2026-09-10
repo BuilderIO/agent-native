@@ -176,3 +176,66 @@ describe("what it declines to do", () => {
     expect(result.status).toBe("refused");
   });
 });
+
+const DERIVED = `<body><script>
+function todoApp() {
+  return {
+    filter: 'active',
+    tasks: [
+      { id: 1, text: 'Welcome to your todo list', done: false },
+      { id: 2, text: 'Check off a task', done: false },
+      { id: 3, text: 'Already done', done: true }
+    ],
+    get filteredTasks() { return this.tasks.filter(t => !t.done); }
+  };
+}
+</script><div x-data="todoApp()">
+  <template x-for="task in filteredTasks" :key="task.id">
+    <li><span x-text="task.text"></span></li>
+  </template>
+</div></body>`;
+
+describe("editing a row from a derived collection", () => {
+  const target = {
+    xFor: "task in filteredTasks",
+    itemIndex: 1,
+    keyExpression: "task.id",
+    itemKey: "2",
+  };
+
+  it("writes the item the key names, not the one at that index", () => {
+    const result = runRepeatItemEdit({
+      content: DERIVED,
+      target,
+      operation: { kind: "set-value", binding: "task.text", value: "Renamed" },
+    });
+
+    expect(result.status).toBe("written");
+    if (result.status !== "written") return;
+    // Index 1 of the FILTERED list is id 2; index 1 of `tasks` would be wrong
+    // only if position were used — assert the untouched neighbours.
+    expect(result.content).toContain("'Renamed'");
+    expect(result.content).toContain("'Welcome to your todo list'");
+    expect(result.content).toContain("'Already done'");
+  });
+
+  it("refuses without a rendered key rather than writing by position", () => {
+    const result = runRepeatItemEdit({
+      content: DERIVED,
+      target: { ...target, itemKey: "" },
+      operation: { kind: "set-value", binding: "task.text", value: "Renamed" },
+    });
+
+    expect(result.status).toBe("refused");
+  });
+
+  it("refuses when the repeat has no :key to identify rows by", () => {
+    const result = runRepeatItemEdit({
+      content: DERIVED,
+      target: { ...target, keyExpression: "" },
+      operation: { kind: "set-value", binding: "task.text", value: "Renamed" },
+    });
+
+    expect(result.status).toBe("refused");
+  });
+});

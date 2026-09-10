@@ -1,9 +1,14 @@
-import { repeatBindingTarget, repeatItemVariable } from "@shared/repeat-data";
+import {
+  readRepeatData,
+  repeatBindingTarget,
+  repeatItemVariable,
+} from "@shared/repeat-data";
 import {
   duplicateRepeatItem,
   moveRepeatItem,
   removeRepeatItem,
   writeRepeatValue,
+  writeRepeatValueByKey,
 } from "@shared/repeat-data-write";
 
 export type RepeatItemOperation =
@@ -28,6 +33,10 @@ export interface RepeatItemTarget {
   xFor: string;
   /** 0-based position in the collection; negative when undetermined. */
   itemIndex: number;
+  /** The repeat's `:key` expression, when it has one. */
+  keyExpression?: string;
+  /** The row's rendered key value, when the runtime reported one. */
+  itemKey?: string;
 }
 
 /**
@@ -106,12 +115,64 @@ function setValue(
       reason: `"${operation.binding}" is computed, so it has no single value to write.`,
     };
   }
+  // A derived collection (a getter, a filter) has no array to index, so the
+  // row's position means nothing. Decided up front rather than by retrying a
+  // failed positional write, so the two routes can never be confused.
+  const collection = readRepeatData(content, target.xFor);
+  if (collection.status !== "read") {
+    return writeByKey(
+      content,
+      target,
+      bindingTarget,
+      operation.value,
+      collection.reason,
+    );
+  }
   const write = writeRepeatValue({
     html: content,
     xFor: target.xFor,
     index: target.itemIndex,
     ...(bindingTarget.kind === "field" ? { field: bindingTarget.field } : {}),
     value: operation.value,
+  });
+  return write.status === "written"
+    ? { status: "written", content: write.html }
+    : { status: "refused", refusal: "unwritable", reason: write.reason };
+}
+
+/**
+ * Reach the item behind a derived collection by its rendered `:key`. Refuses
+ * without one rather than writing by position, which would edit whichever item
+ * happens to sit at that index in the underlying array.
+ */
+function writeByKey(
+  content: string,
+  target: RepeatItemTarget,
+  bindingTarget: { kind: "item" } | { kind: "field"; field: string },
+  value: string,
+  collectionReason: string,
+): RepeatItemEditResult {
+  const itemVariable = repeatItemVariable(target.xFor);
+  const keyTarget =
+    target.keyExpression && itemVariable
+      ? repeatBindingTarget(target.keyExpression, itemVariable)
+      : null;
+  if (!target.itemKey || keyTarget?.kind !== "field") {
+    return { status: "refused", refusal: "unwritable", reason: collectionReason };
+  }
+  if (bindingTarget.kind !== "field") {
+    return {
+      status: "refused",
+      refusal: "unwritable",
+      reason: "A whole item cannot be replaced through its key.",
+    };
+  }
+  const write = writeRepeatValueByKey({
+    html: content,
+    keyField: keyTarget.field,
+    keyValue: target.itemKey,
+    field: bindingTarget.field,
+    value,
   });
   return write.status === "written"
     ? { status: "written", content: write.html }

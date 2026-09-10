@@ -33,6 +33,8 @@ describe("where a style patch lands", () => {
             xFor: "todo in todos",
             itemIndex: 2,
             textBinding: "todo.text",
+            keyExpression: "todo.id",
+            itemKey: "3",
           },
         }),
       }),
@@ -49,5 +51,31 @@ describe("where a style patch lands", () => {
     expect(styleWriteTarget({ selector: "body", selectedElement: null })).toBe(
       "body",
     );
+  });
+});
+
+describe("a canvas gesture on a repeated row", () => {
+  it("aims at the template body, so the write is not stuck on one clone", () => {
+    const gestureSelector =
+      'ul[data-agent-native-node-id="an-list"] > li:nth-of-type(1)';
+
+    expect(
+      styleWriteTarget({
+        selector: gestureSelector,
+        selectedElement: element({
+          selector: gestureSelector,
+          repeat: {
+            sourceSelector: TEMPLATE_BODY,
+            instanceCount: 3,
+            instanceIndex: 1,
+            xFor: "task in filteredTasks",
+            itemIndex: 0,
+            textBinding: "task.title",
+            keyExpression: "task.id",
+            itemKey: "1",
+          },
+        }),
+      }),
+    ).toBe(TEMPLATE_BODY);
   });
 });

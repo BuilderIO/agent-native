@@ -1,4 +1,5 @@
 import {
+  findRepeatItemFieldByKey,
   readRepeatData,
   type RepeatDataItem,
   type RepeatScalar,
@@ -81,6 +82,44 @@ export function writeRepeatValue(args: {
   return {
     status: "written",
     html: splice(args.html, field.valueSpan, literalFor(args.value, existing)),
+  };
+}
+
+/**
+ * Replace one field of the item a rendered row came from, identified by its
+ * `:key` rather than its position. The only way to reach an item behind a
+ * derived collection, where the row's index means nothing.
+ */
+export function writeRepeatValueByKey(args: {
+  html: string;
+  keyField: string;
+  keyValue: string;
+  field: string;
+  value: RepeatScalar;
+}): RepeatWrite {
+  const found = findRepeatItemFieldByKey(
+    args.html,
+    args.keyField,
+    args.keyValue,
+    args.field,
+  );
+  if (found.status === "absent") {
+    return refuse(
+      `No item with ${args.keyField} ${args.keyValue} has a "${args.field}" field.`,
+    );
+  }
+  if (found.status === "ambiguous") {
+    return refuse(
+      `${found.matches} items share ${args.keyField} ${args.keyValue}, so the row cannot be identified.`,
+    );
+  }
+  const existing = args.html.slice(
+    found.field.valueSpan.start,
+    found.field.valueSpan.end,
+  );
+  return {
+    status: "written",
+    html: splice(args.html, found.field.valueSpan, literalFor(args.value, existing)),
   };
 }
 

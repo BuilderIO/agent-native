@@ -385,6 +385,76 @@ export function repeatItemVariable(xFor: string): string | null {
   return grouped?.[1] ?? null;
 }
 
+export type RepeatKeyLookup =
+  | { status: "found"; field: RepeatDataField }
+  | { status: "absent" }
+  | { status: "ambiguous"; matches: number };
+
+/**
+ * Find the one item in the document whose key field holds `keyValue`, wherever
+ * it lives. A derived collection (`filteredTasks`) has no literal to index, so
+ * identity is the only safe way to reach the item a rendered row came from —
+ * its position in the filtered list says nothing about its position in the
+ * array behind it.
+ */
+export function findRepeatItemFieldByKey(
+  html: string,
+  keyField: string,
+  keyValue: string,
+  field: string,
+): RepeatKeyLookup {
+  const matches: RepeatDataField[] = [];
+  const arrayStart = /(?:^|[^A-Za-z0-9_$.])[A-Za-z_$][A-Za-z0-9_$]*\s*[:=]\s*\[/g;
+  for (const region of scriptRegions(html)) {
+    const body = html.slice(region.start, region.end);
+    arrayStart.lastIndex = 0;
+    let hit: RegExpExecArray | null;
+    while ((hit = arrayStart.exec(body))) {
+      const openIndex = body.indexOf("[", hit.index);
+      if (openIndex === -1) continue;
+      const closeIndex = matchBracket(body, openIndex);
+      if (closeIndex === -1) continue;
+      const offset = region.start + openIndex + 1;
+      const cursor: Cursor = {
+        source: body.slice(openIndex + 1, closeIndex),
+        at: 0,
+      };
+      for (;;) {
+        skipTrivia(cursor);
+        if (cursor.at >= cursor.source.length) break;
+        if (cursor.source[cursor.at] === ",") {
+          cursor.at += 1;
+          continue;
+        }
+        if (cursor.source[cursor.at] !== "{") break;
+        const object = readObject(cursor);
+        if (!object) break;
+        const keyed = object.fields.find(
+          (candidate) => candidate.key === keyField,
+        );
+        if (!keyed || String(keyed.value) !== keyValue) continue;
+        const target = object.fields.find(
+          (candidate) => candidate.key === field,
+        );
+        if (!target) continue;
+        matches.push({
+          ...target,
+          valueSpan: {
+            start: target.valueSpan.start + offset,
+            end: target.valueSpan.end + offset,
+          },
+        });
+      }
+      arrayStart.lastIndex = closeIndex;
+    }
+  }
+  if (matches.length === 0) return { status: "absent" };
+  if (matches.length > 1) {
+    return { status: "ambiguous", matches: matches.length };
+  }
+  return { status: "found", field: matches[0]! };
+}
+
 export type RepeatBindingTarget =
   | { kind: "item" }
   | { kind: "field"; field: string };

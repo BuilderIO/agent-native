@@ -88,6 +88,10 @@ export interface ElementInfo {
     itemIndex: number;
     /** The `x-text` this element renders; empty when its text is literal. */
     textBinding: string;
+    /** The repeat's `:key` expression, e.g. `task.id`. */
+    keyExpression: string;
+    /** This row's rendered key value; empty when Alpine did not report one. */
+    itemKey: string;
   };
   selector?: string;
   /**

@@ -91,6 +91,7 @@ import {
   type CreationTool,
 } from "./design-canvas/creation";
 import { isElementInfoPayload } from "./design-canvas/element-payload";
+import { registerPreviewReplacer } from "./design-canvas/preview-fanout";
 import {
   embeddedContentOffsetCss,
   embeddedContentOffsetStyle,
@@ -4348,6 +4349,11 @@ export function DesignCanvas({
       sendInteractionStatePreviewStyle;
     (window as any).__designCanvasReplaceContent =
       replacePreviewContentFromHost;
+    // Every canvas for this screen subscribes, so a breakpoint frame is not
+    // left on its built srcdoc while the primary frame takes the edit.
+    const unregisterPreviewReplacer = screenId
+      ? registerPreviewReplacer(screenId, replacePreviewContentFromHost)
+      : null;
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
     (window as any).__designCanvasClearMotionPreview = clearMotionPreview;
@@ -4359,6 +4365,7 @@ export function DesignCanvas({
     // user can type immediately without a second click.
     (window as any).__designCanvasBeginTextEdit = beginTextEdit;
     return () => {
+      unregisterPreviewReplacer?.();
       // Identity-guard each delete so a stale unmounting instance never clobbers
       // a freshly mounted instance's bridge during a remount race.
       if ((window as any).__designCanvasSendStyle === sendStyleChange) {

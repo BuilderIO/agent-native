@@ -55,6 +55,8 @@ describe("a style commit on one repeated row", () => {
         xFor: "todo in todos",
         itemIndex: 2,
         textBinding: "todo.text",
+        keyExpression: "todo.id",
+        itemKey: "3",
       }),
     );
 
@@ -98,6 +100,8 @@ describe("the live preview while dragging", () => {
             xFor: "todo in todos",
             itemIndex: 2,
             textBinding: "todo.text",
+            keyExpression: "todo.id",
+            itemKey: "3",
           }),
           selectedLayerTargetsRef: { current: [] },
           textEditingState: { active: false },

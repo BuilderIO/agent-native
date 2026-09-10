@@ -1662,6 +1662,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return ids;
   }
 
+  function repeatBodyRootTag(template: Element): string {
+    var body = (template as Element & { content?: DocumentFragment }).content;
+    var root = body ? body.firstElementChild : null;
+    return root ? root.tagName : "";
+  }
+
   function repeatTemplateOwning(node: Element): Element | null {
     var parent = node.parentElement;
     if (!parent) return null;
@@ -1679,19 +1685,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         continue;
       }
-      if (!ownId || repeatBodyIds(sib).has(ownId)) return sib;
+      if (ownId) {
+        if (repeatBodyIds(sib).has(ownId)) return sib;
+        continue;
+      }
+      // No id to match, so fall back to shape: a clone is a copy of the
+      // template body's root. "Has no id" alone would read any ordinary
+      // element following a repeat as one of its rendered rows.
+      if (node.tagName === repeatBodyRootTag(sib)) return sib;
     }
     return null;
   }
 
+  /**
+   * Alpine copies the template body's ids onto every element of every clone,
+   * so an element having its own id proves nothing about authorship inside a
+   * repeat. The walk has to continue to the row the template owns — stopping
+   * at the first id-bearing node detects clone ROOTS only, and leaves every
+   * descendant looking authored.
+   */
   function isTemplateCloneElement(el: Element | null): boolean {
     var node: Element | null = el;
     while (node && !isDocumentRootElement(node)) {
       if (repeatTemplateOwning(node)) return true;
-      if (hasStableOwnSource(node)) return false;
-      var parent = node.parentElement;
-      if (!parent) return false;
-      node = parent;
+      node = node.parentElement;
     }
     return false;
   }
@@ -1712,6 +1729,56 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
+  /** Every row this template rendered, in document order. */
+  function repeatRowsOf(template: Element, row: Element): Element[] {
+    var parent = row.parentElement;
+    if (!parent) return [];
+    var rows: Element[] = [];
+    var siblings = parent.children;
+    for (var i = 0; i < siblings.length; i += 1) {
+      var sibling = siblings[i]!;
+      if (isOverlayElement(sibling)) continue;
+      if (repeatTemplateOwning(sibling) === template) rows.push(sibling);
+    }
+    return rows;
+  }
+
+  /**
+   * The `:key` value Alpine rendered this row from, read out of the template's
+   * own key->element map. A derived collection (`filteredTasks`) has no array
+   * to index, so this identity is the only way back to the item.
+   *
+   * COUPLING: `_x_lookup` is Alpine private API — see the matching warning in
+   * hit-test.bridge.ts. An empty result must make callers refuse, never fall
+   * back to a positional write, or a rename would silently edit another item.
+   */
+  function rowKeyFor(template: Element | null, row: Element | null): string {
+    if (!template || !row) return "";
+    var lookup = (
+      template as Element & {
+        _x_lookup?: Map<unknown, Element> | Record<string, Element>;
+      }
+    )._x_lookup;
+    if (!lookup) return "";
+    // Alpine 3.15 keeps this as a Map; earlier lines used a plain object. A
+    // `for...in` over a Map iterates nothing, which reads as "no key" and
+    // silently disables every key-identified edit.
+    var map = lookup as Map<unknown, Element>;
+    if (typeof map.forEach === "function" && typeof map.get === "function") {
+      var fromMap = "";
+      map.forEach(function (value, key) {
+        if (!fromMap && value === row) fromMap = String(key);
+      });
+      return fromMap;
+    }
+    var record = lookup as Record<string, Element>;
+    for (var key in record) {
+      if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+      if (record[key] === row) return key;
+    }
+    return "";
+  }
+
   /** The row Alpine stamped from the template body, for an element anywhere in it. */
   function repeatRowRootOf(el: Element): Element | null {
     var node: Element | null = el;
@@ -1729,53 +1796,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     xFor: string;
     itemIndex: number;
     textBinding: string;
+    keyExpression: string;
+    itemKey: string;
   } | null {
     if (!isTemplateCloneElement(el) || !el.getAttribute) return null;
-    var sourceNodeId = el.getAttribute("data-agent-native-node-id") || "";
-    if (!sourceNodeId) return null;
-    var sourceSelector =
-      '[data-agent-native-node-id="' + escapeAttribute(sourceNodeId) + '"]';
-    var instances = document.querySelectorAll(sourceSelector);
-    var instanceIndex = 0;
-    for (var i = 0; i < instances.length; i += 1) {
-      if (instances[i] === el) {
-        instanceIndex = i + 1;
-        break;
-      }
-    }
-    if (!instanceIndex) return null;
     var row = repeatRowRootOf(el);
     var template = row ? repeatTemplateOwning(row) : null;
-    // Counted among siblings, not document-wide: a nested repeat renders the
-    // same row id under every outer instance, and the array index is a
-    // position within ONE of those lists.
-    var itemIndex = -1;
-    if (row && row.parentElement) {
-      var rowId = row.getAttribute("data-agent-native-node-id");
-      var seen = 0;
-      var siblings = row.parentElement.children;
-      for (var s = 0; s < siblings.length; s += 1) {
-        var sibling = siblings[s]!;
-        if (sibling.getAttribute("data-agent-native-node-id") !== rowId) {
-          continue;
-        }
-        if (!isTemplateCloneElement(sibling)) continue;
-        if (sibling === row) {
-          itemIndex = seen;
+    if (!row || !template) return null;
+    // Derived from template ownership, not from a shared id: a generated screen
+    // frequently ships with no `data-agent-native-node-id` anywhere, and
+    // keying off one made every repeat behaviour silently unavailable there.
+    var rows = repeatRowsOf(template, row);
+    var rowIndex = rows.indexOf(row);
+    if (rowIndex === -1) return null;
+    var sourceNodeId = el.getAttribute("data-agent-native-node-id") || "";
+    var sourceSelector = sourceNodeId
+      ? '[data-agent-native-node-id="' + escapeAttribute(sourceNodeId) + '"]'
+      : "";
+    var instanceIndex = rowIndex + 1;
+    if (sourceSelector) {
+      var matches = document.querySelectorAll(sourceSelector);
+      for (var i = 0; i < matches.length; i += 1) {
+        if (matches[i] === el) {
+          instanceIndex = i + 1;
           break;
         }
-        seen += 1;
       }
     }
     return {
       sourceSelector: sourceSelector,
-      instanceCount: instances.length,
+      instanceCount: rows.length,
       instanceIndex: instanceIndex,
-      xFor: template ? template.getAttribute("x-for") || "" : "",
-      itemIndex: itemIndex,
+      xFor: template.getAttribute("x-for") || "",
+      itemIndex: rowIndex,
       // Empty when this element's text is literal markup in the template body,
       // which an ordinary markup edit reaches correctly.
       textBinding: el.getAttribute("x-text") || "",
+      keyExpression: template.getAttribute(":key") || "",
+      itemKey: rowKeyFor(template, row),
     };
   }
 
@@ -1788,10 +1846,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function repeatStyleTargets(el: Element): Element[] {
     var info = repeatInstanceInfo(el);
     if (!info || info.instanceCount < 2) return [el];
-    var matches = document.querySelectorAll(info.sourceSelector);
-    var targets: Element[] = [];
-    for (var i = 0; i < matches.length; i += 1) targets.push(matches[i]!);
-    return targets.length > 0 ? targets : [el];
+    if (info.sourceSelector) {
+      var matches = document.querySelectorAll(info.sourceSelector);
+      var targets: Element[] = [];
+      for (var i = 0; i < matches.length; i += 1) targets.push(matches[i]!);
+      if (targets.length > 0) return targets;
+    }
+    // No id to match on, so walk the same child path inside every other row.
+    var row = repeatRowRootOf(el);
+    var template = row ? repeatTemplateOwning(row) : null;
+    if (!row || !template) return [el];
+    var path: number[] = [];
+    var walk: Element | null = el;
+    while (walk && walk !== row && walk.parentElement) {
+      path.unshift(
+        Array.prototype.indexOf.call(walk.parentElement.children, walk),
+      );
+      walk = walk.parentElement;
+    }
+    if (walk !== row) return [el];
+    var siblings: Element[] = [];
+    repeatRowsOf(template, row).forEach(function (candidate) {
+      var node: Element | null = candidate;
+      for (var step = 0; step < path.length && node; step += 1) {
+        node = node.children[path[step]!] ?? null;
+      }
+      if (node) siblings.push(node);
+    });
+    return siblings.length > 0 ? siblings : [el];
   }
 
   function selectionTargetForHit(hit: Element | null): Element | null {
@@ -3449,14 +3531,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (repeatInstanceOverlays.length) removeRepeatInstanceOverlays();
       return;
     }
-    var siblings: Element[] = [];
-    var matches = document.querySelectorAll(info.sourceSelector);
-    for (var i = 0; i < matches.length; i += 1) {
-      var instance = matches[i]!;
-      if (instance !== el && !isLayerInteractionBlocked(instance)) {
-        siblings.push(instance);
-      }
-    }
+    var siblings = repeatStyleTargets(el).filter(function (instance) {
+      return instance !== el && !isLayerInteractionBlocked(instance);
+    });
     if (
       repeatInstanceAnchor !== el ||
       repeatInstanceOverlays.length !== siblings.length
@@ -14750,7 +14827,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // back to selecting the nearest source-backed ancestor (typically the
     // repeated item's container) so the user isn't left with a stale or
     // empty selection.
-    if (!programmaticFlag && isTemplateCloneElement(target)) {
+    // An `x-text` row DOES have a per-instance destination now — the item in
+    // the collection — so the host can persist the edit. Only a clone whose
+    // text has no binding is still unresolvable.
+    if (
+      !programmaticFlag &&
+      isTemplateCloneElement(target) &&
+      !(target.getAttribute && target.getAttribute("x-text"))
+    ) {
       showRejectedDragBadge(
         "Can't edit repeated items directly",
         e.clientX,

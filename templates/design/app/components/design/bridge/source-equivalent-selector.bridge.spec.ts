@@ -25,7 +25,7 @@ const PAGE = `<!doctype html><html><head><style>
   li{height:40px;border:1px solid #ccc}
 </style></head><body>
   <ul data-agent-native-node-id="an-list">
-    <template x-for="t in todos"></template>
+    <template x-for="t in todos"><li></li></template>
     <li>clone one</li>
     <li>clone two</li>
     <li data-agent-native-node-id="an-static" class="static-row">static row</li>

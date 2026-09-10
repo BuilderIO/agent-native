@@ -134,6 +134,8 @@ export function runTextContentChange(
       target: {
         xFor: repeatXFor,
         itemIndex: elementInfo?.repeat?.itemIndex ?? -1,
+        keyExpression: elementInfo?.repeat?.keyExpression,
+        itemKey: elementInfo?.repeat?.itemKey,
       },
       operation: { kind: "set-value", binding: textBinding, value },
     });

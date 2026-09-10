@@ -517,6 +517,9 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
               typeof node.attributes["x-text"] === "string"
                 ? node.attributes["x-text"]
                 : "",
+            // Source has one row, so there is no rendered key here either.
+            keyExpression: "",
+            itemKey: "",
           },
         }
       : {}),
