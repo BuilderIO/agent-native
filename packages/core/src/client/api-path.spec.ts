@@ -398,6 +398,46 @@ describe("configurable framework route prefix", () => {
     expect(appBasePath()).toBe("/docs");
   });
 
+  it("ignores a route that merely contains the prefix text", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/docs/_platform-settings" },
+    });
+    expect(appBasePath()).toBe("");
+    vi.stubGlobal("window", {
+      location: { pathname: "/docs/_platform" },
+    });
+    expect(appBasePath()).toBe("/docs");
+  });
+
+  it("leaves a similarly named app route alone", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", { location: { pathname: "/" } });
+    expect(agentNativePath("/_agent-native-extra/settings")).toBe(
+      "/_agent-native-extra/settings",
+    );
+  });
+
+  it("issues workspace relay callbacks under the public prefix", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/mail/settings", origin: "https://ws.example" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceOAuthOrigin: "https://ws.example",
+      },
+    });
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://ws.example/_platform/google/callback",
+    );
+  });
+
   it("falls back to the projected shell config and rejects a malformed one", () => {
     vi.stubGlobal("window", {
       location: { pathname: "/" },

@@ -1,5 +1,6 @@
+import { toPublicFrameworkPath } from "../shared/framework-route-prefix.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
-import { isFrameworkRoutePath } from "./api-path.js";
+import { frameworkRoutePrefix, isFrameworkRoutePath } from "./api-path.js";
 import { agentNativePath } from "./api-path.js";
 
 /**
@@ -272,8 +273,12 @@ export function oauthRedirectUri(callbackPath: string): string {
   const normalized = callbackPath.startsWith("/")
     ? callbackPath
     : `/${callbackPath}`;
+  // The relay skips the app mount but still speaks the deployment's public
+  // namespace: the gateway routes only the configured prefix.
   const path = shouldUseWorkspaceCallbackRelay(normalized)
-    ? normalized
+    ? toPublicFrameworkPath(normalized, {
+        publicPrefix: frameworkRoutePrefix(),
+      })
     : agentNativePath(normalized);
   const oauthOrigin = shouldUseWorkspaceCallbackRelay(normalized)
     ? workspaceOAuthOrigin()

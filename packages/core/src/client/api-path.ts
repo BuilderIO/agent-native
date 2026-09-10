@@ -82,12 +82,19 @@ function clientEnv(): Record<string, string | boolean | undefined> | undefined {
 function frameworkMarkerIndex(pathname: string): number {
   // The live URL carries the public prefix; the internal name is still
   // accepted because a default deployment's public prefix IS the internal one.
+  // Only a whole segment counts: `/docs/_platform-settings` is an app route.
   for (const marker of [
     frameworkRoutePrefix(),
     FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   ]) {
-    const index = pathname.indexOf(marker);
-    if (index > 0) return index;
+    for (
+      let index = pathname.indexOf(marker);
+      index > 0;
+      index = pathname.indexOf(marker, index + 1)
+    ) {
+      const end = index + marker.length;
+      if (end === pathname.length || pathname[end] === "/") return index;
+    }
   }
   return -1;
 }
