@@ -920,7 +920,11 @@ export default function RecordRoute() {
 
   const queryClient = useQueryClient();
   const { isDesktopApp } = useDesktopPromo();
-  const storageQuery = useVideoStorageStatus();
+  const clipIntake = useMemo(
+    () => parseClipIntakeParams(new URLSearchParams(location.search)),
+    [location.search],
+  );
+  const storageQuery = useVideoStorageStatus(!clipIntake);
 
   // When the user clicks "Record for this space/folder", the empty-state CTA
   // appends ?spaceId or ?folderId so the new recording lands there.
@@ -956,10 +960,6 @@ export default function RecordRoute() {
   }, [location.search]);
   const bugReportContext = useMemo(
     () => parseBugReportContext(new URLSearchParams(location.search)),
-    [location.search],
-  );
-  const clipIntake = useMemo(
-    () => parseClipIntakeParams(new URLSearchParams(location.search)),
     [location.search],
   );
   const clipIntakeRef = useRef<ClipIntakeParams | null>(null);
@@ -1268,17 +1268,25 @@ export default function RecordRoute() {
           liveTranscription.start();
         }
 
-        const status = await fetchVideoStorageStatus();
-        if (isStale()) {
-          await liveTranscription.stopAndWait().catch(() => "");
-          await engine.cancel().catch(() => {});
-          return;
-        }
-        markStorageConfigured(status);
-        if (!status.configured) {
-          throw new Error(
-            "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
-          );
+        const intake = clipIntakeRef.current;
+        if (!intake) {
+          const status = await fetchVideoStorageStatus();
+          if (isStale()) {
+            try {
+              await liveTranscription.stopAndWait();
+              // coercion-ok: stale recording cleanup intentionally ignores stop failure.
+            } catch {
+              // The recording is already stale; cleanup failure cannot change the outcome.
+            }
+            await engine.cancel().catch(() => {});
+            return;
+          }
+          markStorageConfigured(status);
+          if (!status.configured) {
+            throw new Error(
+              "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
+            );
+          }
         }
 
         // 2. Create the recording row server-side once permissions are granted.
@@ -1286,7 +1294,6 @@ export default function RecordRoute() {
         const reportTitle = reportContext
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
-        const intake = clipIntakeRef.current;
         const recordingPayload = {
           title: reportTitle ?? captureTitle.title,
           titleSource: reportTitle ? "context" : captureTitle.titleSource,
@@ -1552,13 +1559,16 @@ export default function RecordRoute() {
 
       let createdId: string | null = null;
       try {
-        const status = await fetchVideoStorageStatus();
-        if (isStale()) return;
-        markStorageConfigured(status);
-        if (!status.configured) {
-          throw new Error(
-            "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
-          );
+        const intake = clipIntakeRef.current;
+        if (!intake) {
+          const status = await fetchVideoStorageStatus();
+          if (isStale()) return;
+          markStorageConfigured(status);
+          if (!status.configured) {
+            throw new Error(
+              "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
+            );
+          }
         }
 
         const meta = await probeVideoMetadata(file);
@@ -1637,7 +1647,6 @@ export default function RecordRoute() {
         const reportTitle = reportContext
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
-        const intake = clipIntakeRef.current;
         const recordingPayload = {
           title:
             reportTitle ??
