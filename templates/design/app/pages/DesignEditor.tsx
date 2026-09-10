@@ -161,6 +161,7 @@ import {
   IconLink,
   IconKeyboard,
   IconTemplate,
+  IconHistory,
   IconAdjustmentsHorizontal,
   IconMessageCircle,
 } from "@tabler/icons-react";
@@ -229,6 +230,7 @@ import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
 } from "@/components/design/editor/DesignWorkspaceRail";
+import { HistoryPanel } from "@/components/design/editor/HistoryPanel";
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
 import { MakeRealDialog } from "@/components/design/editor/MakeRealDialog";
 import { PendingScreenDeletionDialog } from "@/components/design/editor/PendingScreenDeletionDialog";
@@ -310,10 +312,6 @@ import type {
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
-import {
-  designSystemPickerOptions,
-  DesignSystemPickerControl,
-} from "@/components/editor/design-start-pickers";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -416,7 +414,10 @@ import {
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
-import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
+import {
+  DESIGN_HISTORY_OPEN_EVENT,
+  DESIGN_UI_TOGGLE_EVENT,
+} from "@/lib/design-ui-events";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import {
   dismissFigmaPasteImageNotice,
@@ -3152,6 +3153,7 @@ function DesignEditor() {
 
   // Dialog open/close state for the "Make this a real app" flow.
   const [makeRealDialogOpen, setMakeRealDialogOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [autoLayoutSuggestionPreview, setAutoLayoutSuggestionPreview] =
     useState<{
       suggestion: AutoLayoutSuggestion;
@@ -12189,6 +12191,13 @@ function DesignEditor() {
       window.removeEventListener(DESIGN_UI_TOGGLE_EVENT, handleToggleUi);
   }, [handleToggleUi]);
 
+  useEffect(() => {
+    const openHistory = () => setHistoryOpen(true);
+    window.addEventListener(DESIGN_HISTORY_OPEN_EVENT, openHistory);
+    return () =>
+      window.removeEventListener(DESIGN_HISTORY_OPEN_EVENT, openHistory);
+  }, []);
+
   // Figma's Shift+C — Show/Hide comments. The state is passed through every
   // mounted DesignCanvas so both focused and overview comment pins disappear
   // without unmounting/recreating their preview iframe.
@@ -12382,6 +12391,8 @@ function DesignEditor() {
   const [pendingScreenDeletion, setPendingScreenDeletion] = useState<{
     files: DesignFile[];
   } | null>(null);
+  const [screenDeletionConfirming, setScreenDeletionConfirming] =
+    useState(false);
 
   const performDeleteFiles = useCallback(
     (
@@ -12517,16 +12528,19 @@ function DesignEditor() {
   );
 
   const handleCancelScreenDeletion = useCallback(() => {
+    if (screenDeletionConfirming) return;
     setPendingScreenDeletion(null);
-  }, []);
+  }, [screenDeletionConfirming]);
 
   const handleConfirmScreenDeletion = useCallback(() => {
     const pending = pendingScreenDeletion;
+    if (!pending || screenDeletionConfirming) return;
+    // Acknowledge the click immediately; mutation work continues after close.
+    setScreenDeletionConfirming(true);
     setPendingScreenDeletion(null);
-    if (pending) {
-      performDeleteFiles(pending.files, { recordDeletionHistory: true });
-    }
-  }, [pendingScreenDeletion, performDeleteFiles]);
+    setScreenDeletionConfirming(false);
+    performDeleteFiles(pending.files, { recordDeletionHistory: true });
+  }, [pendingScreenDeletion, performDeleteFiles, screenDeletionConfirming]);
 
   // ── Props/animation clipboard, transforms, nudge ───────────────────────────
   const handleCopyProps = useCallback(() => {
@@ -15780,10 +15794,6 @@ function DesignEditor() {
       })),
     [firstRunTemplatesQuery.data?.templates],
   );
-  const designSystemOptions = useMemo(
-    () => designSystemPickerOptions(designSystems),
-    [designSystems],
-  );
   const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(
     null,
   );
@@ -15793,9 +15803,7 @@ function DesignEditor() {
   const [chatMessageCount, setChatMessageCount] = useState(0);
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
   // The picked system is stored on the design and read by every later
-  // generation, so it outlives the starting-point row a template retires.
-  const showComposerDesignSystem =
-    designSystemsLoading || designSystemOptions.length > 0;
+  // generation; keep the picker out of the composer chrome so chat stays dense.
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -15825,15 +15833,6 @@ function DesignEditor() {
       queryClient,
       selectedPromptDesignSystemId,
     ],
-  );
-  const handleComposerDesignSystem = useCallback(
-    (designSystemId: string | null) => {
-      // null is the user picking "No design system"; only undefined means
-      // nothing has been chosen yet, which re-resolves the default.
-      setPromptDesignSystemId(designSystemId);
-      persistPromptDesignSystem(designSystemId);
-    },
-    [persistPromptDesignSystem],
   );
 
   const designAgentSuggestions = useMemo(
@@ -18608,6 +18607,15 @@ function DesignEditor() {
     (widthPx: number, label?: string) => {
       if (!id) return;
       const resolvedLabel = label ?? breakpointLabelForWidth(widthPx);
+      const nextWidths = [
+        ...new Set([
+          ...getDesignBreakpointWidths(designDataJsonRef.current),
+          widthPx,
+        ]),
+      ];
+      // Immediate feedback: reflow before the mutation round-trips so the new
+      // frame appears to open under the "+" without a dead wait.
+      reflowOverviewScreensForBreakpoints(nextWidths);
       void addBreakpointMutation
         .mutateAsync({ designId: id, label: resolvedLabel, widthPx })
         .then(() => {
@@ -18972,7 +18980,7 @@ function DesignEditor() {
       >
         <DropdownMenuItem asChild>
           <Link to="/home">
-            <IconArrowLeft className="mr-2 h-4 w-4" />
+            <IconArrowLeft className="h-4 w-4" />
             {t("designEditor.backToDesigns")}
           </Link>
         </DropdownMenuItem>
@@ -18981,13 +18989,17 @@ function DesignEditor() {
           onClick={() => setSaveTemplateOpen(true)}
           disabled={!canEditDesign || files.length === 0}
         >
-          <IconTemplate className="mr-2 h-4 w-4" />
+          <IconTemplate className="h-4 w-4" />
           {t("designEditor.saveAsTemplate")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setHistoryOpen(true)} disabled={!id}>
+          <IconHistory className="h-4 w-4" />
+          {"Version history" /* i18n-ignore */}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <IconFileExport className="mr-2 h-4 w-4" />
+            <IconFileExport className="h-4 w-4" />
             {t("designEditor.export")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="design-editor-app-menu-content w-56">
@@ -19047,7 +19059,7 @@ function DesignEditor() {
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <IconPencil className="mr-2 h-4 w-4" />
+            <IconPencil className="h-4 w-4" />
             {t("designEditor.modes.edit")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="design-editor-app-menu-content w-52">
@@ -19080,7 +19092,7 @@ function DesignEditor() {
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <IconLayoutGrid className="mr-2 h-4 w-4" />
+            <IconLayoutGrid className="h-4 w-4" />
             {"View" /* i18n-ignore design menu section */}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="design-editor-app-menu-content w-52">
@@ -19102,14 +19114,14 @@ function DesignEditor() {
           onClick={handlePinToolToggle}
           disabled={!activeFile || !canCommentDesign}
         >
-          <IconPin className="mr-2 h-4 w-4" />
+          <IconPin className="h-4 w-4" />
           {pinMode
             ? t("designEditor.stopPinningComments")
             : t("designEditor.pinComment")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleShowKeyboardShortcutsFromMenu}>
-          <IconKeyboard className="mr-2 h-4 w-4" />
+          <IconKeyboard className="h-4 w-4" />
           {t("designEditor.keyboardShortcuts.title")}
           <DropdownMenuShortcut>
             {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
@@ -19125,7 +19137,7 @@ function DesignEditor() {
                 handleOpenMakeReal();
               }}
             >
-              <IconRocket className="mr-2 h-4 w-4" />
+              <IconRocket className="h-4 w-4" />
               {"Make this a real app" /* i18n-ignore */}
             </DropdownMenuItem>
           </>
@@ -19940,7 +19952,7 @@ function DesignEditor() {
         {leftSidebarVisible ? (
           <div
             data-design-chrome-region="left-shell"
-            className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]"
+            className="absolute inset-y-0 left-0 z-[70] flex min-h-0 bg-[var(--design-editor-panel-bg)]"
           >
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
@@ -20074,16 +20086,6 @@ function DesignEditor() {
                     }
                     composerSlot={
                       <>
-                        {showComposerDesignSystem ? (
-                          <div data-design-system-picker className="px-3 pb-2">
-                            <DesignSystemPickerControl
-                              designSystems={designSystemOptions}
-                              loading={designSystemsLoading}
-                              selectedId={selectedPromptDesignSystemId ?? null}
-                              onChange={handleComposerDesignSystem}
-                            />
-                          </div>
-                        ) : null}
                         {detectedFigmaComposerLink ? (
                           <FigmaLinkComposerBubble
                             link={detectedFigmaComposerLink}
@@ -20872,6 +20874,10 @@ function DesignEditor() {
                         onEdit={handleOverviewFrameAction}
                         onDuplicate={handleDuplicateScreen}
                         onAddBreakpoint={handleOverviewAddBreakpoint}
+                        breakpointMutationPending={
+                          addBreakpointMutation.isPending ||
+                          removeBreakpointMutation.isPending
+                        }
                         onActiveBreakpointChange={
                           handleOverviewActiveBreakpointChange
                         }
@@ -21216,7 +21222,7 @@ function DesignEditor() {
           <div
             ref={rightSidebarContentRef}
             data-design-chrome-region="right-panel"
-            className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
+            className="absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
             style={{ width: rightSidebarWidth }}
           >
             <div
@@ -21343,6 +21349,7 @@ function DesignEditor() {
         pendingScreenDeletion={pendingScreenDeletion}
         onCancel={handleCancelScreenDeletion}
         onConfirm={handleConfirmScreenDeletion}
+        confirming={screenDeletionConfirming}
       />
 
       {/* ── Render: motion dock ── */}
@@ -21528,6 +21535,20 @@ function DesignEditor() {
         pending={migrateMutation.isPending}
         onConfirm={handleConfirmMakeReal}
       />
+
+      {id ? (
+        <HistoryPanel
+          designId={id}
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          canRestore={canEditDesign}
+          onRestored={() => {
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-design", { id }],
+            });
+          }}
+        />
+      ) : null}
 
       <SaveTemplateDialog
         open={saveTemplateOpen}

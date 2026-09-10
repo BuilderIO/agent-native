@@ -128,6 +128,11 @@ import {
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import { shapeClosingHandles } from "./multi-screen/draft-primitives";
+import {
+  registerLinkedScreenPreviewHandlers,
+  replaceLinkedScreenPreviewContent,
+  sendLinkedScreenPreviewStyleChange,
+} from "./multi-screen/linked-screen-preview";
 import type {
   ElementInfo,
   ElementSelectionIntent,
@@ -3873,19 +3878,6 @@ export function DesignCanvas({
     },
     [postOneShotBridgeMessage],
   );
-  const sendStyleChangeForScreen = useCallback(
-    (
-      targetScreenId: string,
-      selector: string,
-      property: string,
-      value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
-    ) => {
-      if (!screenId || targetScreenId !== screenId) return false;
-      return sendStyleChange(selector, property, value, options);
-    },
-    [screenId, sendStyleChange],
-  );
 
   const sendInteractionStatePreviewStyle = useCallback(
     (args: {
@@ -4339,15 +4331,90 @@ export function DesignCanvas({
     [postOneShotBridgeMessage],
   );
 
+  // BUG-UNDO-LINKED-BREAKPOINT: every mounted frame for a screen (primary +
+  // breakpoint siblings) registers its own replace/style handlers so the
+  // orchestrator can fan out undo/redo and base style commits to all of them.
+  // `registerRuntimeBridge` still owns the single-active global helpers below;
+  // this registry is the multi-frame path those globals cannot reach.
+  useEffect(() => {
+    const frameId = previewFrameId ?? screenId;
+    if (!frameId) return;
+    return registerLinkedScreenPreviewHandlers(frameId, {
+      replaceContent: replacePreviewContentFromHost,
+      sendStyleChange,
+    });
+  }, [
+    previewFrameId,
+    replacePreviewContentFromHost,
+    screenId,
+    sendStyleChange,
+  ]);
+
   // Expose iframe runtime mutations for the editor orchestrator.
   useEffect(() => {
     if (!registerRuntimeBridge) return;
-    (window as any).__designCanvasSendStyle = sendStyleChange;
-    (window as any).__designCanvasSendStyleForScreen = sendStyleChangeForScreen;
+    // Fan out to every linked breakpoint frame for this screen. The active
+    // canvas owns these globals, but a base style edit / undo must update the
+    // sibling `::bp-*` iframes too — they share one design_files row and
+    // otherwise keep a stale DOM after Cmd+Z (BUG-UNDO-LINKED-BREAKPOINT).
+    const sendStyleChangeLinked = (
+      selector: string,
+      property: string,
+      value: string,
+      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+    ) => {
+      if (screenId) {
+        return sendLinkedScreenPreviewStyleChange(
+          screenId,
+          selector,
+          property,
+          value,
+          options,
+        );
+      }
+      return sendStyleChange(selector, property, value, options);
+    };
+    const sendStyleChangeForScreenLinked = (
+      targetScreenId: string,
+      selector: string,
+      property: string,
+      value: string,
+      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+    ) => {
+      if (!screenId || targetScreenId !== screenId) return false;
+      return sendStyleChangeLinked(selector, property, value, options);
+    };
+    const replacePreviewContentLinked = (
+      nextContent: string,
+      selector?: string | null,
+      candidates?: string[],
+      options?: {
+        forceFullDocument?: boolean;
+        preserveTextEditingSession?: boolean;
+      },
+    ) => {
+      if (screenId) {
+        return replaceLinkedScreenPreviewContent(
+          screenId,
+          nextContent,
+          selector,
+          candidates,
+          options,
+        );
+      }
+      return replacePreviewContentFromHost(
+        nextContent,
+        selector,
+        candidates,
+        options,
+      );
+    };
+    (window as any).__designCanvasSendStyle = sendStyleChangeLinked;
+    (window as any).__designCanvasSendStyleForScreen =
+      sendStyleChangeForScreenLinked;
     (window as any).__designCanvasSendInteractionStatePreviewStyle =
       sendInteractionStatePreviewStyle;
-    (window as any).__designCanvasReplaceContent =
-      replacePreviewContentFromHost;
+    (window as any).__designCanvasReplaceContent = replacePreviewContentLinked;
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
     (window as any).__designCanvasClearMotionPreview = clearMotionPreview;
@@ -4361,12 +4428,12 @@ export function DesignCanvas({
     return () => {
       // Identity-guard each delete so a stale unmounting instance never clobbers
       // a freshly mounted instance's bridge during a remount race.
-      if ((window as any).__designCanvasSendStyle === sendStyleChange) {
+      if ((window as any).__designCanvasSendStyle === sendStyleChangeLinked) {
         delete (window as any).__designCanvasSendStyle;
       }
       if (
         (window as any).__designCanvasSendStyleForScreen ===
-        sendStyleChangeForScreen
+        sendStyleChangeForScreenLinked
       ) {
         delete (window as any).__designCanvasSendStyleForScreen;
       }
@@ -4378,7 +4445,7 @@ export function DesignCanvas({
       }
       if (
         (window as any).__designCanvasReplaceContent ===
-        replacePreviewContentFromHost
+        replacePreviewContentLinked
       ) {
         delete (window as any).__designCanvasReplaceContent;
       }
@@ -4416,8 +4483,8 @@ export function DesignCanvas({
   }, [
     deleteRuntimeElement,
     registerRuntimeBridge,
-    sendStyleChangeForScreen,
     replacePreviewContentFromHost,
+    screenId,
     sendStyleChange,
     sendInteractionStatePreviewStyle,
     sendMotionPreview,

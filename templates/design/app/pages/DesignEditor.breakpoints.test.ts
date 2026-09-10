@@ -528,6 +528,30 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(source).toContain("breakpointFramesHidden,");
   });
 
+  it("optimistically patches breakpointSet and shows pending feedback on add/remove", () => {
+    expect(source).toContain("applyOptimisticBreakpointAdd");
+    expect(source).toContain("applyOptimisticBreakpointRemove");
+    expect(source).toContain("breakpointMutationPending={");
+    expect(source).toContain("addBreakpointMutation.isPending");
+    expect(source).toContain("removeBreakpointMutation.isPending");
+    const addHandler = source.slice(
+      source.indexOf("const addDesignBreakpoint"),
+      source.indexOf("const handleBreakpointBarAdd"),
+    );
+    expect(addHandler).toContain("queryClient.setQueryData");
+    expect(addHandler.indexOf("applyOptimisticBreakpointAdd")).toBeLessThan(
+      addHandler.indexOf("addBreakpointMutation"),
+    );
+    const removeHandler = source.slice(
+      source.indexOf("const handleBreakpointBarRemove"),
+      source.indexOf("const handleBreakpointChangeWidth"),
+    );
+    expect(removeHandler).toContain("applyOptimisticBreakpointRemove");
+    expect(
+      removeHandler.indexOf("applyOptimisticBreakpointRemove"),
+    ).toBeLessThan(removeHandler.indexOf("removeBreakpointMutation"));
+  });
+
   it("stamps the active breakpoint scope onto pending gesture edits", () => {
     const recorder = commandSource("record-pending-visual-style-edit.ts");
     expect(recorder).toContain("breakpoint: {");

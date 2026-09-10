@@ -28,8 +28,13 @@ describe("Design editor mobile layout", () => {
       "flex max-w-[calc(100%-1rem)] -translate-x-1/2",
     );
     expect(bottomToolbarSource).toContain("overflow-x-auto rounded-xl");
+    // Sidebars overlay the full-bleed canvas so opening/closing chrome does
+    // not reflow pan/centering. Absolute left/right shells are required.
     expect(editorSource).toContain(
-      "relative hidden h-full min-h-0 shrink-0 flex-col",
+      "absolute inset-y-0 left-0 z-[70] flex min-h-0",
+    );
+    expect(editorSource).toContain(
+      "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col",
     );
     expect(editorSource).toContain(
       "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",

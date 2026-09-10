@@ -20,6 +20,7 @@ import { getThemeInitScript } from "@agent-native/core/client/ui";
 import {
   IconArrowsMaximize,
   IconHierarchy2,
+  IconHistory,
   IconSun,
   IconMoon,
 } from "@tabler/icons-react";
@@ -41,7 +42,10 @@ import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
-import { requestDesignUiToggle } from "@/lib/design-ui-events";
+import {
+  requestDesignHistoryOpen,
+  requestDesignUiToggle,
+} from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
@@ -158,6 +162,15 @@ function DesignCommandMenu({
           <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
+        {isDesignEditor ? (
+          <CommandMenu.Item
+            onSelect={requestDesignHistoryOpen}
+            keywords={["history", "versions", "restore", "checkpoints"]}
+          >
+            <IconHistory size={16} />
+            {"Version history" /* i18n-ignore */}
+          </CommandMenu.Item>
+        ) : null}
         <CommandMenu.Item onSelect={() => {}}>
           {t("root.commandSearch")}
         </CommandMenu.Item>
