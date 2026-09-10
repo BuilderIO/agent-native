@@ -59,6 +59,17 @@ const pullRequestPreviewSource = readFileSync(
   ".github/workflows/deploy-netlify-pr-previews.yml",
   "utf8",
 );
+const trustedPreviewBuildStart = reusableSource.indexOf(
+  "      - name: Build trusted preview Functions for the PR artifact",
+);
+const trustedPreviewBuildEnd = reusableSource.indexOf(
+  "      - name: Run Plan release migrations",
+  trustedPreviewBuildStart,
+);
+const trustedPreviewBuildSource = reusableSource.slice(
+  trustedPreviewBuildStart,
+  trustedPreviewBuildEnd,
+);
 
 describe("Google callback deploy verification guard", () => {
   it("requires direct probe execution and rolls back only definitive mismatches", () => {
@@ -123,7 +134,7 @@ describe("Netlify PR preview workflow guard", () => {
     assert.match(pullRequestPreviewSource, /No successful deploy record/);
     assert.match(reusableSource, /build_args\+=\(--offline\)/);
     assert.match(
-      reusableSource,
+      trustedPreviewBuildSource,
       /netlify build --context "\$BUILD_CONTEXT" --filter "\$SOURCE_TEMPLATE" --offline/,
     );
   });
