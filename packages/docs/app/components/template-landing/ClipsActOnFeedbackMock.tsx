@@ -250,7 +250,9 @@ export function ClipsActOnFeedbackMock({
       <div className="clips-page-mock-crop" aria-hidden="true">
         <div className="clips-page-mock-page bg-background text-foreground">
           <div className="clips-page-mock-app">
-            {/* PageHeader: breadcrumb, then the joined share controls. */}
+            {/* PageHeader. The share controls that belong in this row are
+                rendered after the popover instead, for the reason noted
+                there. */}
             <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
               <nav className="min-w-0">
                 <ol className="flex flex-nowrap items-center gap-1.5 overflow-hidden text-sm text-muted-foreground">
@@ -263,17 +265,6 @@ export function ClipsActOnFeedbackMock({
                   </li>
                 </ol>
               </nav>
-              <div className="ms-auto flex shrink-0 items-center">
-                <div className="clips-page-mock-share-group flex shrink-0 items-center">
-                  <span className="inline-flex h-9 items-center gap-2 rounded-md rounded-e-none bg-primary px-3 text-sm font-medium text-primary-foreground">
-                    <IconUserPlus className="size-4" />
-                    <span>Share</span>
-                  </span>
-                  <span className="inline-flex h-9 w-8 items-center justify-center rounded-md rounded-s-none border-s border-primary-foreground/15 bg-primary px-0 text-primary-foreground shadow-none">
-                    <IconLink className="size-4" />
-                  </span>
-                </div>
-              </div>
             </div>
 
             {/* clips-recording-view: player column + side panel column. */}
@@ -479,6 +470,23 @@ export function ClipsActOnFeedbackMock({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* The share control triggers that menu, so it stays clear of the
+              shadow the menu casts and out of the receded layer. It has to be
+              lifted out of the header rather than given a z-index in place:
+              the recede is an opacity stacking context, so any z-index inside
+              it stays trapped under the popover however high it goes. The
+              offsets put it back in its header row, an h-9 control centred in
+              h-12, inset by the px-4 of that row. */}
+          <div className="clips-page-mock-share-group absolute end-4 top-1.5 z-30 flex shrink-0 items-center">
+            <span className="inline-flex h-9 items-center gap-2 rounded-md rounded-e-none bg-primary px-3 text-sm font-medium text-primary-foreground">
+              <IconUserPlus className="size-4" />
+              <span>Share</span>
+            </span>
+            <span className="inline-flex h-9 w-8 items-center justify-center rounded-md rounded-s-none border-s border-primary-foreground/15 bg-primary px-0 text-primary-foreground shadow-none">
+              <IconLink className="size-4" />
+            </span>
           </div>
         </div>
 
