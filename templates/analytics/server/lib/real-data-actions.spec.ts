@@ -1375,6 +1375,37 @@ describe("incomplete evidence detection", () => {
     }
   });
 
+  it("keeps automation-first dashboard questions on the analytics path", () => {
+    for (const request of [
+      "How many automations are scheduled for the dashboard?",
+      "How many automations run the Sales dashboard?",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
+  it("keeps dashboard refresh job counts on the analytics path", () => {
+    const request = "How many failed dashboard refresh jobs are there?";
+
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+  });
+
+  it("does not treat bare dashboard status as analytics", () => {
+    for (const request of [
+      "What is the status of the dashboard?",
+      "What is the state of the Revenue dashboard?",
+    ]) {
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+    }
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What is the status of the Revenue dashboard automation?",
+      ),
+    ).toBe(true);
+  });
+
   it("keeps report framing as analytics intent around workflow terms", () => {
     expect(
       looksLikeAnalyticsDataRequest(
@@ -1406,6 +1437,22 @@ describe("incomplete evidence detection", () => {
 
     expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
     expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+  });
+
+  it("preserves a dashboard build after a semicolon refresh-rate report", () => {
+    const request =
+      "Create a report showing the dashboard refresh rate; build a Sales dashboard";
+
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+  });
+
+  it("preserves analytics intent in a clause after an automation request", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Create an automation to send the weekly summary. What was the conversion rate last week?",
+      ),
+    ).toBe(true);
   });
 
   it("preserves a later dashboard build after a sentence-boundary refresh-rate question", () => {

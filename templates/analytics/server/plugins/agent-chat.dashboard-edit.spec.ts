@@ -43,6 +43,18 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard dashboard edits", () => {
+  it("still requires a source query for analytics after an automation clause", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create an automation to send the weekly summary. What was the conversion rate last week?",
+        draftText: "The conversion rate was 92 percent.",
+      }),
+    );
+
+    expect(result?.retryMessage).toContain("real source query");
+  });
+
   it("does not retry a successful dashboard automation as a dashboard build", () => {
     const result = realDataFinalGuard(
       guardContext({
