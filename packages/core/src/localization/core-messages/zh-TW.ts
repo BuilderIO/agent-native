@@ -509,6 +509,23 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "上一次代理串流在復原執行時結束。請繼續或重試以重新連線至該執行。",
   "recovery.reconnectBuilder": "重新連線至 Builder.io",
+  "secrets.addCustomKeyNamed": "新增「{{name}}」作為自訂金鑰",
+  "secrets.customKey": "自訂金鑰",
+  "secrets.customKeyHint": "依名稱新增任何金鑰",
+  "secrets.fromEnvironment": "由部署環境提供。",
+  "secrets.managedInVault":
+    "在工作區 Vault 中管理。此工作區中的每個應用程式都會使用此值。",
+  "secrets.openVault": "開啟 Vault",
+  "secrets.overridesVault":
+    "此個人金鑰會覆寫工作區 Vault 的值。移除後即可使用 Vault 金鑰。",
+  "secrets.overridesWorkspace":
+    "此個人金鑰會覆寫工作區的值。移除後即可使用共用金鑰。",
+  "secrets.setForWorkspace": "已為此工作區中的所有人設定。",
+  "secrets.sourceEnvironment": "環境",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "工作區",
+  "secrets.statusUnavailable": "不可用",
+  "secrets.usePersonalKey": "改用個人金鑰",
   "selection.attached": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.attached_other": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.clear": "清除所選內容的上下文",
