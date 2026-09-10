@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { parse } from "yaml";
 
@@ -62,6 +62,70 @@ export function validateReusableWorkflowConcurrency(
   return [];
 }
 
+export function validateReusableWorkflowPermissions(
+  workflow: Record<string, unknown>,
+): string[] {
+  const permissions = asRecord(workflow.permissions);
+  if (
+    permissions?.contents !== "read" ||
+    Object.keys(permissions ?? {}).some(
+      (permission) => permission !== "contents",
+    )
+  ) {
+    return [
+      `${reusablePath} must declare only the read permissions used by the reusable deploy job`,
+    ];
+  }
+  return [];
+}
+
+export function validateReusableCallerPermissions(
+  workflow: Record<string, unknown>,
+  path: string,
+): string[] {
+  const issues: string[] = [];
+  const workflowPermissions = asRecord(workflow.permissions);
+  for (const [jobName, value] of Object.entries(
+    asRecord(workflow.jobs) ?? {},
+  )) {
+    const job = asRecord(value);
+    if (job?.uses !== `./${reusablePath}`) continue;
+    const permissions = asRecord(job.permissions) ?? workflowPermissions;
+    if (
+      !permissions ||
+      (permissions.contents !== "read" && permissions.contents !== "write")
+    ) {
+      issues.push(
+        `${path} ${jobName} reusable deploy job must explicitly retain contents access`,
+      );
+    }
+  }
+  return issues;
+}
+
+export function validateReusablePreviewRecordPlacement(
+  workflow: Record<string, unknown>,
+): string[] {
+  const deploy = asRecord(asRecord(workflow.jobs)?.deploy);
+  const steps = Array.isArray(deploy?.steps) ? deploy.steps.map(asRecord) : [];
+  const stepIndex = (name: string) =>
+    steps.findIndex((step) => step?.name === name);
+  const recordIndex = stepIndex("Prepare the trusted PR preview deploy record");
+  const previewSmokeIndex = stepIndex("Smoke-test the uploaded PR preview");
+  const docsSmokeIndex = stepIndex("Smoke-test the static docs deploy");
+  if (
+    recordIndex < 0 ||
+    previewSmokeIndex < 0 ||
+    docsSmokeIndex < 0 ||
+    recordIndex <= Math.max(previewSmokeIndex, docsSmokeIndex)
+  ) {
+    return [
+      `${reusablePath} must publish PR preview records only after every preview smoke check`,
+    ];
+  }
+  return [];
+}
+
 export function validateProductionPurgeCondition(ifValue: unknown): string[] {
   const normalized =
     typeof ifValue === "string" ? ifValue.trim().replace(/\s+/g, " ") : "";
@@ -117,6 +181,8 @@ export function validateNetlifyPrPreviewWorkflow(
   const buildPermissions = asRecord(build?.permissions);
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
+  const comment = asRecord(jobs?.comment);
+  const commentPermissions = asRecord(comment?.permissions);
 
   if (!asRecord(triggers?.pull_request_target)) {
     issues.push(`${pullRequestPath} must be triggered by pull_request_target`);
@@ -162,6 +228,35 @@ export function validateNetlifyPrPreviewWorkflow(
   ) {
     issues.push(
       `${pullRequestPath} PR build job must not receive deployment secrets`,
+    );
+  }
+  if (
+    comment?.["runs-on"] !== "ubuntu-latest" ||
+    !Array.isArray(comment.needs) ||
+    !comment.needs.includes("deploy") ||
+    commentPermissions?.actions !== "read" ||
+    commentPermissions?.contents !== "read" ||
+    commentPermissions.issues !== "write" ||
+    commentPermissions["pull-requests"] !== "write" ||
+    Object.keys(commentPermissions ?? {}).some(
+      (permission) =>
+        !["actions", "contents", "issues", "pull-requests"].includes(
+          permission,
+        ),
+    ) ||
+    !source.includes("actions/download-artifact@") ||
+    !source.includes("actions/github-script@") ||
+    !source.includes("listJobsForWorkflowRun") ||
+    !source.includes("listWorkflowRunArtifacts") ||
+    !source.includes("artifact-ids:") ||
+    !source.includes("started_at") ||
+    !source.includes("created_at") ||
+    !source.includes("needs.deploy.result != 'cancelled'") ||
+    !source.includes("continue-on-error: true") ||
+    !source.includes("No successful deploy record")
+  ) {
+    issues.push(
+      `${pullRequestPath} comment job must own PR comment permissions and consume the trusted deploy record`,
     );
   }
   if (deployWith?.target !== "preview") {
@@ -315,6 +410,21 @@ try {
     }
     parsedWorkflows.set(path, document);
   }
+  for (const fileName of readdirSync(".github/workflows")) {
+    if (!/\.ya?ml$/.test(fileName)) continue;
+    const path = `.github/workflows/${fileName}`;
+    if (parsedWorkflows.has(path)) continue;
+    const source = readFileSync(path, "utf8");
+    const document = asRecord(parse(source));
+    if (!document) {
+      throw new Error(`${path} must contain a YAML mapping at the root`);
+    }
+    const hasReusableCaller = Object.values(asRecord(document.jobs) ?? {}).some(
+      (value) => asRecord(value)?.uses === `./${reusablePath}`,
+    );
+    if (!hasReusableCaller) continue;
+    parsedWorkflows.set(path, document);
+  }
   if (!reusable.includes("workflow_call:")) {
     issues.push(`${reusablePath} must remain a reusable workflow`);
   }
@@ -326,6 +436,12 @@ try {
 
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
+issues.push(...validateReusableWorkflowPermissions(reusableDocument ?? {}));
+issues.push(...validateReusablePreviewRecordPlacement(reusableDocument ?? {}));
+for (const [path, workflow] of parsedWorkflows) {
+  if (path === reusablePath) continue;
+  issues.push(...validateReusableCallerPermissions(workflow, path));
+}
 issues.push(
   ...validateNetlifyPrPreviewWorkflow(
     parsedWorkflows.get(pullRequestPath) ?? {},

@@ -156,8 +156,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
 
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
@@ -1883,57 +1881,6 @@ jobs:
           fi
           node --experimental-strip-types scripts/smoke-check-health.ts "${smoke_args[@]}"
 
-      - name: Comment the PR preview URL
-        if: >-
-          inputs.target == 'preview' && inputs.deploy &&
-          inputs.pull_request_number > 0 && success()
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
-          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
-          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
-          SITE_NAME: ${{ steps.target.outputs.site_name }}
-          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
-            const marker = `<!-- agent-native-netlify-preview:${process.env.SITE_NAME} -->`;
-            const deployUrl = process.env.DEPLOY_URL;
-            const sourceRef = process.env.SOURCE_REF;
-            if (!deployUrl || !sourceRef || !process.env.DEPLOY_ID) {
-              core.setFailed('PR preview upload did not return a complete deploy record.');
-              return;
-            }
-            const body = [
-              marker,
-              `**${process.env.SITE_NAME} preview:** [Open preview](${deployUrl})`,
-              '',
-              `Built by GitHub Actions from \`${sourceRef}\`; Netlify is serving the uploaded artifact.`,
-            ].join('\n');
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pullRequestNumber,
-              per_page: 100,
-            });
-            const existing = comments.find((comment) => comment.body?.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pullRequestNumber,
-                body,
-              });
-            }
-
       # The active managed client and its capability are observable only from
       # the live host, so this is a post-publish verification. If the declared
       # managed callback is definitively unregistered, the immediately
@@ -2369,3 +2316,47 @@ jobs:
               echo "- Deploy: build-only; no Netlify deploy was created"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Generate the record name only after every preview smoke check has
+      # passed. The random suffix prevents PR build code from pre-creating the
+      # privileged handoff artifact under a predictable name.
+      - name: Prepare the trusted PR preview deploy record
+        id: pr_preview_record
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.pull_request_number > 0 && success()
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          SITE_NAME: ${{ steps.target.outputs.site_name }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_ID:?PR preview upload did not return a deploy id.}"
+          : "${DEPLOY_URL:?PR preview upload did not return a deploy URL.}"
+          : "${SOURCE_REF:?PR preview upload did not return a source ref.}"
+          record_dir="$RUNNER_TEMP/netlify-pr-preview-record"
+          mkdir -p "$record_dir"
+          artifact_name="netlify-pr-preview-record-${SITE_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$(openssl rand -hex 16)"
+          jq -n \
+            --arg deploy_id "$DEPLOY_ID" \
+            --arg deploy_url "$DEPLOY_URL" \
+            --arg pull_request_number "$PULL_REQUEST_NUMBER" \
+            --arg site_name "$SITE_NAME" \
+            --arg source_ref "$SOURCE_REF" \
+            '{deployId: $deploy_id, deployUrl: $deploy_url, pullRequestNumber: ($pull_request_number | tonumber), siteName: $site_name, sourceRef: $source_ref}' \
+            > "$record_dir/record.json"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the trusted PR preview deploy record
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.pull_request_number > 0 &&
+          steps.pr_preview_record.outcome == 'success' && success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.pr_preview_record.outputs.artifact_name }}
+          path: ${{ runner.temp }}/netlify-pr-preview-record/record.json
+          if-no-files-found: error
+          retention-days: 1

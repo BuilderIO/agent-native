@@ -15,7 +15,10 @@ import {
   validateNetlifyApiRateLimitHandling,
   validateNetlifyPrPreviewWorkflow,
   validateProductionPurgeCondition,
+  validateReusableCallerPermissions,
+  validateReusablePreviewRecordPlacement,
   validateReusableWorkflowConcurrency,
+  validateReusableWorkflowPermissions,
   validateProductionSiteConcurrency,
 } from "./guard-netlify-prebuilt-workflow.ts";
 import { resolveNetlifyMigrationUrl } from "./netlify-migration-url.ts";
@@ -100,6 +103,114 @@ describe("Netlify PR preview workflow guard", () => {
     assert.match(
       reusableSource,
       /supplies static files; arbitrary PR Functions never reach Netlify\./,
+    );
+    assert.match(
+      pullRequestPreviewSource,
+      /needs\.deploy\.result != 'cancelled'/,
+    );
+    assert.match(pullRequestPreviewSource, /No successful deploy record/);
+  });
+});
+
+describe("Reusable workflow permission guard", () => {
+  it("keeps shared deploy permissions compatible with every caller", () => {
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(validateReusableWorkflowPermissions(reusable), []);
+    assert.deepEqual(validateReusablePreviewRecordPlacement(reusable), []);
+    assert.match(
+      validateReusableWorkflowPermissions({
+        ...reusable,
+        permissions: { contents: "read", issues: "write" },
+      }).join("\n"),
+      /must declare only the read permissions used by the reusable deploy job/,
+    );
+    const beta = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    assert.deepEqual(
+      validateReusableCallerPermissions(
+        beta,
+        ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      ),
+      [],
+    );
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          ...beta,
+          jobs: {
+            ...(beta.jobs as Workflow),
+            deploy: {
+              ...(beta.jobs as Workflow).deploy,
+              permissions: { issues: "write" },
+            },
+          },
+        },
+        ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      ).join("\n"),
+      /deploy reusable deploy job must explicitly retain contents access/,
+    );
+    assert.deepEqual(
+      validateReusableCallerPermissions(
+        {
+          permissions: { contents: "read" },
+          jobs: {
+            future_caller: {
+              uses: "./.github/workflows/deploy-netlify-prebuilt.yml",
+            },
+            unrelated: { "runs-on": "ubuntu-latest" },
+          },
+        },
+        ".github/workflows/future-caller.yml",
+      ),
+      [],
+    );
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          permissions: { contents: "read" },
+          jobs: {
+            future_caller: {
+              uses: "./.github/workflows/deploy-netlify-prebuilt.yml",
+              permissions: { issues: "write" },
+            },
+          },
+        },
+        ".github/workflows/future-caller.yml",
+      ).join("\n"),
+      /future_caller reusable deploy job must explicitly retain contents access/,
+    );
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          jobs: {
+            future_caller: {
+              uses: "./.github/workflows/deploy-netlify-prebuilt.yml",
+            },
+          },
+        },
+        ".github/workflows/future-caller.yml",
+      ).join("\n"),
+      /future_caller reusable deploy job must explicitly retain contents access/,
+    );
+  });
+
+  it("normalizes quoted reusable caller paths before validating them", () => {
+    const quotedCaller = parse(`
+permissions:
+  contents: read
+jobs:
+  quoted_caller:
+    uses: "./.github/workflows/deploy-netlify-prebuilt.yml"
+`) as Workflow;
+    assert.deepEqual(
+      validateReusableCallerPermissions(
+        quotedCaller,
+        ".github/workflows/quoted-caller.yml",
+      ),
+      [],
     );
   });
 });
