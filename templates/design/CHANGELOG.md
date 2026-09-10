@@ -3,6 +3,21 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-10
+
+### Added
+
+- Design editor version history: browse and restore saved checkpoints from the top-left menu or Cmd+K.
+
+### Removed
+
+- Removed the always-visible design system picker above the design editor chat.
+
+### Improved
+
+- Opening or closing the left sidebar (or toggling minimal mode) no longer shifts designs on the canvas.
+- Breakpoint add control keeps a clear gap from the screen edge and shows immediate feedback while adding.
+
 ## 2026-09-09
 
 ### Improved
