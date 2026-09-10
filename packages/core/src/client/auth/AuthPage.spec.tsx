@@ -126,7 +126,7 @@ describe("AuthPage", () => {
     );
     expect(onboardingHtml).toContain("max-height: none;");
     expect(onboardingHtml).toContain("filter: none");
-    expect(onboardingHtml).toContain("opacity: 0.15");
+    expect(onboardingHtml).toContain("opacity: 0.45");
     expect(onboardingHtml).toContain("object-fit: cover");
     expect(onboardingHtml).toContain(
       "box-shadow: 0 12px 36px rgba(0,0,0,0.38)",
