@@ -230,23 +230,6 @@ export async function mirrorProductionDatabaseVariables({
   );
   const removedKeys = new Set<string>();
 
-  for (const variable of existing) {
-    if (desiredKeys.has(variable.key)) continue;
-    for (const value of variable.values.filter(
-      ({ context }) => context === PREVIEW_CONTEXT,
-    )) {
-      await deletePreviewValue({
-        accountId,
-        key: variable.key,
-        request,
-        siteId,
-        token,
-        value,
-      });
-      removedKeys.add(variable.key);
-    }
-  }
-
   for (const variable of desired) {
     let current = existingByKey.get(variable.key);
     if (!current) {
@@ -317,6 +300,26 @@ export async function mirrorProductionDatabaseVariables({
       }),
       `${variable.key} deploy-preview environment update`,
     );
+  }
+
+  // Keep an already-live preview usable if a later cleanup request fails. All
+  // desired values are written before stale preview-only database keys are
+  // removed.
+  for (const variable of existing) {
+    if (desiredKeys.has(variable.key)) continue;
+    for (const value of variable.values.filter(
+      ({ context }) => context === PREVIEW_CONTEXT,
+    )) {
+      await deletePreviewValue({
+        accountId,
+        key: variable.key,
+        request,
+        siteId,
+        token,
+        value,
+      });
+      removedKeys.add(variable.key);
+    }
   }
 
   return {

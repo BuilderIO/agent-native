@@ -1929,9 +1929,6 @@ jobs:
             --auth-routes
             --preview
           )
-          if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
-            smoke_args+=(--allow-missing-health)
-          fi
           node --experimental-strip-types scripts/smoke-check-health.ts "${smoke_args[@]}"
 
       # The active managed client and its capability are observable only from

@@ -607,6 +607,11 @@ if (!hasOfflineSecretFreePreviewBuild) {
     `${reusablePath} must use Netlify offline mode for the secret-free PR build`,
   );
 }
+if (reusable.includes("--allow-missing-health")) {
+  issues.push(
+    `${reusablePath} must require strict database health for every PR preview`,
+  );
+}
 const hasChatBuildOverride =
   clipsBuild.includes(
     'if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',

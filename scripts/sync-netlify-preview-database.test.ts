@@ -159,9 +159,17 @@ describe("mirrorProductionDatabaseVariables", () => {
       removedKeys: ["OLD_DATABASE_URL"],
     });
     assert.equal(requests.length, 7);
-    assert.equal(requests[1].options?.method, "DELETE");
+    const deleteIndex = requests.findIndex(
+      ({ options }) => options?.method === "DELETE",
+    );
+    assert(deleteIndex > 0);
+    assert(
+      requests
+        .slice(0, deleteIndex)
+        .every(({ options }) => options?.method !== "DELETE"),
+    );
     assert.match(
-      requests[1].url,
+      requests[deleteIndex].url,
       /\/env\/OLD_DATABASE_URL\/value\/stale-preview/,
     );
 

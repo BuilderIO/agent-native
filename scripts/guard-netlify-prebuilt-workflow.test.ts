@@ -1255,7 +1255,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(previewSmoke.run), /--canonical-host/);
     assert.match(String(previewSmoke.run), /--auth-routes/);
     assert.match(String(previewSmoke.run), /--preview/);
-    assert.match(String(previewSmoke.run), /--allow-missing-health/);
+    assert.doesNotMatch(String(previewSmoke.run), /--allow-missing-health/);
 
     assert(previewDatabaseMirror);
     assert.equal(
