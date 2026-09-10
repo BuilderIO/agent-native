@@ -1,26 +1,40 @@
 /**
- * Static, decorative recreation of the recording player page with its Share
- * button open, showing the real "share to agent" panel
- * (templates/clips/app/components/player/share-dialog.tsx:827-871) dropped
- * down beneath it — used as the art for the "Act on recorded feedback"
- * use-case card on the Clips landing page.
+ * Static, decorative recreation of the real recording player's Share
+ * button and popover, used as the art for the "Act on recorded feedback"
+ * use-case card on the Clips landing page. Structure and copy are lifted
+ * directly from the live components rather than invented:
+ *
+ * - Trigger: `ClipsShareTrigger` / `PageHeaderPrimaryAction`
+ *   (templates/clips/app/components/player/clips-share-trigger.tsx:10-37) —
+ *   a solid button with `IconUserPlus` and the label "Share".
+ * - Popover: `Popover` + `PopoverContent` at `w-[360px]`
+ *   (templates/clips/app/components/player/share-dialog.tsx:134-243).
+ * - Tabs: "People" / "Agents" (share-dialog.tsx:295-380).
+ * - Agents tab rows and dividers, including the exact copy, icons, and the
+ *   real `ClaudeLogo` / `ClaudeCodeLogo` / `IconBrandOpenai` (Codex) icons
+ *   (templates/clips/app/components/agent-destination-logos.tsx and
+ *   share-dialog.tsx:827-871).
  *
  * Deliberately distinct from `ClipsInvestigateBugMock` (a chat transcript):
- * this shows the actual entry point for handing a clip to an agent, not an
- * imagined conversation.
+ * this shows the actual entry point for handing a clip to an agent.
  *
  * All CSS lives here, scoped under `.clips-cell-mock`, following the same
  * convention as `ClipsLibraryMock.tsx`. The left edge fades into the
- * section's background (rather than having a hard edge) to match the
+ * section's background rather than having a hard edge, matching the
  * reference screenshot of the real player page.
  *
  * i18n-raw-literal-disable-file -- this is artwork, not UI copy. The wrapper is
  * a `role="img"` with a localized `aria-label` and the entire frame inside it
  * is `aria-hidden`, so no assistive tech ever reads these strings; they are
- * the pixels of a product screenshot (a fake player page with its share menu
- * open).
+ * the pixels of a product screenshot (a fake player page with its real share
+ * popover open).
  */
-import { IconLink, IconMaximizeOff, IconShare2 } from "@tabler/icons-react";
+import {
+  IconBrandOpenai,
+  IconLink,
+  IconMaximizeOff,
+  IconUserPlus,
+} from "@tabler/icons-react";
 
 function ClaudeLogo() {
   return (
@@ -57,35 +71,11 @@ function ClaudeCodeLogo() {
   );
 }
 
-function CodexLogo() {
-  return (
-    <svg
-      className="clips-cell-mock-agent-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M12 2 2 7v10l10 5 10-5V7L12 2Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 8v8M8.5 10v4l3.5 2 3.5-2v-4l-3.5-2-3.5 2Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 const AGENT_ROWS = [
-  { label: "Copy agent prompt", icon: <IconLink size={18} /> },
+  { label: "Copy agent prompt", icon: <IconLink size={16} /> },
   { label: "Open in Claude", icon: <ClaudeLogo /> },
   { label: "Open in Claude Code", icon: <ClaudeCodeLogo /> },
-  { label: "Open in Codex", icon: <CodexLogo /> },
+  { label: "Open in Codex", icon: <IconBrandOpenai size={16} /> },
 ] as const;
 
 const CLIPS_CELL_MOCK_CSS = [
@@ -96,18 +86,30 @@ const CLIPS_CELL_MOCK_CSS = [
   // a hard card edge, matching the reference screenshot of the real page.
   ".clips-cell-mock-fade { position: absolute; inset: 0; background: linear-gradient(to right, #0a0a0a 0%, rgba(10, 10, 10, 0) 38%); pointer-events: none; }",
 
-  ".clips-cell-mock-share-btn { position: absolute; top: 23px; right: 23px; display: flex; align-items: center; gap: 8px; padding: 11px 19px; border-radius: 8px; background: #f5f5f5; color: #151515; font-size: 16px; font-weight: 600; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }",
+  // Real trigger: PageHeaderPrimaryAction, a solid size="sm" Button with
+  // IconUserPlus + "Share" (clips-share-trigger.tsx:10-37).
+  ".clips-cell-mock-share-btn { position: absolute; top: 20px; right: 20px; display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 8px; background: #f5f5f5; color: #151515; font-size: 14px; font-weight: 600; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }",
 
-  ".clips-cell-mock-menu { position: absolute; top: 82px; right: 23px; width: 280px; display: flex; flex-direction: column; gap: 3px; padding: 10px; border-radius: 12px; background: #212121; border: 1px solid #333333; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5); }",
-  ".clips-cell-mock-menu-row { display: flex; align-items: center; gap: 11px; padding: 11px 12px; border-radius: 8px; color: #e6e6e6; font-size: 16px; font-weight: 500; }",
-  ".clips-cell-mock-menu-row:first-child { background: rgba(255, 255, 255, 0.07); }",
-  ".clips-cell-mock-menu-divider { margin: 4px 5px; border-top: 1px solid #333333; }",
-  ".clips-cell-mock-agent-icon { width: 18px; height: 18px; color: #a3a3a3; flex-shrink: 0; }",
+  // Real popover: PopoverContent className="w-[360px] ... p-0" (share-dialog.tsx:170-176).
+  ".clips-cell-mock-popover { position: absolute; top: 66px; right: 20px; width: 360px; border-radius: 10px; overflow: hidden; background: #1c1c1c; border: 1px solid #333333; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5); }",
 
-  ".clips-cell-mock-controls { position: absolute; left: 23px; bottom: 20px; right: 23px; display: flex; align-items: center; gap: 12px; color: rgba(255, 255, 255, 0.55); }",
+  // Real Tabs header: TabsList variant="line" h-8, "People" | "Agents" (share-dialog.tsx:320-345).
+  ".clips-cell-mock-tabs { display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 12px; border-bottom: 1px solid #2c2c2c; }",
+  ".clips-cell-mock-tab { position: relative; height: 100%; display: flex; align-items: center; font-size: 13px; color: #808080; }",
+  ".clips-cell-mock-tab.is-active { color: #e6e6e6; font-weight: 500; }",
+  ".clips-cell-mock-tab.is-active::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: #e6e6e6; border-radius: 2px 2px 0 0; }",
+
+  // Real Agents tab content: "-mx-1.5 flex flex-col gap-0.5", rows are ghost
+  // Button h-9 with size-4 icons and text-sm labels (share-dialog.tsx:827-871).
+  ".clips-cell-mock-agent-list { display: flex; flex-direction: column; gap: 2px; padding: 8px; }",
+  ".clips-cell-mock-agent-row { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px; border-radius: 6px; color: #e6e6e6; font-size: 14px; font-weight: 400; }",
+  ".clips-cell-mock-agent-divider { margin: 4px 6px; border-top: 1px solid #333333; }",
+  ".clips-cell-mock-agent-icon { width: 16px; height: 16px; color: #999999; flex-shrink: 0; }",
+
+  ".clips-cell-mock-controls { position: absolute; left: 20px; bottom: 18px; right: 20px; display: flex; align-items: center; gap: 12px; color: rgba(255, 255, 255, 0.55); }",
   ".clips-cell-mock-controls-track { flex: 1 1 auto; height: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }",
   ".clips-cell-mock-controls-fill { width: 42%; height: 100%; background: rgba(255, 255, 255, 0.55); }",
-  ".clips-cell-mock-controls-speed { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }",
+  ".clips-cell-mock-controls-speed { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }",
 ].join("\n");
 
 export function ClipsActOnFeedbackMock({
@@ -124,20 +126,30 @@ export function ClipsActOnFeedbackMock({
         <div className="clips-cell-mock-fade" />
 
         <div className="clips-cell-mock-share-btn">
-          <IconShare2 size={18} />
+          <IconUserPlus size={16} />
           Share
         </div>
 
-        <div className="clips-cell-mock-menu">
-          {AGENT_ROWS.map((row, index) => (
-            <div key={row.label}>
-              {index === 1 ? <div className="clips-cell-mock-menu-divider" /> : null}
-              <div className="clips-cell-mock-menu-row">
-                <span className="clips-cell-mock-agent-icon">{row.icon}</span>
-                <span>{row.label}</span>
+        <div className="clips-cell-mock-popover">
+          <div className="clips-cell-mock-tabs">
+            <span className="clips-cell-mock-tab">People</span>
+            <span className="clips-cell-mock-tab is-active">Agents</span>
+          </div>
+          <div className="clips-cell-mock-agent-list">
+            {AGENT_ROWS.map((row, index) => (
+              <div key={row.label}>
+                {index === 1 ? (
+                  <div className="clips-cell-mock-agent-divider" />
+                ) : null}
+                <div className="clips-cell-mock-agent-row">
+                  <span className="clips-cell-mock-agent-icon">
+                    {row.icon}
+                  </span>
+                  <span>{row.label}</span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         <div className="clips-cell-mock-controls">
