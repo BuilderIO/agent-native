@@ -238,7 +238,7 @@ export default function ClipsTemplate() {
                   }`}
                 >
                   {useCase.id === "act-on-feedback" ? (
-                    <ClipsActOnFeedbackMock className="w-full max-w-[620px]" />
+                    <ClipsActOnFeedbackMock className="w-full" />
                   ) : (
                     <ImgPlaceholder
                       aspectRatio="4 / 3"
@@ -254,7 +254,7 @@ export default function ClipsTemplate() {
               return (
                 <div
                   key={useCase.id}
-                  className="grid border-t border-solid border-[var(--b-border-subtle)] first:border-t-0 lg:grid-cols-2"
+                  className="grid border-t border-solid border-[var(--b-border-subtle)] bg-[#0a0a0a] first:border-t-0 lg:grid-cols-2"
                 >
                   {textLeft ? (
                     <>
