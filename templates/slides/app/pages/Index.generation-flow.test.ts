@@ -76,6 +76,21 @@ describe("new deck generation flow", () => {
     );
   });
 
+  it("keeps imported reference exclusions through skip, repeats, and retries", () => {
+    expect(source).toContain("retryReferenceFilePaths?: string[]");
+    expect(source).toContain(
+      "setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? [])",
+    );
+    expect(source).toContain(
+      "referenceFilePaths: [\n                  ...new Set([",
+    );
+    expect(source).toContain("...(pending.referenceFilePaths.length > 0");
+    expect(onboardingSource).toContain(
+      "const [referenceFilePaths, setReferenceFilePaths] =",
+    );
+    expect(onboardingSource).toContain("...referenceFilePaths,");
+  });
+
   it("requires a generated title before the first slide", () => {
     const titleInstructionIndex = flow.indexOf(
       "After reading any requested or attached reference material, but before adding the first slide",
@@ -162,7 +177,7 @@ describe("new deck generation flow", () => {
     expect(source).toContain("const handlePromptSubmit");
     expect(source).toContain("const handlePromptSkip");
     expect(source).toContain(
-      'setPendingDeck({ prompt: "", files: [], attachments: [] })',
+      'setPendingDeck({\n      prompt: "",\n      files: [],',
     );
     expect(source).toContain("onSubmit={handlePromptSubmit}");
     expect(source).toContain("onSkip={handlePromptSkip}");
