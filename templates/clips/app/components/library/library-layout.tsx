@@ -844,9 +844,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           </header>
         )}
         <div className="flex min-h-0 flex-1 overflow-hidden [--agent-native-viewport-height:100%]">
+          {/* Open the rail atomically so dense recording grids do not reflow
+              through intermediate column widths while the panel animates. */}
           <AgentSidebar
             position="right"
             defaultOpen={false}
+            animateDesktop={false}
             showCollapseButton={isMobile}
             emptyStateText={
               recordingScope
