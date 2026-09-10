@@ -619,7 +619,7 @@ function SecretCard({
               )}
             </div>
           ) : secret.status === "unknown" ? (
-            <p className="mt-2 text-[10px] text-red-500">{secret.error}</p>
+            <p className="mt-2 text-[10px] text-destructive">{secret.error}</p>
           ) : (
             <div className="mt-2 space-y-2">
               {isManagedSet && (
@@ -1018,6 +1018,11 @@ function AdHocKeysSection({
           showToast("err", "Failed to delete key");
           return;
         }
+        const body = (await res.json()) as { removed?: boolean };
+        if (!body.removed) {
+          showToast("err", "Failed to delete key");
+          return;
+        }
         showToast("ok", "Key deleted");
         setConfirmDeleteName(null);
         notifySecretsChanged();
@@ -1128,7 +1133,7 @@ function AdHocKeysSection({
                         key.source === "vault"
                           ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
                           : key.source === "workspace"
-                            ? "bg-blue-500/15 text-blue-500"
+                            ? "bg-primary/15 text-primary"
                             : "bg-accent/60 text-muted-foreground",
                       )}
                     >
@@ -1154,7 +1159,10 @@ function AdHocKeysSection({
                   </div>
                 </div>
                 <div className="shrink-0">
-                  {key.source === "vault" ? (
+                  {/* Org rows are written by the Vault or Builder Connect;
+                      the ad-hoc delete route never touches them. */}
+                  {key.scope === "org" ? (
+                    key.source === "vault" &&
                     vaultHref && (
                       <a
                         href={vaultHref}

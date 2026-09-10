@@ -57,6 +57,7 @@ vi.mock("./storage.js", () => ({
 }));
 
 vi.mock("../server/credential-provider.js", () => ({
+  prefetchSecrets: () => Promise.resolve(),
   resolveSecretDetailed: (...args: any[]) => mockResolveSecretDetailed(...args),
 }));
 
@@ -707,6 +708,28 @@ describe("secrets routes", () => {
       }),
     ]);
     expect(mockReadAppSecretMeta).not.toHaveBeenCalled();
+  });
+
+  it("never resolves or reports deployment-backed status for anonymous callers", async () => {
+    mockGetSession.mockResolvedValue(null);
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({ key: "OPENAI_API_KEY", status: "unset" }),
+    ]);
+    expect(result[0]).not.toHaveProperty("last4");
+    expect(mockResolveSecretDetailed).not.toHaveBeenCalled();
   });
 
   it("reports status unknown with an error when the lookup fails and nothing resolves", async () => {
