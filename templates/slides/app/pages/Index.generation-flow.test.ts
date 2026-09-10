@@ -234,6 +234,15 @@ describe("new deck generation flow", () => {
     expect(referenceImportFlow).toContain(
       "The target generation context must retain the source handle",
     );
+    expect(referenceImportFlow).toContain(
+      "const referenceFilePaths = uploaded\n          .filter((file) => /\\.(pdf|pptx|docx)$/i.test(file.originalName))",
+    );
+    expect(referenceImportFlow).toMatch(
+      /source: "pptx",\s+referenceFilePaths,/,
+    );
+    expect(referenceImportFlow).toMatch(
+      /source: documentFormat,\s+referenceFilePaths,/,
+    );
     expect(referenceImportFlow).toContain("let generationFiles = uploaded;");
     expect(referenceImportFlow).toContain("referenceFilePaths");
     expect(referenceImportFlow).not.toMatch(
@@ -244,6 +253,13 @@ describe("new deck generation flow", () => {
     );
     expect(onboardingSource).toContain(
       "The target generation context must retain the source handle",
+    );
+    expect(onboardingSource).toContain(
+      "const referenceFilePaths = uploaded\n          .filter((file) => /\\.(pdf|pptx|docx)$/i.test(file.originalName))",
+    );
+    expect(onboardingSource).toMatch(/source: "pptx",\s+referenceFilePaths,/);
+    expect(onboardingSource).toMatch(
+      /source: documentFormat,\s+referenceFilePaths,/,
     );
     expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
     expect(referenceImportFlow).toContain(
