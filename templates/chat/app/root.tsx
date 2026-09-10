@@ -126,7 +126,11 @@ function AppContent() {
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading={t("root.commandActions")}>
           {isChatThread ? (
-            <CommandMenu.Item onSelect={() => navigate("/home")}>
+            <CommandMenu.Item
+              onSelect={() =>
+                window.dispatchEvent(new Event("agent-chat:new-chat"))
+              }
+            >
               {t("chat.newChat")}
             </CommandMenu.Item>
           ) : null}
