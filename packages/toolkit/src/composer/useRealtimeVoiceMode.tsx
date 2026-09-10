@@ -2113,6 +2113,7 @@ function useRealtimeVoiceModeController(
         if (responseEvent.type === "response.failed" || status === "failed") {
           transportGenerationRef.current += 1;
           handledCallsRef.current.clear();
+          abortActiveToolCalls();
           responseCoordinator.reset();
           toolManifestCoordinator.reset();
           toolManifestCoordinator.setProtocol(protocolRef.current);
@@ -2175,6 +2176,7 @@ function useRealtimeVoiceModeController(
       fail,
       greetingStarter,
       handleFunctionCall,
+      abortActiveToolCalls,
       syncAppState,
       t,
       transcriptSequencer,
