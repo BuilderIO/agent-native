@@ -169,11 +169,25 @@ async function probe(host, fetchImpl = fetch) {
 
 export function cacheStatusHasHit(value) {
   const status = value ?? "";
-  const hasHit = /(?:^|[;,]\s*)hit(?:\s*[,;]|\s*$)/i.test(status);
-  const hasSuccessfulStaleRevalidation =
-    /(?:^|[;,]\s*)fwd=stale(?:\s*[,;]|\s*$)/i.test(status) &&
-    /(?:^|[;,]\s*)fwd-status=304(?:\s*[,;]|\s*$)/i.test(status);
-  return hasHit || hasSuccessfulStaleRevalidation;
+  const members = [];
+  let memberStart = 0;
+  let inQuotes = false;
+  for (let index = 0; index < status.length; index += 1) {
+    if (status[index] === '"' && status[index - 1] !== "\\") {
+      inQuotes = !inQuotes;
+    } else if (status[index] === "," && !inQuotes) {
+      members.push(status.slice(memberStart, index));
+      memberStart = index + 1;
+    }
+  }
+  members.push(status.slice(memberStart));
+  return members.some((member) => {
+    const hasHit = /(?:^|[;,]\s*)hit(?:\s*[,;]|\s*$)/i.test(member);
+    const hasSuccessfulStaleRevalidation =
+      /(?:^|[;,]\s*)fwd=stale(?:\s*[,;]|\s*$)/i.test(member) &&
+      /(?:^|[;,]\s*)fwd-status=304(?:\s*[,;]|\s*$)/i.test(member);
+    return hasHit || hasSuccessfulStaleRevalidation;
+  });
 }
 
 export function contentTypeMatches(value, expected) {

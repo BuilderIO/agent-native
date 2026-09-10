@@ -40,6 +40,12 @@ describe("production cache contract probe helpers", () => {
     );
     assert.equal(cacheStatusHasHit('"Netlify Edge"; fwd=stale; stored'), false);
     assert.equal(
+      cacheStatusHasHit(
+        '"Netlify Edge"; fwd=stale; fwd-status=200, "Netlify Origin"; fwd-status=304',
+      ),
+      false,
+    );
+    assert.equal(
       cacheStatusHasHit('"Netlify Durable"; fwd=vary-miss; stored'),
       false,
     );
