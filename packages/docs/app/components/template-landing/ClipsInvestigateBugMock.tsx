@@ -13,11 +13,12 @@
  * on purpose: the surrounding rows sit directly on the section background, and
  * a drop shadow made this one card float out of that plane.
  *
- * The agent's response fades and unblurs up into place the first time it
- * scrolls into view (an IntersectionObserver toggles the class that plays the
- * transition), so the card reads as the prompt resolving into an answer
- * rather than arriving fully formed. The prompt above it is unanimated —
- * it's the given, not the reveal.
+ * The agent's response fades and unblurs up into place each time it scrolls
+ * into view (an IntersectionObserver toggles the class that plays the
+ * transition, and un-toggles it on exit so the reveal replays on re-entry),
+ * so the card reads as the prompt resolving into an answer rather than
+ * arriving fully formed. The prompt above it is unanimated — it's the given,
+ * not the reveal.
  *
  * i18n-raw-literal-disable-file -- this is artwork, not UI copy. The wrapper is
  * a `role="img"` with a localized `aria-label` and the entire frame inside it
@@ -86,12 +87,7 @@ export function ClipsInvestigateBugMock({
     const node = responseRef.current;
     if (!node) return;
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          setRevealed(true);
-          observer.disconnect();
-        }
-      },
+      ([entry]) => setRevealed(entry?.isIntersecting ?? false),
       { threshold: 0.4 },
     );
     observer.observe(node);
