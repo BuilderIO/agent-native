@@ -1546,7 +1546,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         instanceCount: instances.length,
         instanceIndex,
         xFor: template ? template.getAttribute("x-for") || "" : "",
-        itemIndex
+        itemIndex,
+        // Empty when this element's text is literal markup in the template body,
+        // which an ordinary markup edit reaches correctly.
+        textBinding: el.getAttribute("x-text") || ""
       };
     }
     function repeatStyleTargets(el) {
@@ -10929,6 +10932,13 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
         });
+        var selectedRepeat = selectedEl ? repeatInstanceInfo(selectedEl) : null;
+        if (selectedRepeat) {
+          passiveTargets = passiveTargets.filter(function(candidate) {
+            var candidateRepeat = repeatInstanceInfo(candidate);
+            return !candidateRepeat || candidateRepeat.sourceSelector !== selectedRepeat.sourceSelector;
+          });
+        }
         setPassiveSelectionElements(
           passiveTargets,
           e.data.passiveSelectionStyle === "soft" ? "soft" : "default"

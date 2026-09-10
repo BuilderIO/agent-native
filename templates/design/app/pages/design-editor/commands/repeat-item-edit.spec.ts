@@ -81,6 +81,58 @@ describe("reordering a rendered row", () => {
   });
 });
 
+describe("editing a repeated row's text", () => {
+  it("writes the item's field, not the markup", () => {
+    const result = runRepeatItemEdit({
+      content: SCREEN,
+      target: TARGET,
+      operation: {
+        kind: "set-value",
+        binding: "todo.text",
+        value: "Ship the release",
+      },
+    });
+
+    expect(result.status).toBe("written");
+    if (result.status !== "written") return;
+    expect(texts(result.content)).toEqual([
+      "Ship the release",
+      "Write onboarding tests",
+      "Polish empty states",
+    ]);
+    // The one authored row keeps its binding; nothing was written to markup.
+    expect(result.content).toContain('x-text="todo.text"');
+  });
+
+  it("refuses a computed binding rather than guessing a field", () => {
+    const result = runRepeatItemEdit({
+      content: SCREEN,
+      target: TARGET,
+      operation: {
+        kind: "set-value",
+        binding: "todo.done ? 'done' : todo.text",
+        value: "Ship the release",
+      },
+    });
+
+    expect(result.status).toBe("refused");
+  });
+
+  it("refuses a field the items do not have", () => {
+    const result = runRepeatItemEdit({
+      content: SCREEN,
+      target: TARGET,
+      operation: {
+        kind: "set-value",
+        binding: "todo.title",
+        value: "Ship the release",
+      },
+    });
+
+    expect(result.status).toBe("refused");
+  });
+});
+
 describe("what it declines to do", () => {
   it("leaves a non-repeat selection to the caller's markup path", () => {
     expect(

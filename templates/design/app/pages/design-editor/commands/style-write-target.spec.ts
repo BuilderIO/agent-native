@@ -32,6 +32,7 @@ describe("where a style patch lands", () => {
             instanceIndex: 3,
             xFor: "todo in todos",
             itemIndex: 2,
+            textBinding: "todo.text",
           },
         }),
       }),

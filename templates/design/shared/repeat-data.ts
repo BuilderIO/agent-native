@@ -355,6 +355,26 @@ export function repeatItemVariable(xFor: string): string | null {
   return grouped?.[1] ?? null;
 }
 
+export type RepeatBindingTarget =
+  | { kind: "item" }
+  | { kind: "field"; field: string };
+
+/**
+ * The part of an item a binding writes back to. `null` for anything that is
+ * not a plain member read: a computed expression has no single value to write.
+ */
+export function repeatBindingTarget(
+  expression: string,
+  itemVariable: string,
+): RepeatBindingTarget | null {
+  const trimmed = expression.trim();
+  if (trimmed === itemVariable) return { kind: "item" };
+  const member = new RegExp(
+    `^${itemVariable.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.([A-Za-z_$][A-Za-z0-9_$]*)$`,
+  ).exec(trimmed);
+  return member ? { kind: "field", field: member[1]! } : null;
+}
+
 /**
  * Resolve `d.route` (or bare `h`) against one item. Returns undefined for any
  * expression that is not a plain member read, so a caller shows the binding

@@ -86,6 +86,8 @@ export interface ElementInfo {
     xFor: string;
     /** 0-based position in that array; -1 when it could not be determined. */
     itemIndex: number;
+    /** The `x-text` this element renders; empty when its text is literal. */
+    textBinding: string;
   };
   selector?: string;
   /**

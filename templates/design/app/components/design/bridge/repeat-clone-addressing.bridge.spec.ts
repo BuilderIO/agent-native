@@ -94,6 +94,7 @@ interface Pick {
     instanceIndex: number;
     xFor: string;
     itemIndex: number;
+    textBinding: string;
   };
 }
 
@@ -185,6 +186,7 @@ it(
         instanceIndex: 3,
         xFor: "t in todos",
         itemIndex: 2,
+        textBinding: "",
       });
       expect(staticRow.repeat).toBeUndefined();
     });
@@ -278,6 +280,52 @@ it(
       await page.waitForTimeout(120);
 
       expect(await instanceOutlines(page)).toEqual([]);
+    });
+  },
+);
+
+it(
+  "does not paint another row of the same repeat as a second selection",
+  { timeout: 60_000 },
+  async () => {
+    await withPage(async (page) => {
+      const row = await clickRow(page, 4);
+
+      // What the host replays every poll tick: one group per selected layer,
+      // whose selector matches every row of the repeat.
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-elements",
+            selectorGroups: [['[data-agent-native-node-id="an-row"]']],
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(120);
+
+      const chrome = await page.evaluate(() => {
+        const shown = (name: string) =>
+          [
+            ...document.querySelectorAll<HTMLElement>(
+              `[data-agent-native-edit-overlay="${name}"]`,
+            ),
+          ].filter(
+            (overlay) => window.getComputedStyle(overlay).display !== "none",
+          );
+        const selection = shown("selection")[0]!;
+        return {
+          passive: shown("multi-selection").length,
+          selectionTop: Math.round(selection.getBoundingClientRect().top),
+          selectionHeight: Math.round(
+            selection.getBoundingClientRect().height,
+          ),
+        };
+      });
+
+      expect(chrome.passive).toBe(0);
+      expect(chrome.selectionTop).toBe(Math.round(row.y));
+      expect(chrome.selectionHeight).toBe(Math.round(row.height));
     });
   },
 );

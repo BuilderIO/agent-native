@@ -6,6 +6,10 @@ import {
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
+import { trace } from "@/components/design/design-trace";
+
+import { runRepeatItemEdit } from "./repeat-item-edit";
+
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -110,6 +114,37 @@ export function runTextContentChange(
   }
   const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
   const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
+  // An x-text row shows a value from the collection, so its text has one home:
+  // the item. A markup edit changes nothing — the next render puts the data
+  // back — which reads as "editing the text does nothing".
+  const repeat = elementInfo?.repeat;
+  if (repeat?.xFor && repeat.textBinding) {
+    const edit = runRepeatItemEdit({
+      content: baseContent,
+      target: repeat,
+      operation: {
+        kind: "set-value",
+        binding: repeat.textBinding,
+        value,
+      },
+    });
+    if (edit.status === "written") {
+      applyLocalContentUpdate(edit.content, {
+        forcePreviewFullDocument: true,
+      });
+      setActiveTool("move");
+      setMode("edit");
+      return;
+    }
+    if (edit.status === "refused") {
+      trace("structure", "repeat-item-refused", {
+        operation: "set-value",
+        reason: edit.reason,
+      });
+      toast.error(t("designEditor.toasts.repeatListNotEditable"));
+      return;
+    }
+  }
   const projection = buildCodeLayerProjection(baseContent);
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo

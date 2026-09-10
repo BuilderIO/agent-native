@@ -1728,6 +1728,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     instanceIndex: number;
     xFor: string;
     itemIndex: number;
+    textBinding: string;
   } | null {
     if (!isTemplateCloneElement(el) || !el.getAttribute) return null;
     var sourceNodeId = el.getAttribute("data-agent-native-node-id") || "";
@@ -1772,6 +1773,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       instanceIndex: instanceIndex,
       xFor: template ? template.getAttribute("x-for") || "" : "",
       itemIndex: itemIndex,
+      // Empty when this element's text is literal markup in the template body,
+      // which an ordinary markup edit reaches correctly.
+      textBinding: el.getAttribute("x-text") || "",
     };
   }
 
@@ -15716,6 +15720,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           } catch (_err) {}
         }
       });
+      // A selector group for a repeat resolves to whichever row matches first,
+      // which is a DIFFERENT row than the one selected — painting it as a
+      // second selection, complete with combined bounds and handles across
+      // the whole list. Rows of the selection's own repeat are already shown
+      // by the linked-row outlines.
+      var selectedRepeat = selectedEl ? repeatInstanceInfo(selectedEl) : null;
+      if (selectedRepeat) {
+        passiveTargets = passiveTargets.filter(function (candidate) {
+          var candidateRepeat = repeatInstanceInfo(candidate);
+          return (
+            !candidateRepeat ||
+            candidateRepeat.sourceSelector !== selectedRepeat!.sourceSelector
+          );
+        });
+      }
       setPassiveSelectionElements(
         passiveTargets,
         e.data.passiveSelectionStyle === "soft" ? "soft" : "default",
