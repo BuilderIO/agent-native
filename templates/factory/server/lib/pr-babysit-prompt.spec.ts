@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BABYSIT_DECISION_INSTRUCTION,
   BABYSIT_LIST_BOUND,
   BABYSIT_SCOPE_INSTRUCTION,
   BABYSIT_WORK_RETRIGGER,
@@ -55,5 +56,46 @@ window.
 
     expect(repaired).toContain("babysit-factory-pull-request");
     expect(repaired).not.toContain("babysit-agent-native-pull-request");
+  });
+
+  it("replaces the sentence that gave the babysit action the whole decision", () => {
+    const repaired = repairPrBabysitPrompt(`
+When inScope is true, call babysit-factory-pull-request. It owns GitHub
+evidence, the hardcoded comment, and the quiet window. Never approve or merge.
+`);
+
+    expect(repaired).toContain(BABYSIT_DECISION_INSTRUCTION);
+    expect(repaired).not.toContain("the quiet window");
+    expect(repaired).toContain("Never approve or merge.");
+  });
+
+  // The action throws without a decision, so a prompt that never teaches one
+  // turns every scheduled babysit run into an error.
+  it("teaches the decision flow even when no obsolete sentence matched", () => {
+    const repaired = repairPrBabysitPrompt("# Factory PR babysitting\n");
+
+    expect(repaired).toContain("propose-pr-babysit-status");
+    expect(repaired).toContain("already_asked");
+    expect(repaired).toContain("stuck");
+  });
+
+  it("does not add the decision instruction twice", () => {
+    const once = repairPrBabysitPrompt("# Factory PR babysitting\n");
+    const twice = repairPrBabysitPrompt(once);
+
+    expect(twice).toBe(once);
+    expect(twice.split(BABYSIT_DECISION_INSTRUCTION).length - 1).toBe(1);
+  });
+
+  it("upgrades the decision instruction to include first-ask", () => {
+    const legacy = `# Factory PR babysitting
+
+For every in-scope item call propose-pr-babysit-status, then call babysit-factory-pull-request with decision. Use ping only for new human review feedback, or for a merge conflict that appeared after the branch was known to be conflict-free; GitHub finishing its merge calculation is not new work. Use already_asked when Factory already asked during this round of work. Use stuck when another request cannot unblock the pull request, so a human has to look.
+`;
+
+    const repaired = repairPrBabysitPrompt(legacy);
+
+    expect(repaired).toContain("first-ask");
+    expect(repaired).toContain(BABYSIT_DECISION_INSTRUCTION);
   });
 });
