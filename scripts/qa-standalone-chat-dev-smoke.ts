@@ -671,6 +671,12 @@ function suppressedNoiseBlock(): string {
 function isBenignConsoleError(text: string): boolean {
   if (text.startsWith("Failed to load resource:")) return true;
   if (text.includes("favicon")) return true;
+  // Vite dep optimization can remount the root and replay its SSR-only
+  // scripts; React reports those script elements as client render errors.
+  if (
+    text.startsWith("Encountered a script tag while rendering React component.")
+  )
+    return true;
   return false;
 }
 
