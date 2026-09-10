@@ -18,7 +18,12 @@ export const BETA_FORCE_SESSION_STORAGE_KEY = "agent-native:force-production";
 export const BETA_LANE_REDIRECT_QUERY_PARAM = "agentNativeLaneRedirect";
 /** Beta-side, per tab: the production path an automatic redirect left behind. */
 export const BETA_LANE_RETURN_STORAGE_KEY = "agent-native:beta-lane-return-to";
-/** Beta-side, per tab: the single automatic return has already been spent. */
+/**
+ * Beta-side, per tab: when the opt-out this tab handed production expires.
+ * Until then a repeat automatic arrival means production ignored the opt-out,
+ * so returning again would only ping-pong. After it, a fresh arrival is a
+ * genuine new redirect and gets its own return.
+ */
 export const BETA_LANE_RETURNED_STORAGE_KEY = "agent-native:beta-lane-returned";
 
 export const ENVIRONMENT_BETA_HOSTS = {

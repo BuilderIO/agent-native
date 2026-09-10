@@ -90,7 +90,12 @@ export function getSsrBetaRedirectScriptBody(
     var returnTo;
     var alreadyReturned;
     try {
-      alreadyReturned = window.sessionStorage.getItem(${JSON.stringify(BETA_LANE_RETURNED_STORAGE_KEY)}) === '1';
+      // The guard holds the deadline of the opt-out this tab last handed
+      // production, so it lapses exactly when that opt-out does. A permanent
+      // flag would block the legitimate second return in a tab left open
+      // longer than the opt-out, stranding the visitor on beta all over again.
+      var returnedUntil = Number(window.sessionStorage.getItem(${JSON.stringify(BETA_LANE_RETURNED_STORAGE_KEY)}));
+      alreadyReturned = Number.isFinite(returnedUntil) && returnedUntil > Date.now();
       if (currentUrl.searchParams.get(${JSON.stringify(BETA_LANE_REDIRECT_QUERY_PARAM)}) !== null) {
         currentUrl.searchParams.delete(${JSON.stringify(BETA_LANE_REDIRECT_QUERY_PARAM)});
         // The client session gate replaces this URL with beta's sign-in page
@@ -154,8 +159,14 @@ export function getSsrBetaRedirectScriptBody(
         return;
       }
 
+      // One deadline for both: the opt-out production is asked to honour, and
+      // the guard that stops this tab returning again while it should hold.
+      var optOutUntil = Date.now() + ${BETA_OPT_OUT_DURATION_MS};
       try {
-        window.sessionStorage.setItem(${JSON.stringify(BETA_LANE_RETURNED_STORAGE_KEY)}, '1');
+        window.sessionStorage.setItem(
+          ${JSON.stringify(BETA_LANE_RETURNED_STORAGE_KEY)},
+          String(optOutUntil),
+        );
         window.sessionStorage.removeItem(${JSON.stringify(BETA_LANE_RETURN_STORAGE_KEY)});
       } catch (error) {
         void error;
@@ -178,7 +189,7 @@ export function getSsrBetaRedirectScriptBody(
         // The opt-out is what stops production redirecting straight back here.
         target.searchParams.set(
           ${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)},
-          String(Date.now() + ${BETA_OPT_OUT_DURATION_MS}),
+          String(optOutUntil),
         );
       } catch (error) {
         void error;

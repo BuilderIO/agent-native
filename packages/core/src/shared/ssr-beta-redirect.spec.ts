@@ -4,6 +4,7 @@ import {
   BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_LANE_RETURN_STORAGE_KEY,
   BETA_LANE_RETURNED_STORAGE_KEY,
+  BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
   BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
@@ -39,6 +40,7 @@ function runScript({
   session = { email: "employee@builder.io" },
   sessionResponseOk = true,
   sessionStatus,
+  now,
   sessionPath = "/_agent-native/auth/session",
   workspaceRuntime = false,
   workspaceAppMountPaths,
@@ -52,6 +54,8 @@ function runScript({
   session?: Record<string, unknown> | null;
   sessionResponseOk?: boolean;
   sessionStatus?: number;
+  /** Fixed clock for the script's `Date.now()`; real time when omitted. */
+  now?: () => number;
   sessionPath?: string;
   workspaceRuntime?: boolean;
   workspaceAppMountPaths?: string[];
@@ -105,10 +109,13 @@ function runScript({
   };
   window.fetch = fetch;
 
-  new Function("window", "fetch", getSsrBetaRedirectScriptBody(sessionPath))(
-    window,
-    fetch,
-  );
+  const clock = now ? ({ now } as DateConstructor) : Date;
+  new Function(
+    "window",
+    "fetch",
+    "Date",
+    getSsrBetaRedirectScriptBody(sessionPath),
+  )(window, fetch, clock);
 
   return Promise.resolve()
     .then(() => new Promise<void>((resolve) => setTimeout(resolve, 0)))
@@ -521,8 +528,11 @@ describe("getSsrBetaRedirectScript", () => {
       expect(
         Number(target.searchParams.get(BETA_OPT_OUT_QUERY_PARAM)),
       ).toBeGreaterThan(Date.now());
-      // The opt-out is what stops production bouncing straight back to beta.
-      expect(sessionStorage.getItem(BETA_LANE_RETURNED_STORAGE_KEY)).toBe("1");
+      // The guard and the opt-out handed to production share one deadline, so
+      // neither can outlive the other.
+      expect(
+        Number(sessionStorage.getItem(BETA_LANE_RETURNED_STORAGE_KEY)),
+      ).toBe(Number(target.searchParams.get(BETA_OPT_OUT_QUERY_PARAM)));
       expect(sessionStorage.getItem(BETA_LANE_RETURN_STORAGE_KEY)).toBeNull();
     });
 
@@ -611,6 +621,61 @@ describe("getSsrBetaRedirectScript", () => {
 
       expect(second.redirectedTo).toBeNull();
       expect(second.fetched).toEqual([]);
+    });
+
+    it("does not return twice while the opt-out it issued is still in force", async () => {
+      const sessionStorage = createStorage();
+      const start = 1_700_000_000_000;
+
+      const first = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage,
+        sessionStatus: 401,
+        session: null,
+        now: () => start,
+      });
+      expect(first.redirectedTo).not.toBeNull();
+
+      // Production bouncing straight back means its opt-out did not stick.
+      // Returning again would be the ping-pong, so beta stays put.
+      const second = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage,
+        sessionStatus: 401,
+        session: null,
+        now: () => start + 2_000,
+      });
+
+      expect(second.redirectedTo).toBeNull();
+    });
+
+    it("returns again in the same tab once that opt-out has expired", async () => {
+      const sessionStorage = createStorage();
+      const start = 1_700_000_000_000;
+
+      const first = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage,
+        sessionStatus: 401,
+        session: null,
+        now: () => start,
+      });
+      expect(first.redirectedTo).not.toBeNull();
+
+      // The opt-out lasts 8 hours. A tab open longer than that gets redirected
+      // again, and a permanently-set guard would strand the visitor on beta
+      // exactly as the original bug did.
+      const second = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage,
+        sessionStatus: 401,
+        session: null,
+        now: () => start + 9 * 60 * 60 * 1000,
+      });
+
+      expect(new URL(second.redirectedTo ?? "").hostname).toBe(
+        "plan.agent-native.com",
+      );
     });
 
     it("stays on beta when session storage cannot bound the return", async () => {
