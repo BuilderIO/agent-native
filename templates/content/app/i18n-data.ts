@@ -2947,6 +2947,9 @@ const editorToolbarMessages = {
   localAndNotionChanged:
     "Local and Notion changed since the last sync. Choose which version wins.",
   morePageActions: "More page actions",
+  suggestEdits: "Suggest edits",
+  suggesting: "Suggesting",
+  stopSuggesting: "Stop suggesting",
   noPagesFound: "No pages found",
   notifications: "Notifications",
   notionSync: "Notion sync",
@@ -3231,7 +3234,18 @@ const enUS = {
     genericError: "Something went wrong",
   },
   editor: {
+    suggestionFormattingUnsupported:
+      "This formatting cannot be suggested safely. Your draft is kept. Undo the last edit to continue.",
+    suggestionFormattingBaselineUnsupported:
+      "Some page formatting cannot be suggested safely. An editor can update it before you retry.",
+    suggestionAmendmentEmpty:
+      "This edit matches the current page. Reject the suggestion to remove it.",
+    suggestionAmendmentFailed: "Could not save suggestion",
+    suggestionAmendmentResolved:
+      "This suggestion changed elsewhere. Your unsaved draft is still here.",
+    discardSuggestionDraft: "Discard draft",
     bold: "Bold",
+    underline: "Underline",
     italic: "Italic",
     strikethrough: "Strikethrough",
     code: "Code",
@@ -3289,6 +3303,10 @@ const enUS = {
       "Connecting live editor. Showing a read-only snapshot.",
     liveDocumentSaveBeforeSyncFailed:
       "The live document could not be saved before syncing.",
+    suggestionCreateFailed: "Could not create suggestion",
+    suggestionsCount: "{{count}} suggestions",
+    acceptSuggestion: "Accept",
+    rejectSuggestion: "Reject",
     documentTitle: "Document title",
     builderBodySyncing: "This page's content is still syncing from Builder",
     builderBodySyncingDescription:
@@ -3438,6 +3456,24 @@ const enUS = {
     reply: "Reply...",
     reopen: "Reopen",
     suggestions: "Suggestions",
+    suggestionAdd: "Add",
+    suggestionDelete: "Delete",
+    suggestionWith: "with",
+    suggestionReplace: "Replace",
+    suggestionDetails: "Suggestion details",
+    moreActions: "More actions",
+    addReaction: "Add reaction",
+    markUnread: "Mark unread",
+    markRead: "Mark read",
+    mute: "Mute thread",
+    unmute: "Unmute thread",
+    unread: "Unread",
+    copyLink: "Copy link",
+    linkCopied: "Link copied",
+    copyLinkFailed: "Couldn't copy link",
+    toolFailed: "Couldn't update discussion",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "This suggestion is unavailable",
     typeFilter: "Type",
     statusFilter: "Status",
     authorFilter: "Person",
@@ -3445,6 +3481,9 @@ const enUS = {
     allAuthors: "Everyone",
     open: "Open",
     resolvedStatus: "Resolved",
+    pending: "Pending",
+    accepted: "Accepted",
+    rejected: "Rejected",
     noFilteredComments: "No matching comments.",
     hideIndicators: "Hide comments and highlights",
     showIndicators: "Show comments and highlights",
@@ -3680,6 +3719,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       goToDocuments: "前往文档",
     },
     editor: {
+      suggestionCreateFailed: "无法创建建议",
+      suggestionsCount: "{{count}} 条建议",
+      acceptSuggestion: "接受",
+      rejectSuggestion: "拒绝",
       couldNotReadLocalSourceFile: "无法读取本地源文件",
       couldNotSaveLocalFile: "无法保存本地文件",
       localFileChangedWithUnsavedEdits:
@@ -3698,6 +3741,9 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       localFileSavedHistoryNotUpdated: "本地文件已保存，但历史记录未更新",
       title: "标题",
       toolbar: {
+        suggestEdits: "建议修改",
+        suggesting: "建议中",
+        stopSuggesting: "停止建议",
         undo: "撤销",
         redo: "重做",
         conflict: "冲突",
@@ -3922,6 +3968,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       goToDocuments: "Ir a documentos",
     },
     editor: {
+      suggestionCreateFailed: "No se pudo crear la sugerencia",
+      suggestionsCount: "{{count}} sugerencias",
+      acceptSuggestion: "Aceptar",
+      rejectSuggestion: "Rechazar",
       couldNotReadLocalSourceFile: "No se pudo leer el archivo local de origen",
       couldNotSaveLocalFile: "No se pudo guardar el archivo local",
       localFileChangedWithUnsavedEdits:
@@ -4002,6 +4052,9 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
           "Transcribe este video y agrega la transcripción debajo.",
       },
       toolbar: {
+        suggestEdits: "Sugerir cambios",
+        suggesting: "Sugiriendo",
+        stopSuggesting: "Dejar de sugerir",
         undo: "Deshacer",
         redo: "Rehacer",
         conflict: "Conflicto",
@@ -4143,6 +4196,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "fr-FR": {
     editor: {
+      suggestionCreateFailed: "Impossible de créer la suggestion",
+      suggestionsCount: "{{count}} suggestions",
+      acceptSuggestion: "Accepter",
+      rejectSuggestion: "Refuser",
       localFileChangedWithUnsavedEdits:
         "Le fichier sur le disque a changé alors que cette page contenait des modifications non enregistrées.",
       copyUnsavedText: "Copier mon texte non enregistré",
@@ -4155,7 +4212,13 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "Vos dernières modifications n’ont pas pu être enregistrées. Réessayez avant de quitter cette page.",
       discardPreviewDraft: "Supprimer le brouillon",
 
-      toolbar: { undo: "Annuler", redo: "Rétablir" },
+      toolbar: {
+        undo: "Annuler",
+        redo: "Rétablir",
+        suggestEdits: "Suggérer des modifications",
+        suggesting: "Suggestion",
+        stopSuggesting: "Arrêter de suggérer",
+      },
     },
     sidebar: {
       addChild: "Ajouter un enfant",
@@ -4194,6 +4257,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "de-DE": {
     editor: {
+      suggestionCreateFailed: "Vorschlag konnte nicht erstellt werden",
+      suggestionsCount: "{{count}} Vorschläge",
+      acceptSuggestion: "Annehmen",
+      rejectSuggestion: "Ablehnen",
       localFileChangedWithUnsavedEdits:
         "Die Datei auf dem Datenträger wurde geändert, während diese Seite ungespeicherte Änderungen enthielt.",
       copyUnsavedText: "Meinen ungespeicherten Text kopieren",
@@ -4206,7 +4273,13 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "Die letzten Änderungen konnten nicht gespeichert werden. Versuche es erneut, bevor du diese Seite verlässt.",
       discardPreviewDraft: "Entwurf verwerfen",
 
-      toolbar: { undo: "Rückgängig", redo: "Wiederholen" },
+      toolbar: {
+        undo: "Rückgängig",
+        redo: "Wiederholen",
+        suggestEdits: "Änderungen vorschlagen",
+        suggesting: "Vorschlagen",
+        stopSuggesting: "Vorschlagen beenden",
+      },
     },
     sidebar: {
       addChild: "Unterelement hinzufügen",
@@ -4244,6 +4317,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "ja-JP": {
     editor: {
+      suggestionCreateFailed: "提案を作成できませんでした",
+      suggestionsCount: "{{count}} 件の提案",
+      acceptSuggestion: "承認",
+      rejectSuggestion: "却下",
       localFileChangedWithUnsavedEdits:
         "このページに未保存の編集がある間に、ディスク上のファイルが変更されました。",
       copyUnsavedText: "未保存のテキストをコピー",
@@ -4256,7 +4333,13 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "最新の編集を保存できませんでした。このページを離れる前にもう一度お試しください。",
       discardPreviewDraft: "下書きを破棄",
 
-      toolbar: { undo: "元に戻す", redo: "やり直す" },
+      toolbar: {
+        undo: "元に戻す",
+        redo: "やり直す",
+        suggestEdits: "編集を提案",
+        suggesting: "提案中",
+        stopSuggesting: "提案を終了",
+      },
     },
     sidebar: {
       addChild: "子項目を追加",
@@ -4292,6 +4375,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "ko-KR": {
     editor: {
+      suggestionCreateFailed: "제안을 만들 수 없습니다",
+      suggestionsCount: "제안 {{count}}개",
+      acceptSuggestion: "수락",
+      rejectSuggestion: "거절",
       localFileChangedWithUnsavedEdits:
         "이 페이지에 저장하지 않은 편집 내용이 있는 동안 디스크의 파일이 변경되었습니다.",
       copyUnsavedText: "저장하지 않은 텍스트 복사",
@@ -4304,7 +4391,13 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "최근 페이지 편집 내용을 저장하지 못했습니다. 이 페이지를 떠나기 전에 다시 시도하세요.",
       discardPreviewDraft: "초안 삭제",
 
-      toolbar: { undo: "실행 취소", redo: "다시 실행" },
+      toolbar: {
+        undo: "실행 취소",
+        redo: "다시 실행",
+        suggestEdits: "수정 제안",
+        suggesting: "제안 중",
+        stopSuggesting: "제안 중지",
+      },
     },
     sidebar: {
       addChild: "하위 항목 추가",
@@ -4339,6 +4432,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "pt-BR": {
     editor: {
+      suggestionCreateFailed: "Não foi possível criar a sugestão",
+      suggestionsCount: "{{count}} sugestões",
+      acceptSuggestion: "Aceitar",
+      rejectSuggestion: "Rejeitar",
       localFileChangedWithUnsavedEdits:
         "O arquivo no disco foi alterado enquanto esta página tinha edições não salvas.",
       copyUnsavedText: "Copiar meu texto não salvo",
@@ -4351,7 +4448,13 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "Não foi possível salvar as últimas alterações. Tente novamente antes de sair desta página.",
       discardPreviewDraft: "Descartar rascunho",
 
-      toolbar: { undo: "Desfazer", redo: "Refazer" },
+      toolbar: {
+        undo: "Desfazer",
+        redo: "Refazer",
+        suggestEdits: "Sugerir alterações",
+        suggesting: "Sugerindo",
+        stopSuggesting: "Parar de sugerir",
+      },
     },
     sidebar: {
       addChild: "Adicionar filho",
@@ -4388,6 +4491,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "hi-IN": {
     editor: {
+      suggestionCreateFailed: "सुझाव नहीं बनाया जा सका",
+      suggestionsCount: "{{count}} सुझाव",
+      acceptSuggestion: "स्वीकार करें",
+      rejectSuggestion: "अस्वीकार करें",
       localFileChangedWithUnsavedEdits:
         "इस पेज में सहेजे नहीं गए बदलाव होने के दौरान डिस्क की फ़ाइल बदल गई।",
       copyUnsavedText: "मेरा सहेजा नहीं गया टेक्स्ट कॉपी करें",
@@ -4400,7 +4507,13 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "आपके नवीनतम पेज बदलाव सहेजे नहीं जा सके। इस पेज से जाने से पहले फिर से कोशिश करें।",
       discardPreviewDraft: "ड्राफ़्ट हटाएँ",
 
-      toolbar: { undo: "पूर्ववत करें", redo: "फिर से करें" },
+      toolbar: {
+        undo: "पूर्ववत करें",
+        redo: "फिर से करें",
+        suggestEdits: "बदलाव सुझाएं",
+        suggesting: "सुझाव दे रहे हैं",
+        stopSuggesting: "सुझाव देना बंद करें",
+      },
     },
     sidebar: {
       addChild: "चाइल्ड जोड़ें",
@@ -4435,6 +4548,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "ar-SA": {
     editor: {
+      suggestionCreateFailed: "تعذر إنشاء الاقتراح",
+      suggestionsCount: "{{count}} اقتراحات",
+      acceptSuggestion: "قبول",
+      rejectSuggestion: "رفض",
       localFileChangedWithUnsavedEdits:
         "تغيّر الملف على القرص أثناء وجود تعديلات غير محفوظة في هذه الصفحة.",
       copyUnsavedText: "نسخ النص غير المحفوظ",
@@ -4447,7 +4564,13 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "تعذر حفظ آخر تعديلات الصفحة. حاول مرة أخرى قبل مغادرة هذه الصفحة.",
       discardPreviewDraft: "تجاهل المسودة",
 
-      toolbar: { undo: "تراجع", redo: "إعادة" },
+      toolbar: {
+        undo: "تراجع",
+        redo: "إعادة",
+        suggestEdits: "اقتراح تعديلات",
+        suggesting: "جارٍ الاقتراح",
+        stopSuggesting: "إيقاف الاقتراح",
+      },
     },
     sidebar: {
       addChild: "إضافة عنصر فرعي",
@@ -9604,6 +9727,177 @@ const contentReferenceMessagesByLocale = {
   },
 } satisfies Partial<Record<LocaleCode, typeof enUS.editor.reference>>;
 
+const reviewDiscussionMessagesByLocale = {
+  "zh-CN": {
+    moreActions: "更多操作",
+    addReaction: "添加回应",
+    markUnread: "标为未读",
+    markRead: "标为已读",
+    mute: "静音此讨论",
+    unmute: "取消静音",
+    unread: "未读",
+    copyLink: "复制链接",
+    linkCopied: "链接已复制",
+    copyLinkFailed: "无法复制链接",
+    toolFailed: "无法更新讨论",
+    reactionCount: "{{reaction}}：{{count}}",
+    linkUnavailable: "此建议不可用",
+  },
+  "zh-TW": {
+    moreActions: "更多操作",
+    addReaction: "新增回應",
+    markUnread: "標為未讀",
+    markRead: "標為已讀",
+    mute: "靜音此討論",
+    unmute: "取消靜音",
+    unread: "未讀",
+    copyLink: "複製連結",
+    linkCopied: "已複製連結",
+    copyLinkFailed: "無法複製連結",
+    toolFailed: "無法更新討論",
+    reactionCount: "{{reaction}}：{{count}}",
+    linkUnavailable: "此建議無法使用",
+  },
+  "es-ES": {
+    moreActions: "Más acciones",
+    addReaction: "Añadir reacción",
+    markUnread: "Marcar como no leído",
+    markRead: "Marcar como leído",
+    mute: "Silenciar hilo",
+    unmute: "Activar notificaciones del hilo",
+    unread: "No leído",
+    copyLink: "Copiar enlace",
+    linkCopied: "Enlace copiado",
+    copyLinkFailed: "No se pudo copiar el enlace",
+    toolFailed: "No se pudo actualizar la conversación",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "Esta sugerencia no está disponible",
+  },
+  "fr-FR": {
+    moreActions: "Autres actions",
+    addReaction: "Ajouter une réaction",
+    markUnread: "Marquer comme non lu",
+    markRead: "Marquer comme lu",
+    mute: "Désactiver les notifications du fil",
+    unmute: "Réactiver les notifications du fil",
+    unread: "Non lu",
+    copyLink: "Copier le lien",
+    linkCopied: "Lien copié",
+    copyLinkFailed: "Impossible de copier le lien",
+    toolFailed: "Impossible de mettre à jour la discussion",
+    reactionCount: "{{reaction}} : {{count}}",
+    linkUnavailable: "Cette suggestion n’est pas disponible",
+  },
+  "de-DE": {
+    moreActions: "Weitere Aktionen",
+    addReaction: "Reaktion hinzufügen",
+    markUnread: "Als ungelesen markieren",
+    markRead: "Als gelesen markieren",
+    mute: "Diskussion stummschalten",
+    unmute: "Stummschaltung aufheben",
+    unread: "Ungelesen",
+    copyLink: "Link kopieren",
+    linkCopied: "Link kopiert",
+    copyLinkFailed: "Link konnte nicht kopiert werden",
+    toolFailed: "Diskussion konnte nicht aktualisiert werden",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "Dieser Vorschlag ist nicht verfügbar",
+  },
+  "ja-JP": {
+    moreActions: "その他の操作",
+    addReaction: "リアクションを追加",
+    markUnread: "未読にする",
+    markRead: "既読にする",
+    mute: "スレッドをミュート",
+    unmute: "ミュートを解除",
+    unread: "未読",
+    copyLink: "リンクをコピー",
+    linkCopied: "リンクをコピーしました",
+    copyLinkFailed: "リンクをコピーできませんでした",
+    toolFailed: "ディスカッションを更新できませんでした",
+    reactionCount: "{{reaction}}：{{count}}",
+    linkUnavailable: "この提案は利用できません",
+  },
+  "ko-KR": {
+    moreActions: "추가 작업",
+    addReaction: "반응 추가",
+    markUnread: "읽지 않음으로 표시",
+    markRead: "읽음으로 표시",
+    mute: "스레드 알림 끄기",
+    unmute: "스레드 알림 켜기",
+    unread: "읽지 않음",
+    copyLink: "링크 복사",
+    linkCopied: "링크를 복사했습니다",
+    copyLinkFailed: "링크를 복사할 수 없습니다",
+    toolFailed: "토론을 업데이트할 수 없습니다",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "이 제안을 사용할 수 없습니다",
+  },
+  "pt-BR": {
+    moreActions: "Mais ações",
+    addReaction: "Adicionar reação",
+    markUnread: "Marcar como não lida",
+    markRead: "Marcar como lida",
+    mute: "Silenciar conversa",
+    unmute: "Reativar notificações da conversa",
+    unread: "Não lida",
+    copyLink: "Copiar link",
+    linkCopied: "Link copiado",
+    copyLinkFailed: "Não foi possível copiar o link",
+    toolFailed: "Não foi possível atualizar a discussão",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "Esta sugestão não está disponível",
+  },
+  "hi-IN": {
+    moreActions: "अन्य कार्रवाइयाँ",
+    addReaction: "प्रतिक्रिया जोड़ें",
+    markUnread: "अपठित चिह्नित करें",
+    markRead: "पठित चिह्नित करें",
+    mute: "थ्रेड म्यूट करें",
+    unmute: "थ्रेड अनम्यूट करें",
+    unread: "अपठित",
+    copyLink: "लिंक कॉपी करें",
+    linkCopied: "लिंक कॉपी किया गया",
+    copyLinkFailed: "लिंक कॉपी नहीं किया जा सका",
+    toolFailed: "चर्चा अपडेट नहीं की जा सकी",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "यह सुझाव उपलब्ध नहीं है",
+  },
+  "ar-SA": {
+    moreActions: "المزيد من الإجراءات",
+    addReaction: "إضافة تفاعل",
+    markUnread: "وضع علامة كغير مقروء",
+    markRead: "وضع علامة كمقروء",
+    mute: "كتم المحادثة",
+    unmute: "إلغاء كتم المحادثة",
+    unread: "غير مقروء",
+    copyLink: "نسخ الرابط",
+    linkCopied: "تم نسخ الرابط",
+    copyLinkFailed: "تعذر نسخ الرابط",
+    toolFailed: "تعذر تحديث المناقشة",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "هذا الاقتراح غير متاح",
+  },
+} satisfies Record<
+  Exclude<LocaleCode, "en-US">,
+  Pick<
+    typeof enUS.comments,
+    | "moreActions"
+    | "addReaction"
+    | "markUnread"
+    | "markRead"
+    | "mute"
+    | "unmute"
+    | "unread"
+    | "copyLink"
+    | "linkCopied"
+    | "copyLinkFailed"
+    | "toolFailed"
+    | "reactionCount"
+    | "linkUnavailable"
+  >
+>;
+
 const commentMessagesByLocale = {
   "zh-CN": {
     ...commentAttributionMessagesByLocale["zh-CN"],
@@ -9621,6 +9915,11 @@ const commentMessagesByLocale = {
     showIndicators: "显示评论和高亮",
     unanchored: "高亮不可用",
     suggestions: "建议",
+    suggestionAdd: "添加",
+    suggestionDelete: "删除",
+    suggestionWith: "替换为",
+    suggestionReplace: "替换",
+    suggestionDetails: "建议详情",
     typeFilter: "类型",
     statusFilter: "状态",
     authorFilter: "人员",
@@ -9628,6 +9927,9 @@ const commentMessagesByLocale = {
     allAuthors: "所有人",
     open: "未解决",
     resolvedStatus: "已解决",
+    pending: "待处理",
+    accepted: "已接受",
+    rejected: "已拒绝",
     noFilteredComments: "没有匹配的评论。",
   },
   "zh-TW": {
@@ -9646,6 +9948,11 @@ const commentMessagesByLocale = {
     showIndicators: "顯示留言和醒目提示",
     unanchored: "無法使用醒目提示",
     suggestions: "建議",
+    suggestionAdd: "新增",
+    suggestionDelete: "刪除",
+    suggestionWith: "替換為",
+    suggestionReplace: "替換",
+    suggestionDetails: "建議詳細資料",
     typeFilter: "類型",
     statusFilter: "狀態",
     authorFilter: "人員",
@@ -9653,6 +9960,9 @@ const commentMessagesByLocale = {
     allAuthors: "所有人",
     open: "未解決",
     resolvedStatus: "已解決",
+    pending: "待處理",
+    accepted: "已接受",
+    rejected: "已拒絕",
     noFilteredComments: "沒有相符的留言。",
   },
   "es-ES": {
@@ -9674,6 +9984,11 @@ const commentMessagesByLocale = {
     showIndicators: "Mostrar comentarios y resaltados",
     unanchored: "Resaltado no disponible",
     suggestions: "Sugerencias",
+    suggestionAdd: "Añadir",
+    suggestionDelete: "Eliminar",
+    suggestionWith: "por",
+    suggestionReplace: "Reemplazar",
+    suggestionDetails: "Detalles de la sugerencia",
     typeFilter: "Tipo",
     statusFilter: "Estado",
     authorFilter: "Persona",
@@ -9681,6 +9996,9 @@ const commentMessagesByLocale = {
     allAuthors: "Todos",
     open: "Abiertos",
     resolvedStatus: "Resueltos",
+    pending: "Pendientes",
+    accepted: "Aceptados",
+    rejected: "Rechazados",
     noFilteredComments: "No hay comentarios coincidentes.",
   },
   "fr-FR": {
@@ -9702,6 +10020,11 @@ const commentMessagesByLocale = {
     showIndicators: "Afficher les commentaires et surlignages",
     unanchored: "Surlignage indisponible",
     suggestions: "Suggestions",
+    suggestionAdd: "Ajouter",
+    suggestionDelete: "Supprimer",
+    suggestionWith: "par",
+    suggestionReplace: "Remplacer",
+    suggestionDetails: "Détails de la suggestion",
     typeFilter: "Type",
     statusFilter: "Statut",
     authorFilter: "Personne",
@@ -9709,6 +10032,9 @@ const commentMessagesByLocale = {
     allAuthors: "Tout le monde",
     open: "Ouverts",
     resolvedStatus: "Résolus",
+    pending: "En attente",
+    accepted: "Acceptés",
+    rejected: "Refusés",
     noFilteredComments: "Aucun commentaire correspondant.",
   },
   "de-DE": {
@@ -9729,6 +10055,11 @@ const commentMessagesByLocale = {
     showIndicators: "Kommentare und Hervorhebungen anzeigen",
     unanchored: "Hervorhebung nicht verfügbar",
     suggestions: "Vorschläge",
+    suggestionAdd: "Hinzufügen",
+    suggestionDelete: "Löschen",
+    suggestionWith: "durch",
+    suggestionReplace: "Ersetzen",
+    suggestionDetails: "Vorschlagsdetails",
     typeFilter: "Typ",
     statusFilter: "Status",
     authorFilter: "Person",
@@ -9736,6 +10067,9 @@ const commentMessagesByLocale = {
     allAuthors: "Alle Personen",
     open: "Offen",
     resolvedStatus: "Erledigt",
+    pending: "Ausstehend",
+    accepted: "Angenommen",
+    rejected: "Abgelehnt",
     noFilteredComments: "Keine passenden Kommentare.",
   },
   "ja-JP": {
@@ -9755,6 +10089,11 @@ const commentMessagesByLocale = {
     showIndicators: "コメントとハイライトを表示",
     unanchored: "ハイライトを利用できません",
     suggestions: "提案",
+    suggestionAdd: "追加",
+    suggestionDelete: "削除",
+    suggestionWith: "変更後",
+    suggestionReplace: "変更前",
+    suggestionDetails: "提案の詳細",
     typeFilter: "種類",
     statusFilter: "ステータス",
     authorFilter: "ユーザー",
@@ -9762,6 +10101,9 @@ const commentMessagesByLocale = {
     allAuthors: "全員",
     open: "未解決",
     resolvedStatus: "解決済み",
+    pending: "保留中",
+    accepted: "承認済み",
+    rejected: "却下済み",
     noFilteredComments: "一致するコメントはありません。",
   },
   "ko-KR": {
@@ -9781,6 +10123,11 @@ const commentMessagesByLocale = {
     showIndicators: "댓글과 강조 표시 보기",
     unanchored: "강조 표시를 사용할 수 없음",
     suggestions: "제안",
+    suggestionAdd: "추가",
+    suggestionDelete: "삭제",
+    suggestionWith: "변경 후",
+    suggestionReplace: "변경 전",
+    suggestionDetails: "제안 세부정보",
     typeFilter: "유형",
     statusFilter: "상태",
     authorFilter: "사용자",
@@ -9788,6 +10135,9 @@ const commentMessagesByLocale = {
     allAuthors: "모든 사용자",
     open: "열림",
     resolvedStatus: "해결됨",
+    pending: "대기 중",
+    accepted: "수락됨",
+    rejected: "거부됨",
     noFilteredComments: "일치하는 댓글이 없습니다.",
   },
   "pt-BR": {
@@ -9809,6 +10159,11 @@ const commentMessagesByLocale = {
     showIndicators: "Mostrar comentários e destaques",
     unanchored: "Destaque indisponível",
     suggestions: "Sugestões",
+    suggestionAdd: "Adicionar",
+    suggestionDelete: "Excluir",
+    suggestionWith: "por",
+    suggestionReplace: "Substituir",
+    suggestionDetails: "Detalhes da sugestão",
     typeFilter: "Tipo",
     statusFilter: "Status",
     authorFilter: "Pessoa",
@@ -9816,6 +10171,9 @@ const commentMessagesByLocale = {
     allAuthors: "Todos",
     open: "Abertos",
     resolvedStatus: "Resolvidos",
+    pending: "Pendentes",
+    accepted: "Aceitos",
+    rejected: "Rejeitados",
     noFilteredComments: "Nenhum comentário correspondente.",
   },
   "hi-IN": {
@@ -9836,6 +10194,11 @@ const commentMessagesByLocale = {
     showIndicators: "टिप्पणियाँ और हाइलाइट दिखाएँ",
     unanchored: "हाइलाइट उपलब्ध नहीं है",
     suggestions: "सुझाव",
+    suggestionAdd: "जोड़ें",
+    suggestionDelete: "हटाएँ",
+    suggestionWith: "से",
+    suggestionReplace: "बदलें",
+    suggestionDetails: "सुझाव का विवरण",
     typeFilter: "प्रकार",
     statusFilter: "स्थिति",
     authorFilter: "व्यक्ति",
@@ -9843,6 +10206,9 @@ const commentMessagesByLocale = {
     allAuthors: "सभी लोग",
     open: "खुले",
     resolvedStatus: "सुलझाए गए",
+    pending: "लंबित",
+    accepted: "स्वीकृत",
+    rejected: "अस्वीकृत",
     noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
   },
   "ar-SA": {
@@ -9867,6 +10233,11 @@ const commentMessagesByLocale = {
     showIndicators: "إظهار التعليقات والتمييزات",
     unanchored: "التمييز غير متاح",
     suggestions: "الاقتراحات",
+    suggestionAdd: "إضافة",
+    suggestionDelete: "حذف",
+    suggestionWith: "بـ",
+    suggestionReplace: "استبدال",
+    suggestionDetails: "تفاصيل الاقتراح",
     typeFilter: "النوع",
     statusFilter: "الحالة",
     authorFilter: "الشخص",
@@ -9874,6 +10245,9 @@ const commentMessagesByLocale = {
     allAuthors: "الجميع",
     open: "مفتوحة",
     resolvedStatus: "تم حلها",
+    pending: "قيد الانتظار",
+    accepted: "مقبولة",
+    rejected: "مرفوضة",
     noFilteredComments: "لا توجد تعليقات مطابقة.",
   },
 } satisfies Partial<Record<LocaleCode, Partial<typeof enUS.comments>>>;
@@ -9970,6 +10344,74 @@ function mergeMessages(overrides: PartialMessages): Messages {
   };
 }
 
+const suggestionFormattingMessagesByLocale = {
+  "zh-CN": [
+    "无法安全地建议此格式。草稿已保留。撤销上一次编辑以继续。",
+    "页面中的某些格式无法安全地建议更改。编辑者可以先更新这些格式，然后您再重试。",
+  ],
+  "zh-TW": [
+    "無法安全地建議此格式。草稿已保留。復原上一次編輯以繼續。",
+    "頁面中的某些格式無法安全地建議變更。編輯者可以先更新這些格式，然後您再重試。",
+  ],
+  "es-ES": [
+    "Este formato no se puede sugerir de forma segura. Tu borrador se conserva. Deshaz la última edición para continuar.",
+    "Algunos formatos de la página no se pueden sugerir de forma segura. Un editor puede actualizarlos antes de que vuelvas a intentarlo.",
+  ],
+  "fr-FR": [
+    "Cette mise en forme ne peut pas être suggérée de façon fiable. Votre brouillon est conservé. Annulez la dernière modification pour continuer.",
+    "Certaines mises en forme de la page ne peuvent pas être suggérées de façon fiable. Une personne disposant des droits de modification peut les mettre à jour avant votre nouvel essai.",
+  ],
+  "de-DE": [
+    "Diese Formatierung kann nicht sicher vorgeschlagen werden. Dein Entwurf bleibt erhalten. Mache die letzte Änderung rückgängig, um fortzufahren.",
+    "Einige Seitenformatierungen können nicht sicher vorgeschlagen werden. Eine Person mit Bearbeitungsrechten kann sie vor deinem nächsten Versuch aktualisieren.",
+  ],
+  "ja-JP": [
+    "この書式は安全に提案できません。下書きは保持されています。続行するには最後の編集を元に戻してください。",
+    "ページの一部の書式は安全に提案できません。編集権限のある人が書式を更新してから再試行してください。",
+  ],
+  "ko-KR": [
+    "이 서식은 안전하게 제안할 수 없습니다. 초안은 유지됩니다. 계속하려면 마지막 편집을 실행 취소하세요.",
+    "페이지의 일부 서식은 안전하게 제안할 수 없습니다. 편집 권한이 있는 사람이 서식을 업데이트한 후 다시 시도하세요.",
+  ],
+  "pt-BR": [
+    "Esta formatação não pode ser sugerida com segurança. Seu rascunho foi mantido. Desfaça a última edição para continuar.",
+    "Algumas formatações da página não podem ser sugeridas com segurança. Uma pessoa com permissão de edição pode atualizá-las antes de você tentar novamente.",
+  ],
+  "hi-IN": [
+    "इस स्वरूपण का सुरक्षित रूप से सुझाव नहीं दिया जा सकता। आपका ड्राफ़्ट सुरक्षित है। जारी रखने के लिए पिछला संपादन पूर्ववत करें।",
+    "पेज के कुछ स्वरूपण का सुरक्षित रूप से सुझाव नहीं दिया जा सकता। दोबारा कोशिश करने से पहले कोई संपादक उसे अपडेट कर सकता है।",
+  ],
+  "ar-SA": [
+    "لا يمكن اقتراح هذا التنسيق بأمان. تم الاحتفاظ بمسودتك. تراجع عن آخر تعديل للمتابعة.",
+    "لا يمكن اقتراح بعض تنسيقات الصفحة بأمان. يمكن لشخص لديه صلاحية التعديل تحديثها قبل إعادة المحاولة.",
+  ],
+};
+
+const underlineMessagesByLocale = {
+  "zh-CN": "下划线",
+  "zh-TW": "底線",
+  "es-ES": "Subrayado",
+  "fr-FR": "Souligné",
+  "de-DE": "Unterstrichen",
+  "ja-JP": "下線",
+  "ko-KR": "밑줄",
+  "pt-BR": "Sublinhado",
+  "hi-IN": "रेखांकित",
+  "ar-SA": "تسطير",
+};
+const removeLinkMessagesByLocale = {
+  "zh-CN": "移除链接",
+  "zh-TW": "移除連結",
+  "es-ES": "Quitar enlace",
+  "fr-FR": "Supprimer le lien",
+  "de-DE": "Link entfernen",
+  "ja-JP": "リンクを削除",
+  "ko-KR": "링크 제거",
+  "pt-BR": "Remover link",
+  "hi-IN": "लिंक हटाएँ",
+  "ar-SA": "إزالة الرابط",
+};
+
 function mergeMessagesForLocale(
   locale: Exclude<LocaleCode, "en-US">,
   overrides: PartialMessages,
@@ -10031,7 +10473,11 @@ function mergeMessagesForLocale(
   });
   return {
     ...base,
-    comments: { ...base.comments, ...commentMessagesByLocale[locale] },
+    comments: {
+      ...base.comments,
+      ...commentMessagesByLocale[locale],
+      ...reviewDiscussionMessagesByLocale[locale],
+    },
     landing: { ...base.landing, ...landingMessagesByLocale[locale] },
     root: { ...base.root, ...rawLiteralOverrides.root },
     team: { ...base.team, ...rawLiteralOverrides.team },
@@ -10046,6 +10492,12 @@ function mergeMessagesForLocale(
     editor: {
       ...base.editor,
       ...rawLiteralOverrides.editor,
+      underline: underlineMessagesByLocale[locale],
+      suggestionFormattingUnsupported:
+        suggestionFormattingMessagesByLocale[locale][0]!,
+      suggestionFormattingBaselineUnsupported:
+        suggestionFormattingMessagesByLocale[locale][1]!,
+      removeLink: removeLinkMessagesByLocale[locale],
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {
@@ -12120,6 +12572,11 @@ const sidebarPinnedMessagesByLocale: Partial<
 const contentExactEnglishTranslations = {
   "zh-TW": {
     editor: {
+      suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
+      suggestionAmendmentFailed: "無法儲存建議",
+      suggestionAmendmentResolved:
+        "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",
+      discardSuggestionDraft: "捨棄草稿",
       toolbar: {
         info: "資訊",
         closeUtilityPanel: "關閉面板",
@@ -12163,6 +12620,11 @@ const contentExactEnglishTranslations = {
   },
   "zh-CN": {
     editor: {
+      suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
+      suggestionAmendmentFailed: "无法保存建议",
+      suggestionAmendmentResolved:
+        "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",
+      discardSuggestionDraft: "丢弃草稿",
       failedToCreatePage: "创建页面失败",
       slash: {
         blockEquation: "块级公式",
@@ -12228,6 +12690,12 @@ const contentExactEnglishTranslations = {
   },
   "es-ES": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
+      suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
+      suggestionAmendmentResolved:
+        "Esta sugerencia cambió en otro lugar. Tu borrador sin guardar sigue aquí.",
+      discardSuggestionDraft: "Descartar borrador",
       failedToCreatePage: "No se pudo crear la página",
       slash: {
         blockEquation: "Ecuación en bloque",
@@ -12297,6 +12765,12 @@ const contentExactEnglishTranslations = {
   },
   "fr-FR": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
+      suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
+      suggestionAmendmentResolved:
+        "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
+      discardSuggestionDraft: "Ignorer le brouillon",
       failedToCreatePage: "Impossible de créer la page",
       slash: {
         blockEquation: "Équation en bloc",
@@ -12366,6 +12840,12 @@ const contentExactEnglishTranslations = {
   },
   "de-DE": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
+      suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
+      suggestionAmendmentResolved:
+        "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
+      discardSuggestionDraft: "Entwurf verwerfen",
       failedToCreatePage: "Seite konnte nicht erstellt werden",
       slash: {
         blockEquation: "Blockgleichung",
@@ -12436,6 +12916,12 @@ const contentExactEnglishTranslations = {
   },
   "ja-JP": {
     editor: {
+      suggestionAmendmentEmpty:
+        "この編集は現在のページと同じです。提案を削除するには却下してください。",
+      suggestionAmendmentFailed: "提案を保存できませんでした",
+      suggestionAmendmentResolved:
+        "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
+      discardSuggestionDraft: "下書きを破棄",
       failedToCreatePage: "ページを作成できませんでした",
       slash: {
         blockEquation: "ブロック数式",
@@ -12505,6 +12991,12 @@ const contentExactEnglishTranslations = {
   },
   "ko-KR": {
     editor: {
+      suggestionAmendmentEmpty:
+        "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
+      suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
+      suggestionAmendmentResolved:
+        "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",
+      discardSuggestionDraft: "초안 삭제",
       failedToCreatePage: "페이지를 만들지 못했습니다",
       slash: {
         blockEquation: "블록 수식",
@@ -12573,6 +13065,12 @@ const contentExactEnglishTranslations = {
   },
   "pt-BR": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
+      suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
+      suggestionAmendmentResolved:
+        "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",
+      discardSuggestionDraft: "Descartar rascunho",
       failedToCreatePage: "Não foi possível criar a página",
       slash: {
         blockEquation: "Equação em bloco",
@@ -12642,6 +13140,12 @@ const contentExactEnglishTranslations = {
   },
   "hi-IN": {
     editor: {
+      suggestionAmendmentEmpty:
+        "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
+      suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
+      suggestionAmendmentResolved:
+        "यह सुझाव कहीं और बदल दिया गया है। आपका सेव न किया गया ड्राफ़्ट अभी भी यहाँ है।",
+      discardSuggestionDraft: "ड्राफ़्ट हटाएँ",
       failedToCreatePage: "पेज नहीं बनाया जा सका",
       slash: {
         blockEquation: "ब्लॉक समीकरण",
@@ -12708,6 +13212,12 @@ const contentExactEnglishTranslations = {
   },
   "ar-SA": {
     editor: {
+      suggestionAmendmentEmpty:
+        "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
+      suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
+      suggestionAmendmentResolved:
+        "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",
+      discardSuggestionDraft: "تجاهل المسودة",
       failedToCreatePage: "تعذر إنشاء الصفحة",
       slash: {
         blockEquation: "معادلة مستقلة",

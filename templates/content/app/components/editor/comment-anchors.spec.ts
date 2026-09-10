@@ -1,7 +1,12 @@
 import { Schema, type Node as PMNode } from "@tiptap/pm/model";
 import { describe, it, expect } from "vitest";
 
-import { captureAnchor, resolveAnchor, buildDocText } from "./comment-anchors";
+import {
+  captureAnchor,
+  resolveAnchor,
+  resolveAnchorPoint,
+  buildDocText,
+} from "./comment-anchors";
 
 // Minimal doc/paragraph/text schema — enough to exercise the text-space anchor
 // math without pulling in the full editor.
@@ -25,6 +30,37 @@ function mkDoc(paragraphs: string[]): PMNode {
 }
 
 describe("comment-anchors", () => {
+  it("includes hard breaks only in the opt-in suggestion text space", () => {
+    const richSchema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { group: "block", content: "inline*" },
+        text: { group: "inline" },
+        hardBreak: { inline: true, group: "inline" },
+      },
+    });
+    const doc = richSchema.node("doc", null, [
+      richSchema.node("paragraph", null, [
+        richSchema.text("Ec"),
+        richSchema.node("hardBreak"),
+        richSchema.text("ho"),
+      ]),
+    ]);
+    expect(buildDocText(doc).text).toBe("Echo");
+    expect(captureAnchor(doc, 4, 6)).toMatchObject({
+      quotedText: "ho",
+      startOffset: 2,
+    });
+    expect(buildDocText(doc, "\n", "\n").text).toBe("Ec\nho");
+    expect(
+      resolveAnchor(
+        doc,
+        { quotedText: "\n", prefix: "Ec", suffix: "ho" },
+        "\n",
+        "\n",
+      ),
+    ).toEqual({ from: 3, to: 4 });
+  });
   it("captures and resolves a selection round-trip", () => {
     const doc = mkDoc(["Hello world foo"]);
     // "world" sits at char index 6 → ProseMirror pos 7 (pos 0 precedes the
@@ -78,6 +114,74 @@ describe("comment-anchors", () => {
     const doc = mkDoc(["Nothing to see here."]);
     expect(resolveAnchor(doc, { quotedText: "missing phrase" })).toBeNull();
     expect(resolveAnchor(doc, { quotedText: null })).toBeNull();
+  });
+
+  it("resolves a deleted draft at its ordered context boundary", () => {
+    const doc = mkDoc(["Alpha  Gamma"]);
+    expect(
+      resolveAnchorPoint(doc, {
+        prefix: "Alpha ",
+        suffix: " Gamma",
+        startOffset: 6,
+      }),
+    ).toBe(7);
+  });
+
+  it("does not invent a top-of-document position for unresolved context", () => {
+    const doc = mkDoc(["Alpha Gamma"]);
+    expect(
+      resolveAnchorPoint(doc, {
+        prefix: "missing before",
+        suffix: "missing after",
+        startOffset: 20,
+      }),
+    ).toBeNull();
+  });
+
+  it("resolves stored NFM suggestion boundaries across paragraphs", () => {
+    const first = "Alpha Beta Gamma.";
+    const second = "Second paragraph for discussion.";
+    const third = "Third paragraph stays unchanged.";
+    const canonical = [first, second, third].join("\n");
+    const deletionEnd = 5;
+    const draft = mkDoc([first.slice(deletionEnd), second, third]);
+    expect(
+      resolveAnchorPoint(
+        draft,
+        {
+          prefix: "",
+          suffix: canonical.slice(deletionEnd, deletionEnd + 32),
+          startOffset: 0,
+        },
+        "\n",
+      ),
+    ).toBe(1);
+
+    const insertionOffset = 50;
+    expect(
+      resolveAnchorPoint(
+        mkDoc([first, second, third]),
+        {
+          prefix: "Second paragraph for discussion.",
+          suffix: "\nThird paragraph stays unchanged",
+          startOffset: insertionOffset,
+        },
+        "\n",
+      ),
+    ).toBe(first.length + second.length + 3);
+  });
+
+  it("does not anchor inside a synthetic paragraph separator", () => {
+    expect(
+      resolveAnchorPoint(
+        mkDoc(["First", "Second"]),
+        {
+          prefix: "First\n",
+          suffix: "\nSecond",
+        },
+        "\n\n",
+      ),
+    ).toBeNull();
   });
 
   it("re-resolves against an edited document", () => {

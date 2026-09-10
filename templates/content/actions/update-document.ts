@@ -15,6 +15,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { commitCanonicalDocumentBodyMutation } from "../server/lib/canonical-document-body-mutation.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -580,43 +581,54 @@ export default defineAction({
               id,
             )
           : [];
-        if (useContentCas) {
-          const applied = await tx
-            .update(schema.documents)
-            .set(updates)
-            .where(
-              and(
-                eq(schema.documents.id, id),
-                eq(schema.documents.updatedAt, args.baseUpdatedAt as string),
-              ),
-            )
-            .returning({ id: schema.documents.id });
-          if (!applied || applied.length === 0) {
-            contentCasConflict = true;
-            return;
-          }
-        } else if (lockedDocumentFieldsChanged) {
-          await tx
-            .update(schema.documents)
-            .set(updates)
-            .where(eq(schema.documents.id, id));
+        const applied = await commitCanonicalDocumentBodyMutation({
+          write: async () => {
+            if (useContentCas) {
+              const rows = await tx
+                .update(schema.documents)
+                .set(updates)
+                .where(
+                  and(
+                    eq(schema.documents.id, id),
+                    eq(
+                      schema.documents.updatedAt,
+                      args.baseUpdatedAt as string,
+                    ),
+                  ),
+                )
+                .returning({ id: schema.documents.id });
+              return rows.length > 0;
+            }
+            if (lockedDocumentFieldsChanged) {
+              await tx
+                .update(schema.documents)
+                .set(updates)
+                .where(eq(schema.documents.id, id));
+            }
+            return true;
+          },
+          afterWrite: async () => {
+            if (lockedContentChanged && content !== undefined) {
+              for (const field of primaryBlocksFields) {
+                await persistBlocksFieldIdentity({
+                  db: tx as unknown as ReturnType<typeof getDb>,
+                  ownerEmail: field.ownerEmail,
+                  documentId: id,
+                  propertyId: field.propertyId,
+                  previousMarkdown: historyBefore.content,
+                  markdown: content,
+                  now: updatedAt,
+                });
+              }
+            }
+          },
+        });
+        if (!applied) {
+          contentCasConflict = true;
+          return;
         }
-
         committedContentChanged = lockedContentChanged;
         committedContentBefore = historyBefore.content;
-        if (lockedContentChanged && content !== undefined) {
-          for (const field of primaryBlocksFields) {
-            await persistBlocksFieldIdentity({
-              db: tx as unknown as ReturnType<typeof getDb>,
-              ownerEmail: field.ownerEmail,
-              documentId: id,
-              propertyId: field.propertyId,
-              previousMarkdown: historyBefore.content,
-              markdown: content,
-              now: updatedAt,
-            });
-          }
-        }
 
         if (favoriteChanged) {
           await setFavoriteMembership({
