@@ -619,11 +619,7 @@ function deleteCookieFromEveryScope(
 
 export function clearFrameworkSessionHintCookies(event: H3Event): void {
   for (const name of frameworkSessionCookieNamesToClear()) {
-    deleteCookieFromEveryScope(
-      event,
-      frameworkSessionHintCookieName(name),
-      crossSiteCookieAttrs(event),
-    );
+    deleteCookieFromEveryScope(event, frameworkSessionHintCookieName(name));
   }
 }
 
