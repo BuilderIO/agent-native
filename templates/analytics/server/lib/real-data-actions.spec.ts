@@ -1110,6 +1110,14 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("preserves explicit dashboard construction beside a scheduled refresh", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a Sales dashboard with a scheduled refresh",
+      ),
+    ).toBe(true);
+  });
+
   it("preserves dashboard clauses after nested automation actions", () => {
     for (const request of [
       "Create an automation to refresh the Revenue dashboard, build a Sales dashboard",
@@ -1268,6 +1276,9 @@ describe("incomplete evidence detection", () => {
       "Create a job that refreshes the dashboard",
       "Create a dashboard scheduled refresh",
       "Create a recurring dashboard refresh",
+      "Refresh the dashboard every morning",
+      "Have the dashboard refresh every morning",
+      "Run the dashboard refresh every morning",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
     }
@@ -1300,6 +1311,10 @@ describe("incomplete evidence detection", () => {
       "What is the refresh frequency of the dashboard?",
       "What is the update frequency of the dashboard?",
       "How often is the dashboard refreshed?",
+      "What is the dashboard’s refresh frequency?",
+      "What is the frequency of dashboard refreshes?",
+      "What is the frequency of dashboard updates?",
+      "Tell me the dashboard refresh rate",
       "How often does the Revenue dashboard refresh?",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
@@ -1331,6 +1346,8 @@ describe("incomplete evidence detection", () => {
       "What is the run count for dashboard automations?",
       "How many dashboard automation job counts are there?",
       "What is the number of dashboard automations?",
+      "Create a report showing the number of dashboard automations",
+      "Build a chart of dashboard automation executions",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
