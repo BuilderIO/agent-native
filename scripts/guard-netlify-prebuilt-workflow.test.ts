@@ -194,7 +194,7 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("requires a distinct reusable child queue selected by the caller input", () => {
+  it("serializes beta publishers per site and isolates direct dispatches", () => {
     assert.deepEqual(
       validateReusableWorkflowConcurrency(
         readWorkflow(".github/workflows/deploy-netlify-prebuilt.yml"),
@@ -349,7 +349,15 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
-      /inputs\.target == 'beta'\s+&&\s+format\('netlify-prebuilt-beta-\{0\}-\{1\}', inputs\.site, inputs\.caller\)/,
+      /inputs\.target == 'beta'\s+&&\s+format\('netlify-prebuilt-beta-\{0\}', inputs\.site\)/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /format\('netlify-prebuilt-beta-direct-\{0\}-\{1\}', inputs\.site, github\.run_id\)/,
     );
     assert.equal(
       (reusable.concurrency as Workflow)["cancel-in-progress"],
@@ -393,6 +401,8 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(reusableSource, /deploys\/\$\{deployId\}\/cancel/);
     assert.match(reusableSource, /cancellationRequested/);
+    assert.match(reusableSource, /PREVIOUS_DEPLOY_ID/);
+    assert.match(reusableSource, /was superseded by published deploy/);
     assert.match(reusableSource, /Netlify beta freshness restore precondition/);
     assert.match(
       reusableSource,
@@ -431,6 +441,10 @@ describe("production Netlify site concurrency guard", () => {
       /Beta source_ref must be a full 40-character commit SHA/,
     );
     assert.match(reusableSource, /Beta source_ref must equal current main/);
+    assert.match(
+      reusableSource,
+      /Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt\.yml\./,
+    );
     assert.doesNotMatch(reusableSource, /requested \|\| 'beta'/);
     assert.match(
       reusableSource,
@@ -497,7 +511,7 @@ describe("production Netlify site concurrency guard", () => {
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
     const concurrency = mutated.concurrency as Record<string, unknown>;
-    concurrency.group = String(concurrency.group).replace(
+    concurrency.group = String(concurrency.group).replaceAll(
       "inputs.caller",
       "github.event_name",
     );

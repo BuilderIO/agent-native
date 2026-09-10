@@ -45,14 +45,16 @@ export function validateReusableWorkflowConcurrency(
     typeof group !== "string" ||
     !group.includes("inputs.caller") ||
     !group.includes("netlify-prebuilt-child") ||
+    !group.includes("netlify-prebuilt-beta-{0}") ||
+    !group.includes("netlify-prebuilt-beta-direct") ||
     !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
     !group.includes("agent-native-production-site") ||
-    group.includes("github.event_name")
+    !group.includes("github.event_name")
   ) {
     return [
-      "reusable Netlify workflow must select a distinct child queue through inputs.caller",
+      "reusable Netlify workflow must serialize beta publishers per site and isolate direct beta dispatches",
     ];
   }
   return [];
@@ -251,7 +253,13 @@ const normalizedReusableConcurrencyGroup = reusableConcurrencyGroup.replace(
 );
 if (
   !normalizedReusableConcurrencyGroup.includes(
-    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}-{1}', inputs.site, inputs.caller)",
+    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}', inputs.site)",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "github.event_name == 'workflow_dispatch'",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)",
   )
 ) {
   issues.push(
@@ -847,6 +855,9 @@ if (
     "Beta source_ref must be a full 40-character commit SHA.",
   ) ||
   !reusableBetaFreshness.includes("Beta source_ref must equal current main") ||
+  !reusableBetaFreshness.includes(
+    "Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.",
+  ) ||
   reusableBetaFreshness.includes("requested || 'beta'") ||
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
@@ -875,7 +886,9 @@ if (
   ) ||
   !reusableBetaFreshness.includes(
     "did not settle before the five-minute cleanup deadline",
-  )
+  ) ||
+  !reusableBetaFreshness.includes("PREVIOUS_DEPLOY_ID") ||
+  !reusableBetaFreshness.includes("was superseded by published deploy")
 ) {
   issues.push(
     `${reusablePath} must reject stale beta sources before upload and revert accepted stale deploys`,

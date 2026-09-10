@@ -127,7 +127,10 @@ concurrency:
         || inputs.caller == 'release-migration'
         && 'agent-native-release-migrations'
         || inputs.target == 'beta'
-        && format('netlify-prebuilt-beta-{0}-{1}', inputs.site, inputs.caller)
+        && github.event_name == 'workflow_dispatch'
+        && format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)
+        || inputs.target == 'beta'
+        && format('netlify-prebuilt-beta-{0}', inputs.site)
         || inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'
@@ -181,6 +184,10 @@ jobs:
               return;
             }
             if (target === 'beta') {
+              if (context.eventName === 'workflow_dispatch') {
+                core.setFailed('Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.');
+                return;
+              }
               const mainSha = (await github.rest.git.getRef({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -958,6 +965,8 @@ jobs:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           node --experimental-strip-types <<'NODE'
@@ -998,6 +1007,16 @@ jobs:
                 );
                 if (site.published_deploy?.id === process.env.DEPLOY_ID) {
                   console.log(`Netlify published ${process.env.DEPLOY_ID}.`);
+                  return;
+                }
+                if (
+                  process.env.TARGET === "beta" &&
+                  site.published_deploy?.id &&
+                  site.published_deploy.id !== process.env.PREVIOUS_DEPLOY_ID
+                ) {
+                  console.log(
+                    `Netlify beta deploy ${process.env.DEPLOY_ID} was superseded by published deploy ${site.published_deploy.id}.`,
+                  );
                   return;
                 }
                 console.log("Deploy is ready; waiting for Netlify to publish it.");
