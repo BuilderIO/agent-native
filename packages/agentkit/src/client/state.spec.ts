@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentEvent } from "../protocol/index.js";
 import {
+  classifyAgentEvent,
   createAgentThreadState,
   reduceAgentEvent,
   selectActiveAgentRoster,
@@ -25,6 +26,51 @@ function event(
     ...payload,
   } as AgentEvent;
 }
+
+describe("classifyAgentEvent", () => {
+  const started = reduceAgentEvent(
+    createAgentThreadState("thread-1"),
+    event(1, { type: "run.started" }),
+  );
+
+  it("accepts the next contiguous sequence", () => {
+    expect(
+      classifyAgentEvent(started, event(2, { type: "run.completed" })),
+    ).toEqual({ status: "accepted", sequence: 2 });
+  });
+
+  it("names a replayed sequence so the caller can count it", () => {
+    expect(
+      classifyAgentEvent(started, event(1, { type: "run.started" })),
+    ).toEqual({ status: "duplicate", lastSequence: 1 });
+  });
+
+  it("names a gap with both sequences so the caller can count it", () => {
+    expect(
+      classifyAgentEvent(started, event(5, { type: "run.completed" })),
+    ).toEqual({ status: "gap", expectedSequence: 2, receivedSequence: 5 });
+  });
+
+  it("ignores an event addressed to a different thread", () => {
+    expect(
+      classifyAgentEvent(
+        createAgentThreadState("other"),
+        event(1, {
+          type: "run.started",
+        }),
+      ),
+    ).toEqual({ status: "foreign" });
+  });
+
+  it("agrees with the reducer it backs", () => {
+    expect(reduceAgentEvent(started, event(1, { type: "run.started" }))).toBe(
+      started,
+    );
+    expect(() =>
+      reduceAgentEvent(started, event(5, { type: "run.completed" })),
+    ).toThrow(/must be contiguous; expected 2 after 1, received 5/u);
+  });
+});
 
 describe("AgentKit lifecycle projections", () => {
   it("rejects sequence gaps without advancing the run projection", () => {

@@ -18,6 +18,7 @@ import {
   McpAgentKitConnectionRequestCard,
   McpAgentKitConnectionResume,
 } from "@agent-native/core/client/agentkit-chat/connections";
+import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -45,6 +46,10 @@ import { TAB_ID } from "@/lib/tab-id";
 function chatThreadPath(threadId: string | null) {
   return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home";
 }
+
+// Module scope on purpose: AgentKitRoot memoizes the client on its options, so
+// a new callback each render would rebuild the client and drop the stream.
+const reportStreamIntegrity = createAgentKitIntegrityReporter("chat");
 
 export default function ChatRouteContent({
   initialThreadId,
@@ -106,6 +111,7 @@ function ChatThreadRouteContent({
             clientOptions={{
               transportOwnership: "owned",
               retainActiveRunsOnThreadRelease: true,
+              onIntegrityReport: reportStreamIntegrity,
             }}
             threadId={resolvedThreadId}
             labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}

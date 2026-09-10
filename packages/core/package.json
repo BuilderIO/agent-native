@@ -115,6 +115,7 @@
     "./client/agentkit-chat": "./dist/client/agentkit-chat/index.js",
     "./client/agentkit-chat/composer": "./dist/client/agentkit-chat/composer.js",
     "./client/agentkit-chat/connections": "./dist/client/agentkit-chat/connections.js",
+    "./client/agentkit-chat/integrity": "./dist/client/agentkit-chat/integrity.js",
     "./client/agentkit-chat/questions": "./dist/client/agentkit-chat/questions.js",
     "./client/agentkit-chat/suggestions": "./dist/client/agentkit-chat/suggestions.js",
     "./client/agentkit-chat/transport": "./dist/client/agentkit-chat/transport.js",

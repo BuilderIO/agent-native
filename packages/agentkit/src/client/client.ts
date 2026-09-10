@@ -4,6 +4,7 @@ import type {
   AgentApprovalResponse,
   AgentConnectionResponse,
   AgentCapabilityDescriptor,
+  AgentStreamIntegrityReport,
   AgentCapabilityId,
   AgentCapabilities,
   AgentError,
@@ -38,6 +39,7 @@ import {
   projectAgentCapabilities,
 } from "../protocol/index.js";
 import {
+  classifyAgentEvent,
   createAgentThreadState,
   reduceAgentEvent,
   type AgentKitSnapshot,
@@ -65,6 +67,12 @@ export interface AgentKitClientOptions {
     delayMs?: (attempt: number) => number;
   };
   onError?: (error: AgentError) => void;
+  /**
+   * Called for stream integrity problems the client detects but cannot fix.
+   * Hosts route these to their own counters; failures here are swallowed so
+   * observability can never break the run it observes.
+   */
+  onIntegrityReport?: (report: AgentStreamIntegrityReport) => void;
   upload?: AgentKitUploadDriver;
 }
 
@@ -392,6 +400,9 @@ export class AgentKitClient implements AgentKitController {
   private readonly reconnectAttempts: number;
   private readonly reconnectDelay: (attempt: number) => number;
   private readonly onError?: (error: AgentError) => void;
+  private readonly onIntegrityReport?: (
+    report: AgentStreamIntegrityReport,
+  ) => void;
   private readonly upload: AgentKitUploadDriver;
   private readonly ownsTransport: boolean;
   private readonly retainActiveRunsOnThreadRelease: boolean;
@@ -422,6 +433,7 @@ export class AgentKitClient implements AgentKitController {
       options.reconnect?.delayMs ??
       ((attempt) => Math.min(250 * 2 ** attempt, 4_000));
     this.onError = options.onError;
+    this.onIntegrityReport = options.onIntegrityReport;
     this.upload = options.upload ?? defaultUploadDriver;
     this.snapshot = {
       connection: "idle",
@@ -1398,6 +1410,11 @@ export class AgentKitClient implements AgentKitController {
             }
           }
           if (!terminalEvent) {
+            this.reportIntegrity({
+              code: "run_missing_terminal",
+              threadId,
+              runId,
+            });
             throw new Error(
               `AgentKit run ${runId} ended without a terminal event.`,
             );
@@ -2117,15 +2134,27 @@ export class AgentKitClient implements AgentKitController {
 
   private scheduleQueuePromotion(threadId: ThreadId): void {
     const thread = this.getThread(threadId);
-    if (
-      this.queuePromotions.has(threadId) ||
-      !this.transport.steerQueuedMessage ||
-      thread.activeRunIds.length > 0
-    ) {
-      return;
-    }
+    if (this.queuePromotions.has(threadId)) return;
     const queued = thread.queuedMessages[0];
     if (!queued) return;
+    // Reached only after a terminal event, so a queued follow-up that cannot
+    // be promoted here is stranded rather than merely waiting.
+    if (!this.transport.steerQueuedMessage) {
+      this.reportIntegrity({
+        code: "queue_promotion_dropped",
+        threadId,
+        reason: "transport-cannot-steer",
+      });
+      return;
+    }
+    if (thread.activeRunIds.length > 0) {
+      this.reportIntegrity({
+        code: "queue_promotion_dropped",
+        threadId,
+        reason: "run-still-active",
+      });
+      return;
+    }
     this.queuePromotions.add(threadId);
     void this.steerQueuedMessage(threadId, queued.id)
       .catch(() => {
@@ -2141,10 +2170,27 @@ export class AgentKitClient implements AgentKitController {
   }
 
   private applyEvent(event: AgentEvent): void {
-    this.setThread(
-      event.threadId,
-      reduceAgentEvent(this.getThread(event.threadId), event),
-    );
+    const thread = this.getThread(event.threadId);
+    const admission = classifyAgentEvent(thread, event);
+    if (admission.status === "duplicate") {
+      this.reportIntegrity({
+        code: "duplicate_event",
+        threadId: event.threadId,
+        runId: event.runId,
+        expectedSequence: admission.lastSequence + 1,
+        receivedSequence: event.sequence,
+      });
+    }
+    if (admission.status === "gap") {
+      this.reportIntegrity({
+        code: "sequence_gap",
+        threadId: event.threadId,
+        runId: event.runId,
+        expectedSequence: admission.expectedSequence,
+        receivedSequence: admission.receivedSequence,
+      });
+    }
+    this.setThread(event.threadId, reduceAgentEvent(thread, event));
   }
 
   private setThread(threadId: ThreadId, thread: AgentThreadState): void {
@@ -2166,6 +2212,14 @@ export class AgentKitClient implements AgentKitController {
 
   private report(error: unknown, code: string): void {
     this.onError?.(toError(error, code));
+  }
+
+  private reportIntegrity(report: AgentStreamIntegrityReport): void {
+    try {
+      this.onIntegrityReport?.(report);
+    } catch {
+      // A counter must never affect the stream it counts.
+    }
   }
 
   private patch(patch: Partial<AgentKitSnapshot>): void {

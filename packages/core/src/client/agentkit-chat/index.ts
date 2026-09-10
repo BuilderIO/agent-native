@@ -18,6 +18,10 @@ export {
 } from "../use-agent-chat-home-handoff.js";
 export { createAgentNativeAgentKitTransport } from "./transport.js";
 export {
+  AGENTKIT_STREAM_INTEGRITY_EVENT,
+  createAgentKitIntegrityReporter,
+} from "./integrity.js";
+export {
   findMcpConnectionSuggestionIntegration,
   McpConnectionSuggestion,
 } from "./suggestions.js";

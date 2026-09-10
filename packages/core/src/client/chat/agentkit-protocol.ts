@@ -940,8 +940,6 @@ function runtimeCapabilitiesToProtocolCapabilities(
     // This adapter can replay while its process is alive, but it does not own a
     // durable event store and must not advertise restart-safe run resumption.
     resumableRuns: false,
-    "x-resumable-runs-reason":
-      "Core runtime replay is process-local until a durable event store is configured.",
     threadHistory: capabilities.messages.history,
     threadForking: capabilities.sessions?.fork,
     modelSelection: capabilities.models?.selectable,
@@ -1174,9 +1172,9 @@ export function createAgentKitProtocolAdapter(
       derivedCapabilities.connectionRequests &&
       runtime.capabilities.rich?.connectionRequests !== false,
     ),
+    // Deliberately after the options spread: a host must not be able to
+    // advertise a restart-safe guarantee this adapter cannot keep.
     resumableRuns: false,
-    "x-resumable-runs-reason":
-      "Core runtime replay is bounded and process-local; reconnect after a process restart requires a durable event transport.",
     "x-run-replay-retention": {
       maxEventsPerRun: maxRetainedEvents,
       maxCompletedRuns: maxRetainedRuns,
@@ -1192,10 +1190,14 @@ export function createAgentKitProtocolAdapter(
     id: AgentCapabilityId,
   ): AgentCapabilityDescriptor {
     if (id === "resumableRuns") {
+      // Not degraded: within one process replay is complete, and across a
+      // restart there is nothing to degrade to. Reporting it as unsupported
+      // matches the boolean projection and stops it reading as unfinished
+      // work. x-run-replay-retention states what replay does cover.
       return capabilityDescriptor(
         id,
-        "degraded",
-        "Run replay is bounded and process-local; restart-safe resumption requires a durable event transport.",
+        "unsupported",
+        "Run replay is process-local. Restart-safe resumption requires a durable event transport, which this adapter does not own.",
       );
     }
     if (id === "uploads" && capabilities.uploads !== true) {

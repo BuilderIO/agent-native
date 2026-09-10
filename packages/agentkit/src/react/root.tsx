@@ -156,6 +156,7 @@ export function AgentKitRoot({
   const reconnectAttempts = clientOptions?.reconnect?.attempts;
   const reconnectDelay = clientOptions?.reconnect?.delayMs;
   const onError = clientOptions?.onError;
+  const onIntegrityReport = clientOptions?.onIntegrityReport;
   const upload = clientOptions?.upload;
   const transportOwnership = endpoint
     ? "owned"
@@ -176,6 +177,7 @@ export function AgentKitRoot({
               delayMs: reconnectDelay,
             },
             onError,
+            onIntegrityReport,
             retainActiveRunsOnThreadRelease,
             upload,
           }),
@@ -184,6 +186,7 @@ export function AgentKitRoot({
       createId,
       now,
       onError,
+      onIntegrityReport,
       reconnectAttempts,
       reconnectDelay,
       resolvedTransport,

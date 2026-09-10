@@ -1437,6 +1437,7 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
                 "@agent-native/core/client/agent-native-icon",
                 "@agent-native/core/client/agentkit-chat/composer",
                 "@agent-native/core/client/agentkit-chat/connections",
+                "@agent-native/core/client/agentkit-chat/integrity",
                 "@agent-native/core/client/agentkit-chat/questions",
                 "@agent-native/core/client/agentkit-chat/rail",
                 "@agent-native/core/client/agentkit-chat/suggestions",

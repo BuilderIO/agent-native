@@ -6,6 +6,7 @@ import type {
   AgentQueuedMessage,
   AgentTransport,
 } from "../protocol/index.js";
+import type { AgentStreamIntegrityReport } from "../protocol/index.js";
 import {
   AgentKitProtocolError,
   createAgentKitProtocolVersionOffer,
@@ -1566,5 +1567,145 @@ describe("AgentKitClient", () => {
       code: "invalid_request",
       retryable: false,
     });
+  });
+});
+
+describe("stream integrity reports", () => {
+  it("reports a replayed event without advancing the projection", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    const transport = createTransport([
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(2, { type: "run.completed" }),
+    ]);
+    const client = new AgentKitClient({
+      transport,
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Review it",
+    });
+    await run.completed;
+
+    expect(reports).toEqual([
+      {
+        code: "duplicate_event",
+        threadId: "thread-1",
+        runId: "run-1",
+        expectedSequence: 2,
+        receivedSequence: 1,
+      },
+    ]);
+  });
+
+  it("reports a sequence gap before the reducer rejects it", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    const transport = createTransport([
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(4, { type: "run.completed" }),
+    ]);
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 0 },
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Review it",
+    });
+    await run.completed.catch(() => undefined);
+
+    expect(reports).toContainEqual({
+      code: "sequence_gap",
+      threadId: "thread-1",
+      runId: "run-1",
+      expectedSequence: 2,
+      receivedSequence: 4,
+    });
+  });
+
+  it("reports a stream that closed without a terminal event", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    const transport = createTransport([
+      protocolEvent(1, { type: "run.started" }),
+    ]);
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 0 },
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Review it",
+    });
+    await run.completed.catch(() => undefined);
+
+    expect(reports).toContainEqual({
+      code: "run_missing_terminal",
+      threadId: "thread-1",
+      runId: "run-1",
+    });
+  });
+
+  it("reports a queued follow-up the transport can never promote", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    const transport = createTransport([
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(2, {
+        type: "queue.updated",
+        messages: [
+          {
+            id: "queued-1",
+            threadId: "thread-1",
+            text: "And then deploy",
+            createdAt: "2026-08-29T00:00:00.000Z",
+          },
+        ],
+      }),
+      protocolEvent(3, { type: "run.completed" }),
+    ]);
+    // No steerQueuedMessage: the queued message is stranded, not waiting.
+    delete transport.steerQueuedMessage;
+    const client = new AgentKitClient({
+      transport,
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Review it",
+    });
+    await run.completed;
+
+    expect(reports).toContainEqual({
+      code: "queue_promotion_dropped",
+      threadId: "thread-1",
+      reason: "transport-cannot-steer",
+    });
+  });
+
+  it("never lets a failing counter break the stream", async () => {
+    const transport = createTransport([
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(2, { type: "run.completed" }),
+    ]);
+    const client = new AgentKitClient({
+      transport,
+      onIntegrityReport: () => {
+        throw new Error("counter exploded");
+      },
+    });
+
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Review it",
+    });
+
+    await expect(run.completed).resolves.toBeUndefined();
   });
 });

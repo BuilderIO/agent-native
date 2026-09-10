@@ -728,6 +728,29 @@ export interface AgentCapabilityAffordance {
   reason?: string;
 }
 
+/**
+ * Stream integrity problems the client can detect but not fix. Each one is a
+ * silent correctness failure today: a gap or duplicate means the transport and
+ * the reducer disagree about ordering, a missing terminal means a run looks
+ * frozen, and a dropped promotion means a queued follow-up never runs. Hosts
+ * wire `onIntegrityReport` to their own counters.
+ */
+export type AgentStreamIntegrityCode =
+  | "sequence_gap"
+  | "duplicate_event"
+  | "run_missing_terminal"
+  | "queue_promotion_dropped";
+
+export interface AgentStreamIntegrityReport {
+  code: AgentStreamIntegrityCode;
+  threadId: ThreadId;
+  runId?: RunId;
+  /** Low-cardinality discriminator. Never an id, timestamp, or free text. */
+  reason?: "transport-cannot-steer" | "run-still-active";
+  expectedSequence?: number;
+  receivedSequence?: number;
+}
+
 export interface AgentProtocolVersionOffer {
   protocol: AgentKitProtocolName;
   /** Positive, unique protocol versions understood by the caller. */

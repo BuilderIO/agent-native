@@ -3,6 +3,7 @@ import type {
   AgentEvent,
   AgentMessage,
 } from "@agent-native/agentkit/protocol";
+import { createAgentKitProtocolVersionOffer } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import { createAgentKitProtocolAdapter } from "./agentkit-protocol.js";
@@ -253,9 +254,20 @@ describe("createAgentKitProtocolAdapter", () => {
       now: () => "2026-08-28T00:00:00.000Z",
     });
     expect(transport.capabilities?.resumableRuns).toBe(false);
-    expect(transport.capabilities?.["x-resumable-runs-reason"]).toContain(
-      "process-local",
-    );
+    const discovery = await transport.discoverCapabilities?.({
+      protocol: createAgentKitProtocolVersionOffer(),
+      requested: ["resumableRuns"],
+    });
+    // The boolean projection and the descriptor must agree. Reporting
+    // "degraded" here while the projection says false is what made replay read
+    // as unfinished rather than deliberately out of scope.
+    expect(discovery?.capabilities).toEqual([
+      expect.objectContaining({
+        id: "resumableRuns",
+        state: "unsupported",
+        description: expect.stringContaining("process-local"),
+      }),
+    ]);
     const { runId } = await transport.startRun({
       threadId: "thread-1",
       messages: [userMessage("Run the checks")],
@@ -1987,7 +1999,7 @@ describe("createAgentKitProtocolAdapter", () => {
         expect.objectContaining({ id: "clientEffects", state: "available" }),
         expect.objectContaining({ id: "taskGroups", state: "unavailable" }),
         expect.objectContaining({ id: "uploads", state: "degraded" }),
-        expect.objectContaining({ id: "resumableRuns", state: "degraded" }),
+        expect.objectContaining({ id: "resumableRuns", state: "unsupported" }),
       ]),
     );
   });

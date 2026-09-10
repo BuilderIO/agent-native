@@ -201,20 +201,48 @@ function updateActiveRuns(
   };
 }
 
+export type AgentEventAdmission =
+  | { status: "foreign" }
+  | { status: "accepted"; sequence: number }
+  | { status: "duplicate"; lastSequence: number }
+  | { status: "gap"; expectedSequence: number; receivedSequence: number };
+
+/**
+ * The one place the ordering rule lives, so a caller that needs to count a
+ * rejection cannot drift from the reducer that performs it.
+ */
+export function classifyAgentEvent(
+  thread: AgentThreadState,
+  event: AgentEvent,
+): AgentEventAdmission {
+  if (event.threadId !== thread.id) return { status: "foreign" };
+  const lastSequence = thread.runs[event.runId]?.lastSequence ?? 0;
+  if (lastSequence >= event.sequence) {
+    return { status: "duplicate", lastSequence };
+  }
+  const expectedSequence = lastSequence + 1;
+  if (event.sequence !== expectedSequence) {
+    return {
+      status: "gap",
+      expectedSequence,
+      receivedSequence: event.sequence,
+    };
+  }
+  return { status: "accepted", sequence: event.sequence };
+}
+
 export function reduceAgentEvent(
   thread: AgentThreadState,
   event: AgentEvent,
 ): AgentThreadState {
-  if (event.threadId !== thread.id) return thread;
-  const lastSequence = thread.runs[event.runId]?.lastSequence ?? 0;
-  if (lastSequence >= event.sequence) {
+  const admission = classifyAgentEvent(thread, event);
+  if (admission.status === "foreign" || admission.status === "duplicate") {
     return thread;
   }
-  const expectedSequence = lastSequence + 1;
-  if (event.sequence !== expectedSequence) {
+  if (admission.status === "gap") {
     throw new AgentProtocolValidationError(
       "event.sequence",
-      `must be contiguous; expected ${expectedSequence} after ${lastSequence}, received ${event.sequence}`,
+      `must be contiguous; expected ${admission.expectedSequence} after ${admission.expectedSequence - 1}, received ${admission.receivedSequence}`,
     );
   }
 
