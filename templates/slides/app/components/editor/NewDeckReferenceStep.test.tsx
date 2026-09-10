@@ -91,6 +91,7 @@ describe("<NewDeckReferenceStep>", () => {
       id: "deck-pptx",
       title: "Reference PPT",
       source: "pptx",
+      referenceFilePaths: ["/uploads/reference.pptx"],
     };
     const { onSelect, onImport } = renderStep();
     onImport.mockResolvedValue(imported);
@@ -127,6 +128,7 @@ describe("<NewDeckReferenceStep>", () => {
       designSystemId: null,
       referenceDeckId: "deck-pptx",
       referenceSource: null,
+      referenceFilePaths: ["/uploads/reference.pptx"],
     });
   });
 

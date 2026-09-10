@@ -405,6 +405,7 @@ export function FirstDeckOnboardingFlow({
                 ? imported.title
                 : t("home.importedReferenceDeck"),
             source: "pptx",
+            referenceFilePaths: [pptxReference.path],
           };
         } else if (pdfReference || docxReference) {
           const documentReference = pdfReference ?? docxReference;
@@ -462,6 +463,7 @@ export function FirstDeckOnboardingFlow({
                   ? imported.title
                   : t("home.importedReferenceDeck"),
               source: documentFormat,
+              referenceFilePaths: [documentReference.path],
             };
           } catch (error) {
             deleteDeck(referenceDeck.id);
