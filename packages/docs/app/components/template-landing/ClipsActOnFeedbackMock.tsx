@@ -185,7 +185,14 @@ const CLIPS_PAGE_MOCK_CSS = [
   // Clips' own dark palette (templates/clips/app/global.css:50-84), pinned so
   // the real utility classes below resolve to the app's colours instead of the
   // docs page theme. `--player-control*` come from the same file's `:root`.
-  ".clips-page-mock-page { --background: 0 0% 10%; --foreground: 0 0% 90%; --card: 0 0% 14%; --card-foreground: 0 0% 90%; --popover: 0 0% 15%; --popover-foreground: 0 0% 90%; --primary: 0 0% 75%; --primary-foreground: 0 0% 10%; --muted: 0 0% 16%; --muted-foreground: 0 0% 60%; --accent: 0 0% 18%; --accent-foreground: 0 0% 90%; --border: 0 0% 24%; --input: 0 0% 24%; --sidebar-background: 0 0% 14%; --sidebar-foreground: 0 0% 60%; --player-control: 0 0% 0%; --player-control-foreground: 0 0% 100%; }",
+  //
+  // Two deliberate departures from the app: `--background` and
+  // `--sidebar-background` are darker here (5% / 8% against the app's 10% /
+  // 14%) so the crop settles into the near-black section it sits on instead of
+  // reading as a lighter panel floating on it. The 3-point gap between them is
+  // kept, which is what still separates the transcript panel from the page.
+  // Do not "restore" these to the app values without re-checking the section.
+  ".clips-page-mock-page { --background: 0 0% 5%; --foreground: 0 0% 90%; --card: 0 0% 14%; --card-foreground: 0 0% 90%; --popover: 0 0% 15%; --popover-foreground: 0 0% 90%; --primary: 0 0% 75%; --primary-foreground: 0 0% 10%; --muted: 0 0% 16%; --muted-foreground: 0 0% 60%; --accent: 0 0% 18%; --accent-foreground: 0 0% 90%; --border: 0 0% 24%; --input: 0 0% 24%; --sidebar-background: 0 0% 8%; --sidebar-foreground: 0 0% 60%; --player-control: 0 0% 0%; --player-control-foreground: 0 0% 100%; }",
 
   // `.dark .clips-share-trigger` sets the same override in the real app, which
   // is what makes the header's share controls read as solid white on dark.
