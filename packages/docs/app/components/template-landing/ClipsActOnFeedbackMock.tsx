@@ -19,9 +19,9 @@
 import { IconArrowUp, IconChevronRight, IconPaperclip } from "@tabler/icons-react";
 
 const FIXED_ITEMS = [
-  "Sidebar nav didn't collapse on mobile — I saw it clipped in your screenshot at 0:42",
-  "Search results reset on every keystroke — the console log showed the list re-rendering from scratch",
-  "Save stayed disabled after editing a field — the network log showed the update request never fired",
+  "Sidebar nav didn't collapse on mobile. I saw it clipped in your screenshot at 0:42.",
+  "Search results reset on every keystroke. The console log showed the list re-rendering from scratch.",
+  "Save stayed disabled after editing a field. The network log showed the update request never fired.",
 ];
 
 const CLIPS_CELL_MOCK_CSS = [
