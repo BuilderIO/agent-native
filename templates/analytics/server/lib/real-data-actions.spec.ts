@@ -1193,6 +1193,19 @@ describe("incomplete evidence detection", () => {
         "Set up cron to refresh the Revenue dashboard daily",
       ),
     ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule the Revenue dashboard refresh via cron",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps automation dashboards that use a template as construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation dashboard using a template",
+      ),
+    ).toBe(true);
   });
 
   it("keeps named dashboards as dashboard construction", () => {

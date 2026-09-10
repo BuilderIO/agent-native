@@ -192,7 +192,7 @@ const DASHBOARD_AUTOMATION_NESTED_ACTION_TERMS =
   /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
 
 const DASHBOARD_AUTOMATION_NESTED_TEMPLATE_TERMS =
-  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b/gi;
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\b)(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b/gi;
 
 const DASHBOARD_AUTOMATION_AND_DASHBOARD_TERMS =
   /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b\s+(?:and|or|then)\s+(?:(?:a|an|the)\s+)?(?:(?!\b(?:and|or|then)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
@@ -364,9 +364,14 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
     /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule)\b(?:(?!\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
       lower,
     );
+  const hasCronSchedulingTarget =
+    /\b(?:schedule|scheduled|set up|setup|run|trigger)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:via|using|with)\s+cron(?:\s+job)?\b/.test(
+      lower,
+    );
 
   return (
     hasExplicitAutomationTarget ||
+    hasCronSchedulingTarget ||
     (hasWorkflowArtifact && hasCreationIntent) ||
     (hasCreationIntent &&
       hasAutomationTarget &&

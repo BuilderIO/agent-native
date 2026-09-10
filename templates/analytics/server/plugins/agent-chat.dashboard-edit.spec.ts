@@ -368,6 +368,7 @@ describe("realDataFinalGuard dashboard edits", () => {
     for (const userText of [
       "Create a cron to email the Revenue dashboard daily",
       "Set up cron to refresh the Revenue dashboard daily",
+      "Schedule the Revenue dashboard refresh via cron",
     ]) {
       const result = realDataFinalGuard(
         guardContext({
@@ -389,6 +390,28 @@ describe("realDataFinalGuard dashboard edits", () => {
 
       expect(result).toBeNull();
     }
+  });
+
+  it("keeps recovery for an automation dashboard using a template", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create an automation dashboard using a template",
+        draftText: 'Created automation "automation-health".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "automation-health",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
   });
 
   it("keeps recovery for a named dashboard", () => {
