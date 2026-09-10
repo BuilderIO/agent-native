@@ -686,8 +686,45 @@ describe("McpIntegrationDialog", () => {
 
     expect(document.body.textContent).not.toContain("Who should use this?");
     expect(document.body.textContent).not.toContain("Set up for workspace");
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+
+    const connect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    act(() => connect?.click());
+
     expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("waits for a user click before quick-connect OAuth", () => {
+    const linear = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "linear",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="linear"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[linear]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    const connect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    act(() => connect?.click());
+    expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
   });
 
   it("routes personal-only provider setup directly to a personal connection", () => {
