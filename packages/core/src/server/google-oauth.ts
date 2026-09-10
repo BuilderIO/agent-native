@@ -354,7 +354,7 @@ export function isAllowedOAuthRedirectUri(
           `${basePath}/_agent-native/`,
           ...((isWorkspaceOAuthCallbackRelayEnabled() ||
             options.allowRootCallback) &&
-          isFrameworkOAuthCallbackPath(url.pathname)
+          isFrameworkOAuthCallbackPath(pathname)
             ? ["/_agent-native/"]
             : []),
         ]
