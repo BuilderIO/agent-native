@@ -19,9 +19,9 @@
 import { IconArrowUp, IconChevronRight, IconPaperclip } from "@tabler/icons-react";
 
 const FIXED_ITEMS = [
-  "Cart total didn't update when the quantity changed",
-  "Checkout button stayed disabled after applying a coupon",
-  "Confirmation email was missing the order number",
+  "Sidebar nav didn't collapse on mobile — I saw it clipped in your screenshot at 0:42",
+  "Search results reset on every keystroke — the console log showed the list re-rendering from scratch",
+  "Save stayed disabled after editing a field — the network log showed the update request never fired",
 ];
 
 const CLIPS_CELL_MOCK_CSS = [
@@ -66,14 +66,14 @@ export function ClipsActOnFeedbackMock({
           <span className="clips-cell-mock-prompt-link">
             clips.agent-native.com/share/U1f0uKYYKGF2
           </span>{" "}
-          and fix the issues from my feedback.
+          and fix the bugs I found in the dashboard.
         </div>
         <div className="clips-cell-mock-response">
           <div className="clips-cell-mock-searched">
             Watched the recording <IconChevronRight size={14} />
           </div>
           <div className="clips-cell-mock-heading">
-            Fixed the three issues you called out:
+            Fixed the three issues from your recording:
           </div>
           <ol className="clips-cell-mock-list">
             {FIXED_ITEMS.map((item, index) => (
