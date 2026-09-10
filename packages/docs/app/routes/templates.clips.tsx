@@ -272,10 +272,9 @@ export default function ClipsTemplate() {
         </GridInner>
       </PageSection>
 
-      {/* Key features — six cards, same layout as builder.io/platform/code.
-          showGrid is off because the card grid below already draws its own
-          dividers; the decorative page gridlines would double them up. */}
-      <PageSection showGrid={false}>
+      {/* Key features eyebrow/title — its own section so the decorative
+          three-col page gridlines show behind it. */}
+      <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
           <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
             {t("templateLanding.clips.keyFeaturesEyebrow")}
@@ -284,7 +283,14 @@ export default function ClipsTemplate() {
             {t("templateLanding.clips.keyFeaturesHeading")}
           </h2>
         </GridInner>
+      </PageSection>
 
+      {/* Key features — six cards, same layout as builder.io/platform/code.
+          showGrid is off here because this grid already draws its own
+          dividers, including on mobile/narrow breakpoints where the
+          decorative three-col overlay wouldn't match; keeping the decor on
+          the section above and off here avoids doubling the center lines. */}
+      <PageSection showGrid={false}>
         <GridInner>
           <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
             {KEY_FEATURES.map((feature) => (
