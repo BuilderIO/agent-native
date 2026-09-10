@@ -1468,11 +1468,8 @@ function DesignEditor() {
   const minimalUiByDefault =
     embedded && !hostOwnsChrome && !embedChromeRequested;
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
-  const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] =
-    useState(minimalUiByDefault);
   useEffect(() => {
     setMinimalUi(minimalUiByDefault);
-    setMinimalRightSidebarOpen(minimalUiByDefault);
   }, [minimalUiByDefault, embedChromeRequested, hostOwnsChrome]);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   useEffect(() => {
