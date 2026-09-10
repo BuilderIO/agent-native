@@ -181,6 +181,13 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   if (
+    deployWith?.checkout_ref !== "${{ github.event.pull_request.base.sha }}"
+  ) {
+    issues.push(
+      `${pullRequestPath} deploy job must use the trusted pull request base checkout`,
+    );
+  }
+  if (
     !Array.isArray(deploy?.needs) ||
     !deploy.needs.includes("discover") ||
     !deploy.needs.includes("build")

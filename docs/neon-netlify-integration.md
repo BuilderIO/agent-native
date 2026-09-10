@@ -10,7 +10,8 @@ Fork pull requests skip the deployment lane because GitHub withholds
 deployment secrets from untrusted fork code. The trusted workflow coordinates
 the preview from the base revision, while a separate build job checks out the
 PR revision without deployment credentials. The upload job checks out only the
-trusted base revision and receives the built artifact.
+trusted base revision, builds its trusted Functions, and receives the PR's
+static artifact. PR-controlled Functions are never deployed.
 
 Preview deploys do not create an isolated database. A preview may have the
 canonical site's runtime configuration, or may only be able to pass its static

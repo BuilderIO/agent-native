@@ -327,13 +327,18 @@ jobs:
         id: directories
         env:
           ARTIFACT_DOWNLOAD: ${{ inputs.artifact_download }}
+          TARGET: ${{ inputs.target }}
           TARGET_FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
           TARGET_PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
         run: |
           set -euo pipefail
           if [[ "$ARTIFACT_DOWNLOAD" == "true" ]]; then
-            echo "functions_directory=$RUNNER_TEMP/netlify-artifact/functions" >> "$GITHUB_OUTPUT"
             echo "publish_directory=$RUNNER_TEMP/netlify-artifact/publish" >> "$GITHUB_OUTPUT"
+            if [[ "$TARGET" == "preview" ]]; then
+              echo "functions_directory=$TARGET_FUNCTIONS_DIRECTORY" >> "$GITHUB_OUTPUT"
+            else
+              echo "functions_directory=$RUNNER_TEMP/netlify-artifact/functions" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "functions_directory=$TARGET_FUNCTIONS_DIRECTORY" >> "$GITHUB_OUTPUT"
             echo "publish_directory=$TARGET_PUBLISH_DIRECTORY" >> "$GITHUB_OUTPUT"
@@ -379,6 +384,7 @@ jobs:
         if: inputs.migration_only != true && inputs.artifact_download != true
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
+          ARTIFACT_DOWNLOAD: ${{ inputs.artifact_download }}
           DEPLOY: ${{ inputs.deploy }}
           NETLIFY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.NETLIFY_AUTH_TOKEN || '' }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
@@ -464,6 +470,30 @@ jobs:
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
           unset ANALYTICS_DATABASE_URL_SECRET
 
+      - name: Build trusted preview Functions for the PR artifact
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.artifact_download && inputs.migration_only != true
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          # This checkout is the trusted base revision. The PR build job only
+          # supplies static files; arbitrary PR Functions never reach Netlify.
+          if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" || "$SOURCE_TEMPLATE" == "crm" || "$SOURCE_TEMPLATE" == "chat" ]]; then
+            export agentNativePrebuiltBuild=true
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
+          netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
+
       - name: Run Plan release migrations
         if: >-
           inputs.deploy && inputs.deploy_mode == 'production' &&
@@ -536,12 +566,16 @@ jobs:
         env:
           FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
           PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           artifact_root="$RUNNER_TEMP/netlify-artifact"
-          mkdir -p "$artifact_root/publish" "$artifact_root/functions"
+          mkdir -p "$artifact_root/publish"
           cp -R "$PUBLISH_DIRECTORY"/. "$artifact_root/publish/"
-          cp -R "$FUNCTIONS_DIRECTORY"/. "$artifact_root/functions/"
+          if [[ "$TARGET" != "preview" ]]; then
+            mkdir -p "$artifact_root/functions"
+            cp -R "$FUNCTIONS_DIRECTORY"/. "$artifact_root/functions/"
+          fi
 
       - name: Upload the prebuilt artifact
         if: inputs.artifact_upload && inputs.migration_only != true

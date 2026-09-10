@@ -89,6 +89,18 @@ describe("Netlify PR preview workflow guard", () => {
       ),
       [],
     );
+    const preview = readWorkflow(
+      ".github/workflows/deploy-netlify-pr-previews.yml",
+    );
+    const previewDeploy = (preview.jobs as Record<string, Workflow>).deploy;
+    assert.equal(
+      (previewDeploy.with as Workflow).checkout_ref,
+      "${{ github.event.pull_request.base.sha }}",
+    );
+    assert.match(
+      reusableSource,
+      /supplies static files; arbitrary PR Functions never reach Netlify\./,
+    );
   });
 });
 
