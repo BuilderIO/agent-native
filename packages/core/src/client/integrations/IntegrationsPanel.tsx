@@ -1423,7 +1423,10 @@ export function IntegrationsPanel() {
               )}
 
               {hasConnectedMatches && (
-                <section className="space-y-3">
+                <section
+                  id={builderConnected ? "browser" : undefined}
+                  className="space-y-3"
+                >
                   <h2 className="border-b border-border/60 pb-2 text-sm font-semibold text-foreground">
                     {t("integrations.connectedSection")}
                   </h2>
@@ -1478,7 +1481,7 @@ export function IntegrationsPanel() {
               )}
 
               {availableItemsWithBuilder.length > 0 ? (
-                <div>
+                <div id={!builderConnected ? "browser" : undefined}>
                   <div className="mb-1 flex items-center justify-between gap-3 border-b border-border/60 pb-2">
                     <h3 className="text-sm font-semibold text-foreground">
                       {t("integrations.availableSection")}

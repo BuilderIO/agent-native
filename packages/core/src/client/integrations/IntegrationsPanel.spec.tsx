@@ -180,6 +180,7 @@ describe("IntegrationsPanel MCP connection errors", () => {
     expect(container.textContent).not.toContain(
       "Search Builder Publish and Hybrid Space content.",
     );
+    expect(container.querySelector("#browser")).not.toBeNull();
     expect(container.textContent).not.toContain("settings.mcpClientSetup");
     expect(container.querySelector(".animate-pulse")).toBeNull();
   });
