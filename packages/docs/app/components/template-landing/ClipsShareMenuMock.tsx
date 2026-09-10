@@ -28,6 +28,16 @@ const CLIPS_SHARE_MOCK_CSS = [
   ".clips-share-mock { width: 100%; }",
   `.clips-share-mock-frame { ${CLIPS_APP_PALETTE} }`,
   ".clips-share-mock-frame { display: flex; align-items: center; justify-content: center; width: 100%; padding: 32px 0; }",
+
+  // Enlarged with zoom rather than a transform. The two are not
+  // interchangeable here: transform scale rasterises at the authored size and
+  // then stretches the bitmap, which is what softens text and icon edges,
+  // while zoom multiplies the computed lengths and re-runs layout, so the
+  // label is laid out at its larger size and the icons re-render as vectors.
+  // Doing it this way also keeps one copy of the real product class strings in
+  // ClipsShareUi instead of a parallel set of enlarged values to keep in sync.
+  ".clips-share-mock-group { zoom: 1.5; }",
+
   CLIPS_SHARE_UI_CSS,
 ].join("\n");
 
@@ -49,8 +59,12 @@ export function ClipsShareMenuMock({
         {/* The control sits on the menu's right edge, the way `align="end"`
             leaves it on the real page, and the pair centres as one group. The
             4px gap is the popover's own `sideOffset`. */}
-        <div className="flex w-[293px] flex-col items-end gap-1">
-          <ClipsShareControl />
+        <div className="clips-share-mock-group flex w-[293px] flex-col items-end gap-1">
+          {/* The control has to paint over the menu: the menu is the later
+              sibling, so without this its heavy shadow washes across the
+              button above it. No stacking context is in the way here, unlike
+              the page illustration, so an ordinary z-index is enough. */}
+          <ClipsShareControl className="relative z-10" />
           <ClipsShareMenu />
         </div>
       </div>
