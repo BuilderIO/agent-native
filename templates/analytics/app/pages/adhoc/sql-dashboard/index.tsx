@@ -733,11 +733,10 @@ function SqlDashboardPageContent({
     mutateAsync: certifyDashboardAction,
     isPending: certificationPending,
   } = useActionMutation("certify-dashboard");
-  const { data: dashboardRevisions } = useDashboardRevisions(
-    !reportScreenshot && dashboardId && (dashboardActionsOpen || historyOpen)
-      ? dashboardId
-      : null,
-  );
+  const { data: dashboardRevisions, refetch: refetchDashboardRevisions } =
+    useDashboardRevisions(dashboardId ?? null, {
+      enabled: !reportScreenshot && (dashboardActionsOpen || historyOpen),
+    });
   const restoreDashboardRevision = useRestoreDashboardRevision(
     dashboardId ?? "",
   );
@@ -1236,16 +1235,13 @@ function SqlDashboardPageContent({
   );
 
   const handleUndo = useCallback(async () => {
-    if (
-      !dashboardId ||
-      !canEdit ||
-      !canUndo ||
-      restoreDashboardRevision.isPending
-    ) {
+    if (!dashboardId || !canEdit || restoreDashboardRevision.isPending) {
       return;
     }
 
-    const revisions = dashboardRevisions ?? [];
+    const revisions =
+      dashboardRevisions ?? (await refetchDashboardRevisions()).data ?? [];
+    if (!revisions.length) return;
     const targetIndex =
       undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
     const targetRevision = revisions[targetIndex];
@@ -1278,12 +1274,12 @@ function SqlDashboardPageContent({
     }
   }, [
     canEdit,
-    canUndo,
     dashboardId,
     dashboardRevisions,
     dashboardUpdatedAt,
     holdDashboardConfig,
     restoreDashboardRevision,
+    refetchDashboardRevisions,
     resetRevisionNavigation,
     t,
     undoRevisionId,
@@ -1354,7 +1350,10 @@ function SqlDashboardPageContent({
       ) {
         return;
       }
-      const canHandle = event.shiftKey ? canRedo : canUndo;
+      const canHandle = event.shiftKey
+        ? canRedo
+        : canUndo ||
+          (canEdit && !!dashboardId && dashboardRevisions === undefined);
       if (!canHandle || restoreDashboardRevision.isPending) return;
       event.preventDefault();
       void (event.shiftKey ? handleRedo() : handleUndo());
@@ -1365,6 +1364,9 @@ function SqlDashboardPageContent({
   }, [
     canUndo,
     canRedo,
+    canEdit,
+    dashboardId,
+    dashboardRevisions,
     handleRedo,
     handleUndo,
     reportScreenshot,

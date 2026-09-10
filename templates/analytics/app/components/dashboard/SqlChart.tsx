@@ -97,7 +97,9 @@ export function limitChartRows(
   ) {
     return rows;
   }
-  return rows.slice(-MAX_CHART_POINTS);
+  return chartType === "bar" || chartType === "pie"
+    ? rows.slice(0, MAX_CHART_POINTS)
+    : rows.slice(-MAX_CHART_POINTS);
 }
 
 const DEFAULT_COLORS = [
@@ -1385,9 +1387,17 @@ export function SqlChart({
         : queryRows,
     [queryRows, yKeys, panel.id, shouldCreateDemoTrend],
   );
+  // Legacy normalization: older saved dashboards may still have stacked-*
+  // chart types. Render them unstacked rather than silently blank.
+  const chartType: ChartType =
+    (panel.chartType as string) === "stacked-bar"
+      ? "bar"
+      : (panel.chartType as string) === "stacked-area"
+        ? "area"
+        : panel.chartType;
   const chartRows = useMemo(
-    () => limitChartRows(rows, panel.chartType),
-    [panel.chartType, rows],
+    () => limitChartRows(rows, chartType),
+    [chartType, rows],
   );
 
   // Section panels are pure layout — no query, no chart. Render a header with
@@ -1477,14 +1487,6 @@ export function SqlChart({
     );
   }
 
-  // Legacy normalization: older saved dashboards may still have stacked-*
-  // chart types. Render them unstacked rather than silently blank.
-  const chartType: ChartType =
-    (panel.chartType as string) === "stacked-bar"
-      ? "bar"
-      : (panel.chartType as string) === "stacked-area"
-        ? "area"
-        : panel.chartType;
   const missingConfigKeys = configuredKeysMissingFromRows(rows, panel);
   const withConfigWarning = (node: ReactNode) =>
     missingConfigKeys.length > 0 ? (
@@ -1544,7 +1546,9 @@ export function SqlChart({
   }
 
   if (chartType === "heatmap") {
-    return withConfigWarning(<HeatmapRenderer rows={rows} panel={panel} />);
+    return withConfigWarning(
+      <HeatmapRenderer rows={chartRows} panel={panel} />,
+    );
   }
 
   if (chartType === "callout") {

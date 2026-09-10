@@ -54,6 +54,9 @@ describe("limitChartRows", () => {
     const rows = Array.from({ length: 401 }, (_, index) => ({ index }));
     expect(limitChartRows(rows, "table")).toBe(rows);
     expect(limitChartRows(rows, "line")).toEqual(rows.slice(-400));
+    expect(limitChartRows(rows, "heatmap")).toEqual(rows.slice(-400));
+    expect(limitChartRows(rows, "bar")).toEqual(rows.slice(0, 400));
+    expect(limitChartRows(rows, "pie")).toEqual(rows.slice(0, 400));
   });
 });
 
