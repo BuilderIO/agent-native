@@ -2197,13 +2197,19 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       showCollapsedSidebar ? "space-y-1" : "space-y-1.5",
                     )}
                   >
-                    <SidebarFooterActions
-                      feedback={feedbackButton}
-                      search={searchButton}
-                      collapse={collapseButton}
-                      collapsed={showCollapsedSidebar}
+                    <FeedbackButton
+                      variant={showCollapsedSidebar ? "icon" : "sidebar"}
+                      side="right"
+                      className={showCollapsedSidebar ? "!size-9 !p-0" : "w-full"}
                     />
-                    <div data-sidebar-footer-utilities>
+                    <div
+                      data-sidebar-footer-utilities
+                      className={cn(
+                        showCollapsedSidebar
+                          ? "flex flex-col items-center gap-1"
+                          : "flex items-center gap-0.5",
+                      )}
+                    >
                       <OrgSwitcher
                         compact={showCollapsedSidebar}
                         className={cn(
@@ -2230,6 +2236,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         </TooltipContent>
                       </Tooltip>
                       <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
+                      {collapseButton}
                     </div>
                   </div>
                 </>
@@ -2578,7 +2585,7 @@ function StandardLayout({ children }: AppLayoutProps) {
             </Link>
             <EnvironmentBadge placement="inline" />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
             <div className="space-y-0.5">
               {[
                 { id: "inbox", label: t("mail.views.inbox"), href: "/inbox" },
