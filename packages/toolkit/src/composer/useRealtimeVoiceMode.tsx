@@ -1550,6 +1550,7 @@ function useRealtimeVoiceModeController(
   const transcriptThreadIdRef = useRef<string | undefined>(undefined);
   const liveCloseDrainTimerRef = useRef<number | null>(null);
   const liveCloseDrainFinishRef = useRef<(() => void) | null>(null);
+  const toolAbortControllersRef = useRef(new Set<AbortController>());
   const transcriptSequenceRef = useRef(0);
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
@@ -1583,6 +1584,13 @@ function useRealtimeVoiceModeController(
   useEffect(() => {
     preferencesRef.current = preferences;
   }, [preferences]);
+
+  const abortActiveToolCalls = useCallback(() => {
+    for (const controller of toolAbortControllersRef.current) {
+      controller.abort();
+    }
+    toolAbortControllersRef.current.clear();
+  }, []);
 
   const hydratePreferences = useCallback(async () => {
     if (preferencesHydratedRef.current) return;
@@ -1873,6 +1881,7 @@ function useRealtimeVoiceModeController(
     transportGenerationRef.current += 1;
     capabilityRef.current = undefined;
     protocolRef.current = "realtime";
+    abortActiveToolCalls();
     abortRef.current?.abort();
     abortRef.current = null;
     channelRef.current?.close();
@@ -1909,7 +1918,12 @@ function useRealtimeVoiceModeController(
     handledCallsRef.current.clear();
     responseCoordinator.reset();
     toolManifestCoordinator.reset();
-  }, [audioLevels, responseCoordinator, toolManifestCoordinator]);
+  }, [
+    abortActiveToolCalls,
+    audioLevels,
+    responseCoordinator,
+    toolManifestCoordinator,
+  ]);
 
   const fail = useCallback(
     (message: string, options?: { openKeySettings?: boolean }) => {
@@ -1927,6 +1941,8 @@ function useRealtimeVoiceModeController(
       handledCallsRef.current.add(call.callId);
       const transportGeneration = transportGenerationRef.current;
       const transportChannel = channelRef.current;
+      const toolAbortController = new AbortController();
+      toolAbortControllersRef.current.add(toolAbortController);
       transition("working");
       let result: RealtimeVoiceToolResult;
       try {
@@ -1938,7 +1954,7 @@ function useRealtimeVoiceModeController(
           sessionId: sessionIdRef.current,
           browserTabId,
           capability: capabilityRef.current,
-          signal: abortRef.current?.signal,
+          signal: toolAbortController.signal,
         });
       } catch (toolError) {
         result = {
@@ -1946,6 +1962,8 @@ function useRealtimeVoiceModeController(
           status: "failed",
           output: errorMessage(toolError),
         };
+      } finally {
+        toolAbortControllersRef.current.delete(toolAbortController);
       }
       if (
         transportGeneration !== transportGenerationRef.current ||
@@ -2371,9 +2389,13 @@ function useRealtimeVoiceModeController(
     const activeThreadId = realtimeVoiceTranscriptRegistry.activeThreadId();
     const protocol = protocolRef.current;
     transition("ending");
-    transcriptSequencer.flush();
+    abortActiveToolCalls();
     const finish = () => {
-      liveCloseDrainTimerRef.current = null;
+      if (liveCloseDrainTimerRef.current !== null) {
+        window.clearTimeout(liveCloseDrainTimerRef.current);
+        liveCloseDrainTimerRef.current = null;
+      }
+      transcriptSequencer.flush();
       liveCloseDrainFinishRef.current = null;
       cleanupTransport();
       setError(null);
@@ -2413,7 +2435,13 @@ function useRealtimeVoiceModeController(
       return;
     }
     finish();
-  }, [adapters, cleanupTransport, transcriptSequencer, transition]);
+  }, [
+    abortActiveToolCalls,
+    adapters,
+    cleanupTransport,
+    transcriptSequencer,
+    transition,
+  ]);
 
   const toggleChat = useCallback(() => {
     setChatVisible((current) => !current);

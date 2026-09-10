@@ -355,6 +355,7 @@ describe("Realtime voice client transport", () => {
   });
 
   it("sends function calls to the authenticated Agent-Native tool bridge", async () => {
+    const signal = new AbortController().signal;
     const fetchMock = vi.fn(async () =>
       Response.json({
         callId: "call-1",
@@ -372,6 +373,7 @@ describe("Realtime voice client transport", () => {
         sessionId: "session-1",
         browserTabId: "tab-1",
         capability: "capability-1",
+        signal,
       }),
     ).resolves.toEqual({
       callId: "call-1",
@@ -382,6 +384,7 @@ describe("Realtime voice client transport", () => {
       "/_agent-native/realtime-voice/tool",
       expect.objectContaining({
         method: "POST",
+        signal,
         headers: expect.objectContaining({
           "X-Agent-Native-Browser-Tab": "tab-1",
           "X-Agent-Native-Realtime-Capability": "capability-1",
