@@ -236,6 +236,26 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "Der vorherige Agentenstream endete während der Wiederherstellung. Fahre fort oder versuche es erneut, um die Verbindung zum Lauf wiederherzustellen.",
   "recovery.reconnectBuilder": "Builder.io erneut verbinden",
+  "secrets.addCustomKeyNamed":
+    "„{{name}}“ als benutzerdefinierten Schlüssel hinzufügen",
+  "secrets.customKey": "Benutzerdefinierter Schlüssel",
+  "secrets.customKeyHint": "Beliebigen Schlüssel nach Namen hinzufügen",
+  "secrets.fromEnvironment":
+    "Wird von der Bereitstellungsumgebung bereitgestellt.",
+  "secrets.managedInVault":
+    "Wird im Vault des Arbeitsbereichs verwaltet. Jede App in diesem Arbeitsbereich verwendet diesen Wert.",
+  "secrets.openVault": "Vault öffnen",
+  "secrets.overridesVault":
+    "Dieser persönliche Schlüssel überschreibt den Vault-Wert des Arbeitsbereichs. Entferne ihn, um den Vault-Schlüssel zu verwenden.",
+  "secrets.overridesWorkspace":
+    "Dieser persönliche Schlüssel überschreibt den Wert des Arbeitsbereichs. Entferne ihn, um den gemeinsamen Schlüssel zu verwenden.",
+  "secrets.setForWorkspace": "Für alle in diesem Arbeitsbereich festgelegt.",
+  "secrets.sourceEnvironment": "Umgebung",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Arbeitsbereich",
+  "secrets.statusUnavailable": "Nicht verfügbar",
+  "secrets.usePersonalKey":
+    "Stattdessen einen persönlichen Schlüssel verwenden",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
   "setup.addOwnKeys": "Eigene Schlüssel hinzufügen",

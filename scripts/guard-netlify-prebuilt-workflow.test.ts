@@ -100,6 +100,18 @@ describe("Netlify PR preview workflow guard", () => {
       (previewDeploy.with as Workflow).checkout_ref,
       "${{ github.event.pull_request.base.sha }}",
     );
+    const previewDiscover = (preview.jobs as Record<string, Workflow>).discover;
+    const previewDiscoverCheckout = (
+      previewDiscover.steps as Array<Workflow>
+    ).find(
+      (step) =>
+        typeof step.uses === "string" &&
+        step.uses.startsWith("actions/checkout@"),
+    );
+    assert.equal(
+      (previewDiscoverCheckout?.with as Workflow).ref,
+      "${{ github.event.pull_request.base.sha }}",
+    );
     assert.match(
       reusableSource,
       /supplies static files; arbitrary PR Functions never reach Netlify\./,
@@ -336,12 +348,14 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("serializes beta publishers per site and isolates direct dispatches", () => {
-    assert.deepEqual(
-      validateReusableWorkflowConcurrency(
-        readWorkflow(".github/workflows/deploy-netlify-prebuilt.yml"),
-      ),
-      [],
+  it("requires distinct preview and beta child queues", () => {
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(validateReusableWorkflowConcurrency(reusable), []);
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.target == 'preview'[\s\S]*netlify-prebuilt-preview-\{0\}-\{1\}/,
     );
   });
 
@@ -1134,7 +1148,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(migration, /pnpm --filter crm migrate:production/);
   });
 
-  it("keeps production Chat assembly independent of masked runtime secrets", () => {
+  it("keeps Chat assembly independent of masked runtime secrets", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
       "utf8",
@@ -1151,7 +1165,7 @@ describe("production Netlify site concurrency guard", () => {
 
     assert.match(
       build,
-      /if \[\[ \( \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
+      /if \[\[ \( \"\$TARGET\" == \"beta\" \|\| \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
     );
     assert.match(chatNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(chatNetlify, /agentNativePrebuiltAuthSecret/);
@@ -1215,6 +1229,11 @@ describe("production Netlify site concurrency guard", () => {
     const previewSmoke = steps.find(
       (step) => step.name === "Smoke-test the uploaded PR preview",
     );
+    const previewDatabaseMirror = steps.find(
+      (step) =>
+        step.name ===
+        "Mirror production database variables into the PR preview context",
+    );
 
     assert(appSmoke);
     assert.equal(
@@ -1236,7 +1255,40 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(previewSmoke.run), /--canonical-host/);
     assert.match(String(previewSmoke.run), /--auth-routes/);
     assert.match(String(previewSmoke.run), /--preview/);
-    assert.match(String(previewSmoke.run), /--allow-missing-health/);
+    assert.doesNotMatch(String(previewSmoke.run), /--allow-missing-health/);
+
+    assert(previewDatabaseMirror);
+    assert.equal(
+      previewDatabaseMirror.if,
+      "inputs.target == 'preview' && inputs.deploy && inputs.migration_only != true && steps.target.outputs.source_template != '@agent-native/docs'",
+    );
+    assert.match(
+      String(previewDatabaseMirror.run),
+      /sync-netlify-preview-database\.ts/,
+    );
+    assert.equal(previewDatabaseMirror.env?.NETLIFY_ACCOUNT_ID, "builder-io");
+    assert.equal(
+      previewDatabaseMirror.env?.NETLIFY_PREVIEW_DATABASE_URL,
+      "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}",
+    );
+    assert.equal(
+      previewDatabaseMirror.env?.NETLIFY_SOURCE_TEMPLATE,
+      "${{ steps.target.outputs.source_template }}",
+    );
+    assert(
+      steps.findIndex((step) => step === previewDatabaseMirror) <
+        steps.findIndex((step) => step.id === "deploy"),
+    );
+    const previewDatabaseScript = readFileSync(
+      "scripts/sync-netlify-preview-database.ts",
+      "utf8",
+    );
+    assert.doesNotMatch(previewDatabaseScript, /productionDatabaseVariables/);
+    assert.doesNotMatch(previewDatabaseScript, /candidate\.value\b/);
+    assert.doesNotMatch(
+      readFileSync("scripts/smoke-check-health.ts", "utf8"),
+      /previewDatabaseGap/,
+    );
 
     assert(docsSmoke);
     assert.equal(

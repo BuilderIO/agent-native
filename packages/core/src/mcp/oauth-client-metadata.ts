@@ -224,7 +224,19 @@ function validateClientMetadataDocument(
       "Client metadata document token_endpoint_auth_method is invalid",
     );
   }
-  if (tokenEndpointAuthMethod !== "none") {
+  // A stronger auth method than "none" is not a reason to reject the
+  // document — this server's token endpoint only ever operates as a public
+  // PKCE client regardless of what the document declares, and clients such
+  // as ChatGPT advertise a primary confidential method (e.g.
+  // "private_key_jwt") for use with other authorization servers while still
+  // listing "none" as supported here via token_endpoint_auth_methods_supported.
+  const supportedTokenEndpointAuthMethods = parseStringArray(
+    document.token_endpoint_auth_methods_supported,
+  );
+  if (
+    tokenEndpointAuthMethod !== "none" &&
+    !supportedTokenEndpointAuthMethods.includes("none")
+  ) {
     throw new Error("Only public Client ID Metadata clients are supported");
   }
 

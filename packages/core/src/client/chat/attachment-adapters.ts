@@ -2,7 +2,9 @@
 
 import {
   CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
+  formatOversizedTextAttachmentError,
   IMAGE_ATTACHMENT_ACCEPT,
+  MAX_TEXT_ATTACHMENT_BYTES as MAX_TEXT_FILE_BYTES,
 } from "@agent-native/toolkit/composer/attachment-accept";
 import type {
   AttachmentAdapter,
@@ -21,9 +23,15 @@ export const MAX_PDF_BYTES = 4 * 1024 * 1024;
 // images on the client before we ever serialize them.
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAGE_DIMENSION = 2048;
-// Estimated total serialized body budget (JSON POST). Vercel/Netlify cap ~4.5 MB.
-// We stop well below to leave room for the text payload and JSON framing.
-export const MAX_ESTIMATED_BODY_BYTES = 3.5 * 1024 * 1024;
+// Vercel/Netlify cap requests at roughly 4.5 MB. Keep 1 MB for the message,
+// bounded history, and JSON framing; attachments get the remaining 3.5 MB.
+export const MAX_NON_ATTACHMENT_BODY_BYTES = 1 * 1024 * 1024;
+export const MAX_ESTIMATED_BODY_BYTES =
+  4.5 * 1024 * 1024 - MAX_NON_ATTACHMENT_BODY_BYTES;
+// Text files are read into memory before they can be sent as inline content.
+// Keep one file below the aggregate budget so an oversized EML is rejected
+// before file.text() allocates the whole payload.
+export const MAX_TEXT_ATTACHMENT_BYTES = MAX_TEXT_FILE_BYTES;
 // At 3.5 MB of serializable attachments, aggressively re-downscale images.
 export const AGGRESSIVE_MAX_IMAGE_DIMENSION = 1024;
 export const AGGRESSIVE_JPEG_QUALITY = 0.7;
@@ -167,18 +175,47 @@ export async function getImageFileDataURL(file: File): Promise<string> {
 }
 
 /**
- * Estimate the serialized byte cost of a collection of attachment data-URLs
- * (base64 strings, accounting for JSON string escaping overhead).
+ * Estimate the serialized byte cost of attachment payload strings (base64 or
+ * text, accounting for UTF-8 encoding and JSON string escaping overhead).
  */
-export function estimateAttachmentBodyBytes(dataUrls: string[]): number {
-  // JSON.stringify adds ~2 bytes of quotes per string; base64 is already
-  // accounted for in the string length. Add 15% for JSON framing.
-  return dataUrls.reduce((sum, url) => sum + url.length, 0) * 1.15;
+export function estimateAttachmentBodyBytes(values: string[]): number {
+  const encodedBytes = new TextEncoder();
+  // Measure each string after JSON escaping so quote-heavy or control-heavy
+  // text cannot pass the guard with an underestimated request size.
+  return (
+    values.reduce(
+      (sum, value) =>
+        sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
+      0,
+    ) * 1.15
+  );
 }
 
 export type QueuedAttachment = CompleteAttachment & {
   metadata?: Record<string, unknown>;
 };
+
+export function getAttachmentBodyStrings(
+  attachments: ReadonlyArray<QueuedAttachment>,
+): string[] {
+  return attachments.flatMap((attachment) =>
+    attachment.content.flatMap((part) => {
+      if (part.type === "image" && typeof part.image === "string") {
+        return [part.image];
+      }
+      if (part.type === "text" && typeof part.text === "string") {
+        return [part.text];
+      }
+      if (
+        part.type === "file" &&
+        typeof (part as { data?: unknown }).data === "string"
+      ) {
+        return [(part as { data: string }).data];
+      }
+      return [];
+    }),
+  );
+}
 
 export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
   public accept = IMAGE_ATTACHMENT_ACCEPT;
@@ -299,8 +336,14 @@ function escapeQueuedAttachmentAttribute(value: string): string {
 
 export function isTextLikeFile(file: File): boolean {
   if (file.type.startsWith("text/")) return true;
-  if (file.type === "application/json") return true;
-  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml)$/i.test(
+  if (
+    file.type === "application/json" ||
+    file.type === "application/x-yaml" ||
+    file.type === "message/rfc822"
+  ) {
+    return true;
+  }
+  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml|eml)$/i.test(
     file.name,
   );
 }
@@ -428,6 +471,12 @@ export async function serializeQueuedAttachments(
           content: [{ type: "image", image: await getImageFileDataURL(file) }],
         });
       } else if (isTextLikeFile(file)) {
+        if (file.size > MAX_TEXT_ATTACHMENT_BYTES) {
+          throw new Error(
+            formatOversizedTextAttachmentError(file.name, file.size),
+          );
+        }
+        const text = await file.text();
         queued.push({
           id,
           type: "file",
@@ -437,7 +486,7 @@ export async function serializeQueuedAttachments(
           content: [
             {
               type: "text",
-              text: textFileAttachmentEnvelope(file, await file.text()),
+              text: textFileAttachmentEnvelope(file, text),
             },
           ],
         });

@@ -8,6 +8,7 @@ import {
   isConfirmedAnonymousAuthSession,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
+  shouldAutoFederateIdentitySso,
   shouldHideAuthSubtitle,
   type AuthPageProps,
 } from "./AuthPage.js";
@@ -62,6 +63,23 @@ describe("AuthPage", () => {
       ),
     ).toBe(false);
     expect(isAuthenticatedAuthSession({ ok: false }, {})).toBe(false);
+  });
+
+  it("only auto-federates identity SSO on its canonical origin", () => {
+    expect(
+      shouldAutoFederateIdentitySso({
+        identitySsoAuto: true,
+        publicOAuthOrigin: "https://design.agent-native.com",
+        currentOrigin: "https://design.agent-native.com",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoFederateIdentitySso({
+        identitySsoAuto: true,
+        publicOAuthOrigin: "https://design.agent-native.com",
+        currentOrigin: "https://pr-4689--agent-native-design.netlify.app",
+      }),
+    ).toBe(false);
   });
 
   it("renders the password auth surface on the server without browser globals", () => {

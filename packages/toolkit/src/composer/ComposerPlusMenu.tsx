@@ -32,6 +32,7 @@ import {
   isExternalAssetPickerUrl,
   standaloneAssetPickerUrl,
 } from "./asset-picker-url.js";
+import { formatAttachmentError } from "./attachment-accept.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { ComposerMode } from "./types.js";
 
@@ -45,6 +46,7 @@ interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
   addAttachment?: (file: File) => Promise<unknown>;
   onAttachmentError?: (message: string) => void;
+  attachmentAccept?: string;
   /**
    * Show the "Create Extension" entry. Extensions are optional and hidden
    * unless the host explicitly enables their agent tool surface.
@@ -204,10 +206,6 @@ function slugifyName(value: string): string {
   );
 }
 
-function formatAttachmentError(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
-
 function MenuItemHelp({
   label,
   description,
@@ -244,7 +242,11 @@ function MenuItemHelp({
 function UploadOnlyAttachButton({
   addAttachment,
   onAttachmentError,
-}: Pick<ComposerPlusMenuProps, "addAttachment" | "onAttachmentError">) {
+  attachmentAccept,
+}: Pick<
+  ComposerPlusMenuProps,
+  "addAttachment" | "onAttachmentError" | "attachmentAccept"
+>) {
   const composerRuntime = useComposerRuntime();
   const t = useComposerRuntimeAdapters().translate!;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -274,6 +276,7 @@ function UploadOnlyAttachButton({
         ref={inputRef}
         type="file"
         multiple
+        accept={attachmentAccept}
         className="hidden"
         onChange={(event) => {
           void handleFilesSelected(event.target.files);
@@ -307,6 +310,7 @@ export function ComposerPlusMenu({
   onSelectMode,
   addAttachment,
   onAttachmentError,
+  attachmentAccept,
   extensionTools = false,
   mode = "full",
   terminalModeControl,
@@ -316,6 +320,7 @@ export function ComposerPlusMenu({
       <UploadOnlyAttachButton
         addAttachment={addAttachment}
         onAttachmentError={onAttachmentError}
+        attachmentAccept={attachmentAccept}
       />
     );
   }
@@ -329,6 +334,7 @@ export function ComposerPlusMenu({
       onSelectMode={onSelectMode}
       addAttachment={addAttachment}
       onAttachmentError={onAttachmentError}
+      attachmentAccept={attachmentAccept}
       extensionTools={extensionTools}
     />
   );
@@ -405,10 +411,15 @@ function ComposerPlusMenuFull({
   onSelectMode,
   addAttachment,
   onAttachmentError,
+  attachmentAccept,
   extensionTools,
 }: Pick<
   ComposerPlusMenuProps,
-  "addAttachment" | "onSelectMode" | "onAttachmentError" | "extensionTools"
+  | "addAttachment"
+  | "onSelectMode"
+  | "onAttachmentError"
+  | "attachmentAccept"
+  | "extensionTools"
 >) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
@@ -685,6 +696,7 @@ function ComposerPlusMenuFull({
         ref={fileUploadRef}
         type="file"
         multiple
+        accept={attachmentAccept}
         className="hidden"
         onChange={(event) => {
           void handleFilesSelected(event.target.files);
