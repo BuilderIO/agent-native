@@ -224,7 +224,7 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("requires a distinct reusable child queue selected by the caller input", () => {
+  it("serializes beta publishers per site and isolates direct dispatches", () => {
     assert.deepEqual(
       validateReusableWorkflowConcurrency(
         readWorkflow(".github/workflows/deploy-netlify-prebuilt.yml"),
@@ -239,14 +239,17 @@ describe("production Netlify site concurrency guard", () => {
     );
     const betaConcurrency = beta.concurrency as Workflow;
     assert.equal(betaConcurrency["cancel-in-progress"], false);
-    assert.match(String(betaConcurrency.group), /github\.event_name == 'push'/);
     assert.match(
       String(betaConcurrency.group),
-      /deploy-agent-native-beta-sites-prebuilt'/,
+      /github\.event_name == 'workflow_dispatch'/,
     );
     assert.match(
       String(betaConcurrency.group),
-      /deploy-agent-native-beta-sites-prebuilt-manual'/,
+      /format\('deploy-agent-native-beta-manual-\{0\}', github\.run_id\)/,
+    );
+    assert.match(
+      String(betaConcurrency.group),
+      /'deploy-agent-native-beta-sites-prebuilt'/,
     );
     assert.equal((beta.permissions as Workflow).contents, "write");
     assert.equal(
@@ -413,11 +416,27 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
-      /inputs\.target == 'beta'\s+&&\s+format\('netlify-prebuilt-beta-\{0\}-\{1\}', inputs\.caller, inputs\.site\)/,
+      /inputs\.target == 'beta'\s+&&\s+format\('netlify-prebuilt-beta-\{0\}', inputs\.site\)/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /github\.event_name == 'workflow_dispatch'\s+&&\s+!inputs\.caller/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /format\('netlify-prebuilt-beta-direct-\{0\}-\{1\}', inputs\.site, github\.run_id\)/,
+    );
+    assert.equal(
+      (reusable.concurrency as Workflow)["cancel-in-progress"],
+      false,
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
       /inputs\.caller == 'release-migration'/,
+    );
+    assert.equal(
+      ((reusable.jobs as Workflow).deploy as Workflow)["timeout-minutes"],
+      150,
     );
     assert.match(
       reusableSource,
@@ -431,6 +450,87 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       reusableSource,
       /core\.setOutput\('current', String\(current\)\)/,
+    );
+    assert.match(reusableSource, /Verify beta source is current after publish/);
+    assert.match(
+      reusableSource,
+      /always\(\) && inputs\.target == 'beta' && inputs\.deploy/,
+    );
+    assert.match(reusableSource, /steps\.deploy\.outputs\.deploy_id != ''/);
+    assert.match(
+      reusableSource,
+      /steps\.beta_post_freshness\.outputs\.current == 'false'/,
+    );
+    assert.match(reusableSource, /Revert stale beta deploy/);
+    assert.match(
+      reusableSource,
+      /sites\/\$\{siteId\}\/deploys\/\$\{previousId\}\/restore/,
+    );
+    assert.match(reusableSource, /deploys\/\$\{deployId\}\/cancel/);
+    assert.match(reusableSource, /cancellationRequested/);
+    assert.match(reusableSource, /PREVIOUS_DEPLOY_ID/);
+    assert.match(reusableSource, /const publishedDeployId/);
+    assert.match(
+      reusableSource,
+      /keeping the beta queue occupied until the stale deploy is non-publishable/,
+    );
+    assert.match(reusableSource, /Netlify beta freshness restore precondition/);
+    assert.match(reusableSource, /const restoredDeployId = restored\?\.id/);
+    assert.match(
+      reusableSource,
+      /current\.published_deploy\?\.id === restoredDeployId/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.previous\.outputs\.published_deploy_id != ''/,
+    );
+    assert.match(
+      reusableSource,
+      /Keep this job in the per-site concurrency group until Netlify/,
+    );
+    assert.match(reusableSource, /cancellationRejected/);
+    assert.match(reusableSource, /deletionRequested/);
+    assert.match(reusableSource, /method: "DELETE"/);
+    assert.match(
+      reusableSource,
+      /Netlify stale beta deploy \$\{deployId\} deletion/,
+    );
+    assert.doesNotMatch(
+      reusableSource,
+      /did not settle before the five-minute cleanup deadline/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_post_freshness\.outcome == 'failure'/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish_freshness\.outcome == 'failure'/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish_freshness\.outputs\.current == 'false'/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish_wait\.outcome == 'failure'/,
+    );
+    assert.match(reusableSource, /id: deploy_wait/);
+    assert.match(
+      reusableSource,
+      /Netlify beta deploy \$\{process\.env\.DEPLOY_ID\} was superseded by unrelated published deploy/,
+    );
+    assert.match(reusableSource, /steps\.deploy_wait\.outcome == 'failure'/);
+    assert.match(reusableSource, /TARGET: \$\{\{ inputs\.target \}\}/);
+    assert.match(reusableSource, /PUBLISH_STARTED_AT/);
+    assert.match(reusableSource, /DEPLOY_MESSAGE/);
+    assert.match(reusableSource, /first beta production deploy reconciliation/);
+    assert.match(reusableSource, /Could not parse Netlify CLI output/);
+    assert.match(reusableSource, /deploy\.commit_ref/);
+    assert.match(reusableSource, /Fail after beta freshness verification/);
+    assert.match(
+      reusableSource,
+      /inputs\.target == 'beta' \|\| \(inputs\.smoke && steps\.target\.outputs\.source_template != '@agent-native\/docs'\)/,
     );
     assert.match(reusableSource, /inputs\.caller/);
     const betaResolveSource = readWorkflow(
@@ -456,6 +556,94 @@ describe("production Netlify site concurrency guard", () => {
       String(betaResolveStep?.with?.script),
       /Manual beta source_ref must equal current main/,
     );
+    assert.match(
+      reusableSource,
+      /Beta source_ref must be a full 40-character commit SHA/,
+    );
+    assert.match(reusableSource, /Beta source_ref must equal current main/);
+    assert.match(
+      reusableSource,
+      /Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt\.yml\./,
+    );
+    assert.match(reusableSource, /process\.env\.CALLER\.trim\(\)/);
+    assert.match(reusableSource, /Netlify beta site has no published deploy/);
+    assert.match(
+      reusableSource,
+      /Uploading the first beta deploy as a draft until its source is revalidated\./,
+    );
+    assert.match(
+      reusableSource,
+      /Verify first beta deploy source immediately before publish/,
+    );
+    assert.match(
+      reusableSource,
+      /Publish first beta deploy after freshness verification/,
+    );
+    assert.match(reusableSource, /id: beta_first_publish/);
+    assert.match(reusableSource, /--prod/);
+    assert.match(
+      reusableSource,
+      /Wait for first beta production deploy to publish/,
+    );
+    assert.match(reusableSource, /id: beta_first_publish_wait/);
+    assert.match(reusableSource, /Netlify first beta production deploy status/);
+    assert.match(
+      reusableSource,
+      /did not become ready and published within 30 minutes/,
+    );
+    assert.match(reusableSource, /main_sha,,\}" != "\$\{SOURCE_REF,,\}"/);
+    assert.doesNotMatch(
+      reusableSource.slice(
+        reusableSource.indexOf(
+          "name: Publish first beta deploy after freshness verification",
+        ),
+        reusableSource.indexOf(
+          "name: Verify beta source is current after publish",
+        ),
+      ),
+      /\/restore/,
+    );
+    assert.match(reusableSource, /id: beta_first_publish_reconcile/);
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.beta_first_publish_reconcile\.outputs\.deploy_id/,
+    );
+    assert.match(reusableSource, /Recovered first beta production deploy/);
+    assert.match(reusableSource, /Netlify published unrelated deploy/);
+    assert.doesNotMatch(
+      reusableSource,
+      /DEPLOY_ID: \$\{\{ steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.deploy\.outputs\.deploy_id \}\}/,
+    );
+    assert.match(reusableSource, /Delete staged first beta draft/);
+    assert.match(reusableSource, /id: beta_draft_cleanup/);
+    assert.match(reusableSource, /DRAFT_DEPLOY_ID/);
+    assert.match(
+      reusableSource,
+      /Netlify staged beta draft \$\{draftId\} deletion/,
+    );
+    assert.match(
+      reusableSource,
+      /Refusing to delete staged beta draft \$\{draftId\} because Netlify published it\./,
+    );
+    assert.match(reusableSource, /cancellationDeadline/);
+    assert.match(
+      reusableSource,
+      /staged beta draft \$\{draftId\} cancellation status/,
+    );
+    assert.match(
+      reusableSource,
+      /Canceled and deleted staged beta draft \$\{draftId\}\./,
+    );
+    assert.match(reusableSource, /did not become terminal after cancellation/);
+    assert.match(
+      reusableSource,
+      /DEPLOY_URL: \$\{\{ steps\.beta_first_publish\.outputs\.deploy_url \|\| steps\.beta_first_publish_reconcile\.outputs\.deploy_url \|\| \(steps\.previous\.outputs\.published_deploy_id != '' && steps\.deploy\.outputs\.deploy_url\) \}\}/,
+    );
+    assert.match(
+      reusableSource,
+      /First publishes are staged as drafts and only published after a current-main check/,
+    );
+    assert.doesNotMatch(reusableSource, /requested \|\| 'beta'/);
     assert.match(
       reusableSource,
       /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,
@@ -521,7 +709,7 @@ describe("production Netlify site concurrency guard", () => {
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
     const concurrency = mutated.concurrency as Record<string, unknown>;
-    concurrency.group = String(concurrency.group).replace(
+    concurrency.group = String(concurrency.group).replaceAll(
       "inputs.caller",
       "github.event_name",
     );
@@ -530,11 +718,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 9);
+    assert.equal(nodeHeredocs.length, 13);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      9,
+      13,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
@@ -918,7 +1106,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(appSmoke);
     assert.equal(
       appSmoke.if,
-      "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+      "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs' && (inputs.target != 'beta' || steps.beta_first_publish.outputs.deploy_id != '' || steps.beta_first_publish_reconcile.outputs.deploy_id != '' || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != ''))",
     );
     // The smoke step asserts the health BODY (ready, db, schema,
     // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.

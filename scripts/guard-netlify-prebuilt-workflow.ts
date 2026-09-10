@@ -47,14 +47,16 @@ export function validateReusableWorkflowConcurrency(
     typeof group !== "string" ||
     !group.includes("inputs.caller") ||
     !group.includes("netlify-prebuilt-child") ||
+    !group.includes("netlify-prebuilt-beta-{0}") ||
+    !group.includes("netlify-prebuilt-beta-direct") ||
     !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
     !group.includes("agent-native-production-site") ||
-    group.includes("github.event_name")
+    !group.includes("github.event_name")
   ) {
     return [
-      "reusable Netlify workflow must select a distinct child queue through inputs.caller",
+      "reusable Netlify workflow must serialize beta publishers per site and isolate direct beta dispatches",
     ];
   }
   return [];
@@ -332,22 +334,38 @@ issues.push(
 );
 
 if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
-  issues.push(`${reusablePath} beta deploys must queue every source SHA`);
+  issues.push(
+    `${reusablePath} beta child deploys must keep accepted publishers alive and coalesce pending sources`,
+  );
 }
 const betaWorkflowConcurrency = asRecord(
   parsedWorkflows.get(betaPath)?.concurrency,
 );
-const betaWorkflowGroup = String(betaWorkflowConcurrency?.group ?? "");
+const betaWorkflowConcurrencyGroup = String(
+  betaWorkflowConcurrency?.group ?? "",
+);
 if (
-  !betaWorkflowGroup.includes("github.event_name == 'push'") ||
-  !betaWorkflowGroup.includes("'deploy-agent-native-beta-sites-prebuilt'") ||
-  !betaWorkflowGroup.includes(
-    "'deploy-agent-native-beta-sites-prebuilt-manual'",
+  !betaWorkflowConcurrencyGroup.includes(
+    "github.event_name == 'workflow_dispatch'",
   ) ||
-  betaWorkflowConcurrency["cancel-in-progress"] !== false
+  !betaWorkflowConcurrencyGroup.includes(
+    "format('deploy-agent-native-beta-manual-{0}', github.run_id)",
+  ) ||
+  !betaWorkflowConcurrencyGroup.includes(
+    "'deploy-agent-native-beta-sites-prebuilt'",
+  ) ||
+  betaWorkflowConcurrency?.["cancel-in-progress"] !== false
 ) {
   issues.push(
-    `${betaPath} must coalesce pending main pushes without canceling an active fleet publish`,
+    `${betaPath} must isolate manual validation from the automatic beta publisher queue`,
+  );
+}
+const reusableDeployJobConfig = asRecord(
+  asRecord(reusableDocument?.jobs)?.deploy,
+);
+if (reusableDeployJobConfig?.["timeout-minutes"] !== 150) {
+  issues.push(
+    `${reusablePath} must reserve cleanup time after the Netlify publish wait`,
   );
 }
 const reusableConcurrencyGroup = String(
@@ -359,11 +377,18 @@ const normalizedReusableConcurrencyGroup = reusableConcurrencyGroup.replace(
 );
 if (
   !normalizedReusableConcurrencyGroup.includes(
-    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}-{1}', inputs.caller, inputs.site)",
+    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}', inputs.site)",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "github.event_name == 'workflow_dispatch'",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes("!inputs.caller") ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)",
   )
 ) {
   issues.push(
-    `${reusablePath} beta publishes must isolate automatic and manual child queues per site`,
+    `${reusablePath} beta publishes must share one latest-wins child queue per site`,
   );
 }
 
@@ -956,15 +981,164 @@ if (
 }
 
 const reusableBetaFreshness = reusable;
+const firstBetaPublishStart = reusableBetaFreshness.indexOf(
+  "name: Publish first beta deploy after freshness verification",
+);
+const firstBetaPublishEnd = reusableBetaFreshness.indexOf(
+  "name: Verify beta source is current after publish",
+  firstBetaPublishStart,
+);
+const firstBetaPublish =
+  firstBetaPublishStart >= 0 && firstBetaPublishEnd > firstBetaPublishStart
+    ? reusableBetaFreshness.slice(firstBetaPublishStart, firstBetaPublishEnd)
+    : "";
 if (
   reusableBetaFreshness.includes("allowPinnedRecovery") ||
   !reusableBetaFreshness.includes(
+    "Beta source_ref must be a full 40-character commit SHA.",
+  ) ||
+  !reusableBetaFreshness.includes("Beta source_ref must equal current main") ||
+  !reusableBetaFreshness.includes(
+    "Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta site has no published deploy",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Uploading the first beta deploy as a draft until its source is revalidated.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Verify first beta deploy source immediately before publish",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Publish first beta deploy after freshness verification",
+  ) ||
+  !firstBetaPublish.includes("id: beta_first_publish") ||
+  !firstBetaPublish.includes("--prod") ||
+  firstBetaPublish.includes("/restore") ||
+  !firstBetaPublish.includes(
+    "Wait for first beta production deploy to publish",
+  ) ||
+  !firstBetaPublish.includes("id: beta_first_publish_wait") ||
+  !firstBetaPublish.includes("Netlify first beta production deploy status") ||
+  !firstBetaPublish.includes(
+    "did not become ready and published within 30 minutes",
+  ) ||
+  !firstBetaPublish.includes("main_sha,,}") ||
+  !firstBetaPublish.includes("SOURCE_REF,,}") ||
+  !reusableBetaFreshness.includes("id: beta_first_publish_reconcile") ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id",
+  ) ||
+  !reusableBetaFreshness.includes("Recovered first beta production deploy") ||
+  !reusableBetaFreshness.includes("Netlify published unrelated deploy") ||
+  reusableBetaFreshness.includes(
+    "DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}",
+  ) ||
+  !reusableBetaFreshness.includes("Delete staged first beta draft") ||
+  !reusableBetaFreshness.includes("id: beta_draft_cleanup") ||
+  !reusableBetaFreshness.includes("DRAFT_DEPLOY_ID") ||
+  !reusableBetaFreshness.includes(
+    "Netlify staged beta draft ${draftId} deletion",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Refusing to delete staged beta draft ${draftId} because Netlify published it.",
+  ) ||
+  !reusableBetaFreshness.includes("cancellationDeadline") ||
+  !reusableBetaFreshness.includes(
+    "staged beta draft ${draftId} cancellation status",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Canceled and deleted staged beta draft ${draftId}.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "did not become terminal after cancellation",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.beta_first_publish_reconcile.outputs.deploy_url || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_url) }}",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "First publishes are staged as drafts and only published after a current-main check",
+  ) ||
+  reusableBetaFreshness.includes("requested || 'beta'") ||
+  !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
   ) ||
-  !reusableBetaFreshness.includes("core.setOutput('current', String(current))")
+  !reusableBetaFreshness.includes(
+    "core.setOutput('current', String(current))",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Verify beta source is current after publish",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "always() && inputs.target == 'beta' && inputs.deploy",
+  ) ||
+  !reusableBetaFreshness.includes("steps.deploy.outputs.deploy_id != ''") ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_post_freshness.outputs.current == 'false'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_post_freshness.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_freshness.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_freshness.outputs.current == 'false'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_wait.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes("id: deploy_wait") ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta deploy ${process.env.DEPLOY_ID} was superseded by unrelated published deploy",
+  ) ||
+  !reusableBetaFreshness.includes("steps.deploy_wait.outcome == 'failure'") ||
+  !reusableBetaFreshness.includes("Revert stale beta deploy") ||
+  !reusableBetaFreshness.includes(
+    "/sites/${siteId}/deploys/${previousId}/restore",
+  ) ||
+  !reusableBetaFreshness.includes("/deploys/${deployId}/cancel") ||
+  !reusableBetaFreshness.includes("cancellationRequested") ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta freshness restore precondition",
+  ) ||
+  !reusableBetaFreshness.includes("const restoredDeployId = restored?.id") ||
+  !reusableBetaFreshness.includes(
+    "current.published_deploy?.id === restoredDeployId",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Keep this job in the per-site concurrency group until Netlify",
+  ) ||
+  !reusableBetaFreshness.includes("cancellationRejected") ||
+  !reusableBetaFreshness.includes("deletionRequested") ||
+  !reusableBetaFreshness.includes('method: "DELETE"') ||
+  !reusableBetaFreshness.includes(
+    "Netlify stale beta deploy ${deployId} deletion",
+  ) ||
+  !reusableBetaFreshness.includes("Fail after beta freshness verification") ||
+  reusableBetaFreshness.includes(
+    "did not settle before the five-minute cleanup deadline",
+  ) ||
+  !reusableBetaFreshness.includes("PREVIOUS_DEPLOY_ID") ||
+  !reusableBetaFreshness.includes("const publishedDeployId") ||
+  !reusableBetaFreshness.includes(
+    "keeping the beta queue occupied until the stale deploy is non-publishable",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.previous.outputs.published_deploy_id != ''",
+  ) ||
+  !reusableBetaFreshness.includes("TARGET: ${{ inputs.target }}") ||
+  !reusableBetaFreshness.includes("PUBLISH_STARTED_AT") ||
+  !reusableBetaFreshness.includes("DEPLOY_MESSAGE") ||
+  !reusableBetaFreshness.includes(
+    "first beta production deploy reconciliation",
+  ) ||
+  !reusableBetaFreshness.includes("Could not parse Netlify CLI output") ||
+  !reusableBetaFreshness.includes("deploy.commit_ref")
 ) {
   issues.push(
-    `${reusablePath} must reject stale beta recovery sources before upload`,
+    `${reusablePath} must reject stale beta sources before upload and revert accepted stale deploys`,
   );
 }
 if (
