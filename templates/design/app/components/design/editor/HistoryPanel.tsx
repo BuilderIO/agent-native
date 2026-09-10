@@ -158,7 +158,7 @@ export function HistoryPanel({
         <Separator className="mt-3" />
 
         {selectedVersionId ? (
-          <div className="flex h-[calc(100%-60px)] flex-col">
+          <div className="flex h-[calc(100%_-_60px)] flex-col">
             <div className="border-b border-border px-4 py-3">
               {versionDetailPending ? (
                 <div className="space-y-2">
@@ -232,7 +232,7 @@ export function HistoryPanel({
             ) : null}
           </div>
         ) : (
-          <ScrollArea className="h-[calc(100%-60px)]">
+          <ScrollArea className="h-[calc(100%_-_60px)]">
             {versionsQuery.isLoading ? (
               <div className="space-y-2 p-3">
                 {Array.from({ length: 5 }).map((_, index) => (

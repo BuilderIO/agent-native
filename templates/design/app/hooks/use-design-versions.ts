@@ -65,7 +65,10 @@ export function useDesignVersions(designId: string | null) {
     designId ? { designId } : undefined,
     {
       enabled: !!designId,
-      placeholderData: (prev: DesignVersionListResponse | undefined) => prev,
+      // Keep prior checkpoints only for the same design — otherwise navigating
+      // A→B while History stays mounted briefly shows A's versions under B.
+      placeholderData: (prev: DesignVersionListResponse | undefined) =>
+        prev && designId && prev.designId === designId ? prev : undefined,
     } as Record<string, unknown>,
   );
 }

@@ -12390,6 +12390,9 @@ function DesignEditor() {
   } | null>(null);
   const [screenDeletionConfirming, setScreenDeletionConfirming] =
     useState(false);
+  // Covers the gap before React re-renders after confirm — a second activation
+  // must not start another delete while the first mutation is still settling.
+  const screenDeletionConfirmingRef = useRef(false);
 
   const performDeleteFiles = useCallback(
     (
@@ -12525,18 +12528,31 @@ function DesignEditor() {
   );
 
   const handleCancelScreenDeletion = useCallback(() => {
-    if (screenDeletionConfirming) return;
+    if (screenDeletionConfirmingRef.current || screenDeletionConfirming) return;
     setPendingScreenDeletion(null);
   }, [screenDeletionConfirming]);
 
   const handleConfirmScreenDeletion = useCallback(() => {
     const pending = pendingScreenDeletion;
-    if (!pending || screenDeletionConfirming) return;
-    // Acknowledge the click immediately; mutation work continues after close.
+    if (
+      !pending ||
+      screenDeletionConfirmingRef.current ||
+      screenDeletionConfirming
+    ) {
+      return;
+    }
+    // Keep the dialog locked until delete settles so a rapid second confirm
+    // cannot start a concurrent deletion / duplicate history entry.
+    screenDeletionConfirmingRef.current = true;
     setScreenDeletionConfirming(true);
     setPendingScreenDeletion(null);
-    setScreenDeletionConfirming(false);
-    performDeleteFiles(pending.files, { recordDeletionHistory: true });
+    performDeleteFiles(pending.files, {
+      recordDeletionHistory: true,
+      onMutationSettled: () => {
+        screenDeletionConfirmingRef.current = false;
+        setScreenDeletionConfirming(false);
+      },
+    });
   }, [pendingScreenDeletion, performDeleteFiles, screenDeletionConfirming]);
 
   // ── Props/animation clipboard, transforms, nudge ───────────────────────────
@@ -18613,6 +18629,9 @@ function DesignEditor() {
       // overview frames / the breakpoint bar update before the mutation
       // round-trips. Rollback on failure.
       const optimisticId = `optimistic-bp-${widthPx}`;
+      const geometryBefore = cloneCanvasFrameGeometry(
+        getCanvasFrameGeometry(designDataJsonRef.current),
+      );
       const { rollback } = beginOptimisticBreakpointSetPatch({
         designId: id,
         queryClient,
@@ -18633,6 +18652,12 @@ function DesignEditor() {
         })
         .catch((error) => {
           rollback();
+          // Reflow may have already committed canvasFrames; restore pre-add
+          // geometry so a failed add does not leave a permanent board shift.
+          const geometryAfter = getCanvasFrameGeometry(
+            designDataJsonRef.current,
+          );
+          handleGeometryCommit(geometryAfter, geometryBefore);
           toast.error(t("common.genericError"), {
             description:
               error instanceof Error
@@ -18643,6 +18668,7 @@ function DesignEditor() {
     },
     [
       addBreakpointMutation,
+      handleGeometryCommit,
       id,
       queryClient,
       reflowOverviewScreensForBreakpoints,
@@ -18657,12 +18683,16 @@ function DesignEditor() {
     (breakpointId: string) => {
       if (!id) return;
       const removed = designBreakpoints.find((b) => b.id === breakpointId);
-      if (removed && removed.widthPx === activeBreakpointWidthState) {
+      const clearedActive =
+        removed != null && removed.widthPx === activeBreakpointWidthState;
+      const priorWidthPx = activeBreakpointWidthState;
+      const priorEditScope = responsiveEditScopeRef.current;
+      if (clearedActive) {
         // Removing the active breakpoint resets the edit scope to base.
         setActiveBreakpointWidthState(undefined);
         // Item 9 — see handleBreakpointBarSelect's matching comment.
         lastAppliedActiveBreakpointIdRef.current = "auto";
-        persistActiveBreakpoint("auto", responsiveEditScopeRef.current);
+        persistActiveBreakpoint("auto", priorEditScope);
       }
       const { rollback } = beginOptimisticBreakpointSetPatch({
         designId: id,
@@ -18677,6 +18707,13 @@ function DesignEditor() {
         .mutateAsync({ designId: id, breakpointId })
         .catch((error) => {
           rollback();
+          if (clearedActive && removed && priorWidthPx !== undefined) {
+            // Restore the prior edit target so a failed remove does not leave
+            // edits scoped to base while the breakpoint reappears.
+            setActiveBreakpointWidthState(priorWidthPx);
+            lastAppliedActiveBreakpointIdRef.current = removed.id;
+            persistActiveBreakpoint(removed.id, priorEditScope);
+          }
           toast.error(t("common.genericError"), {
             description:
               error instanceof Error
@@ -18941,6 +18978,9 @@ function DesignEditor() {
       activeWidthPx={activeBreakpointWidthState}
       baseWidthPx={activeScreenBaseWidthPx}
       canEdit={canEditDesign}
+      mutationPending={
+        addBreakpointMutation.isPending || removeBreakpointMutation.isPending
+      }
       showAllFrames={!breakpointFramesHidden}
       onShowAllFramesChange={(value) => setBreakpointFramesHidden(!value)}
       onSelect={handleBreakpointBarSelect}
