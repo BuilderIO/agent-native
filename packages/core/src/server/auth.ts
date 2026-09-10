@@ -590,18 +590,18 @@ async function enrichLegacySessionIdentity(
  *   isolated app session.
  * - **Partition**: under CHIPS a `Partitioned` cookie lives in a jar keyed by
  *   the top-level site, entirely separate from the unpartitioned cookie of the
- *   same name. Every framework auth cookie is written through
+ *   same name. Framework auth cookies are written through
  *   `crossSiteCookieAttrs`, which sets `Partitioned` on HTTPS, so a delete
  *   without it empties the wrong jar and the browser keeps sending a revoked
- *   session token.
+ *   session token. The reverse misses too: a cookie stored before CHIPS, or
+ *   over plain HTTP on a host later served over HTTPS, sits unpartitioned and
+ *   survives a `Partitioned`-only delete.
  *
  * `crossSiteCookieAttrs` is applied here rather than left to callers because a
- * partition-blind delete fails silently: the logout response still looks
+ * mismatched delete fails silently: the logout response still looks
  * successful, and the surviving cookie only surfaces later as the previous
  * account coming back for as long as any instance's session-email cache still
- * resolves the revoked token. h3 also keys its own `set-cookie` dedupe on
- * name/domain/path alone, so a caller cannot cover both jars by emitting two
- * deletes — mirroring how the cookie was set is the only thing that works.
+ * resolves the revoked token.
  */
 function deleteCookieFromEveryScope(
   event: H3Event,
@@ -611,9 +611,42 @@ function deleteCookieFromEveryScope(
   const scoped = { ...crossSiteCookieAttrs(event), ...attributes, path: "/" };
   // Clear host-only cookies first. Then clear any configured domain scope so
   // stale shared cookies stop shadowing isolated app sessions.
-  deleteCookie(event, name, scoped);
+  deleteCookieFromBothPartitions(event, name, scoped);
   for (const domain of AUTH_COOKIE_NAMESPACE.frameworkCookieDomainsToClear) {
-    deleteCookie(event, name, { ...scoped, domain });
+    deleteCookieFromBothPartitions(event, name, { ...scoped, domain });
+  }
+}
+
+/**
+ * Emit the partitioned AND unpartitioned delete for one name/domain/path.
+ *
+ * h3 dedupes `set-cookie` on name/domain/path and ignores `Partitioned`, so
+ * two `deleteCookie` calls that differ only by partition can collapse into
+ * one. It is not consistent about it — the eviction fires for a host-only
+ * cookie and misses when a `Domain` is present, because the scan side of the
+ * dedupe recovers the key from a re-parsed header rather than from the
+ * options — so this cannot rely on either outcome. Let h3 serialize the
+ * unpartitioned delete (cookie-es validates the name, the domain, and the
+ * `Partitioned`-requires-`Secure` pairing), then put it back only if the
+ * partitioned delete actually evicted it.
+ */
+function deleteCookieFromBothPartitions(
+  event: H3Event,
+  name: string,
+  scope: Parameters<typeof deleteCookie>[2],
+): void {
+  if (!scope?.partitioned) {
+    deleteCookie(event, name, scope);
+    return;
+  }
+  deleteCookie(event, name, { ...scope, partitioned: false });
+  const unpartitioned = event.res.headers.getSetCookie().at(-1);
+  deleteCookie(event, name, scope);
+  if (
+    unpartitioned &&
+    !event.res.headers.getSetCookie().includes(unpartitioned)
+  ) {
+    event.res.headers.append("set-cookie", unpartitioned);
   }
 }
 

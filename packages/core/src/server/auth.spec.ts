@@ -1495,14 +1495,55 @@ describe("server/auth", () => {
           cookie.startsWith(`${COOKIE_NAME}=; Max-Age=0`),
         );
 
-      // Every scope, and each one carrying the attributes the cookie was set
-      // with. h3 keys its set-cookie dedupe on name/domain/path only, so a
-      // partitioned and an unpartitioned delete cannot coexist for one scope —
-      // the delete has to mirror the set.
-      expect(clears).toEqual([
-        `${COOKIE_NAME}=; Max-Age=0; Path=/; Secure; Partitioned; SameSite=None`,
-        `${COOKIE_NAME}=; Max-Age=0; Domain=.example.com; Path=/; Secure; Partitioned; SameSite=None`,
-      ]);
+      // Both jars, in both domain scopes. The partitioned delete is what
+      // logout was missing; the unpartitioned one still has to go out for a
+      // cookie stored before CHIPS or over plain HTTP on a host later served
+      // over HTTPS. h3's set-cookie dedupe ignores `Partitioned`, so these two
+      // only coexist because the helper works around it.
+      expect(new Set(clears)).toEqual(
+        new Set([
+          `${COOKIE_NAME}=; Max-Age=0; Path=/; Secure; Partitioned; SameSite=None`,
+          `${COOKIE_NAME}=; Max-Age=0; Path=/; Secure; SameSite=None`,
+          `${COOKIE_NAME}=; Max-Age=0; Domain=.example.com; Path=/; Secure; Partitioned; SameSite=None`,
+          `${COOKIE_NAME}=; Max-Age=0; Domain=.example.com; Path=/; Secure; SameSite=None`,
+        ]),
+      );
+    });
+
+    it("leaves the new token as the last word when a session replaces an old one", async () => {
+      // setFrameworkSessionCookie clears before it sets, and clearing now
+      // emits a delete per CHIPS jar. h3 already lets a domain-scoped delete
+      // survive alongside the set (it does on `main` too), which is harmless
+      // only because a browser applies Set-Cookie in order. So the invariant
+      // is not "one header" — it is that nothing after the set takes the
+      // session back off. A stray trailing delete would log the user out on
+      // the very request that signed them in.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { setFrameworkSessionCookie, COOKIE_NAME } =
+        await import("./auth.js");
+      const event = createMockEvent({
+        headers: { "x-forwarded-proto": "https" },
+      });
+
+      setFrameworkSessionCookie(event, "fresh-token");
+
+      const sessionCookies = event.res.headers
+        .getSetCookie()
+        .filter((cookie: string) => cookie.startsWith(`${COOKIE_NAME}=`));
+
+      expect(sessionCookies.at(-1)).toContain(`${COOKIE_NAME}=fresh-token`);
+      expect(sessionCookies.at(-1)).toContain("Partitioned");
+      // And the clear does not emit the same header twice.
+      expect(new Set(sessionCookies).size).toBe(sessionCookies.length);
     });
 
     it("keeps logout cookie clears unpartitioned over plain HTTP", async () => {
