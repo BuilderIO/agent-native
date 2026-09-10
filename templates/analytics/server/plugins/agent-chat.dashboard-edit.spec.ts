@@ -437,6 +437,51 @@ describe("realDataFinalGuard dashboard edits", () => {
     expect(result).not.toBeNull();
   });
 
+  it("does not retry a dashboard template input as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Use a dashboard template to create an automation",
+        draftText: 'Created automation "template-based".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "template-based",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not retry compound automation actions as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create an automation to refresh and update the Revenue dashboard",
+        draftText: 'Created automation "revenue-refresh".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-refresh",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("keeps recovery for a named dashboard", () => {
     const result = realDataFinalGuard(
       guardContext({

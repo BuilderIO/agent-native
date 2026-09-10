@@ -1228,6 +1228,35 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("keeps report framing as analytics intent around workflow terms", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Create a report showing conversion rate by workflow",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Create a report of automation conversion rates",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not treat a dashboard template input as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Use a dashboard template to create an automation",
+      ),
+    ).toBe(false);
+  });
+
+  it("masks compound actions inside an automation", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation to refresh and update the Revenue dashboard",
+      ),
+    ).toBe(false);
+  });
+
   it("keeps automation dashboards that use a template as construction", () => {
     expect(
       looksLikeDashboardConstructionRequest(
