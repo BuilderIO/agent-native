@@ -28,7 +28,7 @@ export async function ensureSuggestionTables(
         `CREATE TABLE IF NOT EXISTS agent_review_suggestions (id TEXT PRIMARY KEY, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, adapter_kind TEXT NOT NULL, adapter_version INTEGER NOT NULL, thread_id TEXT NOT NULL, author_email TEXT, actor_kind TEXT NOT NULL, base_revision TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', summary TEXT NOT NULL, owner_email TEXT, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata_json TEXT)`,
         `CREATE TABLE IF NOT EXISTS agent_review_suggestion_operations (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, ordinal INTEGER NOT NULL, operation_kind TEXT NOT NULL, target_id TEXT, before_json TEXT, after_json TEXT, anchor_json TEXT, dependencies_json TEXT, schema_version INTEGER NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS agent_review_suggestion_decisions (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, reviewer TEXT, decision TEXT NOT NULL, observed_base TEXT, outcome TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS agent_review_suggestion_creations (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
+        `CREATE TABLE IF NOT EXISTS agent_review_suggestion_creations (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL UNIQUE, author_email TEXT, actor_kind TEXT, request_hash TEXT, created_at TEXT NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS agent_review_suggestion_amendments (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, revision INTEGER NOT NULL, author_email TEXT NOT NULL, owner_email TEXT, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private', request_json TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE (suggestion_id, revision))`,
       ];
       for (const sql of ddl) {
@@ -46,6 +46,14 @@ export async function ensureSuggestionTables(
             ["owner_email", "TEXT"],
             ["org_id", "TEXT"],
             ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
+          ],
+        ],
+        [
+          "agent_review_suggestion_creations",
+          [
+            ["author_email", "TEXT"],
+            ["actor_kind", "TEXT"],
+            ["request_hash", "TEXT"],
           ],
         ],
       ] as const) {
@@ -67,27 +75,91 @@ export async function ensureSuggestionTables(
   await initialized;
 }
 
+export interface SuggestionCreationReceipt {
+  suggestion: ResourceSuggestion;
+  authorEmail: string | null;
+  actorKind: ResourceSuggestion["actorKind"] | null;
+  requestHash: string | null;
+}
+
 export async function getSuggestionByCreationKey(
   client: DbExec,
   idempotencyKey: string,
-): Promise<ResourceSuggestion | null> {
+): Promise<SuggestionCreationReceipt | null> {
   const row = (
     await client.execute({
-      sql: "SELECT suggestion_id FROM agent_review_suggestion_creations WHERE idempotency_key = ?",
+      sql: "SELECT suggestion_id,author_email,actor_kind,request_hash FROM agent_review_suggestion_creations WHERE idempotency_key = ?",
       args: [idempotencyKey],
     })
   ).rows[0];
-  return row ? getSuggestion(String(row.suggestion_id), client) : null;
+  if (!row) return null;
+  const amendment = (
+    await client.execute({
+      sql: "SELECT before_json FROM agent_review_suggestion_amendments WHERE suggestion_id = ? ORDER BY revision LIMIT 1",
+      args: [String(row.suggestion_id)],
+    })
+  ).rows[0];
+  const current = amendment
+    ? null
+    : await getSuggestion(String(row.suggestion_id), client);
+  const suggestion = amendment
+    ? decode<ResourceSuggestion>(amendment.before_json)
+    : current
+      ? {
+          ...current,
+          revision: 1,
+          status: "pending" as const,
+          updatedAt: current.createdAt,
+        }
+      : null;
+  if (!suggestion) {
+    throw new Error(
+      "Suggestion creation receipt references a missing suggestion",
+    );
+  }
+  return {
+    suggestion,
+    authorEmail: row.author_email as string | null,
+    actorKind: row.actor_kind as ResourceSuggestion["actorKind"] | null,
+    requestHash: row.request_hash as string | null,
+  };
 }
 
 export async function recordSuggestionCreation(
   client: DbExec,
   idempotencyKey: string,
+  suggestion: ResourceSuggestion,
+  authorEmail: string | null,
+  actorKind: ResourceSuggestion["actorKind"],
+  requestHash: string,
+): Promise<SuggestionCreationReceipt> {
+  await client.execute({
+    sql: "INSERT INTO agent_review_suggestion_creations (idempotency_key,suggestion_id,author_email,actor_kind,request_hash,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT (idempotency_key) DO NOTHING",
+    args: [
+      idempotencyKey,
+      suggestion.id,
+      authorEmail,
+      actorKind,
+      requestHash,
+      new Date().toISOString(),
+    ],
+  });
+  const receipt = await getSuggestionByCreationKey(client, idempotencyKey);
+  if (!receipt) throw new Error("Suggestion creation receipt was not recorded");
+  return receipt;
+}
+
+export async function deleteUnclaimedSuggestion(
+  client: DbExec,
   suggestionId: string,
 ): Promise<void> {
   await client.execute({
-    sql: "INSERT INTO agent_review_suggestion_creations (idempotency_key,suggestion_id,created_at) VALUES (?,?,?)",
-    args: [idempotencyKey, suggestionId, new Date().toISOString()],
+    sql: "DELETE FROM agent_review_suggestion_operations WHERE suggestion_id = ? AND NOT EXISTS (SELECT 1 FROM agent_review_suggestion_creations WHERE suggestion_id = ?)",
+    args: [suggestionId, suggestionId],
+  });
+  await client.execute({
+    sql: "DELETE FROM agent_review_suggestions WHERE id = ? AND NOT EXISTS (SELECT 1 FROM agent_review_suggestion_creations WHERE suggestion_id = ?)",
+    args: [suggestionId, suggestionId],
   });
 }
 
@@ -230,6 +302,13 @@ export async function getSuggestion(
       args: [suggestionId],
     })
   ).rows;
+  return suggestionFromRows(row, rows);
+}
+
+function suggestionFromRows(
+  row: Record<string, unknown>,
+  operationRows: Record<string, unknown>[],
+): ResourceSuggestion {
   return {
     id: String(row.id),
     revision: Number(row.revision),
@@ -249,7 +328,7 @@ export async function getSuggestion(
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     metadata: decode<Record<string, unknown>>(row.metadata_json),
-    operations: rows.map((value) => ({
+    operations: operationRows.map((value) => ({
       id: String(value.id),
       ordinal: Number(value.ordinal),
       kind: String(value.operation_kind),
@@ -272,18 +351,38 @@ export async function listSuggestions(
   await ensureSuggestionTables(client);
   const args: unknown[] = [resourceType, resourceId];
   const filter = statuses?.length
-    ? ` AND status IN (${statuses.map(() => "?").join(",")})`
+    ? ` AND s.status IN (${statuses.map(() => "?").join(",")})`
     : "";
   args.push(...(statuses ?? []));
   const rows = (
     await client.execute({
-      sql: `SELECT id FROM agent_review_suggestions WHERE resource_type = ? AND resource_id = ?${filter} ORDER BY created_at`,
+      sql: `SELECT s.id AS suggestion_id,s.revision,s.resource_type,s.resource_id,s.adapter_kind,s.adapter_version,s.thread_id,s.author_email,s.actor_kind,s.base_revision,s.status,s.summary,s.owner_email,s.org_id,s.visibility,s.created_at,s.updated_at,s.metadata_json,o.id AS operation_id,o.ordinal AS operation_ordinal,o.operation_kind,o.target_id,o.before_json,o.after_json,o.anchor_json,o.dependencies_json,o.schema_version FROM agent_review_suggestions s LEFT JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id WHERE s.resource_type = ? AND s.resource_id = ?${filter} ORDER BY s.created_at,o.ordinal`,
       args,
     })
   ).rows;
-  return (
-    await Promise.all(rows.map((row) => getSuggestion(String(row.id), client)))
-  ).filter((value): value is ResourceSuggestion => Boolean(value));
+  const grouped = new Map<
+    string,
+    { row: Record<string, unknown>; operations: Record<string, unknown>[] }
+  >();
+  for (const row of rows) {
+    const suggestionId = String(row.suggestion_id);
+    let suggestion = grouped.get(suggestionId);
+    if (!suggestion) {
+      suggestion = { row: { ...row, id: suggestionId }, operations: [] };
+      grouped.set(suggestionId, suggestion);
+    }
+    if (row.operation_id != null) {
+      suggestion.operations.push({
+        ...row,
+        id: row.operation_id,
+        suggestion_id: suggestionId,
+        ordinal: row.operation_ordinal,
+      });
+    }
+  }
+  return Array.from(grouped.values(), ({ row, operations }) =>
+    suggestionFromRows(row, operations),
+  );
 }
 
 export interface SuggestionDecisionRecord {

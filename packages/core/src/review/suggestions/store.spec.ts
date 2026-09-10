@@ -35,6 +35,10 @@ const {
   ensureSuggestionTables,
   insertSuggestion,
   getSuggestion,
+  listSuggestions,
+  getSuggestionByCreationKey,
+  recordSuggestionCreation,
+  amendSuggestion,
   recordDecision,
   __resetSuggestionTablesForTests,
 } = await import("./store.js");
@@ -127,5 +131,68 @@ describe("suggestion store", () => {
         detail: null,
       }),
     ).rejects.toThrow("different decision");
+  });
+
+  it("keeps the original creation result and converges a competing receipt", async () => {
+    const original = await insertSuggestion(input);
+    const request = '{"request":"original"}';
+    await recordSuggestionCreation(
+      rawClient,
+      "create-key",
+      original,
+      original.authorEmail,
+      original.actorKind,
+      request,
+    );
+    const competing = await insertSuggestion({
+      ...input,
+      threadId: "thread-2",
+    });
+    const winner = await recordSuggestionCreation(
+      rawClient,
+      "create-key",
+      competing,
+      competing.authorEmail,
+      competing.actorKind,
+      request,
+    );
+    expect(winner.suggestion.id).toBe(original.id);
+
+    await rawClient.transaction((tx) =>
+      amendSuggestion(
+        tx,
+        original,
+        [{ ...input.operations[0], after: "amended" }],
+        "Amended",
+        "amend-key",
+        '{"request":"amend"}',
+      ),
+    );
+    expect(
+      (await getSuggestionByCreationKey(rawClient, "create-key"))?.suggestion,
+    ).toEqual(original);
+  });
+
+  it("loads complete suggestion operations in one resource-scoped query", async () => {
+    await insertSuggestion(input);
+    await insertSuggestion({
+      ...input,
+      threadId: "thread-2",
+      summary: "Second suggestion",
+      operations: [{ ...input.operations[0], ordinal: 1, after: "newer" }],
+    });
+    rawClient.execute.mockClear();
+
+    const suggestions = await listSuggestions(
+      input.resourceType,
+      input.resourceId,
+      ["pending"],
+    );
+
+    expect(suggestions).toHaveLength(2);
+    expect(
+      suggestions.map((suggestion) => suggestion.operations[0]?.after),
+    ).toEqual(["new", "newer"]);
+    expect(rawClient.execute).toHaveBeenCalledOnce();
   });
 });

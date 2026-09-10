@@ -2,12 +2,28 @@ import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import type { PrimaryBlocksField } from "../../actions/_blocks-field-identity";
+
+type BlocksHelpers = typeof import("../../actions/_blocks-field-identity");
+
 const exclusions = vi.fn(async () => ({ rows: [] }));
+const lockPrimaryBlocksFields = vi.fn(
+  async (
+    _db: Parameters<BlocksHelpers["lockPrimaryBlocksFields"]>[0],
+    _documentId: string,
+  ): Promise<PrimaryBlocksField[]> => [],
+);
+const persistBlocksFieldIdentity = vi.fn(async () => ({}));
 vi.mock("@agent-native/core/feature-flags", () => ({
   isFeatureFlagEnabled: vi.fn(async () => true),
 }));
-vi.mock("@agent-native/core/db", () => ({
+vi.mock("@agent-native/core/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({ execute: exclusions }),
+}));
+vi.mock("../../actions/_blocks-field-identity.js", () => ({
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
 }));
 
 const {
@@ -60,7 +76,12 @@ function decisionCoordination() {
 }
 
 describe("Content document suggestion adapter", () => {
-  beforeEach(() => exclusions.mockClear());
+  beforeEach(() => {
+    exclusions.mockClear();
+    lockPrimaryBlocksFields.mockClear();
+    lockPrimaryBlocksFields.mockResolvedValue([]);
+    persistBlocksFieldIdentity.mockClear();
+  });
 
   it("validates a proposal without mutating canonical content", async () => {
     await expect(
@@ -153,6 +174,142 @@ describe("Content document suggestion adapter", () => {
     ).rejects.toThrow("inline databases cannot receive suggestions yet");
   });
 
+  it("rejects unsupported after-state before mutating canonical or collaborative content", async () => {
+    const tx = {
+      execute: vi.fn(async (query: string | { sql: string }) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        if (sql.startsWith("SELECT id,title")) {
+          return {
+            rows: [
+              {
+                id: "doc-1",
+                title: "Page",
+                content: "Before",
+                owner_email: "owner@example.com",
+                updated_at: "rev-1",
+                source_mode: null,
+                source_kind: null,
+                source_path: null,
+                trashed_at: null,
+              },
+            ],
+          };
+        }
+        return { rows: [], rowsAffected: 1 };
+      }),
+    };
+    const coordination = decisionCoordination();
+    await expect(
+      contentDocumentSuggestionAdapter.apply({
+        resourceType: "document",
+        resourceId: "doc-1",
+        suggestion: {
+          id: "suggestion-1",
+          revision: 1,
+          resourceType: "document",
+          resourceId: "doc-1",
+          adapterKind: contentDocumentSuggestionAdapter.kind,
+          adapterVersion: 1,
+          threadId: "thread-1",
+          authorEmail: "commenter@example.com",
+          actorKind: "human",
+          baseRevision: "rev-1",
+          status: "pending",
+          summary: "Suggest edits",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          visibility: "private",
+          createdAt: "now",
+          updatedAt: "now",
+          metadata: null,
+          operations: [
+            {
+              ...operation,
+              after: {
+                markdown: 'After\n\n<InlineDatabase id="db-1" />',
+              },
+            },
+          ],
+        },
+        operations: [
+          {
+            ...operation,
+            after: { markdown: 'After\n\n<InlineDatabase id="db-1" />' },
+          },
+        ],
+        access,
+        ctx: {},
+        transaction: tx,
+        coordination,
+      }),
+    ).rejects.toThrow("cannot add or change unsupported structures");
+    expect(lockPrimaryBlocksFields).not.toHaveBeenCalled();
+    expect(persistBlocksFieldIdentity).not.toHaveBeenCalled();
+    expect(coordination.ydoc.persist).not.toHaveBeenCalled();
+    expect(coordination.sync.persist).not.toHaveBeenCalled();
+    expect(
+      yDocToProsemirrorJSON(coordination.ydoc.doc, "default").content,
+    ).toEqual([]);
+    expect(
+      tx.execute.mock.calls.some(([query]) =>
+        (typeof query === "string" ? query : query.sql).startsWith(
+          "UPDATE documents",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("allows supported text and mark edits beside unchanged readable media", async () => {
+    const before = "![Cover](https://example.com/cover.png)\n\nBefore";
+    const after = "![Cover](https://example.com/cover.png)\n\n**After**";
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [
+          {
+            ...operation,
+            before: { markdown: before },
+            after: { markdown: after },
+          },
+        ],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content: before },
+          },
+        },
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("rejects relocating otherwise unchanged unsupported media", async () => {
+    const image = "![Cover](https://example.com/cover.png)";
+    const before = `Text A\n\n${image}\n\nText B`;
+    const after = `${image}\n\nText A\n\nChanged Text B`;
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [
+          {
+            ...operation,
+            before: { markdown: before },
+            after: { markdown: after },
+          },
+        ],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content: before },
+          },
+        },
+      }),
+    ).rejects.toThrow("cannot add or change unsupported structures");
+  });
+
   it("does not publish a duplicate accepted retry without a persisted event", () => {
     const sync = decisionCoordination().sync;
     publishPersistedAcceptedSuggestion(sync, {
@@ -240,6 +397,83 @@ describe("Content document suggestion adapter", () => {
         },
       ],
     });
+  });
+
+  it("reconciles a system database Page's primary Blocks identity in the acceptance transaction", async () => {
+    lockPrimaryBlocksFields.mockResolvedValue([
+      { propertyId: "blocks-primary", ownerEmail: "owner@example.com" },
+    ]);
+    const tx = {
+      execute: vi.fn(async (query: string | { sql: string }) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        if (sql.startsWith("SELECT id,title")) {
+          return {
+            rows: [
+              {
+                id: "doc-1",
+                title: "Page",
+                content: "Before",
+                owner_email: "owner@example.com",
+                updated_at: "rev-1",
+                source_mode: null,
+                source_kind: null,
+                source_path: null,
+                trashed_at: null,
+              },
+            ],
+          };
+        }
+        return { rows: [], rowsAffected: 1 };
+      }),
+    };
+    const coordination = decisionCoordination();
+    await contentDocumentSuggestionAdapter.apply({
+      resourceType: "document",
+      resourceId: "doc-1",
+      suggestion: {
+        id: "suggestion-1",
+        revision: 1,
+        resourceType: "document",
+        resourceId: "doc-1",
+        adapterKind: contentDocumentSuggestionAdapter.kind,
+        adapterVersion: 1,
+        threadId: "thread-1",
+        authorEmail: "commenter@example.com",
+        actorKind: "human",
+        baseRevision: "rev-1",
+        status: "pending",
+        summary: "Suggest edits",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        visibility: "private",
+        createdAt: "now",
+        updatedAt: "now",
+        metadata: null,
+        operations: [operation],
+      },
+      operations: [operation],
+      access,
+      ctx: {},
+      transaction: tx,
+      coordination,
+    });
+    expect(lockPrimaryBlocksFields).toHaveBeenCalledWith(
+      expect.objectContaining({ select: expect.any(Function) }),
+      "doc-1",
+    );
+    const identityTx = lockPrimaryBlocksFields.mock.calls[0]![0];
+    expect(persistBlocksFieldIdentity).toHaveBeenCalledWith({
+      db: identityTx,
+      ownerEmail: "owner@example.com",
+      documentId: "doc-1",
+      propertyId: "blocks-primary",
+      previousMarkdown: "Before",
+      markdown: "After",
+      now: expect.any(String),
+    });
+    expect(persistBlocksFieldIdentity.mock.invocationCallOrder[0]).toBeLessThan(
+      coordination.ydoc.persist.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("reports an honest stale outcome before writing a version", async () => {

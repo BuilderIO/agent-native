@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
-import { getDbExec } from "../../db/client.js";
+import { getDbExec, type DbExec } from "../../db/client.js";
 import { notifyReviewComment } from "../notifications.js";
 import { assertReviewableResourceAccess } from "../registry.js";
 import {
@@ -23,6 +23,8 @@ import {
   updateSuggestionStatus,
   getSuggestionAmendment,
   amendSuggestion,
+  deleteUnclaimedSuggestion,
+  type SuggestionCreationReceipt,
 } from "./store.js";
 import type { ResourceSuggestion } from "./types.js";
 
@@ -37,6 +39,66 @@ const operation = z.object({
   dependencies: z.unknown().optional(),
   schemaVersion: z.number().int().positive(),
 });
+
+function stableJson(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item) ?? "null").join(",")}]`;
+  }
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .flatMap(([key, item]) => {
+      const encoded = stableJson(item);
+      return encoded === undefined ? [] : [`${JSON.stringify(key)}:${encoded}`];
+    })
+    .join(",")}}`;
+}
+
+async function creationRequestHash(args: {
+  resourceType: string;
+  resourceId: string;
+  adapterKind: string;
+  baseRevision: string;
+  summary: string;
+  operations: unknown[];
+  metadata?: Record<string, unknown>;
+}): Promise<string> {
+  const request = stableJson({
+    resourceType: args.resourceType,
+    resourceId: args.resourceId,
+    adapterKind: args.adapterKind,
+    baseRevision: args.baseRevision,
+    summary: args.summary,
+    operations: args.operations,
+    metadata: args.metadata ?? null,
+  })!;
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(request),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function assertCreationReplay(
+  receipt: SuggestionCreationReceipt,
+  requestHash: string,
+  authorEmail: string | null,
+  actorKind: ResourceSuggestion["actorKind"],
+): ResourceSuggestion {
+  if (
+    receipt.requestHash !== requestHash ||
+    receipt.authorEmail !== authorEmail ||
+    receipt.actorKind !== actorKind
+  ) {
+    throw new Error(
+      "Idempotency key was already used for a different suggestion",
+    );
+  }
+  return receipt.suggestion;
+}
 
 export const createResourceSuggestion = defineAction({
   description:
@@ -67,16 +129,14 @@ export const createResourceSuggestion = defineAction({
     );
     const adapter = getSuggestionAdapter(args.adapterKind);
     if (!adapter) throw new Error("Suggestion adapter not registered");
-    const adapterContext = { ...(ctx as any), suggestionAccess: access };
-    const operations =
-      (await adapter.validateProposal({ ...args, ctx: adapterContext })) ??
-      args.operations;
     const actorKind =
       (ctx as any)?.caller === "agent" || (ctx as any)?.caller === "tool"
         ? "agent"
         : (ctx as any)?.userEmail
           ? "human"
           : "system";
+    const authorEmail = (ctx as any)?.userEmail ?? null;
+    const requestHash = await creationRequestHash(args);
     const db = getDbExec();
     await ensureSuggestionTables();
     await ensureReviewTables();
@@ -87,18 +147,25 @@ export const createResourceSuggestion = defineAction({
     const result = await db.transaction(async (tx) => {
       const prior = await getSuggestionByCreationKey(tx, args.idempotencyKey);
       if (prior) {
-        if (
-          prior.resourceType !== args.resourceType ||
-          prior.resourceId !== args.resourceId ||
-          prior.adapterKind !== args.adapterKind ||
-          prior.baseRevision !== args.baseRevision
-        ) {
-          throw new Error(
-            "Idempotency key was already used for a different suggestion",
-          );
-        }
-        return { suggestion: prior, threadComment: null };
+        return {
+          suggestion: assertCreationReplay(
+            prior,
+            requestHash,
+            authorEmail,
+            actorKind,
+          ),
+          threadComment: null,
+        };
       }
+      const operations =
+        (await adapter.validateProposal({
+          ...args,
+          ctx: {
+            ...(ctx as any),
+            suggestionAccess: access,
+            transaction: tx,
+          },
+        })) ?? args.operations;
       const created = await insertSuggestion(
         {
           resourceType: args.resourceType,
@@ -106,7 +173,7 @@ export const createResourceSuggestion = defineAction({
           adapterKind: adapter.kind,
           adapterVersion: adapter.version,
           threadId: `suggestion-thread-${globalThis.crypto.randomUUID()}`,
-          authorEmail: (ctx as any)?.userEmail ?? null,
+          authorEmail,
           actorKind,
           baseRevision: args.baseRevision,
           status: "pending",
@@ -119,7 +186,26 @@ export const createResourceSuggestion = defineAction({
         },
         tx,
       );
-      await recordSuggestionCreation(tx, args.idempotencyKey, created.id);
+      const receipt = await recordSuggestionCreation(
+        tx,
+        args.idempotencyKey,
+        created,
+        authorEmail,
+        actorKind,
+        requestHash,
+      );
+      if (receipt.suggestion.id !== created.id) {
+        await deleteUnclaimedSuggestion(tx, created.id);
+        return {
+          suggestion: assertCreationReplay(
+            receipt,
+            requestHash,
+            authorEmail,
+            actorKind,
+          ),
+          threadComment: null,
+        };
+      }
       const threadComment = await insertReviewCommentWithClient(
         {
           resourceType: created.resourceType,
@@ -382,6 +468,27 @@ export const decideResourceSuggestion = defineAction({
     const adapter = getSuggestionAdapter(suggestion.adapterKind);
     if (!adapter || adapter.version !== suggestion.adapterVersion)
       throw new Error("Suggestion adapter version is unavailable");
+    const reviewer = (ctx as any)?.userEmail ?? null;
+    const observedRevision = args.observedRevision ?? 1;
+    const replayDecision = async (tx: DbExec) => {
+      const decision = await getDecision(tx, args.idempotencyKey);
+      const latest = await getSuggestion(args.id, tx);
+      if (
+        !decision ||
+        !latest ||
+        decision.suggestionId !== args.id ||
+        decision.reviewer !== reviewer ||
+        decision.decision !== args.decision ||
+        decision.observedBase !== args.observedBase ||
+        latest.revision !== observedRevision
+      ) {
+        fail("The suggestion changed; refresh before deciding", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      }
+      return { suggestion: latest, decision };
+    };
     const decide = (coordination?: unknown) =>
       db.transaction!(async (tx) => {
         const current = await getSuggestion(args.id, tx);
@@ -393,18 +500,10 @@ export const decideResourceSuggestion = defineAction({
           "editor",
         );
         if (current.status !== "pending") {
-          const decision = await getDecision(tx, args.idempotencyKey);
-          if (
-            !decision ||
-            decision.suggestionId !== current.id ||
-            decision.decision !== args.decision
-          ) {
-            throw new Error(`Suggestion is already ${current.status}`);
-          }
-          return { suggestion: current, decision };
+          return replayDecision(tx);
         }
         const currentAdapter = getSuggestionAdapter(current.adapterKind);
-        if ((args.observedRevision ?? 1) !== current.revision) {
+        if (observedRevision !== current.revision) {
           fail("The suggestion changed; refresh before deciding", {
             statusCode: 409,
             errorCode: "suggestion_conflict",
@@ -423,11 +522,9 @@ export const decideResourceSuggestion = defineAction({
               "stale",
               current.revision,
             ))
-          )
-            fail("The suggestion changed; refresh before deciding", {
-              statusCode: 409,
-              errorCode: "suggestion_conflict",
-            });
+          ) {
+            return replayDecision(tx);
+          }
           const decision = await recordDecision(tx, {
             suggestionId: current.id,
             idempotencyKey: args.idempotencyKey,
@@ -448,11 +545,7 @@ export const decideResourceSuggestion = defineAction({
           args.decision,
           current.revision,
         );
-        if (!claimed)
-          fail("The suggestion changed; refresh before deciding", {
-            statusCode: 409,
-            errorCode: "suggestion_conflict",
-          });
+        if (!claimed) return replayDecision(tx);
         const prior = await recordDecision(tx, {
           suggestionId: current.id,
           idempotencyKey: args.idempotencyKey,

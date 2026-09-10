@@ -89,6 +89,100 @@ function suggestionFixture(
   } as ResourceSuggestion;
 }
 
+it("interleaves ordinary, saved, and draft discussions by creation time", async () => {
+  const saved = suggestionFixture({
+    id: "pending-chronological",
+    threadId: "thread-pending-chronological",
+    revision: 1,
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    createdAt: "2026-09-06T12:01:00.000Z",
+    status: "pending",
+    operations: [
+      {
+        ordinal: 0,
+        kind: "insert_text",
+        before: { changedText: "" },
+        after: { changedText: "Saved middle" },
+        schemaVersion: 1,
+      },
+    ],
+  });
+  const draft: DraftSuggestion = {
+    durability: "draft",
+    id: "draft-chronological",
+    threadId: "draft-chronological",
+    authorEmail: "reviewer@example.test",
+    createdAt: "2026-09-06T12:03:00.000Z",
+    operations: [
+      { ...saved.operations[0], after: { changedText: "Draft last" } },
+    ],
+    anchor: { from: 0, to: 10, prefix: "", suffix: "" },
+  };
+  const threads = [0, 2].map((minute) => ({
+    threadId: `ordinary-${minute}`,
+    quotedText: null,
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+    resolved: false,
+    comments: [
+      {
+        id: `ordinary-${minute}`,
+        document_id: "chronology",
+        thread_id: `ordinary-${minute}`,
+        parent_id: null,
+        content: `Ordinary ${minute}`,
+        quoted_text: null,
+        anchor_prefix: null,
+        anchor_suffix: null,
+        anchor_start_offset: null,
+        mentions: [],
+        author_email: "reviewer@example.test",
+        author_name: "Reviewer",
+        resolved: 0,
+        created_at: `2026-09-06T12:0${minute}:00.000Z`,
+        updated_at: "2026-09-06T12:05:00.000Z",
+        notion_comment_id: null,
+      },
+    ],
+  }));
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let controller!: ReturnType<typeof useCommentReplyDrafts>;
+  function Harness() {
+    controller = useCommentReplyDrafts("chronology");
+    return (
+      <CommentsSidebar
+        documentId="chronology"
+        replyDrafts={controller}
+        threads={threads}
+        suggestions={[saved]}
+        draftSuggestions={[draft]}
+        presentation="history"
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const text = container.textContent!;
+    expect(text.indexOf("Ordinary 0")).toBeLessThan(
+      text.indexOf("Saved middle"),
+    );
+    expect(text.indexOf("Saved middle")).toBeLessThan(
+      text.indexOf("Ordinary 2"),
+    );
+    expect(text.indexOf("Ordinary 2")).toBeLessThan(text.indexOf("Draft last"));
+    await act(async () => controller.setHistoryFilters({ kind: "comments" }));
+    expect(container.textContent).not.toContain("Saved middle");
+    expect(container.textContent).not.toContain("Draft last");
+    expect(container.textContent).toContain("Ordinary 0");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;

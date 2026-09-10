@@ -14,11 +14,21 @@ import {
 } from "@agent-native/core/server";
 import { getSchema } from "@tiptap/core";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
+import { drizzle } from "drizzle-orm/pg-proxy";
 
+import {
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
+} from "../../actions/_blocks-field-identity.js";
+import {
+  SUPPORTED_SUGGESTION_BLOCKS,
+  SUPPORTED_SUGGESTION_MARKS,
+} from "../../app/components/editor/suggestions/model.js";
 import { createVisualEditorExtensions } from "../../app/components/editor/VisualEditor.js";
 import { nfmToDoc } from "../../shared/nfm.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
+import { schema } from "../db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
@@ -160,14 +170,89 @@ export function publishPersistedAcceptedSuggestion(
 
 let contentEditorSchema: ReturnType<typeof getSchema> | undefined;
 
+type SuggestionDocumentJson = {
+  type?: string;
+  attrs?: Record<string, unknown>;
+  text?: string;
+  marks?: Array<{ type?: string; attrs?: Record<string, unknown> }>;
+  content?: SuggestionDocumentJson[];
+};
+
+function parseSuggestionMarkdown(markdown: string) {
+  contentEditorSchema ??= getSchema(createVisualEditorExtensions());
+  return contentEditorSchema.nodeFromJSON(nfmToDoc(markdown));
+}
+
+function unsupportedSuggestionStructure(
+  node: SuggestionDocumentJson,
+  path: number[] = [],
+  result: unknown[] = [],
+): unknown[] {
+  if (node.type === "text") {
+    for (const mark of node.marks ?? []) {
+      if (
+        !SUPPORTED_SUGGESTION_MARKS.has(
+          mark.type as Parameters<typeof SUPPORTED_SUGGESTION_MARKS.has>[0],
+        )
+      ) {
+        result.push({ path, mark: { type: mark.type, attrs: mark.attrs } });
+      }
+    }
+    return result;
+  }
+  if (
+    node.type !== "doc" &&
+    !SUPPORTED_SUGGESTION_BLOCKS.has(node.type ?? "")
+  ) {
+    result.push({ path, node });
+    return result;
+  }
+  for (const [index, child] of (node.content ?? []).entries()) {
+    unsupportedSuggestionStructure(child, [...path, index], result);
+  }
+  return result;
+}
+
+function validateSuggestionStructure(
+  beforeMarkdown: string,
+  afterMarkdown: string,
+) {
+  const before = parseSuggestionMarkdown(beforeMarkdown);
+  const after = parseSuggestionMarkdown(afterMarkdown);
+  if (
+    JSON.stringify(unsupportedSuggestionStructure(before.toJSON())) !==
+    JSON.stringify(unsupportedSuggestionStructure(after.toJSON()))
+  ) {
+    throw new Error(
+      "Content v1 suggestions cannot add or change unsupported structures",
+    );
+  }
+  return after;
+}
+
+function drizzleTransactionForExec(transaction: DbExec) {
+  return drizzle(
+    async (sql, args, method) => {
+      const result = await transaction.execute({ sql, args });
+      return {
+        rows:
+          method === "all"
+            ? result.rows.map((row) =>
+                Array.isArray(row) ? row : Object.values(row),
+              )
+            : result.rows,
+      };
+    },
+    { schema },
+  );
+}
+
 function replacePreparedCollabContent(
   lease: PreparedYDocMutationLease,
-  markdown: string,
+  proseMirrorDoc: ReturnType<typeof parseSuggestionMarkdown>,
 ): void {
-  contentEditorSchema ??= getSchema(createVisualEditorExtensions());
-  const proseMirrorDoc = contentEditorSchema.nodeFromJSON(nfmToDoc(markdown));
   prosemirrorJSONToYXmlFragment(
-    contentEditorSchema,
+    contentEditorSchema!,
     proseMirrorDoc.toJSON(),
     lease.doc.getXmlFragment("default"),
   );
@@ -229,6 +314,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     }
     const operations = validateOperations(input.operations);
     const before = markdownPayload(operations[0]!.before, "before");
+    const after = markdownPayload(operations[0]!.after, "after");
     if (document.content !== before.markdown) {
       fail(
         "The suggestion before-state does not match the Page; refresh before saving this suggestion",
@@ -243,6 +329,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         "Pages with inline databases cannot receive suggestions yet",
       );
     }
+    validateSuggestionStructure(before.markdown, after.markdown);
     return operations;
   },
   async coordinateDecision(context, run) {
@@ -310,6 +397,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       error.name = "SuggestionStaleError";
       throw error;
     }
+    const nextDocument = validateSuggestionStructure(
+      currentContent,
+      nextContent,
+    );
     const membership = await tx.execute({
       sql: `SELECT i.id
             FROM content_database_items i
@@ -328,7 +419,12 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         "Pages containing inline databases cannot accept suggestions yet",
       );
     }
-    replacePreparedCollabContent(coordination.ydoc, nextContent);
+    const identityTx = drizzleTransactionForExec(tx);
+    const primaryBlocksFields = await lockPrimaryBlocksFields(
+      identityTx,
+      context.resourceId,
+    );
+    replacePreparedCollabContent(coordination.ydoc, nextDocument);
     const now = new Date().toISOString();
     const applied = await commitCanonicalDocumentBodyMutation({
       write: async () => {
@@ -345,6 +441,17 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         return updated.rowsAffected === 1;
       },
       afterWrite: async () => {
+        for (const field of primaryBlocksFields) {
+          await persistBlocksFieldIdentity({
+            db: identityTx,
+            ownerEmail: field.ownerEmail,
+            documentId: context.resourceId,
+            propertyId: field.propertyId,
+            previousMarkdown: currentContent,
+            markdown: nextContent,
+            now,
+          });
+        }
         await tx.execute({
           sql: "INSERT INTO document_versions (id,owner_email,document_id,title,content,chat_context,created_at) VALUES (?,?,?,?,?,?,?)",
           args: [

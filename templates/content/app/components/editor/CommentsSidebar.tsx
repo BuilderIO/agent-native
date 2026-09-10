@@ -870,30 +870,18 @@ export function CommentsSidebar({
   }, [draftSuggestions, suggestions, threads]);
   const historySuggestions = useMemo(() => {
     if (historyKind === "comments") return [];
-    return suggestions
-      .filter((suggestion) => {
-        const unresolved =
-          suggestion.status === "pending" || suggestion.status === "stale";
-        if (historyStatus === "open" && !unresolved) {
-          return false;
-        }
-        if (historyStatus === "resolved" && unresolved) {
-          return false;
-        }
-        return !historyAuthor || suggestion.authorEmail === historyAuthor;
-      })
-      .sort(
-        (left, right) =>
-          Number(right.id === activeConflictId) -
-          Number(left.id === activeConflictId),
-      );
-  }, [
-    activeConflictId,
-    historyAuthor,
-    historyKind,
-    historyStatus,
-    suggestions,
-  ]);
+    return suggestions.filter((suggestion) => {
+      const unresolved =
+        suggestion.status === "pending" || suggestion.status === "stale";
+      if (historyStatus === "open" && !unresolved) {
+        return false;
+      }
+      if (historyStatus === "resolved" && unresolved) {
+        return false;
+      }
+      return !historyAuthor || suggestion.authorEmail === historyAuthor;
+    });
+  }, [historyAuthor, historyKind, historyStatus, suggestions]);
   const historyDraftSuggestions = useMemo(() => {
     if (historyKind === "comments") return [];
     if (historyStatus === "resolved") return [];
@@ -919,6 +907,42 @@ export function CommentsSidebar({
       return true;
     });
   }, [historyAuthor, historyKind, historyStatus, threads, selectedThreadId]);
+
+  const historyEntries = useMemo(
+    () =>
+      [
+        ...historyDraftSuggestions.map((suggestion) => ({
+          kind: "draft" as const,
+          id: suggestion.id,
+          createdAt: suggestion.createdAt,
+          suggestion,
+        })),
+        ...historySuggestions.map((suggestion) => ({
+          kind: "suggestion" as const,
+          id: suggestion.id,
+          createdAt: suggestion.createdAt,
+          suggestion,
+        })),
+        ...historyThreads.map((thread) => ({
+          kind: "comment" as const,
+          id: thread.threadId,
+          createdAt: thread.comments[0].created_at,
+          thread,
+        })),
+      ].sort(
+        (left, right) =>
+          Number(right.id === activeConflictId) -
+            Number(left.id === activeConflictId) ||
+          Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
+          left.id.localeCompare(right.id),
+      ),
+    [
+      activeConflictId,
+      historyDraftSuggestions,
+      historySuggestions,
+      historyThreads,
+    ],
+  );
 
   const pendingFocus = pendingComment?.focus;
   useEffect(() => {
@@ -1482,14 +1506,6 @@ export function CommentsSidebar({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="mt-3 flex flex-col gap-2" data-suggestion-threads>
-          {historyDraftSuggestions.map((suggestion) =>
-            renderDraftSuggestionCard(suggestion),
-          )}
-          {historySuggestions.map((suggestion) =>
-            renderSuggestionCard(suggestion),
-          )}
-        </div>
         <div className="grid gap-2 p-3">
           {isLoading ? (
             [0, 1, 2].map((item) => (
@@ -1499,9 +1515,7 @@ export function CommentsSidebar({
                 aria-hidden="true"
               />
             ))
-          ) : historyThreads.length === 0 &&
-            historySuggestions.length === 0 &&
-            historyDraftSuggestions.length === 0 ? (
+          ) : historyEntries.length === 0 ? (
             <div className="px-2 py-10 text-center text-sm text-muted-foreground">
               {historyKind !== "suggestions" &&
               historyStatus !== "resolved" &&
@@ -1517,23 +1531,27 @@ export function CommentsSidebar({
                 : t("comments.noFilteredComments")}
             </div>
           ) : (
-            historyThreads.map((thread) =>
-              thread.resolved ? (
-                renderCommentThread(thread)
-              ) : replyingThreadId === thread.threadId ? (
-                renderCommentThread(
-                  thread,
+            historyEntries.map((entry) => {
+              if (entry.kind === "draft")
+                return renderDraftSuggestionCard(entry.suggestion);
+              if (entry.kind === "suggestion")
+                return renderSuggestionCard(entry.suggestion);
+              if (entry.thread.resolved)
+                return renderCommentThread(entry.thread);
+              if (replyingThreadId === entry.thread.threadId)
+                return renderCommentThread(
+                  entry.thread,
                   0,
-                  activeThreadId === thread.threadId,
-                )
-              ) : (
+                  activeThreadId === entry.thread.threadId,
+                );
+              return (
                 <HistoryThreadView
-                  key={thread.threadId}
-                  thread={thread}
-                  onOpen={() => onActivateThread?.(thread.threadId)}
+                  key={entry.thread.threadId}
+                  thread={entry.thread}
+                  onOpen={() => onActivateThread?.(entry.thread.threadId)}
                 />
-              ),
-            )
+              );
+            })
           )}
         </div>
       </div>
