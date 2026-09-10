@@ -115,9 +115,9 @@ describe("Reusable workflow permission guard", () => {
     assert.match(
       validateReusableWorkflowPermissions({
         ...reusable,
-        permissions: { contents: "read" },
+        permissions: { contents: "read", issues: "write" },
       }).join("\n"),
-      /must declare the permissions used by its PR preview comment step/,
+      /must declare only the read permissions used by the reusable deploy job/,
     );
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
@@ -126,7 +126,6 @@ describe("Reusable workflow permission guard", () => {
       validateReusableCallerPermissions(
         beta,
         ".github/workflows/deploy-beta-sites-prebuilt.yml",
-        "deploy",
       ),
       [],
     );
@@ -138,14 +137,43 @@ describe("Reusable workflow permission guard", () => {
             ...(beta.jobs as Workflow),
             deploy: {
               ...(beta.jobs as Workflow).deploy,
-              permissions: { contents: "read" },
+              permissions: { issues: "write" },
             },
           },
         },
         ".github/workflows/deploy-beta-sites-prebuilt.yml",
-        "deploy",
       ).join("\n"),
-      /must pass reusable deploy comment permissions/,
+      /deploy reusable deploy job must retain contents access/,
+    );
+    assert.deepEqual(
+      validateReusableCallerPermissions(
+        {
+          permissions: { contents: "read" },
+          jobs: {
+            future_caller: {
+              uses: "./.github/workflows/deploy-netlify-prebuilt.yml",
+            },
+            unrelated: { "runs-on": "ubuntu-latest" },
+          },
+        },
+        ".github/workflows/future-caller.yml",
+      ),
+      [],
+    );
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          permissions: { contents: "read" },
+          jobs: {
+            future_caller: {
+              uses: "./.github/workflows/deploy-netlify-prebuilt.yml",
+              permissions: { issues: "write" },
+            },
+          },
+        },
+        ".github/workflows/future-caller.yml",
+      ).join("\n"),
+      /future_caller reusable deploy job must retain contents access/,
     );
   });
 });

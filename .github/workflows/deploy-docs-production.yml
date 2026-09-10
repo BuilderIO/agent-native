@@ -42,8 +42,6 @@ jobs:
     name: Migrate docs production schema
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
     needs: pause-netlify-builds
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
@@ -62,8 +60,6 @@ jobs:
     name: docs production prebuilt deploy
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
     needs: [pause-netlify-builds, migrate]
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:

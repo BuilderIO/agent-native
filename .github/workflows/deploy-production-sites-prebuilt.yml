@@ -175,8 +175,6 @@ jobs:
     name: ${{ matrix.site }} production prebuilt deploy
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
     needs: [resolve-source, discover-sites, beta-e2e]
     # Spelled out per dependency rather than with `needs.*.result`: the two
     # source jobs must still have succeeded exactly as before, while the

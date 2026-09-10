@@ -68,15 +68,12 @@ export function validateReusableWorkflowPermissions(
   const permissions = asRecord(workflow.permissions);
   if (
     permissions?.contents !== "read" ||
-    permissions.issues !== "write" ||
-    permissions["pull-requests"] !== "write" ||
     Object.keys(permissions ?? {}).some(
-      (permission) =>
-        !["contents", "issues", "pull-requests"].includes(permission),
+      (permission) => permission !== "contents",
     )
   ) {
     return [
-      `${reusablePath} must declare the permissions used by its PR preview comment step`,
+      `${reusablePath} must declare only the read permissions used by the reusable deploy job`,
     ];
   }
   return [];
@@ -85,24 +82,26 @@ export function validateReusableWorkflowPermissions(
 export function validateReusableCallerPermissions(
   workflow: Record<string, unknown>,
   path: string,
-  jobName: string,
 ): string[] {
-  const job = asRecord(asRecord(workflow.jobs)?.[jobName]);
-  const permissions = asRecord(job?.permissions);
-  if (
-    permissions?.contents !== "read" ||
-    permissions.issues !== "write" ||
-    permissions["pull-requests"] !== "write" ||
-    Object.keys(permissions ?? {}).some(
-      (permission) =>
-        !["contents", "issues", "pull-requests"].includes(permission),
-    )
-  ) {
-    return [
-      `${path} ${jobName} job must pass reusable deploy comment permissions`,
-    ];
+  const issues: string[] = [];
+  const workflowPermissions = asRecord(workflow.permissions);
+  for (const [jobName, value] of Object.entries(
+    asRecord(workflow.jobs) ?? {},
+  )) {
+    const job = asRecord(value);
+    if (job?.uses !== `./${reusablePath}`) continue;
+    const permissions = asRecord(job.permissions) ?? workflowPermissions;
+    if (
+      permissions &&
+      permissions.contents !== "read" &&
+      permissions.contents !== "write"
+    ) {
+      issues.push(
+        `${path} ${jobName} reusable deploy job must retain contents access`,
+      );
+    }
   }
-  return [];
+  return issues;
 }
 
 export function validateProductionPurgeCondition(ifValue: unknown): string[] {
@@ -160,6 +159,8 @@ export function validateNetlifyPrPreviewWorkflow(
   const buildPermissions = asRecord(build?.permissions);
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
+  const comment = asRecord(jobs?.comment);
+  const commentPermissions = asRecord(comment?.permissions);
 
   if (!asRecord(triggers?.pull_request_target)) {
     issues.push(`${pullRequestPath} must be triggered by pull_request_target`);
@@ -199,15 +200,30 @@ export function validateNetlifyPrPreviewWorkflow(
   if (
     asRecord(build?.secrets) ||
     buildPermissions?.contents !== "read" ||
-    buildPermissions?.issues !== "write" ||
-    buildPermissions?.["pull-requests"] !== "write" ||
     Object.keys(buildPermissions ?? {}).some(
-      (permission) =>
-        !["contents", "issues", "pull-requests"].includes(permission),
+      (permission) => permission !== "contents",
     )
   ) {
     issues.push(
       `${pullRequestPath} PR build job must not receive deployment secrets`,
+    );
+  }
+  if (
+    comment?.["runs-on"] !== "ubuntu-latest" ||
+    !Array.isArray(comment.needs) ||
+    !comment.needs.includes("deploy") ||
+    commentPermissions?.contents !== "read" ||
+    commentPermissions.issues !== "write" ||
+    commentPermissions["pull-requests"] !== "write" ||
+    Object.keys(commentPermissions ?? {}).some(
+      (permission) =>
+        !["contents", "issues", "pull-requests"].includes(permission),
+    ) ||
+    !source.includes("actions/download-artifact@") ||
+    !source.includes("actions/github-script@")
+  ) {
+    issues.push(
+      `${pullRequestPath} comment job must own PR comment permissions and consume the trusted deploy record`,
     );
   }
   if (deployWith?.target !== "preview") {
@@ -373,21 +389,9 @@ try {
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 issues.push(...validateReusableWorkflowPermissions(reusableDocument ?? {}));
-for (const [path, jobNames] of [
-  [betaPath, ["deploy"]],
-  [docsProductionPath, ["migrate", "deploy"]],
-  [productionPath, ["deploy"]],
-  [pullRequestPath, ["build", "deploy"]],
-] as const) {
-  for (const jobName of jobNames) {
-    issues.push(
-      ...validateReusableCallerPermissions(
-        parsedWorkflows.get(path) ?? {},
-        path,
-        jobName,
-      ),
-    );
-  }
+for (const [path, workflow] of parsedWorkflows) {
+  if (path === reusablePath) continue;
+  issues.push(...validateReusableCallerPermissions(workflow, path));
 }
 issues.push(
   ...validateNetlifyPrPreviewWorkflow(

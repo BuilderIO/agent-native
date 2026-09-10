@@ -340,8 +340,6 @@ jobs:
     name: ${{ matrix.site }} beta prebuilt deploy
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
     needs: [resolve-source, discover-sites, schema-gate]
     strategy:
       fail-fast: false
