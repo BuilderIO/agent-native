@@ -17,7 +17,12 @@ import {
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 
-export { usageOrgScope, type UsageOrgScope } from "./org-scope.js";
+export {
+  isSelfScopedUsageRead,
+  usageOrgScope,
+  type UsageOrgScope,
+  type UsageOrgScopeOptions,
+} from "./org-scope.js";
 
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of

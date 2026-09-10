@@ -56,3 +56,21 @@ export function usageOrgScope(options: UsageOrgScopeOptions): UsageOrgScope {
     ? { where: "(org_id = ? OR org_id IS NULL)", args: [trimmed] }
     : { where: "org_id = ?", args: [trimmed] };
 }
+
+/**
+ * Whether a usage read is narrowed to exactly the viewer's own `owner_email`.
+ *
+ * Derived from the EFFECTIVE owner list the query will use, not from whether a
+ * user was explicitly selected: a workspace view of a one-member organization
+ * selects nobody yet still resolves to a single email that is the viewer, and
+ * that read is every bit as self-scoped as an explicit "my usage". Classifying
+ * it as a roll-up is what kept a solo user's own unattributed spend hidden.
+ */
+export function isSelfScopedUsageRead(
+  ownerEmails: readonly string[],
+  viewerEmail: string,
+): boolean {
+  const viewer = viewerEmail.trim().toLowerCase();
+  if (!viewer || ownerEmails.length !== 1) return false;
+  return ownerEmails[0]!.trim().toLowerCase() === viewer;
+}

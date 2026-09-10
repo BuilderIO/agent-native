@@ -239,3 +239,32 @@ describe("listAppUsageMetrics workspace scope", () => {
     expect(metrics.totals).toMatchObject({ calls: 0, inputTokens: 0 });
   });
 });
+
+describe("listAppUsageMetrics self-scope classification", () => {
+  it("counts a solo owner's unattributed usage in the default workspace view", async () => {
+    // A one-member organization selects no user, so `selectedUserEmail` is
+    // null — but the effective owner list is still exactly the viewer, which
+    // makes the read self-scoped. Classifying it as a roll-up kept a solo
+    // user's own unattributed spend hidden, which is the original bug.
+    await pglite.exec(`DELETE FROM org_members`);
+    await pglite
+      .prepare(`INSERT INTO org_members (org_id, email, role) VALUES (?, ?, ?)`)
+      .run("org-1", "a@example.com", "owner");
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 400,
+      outputTokens: 100,
+      model: "claude-sonnet-4-5",
+      label: "recurring-job:digest",
+    });
+    await recordInOrg("org-1", 200);
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "workspace" },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.selectedUserEmail).toBeNull();
+    expect(metrics.totals).toMatchObject({ calls: 2, inputTokens: 600 });
+  });
+});

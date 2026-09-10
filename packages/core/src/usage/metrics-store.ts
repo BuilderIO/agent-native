@@ -1,7 +1,7 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import { ForbiddenError } from "../sharing/access.js";
-import { usageOrgScope } from "./org-scope.js";
+import { isSelfScopedUsageRead, usageOrgScope } from "./org-scope.js";
 import {
   builderCreditsFromCostCents,
   usageBillingForEngine,
@@ -259,9 +259,7 @@ async function resolveScope(
   const placeholders = selectedEmails.map(() => "?").join(", ");
   const orgScope = usageOrgScope({
     orgId,
-    selfScoped:
-      selectedEmails.length === 1 &&
-      selectedEmails[0]!.toLowerCase() === viewerEmail,
+    selfScoped: isSelfScopedUsageRead(selectedEmails, viewerEmail),
   });
   return {
     ownerScope: {

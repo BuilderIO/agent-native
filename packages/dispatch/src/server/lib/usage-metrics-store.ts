@@ -12,6 +12,7 @@ import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   builderCreditsFromCostCents,
   getUsageSummary,
+  isSelfScopedUsageRead,
   usageBillingForEngine,
   usageOrgScope,
   type UsageBillingMode,
@@ -543,12 +544,12 @@ function appUsageScope(
   memberEmails: string[],
   appId: string,
   orgId: string | null,
+  viewerEmail: string,
 ): { where: string; args: unknown[] } {
-  // An app-wide read spans every member, so it is never self-scoped.
   const scope = withOrgUsageScope(
     usageScope(sinceMs, memberEmails),
     orgId,
-    false,
+    isSelfScopedUsageRead(memberEmails, viewerEmail),
   );
   return {
     where: `${scope.where} AND LOWER(app) = ?`,
@@ -1035,14 +1036,15 @@ export async function listDispatchUsageMetrics(input: {
   // Unattributed (`org_id IS NULL`) usage may only be admitted when the read is
   // narrowed to the viewer's own spend. An admin-selected member or a
   // workspace-wide roll-up must not claim rows whose organization is unknown.
-  const selfScopedUsage =
-    selectedUserEmail?.toLowerCase() === viewerEmail.toLowerCase();
+  // Classified from the effective owner list, so a one-member organization's
+  // default workspace view still counts the viewer's own unattributed spend.
+  const selfScopedUsage = isSelfScopedUsageRead(memberEmails, viewerEmail);
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),
   );
   const usage =
     viewScope === "app" && selectedApp
-      ? appUsageScope(sinceMs, memberEmails, selectedApp.id, orgId)
+      ? appUsageScope(sinceMs, memberEmails, selectedApp.id, orgId, viewerEmail)
       : withOrgUsageScope(
           selectedUserEmail
             ? ownerScope(sinceMs, selectedUserEmail)
@@ -1057,7 +1059,13 @@ export async function listDispatchUsageMetrics(input: {
   );
   const adoptionUsage =
     viewScope === "app" && selectedApp
-      ? appUsageScope(adoptionSinceMs, memberEmails, selectedApp.id, orgId)
+      ? appUsageScope(
+          adoptionSinceMs,
+          memberEmails,
+          selectedApp.id,
+          orgId,
+          viewerEmail,
+        )
       : withOrgUsageScope(
           selectedUserEmail
             ? ownerScope(adoptionSinceMs, selectedUserEmail)

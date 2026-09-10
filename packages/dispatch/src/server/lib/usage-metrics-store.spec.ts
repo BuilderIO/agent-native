@@ -41,6 +41,11 @@ vi.mock("@agent-native/core/usage", () => ({
     shortLabel: "Cost",
     source: "estimated-provider-cost",
   }),
+  isSelfScopedUsageRead: (ownerEmails: string[], viewerEmail: string) => {
+    const viewer = viewerEmail.trim().toLowerCase();
+    if (!viewer || ownerEmails.length !== 1) return false;
+    return ownerEmails[0]!.trim().toLowerCase() === viewer;
+  },
   usageOrgScope: (options: {
     orgId: string | null | undefined;
     selfScoped: boolean;
@@ -477,6 +482,39 @@ describe("listDispatchUsageMetrics", () => {
         String((query as { sql?: string }).sql).includes("org_id IS NULL"),
       ),
     ).toBe(false);
+  });
+
+  it("admits unattributed usage for a one-member workspace", async () => {
+    // selectedUserEmail is null here, but the effective owner list is exactly
+    // the viewer, so the read is self-scoped and must count their own
+    // unattributed spend.
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "owner", joined_at: null },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    await listDispatchUsageMetrics({ sinceDays: 30 });
+
+    expect(
+      mocks.execute.mock.calls.some(([query]) =>
+        String((query as { sql?: string }).sql).includes(
+          "(org_id = ? OR org_id IS NULL)",
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("keeps weekly app adoption independent from a one-day lookback", async () => {
