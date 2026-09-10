@@ -84,6 +84,8 @@ import {
   shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
+  shouldRemoveNetlifyStaticRootShell,
+  shouldPreserveNetlifyStaticRootShell,
 } from "./build.js";
 import {
   pruneBrowserRuntimeFromNonAgentClone,
@@ -782,6 +784,91 @@ describe("Netlify static cache headers", () => {
 });
 
 describe("Netlify static root shell", () => {
+  it("keeps a public prerendered root shell available to the CDN", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": { workspaceApp: { audience: "public" } },
+      }),
+    );
+
+    expect(shouldRemoveNetlifyStaticRootShell(projectCwd)).toBe(false);
+  });
+
+  it("removes the root shell for internal apps", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(path.join(projectCwd, "package.json"), "{}");
+
+    expect(shouldRemoveNetlifyStaticRootShell(projectCwd)).toBe(true);
+  });
+
+  it("keeps the internal-app default when a public app protects root", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": {
+          workspaceApp: { audience: "public", protectedPaths: ["/"] },
+        },
+      }),
+    );
+
+    expect(shouldRemoveNetlifyStaticRootShell(projectCwd)).toBe(true);
+  });
+
+  it("honors restrictive effective environment overrides", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": { workspaceApp: { audience: "public" } },
+      }),
+    );
+
+    expect(
+      shouldRemoveNetlifyStaticRootShell(projectCwd, {
+        AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "internal",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRemoveNetlifyStaticRootShell(projectCwd, {
+        AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+        AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: '["/"]',
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat environment-only public audience as sufficient", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(path.join(projectCwd, "package.json"), "{}");
+
+    expect(
+      shouldRemoveNetlifyStaticRootShell(projectCwd, {
+        AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+      }),
+    ).toBe(true);
+  });
+
+  it("requires the prerendered root artifact before preserving it", () => {
+    const projectCwd = makeTempDir();
+    const publishDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": { workspaceApp: { audience: "public" } },
+      }),
+    );
+
+    expect(shouldPreserveNetlifyStaticRootShell(projectCwd, publishDir)).toBe(
+      false,
+    );
+    fs.writeFileSync(path.join(publishDir, "index.html"), "<html></html>");
+    expect(shouldPreserveNetlifyStaticRootShell(projectCwd, publishDir)).toBe(
+      true,
+    );
+  });
+
   it("leaves the root request to the SSR auth handler", () => {
     const publishDir = makeTempDir();
     fs.writeFileSync(path.join(publishDir, "index.html"), "<html></html>");

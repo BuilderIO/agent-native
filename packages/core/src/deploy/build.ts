@@ -75,6 +75,12 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
+import {
+  workspaceAppAudienceFromEnv,
+  workspaceAppAudienceFromPackageJson,
+  workspaceAppRouteAccessFromEnv,
+  workspaceAppRouteAccessFromPackageJson,
+} from "../shared/workspace-app-audience.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import {
   createAgentNativeConfigContext,
@@ -4736,9 +4742,52 @@ export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
 }
 
 /**
- * Let the Netlify function own the app root. React Router's generated static
- * index bypasses the framework auth guard, so it can publish the marketing
- * route without the shared AuthPage or its root handoff script.
+ * Whether the generic Netlify root-shell removal is still needed.
+ *
+ * Public apps have already opted the workspace page surface out of the auth
+ * guard, so a React Router prerendered root is safe to serve statically. Keep
+ * the old removal as the default unless the app manifest is explicitly public
+ * and neither the effective environment nor the manifest protects `/`.
+ */
+export function shouldRemoveNetlifyStaticRootShell(
+  projectCwd: string,
+  environment?: Record<string, string | undefined>,
+): boolean {
+  const manifest = readPackageManifest(projectCwd);
+  if (workspaceAppAudienceFromPackageJson(manifest) !== "public") {
+    return true;
+  }
+
+  const environmentAudience = environment
+    ? workspaceAppAudienceFromEnv(environment)
+    : undefined;
+  if (environmentAudience === "internal") return true;
+
+  const packageProtectedPaths =
+    workspaceAppRouteAccessFromPackageJson(manifest).protectedPaths ?? [];
+  const environmentProtectedPaths = environment
+    ? workspaceAppRouteAccessFromEnv(environment).protectedPaths
+    : [];
+  return (
+    packageProtectedPaths.includes("/") ||
+    environmentProtectedPaths.includes("/")
+  );
+}
+
+export function shouldPreserveNetlifyStaticRootShell(
+  projectCwd: string,
+  publishDir: string,
+  environment?: Record<string, string | undefined>,
+): boolean {
+  return (
+    fs.existsSync(path.join(publishDir, "index.html")) &&
+    !shouldRemoveNetlifyStaticRootShell(projectCwd, environment)
+  );
+}
+
+/**
+ * Let the Netlify function own the app root for auth-shaped applications.
+ * Public applications keep a verified React Router prerendered root instead.
  */
 export function removeNetlifyStaticRootShell(publishDir: string): void {
   const indexPath = path.join(publishDir, "index.html");
@@ -5573,7 +5622,19 @@ export default bundle;
     }
 
     writeSingleTemplateNetlifyRedirects(cwd);
-    removeNetlifyStaticRootShell(nitro.options.output.publicDir);
+    if (
+      shouldPreserveNetlifyStaticRootShell(
+        cwd,
+        nitro.options.output.publicDir,
+        nitroEnvironment,
+      )
+    ) {
+      console.log(
+        "[deploy] Preserved static Netlify root shell; public app root is prerendered.",
+      );
+    } else {
+      removeNetlifyStaticRootShell(nitro.options.output.publicDir);
+    }
     // React Router prerendered pages bypass the SSR function and are served
     // directly from Netlify's static backing store. Keep that artifact on the
     // same public SWR policy as runtime SSR and .data responses.

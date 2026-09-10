@@ -257,19 +257,13 @@ describe("localized docs fallback", () => {
     });
   });
 
-  it("includes the GitHub star count in the SSR root data", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ stargazers_count: 4647 }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      ),
-    );
+  it("does not fetch GitHub while rendering the SSR root data", async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
 
     const data = await rootLoader(loaderArgs({}, "https://docs.test/apps"));
 
-    expect(data.starCount).toBe(4647);
+    expect(data.starCount).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
