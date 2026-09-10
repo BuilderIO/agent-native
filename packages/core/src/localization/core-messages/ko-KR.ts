@@ -401,6 +401,16 @@ const messages: AgentChatTranslation = {
   "history.searching": "검색 중...",
   "history.untitledChat": "채팅",
   "history.yesterday": "어제",
+  "integrations.availableSection": "사용 가능한 연동",
+  "integrations.connectedSection": "연결됨",
+  "integrations.goToApiKeys": "API 키로 이동",
+  "integrations.goToIntegrations": "연동으로 이동",
+  "integrations.lookingForApiKeys": "대신 API 키를 찾고 계신가요?",
+  "integrations.lookingForProviders":
+    "OAuth 또는 MCP 제공업체를 찾고 계신가요?",
+  "integrations.manage": "관리",
+  "integrations.recommended": "추천",
+  "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
   "limit.account": "계정",
   "limit.descriptionAll":
     "에이전트가 사용 가능한 모든 단계를 소진했습니다. 새 차례에서 계속하거나 먼저 {{scope}} 한도를 높이세요.",
@@ -528,12 +538,19 @@ const messages: AgentChatTranslation = {
     "이전 에이전트 스트림이 실행 복구 중 종료되었습니다. 계속하거나 다시 시도하여 실행에 다시 연결하세요.",
   "recovery.reconnectBuilder": "Builder.io 다시 연결",
   "secrets.addCustomKeyNamed": '사용자 지정 키로 "{{name}}" 추가',
+  "secrets.chooseKey": "키 선택",
   "secrets.customKey": "사용자 지정 키",
   "secrets.customKeyHint": "이름으로 아무 키나 추가",
+  "secrets.emptyHint": "본인 계정을 사용하려면 키를 추가하세요.",
+  "secrets.emptyMore":
+    "그 외 {{count}}개는 '새로 만들기' 아래에 있거나 사용자 지정 키를 추가하세요",
+  "secrets.emptyTitle": "아직 키가 없습니다.",
   "secrets.fromEnvironment": "배포 환경에서 제공됩니다.",
   "secrets.managedInVault":
     "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",
   "secrets.openVault": "Vault 열기",
+  "secrets.newKey": "새로 만들기",
+  "secrets.noKeysFound": "키를 찾을 수 없습니다.",
   "secrets.overridesVault":
     "이 개인 키는 워크스페이스 Vault 값을 재정의합니다. Vault 키를 사용하려면 제거하세요.",
   "secrets.overridesWorkspace":
@@ -544,6 +561,8 @@ const messages: AgentChatTranslation = {
   "secrets.sourceVault": "Vault",
   "secrets.sourceWorkspace": "워크스페이스",
   "secrets.statusUnavailable": "사용할 수 없음",
+  "secrets.required": "필수",
+  "secrets.searchKeys": "키 검색...",
   "secrets.usePersonalKey": "대신 개인 키 사용",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":

@@ -167,12 +167,24 @@ function resolveTabId(
   const normalized = normalizeTabId(value);
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  // Legacy `#browser` deep links: the Browser Automation section now lives
+  // inside the merged Integrations tab (id varies by consumer).
+  if (normalized === "browser") {
+    const browserOwner = tabs.find(
+      (tab) => tab.id === "integrations" || tab.id === "connections",
+    );
+    if (browserOwner) return browserOwner.id;
+  }
   const alternateTabId =
     normalized === "connections"
       ? "integrations"
       : normalized === "integrations"
         ? "connections"
-        : null;
+        : normalized === "secrets"
+          ? "keys"
+          : normalized === "keys"
+            ? "secrets"
+            : null;
   if (alternateTabId && tabs.some((tab) => tab.id === alternateTabId)) {
     return alternateTabId;
   }
@@ -658,13 +670,15 @@ function SettingsTabsPageContent({
     <div
       ref={rootRef}
       className={cn(
-        "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background sm:flex-row",
+        // Bound to the viewport when the host page gives no height, so the
+        // content pane scrolls and the rail stays put instead of the page.
+        "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background sm:max-h-dvh sm:flex-row",
         className,
       )}
     >
       <div
         className={cn(
-          "flex shrink-0 flex-col gap-2 border-b border-border/60 bg-background p-2 sm:min-h-0 sm:w-56 sm:flex-none sm:overflow-y-auto sm:border-b-0 sm:border-r sm:border-border/60 sm:p-4 lg:w-60 xl:w-64",
+          "flex shrink-0 flex-col gap-2 border-b border-border/60 bg-background p-2 sm:min-h-0 sm:w-56 sm:flex-none sm:overflow-y-auto sm:border-b-0 sm:p-4 lg:w-60 xl:w-64",
           navClassName,
         )}
       >
@@ -878,7 +892,7 @@ function SettingsTabsPageContent({
         role="tabpanel"
         aria-labelledby={`settings-tab-${selectedTab?.id ?? "general"}`}
         className={cn(
-          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8",
+          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:border-s sm:border-border/60 sm:px-6 sm:py-6 lg:px-8 lg:py-8",
           contentClassName,
         )}
       >

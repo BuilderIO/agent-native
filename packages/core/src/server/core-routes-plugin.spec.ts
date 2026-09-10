@@ -168,6 +168,26 @@ describe("getFrameworkEnvKeys", () => {
     expect(keys).toContain("SENDGRID_API_KEY");
     expect(keys).toContain("EMAIL_FROM");
   });
+
+  it("marks non-credential flags and addresses as non-secret", () => {
+    const byKey = new Map(
+      getFrameworkEnvKeys().map((entry) => [entry.key, entry]),
+    );
+
+    expect(byKey.get("ENABLE_BUILDER")?.secret).toBe(false);
+    expect(byKey.get("AGENT_ENGINE_PREFER_BYO_KEY")?.secret).toBe(false);
+    expect(byKey.get("EMAIL_FROM")?.secret).toBe(false);
+  });
+
+  it("leaves API key entries as secret by default", () => {
+    const byKey = new Map(
+      getFrameworkEnvKeys().map((entry) => [entry.key, entry]),
+    );
+
+    expect(byKey.get("RESEND_API_KEY")?.secret).toBeUndefined();
+    expect(byKey.get("SENDGRID_API_KEY")?.secret).toBeUndefined();
+    expect(byKey.get("ANTHROPIC_API_KEY")?.secret).toBeUndefined();
+  });
 });
 
 describe("normalizeAgentEngineStatusModel", () => {

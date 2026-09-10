@@ -455,6 +455,7 @@
     "undici": "^7.28.0",
     "vgpu": "0.3.1",
     "y-protocols": "catalog:",
+    "yaml": "^2.9.0",
     "yjs": "catalog:",
     "zod": "^4.3.6"
   },
