@@ -118,14 +118,27 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
   const t = useT();
+  const location = useLocation();
+  const isChatThread = location.pathname.startsWith("/chat/");
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
-          </CommandMenu.Item>
+          {isChatThread ? (
+            <CommandMenu.Item
+              onSelect={() =>
+                window.dispatchEvent(new Event("agent-chat:new-chat"))
+              }
+            >
+              {t("chat.newChat")}
+            </CommandMenu.Item>
+          ) : null}
+          {!isChatThread && location.pathname !== "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.chat")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[
