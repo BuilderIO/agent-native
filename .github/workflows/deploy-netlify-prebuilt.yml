@@ -1375,6 +1375,7 @@ jobs:
           steps.beta_freshness.outputs.current == 'true' &&
           steps.deploy.outputs.deploy_id != ''
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        continue-on-error: true
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
         with:
@@ -1393,11 +1394,81 @@ jobs:
               );
             }
 
+      - name: Delete staged first beta draft
+        id: beta_draft_cleanup
+        if: >-
+          always() && inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.previous.outputs.published_deploy_id == '' &&
+          steps.deploy.outputs.deploy_id != '' &&
+          steps.deploy.outputs.deploy_id != steps.beta_first_publish.outputs.deploy_id
+        env:
+          DRAFT_DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const api = "https://api.netlify.com/api/v1";
+            const headers = {
+              Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            };
+            const request = (url, options = {}) => requestNetlifyApi(url, {
+              ...options,
+              headers: { ...headers, ...(options.headers || {}) },
+            });
+            const readJson = async (response, label) => {
+              const text = await response.text();
+              const body = text ? JSON.parse(text) : null;
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+              }
+              return body;
+            };
+            const draftId = process.env.DRAFT_DEPLOY_ID;
+            const siteId = process.env.NETLIFY_SITE_ID;
+            const site = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify staged beta draft site lookup",
+            );
+            if (site.published_deploy?.id === draftId) {
+              throw new Error(`Refusing to delete staged beta draft ${draftId} because Netlify published it.`);
+            }
+            const deletion = await request(`${api}/deploys/${draftId}`, { method: "DELETE" });
+            if (deletion.status === 404) {
+              console.log(`Staged beta draft ${draftId} was already removed.`);
+              return;
+            }
+            if (!deletion.ok) {
+              const cancellation = await request(`${api}/deploys/${draftId}/cancel`, { method: "POST" });
+              if (!cancellation.ok) {
+                throw new Error(`Netlify could not delete or cancel staged beta draft ${draftId}.`);
+              }
+              console.log(`Canceled staged beta draft ${draftId} after deletion was rejected.`);
+              return;
+            }
+            await readJson(deletion, `Netlify staged beta draft ${draftId} deletion`);
+            const verification = await request(`${api}/deploys/${draftId}`);
+            if (verification.status !== 404) {
+              throw new Error(`Netlify staged beta draft ${draftId} still exists after deletion.`);
+            }
+            console.log(`Deleted staged beta draft ${draftId}.`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Revert stale beta deploy
         if: >-
           always() && inputs.target == 'beta' && inputs.deploy &&
           steps.deploy.outputs.deploy_id != '' &&
-          steps.beta_post_freshness.outputs.current == 'false'
+          (steps.beta_post_freshness.outputs.current == 'false' ||
+          steps.beta_post_freshness.outcome == 'failure' ||
+          steps.beta_first_publish.outcome == 'failure' ||
+          steps.beta_first_publish_wait.outcome == 'failure')
         env:
           DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -1560,6 +1631,13 @@ jobs:
             process.exitCode = 1;
           });
           NODE
+
+      - name: Fail after beta freshness verification
+        if: always() && steps.beta_post_freshness.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          echo "::error::Beta source freshness could not be verified after publish."
+          exit 1
 
       - name: Smoke-test the uploaded deploy
         if: >-

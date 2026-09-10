@@ -498,6 +498,15 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       reusableSource,
+      /steps\.beta_post_freshness\.outcome == 'failure'/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish_wait\.outcome == 'failure'/,
+    );
+    assert.match(reusableSource, /Fail after beta freshness verification/);
+    assert.match(
+      reusableSource,
       /inputs\.target == 'beta' \|\| \(inputs\.smoke && steps\.target\.outputs\.source_template != '@agent-native\/docs'\)/,
     );
     assert.match(reusableSource, /inputs\.caller/);
@@ -574,6 +583,17 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       reusableSource,
       /steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.deploy\.outputs\.deploy_id/,
+    );
+    assert.match(reusableSource, /Delete staged first beta draft/);
+    assert.match(reusableSource, /id: beta_draft_cleanup/);
+    assert.match(reusableSource, /DRAFT_DEPLOY_ID/);
+    assert.match(
+      reusableSource,
+      /Netlify staged beta draft \$\{draftId\} deletion/,
+    );
+    assert.match(
+      reusableSource,
+      /Refusing to delete staged beta draft \$\{draftId\} because Netlify published it\./,
     );
     assert.match(
       reusableSource,
@@ -658,11 +678,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 11);
+    assert.equal(nodeHeredocs.length, 12);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      11,
+      12,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),

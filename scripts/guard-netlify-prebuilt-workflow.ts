@@ -1029,6 +1029,15 @@ if (
   !reusableBetaFreshness.includes(
     "steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id",
   ) ||
+  !reusableBetaFreshness.includes("Delete staged first beta draft") ||
+  !reusableBetaFreshness.includes("id: beta_draft_cleanup") ||
+  !reusableBetaFreshness.includes("DRAFT_DEPLOY_ID") ||
+  !reusableBetaFreshness.includes(
+    "Netlify staged beta draft ${draftId} deletion",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Refusing to delete staged beta draft ${draftId} because Netlify published it.",
+  ) ||
   !reusableBetaFreshness.includes(
     "DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.deploy.outputs.deploy_url }}",
   ) ||
@@ -1052,6 +1061,12 @@ if (
   !reusableBetaFreshness.includes(
     "steps.beta_post_freshness.outputs.current == 'false'",
   ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_post_freshness.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_wait.outcome == 'failure'",
+  ) ||
   !reusableBetaFreshness.includes("Revert stale beta deploy") ||
   !reusableBetaFreshness.includes(
     "/sites/${siteId}/deploys/${previousId}/restore",
@@ -1074,6 +1089,7 @@ if (
   !reusableBetaFreshness.includes(
     "Netlify stale beta deploy ${deployId} deletion",
   ) ||
+  !reusableBetaFreshness.includes("Fail after beta freshness verification") ||
   reusableBetaFreshness.includes(
     "did not settle before the five-minute cleanup deadline",
   ) ||
