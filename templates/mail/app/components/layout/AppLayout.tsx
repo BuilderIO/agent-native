@@ -2680,6 +2680,10 @@ function StandardLayout({ children }: AppLayoutProps) {
       <InvitationBanner />
 
       <main
+        className={cn(
+          "min-h-0 flex-1 overflow-hidden transition-[padding] duration-200 ease-out",
+          sidebarOpen && "ps-[260px]",
+        )}
       >
         {children}
       </main>

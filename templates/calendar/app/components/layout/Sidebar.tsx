@@ -811,6 +811,8 @@ export function Sidebar({
         footerExtras={<DevDatabaseLink />}
         className={cn(
           "calendar-app-sidebar",
+          // Match calendar's lg mobile breakpoint (shared sidebar defaults to md).
+          "max-lg:!fixed max-lg:inset-y-0 max-lg:start-0 max-lg:z-50 lg:!static",
           open
             ? "translate-x-0"
             : "-translate-x-full rtl:translate-x-full lg:translate-x-0",

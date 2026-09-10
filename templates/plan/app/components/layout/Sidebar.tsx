@@ -15,6 +15,7 @@ import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebar,
   AppSidebarNavItem,
+  AgentNativeIcon,
   buildSignInReturnHref,
   FeedbackButton,
   type AppSidebarItemDefinition,
@@ -578,6 +579,25 @@ export function Sidebar({
       onCollapsedChange={onCollapsedChange}
       brandName={APP_TITLE}
       brandHref="/plans"
+      brandLink={
+        <div className="group/brand flex min-w-0 items-center gap-1">
+          <Link
+            to="/plans"
+            className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <AgentNativeIcon
+              aria-hidden="true"
+              className="h-3.5 w-6 shrink-0 text-primary"
+            />
+            {!collapsed && (
+              <span className="truncate text-sm font-semibold text-primary">
+                {APP_TITLE}
+              </span>
+            )}
+          </Link>
+          {!collapsed ? <BrandingCustomizePopover /> : null}
+        </div>
+      }
       secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}

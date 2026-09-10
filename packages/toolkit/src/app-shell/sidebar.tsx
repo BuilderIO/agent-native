@@ -41,14 +41,52 @@ import {
 // Context
 // ---------------------------------------------------------------------------
 
+export type AppSidebarLinkComponent = ComponentType<{
+  to?: string;
+  href?: string;
+  className?: string;
+  onClick?: (event: MouseEvent) => void;
+  children?: ReactNode;
+  "aria-label"?: string;
+}>;
+
 export interface AppSidebarContextValue {
   collapsed: boolean;
   setCollapsed: (collapsed: boolean | ((current: boolean) => boolean)) => void;
   toggleCollapsed: () => void;
   isMobile: boolean;
+  /** Router-aware link. Defaults to a native `<a href>`. */
+  LinkComponent: AppSidebarLinkComponent;
 }
 
 const AppSidebarContext = createContext<AppSidebarContextValue | null>(null);
+
+function NativeSidebarLink({
+  to,
+  href,
+  className,
+  onClick,
+  children,
+  "aria-label": ariaLabel,
+}: {
+  to?: string;
+  href?: string;
+  className?: string;
+  onClick?: (event: MouseEvent) => void;
+  children?: ReactNode;
+  "aria-label"?: string;
+}) {
+  return (
+    <a
+      href={to ?? href}
+      className={className}
+      onClick={onClick}
+      aria-label={ariaLabel}
+    >
+      {children}
+    </a>
+  );
+}
 
 export function useAppSidebar(): AppSidebarContextValue {
   const context = useContext(AppSidebarContext);
@@ -119,7 +157,7 @@ export const AppSidebarHeader = forwardRef<
     },
     ref,
   ) => {
-    const { collapsed } = useAppSidebar();
+    const { collapsed, LinkComponent } = useAppSidebar();
 
     if (children) {
       return (
@@ -150,7 +188,8 @@ export const AppSidebarHeader = forwardRef<
         {...props}
       >
         {brandLink ?? (
-          <a
+          <LinkComponent
+            to={brandHref}
             href={brandHref}
             aria-label={typeof brandName === "string" ? brandName : undefined}
             onClick={onBrandClick}
@@ -165,7 +204,7 @@ export const AppSidebarHeader = forwardRef<
                 {brandName}
               </span>
             )}
-          </a>
+          </LinkComponent>
         )}
         {badge}
       </div>
@@ -215,7 +254,7 @@ export const AppSidebarNavItem = forwardRef<
     },
     ref,
   ) => {
-    const { collapsed } = useAppSidebar();
+    const { collapsed, LinkComponent } = useAppSidebar();
     const linkHref = to ?? href;
 
     if (collapsed) {
@@ -223,8 +262,9 @@ export const AppSidebarNavItem = forwardRef<
       const content = asChild ? (
         children
       ) : linkHref ? (
-        <a
-          href={linkHref}
+        <LinkComponent
+          to={to}
+          href={href ?? to}
           aria-label={tooltipLabel}
           onClick={onClick}
           className={cn(
@@ -235,7 +275,7 @@ export const AppSidebarNavItem = forwardRef<
           )}
         >
           {renderSidebarIcon(icon)}
-        </a>
+        </LinkComponent>
       ) : (
         <button
           type="button"
@@ -306,13 +346,14 @@ export const AppSidebarNavItem = forwardRef<
         {...props}
       >
         {linkHref ? (
-          <a
-            href={linkHref}
+          <LinkComponent
+            to={to}
+            href={href ?? to}
             onClick={onClick}
             className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary"
           >
             {innerContent}
-          </a>
+          </LinkComponent>
         ) : (
           <button
             type="button"
@@ -369,7 +410,7 @@ export const AppSidebarNavGroup = forwardRef<
     },
     ref,
   ) => {
-    const { collapsed } = useAppSidebar();
+    const { collapsed, LinkComponent } = useAppSidebar();
     const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
     const open = controlledOpen ?? uncontrolledOpen;
     const onOpenChange = controlledOnOpenChange ?? setUncontrolledOpen;
@@ -380,8 +421,9 @@ export const AppSidebarNavGroup = forwardRef<
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <a
-              href={linkHref ?? "#"}
+            <LinkComponent
+              to={to}
+              href={href ?? to ?? "#"}
               aria-label={tooltipLabel}
               className={cn(
                 "flex size-9 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary",
@@ -391,7 +433,7 @@ export const AppSidebarNavGroup = forwardRef<
               )}
             >
               {renderSidebarIcon(icon)}
-            </a>
+            </LinkComponent>
           </TooltipTrigger>
           <TooltipContent side="right">{label}</TooltipContent>
         </Tooltip>
@@ -415,8 +457,9 @@ export const AppSidebarNavGroup = forwardRef<
           )}
         >
           {linkHref ? (
-            <a
-              href={linkHref}
+            <LinkComponent
+              to={to}
+              href={href ?? to}
               className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary"
             >
               {renderSidebarIcon(icon)}
@@ -427,7 +470,7 @@ export const AppSidebarNavGroup = forwardRef<
                     {count}
                   </span>
                 )}
-            </a>
+            </LinkComponent>
           ) : (
             <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary">
               {renderSidebarIcon(icon)}
@@ -680,8 +723,15 @@ export interface AppSidebarProps extends HTMLAttributes<HTMLElement> {
   collapsible?: boolean;
   storageKey?: string;
   isMobile?: boolean;
+  /**
+   * When set (boolean), the sidebar owns off-canvas mobile drawer positioning.
+   * Leave undefined when embedding inside an external Sheet/drawer so the
+   * sidebar stays visible without translate offsets.
+   */
   mobileOpen?: boolean;
   onMobileOpenChange?: (open: boolean) => void;
+  /** Router-aware link component. Defaults to a native `<a href>`. */
+  linkComponent?: AppSidebarLinkComponent;
 
   // Header
   brandName?: ReactNode;
@@ -713,8 +763,9 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
       collapsible = true,
       storageKey,
       isMobile = false,
-      mobileOpen = false,
+      mobileOpen,
       onMobileOpenChange,
+      linkComponent,
 
       brandName,
       brandHref = "/",
@@ -785,14 +836,26 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
 
     const showCollapsedSidebar = collapsed && !isMobile;
 
+    const LinkComponent = linkComponent ?? NativeSidebarLink;
+    // Only self-manage off-canvas transform when the caller controls mobileOpen.
+    // Sheet/drawer embeds leave mobileOpen undefined so content stays visible.
+    const ownsMobileDrawer = typeof mobileOpen === "boolean";
+
     const contextValue = useMemo<AppSidebarContextValue>(
       () => ({
         collapsed: showCollapsedSidebar,
         setCollapsed,
         toggleCollapsed,
         isMobile,
+        LinkComponent,
       }),
-      [showCollapsedSidebar, setCollapsed, toggleCollapsed, isMobile],
+      [
+        showCollapsedSidebar,
+        setCollapsed,
+        toggleCollapsed,
+        isMobile,
+        LinkComponent,
+      ],
     );
 
     return (
@@ -802,11 +865,15 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
             ref={ref}
             data-collapsed={showCollapsedSidebar ? "true" : "false"}
             className={cn(
-              "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 flex h-full w-[260px] flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,transform] duration-200 ease-out md:static md:z-auto",
+              "flex h-full w-[260px] flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,transform] duration-200 ease-out",
+              ownsMobileDrawer
+                ? "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 md:static md:z-auto"
+                : "relative md:static",
               showCollapsedSidebar && "md:w-14",
-              mobileOpen
-                ? "translate-x-0"
-                : "-translate-x-full rtl:translate-x-full md:translate-x-0",
+              ownsMobileDrawer &&
+                (mobileOpen
+                  ? "translate-x-0"
+                  : "-translate-x-full rtl:translate-x-full md:translate-x-0"),
               className,
             )}
             {...props}
