@@ -281,6 +281,47 @@ describe("useSession", () => {
     expect(container.textContent).toBe("unavailable");
   });
 
+  it("issues a fresh request on retry instead of reusing the timed-out shared read", async () => {
+    // Build up elapsed time with fast failures until an attempt starts right
+    // before the 30s budget expires, then hang that one specific call: its
+    // own Promise will never resolve, no matter what the mock does later. A
+    // fix that reused it would stay on "unavailable"/"loading" forever; only
+    // a brand new fetch call (from the auto re-ask this invalidation
+    // triggers, or from a manual retry) can ever reach "authenticated" below.
+    vi.useFakeTimers();
+    let callCount = 0;
+    const fetchMock = vi.fn(() => {
+      callCount += 1;
+      if (callCount < 9) {
+        return Promise.resolve(new Response(null, { status: 503 }));
+      }
+      if (callCount === 9) return new Promise<Response>(() => {});
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            userId: "user-retry",
+            email: "retry-fresh@example.com",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RetryConsumer />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(35_000);
+    });
+
+    expect(container.querySelector('[data-testid="status"]')?.textContent).toBe(
+      "authenticated",
+    );
+  });
+
   it("recovers on its own when a cold backend comes back mid-budget", async () => {
     // A backend that fails fast for 10s and then answers must never reach the
     // notice: the visitor should see the app, not a retry screen.

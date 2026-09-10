@@ -89,17 +89,20 @@ function monotonicNow(): number {
   return performance.now();
 }
 
+const RETRY_BUDGET_EXCEEDED = Symbol("retry-budget-exceeded");
+
 /**
- * Resolves to an unreadable read once `remainingMs` elapses. Races against
- * the actual session read so a read starting near the retry budget cannot
- * itself run past that budget on the client request timeout.
+ * Resolves once `remainingMs` elapses, racing against the actual session
+ * read so a read starting near the retry budget cannot itself run past that
+ * budget on the client request timeout. Distinguishable from a genuine
+ * `SessionRead` so the loser (the still-pending shared request) can be
+ * abandoned rather than left cached for the next caller to reuse.
  */
-function budgetExceededRead(remainingMs: number): Promise<SessionRead> {
+function budgetExceededMarker(
+  remainingMs: number,
+): Promise<typeof RETRY_BUDGET_EXCEEDED> {
   return new Promise((resolve) => {
-    setTimeout(
-      () => resolve({ state: "unreadable" }),
-      Math.max(remainingMs, 0),
-    );
+    setTimeout(() => resolve(RETRY_BUDGET_EXCEEDED), Math.max(remainingMs, 0));
   });
 }
 
@@ -355,11 +358,23 @@ export function useSession(): UseSessionResult {
     const resolveSession = async () => {
       const remainingAtStart =
         SESSION_RETRY_BUDGET_MS - (monotonicNow() - startedAt);
-      const read = await Promise.race([
+      const raced = await Promise.race([
         fetchSharedSession(),
-        budgetExceededRead(remainingAtStart),
+        budgetExceededMarker(remainingAtStart),
       ]);
       if (cancelled) return;
+
+      let read: SessionRead;
+      if (raced === RETRY_BUDGET_EXCEEDED) {
+        // The shared request is still pending for whoever else is waiting on
+        // it, but this caller has given up. Invalidate it so a manual retry
+        // (or another consumer) issues a fresh request instead of reusing
+        // the one that just ran out this caller's patience.
+        invalidateSessionCache();
+        read = { state: "unreadable" };
+      } else {
+        read = raced;
+      }
 
       if (read.state !== "resolved") {
         if (read.state === "unreadable") failures += 1;
