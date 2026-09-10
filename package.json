@@ -178,7 +178,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",
-    "@cloudflare/vite-plugin": "^1.31.0",
+    "@cloudflare/vite-plugin": "^1.54.4",
     "@playwright/test": "catalog:",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
