@@ -13,11 +13,13 @@ import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
+  AppSidebar,
+  AppSidebarNavItem,
   AgentNativeIcon,
   buildSignInReturnHref,
   FeedbackButton,
+  type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -25,13 +27,10 @@ import {
 import {
   IconClipboardCheck,
   IconEdit,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
   IconMessageCircle,
   IconPlus,
   IconRefresh,
   IconSettings,
-  IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -540,216 +539,92 @@ export function Sidebar({
   const { session, isLoading: sessionLoading } = useSession();
   const t = useT();
   const returnPath = planReturnPathFromLocation(location);
-  const ToggleIcon = collapsed
-    ? IconLayoutSidebarLeftExpand
-    : IconLayoutSidebarLeftCollapse;
-  const collapseButton = collapsible ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="size-8 shrink-0 text-muted-foreground"
-          onClick={() => onCollapsedChange?.(!collapsed)}
-          aria-label={
-            collapsed
-              ? t("sidebar.expandSidebar")
-              : t("sidebar.collapseSidebar")
-          }
-        >
-          <ToggleIcon className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="right">
-        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
-      </TooltipContent>
-    </Tooltip>
-  ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="size-8 shrink-0 text-muted-foreground"
-          onClick={openCommandMenu}
-          aria-label={t("plansPage.overview.searchPlaceholder")}
-        >
-          <IconSearch className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="right">
-        {t("plansPage.overview.searchPlaceholder")}
-      </TooltipContent>
-    </Tooltip>
-  );
+
+  const secondaryItems: AppSidebarItemDefinition[] = [
+    {
+      to: "/settings",
+      label: t("navigation.settings"),
+      icon: IconSettings,
+      active: pathname.startsWith("/settings"),
+    },
+  ];
+
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-      className={collapsed ? "size-8" : "min-w-0"}
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
+
+  const orgSwitcher = session ? (
+    <OrgSwitcher compact={collapsed} />
+  ) : !sessionLoading ? (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      className={collapsed ? "!size-9 !p-0 text-xs" : "h-8 w-full px-3 text-xs"}
+      onClick={() => signInWithReturnPath(returnPath)}
+    >
+      {collapsed ? "In" : t("sidebar.signIn")}
+    </Button>
+  ) : null;
 
   return (
-    <aside
-      data-collapsed={collapsed ? "true" : "false"}
-      className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
-        collapsed ? "w-14" : "w-60",
-      )}
+    <AppSidebar
+      collapsed={collapsed}
+      collapsible={collapsible}
+      onCollapsedChange={onCollapsedChange}
+      brandName={APP_TITLE}
+      brandHref="/plans"
+      brandLink={
+        <div className="group/brand flex min-w-0 items-center gap-1">
+          <Link
+            to="/plans"
+            className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <AgentNativeIcon
+              aria-hidden="true"
+              className="h-3.5 w-6 shrink-0 text-primary"
+            />
+            {!collapsed && (
+              <span className="truncate text-sm font-semibold text-primary">
+                {APP_TITLE}
+              </span>
+            )}
+          </Link>
+          {!collapsed ? <BrandingCustomizePopover /> : null}
+        </div>
+      }
+      secondaryItems={secondaryItems}
+      feedback={feedbackButton}
+      orgSwitcher={orgSwitcher}
+      footerExtras={<DevDatabaseLink />}
     >
-      <div
-        className={cn(
-          "group/brand flex h-12 shrink-0 items-center border-b border-border",
-          collapsed ? "justify-center px-0" : "gap-2 px-3",
-        )}
-      >
-        <button
-          type="button"
-          onClick={() => onCollapsedChange?.(!collapsed)}
-          className={cn(
-            "flex min-w-0 items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            collapsed ? "justify-center" : "flex-1 text-start",
-          )}
-          aria-label={
-            collapsible
-              ? collapsed
-                ? t("sidebar.expandSidebar")
-                : t("sidebar.collapseSidebar")
-              : undefined
-          }
-          disabled={!collapsible || !onCollapsedChange}
-          data-sidebar-brand-toggle
-        >
-          <AgentNativeIcon
-            aria-hidden="true"
-            className="h-3.5 w-6 shrink-0 text-sidebar-foreground"
-          />
-          {!collapsed && (
-            <span className="truncate text-sm font-semibold tracking-tight">
-              {APP_TITLE}
-            </span>
-          )}
-        </button>
-        {!collapsed && <BrandingCustomizePopover />}
+      <div>
+        <AppSidebarNavItem
+          to="/chat"
+          label={t("navigation.ask")}
+          icon={IconMessageCircle}
+          active={pathname === "/chat"}
+        />
+        <PlanChatsSection collapsed={collapsed} open={pathname === "/chat"} />
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive =
-            item.href === "/chat"
-              ? pathname === "/chat"
-              : item.href === "/plans"
-                ? pathname.startsWith("/plans") ||
-                  pathname.startsWith("/recaps") ||
-                  pathname.startsWith("/local-plans")
-                : pathname.startsWith(item.href);
-          const link = (
-            <Link
-              to={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-                collapsed && "justify-center gap-0 px-0",
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {collapsed ? (
-                <span className="sr-only">{t(item.labelKey)}</span>
-              ) : (
-                t(item.labelKey)
-              )}
-            </Link>
-          );
-          return (
-            <div key={item.href}>
-              {link}
-              {item.href === "/chat" ? (
-                <PlanChatsSection collapsed={collapsed} open={isActive} />
-              ) : null}
-              {item.href === "/plans" && isActive ? (
-                <PlansSidebarSection collapsed={collapsed} />
-              ) : null}
-            </div>
-          );
-        })}
-      </nav>
-
-      <nav className="grid shrink-0 gap-1 px-2 py-1">
-        {bottomNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = pathname.startsWith(item.href);
-          const link = (
-            <Link
-              to={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-                collapsed && "justify-center gap-0 px-0",
-              )}
-              aria-label={collapsed ? t(item.labelKey) : undefined}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {collapsed ? (
-                <span className="sr-only">{t(item.labelKey)}</span>
-              ) : (
-                t(item.labelKey)
-              )}
-            </Link>
-          );
-          return collapsed ? (
-            <Tooltip key={item.href}>
-              <TooltipTrigger asChild>{link}</TooltipTrigger>
-              <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <div key={item.href}>{link}</div>
-          );
-        })}
-      </nav>
-
-      {!collapsed && session ? (
-        <div className="space-y-2 px-3 py-2 empty:hidden">
-          <DevDatabaseLink />
-          <OrgSwitcher />
-        </div>
-      ) : null}
-
-      {!collapsed && !sessionLoading && !session ? (
-        <div className="space-y-2 px-3 py-2">
-          <DevDatabaseLink />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-8 px-3 text-xs"
-            onClick={() => signInWithReturnPath(returnPath)}
-          >
-            {t("sidebar.signIn")}
-          </Button>
-        </div>
-      ) : null}
-
-      {!collapsed && sessionLoading ? (
-        <div className="px-3 py-2">
-          <DevDatabaseLink />
-        </div>
-      ) : null}
-
-      <SidebarFooterActions
-        collapsed={collapsed}
-        feedback={feedbackButton}
-        search={searchButton}
-        collapse={collapseButton}
-      />
-    </aside>
+      <div>
+        <AppSidebarNavItem
+          to="/plans"
+          label={t("navigation.plan")}
+          icon={IconClipboardCheck}
+          active={
+            pathname.startsWith("/plans") ||
+            pathname.startsWith("/recaps") ||
+            pathname.startsWith("/local-plans")
+          }
+        />
+        {pathname.startsWith("/plans") ||
+        pathname.startsWith("/recaps") ||
+        pathname.startsWith("/local-plans") ? (
+          <PlansSidebarSection collapsed={collapsed} />
+        ) : null}
+      </div>
+    </AppSidebar>
   );
 }
