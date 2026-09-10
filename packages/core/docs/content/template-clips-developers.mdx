@@ -1,6 +1,6 @@
 ---
 title: "Extending Clips"
-description: "Data model, action reference, and setup steps for customizing, self-hosting, or extending the Clips template — recordings, transcripts, meetings, organizations, and the Chrome extension/bug-report embed."
+description: "Data model, action reference, and setup steps for customizing, self-hosting, or extending the Clips template. Covers recordings, transcripts, meetings, organizations, the Chrome extension, and embedded bug reports."
 search: "Clips developers data model actions schema self-host Chrome extension bug report embed"
 ---
 
@@ -60,11 +60,13 @@ For local development, run the web app with `pnpm dev` and point the desktop tra
 
 **Slack playable unfurls.** Public share links can render a Slack `video` block that points at the existing `/embed/:id` player. This is a workspace Slack app install, not a global crawler behavior: normal Open Graph/Twitter metadata is the fallback when the app is not installed.
 
-## Chrome extension and embedded bug reports {#chrome-extension-and-embedded-bug-reports}
+## Chrome extension
 
-**Chrome extension.** The Agent-Native Clips Chrome extension listing is `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`. If you host your own Clips server, keep the Chrome extension option hidden until your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` after approval to show the extension beside desktop-app download prompts. Set `VITE_CLIPS_CHROME_EXTENSION_URL` only if you need to override the default listing URL. See [Capturing Everywhere](/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension) for what the extension captures.
+The Agent-Native Clips Chrome extension listing is `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`. If you host your own Clips server, keep the Chrome extension option hidden until your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` after approval to show the extension beside desktop-app download prompts. Set `VITE_CLIPS_CHROME_EXTENSION_URL` only if you need to override the default listing URL. See [Capturing Everywhere](/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension) for what the extension captures.
 
-**Embedded bug reports.** Clips can be embedded into an existing product as a lightweight bug-report launcher. The embedded page collects issue metadata, opens the real recorder in a top-level browser window (browser media capture requires a top-level user gesture), and relays a completion message back to the host product when the recording is saved.
+## Embedded bug reports {#chrome-extension-and-embedded-bug-reports}
+
+Clips can be embedded into an existing product as a lightweight bug-report launcher. The embedded page collects issue metadata, opens the real recorder in a top-level browser window (browser media capture requires a top-level user gesture), and relays a completion message back to the host product when the recording is saved.
 
 Use `/bug-report` as the iframe URL. The page accepts either plain query parameters or the `bugReport*`-prefixed parameters that the recorder stores:
 
