@@ -404,6 +404,8 @@ const messages: AgentChatTranslation = {
   "integrations.goToIntegrations": "इंटीग्रेशन पर जाएं",
   "integrations.lookingForApiKeys": "इसके बजाय API कुंजी ढूंढ रहे हैं?",
   "integrations.lookingForProviders": "OAuth या MCP प्रदाता ढूंढ रहे हैं?",
+  "integrations.recommended": "अनुशंसित",
+  "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
   "limit.account": "आपके खाते",
   "limit.descriptionAll":
     "एजेंट ने सभी उपलब्ध चरणों का उपयोग कर लिया। नए टर्न में जारी रखें या पहले {{scope}} की सीमा बढ़ाएँ।",
@@ -535,7 +537,8 @@ const messages: AgentChatTranslation = {
   "secrets.customKey": "कस्टम कुंजी",
   "secrets.customKeyHint": "नाम से कोई भी कुंजी जोड़ें",
   "secrets.emptyHint": "अपने खुद के खातों का उपयोग करने के लिए एक कुंजी जोड़ें।",
-  "secrets.emptyMore": "और {{count}} अधिक 'नया' के अंतर्गत",
+  "secrets.emptyMore":
+    "और {{count}} अधिक 'नया' के अंतर्गत, या नाम से कोई भी कस्टम कुंजी जोड़ें",
   "secrets.emptyTitle": "अभी तक कोई कुंजी नहीं।",
   "secrets.fromEnvironment": "डिप्लॉयमेंट एनवायरनमेंट द्वारा प्रदान किया गया।",
   "secrets.managedInVault":

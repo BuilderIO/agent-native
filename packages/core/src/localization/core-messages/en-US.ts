@@ -408,6 +408,8 @@ const messages = {
   "integrations.goToIntegrations": "Go to Integrations",
   "integrations.lookingForApiKeys": "Looking for an API key instead?",
   "integrations.lookingForProviders": "Looking for OAuth or MCP providers?",
+  "integrations.recommended": "Recommended",
+  "integrations.subtitle": "Connect the tools your agent can use.",
   "limit.account": "your account",
   "limit.descriptionAll":
     "The agent used all available steps. Keep going in a fresh turn, or raise the {{scope}} limit first.",
@@ -541,7 +543,7 @@ const messages = {
   "secrets.customKey": "Custom key",
   "secrets.customKeyHint": "Add any key by name",
   "secrets.emptyHint": "Add a key to use your own accounts.",
-  "secrets.emptyMore": "and {{count}} more under New",
+  "secrets.emptyMore": "and {{count}} more under New, or add any custom key",
   "secrets.emptyTitle": "No keys yet.",
   "secrets.fromEnvironment": "Provided by the deployment environment.",
   "secrets.managedInVault":

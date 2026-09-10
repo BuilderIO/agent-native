@@ -3,16 +3,8 @@
  * logo well and short name, click to open that key's row.
  */
 
-import {
-  IconBrandFigma,
-  IconBrandGithub,
-  IconBrandGoogle,
-  IconBrandNotion,
-  IconBrandSentry,
-  IconBrandSlack,
-  IconBrandStripe,
-  IconBrandOpenai,
-} from "@tabler/icons-react";
+import { mcpIntegrationLogo } from "../resources/mcp-integration-logos.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 
 const NAME_SUFFIXES = [
   " project API key",
@@ -31,16 +23,43 @@ export function shortProviderName(label: string): string {
   return label;
 }
 
-function brandIcon(secretKey: string) {
-  if (secretKey.startsWith("OPENAI_")) return IconBrandOpenai;
-  if (secretKey.startsWith("GITHUB_")) return IconBrandGithub;
-  if (secretKey.startsWith("FIGMA_")) return IconBrandFigma;
-  if (secretKey.startsWith("GOOGLE_")) return IconBrandGoogle;
-  if (secretKey.startsWith("NOTION_")) return IconBrandNotion;
-  if (secretKey.startsWith("SLACK_")) return IconBrandSlack;
-  if (secretKey.startsWith("SENTRY_")) return IconBrandSentry;
-  if (secretKey.startsWith("STRIPE_")) return IconBrandStripe;
-  return null;
+/** Env-var prefix → logo id in the `LOGOS` map, longest/most-specific first. */
+const PREFIX_LOGO_IDS: Array<[string, string]> = [
+  ["OPENAI_", "openai"],
+  ["ANTHROPIC_", "anthropic"],
+  ["OPENROUTER_", "openrouter"],
+  ["GOOGLE_GENERATIVE_AI_", "google-gemini"],
+  ["GOOGLE_", "google-workspace"],
+  ["GROQ_", "groq"],
+  ["MISTRAL_", "mistral"],
+  ["COHERE_", "cohere"],
+  ["GITHUB_", "github"],
+  ["FIGMA_", "figma"],
+  ["NOTION_", "notion"],
+  ["SLACK_", "slack"],
+  ["SENTRY_", "sentry"],
+  ["STRIPE_", "stripe"],
+  ["HUBSPOT_", "hubspot"],
+  ["SALESFORCE_", "salesforce"],
+  ["JIRA_", "jira"],
+  ["POSTHOG_", "posthog"],
+  ["BRAVE_SEARCH_", "brave"],
+  ["TAVILY_", "tavily"],
+  ["EXA_", "exa"],
+  ["FIRECRAWL_", "firecrawl"],
+];
+
+export function providerLogoForKey(
+  secretKey: string,
+): { id: string; logoUrl: string } | null {
+  const match = PREFIX_LOGO_IDS.find(([prefix]) =>
+    secretKey.startsWith(prefix),
+  );
+  if (!match) return null;
+  const [, id] = match;
+  const logoUrl = mcpIntegrationLogo(id);
+  if (!logoUrl) return null;
+  return { id, logoUrl };
 }
 
 export interface KeyProviderTileProps {
@@ -55,7 +74,7 @@ export function KeyProviderTile({
   onClick,
 }: KeyProviderTileProps) {
   const name = shortProviderName(label);
-  const Icon = brandIcon(secretKey);
+  const provider = providerLogoForKey(secretKey);
 
   return (
     <button
@@ -63,15 +82,12 @@ export function KeyProviderTile({
       onClick={onClick}
       className="rounded-md border border-border bg-background px-2 py-2.5 flex flex-col items-center gap-1.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <span className="size-7 rounded-md bg-accent/60 flex items-center justify-center text-foreground">
-        {Icon ? (
-          <Icon size={16} />
-        ) : (
-          <span className="text-[11px] font-semibold">
-            {name.charAt(0).toUpperCase()}
-          </span>
-        )}
-      </span>
+      <McpIntegrationLogo
+        name={name}
+        logoUrl={provider?.logoUrl ?? ""}
+        integrationId={provider?.id}
+        className="size-9"
+      />
       <span className="w-full truncate text-center">{name}</span>
     </button>
   );

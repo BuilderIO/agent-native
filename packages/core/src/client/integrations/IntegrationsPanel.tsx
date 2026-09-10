@@ -15,7 +15,6 @@ import {
   IconLoader2,
   IconRefresh,
   IconMail,
-  IconPlugConnected,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -46,6 +45,7 @@ import {
   isMcpIntegrationUrl,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
+import { mcpIntegrationLogo } from "../resources/mcp-integration-logos.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
@@ -558,6 +558,127 @@ function McpServerStatus({
   );
 }
 
+/**
+ * Shared "installed MCP server" list used by both the merged Integrations
+ * panel and McpIntegrationsSection's own Connected/Installed block. Healthy
+ * servers render as compact plugin-page rows; a server in an error state
+ * keeps the richer diagnostic card (reason + reconnect) since that detail
+ * doesn't fit a one-line row.
+ */
+function McpServerRows({
+  servers,
+  role,
+  deleteTarget,
+  deletePending,
+  reconnectingKey,
+  reconnectError,
+  onRemove,
+  onReconnect,
+}: {
+  servers: McpServer[];
+  role?: string | null;
+  deleteTarget: string | null;
+  deletePending: boolean;
+  reconnectingKey: string | null;
+  reconnectError: { key: string; message: string } | null;
+  onRemove: (server: McpServer) => void;
+  onReconnect: (server: McpServer) => void;
+}) {
+  const t = useT();
+  const canRemove = (server: McpServer) =>
+    server.scope === "user" || role === "owner" || role === "admin";
+  const healthy = servers.filter((server) => server.status.state !== "error");
+  const errored = servers.filter((server) => server.status.state === "error");
+
+  const removeButton = (server: McpServer, key: string) => (
+    <button
+      type="button"
+      onClick={() => onRemove(server)}
+      disabled={deletePending}
+      className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+    >
+      {deleteTarget === key ? "Confirm" : "Remove"}
+    </button>
+  );
+
+  return (
+    <>
+      {healthy.length > 0 && (
+        <IntegrationGrid
+          variant="rows"
+          items={healthy.map((server) => {
+            const key = `${server.scope}:${server.id}`;
+            const remove = canRemove(server);
+            return {
+              id: key,
+              name: server.name,
+              description:
+                server.scope === "user"
+                  ? t("mcpIntegrations.personal")
+                  : t("mcpIntegrations.sharedWithWorkspace"),
+              logo: (
+                <McpIntegrationLogo
+                  name={server.name}
+                  logoUrl=""
+                  integrationId={server.name.toLowerCase()}
+                />
+              ),
+              status:
+                server.status.state === "connected"
+                  ? `Connected · ${server.status.toolCount} tool${server.status.toolCount === 1 ? "" : "s"}`
+                  : undefined,
+              statusClassName: "text-emerald-600 dark:text-emerald-400",
+              actionKind: "manage",
+              actionLabel: remove ? "Remove" : "Manage",
+              action: remove ? removeButton(server, key) : undefined,
+            };
+          })}
+        />
+      )}
+      {errored.map((server) => {
+        const key = `${server.scope}:${server.id}`;
+        const remove = canRemove(server);
+        return (
+          <div
+            key={key}
+            className="flex min-w-0 items-start gap-3 rounded-2xl bg-card px-4 py-4"
+          >
+            <McpIntegrationLogo
+              name={server.name}
+              logoUrl=""
+              integrationId={server.name.toLowerCase()}
+              className="mt-0.5 size-9"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="truncate text-sm font-medium text-foreground">
+                  {server.name}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {server.scope === "user"
+                    ? t("mcpIntegrations.personal")
+                    : t("mcpIntegrations.sharedWithWorkspace")}
+                </span>
+              </div>
+              <McpServerStatus
+                server={server}
+                onReconnect={() => onReconnect(server)}
+                reconnecting={reconnectingKey === key}
+                reconnectError={
+                  reconnectError?.key === key
+                    ? reconnectError.message
+                    : undefined
+                }
+              />
+            </div>
+            {remove && removeButton(server, key)}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function useMcpIntegrationsController({
   integrations: integrationOptions,
 }: {
@@ -779,14 +900,7 @@ export function McpIntegrationsSection({
       className={cn("space-y-5", className)}
     >
       {showHeader ? (
-        <div
-          className={cn(
-            "flex flex-col gap-4 lg:flex-row lg:items-end",
-            showTitle || showDescription
-              ? "lg:justify-between"
-              : "lg:justify-end",
-          )}
-        >
+        <div className="space-y-4">
           {showTitle || showDescription ? (
             <div>
               {showTitle ? (
@@ -795,14 +909,14 @@ export function McpIntegrationsSection({
                 </h1>
               ) : null}
               {showDescription ? (
-                <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground">
+                <p className="mt-1.5 text-sm text-muted-foreground">
                   {description ?? t("mcpIntegrations.menuDescription")}
                 </p>
               ) : null}
             </div>
           ) : null}
-          <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
-            <label className="relative block min-w-0 flex-1 lg:w-72">
+          <div className="flex w-full flex-col gap-2 sm:flex-row">
+            <label className="relative block min-w-0 flex-1">
               <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="search"
@@ -838,74 +952,29 @@ export function McpIntegrationsSection({
         </p>
       ) : servers.length > 0 && !normalizedQuery ? (
         <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground">Installed</h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {servers.map((server) => {
-              const key = `${server.scope}:${server.id}`;
-              const canRemove =
-                server.scope === "user" ||
-                serversQuery.data?.role === "owner" ||
-                serversQuery.data?.role === "admin";
-              return (
-                <div
-                  key={key}
-                  className="flex min-w-0 items-start gap-3 rounded-2xl bg-card px-4 py-4"
-                >
-                  <McpIntegrationLogo
-                    name={server.name}
-                    logoUrl=""
-                    integrationId={server.name.toLowerCase()}
-                    className="mt-0.5 size-9"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-sm font-medium text-foreground">
-                        {server.name}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        {server.scope === "user"
-                          ? t("mcpIntegrations.personal")
-                          : t("mcpIntegrations.sharedWithWorkspace")}
-                      </span>
-                    </div>
-                    <McpServerStatus
-                      server={server}
-                      onReconnect={
-                        server.status.state === "error"
-                          ? () =>
-                              server.authMode === "oauth"
-                                ? startMcpOAuthReconnect(server)
-                                : void reconnect(server)
-                          : undefined
-                      }
-                      reconnecting={reconnectingKey === key}
-                      reconnectError={
-                        reconnectError?.key === key
-                          ? reconnectError.message
-                          : undefined
-                      }
-                    />
-                  </div>
-                  {canRemove && (
-                    <button
-                      type="button"
-                      onClick={() => void removeServer(server)}
-                      disabled={deleteServer.isPending}
-                      className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-                    >
-                      {deleteTarget === key ? "Confirm" : "Remove"}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <h3 className="border-b border-border/60 pb-2 text-sm font-semibold text-foreground">
+            Installed
+          </h3>
+          <McpServerRows
+            servers={servers}
+            role={serversQuery.data?.role}
+            deleteTarget={deleteTarget}
+            deletePending={deleteServer.isPending}
+            reconnectingKey={reconnectingKey}
+            reconnectError={reconnectError}
+            onRemove={(server) => void removeServer(server)}
+            onReconnect={(server) =>
+              server.authMode === "oauth"
+                ? startMcpOAuthReconnect(server)
+                : void reconnect(server)
+            }
+          />
         </section>
       ) : null}
 
       {filteredCatalog.length > 0 && (
         <div>
-          <div className="mb-1 flex items-center justify-between gap-3">
+          <div className="mb-1 flex items-center justify-between gap-3 border-b border-border/60 pb-2">
             <h3 className="text-sm font-semibold text-foreground">
               Available integrations
             </h3>
@@ -914,6 +983,7 @@ export function McpIntegrationsSection({
             </span>
           </div>
           <IntegrationGrid
+            variant="rows"
             items={filteredCatalog.map((integration) => {
               const connected = connectedServers.some((server) =>
                 isMcpIntegrationUrl(integration, server.url),
@@ -927,12 +997,11 @@ export function McpIntegrationsSection({
                     name={integration.name}
                     logoUrl={integration.logoUrl}
                     integrationId={integration.id}
-                    className="size-7 rounded-md"
-                    imageClassName="size-full p-1"
                   />
                 ),
                 status: connected ? t("mcpIntegrations.connected") : undefined,
                 statusClassName: "text-emerald-600 dark:text-emerald-400",
+                actionKind: connected ? "manage" : "connect",
                 actionLabel: connected
                   ? "Manage"
                   : t("mcpIntegrations.connect"),
@@ -1031,67 +1100,21 @@ function useEmailProviderConfigured(): boolean {
 }
 
 const EMAIL_ROW_DESCRIPTION = "Send from the agent with Resend or SendGrid.";
+const BUILDER_ROW_DESCRIPTION =
+  "Model access, browser automation, file storage, and workspace identity. Free tier available.";
 
-function BuilderIntegrationRow() {
+/** A 40px "app icon" well for logos that are plain tabler icons rather than
+ * an McpIntegrationLogo image — matches McpIntegrationLogo's own default
+ * bordered-square treatment so every row's logo reads consistently. */
+function PlainIntegrationIcon({
+  icon: Icon,
+}: {
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
+}) {
   return (
-    <BuilderConnectCard
-      trackingSource="settings_connections"
-      description="Managed model access, browser automation, file storage, and workspace identity. Free tier available."
-      render={({ viewModel }) => (
-        <div className="agent-native-integration-grid min-w-0">
-          <div className="grid grid-cols-1 gap-2 overflow-hidden rounded-xl border border-primary/30 bg-primary/5 p-2">
-            <article className="flex min-w-0 items-center gap-3 rounded-lg bg-background/40 px-3 py-3.5">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background/80 text-foreground">
-                <IconPlugConnected size={18} strokeWidth={1.8} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <h3 className="truncate text-sm font-medium text-foreground">
-                    Builder.io
-                  </h3>
-                  <span
-                    className={cn(
-                      "shrink-0 text-[11px] font-medium",
-                      viewModel.status.kind === "connected"
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-muted-foreground",
-                    )}
-                  >
-                    {viewModel.status.label}
-                  </span>
-                </div>
-                <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                  {viewModel.description}
-                </p>
-              </div>
-              {viewModel.configured && viewModel.connectFlow ? (
-                <BuilderConnectionMenu
-                  flow={viewModel.connectFlow}
-                  trackingSource="settings_connections"
-                  variant="text"
-                />
-              ) : viewModel.connectFlow && viewModel.action ? (
-                <BuilderConnectPopover
-                  flow={viewModel.connectFlow}
-                  onConnect={viewModel.action.onPress}
-                >
-                  <button
-                    type="button"
-                    disabled={viewModel.action.disabled}
-                    className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {viewModel.action.label}
-                  </button>
-                </BuilderConnectPopover>
-              ) : null}
-            </article>
-            {viewModel.error && (
-              <p className="px-1 text-xs text-destructive">{viewModel.error}</p>
-            )}
-          </div>
-        </div>
-      )}
-    />
+    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
+      <Icon size={18} strokeWidth={1.8} />
+    </span>
   );
 }
 
@@ -1184,10 +1207,9 @@ export function IntegrationsPanel() {
             name={integration.name}
             logoUrl={integration.logoUrl}
             integrationId={integration.id}
-            className="size-7 rounded-md"
-            imageClassName="size-full p-1"
           />
         ),
+        actionKind: "connect" as const,
         actionLabel: t("mcpIntegrations.connect"),
         onAction: () => mcp.openConnection(integration.id, false),
       })),
@@ -1200,8 +1222,9 @@ export function IntegrationsPanel() {
         id: `platform:${platform.id}`,
         name: platformDisplayName(platform),
         description: platform.description,
-        logo: <platform.icon size={18} strokeWidth={1.8} />,
+        logo: <PlainIntegrationIcon icon={platform.icon} />,
         status: PLATFORM_CATEGORY_META[platform.category],
+        actionKind: "connect" as const,
         actionLabel: "Connect",
         onAction: () => setSelectedPlatform(platform),
       })),
@@ -1211,7 +1234,8 @@ export function IntegrationsPanel() {
             id: "email",
             name: "Email",
             description: EMAIL_ROW_DESCRIPTION,
-            logo: <IconMail size={18} strokeWidth={1.8} />,
+            logo: <PlainIntegrationIcon icon={IconMail} />,
+            actionKind: "connect" as const,
             actionLabel: "Connect",
             onAction: () => setShowEmailDetail(true),
           },
@@ -1229,7 +1253,7 @@ export function IntegrationsPanel() {
         id: `platform:${platform.id}`,
         name: platformDisplayName(platform),
         description: platform.description,
-        logo: <platform.icon size={18} strokeWidth={1.8} />,
+        logo: <PlainIntegrationIcon icon={platform.icon} />,
         status: platform.isClient
           ? "Available"
           : status?.enabled && status.configured
@@ -1239,6 +1263,7 @@ export function IntegrationsPanel() {
           status?.enabled && status.configured
             ? "text-emerald-600 dark:text-emerald-400"
             : "text-amber-600 dark:text-amber-400",
+        actionKind: "manage" as const,
         actionLabel: "Manage",
         onAction: () => setSelectedPlatform(platform),
       };
@@ -1249,18 +1274,16 @@ export function IntegrationsPanel() {
             id: "email",
             name: "Email",
             description: EMAIL_ROW_DESCRIPTION,
-            logo: <IconMail size={18} strokeWidth={1.8} />,
+            logo: <PlainIntegrationIcon icon={IconMail} />,
             status: "Configured",
             statusClassName: "text-emerald-600 dark:text-emerald-400",
+            actionKind: "manage" as const,
             actionLabel: "Manage",
             onAction: () => setShowEmailDetail(true),
           },
         ]
       : []),
   ].sort((a, b) => a.name.localeCompare(b.name));
-
-  const hasConnected =
-    mcp.servers.length > 0 || connectedPlatformAndEmailItems.length > 0;
 
   if (selectedPlatform) {
     return (
@@ -1279,25 +1302,16 @@ export function IntegrationsPanel() {
 
   return (
     <div className="w-full space-y-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="space-y-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
             Integrations
           </h1>
-          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Connect the tools your agent can use to gather context, take action,
-            and meet your team where work already happens.
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {t("integrations.subtitle")}
           </p>
-          <SettingsCrossLinkHint
-            text={t("integrations.lookingForApiKeys")}
-            linkText={t("integrations.goToApiKeys")}
-            href={appMountedPath(
-              buildSettingsRoute("keys"),
-              STANDARD_APP_ROUTES.settings,
-            )}
-          />
         </div>
-        <label className="relative block w-full lg:max-w-xs">
+        <label className="relative block w-full">
           <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
@@ -1310,150 +1324,183 @@ export function IntegrationsPanel() {
         </label>
       </div>
 
-      <BuilderIntegrationRow />
-
-      {mcp.deleteError && (
-        <p className="border-y border-destructive/20 bg-destructive/5 py-3 text-xs text-destructive">
-          {mcp.deleteError}
-        </p>
-      )}
-
-      {!normalizedQuery && hasConnected && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground">Connected</h2>
-          {mcp.servers.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {mcp.servers.map((server) => {
-                const key = `${server.scope}:${server.id}`;
-                const canRemove =
-                  server.scope === "user" ||
-                  mcp.serversQuery.data?.role === "owner" ||
-                  mcp.serversQuery.data?.role === "admin";
-                return (
-                  <div
-                    key={key}
-                    className="flex min-w-0 items-start gap-3 rounded-2xl bg-card px-4 py-4"
+      <BuilderConnectCard
+        trackingSource="settings_connections"
+        description={BUILDER_ROW_DESCRIPTION}
+        render={({ viewModel }) => {
+          const builderConnected = viewModel.status.kind === "connected";
+          const builderItem: IntegrationGridItem = {
+            id: "builder-cms",
+            name: "Builder.io",
+            fullWidth: true,
+            badge: t("integrations.recommended"),
+            description: viewModel.description,
+            logo: (
+              <McpIntegrationLogo
+                name="Builder.io"
+                logoUrl={mcpIntegrationLogo("builder-cms")}
+                integrationId="builder-cms"
+              />
+            ),
+            status: viewModel.status.label,
+            statusClassName: builderConnected
+              ? "text-emerald-600 dark:text-emerald-400"
+              : undefined,
+            actionKind: builderConnected ? "manage" : "connect",
+            actionLabel: builderConnected ? "Manage" : "Connect",
+            action:
+              viewModel.configured && viewModel.connectFlow ? (
+                <BuilderConnectionMenu
+                  flow={viewModel.connectFlow}
+                  trackingSource="settings_connections"
+                  variant="text"
+                />
+              ) : viewModel.connectFlow && viewModel.action ? (
+                <BuilderConnectPopover
+                  flow={viewModel.connectFlow}
+                  onConnect={viewModel.action.onPress}
+                >
+                  <button
+                    type="button"
+                    disabled={viewModel.action.disabled}
+                    className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <McpIntegrationLogo
-                      name={server.name}
-                      logoUrl=""
-                      integrationId={server.name.toLowerCase()}
-                      className="mt-0.5 size-9"
+                    {viewModel.action.label}
+                  </button>
+                </BuilderConnectPopover>
+              ) : null,
+          };
+          const connectedItems = builderConnected
+            ? [builderItem, ...connectedPlatformAndEmailItems]
+            : connectedPlatformAndEmailItems;
+          const availableItemsWithBuilder = builderConnected
+            ? availableItems
+            : [builderItem, ...availableItems];
+          const hasConnected =
+            mcp.servers.length > 0 || connectedItems.length > 0;
+
+          return (
+            <>
+              {viewModel.error && (
+                <p className="text-xs text-destructive">{viewModel.error}</p>
+              )}
+
+              {mcp.deleteError && (
+                <p className="border-y border-destructive/20 bg-destructive/5 py-3 text-xs text-destructive">
+                  {mcp.deleteError}
+                </p>
+              )}
+
+              {!normalizedQuery && hasConnected && (
+                <section className="space-y-3">
+                  <h2 className="border-b border-border/60 pb-2 text-sm font-semibold text-foreground">
+                    Connected
+                  </h2>
+                  {mcp.servers.length > 0 && (
+                    <McpServerRows
+                      servers={mcp.servers}
+                      role={mcp.serversQuery.data?.role}
+                      deleteTarget={mcp.deleteTarget}
+                      deletePending={mcp.deleteServer.isPending}
+                      reconnectingKey={mcp.reconnectingKey}
+                      reconnectError={mcp.reconnectError}
+                      onRemove={(server) => void mcp.removeServer(server)}
+                      onReconnect={(server) =>
+                        server.authMode === "oauth"
+                          ? startMcpOAuthReconnect(server)
+                          : void mcp.reconnect(server)
+                      }
                     />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-medium text-foreground">
-                          {server.name}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {server.scope === "user"
-                            ? t("mcpIntegrations.personal")
-                            : t("mcpIntegrations.sharedWithWorkspace")}
-                        </span>
-                      </div>
-                      <McpServerStatus
-                        server={server}
-                        onReconnect={
-                          server.status.state === "error"
-                            ? () =>
-                                server.authMode === "oauth"
-                                  ? startMcpOAuthReconnect(server)
-                                  : void mcp.reconnect(server)
-                            : undefined
-                        }
-                        reconnecting={mcp.reconnectingKey === key}
-                        reconnectError={
-                          mcp.reconnectError?.key === key
-                            ? mcp.reconnectError.message
-                            : undefined
-                        }
+                  )}
+                  {connectedItems.length > 0 && (
+                    <IntegrationGrid variant="rows" items={connectedItems} />
+                  )}
+                </section>
+              )}
+
+              {externalHostMatches && (
+                <section>
+                  <IntegrationGrid
+                    variant="rows"
+                    items={[
+                      {
+                        id: "external-ai-host",
+                        name: t("settings.mcpClientSetup"),
+                        description: t("settings.mcpClientSetupDescription"),
+                        logo: <PlainIntegrationIcon icon={IconTerminal2} />,
+                        actionKind: "connect",
+                        actionLabel: t("mcpIntegrations.connect"),
+                        onAction: () => {
+                          const route = appPath(
+                            `${buildSettingsRoute("mcp")}?guide=${encodeURIComponent(externalHostGuide)}`,
+                          );
+                          window.history.pushState(null, "", route);
+                          window.dispatchEvent(new PopStateEvent("popstate"));
+                        },
+                      },
+                    ]}
+                  />
+                </section>
+              )}
+
+              {availableItemsWithBuilder.length > 0 ? (
+                <div>
+                  <div className="mb-1 flex items-center justify-between gap-3 border-b border-border/60 pb-2">
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Available integrations
+                    </h3>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground">
+                        {availableItemsWithBuilder.length} integrations
+                      </span>
+                      <SettingsCrossLinkHint
+                        text={t("integrations.lookingForApiKeys")}
+                        linkText={t("integrations.goToApiKeys")}
+                        href={appMountedPath(
+                          buildSettingsRoute("keys"),
+                          STANDARD_APP_ROUTES.settings,
+                        )}
                       />
                     </div>
-                    {canRemove && (
-                      <button
-                        type="button"
-                        onClick={() => void mcp.removeServer(server)}
-                        disabled={mcp.deleteServer.isPending}
-                        className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-                      >
-                        {mcp.deleteTarget === key ? "Confirm" : "Remove"}
-                      </button>
-                    )}
                   </div>
-                );
-              })}
-            </div>
-          )}
-          {connectedPlatformAndEmailItems.length > 0 && (
-            <IntegrationGrid items={connectedPlatformAndEmailItems} />
-          )}
-        </section>
-      )}
+                  <IntegrationGrid
+                    variant="rows"
+                    items={availableItemsWithBuilder}
+                  />
+                </div>
+              ) : (
+                normalizedQuery &&
+                !externalHostMatches && (
+                  <div className="rounded-xl border border-dashed border-border p-8 text-center">
+                    <p className="text-sm font-medium text-foreground">
+                      No integrations found
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Try a different tool or category.
+                    </p>
+                  </div>
+                )
+              )}
 
-      {externalHostMatches && (
-        <section>
-          <IntegrationGrid
-            items={[
-              {
-                id: "external-ai-host",
-                name: t("settings.mcpClientSetup"),
-                description: t("settings.mcpClientSetupDescription"),
-                logo: <IconTerminal2 size={18} strokeWidth={1.8} />,
-                actionLabel: t("mcpIntegrations.connect"),
-                onAction: () => {
-                  const route = appPath(
-                    `${buildSettingsRoute("mcp")}?guide=${encodeURIComponent(externalHostGuide)}`,
-                  );
-                  window.history.pushState(null, "", route);
-                  window.dispatchEvent(new PopStateEvent("popstate"));
-                },
-              },
-            ]}
-          />
-        </section>
-      )}
-
-      {availableItems.length > 0 ? (
-        <div>
-          <div className="mb-1 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-foreground">
-              Available integrations
-            </h3>
-            <span className="text-xs text-muted-foreground">
-              {availableItems.length} integrations
-            </span>
-          </div>
-          <IntegrationGrid items={availableItems} />
-        </div>
-      ) : (
-        normalizedQuery &&
-        !externalHostMatches && (
-          <div className="rounded-xl border border-dashed border-border p-8 text-center">
-            <p className="text-sm font-medium text-foreground">
-              No integrations found
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Try a different tool or category.
-            </p>
-          </div>
-        )
-      )}
-
-      <McpIntegrationDialog
-        open={mcp.dialogOpen}
-        onOpenChange={(open) => {
-          mcp.setDialogOpen(open);
-          if (!open) {
-            mcp.setInitialIntegrationId(null);
-            mcp.setConnectIntegrationId(null);
-          }
+              <McpIntegrationDialog
+                open={mcp.dialogOpen}
+                onOpenChange={(open) => {
+                  mcp.setDialogOpen(open);
+                  if (!open) {
+                    mcp.setInitialIntegrationId(null);
+                    mcp.setConnectIntegrationId(null);
+                  }
+                }}
+                initialIntegrationId={mcp.initialIntegrationId}
+                connectIntegrationId={mcp.connectIntegrationId}
+                defaultScope="user"
+                canCreateOrgMcp={mcp.canCreateOrgMcp}
+                hasOrg={mcp.hasOrg}
+                onCreateMcpServer={(args) => mcp.createServer.mutateAsync(args)}
+              />
+            </>
+          );
         }}
-        initialIntegrationId={mcp.initialIntegrationId}
-        connectIntegrationId={mcp.connectIntegrationId}
-        defaultScope="user"
-        canCreateOrgMcp={mcp.canCreateOrgMcp}
-        hasOrg={mcp.hasOrg}
-        onCreateMcpServer={(args) => mcp.createServer.mutateAsync(args)}
       />
     </div>
   );

@@ -162,7 +162,7 @@ const messages = {
     addCustomKeyNamed: "Add “{{name}}” as a custom key",
     emptyTitle: "No keys yet.",
     emptyHint: "Add a key to use your own accounts.",
-    emptyMore: "and {{count}} more under New",
+    emptyMore: "and {{count}} more under New, or add any custom key",
   },
   agentResources: {
     openDocs: "Open {{section}} documentation",
@@ -1208,6 +1208,8 @@ const messages = {
     deleteOrgPending: "Deleting…",
   },
   integrations: {
+    subtitle: "Connect the tools your agent can use.",
+    recommended: "Recommended",
     webhookUrl: "Webhook URL",
     copyWebhookUrl: "Copy webhook URL",
     webhookUrlLocalOnly:

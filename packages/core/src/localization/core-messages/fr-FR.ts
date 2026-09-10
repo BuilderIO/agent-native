@@ -173,6 +173,9 @@ const messages: AgentChatTranslation = {
   "integrations.lookingForApiKeys": "Vous cherchez plutôt une clé API ?",
   "integrations.lookingForProviders":
     "Vous cherchez des fournisseurs OAuth ou MCP ?",
+  "integrations.recommended": "Recommandé",
+  "integrations.subtitle":
+    "Connectez les outils que votre agent peut utiliser.",
   "limit.account": "votre compte",
   "limit.descriptionAll":
     "L’agent a utilisé toutes les étapes disponibles. Continuez dans une nouvelle interaction ou augmentez d’abord la limite de {{scope}}.",
@@ -245,7 +248,8 @@ const messages: AgentChatTranslation = {
   "secrets.customKey": "Clé personnalisée",
   "secrets.customKeyHint": "Ajoutez n'importe quelle clé par son nom",
   "secrets.emptyHint": "Ajoutez une clé pour utiliser vos propres comptes.",
-  "secrets.emptyMore": "et {{count}} de plus sous Nouveau",
+  "secrets.emptyMore":
+    "et {{count}} de plus sous Nouveau, ou ajoutez n'importe quelle clé personnalisée",
   "secrets.emptyTitle": "Aucune clé pour le moment.",
   "secrets.fromEnvironment": "Fourni par l'environnement de déploiement.",
   "secrets.managedInVault":

@@ -215,8 +215,8 @@ describe("IntegrationsPanel MCP connection errors", () => {
       `No agent integrations match “${query.toLowerCase()}”`,
     );
 
-    const connect = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "mcpIntegrations.connect",
+    const connect = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect settings.mcpClientSetup"]',
     );
     expect(connect).toBeTruthy();
     await act(async () => connect?.click());
@@ -246,8 +246,8 @@ describe("IntegrationsPanel MCP connection errors", () => {
       search?.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    const connect = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "mcpIntegrations.connect",
+    const connect = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect settings.mcpClientSetup"]',
     );
     await act(async () => connect?.click());
 

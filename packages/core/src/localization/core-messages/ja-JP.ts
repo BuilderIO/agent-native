@@ -418,6 +418,8 @@ const messages: AgentChatTranslation = {
   "integrations.lookingForApiKeys": "代わりに API キーをお探しですか？",
   "integrations.lookingForProviders":
     "OAuth または MCP プロバイダーをお探しですか？",
+  "integrations.recommended": "おすすめ",
+  "integrations.subtitle": "エージェントが使用できるツールを接続します。",
   "limit.account": "アカウント",
   "limit.descriptionAll":
     "エージェントは使用可能なすべてのステップを使い切りました。新しいターンで続行するか、先に{{scope}}の上限を引き上げてください。",
@@ -548,7 +550,8 @@ const messages: AgentChatTranslation = {
   "secrets.customKey": "カスタムキー",
   "secrets.customKeyHint": "名前を指定して任意のキーを追加",
   "secrets.emptyHint": "自分のアカウントを使用するにはキーを追加してください。",
-  "secrets.emptyMore": "他{{count}}件は「新規」の下にあります",
+  "secrets.emptyMore":
+    "他{{count}}件は「新規」の下にあるか、任意のカスタムキーを追加できます",
   "secrets.emptyTitle": "キーはまだありません。",
   "secrets.fromEnvironment": "デプロイ環境から提供されています。",
   "secrets.managedInVault":

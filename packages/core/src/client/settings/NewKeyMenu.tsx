@@ -23,7 +23,9 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import { cn } from "../utils.js";
+import { providerLogoForKey } from "./KeyProviderTile.js";
 
 export interface NewKeyOption {
   /** Env-var style key name, e.g. `OPENAI_API_KEY`. */
@@ -101,28 +103,41 @@ export function NewKeyMenu({
             <CommandList>
               <CommandEmpty>No keys found.</CommandEmpty>
               <CommandGroup heading="Choose a key">
-                {options.map((option) => (
-                  <CommandItem
-                    key={option.key}
-                    value={`${option.label} ${option.key}`}
-                    onSelect={() => {
-                      setOpen(false);
-                      onPick(option);
-                    }}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <span className="truncate">{option.label}</span>
-                    {option.required ? (
-                      <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                        Required
+                {options.map((option) => {
+                  const provider = providerLogoForKey(option.key);
+                  return (
+                    <CommandItem
+                      key={option.key}
+                      value={`${option.label} ${option.key}`}
+                      onSelect={() => {
+                        setOpen(false);
+                        onPick(option);
+                      }}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        {provider && (
+                          <McpIntegrationLogo
+                            name={option.label}
+                            logoUrl={provider.logoUrl}
+                            integrationId={provider.id}
+                            className="size-4 shrink-0 rounded-sm border-0"
+                          />
+                        )}
+                        <span className="truncate">{option.label}</span>
                       </span>
-                    ) : option.hint ? (
-                      <span className="shrink-0 truncate text-[9px] text-muted-foreground">
-                        {option.hint}
-                      </span>
-                    ) : null}
-                  </CommandItem>
-                ))}
+                      {option.required ? (
+                        <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                          Required
+                        </span>
+                      ) : option.hint ? (
+                        <span className="shrink-0 truncate text-[9px] text-muted-foreground">
+                          {option.hint}
+                        </span>
+                      ) : null}
+                    </CommandItem>
+                  );
+                })}
               </CommandGroup>
             </CommandList>
           )}

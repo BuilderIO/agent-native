@@ -389,6 +389,8 @@ const messages: AgentChatTranslation = {
   "integrations.goToIntegrations": "前往整合",
   "integrations.lookingForApiKeys": "改為尋找 API 金鑰？",
   "integrations.lookingForProviders": "尋找 OAuth 或 MCP 供應商？",
+  "integrations.recommended": "推薦",
+  "integrations.subtitle": "連線您的代理可以使用的工具。",
   "limit.account": "您的帳戶",
   "limit.descriptionAll":
     "代理已用完所有可用步驟。請在新的回合中繼續，或先提高{{scope}}的限制。",
@@ -517,7 +519,7 @@ const messages: AgentChatTranslation = {
   "secrets.customKey": "自訂金鑰",
   "secrets.customKeyHint": "依名稱新增任何金鑰",
   "secrets.emptyHint": "新增金鑰以使用您自己的帳戶。",
-  "secrets.emptyMore": "另有 {{count}} 個在「新增」下方",
+  "secrets.emptyMore": "另有 {{count}} 個在「新增」下方，或新增任何自訂金鑰",
   "secrets.emptyTitle": "尚無金鑰。",
   "secrets.fromEnvironment": "由部署環境提供。",
   "secrets.managedInVault":

@@ -172,6 +172,8 @@ const messages: AgentChatTranslation = {
   "integrations.lookingForApiKeys":
     "Suchst du stattdessen einen API-Schlüssel?",
   "integrations.lookingForProviders": "Suchst du OAuth- oder MCP-Anbieter?",
+  "integrations.recommended": "Empfohlen",
+  "integrations.subtitle": "Verbinde die Tools, die dein Agent nutzen kann.",
   "limit.account": "deines Kontos",
   "limit.descriptionAll":
     "Der Agent hat alle verfügbaren Schritte verwendet. Fahre in einem neuen Durchlauf fort oder erhöhe zuerst das Limit {{scope}}.",
@@ -247,7 +249,8 @@ const messages: AgentChatTranslation = {
   "secrets.customKeyHint": "Beliebigen Schlüssel nach Namen hinzufügen",
   "secrets.emptyHint":
     "Füge einen Schlüssel hinzu, um deine eigenen Konten zu verwenden.",
-  "secrets.emptyMore": "und {{count}} weitere unter Neu",
+  "secrets.emptyMore":
+    "und {{count}} weitere unter Neu, oder füge einen beliebigen benutzerdefinierten Schlüssel hinzu",
   "secrets.emptyTitle": "Noch keine Schlüssel.",
   "secrets.fromEnvironment":
     "Wird von der Bereitstellungsumgebung bereitgestellt.",

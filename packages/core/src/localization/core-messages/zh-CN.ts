@@ -388,6 +388,8 @@ const messages: AgentChatTranslation = {
   "integrations.goToIntegrations": "前往集成",
   "integrations.lookingForApiKeys": "改为查找 API 密钥？",
   "integrations.lookingForProviders": "查找 OAuth 或 MCP 提供商？",
+  "integrations.recommended": "推荐",
+  "integrations.subtitle": "连接您的智能体可以使用的工具。",
   "limit.account": "您的账户",
   "limit.descriptionAll":
     "智能体已用完所有可用步骤。请在新的轮次中继续，或先提高{{scope}}的限制。",
@@ -515,7 +517,7 @@ const messages: AgentChatTranslation = {
   "secrets.customKey": "自定义密钥",
   "secrets.customKeyHint": "按名称添加任意密钥",
   "secrets.emptyHint": "添加密钥以使用您自己的账户。",
-  "secrets.emptyMore": "另有 {{count}} 个在“新建”下方",
+  "secrets.emptyMore": "另有 {{count}} 个在“新建”下方，或添加任意自定义密钥",
   "secrets.emptyTitle": "暂无密钥。",
   "secrets.fromEnvironment": "由部署环境提供。",
   "secrets.managedInVault":

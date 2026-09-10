@@ -334,6 +334,7 @@ describe("SecretsSection", () => {
     const tile = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "OpenAI",
     );
+    expect(tile?.querySelector("img")).toBeTruthy();
     await click(tile);
 
     expect(container.textContent).toContain("OpenAI API key");
@@ -371,7 +372,9 @@ describe("SecretsSection", () => {
       renderSecretsSection(root);
     });
 
-    expect(container.textContent).toContain("and 1 more under New");
+    expect(container.textContent).toContain(
+      "and 1 more under New, or add any custom key",
+    );
   });
 
   it("shows the overrides note for a personal key shadowing the Vault", async () => {

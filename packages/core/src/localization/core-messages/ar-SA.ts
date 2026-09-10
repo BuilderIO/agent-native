@@ -413,6 +413,8 @@ const messages: AgentChatTranslation = {
   "integrations.goToIntegrations": "الانتقال إلى عمليات التكامل",
   "integrations.lookingForApiKeys": "هل تبحث عن مفتاح API بدلاً من ذلك؟",
   "integrations.lookingForProviders": "هل تبحث عن مزوّدي OAuth أو MCP؟",
+  "integrations.recommended": "موصى به",
+  "integrations.subtitle": "اربط الأدوات التي يمكن لوكيلك استخدامها.",
   "limit.account": "حسابك",
   "limit.descriptionAll":
     "استخدم الوكيل جميع الخطوات المتاحة. تابع في دورة جديدة، أو ارفع حد {{scope}} أولًا.",
@@ -552,7 +554,7 @@ const messages: AgentChatTranslation = {
   "secrets.customKey": "مفتاح مخصص",
   "secrets.customKeyHint": "أضف أي مفتاح بالاسم",
   "secrets.emptyHint": "أضف مفتاحًا لاستخدام حساباتك الخاصة.",
-  "secrets.emptyMore": "و{{count}} أخرى ضمن جديد",
+  "secrets.emptyMore": "و{{count}} أخرى ضمن جديد، أو أضف أي مفتاح مخصص",
   "secrets.emptyTitle": "لا توجد مفاتيح بعد.",
   "secrets.fromEnvironment": "توفّره بيئة النشر.",
   "secrets.managedInVault":
