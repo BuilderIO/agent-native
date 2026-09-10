@@ -283,7 +283,6 @@ export function Sidebar({
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
       side="right"
-      className={collapsed ? "!size-9 !p-0" : "w-full"}
     />
   );
 
@@ -291,11 +290,6 @@ export function Sidebar({
     <OrgSwitcher
       compact={collapsed}
       reserveSpace
-      className={
-        collapsed
-          ? "!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
-          : "min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
-      }
     />
   );
 

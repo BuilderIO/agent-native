@@ -625,7 +625,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     <FeedbackButton
       variant={showCollapsedSidebar ? "icon" : "sidebar"}
       side="right"
-      className={showCollapsedSidebar ? "size-8" : "min-w-0"}
     />
   );
 
@@ -1590,14 +1589,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           handleTabDragStart(e, tab.pinnedId)
                         }
                         onDragEnd={handleTabDragEnd}
-                        className={cn(
-                          "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
-                          tab.isActive
-                            ? "text-foreground font-semibold"
-                            : "text-muted-foreground font-medium hover:text-foreground/80",
-                          isDragging && "opacity-40",
-                          canDrag && "cursor-grab",
-                        )}
                       >
                         {tab.color && (
                           <span
@@ -1991,8 +1982,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             to={item.href}
                             aria-label={item.label}
                             className={cn(
-                              "relative flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                              isActive && "bg-accent/60 text-foreground",
+                              "relative flex size-9 items-center justify-center rounded-md text-primary transition-colors hover:bg-accent/60 hover:text-primary",
+                              isActive &&
+                                "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
                             )}
                           >
                             <Icon className="h-4 w-4" />
@@ -2062,7 +2054,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       </div>
                     )}
 
-                    <div className="p-4">
+                    <div className="px-2 py-3">
                       <div className="space-y-0.5">
                         {[
                           {
@@ -2121,10 +2113,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             to={item.href}
                             onClick={closeSidebar}
                             className={cn(
-                              "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                              "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
                               view === item.id
-                                ? "bg-accent/60 text-foreground font-medium"
-                                : "text-foreground/70 hover:bg-accent/30",
+                                ? "bg-primary/10 font-medium text-primary"
+                                : "text-primary hover:bg-accent/60",
                             )}
                           >
                             <span>{item.label}</span>
@@ -2163,10 +2155,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                   to={tab.href}
                                   onClick={closeSidebar}
                                   className={cn(
-                                    "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                                    "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
                                     tab.isActive
-                                      ? "bg-accent/60 text-foreground font-medium"
-                                      : "text-foreground/70 hover:bg-accent/30",
+                                      ? "bg-primary/10 font-medium text-primary"
+                                      : "text-primary hover:bg-accent/60",
                                   )}
                                 >
                                   <span
@@ -2209,15 +2201,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <FeedbackButton
                       variant={showCollapsedSidebar ? "icon" : "sidebar"}
                       side="right"
-                      className={showCollapsedSidebar ? "!size-9 !p-0" : "w-full"}
                     />
                     <div
                       data-sidebar-footer-utilities
-                      className={cn(
-                        showCollapsedSidebar
-                          ? "flex flex-col items-center gap-1"
-                          : "flex items-center gap-0.5",
-                      )}
                     >
                       <OrgSwitcher
                         compact={showCollapsedSidebar}
@@ -2505,7 +2491,7 @@ function StandardLayout({ children }: AppLayoutProps) {
     </Tooltip>
   );
   const feedbackButton = (
-    <FeedbackButton variant="sidebar" side="right" className="min-w-0" />
+    <FeedbackButton variant="sidebar" side="right" />
   );
 
   // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
@@ -2643,10 +2629,10 @@ function StandardLayout({ children }: AppLayoutProps) {
                   to={item.href}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
-                    "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                    "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
                     view === item.id
-                      ? "bg-accent/60 text-foreground font-medium"
-                      : "text-foreground/70 hover:bg-accent/30",
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-primary hover:bg-accent/60",
                   )}
                 >
                   <span>{item.label}</span>
@@ -2664,7 +2650,6 @@ function StandardLayout({ children }: AppLayoutProps) {
             <FeedbackButton
               variant="sidebar"
               side="right"
-              className="w-full"
             />
             <div data-sidebar-footer-utilities className="flex items-center gap-0.5">
               <OrgSwitcher
@@ -2695,10 +2680,6 @@ function StandardLayout({ children }: AppLayoutProps) {
       <InvitationBanner />
 
       <main
-        className={cn(
-          "agent-native-app-main flex flex-1 overflow-hidden",
-          sidebarOpen && !isMobile && "ps-64",
-        )}
       >
         {children}
       </main>

@@ -239,18 +239,12 @@ export function Sidebar() {
     <FeedbackButton
       variant={effectiveCollapsed ? "icon" : "sidebar"}
       side="right"
-      className={effectiveCollapsed ? "!size-9 !p-0" : "w-full"}
     />
   );
 
   const orgSwitcher = (
     <OrgSwitcher
       compact={effectiveCollapsed}
-      className={
-        effectiveCollapsed
-          ? "!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
-          : "min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
-      }
     />
   );
 

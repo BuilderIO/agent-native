@@ -1066,7 +1066,6 @@ export function NavContent({
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
       side="right"
-      className={collapsed ? "size-8" : "min-w-0"}
     />
   );
   const chatFirstCreateAppTrigger = (
@@ -1235,7 +1234,6 @@ export function NavContent({
       <FeedbackButton
         variant={collapsed ? "icon" : "sidebar"}
         side="right"
-        className={collapsed ? "!size-9 !p-0" : "w-full"}
       />
       <div
         data-sidebar-footer-utilities

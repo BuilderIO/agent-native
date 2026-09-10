@@ -1888,14 +1888,14 @@ export function DocumentSidebar({
     <Link
       to="/settings"
       className={cn(
-        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs",
         settingsActive
-          ? "bg-accent text-accent-foreground"
-          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          ? "bg-primary/10 font-medium text-primary"
+          : "text-primary hover:bg-accent/60",
       )}
     >
-      <IconSettings size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-start">
+      <IconSettings className="size-4 shrink-0 text-primary" />
+      <span className="min-w-0 flex-1 truncate text-start text-primary">
         {t("navigation.settings")}
       </span>
     </Link>
@@ -1941,17 +1941,10 @@ export function DocumentSidebar({
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
       side="right"
-      className={collapsed ? "size-8" : "h-8 min-w-0"}
     />
   );
   const brandButton = (isCollapsed: boolean) => (
     <div
-      className={cn(
-        "flex h-14 shrink-0 items-center border-b border-border",
-        isCollapsed
-          ? "flex-col justify-center gap-0.5 px-2"
-          : "gap-2 px-4",
-      )}
     >
       <button
         type="button"
@@ -2371,7 +2364,6 @@ export function DocumentSidebar({
           <FeedbackButton
             variant="icon"
             side="right"
-            className="!size-9 !p-0"
           />
           <div data-sidebar-footer-utilities className="flex flex-col items-center gap-1">
             <OrgSwitcher
@@ -2385,12 +2377,6 @@ export function DocumentSidebar({
                 <Link
                   to="/settings"
                   aria-label={t("navigation.settings")}
-                  className={cn(
-                    "flex size-9 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary",
-                    settingsActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
                 >
                   <IconSettings className="size-4" />
                 </Link>
@@ -2532,8 +2518,8 @@ export function DocumentSidebar({
         </div>
       </ScrollArea>
 
-      <div className="shrink-0 px-3 py-2">
-        <div className="space-y-1">{renderSettingsNavButton()}</div>
+      <div className="shrink-0 border-t border-border/70 px-2 pt-3">
+        <div className="space-y-0.5">{renderSettingsNavButton()}</div>
       </div>
 
       <div className="shrink-0">
@@ -2554,7 +2540,6 @@ export function DocumentSidebar({
         <FeedbackButton
           variant="sidebar"
           side="right"
-          className="w-full"
         />
         <div data-sidebar-footer-utilities className="flex items-center gap-0.5">
           <OrgSwitcher
@@ -2567,12 +2552,6 @@ export function DocumentSidebar({
               <Link
                 to="/settings"
                 aria-label={t("navigation.settings")}
-                className={cn(
-                  "flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary",
-                  settingsActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
               >
                 <IconSettings className="size-4" />
               </Link>

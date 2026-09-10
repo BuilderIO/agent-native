@@ -2297,7 +2297,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     <FeedbackButton
       variant={effectiveCollapsed ? "icon" : "sidebar"}
       side="right"
-      className={effectiveCollapsed ? "h-8 w-8" : "min-w-0"}
     />
   );
 
@@ -2338,11 +2337,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       to={item.href}
                       onClick={item.onClick}
                       aria-label={item.label}
-                      className={cn(
-                        "flex size-9 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary transition-colors",
-                        item.active &&
-                          "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
-                      )}
                     >
                       <Icon className="size-4 text-primary" />
                     </Link>
@@ -2356,7 +2350,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             <FeedbackButton
               variant="icon"
               side="right"
-              className="!size-9 !p-0"
             />
             <div data-sidebar-footer-utilities className="flex flex-col items-center gap-1">
               <OrgSwitcher
@@ -2386,24 +2379,18 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             <EnvironmentBadge placement="inline" />
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
-            <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium">
+            <nav className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3">
               {/* Ask section */}
-              <div className="order-1 group/section min-w-0 space-y-1">
+              <div className="order-1 group/section min-w-0 space-y-0.5">
                 <div
-                  className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
-                    isAskRoute
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
-                  )}
                 >
                   <Link
                     to="/ask"
                     onClick={handleAskClick}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary"
                   >
-                    <IconMessageCircle className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">
+                    <IconMessageCircle className="size-4 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-primary">
                       {t("navigation.ask")}
                     </span>
                   </Link>
@@ -2442,88 +2429,98 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/sessions"
                 className={cn(
-                  "order-4 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-4 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/sessions")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconPlayerPlay className="h-4 w-4" />
-                {t("navigation.sessions")}
+                <IconPlayerPlay className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.sessions")}
+                </span>
               </Link>
 
               {/* Monitoring link */}
               <Link
                 to="/monitoring"
                 className={cn(
-                  "order-5 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-5 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/monitoring")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconHeartbeat className="h-4 w-4" />
-                {t("navigation.monitoring")}
+                <IconHeartbeat className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.monitoring")}
+                </span>
               </Link>
 
               {/* Agents link */}
               <Link
                 to="/agents"
                 className={cn(
-                  "order-6 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-6 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/agents")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconActivity className="h-4 w-4" />
-                {t("navigation.agents")}
+                <IconActivity className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.agents")}
+                </span>
               </Link>
 
               {/* Data Sources link */}
               <Link
                 to="/data-sources"
                 className={cn(
-                  "order-7 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-7 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname === "/data-sources"
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconDatabase className="h-4 w-4" />
-                {t("navigation.dataSources")}
+                <IconDatabase className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.dataSources")}
+                </span>
               </Link>
 
               {/* Data Dictionary link */}
               <Link
                 to="/data-dictionary"
                 className={cn(
-                  "order-8 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-8 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/data-dictionary")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconBook2 className="h-4 w-4" />
-                {t("navigation.dataDictionary")}
+                <IconBook2 className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.dataDictionary")}
+                </span>
               </Link>
 
               {/* Dashboards section */}
-              <div className="order-2 group/section min-w-0 space-y-1">
+              <div className="order-2 group/section min-w-0 space-y-0.5">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
+                    "group flex w-full min-w-0 items-center rounded transition-colors",
                     isAdhocActive
-                      ? "text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-primary hover:bg-accent/60",
                   )}
                 >
                   <Link
                     to="/dashboards"
-                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-start text-xs text-primary"
                   >
-                    <IconChartBar className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">
+                    <IconChartBar className="size-4 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-primary">
                       {t("navigation.dashboards")}
                     </span>
                   </Link>
@@ -2694,8 +2691,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium">
-              <nav className="flex min-w-0 flex-col gap-1 pb-1">
+            <div className="mt-3 shrink-0 min-w-0 space-y-0.5 border-t border-border/70 px-2 pt-3">
+              <nav className="flex min-w-0 flex-col space-y-0.5">
                 {bottomItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.href;
@@ -2704,24 +2701,25 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       key={item.href}
                       to={item.href}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                        "flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                         isActive
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-muted-foreground hover:bg-sidebar-accent/50",
+                          ? "bg-primary/10 font-medium text-primary"
+                          : "text-primary hover:bg-accent/60",
                       )}
                     >
-                      <Icon className="h-4 w-4" />
-                      <span className="truncate">{t(item.labelKey)}</span>
+                      <Icon className="size-4 shrink-0 text-primary" />
+                      <span className="truncate text-primary">
+                        {t(item.labelKey)}
+                      </span>
                     </Link>
                   );
                 })}
               </nav>
 
-              <div className="shrink-0 border-t border-border p-2 space-y-1.5 mt-2">
+              <div className="mt-2 shrink-0 space-y-1.5 border-t border-border p-2">
                 <FeedbackButton
                   variant="sidebar"
                   side="right"
-                  className="w-full"
                 />
                 <div data-sidebar-footer-utilities className="flex items-center gap-0.5">
                   <OrgSwitcher

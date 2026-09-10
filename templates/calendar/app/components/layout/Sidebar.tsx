@@ -488,7 +488,7 @@ function GoogleCalendarsSections({
     return (
       <div
         key={preferenceKey}
-        className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+        className="group flex min-h-7 items-center gap-2 px-2 text-xs"
       >
         <Popover>
           <PopoverTrigger asChild>
@@ -780,18 +780,12 @@ export function Sidebar({
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
       side="right"
-      className={collapsed ? "!size-9 !p-0" : "w-full"}
     />
   );
 
   const orgSwitcher = (
     <OrgSwitcher
       compact={collapsed}
-      className={
-        collapsed
-          ? "!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
-          : "min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
-      }
     />
   );
 
@@ -948,7 +942,7 @@ export function Sidebar({
                           {overlayPeople.map((person) => (
                             <div
                               key={person.email}
-                              className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+                              className="group flex min-h-7 items-center gap-2 px-2 text-xs"
                             >
                               <ColorPickerPopover
                                 color={person.color}
@@ -1073,7 +1067,7 @@ export function Sidebar({
                           {externalCalendars.map((cal) => (
                             <div
                               key={cal.id}
-                              className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+                              className="group flex min-h-7 items-center gap-2 px-2 text-xs"
                             >
                               <ColorPickerPopover
                                 color={cal.color}

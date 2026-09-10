@@ -101,7 +101,10 @@ export interface AppSidebarHeaderProps extends HTMLAttributes<HTMLDivElement> {
   onBrandClick?: (event: MouseEvent) => void;
 }
 
-export const AppSidebarHeader = forwardRef<HTMLDivElement, AppSidebarHeaderProps>(
+export const AppSidebarHeader = forwardRef<
+  HTMLDivElement,
+  AppSidebarHeaderProps
+>(
   (
     {
       brandName,
@@ -125,9 +128,7 @@ export const AppSidebarHeader = forwardRef<HTMLDivElement, AppSidebarHeaderProps
           data-sidebar-header
           className={cn(
             "flex h-14 shrink-0 items-center border-b border-border",
-            collapsed
-              ? "flex-col justify-center gap-0.5 px-2"
-              : "gap-2 px-4",
+            collapsed ? "flex-col justify-center gap-0.5 px-2" : "gap-2 px-4",
             className,
           )}
           {...props}
@@ -143,9 +144,7 @@ export const AppSidebarHeader = forwardRef<HTMLDivElement, AppSidebarHeaderProps
         data-sidebar-header
         className={cn(
           "flex h-14 shrink-0 items-center border-b border-border",
-          collapsed
-            ? "flex-col justify-center gap-0.5 px-2"
-            : "gap-2 px-4",
+          collapsed ? "flex-col justify-center gap-0.5 px-2" : "gap-2 px-4",
           className,
         )}
         {...props}
@@ -193,7 +192,10 @@ export interface AppSidebarNavItemProps extends HTMLAttributes<HTMLDivElement> {
   tooltipSide?: "right" | "top" | "bottom" | "left";
 }
 
-export const AppSidebarNavItem = forwardRef<HTMLDivElement, AppSidebarNavItemProps>(
+export const AppSidebarNavItem = forwardRef<
+  HTMLDivElement,
+  AppSidebarNavItemProps
+>(
   (
     {
       label,
@@ -281,11 +283,12 @@ export const AppSidebarNavItem = forwardRef<HTMLDivElement, AppSidebarNavItemPro
       <>
         {renderSidebarIcon(icon)}
         <span className="flex-1 truncate text-primary">{label}</span>
-        {count !== undefined && (typeof count === "number" ? count > 0 : Boolean(count)) && (
-          <span className="shrink-0 tabular-nums text-[11px] text-primary/80">
-            {count}
-          </span>
-        )}
+        {count !== undefined &&
+          (typeof count === "number" ? count > 0 : Boolean(count)) && (
+            <span className="shrink-0 tabular-nums text-[11px] text-primary/80">
+              {count}
+            </span>
+          )}
         {badge}
       </>
     );
@@ -344,7 +347,10 @@ export interface AppSidebarNavGroupProps extends HTMLAttributes<HTMLDivElement> 
   children: ReactNode;
 }
 
-export const AppSidebarNavGroup = forwardRef<HTMLDivElement, AppSidebarNavGroupProps>(
+export const AppSidebarNavGroup = forwardRef<
+  HTMLDivElement,
+  AppSidebarNavGroupProps
+>(
   (
     {
       label,
@@ -415,21 +421,23 @@ export const AppSidebarNavGroup = forwardRef<HTMLDivElement, AppSidebarNavGroupP
             >
               {renderSidebarIcon(icon)}
               <span className="flex-1 truncate text-primary">{label}</span>
-              {count !== undefined && (typeof count === "number" ? count > 0 : Boolean(count)) && (
-                <span className="shrink-0 tabular-nums text-[11px] text-primary/80">
-                  {count}
-                </span>
-              )}
+              {count !== undefined &&
+                (typeof count === "number" ? count > 0 : Boolean(count)) && (
+                  <span className="shrink-0 tabular-nums text-[11px] text-primary/80">
+                    {count}
+                  </span>
+                )}
             </a>
           ) : (
             <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary">
               {renderSidebarIcon(icon)}
               <span className="flex-1 truncate text-primary">{label}</span>
-              {count !== undefined && (typeof count === "number" ? count > 0 : Boolean(count)) && (
-                <span className="shrink-0 tabular-nums text-[11px] text-primary/80">
-                  {count}
-                </span>
-              )}
+              {count !== undefined &&
+                (typeof count === "number" ? count > 0 : Boolean(count)) && (
+                  <span className="shrink-0 tabular-nums text-[11px] text-primary/80">
+                    {count}
+                  </span>
+                )}
             </div>
           )}
           {actions}
@@ -449,7 +457,9 @@ export const AppSidebarNavGroup = forwardRef<HTMLDivElement, AppSidebarNavGroupP
           </CollapsibleTrigger>
         </div>
         <CollapsibleContent className="clips-collapsible-content">
-          <div className="ms-3.5 border-s border-border/70 ps-2">{children}</div>
+          <div className="ms-3.5 border-s border-border/70 ps-2">
+            {children}
+          </div>
         </CollapsibleContent>
       </Collapsible>
     );
@@ -461,39 +471,42 @@ AppSidebarNavGroup.displayName = "AppSidebarNavGroup";
 // Section / Divider
 // ---------------------------------------------------------------------------
 
-export interface AppSidebarSectionProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+export interface AppSidebarSectionProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "title"
+> {
   title?: ReactNode;
   divider?: boolean;
 }
 
-export const AppSidebarSection = forwardRef<HTMLDivElement, AppSidebarSectionProps>(
-  ({ title, divider = true, className, children, ...props }, ref) => {
-    const { collapsed } = useAppSidebar();
+export const AppSidebarSection = forwardRef<
+  HTMLDivElement,
+  AppSidebarSectionProps
+>(({ title, divider = true, className, children, ...props }, ref) => {
+  const { collapsed } = useAppSidebar();
 
-    return (
-      <div
-        ref={ref}
-        data-sidebar-section
-        className={cn(
-          divider && "border-t border-border/70",
-          collapsed
-            ? "mt-2 flex flex-col items-center gap-1 pt-2"
-            : "mt-3 space-y-0.5 pt-3",
-          className,
-        )}
-        {...props}
-      >
-        {!collapsed && title && (
-          <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-            {title}
-          </p>
-        )}
-        {children}
-      </div>
-    );
-  },
-);
+  return (
+    <div
+      ref={ref}
+      data-sidebar-section
+      className={cn(
+        divider && "border-t border-border/70",
+        collapsed
+          ? "mt-2 flex flex-col items-center gap-1 pt-2"
+          : "mt-3 space-y-0.5 pt-3",
+        className,
+      )}
+      {...props}
+    >
+      {!collapsed && title && (
+        <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+          {title}
+        </p>
+      )}
+      {children}
+    </div>
+  );
+});
 AppSidebarSection.displayName = "AppSidebarSection";
 
 // ---------------------------------------------------------------------------
@@ -566,7 +579,10 @@ export interface AppSidebarFooterProps extends HTMLAttributes<HTMLDivElement> {
   collapseLabel?: string;
 }
 
-export const AppSidebarFooter = forwardRef<HTMLDivElement, AppSidebarFooterProps>(
+export const AppSidebarFooter = forwardRef<
+  HTMLDivElement,
+  AppSidebarFooterProps
+>(
   (
     {
       feedback,
@@ -732,7 +748,8 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
     const isControlled = controlledCollapsed !== undefined;
     const isUsingStorage = !isControlled && Boolean(storageKey);
 
-    const [uncontrolledCollapsed, setUncontrolledCollapsed] = useState(defaultCollapsed);
+    const [uncontrolledCollapsed, setUncontrolledCollapsed] =
+      useState(defaultCollapsed);
 
     const collapsed = isControlled
       ? controlledCollapsed!
@@ -753,7 +770,13 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
           setUncontrolledCollapsed(next);
         }
       },
-      [collapsed, controlledOnCollapsedChange, isControlled, isUsingStorage, persistent],
+      [
+        collapsed,
+        controlledOnCollapsedChange,
+        isControlled,
+        isUsingStorage,
+        persistent,
+      ],
     );
 
     const toggleCollapsed = useCallback(() => {

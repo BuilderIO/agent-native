@@ -1,6 +1,6 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { IconMessage2, IconCheck } from "@tabler/icons-react";
+import { IconCheck, IconMessageCircle } from "@tabler/icons-react";
 import {
   useState,
   useEffect,
@@ -551,11 +551,11 @@ function FeedbackPopoverButton({
                 type="button"
                 aria-label={resolvedLabel}
                 className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                  "flex size-9 items-center justify-center rounded-md bg-transparent text-primary hover:bg-accent/60 hover:text-primary",
                   className,
                 )}
               >
-                <IconMessage2 size={14} />
+                <IconMessageCircle className="size-4 shrink-0 text-primary" />
               </button>
             </PopoverPrimitive.Trigger>
           </TooltipPrimitive.Trigger>
@@ -581,22 +581,23 @@ function FeedbackPopoverButton({
             className,
           )}
         >
-          <IconMessage2 size={14} stroke={1.5} />
+          <IconMessageCircle size={14} stroke={1.5} />
           <span>{resolvedLabel}</span>
         </button>
       </PopoverPrimitive.Trigger>
     );
   } else {
+    // Sidebar variant matches Clips footer feedback row spacing/density.
     trigger = (
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
           className={cn(
-            "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+            "flex h-auto w-full items-center justify-start gap-2 rounded bg-transparent px-2 py-1.5 text-xs font-normal text-primary hover:bg-accent/60 hover:text-primary",
             className,
           )}
         >
-          <IconMessage2 className="h-4 w-4" />
+          <IconMessageCircle className="size-4 shrink-0 text-primary" />
           <span>{resolvedLabel}</span>
         </button>
       </PopoverPrimitive.Trigger>

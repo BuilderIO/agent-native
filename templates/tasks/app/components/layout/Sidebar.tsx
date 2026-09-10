@@ -62,7 +62,6 @@ export function Sidebar({
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
-      className={collapsed ? "!size-9 !p-0" : "w-full"}
       side="right"
     />
   );
