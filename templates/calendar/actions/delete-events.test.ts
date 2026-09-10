@@ -99,16 +99,21 @@ const OWNER = "owner@example.com";
 function googleEvent(
   overrides: Partial<Record<string, unknown>> & { id: string; start: string },
 ) {
+  const { id: googleEventId, ...rest } = overrides;
+  const eventId = rest.overlayEmail
+    ? `overlay-${rest.overlayEmail}-${googleEventId}`
+    : `google-${googleEventId}`;
   return {
+    id: eventId,
     title: "Weekend sync",
     description: "",
-    end: overrides.start,
+    end: rest.start,
     location: "",
     allDay: false,
     source: "google" as const,
-    googleEventId: overrides.id,
+    googleEventId,
     accountEmail: OWNER,
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -206,6 +211,7 @@ describe("delete-events", () => {
     expect(result.skipped).toBe(1);
     expect(result.events).toContainEqual(
       expect.objectContaining({
+        id: "overlay-person@example.com-overlay-event",
         outcome: "skipped",
         reason: "Comes from an overlaid Google calendar, which is read-only",
       }),
