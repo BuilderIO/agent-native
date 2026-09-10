@@ -24,6 +24,10 @@ export const MAX_IMAGE_DIMENSION = 2048;
 // Estimated total serialized body budget (JSON POST). Vercel/Netlify cap ~4.5 MB.
 // We stop well below to leave room for the text payload and JSON framing.
 export const MAX_ESTIMATED_BODY_BYTES = 3.5 * 1024 * 1024;
+// Text files are read into memory before they can be sent as inline content.
+// Keep one file below the aggregate budget so an oversized EML is rejected
+// before file.text() allocates the whole payload.
+export const MAX_TEXT_ATTACHMENT_BYTES = MAX_ESTIMATED_BODY_BYTES;
 // At 3.5 MB of serializable attachments, aggressively re-downscale images.
 export const AGGRESSIVE_MAX_IMAGE_DIMENSION = 1024;
 export const AGGRESSIVE_JPEG_QUALITY = 0.7;
@@ -63,6 +67,12 @@ function formatOversizedDocumentError(name: string, size: number): string {
   const mb = (size / 1024 / 1024).toFixed(1);
   const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
   return `"${name}" is ${mb} MB - documents are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+}
+
+function formatOversizedTextError(name: string, size: number): string {
+  const mb = (size / 1024 / 1024).toFixed(1);
+  const maxMb = (MAX_TEXT_ATTACHMENT_BYTES / 1024 / 1024).toFixed(1);
+  return `"${name}" is ${mb} MB - text attachments are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -167,18 +177,46 @@ export async function getImageFileDataURL(file: File): Promise<string> {
 }
 
 /**
- * Estimate the serialized byte cost of a collection of attachment data-URLs
- * (base64 strings, accounting for JSON string escaping overhead).
+ * Estimate the serialized byte cost of attachment payload strings (base64 or
+ * text, accounting for UTF-8 encoding and JSON string escaping overhead).
  */
-export function estimateAttachmentBodyBytes(dataUrls: string[]): number {
-  // JSON.stringify adds ~2 bytes of quotes per string; base64 is already
-  // accounted for in the string length. Add 15% for JSON framing.
-  return dataUrls.reduce((sum, url) => sum + url.length, 0) * 1.15;
+export function estimateAttachmentBodyBytes(values: string[]): number {
+  const encodedBytes = new TextEncoder();
+  // JSON.stringify adds ~2 bytes of quotes per string; add 15% for JSON
+  // framing after measuring the actual UTF-8 payload size.
+  return (
+    values.reduce(
+      (sum, value) => sum + encodedBytes.encode(value).byteLength,
+      0,
+    ) * 1.15
+  );
 }
 
 export type QueuedAttachment = CompleteAttachment & {
   metadata?: Record<string, unknown>;
 };
+
+export function getAttachmentBodyStrings(
+  attachments: ReadonlyArray<QueuedAttachment>,
+): string[] {
+  return attachments.flatMap((attachment) =>
+    attachment.content.flatMap((part) => {
+      if (part.type === "image" && typeof part.image === "string") {
+        return [part.image];
+      }
+      if (part.type === "text" && typeof part.text === "string") {
+        return [part.text];
+      }
+      if (
+        part.type === "file" &&
+        typeof (part as { data?: unknown }).data === "string"
+      ) {
+        return [(part as { data: string }).data];
+      }
+      return [];
+    }),
+  );
+}
 
 export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
   public accept = IMAGE_ATTACHMENT_ACCEPT;
@@ -434,6 +472,10 @@ export async function serializeQueuedAttachments(
           content: [{ type: "image", image: await getImageFileDataURL(file) }],
         });
       } else if (isTextLikeFile(file)) {
+        if (file.size > MAX_TEXT_ATTACHMENT_BYTES) {
+          throw new Error(formatOversizedTextError(file.name, file.size));
+        }
+        const text = await file.text();
         queued.push({
           id,
           type: "file",
@@ -443,7 +485,7 @@ export async function serializeQueuedAttachments(
           content: [
             {
               type: "text",
-              text: textFileAttachmentEnvelope(file, await file.text()),
+              text: textFileAttachmentEnvelope(file, text),
             },
           ],
         });

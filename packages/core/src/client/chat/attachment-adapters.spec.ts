@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   BinaryDocumentAttachmentAdapter,
   DownscalingImageAttachmentAdapter,
+  estimateAttachmentBodyBytes,
+  getAttachmentBodyStrings,
   isTextLikeFile,
+  MAX_TEXT_ATTACHMENT_BYTES,
   serializeAttachmentContentPart,
   serializeQueuedAttachments,
 } from "./attachment-adapters.js";
@@ -56,6 +59,43 @@ describe("isTextLikeFile", () => {
         }),
       ),
     ).toBe(true);
+  });
+
+  it("rejects oversized readable files before reading their contents", async () => {
+    const file = new File(
+      [new Uint8Array(MAX_TEXT_ATTACHMENT_BYTES + 1)],
+      "large.eml",
+      { type: "message/rfc822" },
+    );
+
+    await expect(
+      serializeQueuedAttachments([{ name: file.name, file }]),
+    ).rejects.toThrow(
+      '"large.eml" is 3.5 MB - text attachments are capped at 3.5 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+    );
+  });
+});
+
+describe("attachment body size estimation", () => {
+  it("counts text and inline file payloads alongside images", () => {
+    const attachments = [
+      {
+        type: "file",
+        name: "message.eml",
+        content: [{ type: "text", text: "mail body" }],
+      },
+      {
+        type: "file",
+        name: "report.pdf",
+        content: [{ type: "file", data: "data:application/pdf;base64,abc" }],
+      },
+    ] as any;
+
+    expect(getAttachmentBodyStrings(attachments)).toEqual([
+      "mail body",
+      "data:application/pdf;base64,abc",
+    ]);
+    expect(estimateAttachmentBodyBytes(["é"])).toBeCloseTo(2.3);
   });
 });
 

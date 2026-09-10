@@ -23,6 +23,7 @@ describe("isTextLikeMimeType", () => {
     expect(isTextLikeMimeType("application/json")).toBe(true);
     expect(isTextLikeMimeType("application/javascript")).toBe(true);
     expect(isTextLikeMimeType("application/typescript")).toBe(true);
+    expect(isTextLikeMimeType("message/rfc822")).toBe(true);
   });
 
   it("rejects binary types", () => {
@@ -42,6 +43,7 @@ describe("isTextLikeFilename", () => {
     expect(isTextLikeFilename("index.ts")).toBe(true);
     expect(isTextLikeFilename("query.sql")).toBe(true);
     expect(isTextLikeFilename("schema.graphql")).toBe(true);
+    expect(isTextLikeFilename("message.eml")).toBe(true);
   });
 
   it("rejects binary filenames", () => {

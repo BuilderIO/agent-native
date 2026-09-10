@@ -106,6 +106,7 @@ import {
   createAgentImageAttachments,
   serializeQueuedAttachments,
   estimateAttachmentBodyBytes,
+  getAttachmentBodyStrings,
   type QueuedAttachment,
 } from "./chat/attachment-adapters.js";
 import {
@@ -5502,15 +5503,10 @@ const AssistantChatInner = forwardRef<
       // the payload fits, then reject the largest remaining file if still over.
       let messageAttachments = allAttachments;
       {
-        const allDataUrls = allAttachments.flatMap((a) =>
-          a.content
-            .filter(
-              (c): c is { type: "image"; image: string } => c.type === "image",
-            )
-            .map((c) => c.image),
-        );
+        const allPayloadStrings = getAttachmentBodyStrings(allAttachments);
         if (
-          estimateAttachmentBodyBytes(allDataUrls) > MAX_ESTIMATED_BODY_BYTES
+          estimateAttachmentBodyBytes(allPayloadStrings) >
+          MAX_ESTIMATED_BODY_BYTES
         ) {
           // Re-compress image attachments more aggressively.
           const recompressed: typeof allAttachments = [];
@@ -5551,37 +5547,29 @@ const AssistantChatInner = forwardRef<
             recompressed.push(att);
           }
           // Re-estimate after recompression.
-          const recompressedUrls = recompressed.flatMap((a) =>
-            a.content
-              .filter(
-                (c): c is { type: "image"; image: string } =>
-                  c.type === "image",
-              )
-              .map((c) => c.image),
-          );
+          const recompressedPayloadStrings =
+            getAttachmentBodyStrings(recompressed);
           if (
             stillOver ||
-            estimateAttachmentBodyBytes(recompressedUrls) >
+            estimateAttachmentBodyBytes(recompressedPayloadStrings) >
               MAX_ESTIMATED_BODY_BYTES
           ) {
             // Find the largest attachment and reject it.
             let largestIdx = -1;
             let largestSize = 0;
             for (let i = 0; i < recompressed.length; i++) {
-              const url =
-                recompressed[i].content.find(
-                  (c): c is { type: "image"; image: string } =>
-                    c.type === "image",
-                )?.image ?? "";
-              if (url.length > largestSize) {
-                largestSize = url.length;
+              const attachmentSize = estimateAttachmentBodyBytes(
+                getAttachmentBodyStrings([recompressed[i]]),
+              );
+              if (attachmentSize > largestSize) {
+                largestSize = attachmentSize;
                 largestIdx = i;
               }
             }
             if (largestIdx >= 0) {
               const rejected = recompressed[largestIdx];
               setComposerError(
-                `"${rejected.name}" makes the message too large to send (combined attachments must be under ${Math.round(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024)} MB). Remove it or use a smaller image.`,
+                `"${rejected.name}" makes the message too large to send (combined attachments must be under ${(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024).toFixed(1)} MB). Remove it or use a smaller file.`,
               );
               reportAgentChatSubmitResult(
                 submitMessageId,
