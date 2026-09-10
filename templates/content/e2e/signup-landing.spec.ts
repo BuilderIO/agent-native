@@ -8,8 +8,35 @@ import { expect, test, type Page } from "@playwright/test";
  * unavailable" there left the user with no valid destination at all.
  */
 
-/** A Page id no account can hold — the shape of the reported resumed link. */
-const UNKNOWN_DOCUMENT_ID = "inbox";
+const ACTION_HEADERS = {
+  "X-Agent-Native-Frontend": "1",
+  "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+  "X-Agent-Native-Build-Id": "development",
+};
+
+/**
+ * A Page id this account cannot read, unique per run. The reported link was
+ * `/page/inbox`, but the invariant under test is the unreadable id rather than
+ * that exact string — and a fixed id can be made readable by an earlier run, an
+ * agent, or a shared database, which would fail these tests for a cause they do
+ * not name.
+ */
+function unreadableDocumentId(): string {
+  return `missing-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Establish the premise before asserting recovery, so a readable id fails here
+ * with its own message instead of timing out inside the recovery poll. */
+async function assertUnreadable(page: Page, documentId: string): Promise<void> {
+  const response = await page.request.get(
+    `/_agent-native/actions/get-document?id=${encodeURIComponent(documentId)}`,
+    { headers: ACTION_HEADERS },
+  );
+  expect(
+    [403, 404],
+    `get-document answered ${response.status()} for ${documentId}; these tests need an unreadable page (403/404) to exercise the recovery path`,
+  ).toContain(response.status());
+}
 
 /** The opened document id, or `null` while the browser is anywhere else. A
  * non-Page URL is not a recovered Page, so the two stay distinguishable. */
@@ -18,17 +45,26 @@ function openedDocumentId(page: Page): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/** The settled destination, or `null`. Recovery passes through the landing
+ * route, which is neither the requested Page nor a recovered one, so "left the
+ * bad URL" is not yet "arrived somewhere usable". */
+function recoveredDocumentId(page: Page, requested: string): string | null {
+  const opened = openedDocumentId(page);
+  return opened && opened !== requested ? opened : null;
+}
+
 async function openRecoveredPage(page: Page): Promise<string> {
-  await page.goto(`/page/${UNKNOWN_DOCUMENT_ID}`, {
-    waitUntil: "domcontentloaded",
-  });
+  const requested = unreadableDocumentId();
+  await page.goto(`/page/${requested}`, { waitUntil: "domcontentloaded" });
+  await assertUnreadable(page, requested);
+
   await expect
-    .poll(() => openedDocumentId(page), {
+    .poll(() => recoveredDocumentId(page, requested), {
       message: "the unreadable deep link never resolved to a usable Page",
       timeout: 60_000,
     })
-    .toMatch(/^(?!inbox$).+/);
-  const recovered = openedDocumentId(page);
+    .not.toBeNull();
+  const recovered = recoveredDocumentId(page, requested);
   if (!recovered) throw new Error("recovery left the browser off a Page route");
   return recovered;
 }
