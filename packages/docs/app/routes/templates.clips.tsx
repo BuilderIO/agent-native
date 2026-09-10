@@ -11,6 +11,7 @@ import { templates, trackEvent } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { ImgPlaceholder } from "../components/website-redesign/ds/img-placeholder";
 import {
   GridInner,
   PageSection,
@@ -207,19 +208,64 @@ export default function ClipsTemplate() {
         </GridInner>
 
         <GridInner>
-          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
-            {USE_CASES.map((useCase) => (
-              <ContentCard
-                key={useCase.id}
-                title={t(`templateLanding.clips.${useCase.titleKey}`)}
-                body={t(`templateLanding.clips.${useCase.bodyKey}`)}
-                media={
-                  useCase.id === "act-on-feedback" ? (
-                    <ClipsActOnFeedbackMock />
-                  ) : undefined
-                }
-              />
-            ))}
+          <div className="flex flex-col border border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase, index) => {
+              // Alternate which side carries the text vs. the media on every
+              // row so the section doesn't read as one long repeated pattern.
+              const textLeft = index % 2 === 0;
+
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.clips.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.clips.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
+
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className="order-2 flex items-center justify-center bg-[var(--b-bg-raised)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  {useCase.id === "act-on-feedback" ? (
+                    <ClipsActOnFeedbackMock className="max-w-[420px]" />
+                  ) : (
+                    <ImgPlaceholder
+                      aspectRatio="4 / 3"
+                      label={useCase.imageLabel}
+                      rounded={false}
+                      background="transparent"
+                      bordered={false}
+                    />
+                  )}
+                </div>
+              );
+
+              return (
+                <div
+                  key={useCase.id}
+                  className="grid border-t border-solid border-[var(--b-border-subtle)] first:border-t-0 lg:grid-cols-2"
+                >
+                  {textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </GridInner>
       </PageSection>
