@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebar,
@@ -16,10 +17,17 @@ import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
+import { IconSearch } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { navItems } from "@/lib/brain";
 
 const primaryNavItems = navItems.filter(
@@ -245,6 +253,24 @@ export function Sidebar({
 
   const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          onClick={openCommandMenu}
+          aria-label={t("navigation.search")}
+        >
+          <IconSearch className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("navigation.search")}</TooltipContent>
+    </Tooltip>
+  );
+
   return (
     <AppSidebar
       collapsed={collapsed}
@@ -255,7 +281,12 @@ export function Sidebar({
       secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
-      footerExtras={<DevDatabaseLink />}
+      footerExtras={
+        <>
+          {searchButton}
+          <DevDatabaseLink />
+        </>
+      }
     >
       {primaryNavItems.map((item) => {
         const label =

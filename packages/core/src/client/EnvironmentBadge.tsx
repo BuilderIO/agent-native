@@ -235,6 +235,26 @@ function EnvironmentBadgeContent({
   );
 
   if (!isBuilder) {
+    // Signed-out / non-Builder visitors keep a one-click lane switch (no
+    // popover/hide controls). Beta always offers production; production
+    // offers beta when a beta host is configured.
+    const switchHref = environment === "beta" ? productionHref : betaHref;
+    const switchLabel =
+      environment === "beta" ? "Switch to production" : "Go to beta";
+    if (switchHref) {
+      return (
+        <Button
+          aria-label={switchLabel}
+          asChild
+          className={badgeClasses}
+          size="sm"
+          title={title}
+          variant={environment === "beta" ? "default" : "outline"}
+        >
+          <a href={switchHref}>{label}</a>
+        </Button>
+      );
+    }
     return (
       <div
         aria-label={title}

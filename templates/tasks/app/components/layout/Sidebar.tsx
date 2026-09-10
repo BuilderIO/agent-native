@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebar,
@@ -9,10 +10,17 @@ import {
   IconCheckbox,
   IconForms,
   IconInbox,
+  IconSearch,
   IconSettings,
 } from "@tabler/icons-react";
 import { useLocation } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
 
 interface SidebarProps {
@@ -77,6 +85,24 @@ export function Sidebar({
     />
   );
 
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          onClick={openCommandMenu}
+          aria-label={t("sidebar.search")}
+        >
+          <IconSearch className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+    </Tooltip>
+  );
+
   return (
     <AppSidebar
       collapsed={collapsed}
@@ -88,6 +114,7 @@ export function Sidebar({
       secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
+      footerExtras={searchButton}
     />
   );
 }

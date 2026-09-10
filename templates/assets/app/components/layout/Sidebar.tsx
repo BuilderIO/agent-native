@@ -7,6 +7,7 @@ import {
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebar,
@@ -22,6 +23,7 @@ import {
   IconClipboardList,
   IconLayoutGrid,
   IconPhotoPlus,
+  IconSearch,
   IconSettings,
   IconShare3,
   IconTemplate,
@@ -30,6 +32,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 
 const baseNavItems = [
@@ -334,6 +342,24 @@ export function Sidebar() {
 
   const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          onClick={openCommandMenu}
+          aria-label={t("root.commandSearch")}
+        >
+          <IconSearch className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+
   return (
     <AppSidebar
       collapsed={collapsed}
@@ -343,7 +369,12 @@ export function Sidebar() {
       secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
-      footerExtras={<DevDatabaseLink />}
+      footerExtras={
+        <>
+          {searchButton}
+          <DevDatabaseLink />
+        </>
+      }
     >
       {navItems.map((item) => {
         const isActive =

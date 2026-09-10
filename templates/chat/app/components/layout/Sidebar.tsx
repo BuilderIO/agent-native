@@ -4,6 +4,7 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebar,
@@ -15,11 +16,21 @@ import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
-import { IconMessageCircle, IconSettings } from "@tabler/icons-react";
+import {
+  IconMessageCircle,
+  IconSearch,
+  IconSettings,
+} from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
 
 const CHAT_STORAGE_KEY = "chat";
@@ -264,6 +275,24 @@ export function Sidebar({
 
   const orgSwitcher = <OrgSwitcher compact={collapsed} reserveSpace />;
 
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          onClick={openCommandMenu}
+          aria-label={t("root.commandSearch")}
+        >
+          <IconSearch className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+
   return (
     <AppSidebar
       collapsed={collapsed}
@@ -274,6 +303,7 @@ export function Sidebar({
       secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
+      footerExtras={searchButton}
     >
       <AppSidebarNavItem
         to="/home"

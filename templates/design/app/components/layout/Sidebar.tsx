@@ -44,7 +44,9 @@ export function Sidebar() {
       label: t("navigation.designs"),
       icon: IconPencil,
       active:
-        location.pathname === "/home" || location.pathname.startsWith("/d/"),
+        location.pathname === "/home" ||
+        location.pathname.startsWith("/design/") ||
+        location.pathname.startsWith("/d/"),
     },
     {
       to: "/templates",

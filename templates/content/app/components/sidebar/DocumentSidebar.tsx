@@ -1941,7 +1941,12 @@ export function DocumentSidebar({
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
   const brandButton = (isCollapsed: boolean) => (
-    <div>
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-2",
+        isCollapsed && "flex-col",
+      )}
+    >
       <button
         type="button"
         onClick={onToggleCollapsed}
@@ -2401,7 +2406,9 @@ export function DocumentSidebar({
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
     >
       {/* Header */}
-      {brandButton(false)}
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
+        {brandButton(false)}
+      </div>
 
       <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
         <div className="w-full min-w-0 py-2 pe-2">

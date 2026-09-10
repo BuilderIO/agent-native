@@ -4,6 +4,7 @@ import {
   useSendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebar,
@@ -16,6 +17,7 @@ import {
   IconMenu2,
   IconMessageCircle,
   IconPlus,
+  IconSearch,
   IconSettings,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
@@ -243,6 +245,24 @@ export function Sidebar() {
 
   const orgSwitcher = <OrgSwitcher compact={effectiveCollapsed} />;
 
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          onClick={openCommandMenu}
+          aria-label={t("root.searchForms")}
+        >
+          <IconSearch className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.searchForms")}</TooltipContent>
+    </Tooltip>
+  );
+
   const sidebarElement = (
     <AppSidebar
       collapsed={effectiveCollapsed}
@@ -253,6 +273,7 @@ export function Sidebar() {
       secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
+      footerExtras={searchButton}
       isMobile={isMobile}
       mobileOpen={mobileOpen}
     >
