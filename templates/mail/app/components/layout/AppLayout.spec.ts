@@ -87,7 +87,7 @@ describe("AppLayout inbox rail count", () => {
     const source = appLayoutSource();
 
     expect(source).toContain("!isMobile &&\n              showSidebar &&");
-    expect(source).toContain('sidebarOpen && !isMobile && "ps-64"');
+    expect(source).toContain('!isMobile && sidebarOpen && "ps-[260px]"');
   });
 
   it("keeps the explicit Other inbox tab and search restoration path", () => {
