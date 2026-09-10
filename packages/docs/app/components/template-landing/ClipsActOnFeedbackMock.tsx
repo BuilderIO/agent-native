@@ -144,7 +144,7 @@ const CLIPS_PAGE_MOCK_CSS = [
   // Wide enough that the cut edge reads as a dissolve rather than a visible
   // seam: a short ramp left a hard line where the fade ended and the app's
   // own (unfaded) background took over.
-  `.clips-page-mock-fade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, ${FADE_COLOR} 0%, ${FADE_COLOR} 4%, transparent 30%); }`,
+  `.clips-page-mock-fade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, ${FADE_COLOR} 0%, ${FADE_COLOR} 6%, transparent 48%); }`,
 
   `@media (max-width: 768px) { .clips-page-mock-crop { height: ${Math.round(
     DESIGN_HEIGHT * MOBILE_SCALE,
