@@ -621,11 +621,12 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain(
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
-    expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
+    expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(2);
+    expect(overflowMenu).toContain("setTimeout(() => toggleHistory(), 0)");
     expect(overflowMenu).toContain("onCloseAutoFocus");
     expect(
       overflowMenu.match(/closeHeaderMenuForOverlay/g)?.length,
-    ).toBeGreaterThanOrEqual(3);
+    ).toBeGreaterThanOrEqual(2);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
     expect(source).toContain("onFullViewRequest={onFullscreenRequest}");
