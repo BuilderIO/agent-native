@@ -390,6 +390,23 @@ export function isAgentNativeDesktop(
   return /AgentNativeDesktop/i.test(userAgent);
 }
 
+export function shouldAutoFederateIdentitySso(input: {
+  identitySsoAuto: boolean;
+  publicOAuthOrigin: string;
+  currentOrigin: string;
+}): boolean {
+  if (!input.identitySsoAuto || !input.publicOAuthOrigin) return false;
+  try {
+    return (
+      new URL(input.publicOAuthOrigin).origin ===
+      new URL(input.currentOrigin).origin
+    );
+  } catch {
+    // coercion-ok: malformed optional origin metadata fails closed for auto SSO.
+    return false;
+  }
+}
+
 export function isElectron(
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
 ): boolean {
@@ -946,7 +963,11 @@ export function AuthPage(props: AuthPageProps) {
 
   React.useEffect(() => {
     if (
-      !identitySsoAuto ||
+      !shouldAutoFederateIdentitySso({
+        identitySsoAuto,
+        publicOAuthOrigin,
+        currentOrigin: window.location.origin,
+      }) ||
       !runtimeBasePathResolved ||
       !sessionProbeComplete ||
       !sessionProbeAnonymous ||
@@ -967,6 +988,7 @@ export function AuthPage(props: AuthPageProps) {
   }, [
     identityHref,
     identitySsoAuto,
+    publicOAuthOrigin,
     resumeHref,
     runtimeBasePathResolved,
     sessionProbeAnonymous,

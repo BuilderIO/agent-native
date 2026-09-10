@@ -187,7 +187,7 @@ describe("getOnboardingHtml", () => {
       expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
-    it("cached canonical login HTML keeps silent federation enabled", () => {
+    it("keeps silent federation enabled in cached canonical login HTML", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 

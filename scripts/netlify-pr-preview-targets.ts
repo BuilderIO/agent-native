@@ -7,6 +7,24 @@ import { resolveNetlifyPrebuiltTarget } from "./netlify-prebuilt-target.ts";
 
 type ProductionSites = Record<string, { host: string; siteId: string }>;
 
+// Keep previews aligned with the first-party apps rendered by the docs /apps
+// page. Internal and hidden templates must not get public PR preview URLs.
+const docsAppSites = new Set([
+  "analytics",
+  "assets",
+  "calendar",
+  "clips",
+  "content",
+  "design",
+  "dispatch",
+  "forms",
+  "mail",
+  "plan",
+  "slides",
+  "starter",
+]);
+const docsSite = "fw";
+
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -24,11 +42,16 @@ function readProductionSites(repoRoot = REPO_ROOT): ProductionSites {
 function buildableSites(repoRoot = REPO_ROOT): string[] {
   return Object.keys(readProductionSites(repoRoot))
     .filter((site) => {
-      if (site === "workspace") return false;
+      if (!docsAppSites.has(site)) return false;
       resolveNetlifyPrebuiltTarget("preview", site, repoRoot);
       return true;
     })
     .sort();
+}
+
+function withDocsSite(sites: string[], repoRoot: string): string[] {
+  resolveNetlifyPrebuiltTarget("preview", docsSite, repoRoot);
+  return [...sites, docsSite];
 }
 
 const sharedBuildPaths = [
@@ -57,10 +80,25 @@ export function previewSitesForChangedPaths(
   const available = new Set(sites);
   const selected = new Set<string>();
   let allSites = false;
+  let docsSiteChanged = false;
 
   for (const changedPath of changedPaths) {
     const file = changedPath.replaceAll("\\", "/").trim();
     if (!file || file.startsWith(".changeset/") || file.startsWith("docs/")) {
+      continue;
+    }
+    if (
+      file === "packages/docs/CHANGELOG.md" ||
+      file === "packages/docs/README.md" ||
+      file.startsWith("packages/docs/changelog/")
+    ) {
+      continue;
+    }
+    if (
+      file.startsWith("packages/docs/") ||
+      file.startsWith("packages/core/docs/")
+    ) {
+      docsSiteChanged = true;
       continue;
     }
     if (
@@ -70,11 +108,6 @@ export function previewSitesForChangedPaths(
       allSites = true;
       continue;
     }
-    if (file.startsWith("packages/docs/")) {
-      selected.add("fw");
-      continue;
-    }
-
     const template = file.match(/^templates\/([^/]+)(?:\/|$)/)?.[1];
     if (template) {
       const site = template === "chat" ? "starter" : template;
@@ -85,7 +118,12 @@ export function previewSitesForChangedPaths(
     allSites = true;
   }
 
-  return allSites ? sites : sites.filter((site) => selected.has(site));
+  const appSites = allSites
+    ? sites
+    : sites.filter((site) => selected.has(site));
+  return allSites || docsSiteChanged
+    ? withDocsSite(appSites, repoRoot)
+    : appSites;
 }
 
 function argumentValue(name: string): string | undefined {
