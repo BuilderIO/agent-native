@@ -127,7 +127,7 @@ concurrency:
         || inputs.caller == 'release-migration'
         && 'agent-native-release-migrations'
         || inputs.target == 'beta'
-        && format('netlify-prebuilt-beta-{0}', inputs.site)
+        && format('netlify-prebuilt-beta-{0}-{1}', inputs.site, inputs.caller)
         || inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'

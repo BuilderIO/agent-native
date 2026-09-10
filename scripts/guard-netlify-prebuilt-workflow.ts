@@ -251,7 +251,7 @@ const normalizedReusableConcurrencyGroup = reusableConcurrencyGroup.replace(
 );
 if (
   !normalizedReusableConcurrencyGroup.includes(
-    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}', inputs.site)",
+    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}-{1}', inputs.site, inputs.caller)",
   )
 ) {
   issues.push(
