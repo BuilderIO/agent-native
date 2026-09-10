@@ -12,7 +12,6 @@ import {
   prepareTransactionalChange,
   type TransactionalChange,
 } from "@agent-native/core/server";
-import { getSchema } from "@tiptap/core";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
 import { drizzle } from "drizzle-orm/pg-proxy";
 
@@ -25,7 +24,7 @@ import {
   SUPPORTED_SUGGESTION_BLOCKS,
   SUPPORTED_SUGGESTION_MARKS,
 } from "../../app/components/editor/suggestions/model.js";
-import { createVisualEditorExtensions } from "../../app/components/editor/VisualEditor.js";
+import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { nfmToDoc } from "../../shared/nfm.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
@@ -197,7 +196,9 @@ export function acceptedSuggestionRequestSource(
   return requestSource === "agent" ? "agent" : undefined;
 }
 
-let contentEditorSchema: ReturnType<typeof getSchema> | undefined;
+let contentEditorSchema:
+  | ReturnType<typeof createContentEditorStructuralSchema>
+  | undefined;
 
 type SuggestionDocumentJson = {
   type?: string;
@@ -208,7 +209,7 @@ type SuggestionDocumentJson = {
 };
 
 function parseSuggestionMarkdown(markdown: string) {
-  contentEditorSchema ??= getSchema(createVisualEditorExtensions());
+  contentEditorSchema ??= createContentEditorStructuralSchema();
   return contentEditorSchema.nodeFromJSON(nfmToDoc(markdown));
 }
 
