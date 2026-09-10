@@ -10,6 +10,7 @@ import {
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
+import { resolveAppRuntimeUrl } from "./app-url.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const resourceListMock = vi.hoisted(() => vi.fn());
@@ -30,7 +31,9 @@ const DISCOVERY_ENV_KEYS = [
   "URL",
   "DEPLOY_URL",
   "VERCEL",
+  "VERCEL_ENV",
   "VERCEL_URL",
+  "VERCEL_BRANCH_URL",
   "VERCEL_PROJECT_PRODUCTION_URL",
   "NETLIFY",
   "NETLIFY_LOCAL",
@@ -456,6 +459,64 @@ describe("agent discovery", () => {
     });
   });
 
+  it.each([
+    ["VERCEL_URL", "workspace-preview.vercel.app"],
+    ["VERCEL_BRANCH_URL", "workspace-branch.vercel.app"],
+  ] as const)(
+    "derives sibling workspace app URLs from the Vercel %s when no workspace origin is configured",
+    async (key, host) => {
+      process.env.VERCEL_ENV = "preview";
+      process.env[key] = host;
+      process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+        apps: [
+          {
+            id: "dispatch",
+            name: "Dispatch",
+            path: "/dispatch",
+            isDispatch: true,
+          },
+          {
+            id: "starter",
+            name: "Starter",
+            path: "/starter",
+          },
+        ],
+      });
+
+      const agents = await discoverAgents("dispatch");
+
+      expect(agents.find((agent) => agent.id === "starter")?.url).toBe(
+        `https://${host}/starter`,
+      );
+    },
+  );
+
+  it("prefers the current Vercel preview over the canonical app URL", () => {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_URL = "workspace-preview.vercel.app";
+    process.env.APP_URL = "https://workspace.example.com";
+
+    expect(resolveAppRuntimeUrl()).toBe("https://workspace-preview.vercel.app");
+  });
+
+  it("derives production sibling workspace app URLs from the Vercel project URL", async () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "workspace.example.com";
+    process.env.VERCEL_URL = "workspace-deployment.vercel.app";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "starter", name: "Starter", path: "/starter" },
+      ],
+    });
+
+    const agents = await discoverAgents("dispatch");
+
+    expect(agents.find((agent) => agent.id === "starter")?.url).toBe(
+      "https://workspace.example.com/starter",
+    );
+  });
+
   it("resolves the trusted Dispatch callback only from the workspace manifest", () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
@@ -738,7 +799,9 @@ describe("agent discovery", () => {
       })),
     );
 
-    const result = await discoverOrgDirectoryAgents("dispatch");
+    const result = await runWithRequestContext({ orgId: "org-123" }, () =>
+      discoverOrgDirectoryAgents("dispatch"),
+    );
 
     expect(result.status).toBe("available");
     if (result.status === "available") {
@@ -750,6 +813,11 @@ describe("agent discovery", () => {
       );
     }
     expect(resourceListContentByOwnersAndPrefixesMock).toHaveBeenCalledTimes(1);
+    expect(resourceListContentByOwnersAndPrefixesMock).toHaveBeenCalledWith(
+      ["__shared__", "__organization__:org-123"],
+      expect.any(Array),
+      { orgId: "org-123" },
+    );
     expect(resourceGetMock).not.toHaveBeenCalled();
   });
 

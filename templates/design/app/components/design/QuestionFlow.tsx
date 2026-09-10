@@ -386,7 +386,7 @@ function ColorOptions({
   onChange: (value: unknown) => void;
 }) {
   const t = useT();
-  const options = question.options ?? question.choices ?? [];
+  const options = recommendedFirst(question.options ?? question.choices ?? []);
   const multiSelect = question.multiSelect === true;
   const selectedValues = Array.isArray(value) ? value : [];
   const otherSelected = multiSelect
@@ -619,6 +619,32 @@ function optionKey(option: GuidedQuestionOption): string {
   return `${option.value.toLowerCase()}::${option.label.toLowerCase()}`;
 }
 
+function isDecisionOption(option: GuidedQuestionOption): boolean {
+  const label = option.label.trim().toLowerCase();
+  const value = option.value.trim().toLowerCase();
+  return (
+    label === "decide for me" ||
+    label === "let the agent decide" ||
+    value === "decide" ||
+    value === "__decide__"
+  );
+}
+
+function recommendedFirst(
+  options: readonly GuidedQuestionOption[],
+): GuidedQuestionOption[] {
+  const normalized = options.map((option) =>
+    isDecisionOption(option) && option.recommended
+      ? { ...option, recommended: false }
+      : option,
+  );
+  if (!normalized.some((option) => option.recommended)) return normalized;
+  return [
+    ...normalized.filter((option) => option.recommended),
+    ...normalized.filter((option) => !option.recommended),
+  ];
+}
+
 function questionFlowFingerprint(questions: GuidedQuestion[]): string {
   return JSON.stringify(
     questions.map((question) => ({
@@ -651,7 +677,7 @@ function withDefaultOptions(
   question: GuidedQuestion,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): GuidedQuestionOption[] {
-  const base = question.options ?? question.choices ?? [];
+  const base = recommendedFirst(question.options ?? question.choices ?? []);
   const seen = new Set(base.map(optionKey));
   const result = [...base];
   const maybePush = (option: GuidedQuestionOption, enabled: boolean) => {

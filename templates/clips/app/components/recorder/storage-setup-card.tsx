@@ -96,6 +96,12 @@ export function StorageSetupCard({
       }
       stopVisibilityHandler();
     };
+    const showTimeout = (): void => {
+      if (!mountedRef.current || Date.now() - start <= timeoutMs) return;
+      stop();
+      setConnecting(false);
+      setErr(t("storageSetup.builderTimeout"));
+    };
     const tick = async () => {
       if (document.hidden || inFlightRef.current) return;
       inFlightRef.current = true;
@@ -112,7 +118,10 @@ export function StorageSetupCard({
           ).toString(),
           { signal: controller.signal },
         );
-        if (!r.ok) return;
+        if (!r.ok) {
+          showTimeout();
+          return;
+        }
         const s = (await r.json()) as { configured: boolean };
         if (!mountedRef.current) {
           stop();
@@ -123,14 +132,11 @@ export function StorageSetupCard({
           setConnecting(false);
           setConnected(true);
           setTimeout(() => void onConfigured(), 800);
-        } else if (Date.now() - start > timeoutMs) {
-          stop();
-          setConnecting(false);
-          setErr(t("storageSetup.builderTimeout"));
+        } else {
+          showTimeout();
         }
       } catch {
-        // coercion-ok: a transient poll error keeps the loop running; the
-        // timeoutMs bound above surfaces builderTimeout if it never succeeds.
+        showTimeout();
       } finally {
         clearTimeout(abortTimer);
         inFlightRef.current = false;

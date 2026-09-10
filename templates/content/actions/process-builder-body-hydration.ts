@@ -16,6 +16,7 @@ export default defineAction({
     sourceId: z.string(),
     documentId: z.string().optional(),
     limit: z.number().int().positive().max(600).optional(),
+    retryFailed: z.boolean().optional(),
   }),
   agentTool: false,
   run: async (
@@ -43,6 +44,7 @@ export default defineAction({
       documentId: args.documentId,
       limit: args.limit,
       preloadBodies: !args.documentId,
+      retryFailed: args.retryFailed,
     });
   },
 });

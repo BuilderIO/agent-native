@@ -55,6 +55,12 @@ describe("ChatFirstSurfaceTabs", () => {
     expect(picker?.className).toContain("overflow-hidden");
     expect(emptyState?.className).toContain("overflow-y-auto");
     expect(
+      container.querySelector("[data-chat-first-workspace-apps]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-chat-first-workspace-app-list]")?.children,
+    ).toHaveLength(apps.length);
+    expect(
       container.querySelectorAll("[data-chat-first-surface-app]"),
     ).toHaveLength(apps.length);
   });

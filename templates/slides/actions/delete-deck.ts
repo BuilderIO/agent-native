@@ -1,9 +1,5 @@
 /**
  * delete-deck — remove a deck and its version history.
- *
- * Hidden from the agent: deck deletion has always been a UI-only operation and
- * this action exists to give the editor the same permission rule it had on the
- * route it replaced.
  */
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -20,7 +16,6 @@ export default defineAction({
     id: z.string().min(1).describe("Deck ID"),
   }),
   http: { method: "DELETE" },
-  agentTool: false,
   run: async ({ id }) => {
     try {
       // assertAccess loads the row and verifies the caller has admin role on
@@ -79,13 +74,13 @@ export default defineAction({
         throw deckHttpError(404, "Deck not found");
       }
       if (access.resource.visibility === "public") {
-        notifyClients(id, { type: "deck-deleted", visibility: "public" });
+        await notifyClients(id, { type: "deck-deleted", visibility: "public" });
       } else {
         for (const recipient of ownerRecipients) {
-          notifyClients(id, { type: "deck-deleted", owner: recipient });
+          await notifyClients(id, { type: "deck-deleted", owner: recipient });
         }
         for (const recipient of orgRecipients) {
-          notifyClients(id, { type: "deck-deleted", orgId: recipient });
+          await notifyClients(id, { type: "deck-deleted", orgId: recipient });
         }
       }
       return { success: true };

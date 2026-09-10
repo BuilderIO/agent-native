@@ -69,6 +69,33 @@ const messages: AgentChatTranslation = {
     "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
+  "onboarding.capability.llm.keySummary": "AI 제공업체 또는 로컬 모델 연결",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder 스토리지 또는 S3 호환 버킷",
+  "onboarding.capability.voiceInput.label": "음성 입력",
+  "onboarding.capability.voiceInput.keySummary":
+    "브라우저 음성 인식 또는 음성 텍스트 변환",
+  "onboarding.capability.voiceInput.why":
+    "음성 입력은 말한 요청을 텍스트로 바꿉니다. 입력은 언제나 사용할 수 있습니다.",
+  "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder 크레딧 또는 이미지 제공업체 키",
+  "onboarding.capability.assetsImageGeneration.why":
+    "이미지 생성은 브랜드에 맞는 에셋을 만드는 핵심 작업입니다.",
+  "onboarding.capability.assetsVideoGeneration.label": "동영상 생성",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API 키",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "동영상 생성은 선택 사항이며 Assets의 핵심 작업은 이미지 생성입니다.",
+  "onboarding.capability.clipsObjectStorage.label": "오브젝트 스토리지",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder 스토리지 또는 S3 호환 버킷",
+  "onboarding.capability.clipsObjectStorage.why":
+    "녹화한 동영상은 재생하거나 공유하기 전에 영구 오브젝트 스토리지가 필요합니다.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "음성 텍스트 변환 제공업체 키",
+  "onboarding.capability.about": "{{label}} 정보",
+  "onboarding.capability.why": "{{label}}이(가) 필요한 이유",
+  "onboarding.openAiKeySettings": "AI 키 설정 열기",
   "aboutAgentNative.title": "Agent-Native 정보",
   "aboutAgentNative.version": "버전",
   "aboutAgentNative.environment": "환경",
@@ -78,6 +105,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "에이전트",
   "agentPanel.mode": "모드",
   "agentPanel.uiMode": "UI",
+  "agentHostNudge.sidebarTitle": "{{agent}} 채팅 사용",
+  "agentHostNudge.sidebarDescription":
+    "이미 {{agent}}와 대화 중입니다. 이 앱에서 직접 작업하도록 요청하세요.",
+  "agentHostNudge.promptTitle": "대신 {{agent}}에게 요청",
+  "agentHostNudge.promptDescription":
+    "{{agent}}에게 여기에서 만들거나 변경하도록 요청할 수 있습니다.",
+  "agentHostNudge.useThisChat": "이 채팅 사용",
+  "agentHostNudge.useThisPrompt": "이 입력 사용",
   "common.cancel": "취소",
   "common.collapse": "접기",
   "common.connect": "연결",
@@ -492,6 +527,24 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "이전 에이전트 스트림이 실행 복구 중 종료되었습니다. 계속하거나 다시 시도하여 실행에 다시 연결하세요.",
   "recovery.reconnectBuilder": "Builder.io 다시 연결",
+  "secrets.addCustomKeyNamed": '사용자 지정 키로 "{{name}}" 추가',
+  "secrets.customKey": "사용자 지정 키",
+  "secrets.customKeyHint": "이름으로 아무 키나 추가",
+  "secrets.fromEnvironment": "배포 환경에서 제공됩니다.",
+  "secrets.managedInVault":
+    "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",
+  "secrets.openVault": "Vault 열기",
+  "secrets.overridesVault":
+    "이 개인 키는 워크스페이스 Vault 값을 재정의합니다. Vault 키를 사용하려면 제거하세요.",
+  "secrets.overridesWorkspace":
+    "이 개인 키는 워크스페이스 값을 재정의합니다. 공유 키를 사용하려면 제거하세요.",
+  "secrets.setForWorkspace":
+    "이 워크스페이스의 모든 사용자에게 설정되어 있습니다.",
+  "secrets.sourceEnvironment": "환경",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "워크스페이스",
+  "secrets.statusUnavailable": "사용할 수 없음",
+  "secrets.usePersonalKey": "대신 개인 키 사용",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",

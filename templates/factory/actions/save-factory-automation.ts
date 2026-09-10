@@ -1,12 +1,15 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { isValidCron, nextOccurrence } from "@agent-native/core/jobs";
 import {
   resourceGetByPath,
   resourcePutIfCurrent,
 } from "@agent-native/core/resources";
-import { listAutomationDefinitions } from "@agent-native/core/triggers";
 import { z } from "zod";
 
+import {
+  VaultUnavailableError,
+  assertFactoryConnectorReady,
+} from "../server/connectors/credentials.js";
 import {
   FACTORY_INBOX_LIMIT_MAX,
   FACTORY_WORK_LIMIT_MAX,
@@ -18,10 +21,10 @@ import {
   replaceUserPrompt,
   scheduleCron,
 } from "../server/lib/factory-automation-config.js";
+import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
 import {
   factoryIdSchema,
   readAutomationEnabled,
-  readAutomationFactoryId,
   readAutomationModel,
   readAutomationSchedule,
   resolveAutomationDisplayName,
@@ -73,25 +76,12 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    const definitions = await listAutomationDefinitions(
-      { userEmail, orgId, appId: "factory" },
-      "organization",
-    );
-    const definition = definitions.find(
-      (entry) =>
-        entry.meta.domain === "factory" &&
-        entry.resource.id === input.automationId,
+    const definition = await findFactoryAutomationDefinition(
+      orgId,
+      input.factoryId,
+      input.automationId,
     );
     if (!definition) throw new Error("Factory automation not found.");
-    if (
-      readAutomationFactoryId(
-        definition.meta,
-        definition.resource.content,
-        definition.resource.path,
-      ) !== input.factoryId
-    ) {
-      throw new Error("Factory automation not found.");
-    }
     if (definition.name !== input.name) {
       throw new Error(
         "Factory automation id and name do not refer to the same automation.",
@@ -117,32 +107,66 @@ export default defineAction({
     if (scheduleMode === "daily" && !timezone) {
       throw new Error("Choose a timezone for a daily schedule.");
     }
+    const nextSlackChannelId =
+      input.slackChannelId !== undefined
+        ? input.slackChannelId.trim()
+        : current.slackChannelId;
+    const nextRepository =
+      input.repository !== undefined
+        ? input.repository.trim()
+        : current.repository;
+    const nextSentryOrgSlug =
+      input.sentryOrgSlug !== undefined
+        ? input.sentryOrgSlug.trim()
+        : current.sentryOrgSlug;
+    const nextSentryProjectSlug =
+      input.sentryProjectSlug !== undefined
+        ? input.sentryProjectSlug.trim()
+        : current.sentryProjectSlug;
+    if (input.enabled) {
+      if (current.source === "slack" && !nextSlackChannelId) {
+        throw new Error("Configure a Slack channel before saving this job.");
+      }
+      if (current.source === "github" && !nextRepository) {
+        throw new Error(
+          "Configure a GitHub repository before saving this job.",
+        );
+      }
+      if (
+        current.source === "sentry" &&
+        (!nextSentryOrgSlug || !nextSentryProjectSlug)
+      ) {
+        throw new Error(
+          "Configure Sentry organization and project slugs before saving this job.",
+        );
+      }
+      try {
+        await assertFactoryConnectorReady(current.source, userEmail, {
+          orgId,
+          slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
+          verb: "saving",
+        });
+      } catch (error) {
+        if (error instanceof VaultUnavailableError) fail(error.message);
+        fail(
+          error instanceof Error ? error.message : "Connector is not ready.",
+        );
+      }
+    }
     const config = {
       ...current,
       slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
-      slackChannelId:
-        input.slackChannelId !== undefined
-          ? input.slackChannelId.trim() || null
-          : current.slackChannelId,
+      slackChannelId: nextSlackChannelId,
       slackChannelName:
         input.slackChannelName !== undefined
-          ? input.slackChannelName.trim() || null
+          ? input.slackChannelName.trim()
           : current.slackChannelName,
-      repository:
-        input.repository !== undefined
-          ? input.repository.trim() || null
-          : current.repository,
-      sentryOrgSlug:
-        input.sentryOrgSlug !== undefined
-          ? input.sentryOrgSlug.trim() || null
-          : current.sentryOrgSlug,
-      sentryProjectSlug:
-        input.sentryProjectSlug !== undefined
-          ? input.sentryProjectSlug.trim() || null
-          : current.sentryProjectSlug,
+      repository: nextRepository,
+      sentryOrgSlug: nextSentryOrgSlug,
+      sentryProjectSlug: nextSentryProjectSlug,
       sentryEnvironment:
         input.sentryEnvironment !== undefined
-          ? input.sentryEnvironment.trim() || null
+          ? input.sentryEnvironment.trim()
           : current.sentryEnvironment,
       authorMode,
       authorIds,
@@ -158,7 +182,10 @@ export default defineAction({
       ),
     };
     const schedule = scheduleCron(config);
-    if (definition.meta.triggerType === "schedule" && !isValidCron(schedule)) {
+    const scheduleOwned =
+      definition.meta.triggerType === "schedule" ||
+      definition.meta.triggerType == null;
+    if (scheduleOwned && !isValidCron(schedule)) {
       throw new Error(`Invalid cron expression "${schedule}".`);
     }
     let content = applyAutomationConfigFrontmatter(resource.content, config);
@@ -173,6 +200,7 @@ export default defineAction({
       "factoryId",
       input.factoryId,
     );
+    content = setAutomationFrontmatterField(content, "appId", "factory");
     if (input.model !== undefined) {
       content = setAutomationFrontmatterField(
         content,
@@ -187,7 +215,7 @@ export default defineAction({
         input.displayName,
       );
     }
-    if (definition.meta.triggerType === "schedule" && isValidCron(schedule)) {
+    if (scheduleOwned && isValidCron(schedule)) {
       const nextRun = nextOccurrence(
         schedule,
         undefined,

@@ -6,9 +6,18 @@ import {
   IconArchive,
   IconTrash,
 } from "@tabler/icons-react";
-import { useNavigate } from "react-router";
+import type { ComponentType, ReactNode } from "react";
+import { Link, useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 
 type EmptyKind =
   | "library"
@@ -30,6 +39,40 @@ const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
 };
 
 const CTA_KINDS = new Set<EmptyKind>(["library", "folder", "space"]);
+const BACK_TO_LIBRARY_KINDS = new Set<EmptyKind>([
+  "shared",
+  "archive",
+  "trash",
+]);
+
+interface AppEmptyStateProps {
+  icon: ComponentType<{ className?: string }>;
+  title: ReactNode;
+  description?: ReactNode;
+  content?: ReactNode;
+}
+
+export function AppEmptyState({
+  icon: Icon,
+  title,
+  description,
+  content,
+}: AppEmptyStateProps) {
+  return (
+    <Empty className="min-h-64 px-6 py-12 md:p-12">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Icon />
+        </EmptyMedia>
+        <EmptyTitle>{title}</EmptyTitle>
+        {description ? (
+          <EmptyDescription>{description}</EmptyDescription>
+        ) : null}
+      </EmptyHeader>
+      {content ? <EmptyContent>{content}</EmptyContent> : null}
+    </Empty>
+  );
+}
 
 interface EmptyStateProps {
   kind: EmptyKind;
@@ -61,24 +104,22 @@ export function EmptyState({
     }
   };
 
+  const content = hasCta ? (
+    <Button onClick={handleCta} size="sm">
+      {t(`empty.${kind}.cta`)}
+    </Button>
+  ) : BACK_TO_LIBRARY_KINDS.has(kind) ? (
+    <Button asChild size="sm" variant="outline">
+      <Link to="/library">{t("recordingPage.backToLibrary")}</Link>
+    </Button>
+  ) : null;
+
   return (
-    <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
-      <Icon className="mb-6 h-10 w-10 text-primary" />
-      <h2 className="text-base font-semibold text-foreground mb-1">
-        {t(`empty.${kind}.title`)}
-      </h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-5">
-        {t(`empty.${kind}.body`)}
-      </p>
-      {hasCta && (
-        <Button
-          onClick={handleCta}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-          size="sm"
-        >
-          {t(`empty.${kind}.cta`)}
-        </Button>
-      )}
-    </div>
+    <AppEmptyState
+      icon={Icon}
+      title={t(`empty.${kind}.title`)}
+      description={t(`empty.${kind}.body`)}
+      content={content}
+    />
   );
 }

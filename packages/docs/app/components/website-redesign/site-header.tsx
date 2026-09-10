@@ -9,6 +9,7 @@ import {
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router";
 
+import { getGithubStarCount } from "../../../lib/github-star-count";
 import { sitePathForLocale } from "../docs-locale";
 import { useSearchModal } from "../use-search-modal";
 import { Button } from "./ds/button";
@@ -17,6 +18,7 @@ import { Kbd } from "./ds/kbd";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { NavLink } from "./ds/nav-link";
+import { LogoContextMenu } from "./logo-context-menu";
 
 // Pulls in the docs search index, so it stays out of the initial header chunk.
 const SearchModal = lazy(() =>
@@ -112,6 +114,7 @@ interface SiteHeaderProps {
 
 export function SiteHeader({ starCount }: SiteHeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [resolvedStarCount, setResolvedStarCount] = useState(starCount);
   const {
     open: searchOpen,
     setOpen: setSearchOpen,
@@ -120,6 +123,16 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
   } = useSearchModal();
   const t = useT();
   const { locale } = useLocale();
+
+  useEffect(() => {
+    let mounted = true;
+    void getGithubStarCount().then((count) => {
+      if (mounted && count !== null) setResolvedStarCount(count);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -163,13 +176,15 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
     >
       <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
         <div className="flex items-center gap-[var(--spacing-8)]">
-          <Link
-            to={localizedPath("/")}
-            aria-label="Agent-Native"
-            className="flex text-[var(--b-text-primary)]"
-          >
-            <Logo />
-          </Link>
+          <LogoContextMenu brandHref={localizedPath("/brand")}>
+            <Link
+              to={localizedPath("/")}
+              aria-label="Agent-Native"
+              className="flex text-[var(--b-text-primary)]"
+            >
+              <Logo />
+            </Link>
+          </LogoContextMenu>
 
           <nav className="hidden items-center gap-1 lg:flex">
             {navLinks.map((link) => (
@@ -191,7 +206,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
               all of them, since it is the only nav on small screens. */}
           <div className="hidden items-stretch gap-3 lg:flex">
             <SearchTrigger onClick={openSearch} label={searchLabel} />
-            <GithubStarsButton starCount={starCount} />
+            <GithubStarsButton starCount={resolvedStarCount} />
             <AskAiIconButton />
           </div>
 
@@ -229,7 +244,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
             </NavLink>
           ))}
           <div className="mt-[var(--spacing-2)] flex items-center gap-[var(--spacing-3)]">
-            <GithubStarsButton starCount={starCount} className="h-10" />
+            <GithubStarsButton starCount={resolvedStarCount} className="h-10" />
             <LanguagePicker dimBorder />
             <ThemeIconButton dimBorder />
             <AskAiIconButton />

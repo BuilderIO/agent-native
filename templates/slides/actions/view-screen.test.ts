@@ -54,6 +54,16 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings: unknown, ...values: unknown[]) => ({ strings, values })),
 }));
 
+vi.mock("./get-design-system.js", () => ({
+  default: {
+    run: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
+  },
+}));
+
 import action from "./view-screen";
 
 beforeEach(() => {
@@ -113,7 +123,30 @@ describe("view-screen", () => {
     expect(orderByFn).not.toHaveBeenCalled();
     expect(result).toContain("deckId: deck-1");
     expect(result).toContain("slideCount: 1");
+    expect(result).toContain(
+      `currentSlideContentHash: ${hashSlideContent("<h1>Opening</h1>")}`,
+    );
     expect(result).toContain("<h1>Opening</h1>");
+  });
+
+  it("includes the linked design-system context in the current deck read", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        designSystemId: "ds-1",
+        data: JSON.stringify({
+          title: "Quarterly Review",
+          slides: [{ id: "slide-a", content: "<h1>Opening</h1>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+
+    const result = await action.run({});
+
+    expect(result).toContain("### Linked design system (authoritative)");
+    expect(result).toContain("Use --brand-accent: #123456.");
   });
 
   it("surfaces stable freeform object identity alongside the runtime selector", async () => {
@@ -146,6 +179,17 @@ describe("view-screen", () => {
           objectId: "object-1",
           kind: "element",
           tagName: "div",
+          text: "Text",
+          selectedText: "Text",
+          textTruncated: false,
+        },
+        {
+          selector: '[data-slide-object-id="object-2"]',
+          objectId: "object-2",
+          kind: "element",
+          tagName: "div",
+          text: "Other text",
+          textTruncated: false,
         },
       ],
     };
@@ -157,6 +201,53 @@ describe("view-screen", () => {
     expect(result).toContain('selector=[data-slide-object-id="object-1"]');
     expect(result).toContain("objectId: object-1");
     expect(result).toContain('runtimeSelector: [data-builder-id="b-7"]');
+    expect(result).toContain("selectedText: Text");
+    expect(result).toContain(
+      "selectedTextStatus: exact browser range; use verbatim as edits.find with expectedMatches: 1",
+    );
+    expect(result).toContain(
+      "textStatus: element preview; use selectedText for a literal replacement",
+    );
+    expect(result).toContain(
+      "objectIdStatus: stable selected-element target; use it with one update-slide replace edit when selectedText is unavailable",
+    );
+    expect(result).toContain(
+      "textStatus: element preview is not an exact browser-range selection; use objectId with update-slide for an element-only replacement",
+    );
+  });
+
+  it("names a representative sibling even when the deck tallies no styles", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Class styled",
+        data: JSON.stringify({
+          title: "Class styled",
+          slides: [
+            {
+              id: "slide-a",
+              layout: "content",
+              content:
+                '<div class="fmd-slide bg-black text-white"><h2>A</h2></div>',
+            },
+            {
+              id: "slide-b",
+              layout: "content",
+              content:
+                '<div class="fmd-slide bg-black text-white"><h2>B</h2></div>',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+
+    const result = await action.run({});
+
+    expect(result).toContain(
+      "representativeSlide: id=slide-b (slide 2, layout=content)",
+    );
+    expect(result).not.toContain("backgrounds:");
   });
 
   it("does not surface a selection from a different slide", async () => {
@@ -180,6 +271,138 @@ describe("view-screen", () => {
     const result = await action.run({});
 
     expect(result).not.toContain("### Current visual selection");
+  });
+
+  it("surfaces a selection made on a different slide than the stale/cross-tab currentSlide", async () => {
+    // Regression test for the WebMCP tab-mismatch bug: `navigation` and
+    // `slides-selection` are each read independently through
+    // `readAppStateForCurrentTab`, which falls back to the last global write
+    // for this app when the caller carries no browser tab id (every WebMCP
+    // call). That fallback can resolve to a different slide than the one the
+    // user actually selected text on. The selection must still surface using
+    // its own recorded slide, not be dropped because it disagrees with
+    // `currentSlide`.
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [
+            { id: "slide-a", content: "<h1>Opening</h1>" },
+            { id: "slide-b", content: "<h1>The 4-Step Journey</h1>" },
+          ],
+        }),
+      },
+    ];
+    // `navigation` resolved (stale/cross-tab) to slide index 0 ("slide-a")...
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    // ...but the selection was actually made on slide-b.
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-b",
+      mode: "editing",
+      items: [{ selector: '[data-builder-id="b-2"]', selectedText: "4-Step" }],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("### Current visual selection");
+    expect(result).toContain("selectionSlideId: slide-b");
+    expect(result).toContain("differs from currentSlideId slide-a");
+    expect(result).toContain(
+      `selectionSlideContentHash: ${hashSlideContent("<h1>The 4-Step Journey</h1>")}`,
+    );
+    expect(result).toContain("selectedText: 4-Step");
+  });
+
+  it("routes image selections away from text replacement", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Image deck",
+        data: JSON.stringify({
+          slides: [
+            {
+              id: "slide-a",
+              content: '<img data-slide-object-id="image-1" />',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-a",
+      mode: "box-selected",
+      items: [
+        {
+          selector: '[data-slide-object-id="image-1"]',
+          objectId: "image-1",
+          kind: "image",
+          tagName: "img",
+        },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).not.toContain("objectId: image-1");
+    expect(result).toContain(
+      "imageStatus: image selection has no editable text content; use the targeted image/markup workflow",
+    );
+  });
+
+  it("does not surface a selection left over from a different deck", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [{ id: "slide-a", content: "<p>A</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-other",
+      slideId: "slide-a",
+      mode: "single",
+      items: [{ selector: '[data-builder-id="b-1"]' }],
+    };
+
+    const result = await action.run({});
+
+    expect(result).not.toContain("### Current visual selection");
+  });
+
+  it("marks long selection text as a preview before editing", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [{ id: "slide-a", content: "<p>Long text</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      slideId: "slide-a",
+      items: [
+        { text: "x".repeat(100), textTruncated: false },
+        { text: "y".repeat(80), textTruncated: true },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain(
+      "textStatus: element preview may be truncated; use get-deck with slideId=slide-a before editing",
+    );
+    expect(result).toContain(
+      "textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=slide-a before editing",
+    );
   });
 
   it("filters the list to decks created by the current user without reading deck bodies", async () => {

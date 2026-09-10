@@ -55,6 +55,7 @@ const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
 const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
 
 const CANONICAL_AUTH_EARLY_PATHS = [
+  "/",
   SIGN_IN_ENTRY_PATH,
   "/login",
   "/signup",
@@ -62,6 +63,7 @@ const CANONICAL_AUTH_EARLY_PATHS = [
 
 export const FRAMEWORK_AUTH_EARLY_PATHS = [
   `${FRAMEWORK_PREFIX}/auth`,
+  "/",
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
   `${FRAMEWORK_PREFIX}/login`,
@@ -107,10 +109,17 @@ function resolveMountMatch(
   if (!appBasePath || !supportsAppBasePathMount(path)) return null;
 
   const prefixedPath = `${appBasePath}${path}`;
-  if (!pathMatchesPrefix(reqPath, prefixedPath)) return null;
+  if (
+    path === "/"
+      ? reqPath !== appBasePath && reqPath !== `${appBasePath}/`
+      : !pathMatchesPrefix(reqPath, prefixedPath)
+  ) {
+    return null;
+  }
   return {
     mountPath: prefixedPath,
-    strippedPath: reqPath.slice(prefixedPath.length) || "/",
+    strippedPath:
+      path === "/" ? "/" : reqPath.slice(prefixedPath.length) || "/",
   };
 }
 
@@ -473,7 +482,7 @@ function frameworkReadyDeadlineMs(): number {
  * inside an async plugin may not be ready when the first request arrives.
  *
  * Call this from the TOP of any async plugin so that the readiness gate
- * (installed by getH3App) can hold /_agent-native requests until the plugin
+ * (installed by getH3App) can hold framework requests until the plugin
  * finishes mounting its routes.
  */
 export function trackPluginInit(

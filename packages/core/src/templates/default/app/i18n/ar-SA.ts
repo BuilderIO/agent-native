@@ -11,6 +11,12 @@ const messages = {
     themeTitle: "السمة",
     themeDescription: "تبديل الداكن / الفاتح",
   },
+  common: {
+    cancel: "إلغاء",
+    confirmDisconnect: "تأكيد قطع الاتصال",
+    disconnect: "قطع الاتصال",
+    disconnecting: "جارٍ قطع الاتصال…",
+  },
   settings: {
     title: "الإعدادات",
     description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
@@ -26,6 +32,9 @@ const messages = {
     openTeamSettings: "فتح إعدادات الفريق",
     openResourceSettings: "فتح إعدادات الموارد",
     backHome: "العودة إلى الرئيسية",
+    builderConnection: {
+      manage: "إدارة اتصال Builder.io",
+    },
   },
   dispatch: {
     nav: {

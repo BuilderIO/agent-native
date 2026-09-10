@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { upsertDestination } from "../server/lib/dispatch-store.js";
 
 export default defineAction({
   description:
     "Create or update a saved messaging destination for proactive Slack, Telegram, or email sends.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     id: z.string().optional(),
     name: z.string().describe("Friendly destination name"),

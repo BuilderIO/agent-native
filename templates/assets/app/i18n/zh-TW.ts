@@ -806,6 +806,8 @@ const messages = {
     recentDrafts: "最近草稿",
     viewAllDrafts: "查看所有草稿",
     draftAsset: "草稿資產",
+    draftsOnly: "僅草稿",
+    draftsOnlyHint: "您可以在此套件中產生草稿。請讓編輯者將它們儲存到套件中。",
     addedToReferences: "已新增到參考。",
     addedAssetsToReferences: "已將 {{count}} 個資產新增到參考。",
     add: "新增",

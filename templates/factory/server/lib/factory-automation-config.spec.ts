@@ -1,18 +1,58 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyAutomationConfigFrontmatter,
   assertAuthorFilter,
   authorMatchesFilter,
   buildGuardrailsText,
   cronForDaily,
   cronForInterval,
   defaultAutomationConfig,
+  inferAutomationSource,
   parseAuthorIdsField,
   parseScheduleFromCron,
+  readFactoryAutomationConfig,
   replaceUserPrompt,
+  templateIdForSeedName,
 } from "./factory-automation-config.js";
 
 describe("factory-automation-config", () => {
+  it("infers GitHub for PR babysit copies even when YAML source is missing or Slack", () => {
+    const withoutSource = `---
+template: pr-babysit
+repository: acme/widgets
+---
+Babysit pull requests.
+`;
+    expect(inferAutomationSource("factory-pr-babysit-2", withoutSource)).toBe(
+      "github",
+    );
+    expect(
+      readFactoryAutomationConfig(
+        withoutSource,
+        "factories/factorytester/factory-pr-babysit-2",
+      ).source,
+    ).toBe("github");
+    expect(
+      inferAutomationSource(
+        "factory-pr-babysit-2",
+        `---
+source: slack
+template: pr-babysit
+---
+Babysit pull requests.
+`,
+      ),
+    ).toBe("github");
+    expect(templateIdForSeedName("factory-pr-babysit-2")).toBe("pr-babysit");
+  });
+
+  it("infers custom jobs from factory-<source>- leaf prefixes", () => {
+    expect(inferAutomationSource("factory-github-my-repo")).toBe("github");
+    expect(inferAutomationSource("factory-slack-my-alerts")).toBe("slack");
+    expect(inferAutomationSource("factory-sentry-prod")).toBe("sentry");
+  });
+
   it("rejects include mode with no author ids", () => {
     expect(() => assertAuthorFilter("slack", "include", [])).toThrow(
       /at least one author id/,
@@ -61,6 +101,7 @@ describe("factory-automation-config", () => {
     const guardrails = buildGuardrailsText("support-triage", config);
     expect(guardrails).toContain("dispatch-factory-item");
     expect(guardrails).toContain("reaction");
+    expect(guardrails).toContain("omit it on skips");
     expect(guardrails).not.toContain("limit 20");
     expect(guardrails).not.toContain("👀");
 
@@ -83,5 +124,42 @@ Classify Slack items.
     expect(next).toContain("Never post Slack messages");
     expect(next).not.toContain("Stale skip text");
     expect(next).toContain("Classify Slack items.");
+  });
+
+  it("does not delete a stored Slack channel when the config omits one", () => {
+    const content = `---
+source: slack
+template: slack-feedback
+slackChannelId: C0BUK2293SA
+slackChannelName: feedback
+---
+
+Observe Slack.
+`;
+    const next = applyAutomationConfigFrontmatter(
+      content,
+      defaultAutomationConfig("slack", "slack-feedback"),
+    );
+    expect(next).toContain("slackChannelId: C0BUK2293SA");
+    expect(next).toContain("slackChannelName: feedback");
+  });
+
+  it("deletes a stored Slack channel when the config clears it", () => {
+    const content = `---
+source: slack
+template: slack-feedback
+slackChannelId: C0BUK2293SA
+slackChannelName: feedback
+---
+
+Observe Slack.
+`;
+    const next = applyAutomationConfigFrontmatter(content, {
+      ...defaultAutomationConfig("slack", "slack-feedback"),
+      slackChannelId: "",
+      slackChannelName: "",
+    });
+    expect(next).not.toContain("slackChannelId:");
+    expect(next).not.toContain("slackChannelName:");
   });
 });

@@ -233,17 +233,17 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
+  background: hsl(var(--muted-foreground) / 0.22);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
+  background: hsl(var(--muted-foreground) / 0.34);
 }
 
 .design-inspector-scroll {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) transparent;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.22) transparent;
 }
 
 .design-inspector-scroll::-webkit-scrollbar {
@@ -255,12 +255,12 @@
 }
 
 .design-inspector-scroll::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
+  background: hsl(var(--muted-foreground) / 0.22);
   border-radius: 3px;
 }
 
 .design-inspector-scroll::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
+  background: hsl(var(--muted-foreground) / 0.34);
 }
 
 .design-sidebar {

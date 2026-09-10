@@ -210,6 +210,7 @@ export async function materializeTemplate(
 
 export function isMergeExcluded(rel: string): boolean {
   const segments = rel.split("/");
+  if (segments[0] === "data" && segments[1] === "pglite") return true;
   if (segments[0] === "changelog") return true;
   for (const name of segments) {
     if (!name || name === "." || name === "..") return true;

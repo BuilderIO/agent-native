@@ -1,4 +1,5 @@
 import {
+  BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
   getResponsiveGroupWidth,
   visibleBreakpointWidths,
@@ -12,7 +13,11 @@ const SCREEN_WIDTH = 320;
 const SCREEN_GAP = 56;
 const FRAME_LABEL_HEIGHT = 28;
 
-export { BREAKPOINT_FRAME_GAP, visibleBreakpointWidths };
+export {
+  BREAKPOINT_ADD_BUTTON_GAP_PX,
+  BREAKPOINT_FRAME_GAP,
+  visibleBreakpointWidths,
+};
 
 export interface BoundsRect {
   left: number;

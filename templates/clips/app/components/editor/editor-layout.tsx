@@ -10,6 +10,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 // Client-side app-state helpers — the `@agent-native/core/application-state`
 // module is server-only (requires DB access). In the browser we hit the
 // framework's auto-mounted route, which handles per-session scoping.
@@ -53,7 +55,6 @@ import { canOfferRewindHistory } from "@/lib/rewind-visibility";
 import {
   parseEdits,
   getExcludedRanges,
-  formatMs,
   skipExcludedRange,
   type EditsJson,
 } from "@/lib/timestamp-mapping";
@@ -224,6 +225,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     startMs: number;
     endMs: number;
   } | null>(null);
+  const [editingSurface, setEditingSurface] = useState<
+    "transcript" | "timeline"
+  >("transcript");
 
   const [thumbOpen, setThumbOpen] = useState(false);
   const [stitchOpen, setStitchOpen] = useState(false);
@@ -248,7 +252,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     ro.observe(el);
     setViewportWidth(Math.max(1, el.clientWidth));
     return () => ro.disconnect();
-  }, []);
+  }, [editingSurface]);
 
   const totalWidth = useMemo(
     () => getTimelineTotalWidth(viewportWidth, zoom),
@@ -546,7 +550,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   useEffect(() => {
     // A sprite already covers the whole clip — don't decode the video again.
-    if (filmstripSprite) {
+    if (editingSurface !== "timeline" || filmstripSprite) {
       setFilmstripFrames([]);
       return;
     }
@@ -589,6 +593,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     recordingId,
     waveformMediaUrl,
     durationMs,
+    editingSurface,
     filmstripFrameCount,
     filmstripSprite,
   ]);
@@ -748,6 +753,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onPlaybackSpeedChange={handlePlaybackSpeedChange}
         zoom={zoom}
         onZoomChange={handleZoomChange}
+        timelineActive={editingSurface === "timeline"}
         edits={edits}
         selectionRange={selectionRange}
         video={{ videoUrl, videoFormat, title: recording.title }}
@@ -789,98 +795,107 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             )}
           </div>
 
-          {/* Row 2: transcript editor */}
-          <div className="h-40 shrink-0 border-t border-border">
-            <TranscriptEditor
-              segments={transcriptSegments}
-              edits={edits}
-              currentMs={playheadMs}
-              onSeek={seek}
-              onTrimRange={callTrim}
-            />
-          </div>
-
-          {/* Row 3: waveform + timeline */}
-          <div
-            ref={containerRef}
-            className="min-w-0 shrink-0 space-y-1 overflow-hidden border-t border-border bg-card/30 p-2"
-          >
-            <div className="relative min-w-0 overflow-hidden">
-              <Waveform
-                peaks={peaks}
-                sprite={filmstripSprite}
-                frames={filmstripFrames}
-                width={viewportWidth}
-                height={WAVEFORM_HEIGHT}
-                zoom={zoom}
-                playheadMs={playheadMs}
-                durationMs={durationMs}
-                excludedRanges={excludedRanges}
-                selectionRange={effectiveSelection}
-                splitPoints={splitPoints}
-                activityRanges={transcriptSegments}
-                onSeek={seek}
-                scrollLeft={clampedScrollLeft}
-                onScroll={(s) => setScrollLeft(s)}
-              />
-              <div
-                className="pointer-events-none absolute inset-0 overflow-hidden"
-                style={{ height: WAVEFORM_HEIGHT }}
+          <div className="shrink-0 border-t border-border bg-card/30">
+            <div className="flex h-10 items-center px-2">
+              <Tabs
+                value={editingSurface}
+                onValueChange={(value) =>
+                  setEditingSurface(value as typeof editingSurface)
+                }
               >
-                <div
-                  className="relative h-full"
-                  style={{
-                    width: totalWidth,
-                    transform: `translateX(${-clampedScrollLeft}px)`,
-                  }}
-                >
-                  {durationMs > 0 && (
-                    <TrimHandles
-                      width={totalWidth}
-                      height={WAVEFORM_HEIGHT}
-                      value={effectiveSelection}
-                      onChange={setSelectionRange}
-                      durationMs={durationMs}
-                      splitPoints={splitPoints}
-                    />
-                  )}
-                </div>
-              </div>
+                <TabsList className="h-7 p-0.5">
+                  <TabsTrigger value="transcript" className="h-6 px-3 text-xs">
+                    {t("recordingPage.transcript")}
+                  </TabsTrigger>
+                  <TabsTrigger value="timeline" className="h-6 px-3 text-xs">
+                    {t("editorLayout.timeline")}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
 
-            <div
-              className="min-w-0 overflow-hidden rounded-sm border border-border/70"
-              style={{ width: viewportWidth }}
-            >
-              <div
-                style={{
-                  transform: `translateX(${-clampedScrollLeft}px)`,
-                  width: totalWidth,
-                }}
-              >
-                <Timeline
-                  width={totalWidth}
-                  durationMs={durationMs}
-                  playheadMs={playheadMs}
-                  chapters={chapters}
-                  splitPoints={splitPoints}
-                  originalStartMs={edits.rewindOriginalStartMs}
+            {editingSurface === "transcript" ? (
+              <div className="h-40 border-t border-border">
+                <TranscriptEditor
+                  segments={transcriptSegments}
+                  edits={edits}
+                  currentMs={playheadMs}
                   onSeek={seek}
-                  onClickChapter={(c) => seek(c.startMs)}
+                  onTrimRange={callTrim}
                 />
               </div>
-            </div>
+            ) : (
+              <div
+                ref={containerRef}
+                className="min-w-0 space-y-1 overflow-hidden border-t border-border p-2"
+              >
+                <div className="relative min-w-0 overflow-hidden">
+                  <Waveform
+                    peaks={peaks}
+                    sprite={filmstripSprite}
+                    frames={filmstripFrames}
+                    width={viewportWidth}
+                    height={WAVEFORM_HEIGHT}
+                    zoom={zoom}
+                    playheadMs={playheadMs}
+                    durationMs={durationMs}
+                    excludedRanges={excludedRanges}
+                    selectionRange={effectiveSelection}
+                    splitPoints={splitPoints}
+                    activityRanges={transcriptSegments}
+                    onSeek={seek}
+                    scrollLeft={clampedScrollLeft}
+                    onScroll={(s) => setScrollLeft(s)}
+                  />
+                  <div
+                    className="pointer-events-none absolute inset-0 overflow-hidden"
+                    style={{ height: WAVEFORM_HEIGHT }}
+                  >
+                    <div
+                      className="relative h-full"
+                      style={{
+                        width: totalWidth,
+                        transform: `translateX(${-clampedScrollLeft}px)`,
+                      }}
+                    >
+                      {durationMs > 0 && (
+                        <TrimHandles
+                          width={totalWidth}
+                          height={WAVEFORM_HEIGHT}
+                          value={effectiveSelection}
+                          onChange={setSelectionRange}
+                          durationMs={durationMs}
+                          splitPoints={splitPoints}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
 
-            <div className="flex justify-between gap-3 pt-1 font-mono text-[10px] text-muted-foreground">
-              <span>
-                {excludedRanges.length} trim(s) · {splitPoints.length} split(s)
-              </span>
-              <span className="truncate text-right">
-                speed {playbackSpeed}x · zoom {zoom}x · selection{" "}
-                {formatMs(effectiveSelection.startMs)}–
-                {formatMs(effectiveSelection.endMs)}
-              </span>
-            </div>
+                <div
+                  className="min-w-0 overflow-hidden rounded-sm border border-border/70"
+                  style={{ width: viewportWidth }}
+                >
+                  <div
+                    style={{
+                      transform: `translateX(${-clampedScrollLeft}px)`,
+                      width: totalWidth,
+                    }}
+                  >
+                    <Timeline
+                      width={totalWidth}
+                      durationMs={durationMs}
+                      playheadMs={playheadMs}
+                      chapters={chapters}
+                      splitPoints={splitPoints}
+                      originalStartMs={edits.rewindOriginalStartMs}
+                      onSeek={seek}
+                      onClickChapter={(c) => seek(c.startMs)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

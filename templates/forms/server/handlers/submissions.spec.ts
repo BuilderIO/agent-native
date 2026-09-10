@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   renewedClaims: [] as Array<{ id: string; claimedAt: string }>,
   requestContexts: [] as Array<Record<string, unknown>>,
   session: null as null | { email?: string; orgId?: string },
+  formIdentifier: "form_1",
 }));
 
 const sendEmail = vi.hoisted(() =>
@@ -20,6 +21,7 @@ const sendEmail = vi.hoisted(() =>
 const fireIntegrations = vi.hoisted(() => vi.fn());
 const buildIntegrationDeliverySnapshots = vi.hoisted(() => vi.fn());
 const deliverIntegrationDelivery = vi.hoisted(() => vi.fn());
+const setResponseHeader = vi.hoisted(() => vi.fn());
 
 const publishedForm = {
   id: "form_1",
@@ -36,11 +38,12 @@ const publishedForm = {
 
 vi.mock("h3", () => ({
   defineEventHandler: (fn: unknown) => fn,
-  getRouterParam: () => "form_1",
+  getRouterParam: () => state.formIdentifier,
   getQuery: () => ({}),
   getRequestHeader: (_event: unknown, name: string) =>
     state.headers[name.toLowerCase()],
   setResponseStatus: vi.fn(),
+  setResponseHeader,
   getRequestIP: () => "1.2.3.4",
 }));
 
@@ -52,6 +55,11 @@ vi.mock("@agent-native/core/server", () => ({
     return fn();
   },
   verifyCaptcha: async () => ({ success: true }),
+  isAllowedUploadMimeType: (mimeType: string) =>
+    /^(image|video|audio|text)\//.test(mimeType) ||
+    ["application/json", "application/pdf", "application/zip"].includes(
+      mimeType,
+    ),
   emailStrong: (value: string) => value,
   renderEmail: ({ paragraphs }: { paragraphs: string[] }) => ({
     html: paragraphs.join("\n"),
@@ -116,11 +124,17 @@ vi.mock("../db/index.js", async () => {
               ),
             );
           }
-          return Promise.resolve(
-            publishedForm.status === "published" && !publishedForm.deletedAt
-              ? [publishedForm]
-              : [],
-          );
+          if (table === schema.forms) {
+            return Promise.resolve(
+              publishedForm.status === "published" && !publishedForm.deletedAt
+                ? params[0] === publishedForm.id ||
+                  params[0] === publishedForm.slug
+                  ? [publishedForm]
+                  : []
+                : [],
+            );
+          }
+          return Promise.resolve([]);
         },
       }),
     }),
@@ -282,6 +296,8 @@ describe("submitForm pageUrl pass-through", () => {
     state.renewedClaims.length = 0;
     state.requestContexts.length = 0;
     state.session = null;
+    state.formIdentifier = "form_1";
+    setResponseHeader.mockClear();
     publishedForm.status = "published";
     publishedForm.deletedAt = null;
     publishedForm.fields = JSON.stringify([
@@ -367,6 +383,85 @@ describe("submitForm pageUrl pass-through", () => {
     expect(state.inserted).toHaveLength(1);
     expect(state.inserted[0]!.pageUrl).toBeNull();
     expect(state.inserted[0]!.clientSurface).toBeNull();
+  });
+
+  it("resolves a slug and persists only validated file reference metadata", async () => {
+    state.formIdentifier = "agent-native-feedback";
+    publishedForm.fields = JSON.stringify([
+      {
+        id: "attachment",
+        type: "file",
+        label: "Attachment",
+        required: true,
+        accept: "image/png",
+      },
+    ]);
+    publishedForm.settings = JSON.stringify({
+      allowedOrigins: ["https://docs.example.com"],
+    });
+    state.headers.origin = "https://docs.example.com";
+
+    const res = await submit({
+      data: {
+        attachment: {
+          url: "https://cdn.example.test/attachment.png",
+          name: "attachment.png",
+          type: "image/png",
+          size: 42,
+          id: "asset-1",
+          provider: "builder",
+          handle: "handle-1",
+        },
+      },
+    });
+
+    expect(res).toMatchObject({ success: true });
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      {},
+      "Access-Control-Allow-Origin",
+      "https://docs.example.com",
+    );
+    expect(setResponseHeader).toHaveBeenCalledWith({}, "Vary", "Origin");
+    expect(state.inserted[0]!.formId).toBe("form_1");
+    expect(JSON.parse(String(state.inserted[0]!.data))).toEqual({
+      attachment: {
+        url: "https://cdn.example.test/attachment.png",
+        name: "attachment.png",
+        type: "image/png",
+        size: 42,
+        id: "asset-1",
+        provider: "builder",
+        handle: "handle-1",
+      },
+    });
+  });
+
+  it("rejects file submissions from origins outside the form allowlist", async () => {
+    state.formIdentifier = "agent-native-feedback";
+    publishedForm.fields = JSON.stringify([
+      {
+        id: "attachment",
+        type: "file",
+        label: "Attachment",
+        required: false,
+      },
+    ]);
+    publishedForm.settings = JSON.stringify({
+      allowedOrigins: ["https://docs.example.com"],
+    });
+    state.headers.origin = "https://untrusted.example.com";
+
+    const res = await submit({ data: {} });
+
+    expect(res).toEqual({ error: "Origin not allowed" });
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it("keeps the JSON submission body bounded", async () => {
+    const res = await submit({ data: { msg: "x".repeat(101 * 1024) } });
+
+    expect(res).toEqual({ error: "Payload too large" });
+    expect(state.inserted).toHaveLength(0);
   });
 
   it("replays an idempotent submission without inserting a duplicate response", async () => {

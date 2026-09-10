@@ -26,7 +26,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-08"
 ---
 
 # Blocks-field revision history
@@ -88,6 +88,8 @@ Given two named Versions with independent edits to the same logical field, when 
 ## Current evidence
 
 Current whole-document snapshots and restore behavior demonstrate useful recovery substrate. They do not prove independently addressable Blocks-field history, causal Revision grouping, stable Block identity across every edit, cross-field selective recovery, or preservation through named Versions. This Capability remains `approved_shape`.
+
+Page title/body recovery groups saved checkpoints by editor session, agent run, or operation, with restores forming distinct operations. These groups organize whole-Page checkpoints; they are not independently addressable field Revisions. Restoring a checkpoint replaces both the Page title and primary body, preserves the displaced state, and rejects a stale expected document revision. Additional Blocks Properties and selective recovery remain outside this implementation.
 
 ## Proof plan
 

@@ -18,7 +18,9 @@ import * as jose from "jose";
  * Node fast-path is still taken (and unchanged) when `event.node` is present.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
+import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 const builtinToolMocks = vi.hoisted(() => ({
@@ -27,6 +29,14 @@ const builtinToolMocks = vi.hoisted(() => ({
     status: "completed",
     response: "agent answer",
   })),
+}));
+
+const actionChangeMocks = vi.hoisted(() => ({
+  writeMarker: vi.fn(async () => {}),
+}));
+
+vi.mock("../server/action-change-marker-write.js", () => ({
+  writeActionChangeMarker: actionChangeMocks.writeMarker,
 }));
 
 const approvalStoreMocks = vi.hoisted(() => {
@@ -323,6 +333,7 @@ const config = {
   title: "Agent-Native Mail",
   appId: "mail",
   description: "Mail app",
+  instructions: "Call get-mail-settings before drafting.",
   websiteUrl: "/mail",
   icons: [
     {
@@ -678,6 +689,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.serverInfo.name).toBe("agent-native-mail");
     expect(out.result.serverInfo.title).toBe("Agent-Native Mail");
     expect(out.result.serverInfo.description).toBe("Mail app");
+    expect(out.result.instructions).toContain(
+      "Call get-mail-settings before drafting.",
+    );
     expect(out.result.serverInfo.websiteUrl).toBe(
       "https://mail.agent-native.com/mail",
     );
@@ -791,6 +805,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       expect(first.requestState).toEqual(expect.any(String));
       expect(run).not.toHaveBeenCalled();
+      expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
 
       const approved = await client.callTool({
         name: "publish-draft",
@@ -805,6 +820,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(approved.isError).not.toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
 
       const replay = await client.callTool({
         name: "publish-draft",
@@ -819,6 +835,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(replay.isError).toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
     } finally {
       await client.close();
     }
@@ -1079,6 +1096,80 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ]);
   });
 
+  it.each([false, true])(
+    "discovers composed object inputs through the SDK (full catalog: %s)",
+    async (fullCatalog) => {
+      const actions = {
+        "union-input": defineAction({
+          schema: z.discriminatedUnion("phase", [
+            z.object({ phase: z.literal("validate"), plan: z.object({}) }),
+            z.object({ phase: z.literal("verify"), digest: z.string() }),
+          ]),
+          run: async () => ({ ok: true }),
+        }),
+        "intersection-input": defineAction({
+          schema: z.intersection(
+            z.object({ id: z.string() }),
+            z.object({ value: z.unknown() }),
+          ),
+          run: async () => ({ ok: true }),
+        }),
+      };
+      const { client } = await createModernClient(
+        {
+          ...config,
+          actions,
+          productionActions: actions,
+          connectorCatalog: Object.keys(actions),
+        },
+        {
+          requestHeaders: {
+            "x-agent-native-mcp-full-catalog": fullCatalog ? "1" : "0",
+          },
+        },
+      );
+      try {
+        const result = await client.listTools();
+        for (const [name, action] of Object.entries(actions)) {
+          const tool = result.tools.find((tool) => tool.name === name);
+          expect(tool?.inputSchema).toEqual({
+            ...action.tool.parameters,
+            type: "object",
+          });
+        }
+        expect(
+          result.tools.every((tool) => tool.inputSchema.type === "object"),
+        ).toBe(true);
+      } finally {
+        await client.close();
+      }
+    },
+  );
+
+  it("reports the tool whose input contract cannot be advertised as an object", async () => {
+    const actions = {
+      "unsupported-input": {
+        tool: {
+          description: "Unsupported input",
+          parameters: { type: "string" },
+        },
+        run: async () => ({ ok: true }),
+      },
+    };
+    const { client } = await createModernClient({
+      ...config,
+      actions,
+      productionActions: actions,
+    });
+    try {
+      await expect(client.listTools()).rejects.toThrow(
+        /unsupported-input.*object-only/,
+      );
+    } finally {
+      await client.close();
+    }
+  });
+
   it("handles `tools/list` and returns the registered action with MCP App metadata", async () => {
     const out = await callWeb(
       {
@@ -1096,6 +1187,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     // Actions with a `link` builder advertise the producesOpenLink annotation
     // and a description nudge — identical on both runtimes.
     expect(echo.annotations?.readOnlyHint).toBe(true);
+    expect(echo.annotations?.title).toBe("Echo thing");
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
     // Anthropic MCP-Apps linkage (Claude.ai / Claude Desktop): the tool→`ui://`
@@ -1974,7 +2066,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(askAgent.inputSchema.properties.maxWaitMs).toEqual({
       type: "number",
       description:
-        "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
+        "Maximum inline wait in milliseconds. Hosted MCP clamps this to 20000ms.",
     });
 
     const call = await callWeb(
@@ -2911,6 +3003,305 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("publishes one scoped action change after a successful mutating direct MCP call", async () => {
+    actionChangeMocks.writeMarker.mockClear();
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
+    const mutatingConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: false,
+          run: async () => ({ updated: true }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 302,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: mutatingConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
+    expect(actionChangeMocks.writeMarker).toHaveBeenCalledWith({
+      actionName: "update-thing",
+      owner: "oauth@example.com",
+      orgId: "org-from-email",
+    });
+  });
+
+  it("does not publish action changes for read-only or errored direct MCP calls", async () => {
+    actionChangeMocks.writeMarker.mockClear();
+
+    const readOnly = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 303,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+    );
+    expect(readOnly.error).toBeUndefined();
+
+    const erroredConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: false,
+          run: async () => ({
+            [MCP_ACTION_RESULT_MARKER]: true,
+            text: "Upstream update failed",
+            raw: { isError: true, content: [] },
+            serverId: "upstream",
+            toolName: "update-thing",
+            originalToolName: "update-thing",
+            input: {},
+          }),
+        },
+      },
+    };
+    const errored = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 304,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: erroredConfig,
+      },
+    );
+
+    expect(errored.error).toBeUndefined();
+    expect(errored.result.isError).toBe(true);
+
+    const emptyEmbedConfig = {
+      ...config,
+      actions: {
+        "empty-embed-update": {
+          tool: { description: "Update a thing in an inline app" },
+          readOnly: false,
+          run: async () => undefined,
+          mcpApp: {
+            resource: {
+              title: "Empty update",
+              html: "<!doctype html><html><body>Empty update</body></html>",
+            },
+          },
+        },
+      },
+    };
+    const emptyEmbed = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 3041,
+        method: "tools/call",
+        params: { name: "empty-embed-update", arguments: {} },
+      },
+      {
+        headers: await firstPartyMcpAuthHeaders(),
+        config: emptyEmbedConfig,
+      },
+    );
+
+    expect(emptyEmbed.error).toBeUndefined();
+    expect(emptyEmbed.result.isError).toBe(true);
+    expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
+  });
+
+  it("does not publish action changes for unknown, forbidden, or per-call read-only tools", async () => {
+    actionChangeMocks.writeMarker.mockClear();
+    const mutatingConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: false,
+          run: async () => ({ updated: true }),
+        },
+        "manage-thing": {
+          tool: {
+            description: "Read or update a thing",
+            parameters: {
+              type: "object" as const,
+              properties: { operation: { type: "string" } },
+            },
+          },
+          readOnly: false,
+          planMode: {
+            effect: (args: { operation?: string }) =>
+              args.operation === "get" ? "read" : "write",
+          },
+          run: async () => ({ value: "current" }),
+        },
+      },
+    };
+
+    const unknown = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 305,
+        method: "tools/call",
+        params: { name: "missing-thing", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: mutatingConfig,
+      },
+    );
+    expect(unknown.result.isError).toBe(true);
+
+    const forbidden = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 306,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders({ scope: "mcp:read" }),
+        config: mutatingConfig,
+      },
+    );
+    expect(forbidden.result.isError).toBe(true);
+
+    const perCallRead = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 307,
+        method: "tools/call",
+        params: { name: "manage-thing", arguments: { operation: "get" } },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: mutatingConfig,
+      },
+    );
+    expect(perCallRead.error).toBeUndefined();
+    expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
+  });
+
+  it("keeps a successful MCP mutation successful when refresh publication fails", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    actionChangeMocks.writeMarker.mockImplementationOnce(() => {
+      throw new Error("refresh unavailable");
+    });
+    const mutatingConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: false,
+          run: async () => ({ updated: true }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 308,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: mutatingConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.isError).not.toBe(true);
+    expect(warning).toHaveBeenCalledWith(
+      "Could not write the action-change marker after an MCP tool call",
+      expect.any(Error),
+    );
+    warning.mockRestore();
+  });
+
+  it("does not use stateless JSON-RPC ids as retry identity", async () => {
+    const requestIdentityConfig = {
+      ...config,
+      actions: {
+        "request-identity": {
+          tool: {
+            description: "Return the request retry identity",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: true,
+          run: async () => {
+            const { getRequestContext } =
+              await import("../server/request-context.js");
+            return { mcpRequestId: getRequestContext()?.mcpRequestId ?? null };
+          },
+        },
+      },
+    };
+    const call = (retryToken?: string) =>
+      callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 17,
+          method: "tools/call",
+          params: { name: "request-identity", arguments: {} },
+        },
+        {
+          headers: {
+            "x-agent-native-mcp-full-catalog": "1",
+            ...(retryToken
+              ? { "x-agent-native-mcp-retry-token": retryToken }
+              : {}),
+          },
+          config: requestIdentityConfig,
+        },
+      );
+
+    const withoutToken = await call();
+    const withoutTokenAfterReconnect = await call();
+    expect(withoutToken.result.structuredContent).toEqual({
+      mcpRequestId: null,
+    });
+    expect(withoutTokenAfterReconnect.result.structuredContent).toEqual({
+      mcpRequestId: null,
+    });
+
+    const retry = await call("retry-17");
+    const retryAfterReconnect = await call("retry-17");
+    expect(retry.result.structuredContent).toEqual({
+      mcpRequestId: "stateless:retry-17",
+    });
+    expect(retryAfterReconnect.result.structuredContent).toEqual(
+      retry.result.structuredContent,
+    );
+    expect((await call("retry-18")).result.structuredContent).not.toEqual(
+      retry.result.structuredContent,
+    );
+  });
+
   it("runs `tools/call` with org scope resolved from the verified token email", async () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
     const scopedConfig = {
@@ -3480,22 +3871,20 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("embed-session-ticket");
   });
 
-  it("does NOT surface raw result via structuredContent for model-visible (non-app-only) tools", async () => {
-    // Counter-regression: only `visibility: ["app"]` tools get the raw
-    // structuredContent escape hatch. Tools the LLM can call must continue
-    // to go through the normal text + purge path so embed-start URLs and
-    // other internal fields stay hidden from the model.
+  it("preserves complete mutation receipts while sanitizing model-visible structured results", async () => {
     const embedConfig = {
       ...config,
       actions: {
         "model-callable-helper": {
+          mcpApp: { structuredContent: true },
           tool: {
             description: "A normal model-visible tool",
             // No `visibility` hint = model + app visible.
           },
           run: async () => ({
             startUrl: "/_agent-native/embed/start?ticket=should-be-hidden",
-            payload: "ok",
+            payload: "x".repeat(3000),
+            receipt: { id: "operation-42", verified: true },
           }),
         },
       },
@@ -3515,7 +3904,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result.structuredContent).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      payload: "x".repeat(3000),
+      receipt: { id: "operation-42", verified: true },
+    });
+    expect(JSON.stringify(out.result.structuredContent)).not.toContain(
+      "should-be-hidden",
+    );
     expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
 

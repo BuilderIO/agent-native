@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import {
   afterAll,
   beforeAll,
@@ -9,47 +8,47 @@ import {
   vi,
 } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../a2a/test-pglite.js";
 
-async function executeSqlite(
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+
+async function executePglite(
   input: string | { sql: string; args?: unknown[] },
 ) {
   if (typeof input === "string") {
-    sqlite.exec(input);
+    await pglite.exec(input);
     return { rows: [], rowsAffected: 0 };
   }
-  const statement = sqlite.prepare(input.sql);
   const args = input.args ?? [];
-  if (statement.reader) {
-    return { rows: statement.all(...args), rowsAffected: 0 };
-  }
-  const result = statement.run(...args);
-  return { rows: [], rowsAffected: result.changes };
+  const result = await pglite.query(input.sql, args);
+  return {
+    rows: Array.from(result.rows ?? []),
+    rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+  };
 }
 
-const db = { execute: vi.fn(executeSqlite) };
+const db = { execute: vi.fn(executePglite) };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => db,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 const awaitingInputs = await import("./awaiting-input-store.js");
 
-beforeAll(() => {
-  sqlite = new Database(":memory:");
+beforeAll(async () => {
+  pglite = await createTestPglite();
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   awaitingInputs._resetIntegrationAwaitingInputStoreForTests();
   db.execute.mockReset();
-  db.execute.mockImplementation(executeSqlite);
-  sqlite.exec("DROP TABLE IF EXISTS integration_awaiting_inputs");
+  db.execute.mockImplementation(executePglite);
+  await pglite.exec("DROP TABLE IF EXISTS integration_awaiting_inputs");
 });
 
-afterAll(() => {
-  sqlite.close();
+afterAll(async () => {
+  await pglite.close();
 });
 
 describe("integration awaiting-input store", () => {

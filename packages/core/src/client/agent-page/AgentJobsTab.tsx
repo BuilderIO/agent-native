@@ -63,7 +63,7 @@ type ListedAutomation =
   | {
       kind: "automation";
       resource: Automation;
-      triggerType: "event" | "schedule";
+      triggerType: "event" | "schedule" | "webhook";
     };
 
 function listRecurringJobs(jobs: RecurringJob[]): ListedAutomation[] {
@@ -89,6 +89,11 @@ function describeTrigger(entry: ListedAutomation, t: Translate): string {
     return t("jobs.automationEventDetails", {
       defaultValue: "Runs when {{event}}.",
       event: entry.resource.event ?? "an event fires",
+    });
+  }
+  if (entry.kind === "automation" && entry.triggerType === "webhook") {
+    return t("jobs.automationWebhookDetails", {
+      defaultValue: "Runs when a webhook is received.",
     });
   }
   return (
@@ -151,7 +156,9 @@ function detailsFields(
       value:
         entry.triggerType === "event"
           ? t("jobs.eventTrigger", { defaultValue: "Event-triggered" })
-          : t("jobs.scheduledTrigger", { defaultValue: "Scheduled" }),
+          : entry.triggerType === "webhook"
+            ? t("jobs.webhookTrigger", { defaultValue: "Webhook-triggered" })
+            : t("jobs.scheduledTrigger", { defaultValue: "Scheduled" }),
     },
   ];
 
@@ -167,6 +174,13 @@ function detailsFields(
         value: resource.timezone || unset,
       },
     );
+  }
+  if (entry.kind === "automation" && entry.triggerType === "webhook") {
+    fields.push({
+      label: t("jobs.webhookUrl", { defaultValue: "Webhook URL" }),
+      value: entry.resource.webhookPath || unset,
+      mono: true,
+    });
   }
 
   fields.push(
@@ -212,7 +226,7 @@ function detailsFields(
 }
 
 export function organizationAutomationCreationContext(): string {
-  return "The user wants to create a new organization automation. Use manage-automations with action=define and scope=organization to create it. Ask clarifying questions if needed about whether it runs on a schedule or event, any conditions, and what actions to take.";
+  return "The user wants to create a new organization automation. Use manage-automations with action=define and scope=organization to create it. Ask clarifying questions if needed about whether it runs on a schedule, event, or webhook, any conditions, and what actions to take.";
 }
 
 export function AgentJobsTab({
@@ -388,7 +402,7 @@ export function AgentJobsTab({
             organization
               ? t("jobs.organizationEmptyDescription", {
                   defaultValue:
-                    "Describe a scheduled or event-triggered automation for this organization.",
+                    "Describe a scheduled, event-triggered, or webhook-triggered automation for this organization.",
                 })
               : t("jobs.automationsEmptyDescription", {
                   defaultValue: "Describe what should happen and when.",
@@ -424,11 +438,16 @@ export function AgentJobsTab({
                       defaultValue: "On {{event}}",
                       event: entry.resource.event ?? "event",
                     })
-                  : resource.scheduleDescription ||
-                    resource.schedule ||
-                    t("jobs.scheduledTrigger", {
-                      defaultValue: "Scheduled",
-                    });
+                  : entry.kind === "automation" &&
+                      entry.triggerType === "webhook"
+                    ? t("jobs.automationWebhookTrigger", {
+                        defaultValue: "On webhook",
+                      })
+                    : resource.scheduleDescription ||
+                      resource.schedule ||
+                      t("jobs.scheduledTrigger", {
+                        defaultValue: "Scheduled",
+                      });
               const instructions =
                 entry.kind === "automation"
                   ? entry.resource.body
@@ -442,6 +461,8 @@ export function AgentJobsTab({
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 text-muted-foreground">
                       {entry.triggerType === "event" ? (
+                        <IconCalendarEvent className="size-4" />
+                      ) : entry.triggerType === "webhook" ? (
                         <IconBolt className="size-4" />
                       ) : (
                         <IconClock className="size-4" />
@@ -457,9 +478,13 @@ export function AgentJobsTab({
                             ? t("jobs.eventTrigger", {
                                 defaultValue: "Event-triggered",
                               })
-                            : t("jobs.scheduledTrigger", {
-                                defaultValue: "Scheduled",
-                              })}
+                            : entry.triggerType === "webhook"
+                              ? t("jobs.webhookTrigger", {
+                                  defaultValue: "Webhook-triggered",
+                                })
+                              : t("jobs.scheduledTrigger", {
+                                  defaultValue: "Scheduled",
+                                })}
                         </span>
                         <span
                           className={
@@ -696,7 +721,7 @@ export function AgentJobsTab({
       title={t("jobs.pageTitle", { defaultValue: "Automations" })}
       description={t("jobs.pageDescription", {
         defaultValue:
-          "Manage agent tasks that run on a schedule or in response to events.",
+          "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
       })}
       actions={
         <AgentAskPopover
@@ -737,7 +762,7 @@ export function AgentJobsTab({
           title: t("jobs.personal", { defaultValue: "Personal" }),
           description: t("jobs.personalDescription", {
             defaultValue:
-              "Scheduled and event-triggered automations that run for you.",
+              "Scheduled, event-triggered, and webhook-triggered automations that run for you.",
           }),
           entries: personalEntries,
           loading:
@@ -752,7 +777,7 @@ export function AgentJobsTab({
             title: t("jobs.organization", { defaultValue: "Organization" }),
             description: t("jobs.organizationDescription", {
               defaultValue:
-                "Scheduled and event-triggered automations shared with this organization.",
+                "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",
             }),
             entries: organizationEntries,
             loading:

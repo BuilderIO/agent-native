@@ -66,6 +66,31 @@ const messages: AgentChatTranslation = {
   "onboarding.builderProvisioningDescription":
     "正在创建或重新使用您的 Builder.io 账户，通常需要几秒钟。",
   "onboarding.builderConnectionDescription": "在新窗口中一键完成连接。",
+  "onboarding.capability.llm.keySummary": "连接 AI 提供商或本地模型",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder 存储或兼容 S3 的存储桶",
+  "onboarding.capability.voiceInput.label": "语音输入",
+  "onboarding.capability.voiceInput.keySummary": "浏览器语音识别或语音转文字",
+  "onboarding.capability.voiceInput.why":
+    "语音输入会将口述请求转换为文字；始终可以使用键盘输入。",
+  "onboarding.capability.assetsImageGeneration.label": "图像生成",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder 积分或图像提供商密钥",
+  "onboarding.capability.assetsImageGeneration.why":
+    "图像生成是创建品牌素材的核心流程。",
+  "onboarding.capability.assetsVideoGeneration.label": "视频生成",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API 密钥",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "视频生成为可选功能；Assets 的核心流程是图像生成。",
+  "onboarding.capability.clipsObjectStorage.label": "对象存储",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder 存储或兼容 S3 的存储桶",
+  "onboarding.capability.clipsObjectStorage.why":
+    "录制的视频需要持久对象存储后才能播放或分享。",
+  "onboarding.capability.clipsTranscription.keySummary": "语音转文字提供商密钥",
+  "onboarding.capability.about": "关于{{label}}",
+  "onboarding.capability.why": "为什么需要{{label}}",
+  "onboarding.openAiKeySettings": "打开 AI 密钥设置",
   "aboutAgentNative.title": "关于 Agent-Native",
   "aboutAgentNative.version": "版本",
   "aboutAgentNative.environment": "环境",
@@ -75,6 +100,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "智能体",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "界面",
+  "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
+  "agentHostNudge.sidebarDescription":
+    "你已经在与 {{agent}} 聊天。可以直接让它操作此应用。",
+  "agentHostNudge.promptTitle": "改为询问 {{agent}}",
+  "agentHostNudge.promptDescription":
+    "你可以让 {{agent}} 在这里创建或修改内容。",
+  "agentHostNudge.useThisChat": "使用此聊天",
+  "agentHostNudge.useThisPrompt": "使用此提示",
   "common.cancel": "取消",
   "common.collapse": "收起",
   "common.connect": "连接",
@@ -474,6 +507,23 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "上一次智能体流在恢复运行时结束。请继续或重试以重新连接该运行。",
   "recovery.reconnectBuilder": "重新连接 Builder.io",
+  "secrets.addCustomKeyNamed": "添加“{{name}}”作为自定义密钥",
+  "secrets.customKey": "自定义密钥",
+  "secrets.customKeyHint": "按名称添加任意密钥",
+  "secrets.fromEnvironment": "由部署环境提供。",
+  "secrets.managedInVault":
+    "在工作区 Vault 中管理。此工作区中的每个应用都使用此值。",
+  "secrets.openVault": "打开 Vault",
+  "secrets.overridesVault":
+    "此个人密钥会覆盖工作区 Vault 的值。移除它即可使用 Vault 密钥。",
+  "secrets.overridesWorkspace":
+    "此个人密钥会覆盖工作区的值。移除它即可使用共享密钥。",
+  "secrets.setForWorkspace": "已为此工作区中的所有人设置。",
+  "secrets.sourceEnvironment": "环境",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "工作区",
+  "secrets.statusUnavailable": "不可用",
+  "secrets.usePersonalKey": "改用个人密钥",
   "selection.attached": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.attached_other": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.clear": "清除选中内容上下文",

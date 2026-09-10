@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../lib/agent-review";
 import {
   createQaEmail,
+  isMailosaurInconclusiveError,
   verificationLinkFor,
   waitForVerificationEmail,
 } from "../lib/mailosaur";
@@ -20,6 +21,115 @@ const FINDINGS_PATH = join(
   process.cwd(),
   "e2e/signup/test-results/signup-agent/findings.md",
 );
+const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
+const REVIEW_SURFACE_LOADING_SELECTOR =
+  "[data-first-run-startup-loading]:visible, [aria-busy='true']:not(.sr-only):visible, .skeleton-shimmer:visible";
+
+type PostLinkState = "onboarding" | "app" | "unresolved";
+
+async function waitForPostLinkState(
+  page: Page,
+  pendingRequests?: Map<string, number>,
+): Promise<PostLinkState> {
+  const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (
+      (await page.locator('[data-onboarding-screen="intro"]:visible').count()) >
+      0
+    ) {
+      return "onboarding";
+    }
+    const bodyText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    const appHidden = page.locator('[data-first-run-app-hidden="true"]');
+    const loadingSurface = page.locator(REVIEW_SURFACE_LOADING_SELECTOR);
+    if (
+      bodyText.trim().length >= 40 &&
+      (await appHidden.count()) === 0 &&
+      (await loadingSurface.count()) === 0 &&
+      (pendingRequests?.size ?? 0) === 0
+    ) {
+      return "app";
+    }
+    await page.waitForTimeout(500);
+  }
+  return "unresolved";
+}
+
+async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
+  const intro = page.locator('[data-onboarding-screen="intro"]');
+  if (!(await intro.isVisible().catch(() => false))) return false;
+
+  await intro.getByRole("button", { name: "Continue", exact: true }).click();
+  const ownKeys = page.locator('[data-testid="first-run-use-own-keys"]');
+  await expect(ownKeys).toBeVisible();
+  await ownKeys.click();
+
+  const manualContinue = page.getByRole("button", {
+    name: /^Continue(?: to tools)?$/,
+  });
+  await expect(manualContinue).toBeVisible();
+  await manualContinue.click();
+
+  const completionResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return (
+      request.method() === "POST" &&
+      new URL(response.url()).pathname ===
+        "/_agent-native/onboarding/first-run/complete"
+    );
+  });
+
+  const toolsFooter = page.locator('[data-testid="onboarding-tools-footer"]');
+  if (await toolsFooter.isVisible().catch(() => false)) {
+    await toolsFooter.getByRole("button", { name: /skip for now/i }).click();
+  }
+
+  const role = page.locator('[data-testid="first-run-role"]');
+  if (await role.isVisible().catch(() => false)) {
+    await role.getByRole("button", { name: /skip for now/i }).click();
+  }
+
+  // Slides adds one app-owned screen after the shared flow. Skipping it keeps
+  // the review focused on signup/session behavior instead of generating data.
+  const appExtensionSkip = page.getByRole("button", {
+    name: "Skip",
+    exact: true,
+  });
+  if ((await appExtensionSkip.count()) > 0) {
+    await expect(appExtensionSkip).toBeVisible();
+    await appExtensionSkip.click();
+  }
+
+  const completion = await completionResponse;
+  expect(completion.ok()).toBe(true);
+  await expect(page.locator("[data-first-run-app-hidden]")).toHaveCount(0);
+  await expect(page.locator("[data-onboarding-screen]")).toHaveCount(0);
+  return true;
+}
+
+async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
+  const emailInput = page.locator("#m-email");
+  const submit = page.locator("#magic-link-submit");
+  await emailInput.fill(email);
+  await expect(emailInput).toHaveValue(email);
+  await expect
+    .poll(
+      async () => {
+        // The auth document is server-rendered before React hydrates it. Reapply
+        // the value until the controlled form accepts the input event.
+        await emailInput.fill(email);
+        return submit.isEnabled();
+      },
+      {
+        message:
+          "email signup form never became ready after accepting the test address",
+      },
+    )
+    .toBe(true);
+}
 
 /**
  * One app per run by default. The deterministic canary already covers every
@@ -57,22 +167,91 @@ async function capture(
   page: Page,
   label: string,
   consoleErrors: string[],
+  networkEvents: string[],
+  pendingRequests: Map<string, number>,
 ): Promise<JourneyStep> {
+  const domDiagnostics = await page
+    .evaluate(() => {
+      const describe = (selector: string) =>
+        [...document.querySelectorAll<HTMLElement>(selector)].map((element) => {
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return {
+            selector,
+            tag: element.tagName.toLowerCase(),
+            id: element.id || undefined,
+            className:
+              typeof element.className === "string"
+                ? element.className.slice(0, 180)
+                : undefined,
+            textLength: element.innerText.trim().length,
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          };
+        });
+
+      return JSON.stringify(
+        {
+          readyState: document.readyState,
+          title: document.title,
+          bodyTextLength: document.body?.innerText.trim().length ?? 0,
+          bodyChildren: [...(document.body?.children ?? [])].map((element) => ({
+            tag: element.tagName.toLowerCase(),
+            id: element.id || undefined,
+            className:
+              typeof element.className === "string"
+                ? element.className.slice(0, 180)
+                : undefined,
+          })),
+          surfaces: [
+            "#root",
+            "main",
+            ".analytics-ask-page",
+            ".analytics-chat-panel",
+            ".agent-panel-root",
+            "[data-agent-empty-state]",
+            "[data-first-run-startup-loading]",
+            "[data-onboarding-screen]",
+            "[data-onboarding-loading]",
+            "[data-first-run-app-hidden]",
+          ].flatMap(describe),
+        },
+        null,
+        2,
+      );
+    })
+    .catch((error) => `<DOM diagnostics unreadable: ${String(error)}>`);
+  const pending = [...pendingRequests.entries()].map(
+    ([url, startedAt]) =>
+      `PENDING ${new URL(url).pathname} ${Date.now() - startedAt}ms`,
+  );
+  const requestDiagnostics = [...networkEvents.slice(-30), ...pending];
+  const diagnosticText = `DOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`;
+  console.log(
+    `[signup-agent] ${label} network: ${requestDiagnostics.join(" | ") || "none"}`,
+  );
+  const visibleText = await page
+    .locator("body")
+    .innerText()
+    .then(
+      (text) => `${diagnosticText}\n\nVisible text:\n${text.slice(0, 6_000)}`,
+      (error) =>
+        `${diagnosticText}\n\n<page text unreadable: ${String(error)}>`,
+    );
+
   return {
     label,
     url: page.url(),
     // A page whose text cannot be read is not a page with no text: handing the
     // model an empty string there would have it judge a blank screen and
     // report a phantom finding, or miss a real one.
-    visibleText: await page
-      .locator("body")
-      .innerText()
-      .then(
-        (text) => text.slice(0, 6_000),
-        (error) => `<page text unreadable: ${String(error)}>`,
-      ),
+    visibleText,
     screenshot: await page.screenshot({ fullPage: false }),
     consoleErrors: [...consoleErrors],
+    networkEvents: requestDiagnostics,
   };
 }
 
@@ -88,9 +267,49 @@ test.afterAll(() => {
 for (const target of targets) {
   test(`agent review of ${target.environment} ${target.app} signup`, async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(420_000);
     const { errors } = collectAppPageErrors(page, target.origin);
+    const networkEvents: string[] = [];
+    const pendingRequests = new Map<string, number>();
+    const isDiagnosticRequest = (url: string): boolean => {
+      try {
+        const parsed = new URL(url);
+        return (
+          parsed.origin === target.origin &&
+          (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
+            parsed.pathname.startsWith("/_agent-native/actions/") ||
+            parsed.pathname === "/_agent-native/auth/session" ||
+            parsed.pathname === "/_agent-native/org/me" ||
+            parsed.pathname === "/ask" ||
+            parsed.pathname === "/home")
+        );
+      } catch {
+        return false;
+      }
+    };
+    page.on("request", (request) => {
+      if (isDiagnosticRequest(request.url())) {
+        pendingRequests.set(request.url(), Date.now());
+      }
+    });
+    page.on("response", (response) => {
+      if (!isDiagnosticRequest(response.url())) return;
+      const startedAt = pendingRequests.get(response.url());
+      pendingRequests.delete(response.url());
+      const elapsed =
+        startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+      networkEvents.push(
+        `${response.status()} ${new URL(response.url()).pathname} ${elapsed}`,
+      );
+    });
+    page.on("requestfailed", (request) => {
+      if (!isDiagnosticRequest(request.url())) return;
+      pendingRequests.delete(request.url());
+      networkEvents.push(
+        `FAILED ${new URL(request.url()).pathname} ${request.failure()?.errorText ?? "unknown"}`,
+      );
+    });
     const steps: JourneyStep[] = [];
     const email = createQaEmail(target.app, target.environment);
     const emailRequestedAt = Date.now() - 5_000;
@@ -100,30 +319,91 @@ for (const target of targets) {
         waitUntil: "domcontentloaded",
       });
       await renderedText(page, `${target.origin}/sign-in`);
-      steps.push(await capture(page, "sign-in page", errors));
+      steps.push(
+        await capture(
+          page,
+          "sign-in page",
+          errors,
+          networkEvents,
+          pendingRequests,
+        ),
+      );
     });
 
     await test.step("request a sign-in link", async () => {
-      const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
-      await page.locator("#m-email").fill(email);
-      await page.locator("#magic-link-submit").click();
+      const emailResult = waitForVerificationEmail(
+        email,
+        emailRequestedAt,
+      ).then(
+        (message) => ({ status: "fulfilled" as const, message }),
+        (error) => ({ status: "rejected" as const, error }),
+      );
+      const submit = page.locator("#magic-link-submit");
+      await fillMagicLinkEmail(page, email);
+      await submit.click();
       // Give the app the moment a real user would give it before judging
       // whether the submit visibly did anything.
       await page.waitForTimeout(4_000);
-      steps.push(await capture(page, "after requesting the link", errors));
-      const message = await emailPromise;
+      steps.push(
+        await capture(
+          page,
+          "after requesting the link",
+          errors,
+          networkEvents,
+          pendingRequests,
+        ),
+      );
+      const result = await emailResult;
+      if (result.status === "rejected") {
+        if (isMailosaurInconclusiveError(result.error)) {
+          const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+          mkdirSync(dirname(marker), { recursive: true });
+          writeFileSync(marker, `${result.error.message}\n`, "utf8");
+          testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
+          return;
+        }
+        throw result.error;
+      }
+      const message = result.message;
       const link = verificationLinkFor(message, target.origin);
       await page.goto(link, { waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(4_000);
+      const postLinkState = await waitForPostLinkState(page, pendingRequests);
       steps.push(
-        await capture(page, "after following the emailed link", errors),
+        await capture(
+          page,
+          "after following the emailed link",
+          errors,
+          networkEvents,
+          pendingRequests,
+        ),
       );
+      if (postLinkState === "onboarding") {
+        await completeFirstRunOnboarding(page);
+        await waitForPostLinkState(page, pendingRequests);
+        steps.push(
+          await capture(
+            page,
+            "after completing first-run onboarding",
+            errors,
+            networkEvents,
+            pendingRequests,
+          ),
+        );
+      }
     });
 
     await test.step("reload the way a stuck user would", async () => {
       await page.reload({ waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(4_000);
-      steps.push(await capture(page, "after a browser reload", errors));
+      await waitForPostLinkState(page, pendingRequests);
+      steps.push(
+        await capture(
+          page,
+          "after a browser reload",
+          errors,
+          networkEvents,
+          pendingRequests,
+        ),
+      );
     });
 
     // A review that could not run is not a clean review: let this throw and

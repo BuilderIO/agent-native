@@ -15,6 +15,9 @@ const schemaMock = vi.hoisted(() => ({
     generationRunId: "assets.generationRunId",
   },
 }));
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -22,6 +25,34 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
+const unrestrictedScope = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
+}));
+
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
+  // The draft-input guards have their own tests; these specs exercise the
+  // surrounding behavior with an approver's unrestricted scope.
+  draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
+  resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
+  unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
+  assertCanUseAssets: vi.fn(),
+  assertCanUseRuns: vi.fn(),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+  draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -101,6 +132,7 @@ function createDb({
 describe("refresh-generation-run", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     updateSetCalls.length = 0;
     assertAccessMock.mockResolvedValue(undefined);
     upsertVariantSlotMock.mockResolvedValue(undefined);
@@ -116,6 +148,7 @@ describe("refresh-generation-run", () => {
         run: {
           id: "run-1",
           libraryId: "library-1",
+          ownerEmail: "author@example.test",
           collectionId: null,
           presetId: null,
           sessionId: null,
@@ -138,6 +171,13 @@ describe("refresh-generation-run", () => {
     vi.setSystemTime(new Date("2026-05-28T12:00:00.000Z"));
 
     const result = await action.run({ runId: "run-1" });
+
+    // Refreshing mutates the run row, so it is scoped to the run's author.
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "library-1",
+      "author@example.test",
+      "A generation run",
+    );
 
     expect(result.run.status).toBe("failed");
     expect(updateSetCalls[0]).toEqual(

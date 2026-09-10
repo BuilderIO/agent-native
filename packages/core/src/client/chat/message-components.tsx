@@ -47,6 +47,7 @@ import {
 } from "@tabler/icons-react";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
+import { splitAgentChatContextFromMessage } from "../../shared/agent-chat-context.js";
 import {
   DEFAULT_THINKING_DISPLAY,
   type ThinkingDisplay,
@@ -135,11 +136,7 @@ const PENDING_SELECTION_KEY = "pending-selection-context";
 // ─── displayableUserMessageText ───────────────────────────────────────────────
 
 export function displayableUserMessageText(text: string): string {
-  return text
-    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "") // i18n-ignore -- parsing regex, not UI copy.
-    .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
-    .replace(/<\/context>/gi, "")
-    .trim();
+  return splitAgentChatContextFromMessage(text).message;
 }
 
 export function isHiddenUserMessage(message: unknown): boolean {
@@ -378,6 +375,7 @@ export interface AssistantChatHistoryMessage {
 export interface AssistantChatHistoryConfig<
   TListResult = unknown,
   TVersion extends AssistantChatHistoryVersion = AssistantChatHistoryVersion,
+  TRestoreResult = unknown,
 > {
   list: {
     action: string;
@@ -386,7 +384,13 @@ export interface AssistantChatHistoryConfig<
   };
   restore: {
     action: string;
-    args: (version: TVersion) => Record<string, unknown>;
+    args: (
+      version: TVersion,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    onRestored?: (
+      result: TRestoreResult,
+      version: TVersion,
+    ) => void | Promise<void>;
   };
   createVersion?: {
     action: string;

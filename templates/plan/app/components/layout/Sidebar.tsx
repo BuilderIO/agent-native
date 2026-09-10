@@ -505,7 +505,7 @@ function BrandingCustomizePopover() {
           side="right"
           align="start"
           sideOffset={8}
-          className="w-[calc(100vw-2rem)] max-w-[420px] rounded-xl border-border bg-card p-3 shadow-xl sm:w-[420px]"
+          className="relative w-[calc(100vw-2rem)] max-w-[420px] rounded-xl border-border bg-card p-3 shadow-xl sm:w-[420px]"
         >
           <div className="mb-2 px-1">
             <h3 className="text-sm font-semibold text-foreground">

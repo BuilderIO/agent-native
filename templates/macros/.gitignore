@@ -27,14 +27,9 @@ dist-ssr
 .env
 build/
 .output/
-data/app.db
+data/pglite/
+data/*.lock
 .react-router/
-
-# Stray SQLite files at the template root (real DB lives under data/)
-/app.db
-/app.db-shm
-/app.db-wal
-/local.db
 
 .generated/
 

@@ -7,6 +7,7 @@ import {
   deleteAppSecret,
   last4,
   listAppSecretsForScope,
+  VAULT_SYNC_DESCRIPTION_PREFIX,
   writeAppSecret,
   type SecretScope,
 } from "@agent-native/core/secrets";
@@ -26,7 +27,6 @@ import {
 } from "./dispatch-store.js";
 
 const VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
-const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
 
 export type VaultAccessMode = "all-apps" | "manual";
 
@@ -164,7 +164,10 @@ export async function assertCanManageVault(): Promise<void> {
   let role: unknown = null;
   try {
     const result = await getDbExec().execute({
-      sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [orgId, email],
     });
     role = result.rows[0]?.role;

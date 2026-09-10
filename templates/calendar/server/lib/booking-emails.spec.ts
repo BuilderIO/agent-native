@@ -3,6 +3,7 @@ import {
   getAppProductionUrl,
   isEmailConfigured,
   renderEmail,
+  sendEmail,
   toAbsoluteOpenUrl,
 } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
@@ -31,7 +32,11 @@ vi.mock("@agent-native/core/server", () => ({
   ),
 }));
 
-import { formatBookingWhen } from "./booking-emails";
+import {
+  formatBookingWhen,
+  sendBookingCancellationEmails,
+  sendBookingConfirmationEmails,
+} from "./booking-emails";
 import {
   renderEventGuestNote,
   sendEventGuestNotificationNote,
@@ -52,6 +57,45 @@ describe("booking email time formatting", () => {
     expect(
       formatBookingWhen("2026-05-21T19:30:00.000Z", "2026-05-21T20:00:00.000Z"),
     ).toBe("Thursday, May 21, 2026, 3:30 PM EDT - 4:00 PM EDT");
+  });
+});
+
+describe("booking attendee notifications", () => {
+  it("sends confirmation and cancellation emails to additional guests", async () => {
+    const booking = {
+      id: "booking-1",
+      name: "Taylor",
+      email: "attendee@example.com",
+      additionalGuestEmails: ["guest-one@example.com", "guest-two@example.com"],
+      eventTitle: "Design review",
+      start: "2026-05-21T19:30:00.000Z",
+      end: "2026-05-21T20:00:00.000Z",
+      slug: "design-review",
+      status: "confirmed" as const,
+      createdAt: "2026-05-21T18:00:00.000Z",
+    };
+
+    await sendBookingConfirmationEmails({
+      booking,
+      hostEmail: "host@example.com",
+      manageUrl: "https://calendar.example.com/manage/booking-1",
+    });
+    await sendBookingCancellationEmails({
+      booking,
+      hostEmail: "host@example.com",
+      bookAgainUrl: "https://calendar.example.com/book/design-review",
+    });
+
+    expect(vi.mocked(sendEmail).mock.calls.map(([args]) => args.to)).toEqual([
+      "attendee@example.com",
+      "guest-one@example.com",
+      "guest-two@example.com",
+      "host@example.com",
+      "attendee@example.com",
+      "guest-one@example.com",
+      "guest-two@example.com",
+      "host@example.com",
+    ]);
   });
 });
 

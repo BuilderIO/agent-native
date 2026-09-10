@@ -156,6 +156,38 @@ describe("buildSlackPayload page context", () => {
     expect(text).not.toContain("Page:");
   });
 
+  it("renders stored file references as Slack links instead of object strings", () => {
+    const result = buildSlackPayload(
+      payload({
+        fields: [
+          {
+            id: "attachment",
+            type: "file",
+            label: "Attachment",
+            required: false,
+          },
+        ],
+        data: {
+          attachment: [
+            {
+              url: "https://cdn.example.test/attachment.png",
+              name: "attachment.png",
+              type: "image/png",
+              size: 42,
+              provider: "builder",
+            },
+          ],
+        },
+      }),
+    );
+
+    const serialized = JSON.stringify(result);
+    expect(serialized).toContain(
+      "<https://cdn.example.test/attachment.png|attachment.png>",
+    );
+    expect(serialized).not.toContain("[object Object]");
+  });
+
   it("scrubs synthetic anonymous submitter emails from integration payloads", async () => {
     await fireIntegrations(
       [
@@ -242,6 +274,36 @@ describe("buildGoogleSheetsPayload", () => {
       Answer: "one",
       "Answer (second)": "two",
     });
+  });
+
+  it("flattens stored file references to readable name and link values", () => {
+    const result = buildGoogleSheetsPayload(
+      payload({
+        fields: [
+          {
+            id: "attachment",
+            type: "file",
+            label: "Attachment",
+            required: false,
+          },
+        ],
+        data: {
+          attachment: [
+            {
+              url: "https://cdn.example.test/attachment.png",
+              name: "attachment.png",
+              type: "image/png",
+              size: 42,
+              provider: "builder",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect((result as Record<string, unknown>).Attachment).toBe(
+      "attachment.png (https://cdn.example.test/attachment.png)",
+    );
   });
 });
 

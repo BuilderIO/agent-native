@@ -27,9 +27,13 @@ import {
   triageSourceSchema,
 } from "../server/triage/contracts.js";
 import {
+  metadataString,
+  parseTriageMetadata,
   triageItemAuthor,
   triageItemAuthorId,
 } from "../server/triage/metadata.js";
+import { babysitLeavesReviewWindow } from "../server/triage/pr-babysit.js";
+import { slackFeedbackLeavesReviewWindow } from "../server/triage/slack-review-window.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
@@ -76,65 +80,122 @@ export default defineAction({
     const fetchLimit =
       context?.caller === "automation" &&
       calling &&
-      calling.config.source === "github" &&
-      calling.config.authorIds.length > 0
+      (calling.config.source === "github" || calling.config.source === "slack")
         ? Math.min(100, Math.max(effectiveLimit * 10, effectiveLimit))
         : effectiveLimit;
     const parsedCursor = cursor ? decodeInboxCursor(cursor) : null;
     const updatedAfterBound = parseUpdatedAfter(updatedAfter);
     const db = getDb();
-    const reviewStatuses =
-      source === "github"
-        ? ["pr_observed"]
-        : source === "slack"
-          ? ["received", "automation_started", "evidence_ready"]
-          : ["received"];
-    const rows = await db
-      .select()
-      .from(triageItems)
-      .where(
-        and(
-          orgFactoryItemFilter(orgId, factoryId),
-          needsReview
-            ? inArray(triageItems.status, reviewStatuses)
-            : status
-              ? eq(triageItems.status, status)
+    const reviewStatuses = source === "github" ? ["pr_observed"] : ["received"];
+    const filterReviewPage =
+      (context?.caller === "automation" &&
+        calling &&
+        (calling.config.source === "github" ||
+          calling.config.source === "slack")) ||
+      (needsReview && (source === "github" || source === "slack"));
+    const maxScanPages = filterReviewPage ? 10 : 1;
+    const eligible: Array<(typeof triageItems)["$inferSelect"]> = [];
+    let scanCursor = parsedCursor;
+    let lastExamined: (typeof triageItems)["$inferSelect"] | undefined;
+    let lastKept: (typeof triageItems)["$inferSelect"] | undefined;
+    let moreRaw = false;
+    let filledPage = false;
+    for (let pageIndex = 0; pageIndex < maxScanPages; pageIndex += 1) {
+      const rows = await db
+        .select()
+        .from(triageItems)
+        .where(
+          and(
+            orgFactoryItemFilter(orgId, factoryId),
+            needsReview
+              ? inArray(triageItems.status, reviewStatuses)
+              : status
+                ? eq(triageItems.status, status)
+                : undefined,
+            source ? eq(triageItems.source, source) : undefined,
+            risk ? eq(triageItems.risk, risk) : undefined,
+            updatedAfterBound
+              ? gte(triageItems.updatedAt, updatedAfterBound)
               : undefined,
-          source ? eq(triageItems.source, source) : undefined,
-          risk ? eq(triageItems.risk, risk) : undefined,
-          updatedAfterBound
-            ? gte(triageItems.updatedAt, updatedAfterBound)
-            : undefined,
-          parsedCursor
-            ? or(
-                lt(triageItems.updatedAt, parsedCursor.updatedAt),
-                and(
-                  eq(triageItems.updatedAt, parsedCursor.updatedAt),
-                  lt(triageItems.id, parsedCursor.id),
-                ),
-              )
-            : undefined,
-        ),
-      )
-      .orderBy(desc(triageItems.updatedAt), desc(triageItems.id))
-      .limit(fetchLimit + 1);
-    let page = rows.slice(0, fetchLimit);
-    if (
-      context?.caller === "automation" &&
-      calling &&
-      calling.config.source === "github"
-    ) {
-      page = page.filter((item) =>
-        authorMatchesFilter(
-          triageItemAuthorId(item.metadataJson),
-          calling.config.authorMode,
-          calling.config.authorIds,
-        ),
-      );
+            scanCursor
+              ? or(
+                  lt(triageItems.updatedAt, scanCursor.updatedAt),
+                  and(
+                    eq(triageItems.updatedAt, scanCursor.updatedAt),
+                    lt(triageItems.id, scanCursor.id),
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(desc(triageItems.updatedAt), desc(triageItems.id))
+        .limit(fetchLimit + 1);
+      moreRaw = rows.length > fetchLimit;
+      const batch = rows.slice(0, fetchLimit);
+      if (batch.length === 0) break;
+      for (const item of batch) {
+        lastExamined = item;
+        // Kept even though poll-github-sources now filters at ingest: rows
+        // stored before that change still carry excluded authors, and this is
+        // the only thing keeping them out of an automation's work list.
+        if (
+          context?.caller === "automation" &&
+          calling &&
+          calling.config.source === "github" &&
+          !authorMatchesFilter(
+            triageItemAuthorId(item.metadataJson),
+            calling.config.authorMode,
+            calling.config.authorIds,
+          )
+        ) {
+          continue;
+        }
+        if (
+          needsReview &&
+          source === "github" &&
+          babysitLeavesReviewWindow(
+            metadataString(
+              parseTriageMetadata(item.metadataJson),
+              "prBabysitState",
+            ),
+          )
+        ) {
+          continue;
+        }
+        if (
+          needsReview &&
+          source === "slack" &&
+          slackFeedbackLeavesReviewWindow({
+            status: item.status,
+            slackReactionName: metadataString(
+              parseTriageMetadata(item.metadataJson),
+              "slackReactionName",
+            ),
+          })
+        ) {
+          continue;
+        }
+        eligible.push(item);
+        lastKept = item;
+        if (eligible.length === effectiveLimit) {
+          filledPage = true;
+          break;
+        }
+      }
+      if (filledPage) {
+        if (lastKept) {
+          moreRaw = moreRaw || batch.indexOf(lastKept) < batch.length - 1;
+        }
+        break;
+      }
+      if (!moreRaw) break;
+      if (lastExamined) {
+        scanCursor = { updatedAt: lastExamined.updatedAt, id: lastExamined.id };
+      }
     }
-    const hasMore = rows.length > fetchLimit || page.length > effectiveLimit;
-    page = page.slice(0, effectiveLimit);
-    const last = page[page.length - 1];
+    const page = eligible.slice(0, effectiveLimit);
+    const hasMore = moreRaw;
+    const cursorRow = filledPage && lastKept ? lastKept : lastExamined;
 
     const pageIds = page.map((item) => item.id);
     const decisions =
@@ -214,6 +275,11 @@ export default defineAction({
           risk: risk ?? null,
           updatedAfter: updatedAfterBound ?? null,
           itemIds: listedItems.map((item) => item.itemId),
+          listedItems: listedItems.map((item) => ({
+            itemId: item.itemId,
+            status: item.status,
+            outcome: item.latestDecision?.outcome ?? null,
+          })),
         },
       },
       factoryId,
@@ -222,8 +288,11 @@ export default defineAction({
       items: listedItems,
       hasMore,
       nextCursor:
-        hasMore && last
-          ? encodeInboxCursor({ updatedAt: last.updatedAt, id: last.id })
+        hasMore && cursorRow
+          ? encodeInboxCursor({
+              updatedAt: cursorRow.updatedAt,
+              id: cursorRow.id,
+            })
           : null,
     };
   },

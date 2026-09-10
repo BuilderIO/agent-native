@@ -49,6 +49,52 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("persists typed artifact receipts with the completed tool part", () => {
+    const artifacts = [
+      {
+        kind: "image" as const,
+        id: "asset-1",
+        url: "/asset/asset-1",
+        title: "Launch illustration",
+        runId: "generation-1",
+      },
+    ];
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "call_generate",
+            tool: "generate-image",
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "call_generate",
+            tool: "generate-image",
+            result: "...[truncated]",
+            completedSideEffect: true,
+            artifacts,
+          },
+        },
+      ],
+      "run-artifact-receipt",
+    );
+
+    expect(message?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-image",
+        result: "...[truncated]",
+        completedSideEffect: true,
+        artifacts,
+      }),
+    );
+  });
+
   it("folds a replayed tool_start onto the original card instead of persisting a second one", () => {
     // Journal / zombie-ledger recovery re-emits tool_start + tool_done for a
     // call that already ran in an interrupted chunk. The live client coalesces

@@ -1,11 +1,16 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import {
+  assertCanDraftAuthoredBy,
+  assertCanUseAssets,
+  assertCanUseRuns,
+  draftScopeForLibrary,
+} from "../server/lib/library-access.js";
 import { GENERATION_SESSION_STATUSES } from "../shared/api.js";
 import { serializeGenerationSession } from "./_helpers.js";
 
@@ -41,7 +46,17 @@ export default defineAction({
       .where(eq(schema.assetGenerationSessions.id, id))
       .limit(1);
     if (!session) throw new Error("Generation session not found.");
-    await assertAccess("asset-library", session.libraryId, "editor");
+    const draftAccess = await assertCanDraftAuthoredBy(
+      session.libraryId,
+      session.createdBy,
+      "A generation session",
+    );
+    // Own session, still not a licence to attach someone else's draft: session
+    // items are republished through the session read path.
+    const draftScope = await draftScopeForLibrary(
+      session.libraryId,
+      draftAccess,
+    );
     const now = nowIso();
     if (args.activeAssetId === "") {
       throw new Error("activeAssetId must be a valid asset id or null.");
@@ -100,7 +115,13 @@ export default defineAction({
 
     if (assetIdsToValidate.length) {
       const assets = await db
-        .select({ id: schema.assets.id, libraryId: schema.assets.libraryId })
+        .select({
+          id: schema.assets.id,
+          libraryId: schema.assets.libraryId,
+          role: schema.assets.role,
+          status: schema.assets.status,
+          generationRunId: schema.assets.generationRunId,
+        })
         .from(schema.assets)
         .where(inArray(schema.assets.id, assetIdsToValidate));
       const foundIds = new Set(assets.map((asset) => asset.id));
@@ -112,6 +133,13 @@ export default defineAction({
           throw new Error(`Asset ${assetId} was not found.`);
         }
       }
+      assertCanUseAssets(
+        draftScope,
+        session.libraryId,
+        draftAccess.role,
+        assets,
+        "A generation session",
+      );
     }
 
     if (runIdsToValidate.length) {
@@ -133,6 +161,13 @@ export default defineAction({
           throw new Error(`Generation run ${runId} was not found.`);
         }
       }
+      assertCanUseRuns(
+        draftScope,
+        session.libraryId,
+        draftAccess.role,
+        runs,
+        "A generation session",
+      );
     }
 
     const updates: Record<string, unknown> = { updatedAt: now };

@@ -75,6 +75,34 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("__anAuthView");
   });
 
+  it("passes the built-in app screenshot and learn-more link to React", () => {
+    const marketing = readAuthPageData(
+      getOnboardingHtml({ requestHost: "clips.agent-native.com" }),
+    ).marketing;
+
+    expect(marketing).toMatchObject({
+      screenshotSrc: "/auth-marketing/clips.webp",
+      screenshotWidth: 914,
+      screenshotHeight: 818,
+      learnMoreUrl: "https://agent-native.com/apps/clips",
+    });
+  });
+
+  it("version-stamps the auth client when the deployment build id is available", () => {
+    vi.stubGlobal("__AGENT_NATIVE_BUILD_ID__", "deploy-auth-client-123");
+
+    try {
+      expect(getOnboardingHtml()).toContain(
+        'src="/assets/auth-client.js?__an_build=deploy-auth-client-123"',
+      );
+      expect(getResetPasswordHtml()).toContain(
+        'src="/assets/auth-client.js?__an_build=deploy-auth-client-123"',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("renders deep-link tab selection in the initial SSR view", () => {
     expect(
       readAuthPageData(getOnboardingHtml({ requestPath: "/sign-in?tab=login" }))
@@ -84,6 +112,11 @@ describe("getOnboardingHtml", () => {
       readAuthPageData(getOnboardingHtml({ requestPath: "/signup?tab=signup" }))
         .initialView,
     ).toBe("signup");
+    expect(
+      readAuthPageData(
+        getOnboardingHtml({ requestPath: "/sign-in?c=continuation" }),
+      ).initialView,
+    ).toBe("login");
   });
 
   it("keeps the local-dev CTA hidden in cached HTML and reveals it only for loopback hosts", () => {
@@ -126,8 +159,8 @@ describe("getOnboardingHtml", () => {
     ).toBe(false);
   });
 
-  describe("federated SSO button (AGENT_NATIVE_IDENTITY_HUB_URL)", () => {
-    it("env unset → login HTML is byte-for-byte identical (no SSO button, no residue)", () => {
+  describe("browser federated SSO", () => {
+    it("env unset → login HTML is byte-for-byte identical (no SSO entry, no residue)", () => {
       // Capture baseline with the env unequivocally absent.
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
       const baseline = getOnboardingHtml();
@@ -140,37 +173,58 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
-    it("canonical hosted login pages omit the browser SSO option", () => {
+    it("canonical hosted login pages enable silent federation", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
-      const html = getOnboardingHtml();
+      const html = getOnboardingHtml({
+        requestHost: "calendar.agent-native.com",
+      });
 
       expect(html).not.toContain("identity-sso-btn");
       expect(html).not.toContain("Sign in with Agent-Native");
+      expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
+      expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
-    it("env set → injects exactly one conditional SSO entry pointing at /identity/login", () => {
+    it("keeps silent federation enabled in cached canonical login HTML", () => {
+      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+
+      expect(readAuthPageData(getOnboardingHtml()).identitySsoAuto).toBe(true);
+    });
+
+    it("env set → enables silent federation without adding a separate sign-in control", () => {
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
         "https://dispatch.agent-native.com",
       );
       const html = getOnboardingHtml();
-      expect(html).toContain('id="identity-sso-btn"');
-      expect(html).toContain('href="/_agent-native/identity/login"');
-      expect(html).toContain("Sign in with Agent-Native");
+      expect(html).not.toContain('id="identity-sso-btn"');
+      expect(html).not.toContain('href="/_agent-native/identity/login"');
+      expect(html).not.toContain("Sign in with Agent-Native");
+      expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
+      expect(readAuthPageData(html).identitySsoAuto).toBe(false);
       expect(html).toContain("data-agent-native-embedded-init");
       expect(html).toContain(
         'params.get("embedded") === "1" || window.self !== window.top',
       );
-      // Exactly one rendered element — not duplicated across layout branches.
-      expect(html.split('id="identity-sso-btn"').length - 1).toBe(1);
     });
 
-    it("malformed env value is treated as OFF (no button, no throw)", () => {
+    it("malformed hub configuration does not change the auth surface", () => {
       vi.stubEnv("AGENT_NATIVE_IDENTITY_HUB_URL", "not a url");
       const html = getOnboardingHtml();
       expect(html).not.toContain("identity-sso-btn");
+    });
+
+    it("ignores the removed browser SSO request fields", () => {
+      const html = getOnboardingHtml({
+        identitySsoRequestHost: "dispatch.agent-native.com",
+        identitySsoRequestProtocol: "https",
+      });
+
+      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain("Sign in with Agent-Native");
     });
   });
 
@@ -243,9 +297,14 @@ describe("getOnboardingHtml", () => {
       requestOrigin: "https://slides.agent-native.com",
     });
 
-    expect(readAuthPageData(html).appBasePath).toBe("/viteapp");
+    const pageData = readAuthPageData(html);
+    expect(pageData.appBasePath).toBe("/viteapp");
     expect(html).toContain('src="/viteapp/assets/auth-client.js"');
-    expect(html).toContain('src="/viteapp/agent-native-icon-dark.svg"');
+    expect(pageData.brandMarkSrc).toBe("/viteapp/agent-native-icon-dark.svg");
+    expect(pageData.marketing?.screenshotSrc).toBe(
+      "/viteapp/auth-marketing/slides.webp",
+    );
+    expect(html).not.toContain('href="/viteapp/auth-marketing/slides.webp"');
     expect(html).toContain('href="/viteapp/favicon.svg"');
     expect(html).toContain('href="/viteapp/icon-180.svg"');
     expect(html).toContain(
@@ -500,17 +559,23 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("Crear cuenta");
   });
 
-  it("localizes built-in Forms auth marketing copy from the locale picker", () => {
+  it("passes localized Forms auth marketing copy and its product screenshot to React", () => {
     const html = getOnboardingHtml({
       requestHost: "forms.agent-native.com",
     });
 
-    expect(html).toContain('data-marketing-field="tagline"');
-    expect(html).toContain('data-marketing-feature-index="0"');
-    expect(html).toContain("你的 AI 代理会与你一起构建、发布和分析表单。");
-    expect(html).toContain("用一句话创建完整表单");
-    expect(readAuthPageData(html).marketingLocales["zh-CN"]?.tagline).toContain(
+    const pageData = readAuthPageData(html);
+    expect(pageData.marketing).toMatchObject({
+      screenshotSrc: "/auth-marketing/forms.webp",
+      screenshotWidth: 914,
+      screenshotHeight: 818,
+      learnMoreUrl: "https://agent-native.com/apps/forms",
+    });
+    expect(pageData.marketingLocales["zh-CN"]?.tagline).toContain(
       "构建、发布和分析表单",
+    );
+    expect(pageData.marketingLocales["zh-CN"]?.features?.[0]).toContain(
+      "用一句话创建完整表单",
     );
   });
 

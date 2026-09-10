@@ -12,6 +12,13 @@ export type AutomationTemplateId =
 
 export const INTERVAL_MINUTES = [5, 10, 15, 30, 60] as const;
 
+export type FactoryAutomationConnections = {
+  slack: boolean;
+  slackSecondary?: boolean;
+  github: boolean;
+  sentry: boolean;
+};
+
 export type FactoryAutomationFormState = {
   displayName: string;
   source: AutomationSource | null;
@@ -75,7 +82,7 @@ export function formAuthorFilter(
   ids: readonly string[] | undefined,
 ): AutomationAuthorFilter {
   const authorIds = ids ?? [];
-  if (mode === "include" && authorIds.length > 0) return "include";
+  if (mode === "include") return "include";
   if (mode === "exclude" && authorIds.length > 0) return "exclude";
   return "none";
 }
@@ -106,6 +113,257 @@ export function parseDailyTime(value: string): {
 
 export function formatDailyTime(hour: number, minute: number): string {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+export function isDestinationReady(
+  source: AutomationSource | null,
+  connections?: FactoryAutomationConnections,
+  slackWorkspace: "primary" | "secondary" = "primary",
+): boolean {
+  if (!source || !connections) return false;
+  if (source === "slack") {
+    return slackWorkspace === "secondary"
+      ? connections.slackSecondary === true
+      : connections.slack === true;
+  }
+  return connections[source] === true;
+}
+
+export function isConnectorExplicitlyMissing(
+  source: AutomationSource | null,
+  connections?: FactoryAutomationConnections,
+  slackWorkspace: "primary" | "secondary" = "primary",
+): boolean {
+  if (!source || !connections) return false;
+  if (source === "slack") {
+    return slackWorkspace === "secondary"
+      ? connections.slackSecondary === false
+      : connections.slack === false;
+  }
+  return connections[source] === false;
+}
+
+export function isDestinationFilled(
+  form: Pick<
+    FactoryAutomationFormState,
+    | "source"
+    | "slackChannelId"
+    | "repository"
+    | "sentryOrgSlug"
+    | "sentryProjectSlug"
+  >,
+): boolean {
+  if (form.source === "slack") return Boolean(form.slackChannelId.trim());
+  if (form.source === "github") return Boolean(form.repository.trim());
+  if (form.source === "sentry") {
+    return (
+      Boolean(form.sentryOrgSlug.trim()) &&
+      Boolean(form.sentryProjectSlug.trim())
+    );
+  }
+  return false;
+}
+
+/**
+ * List rows store unused destinations as `null`. The save schema is an optional
+ * string, so `null` fails validation. Empty string stays empty (explicit clear).
+ */
+export function omitNullDestination(
+  value: string | null | undefined,
+): string | undefined {
+  return value ?? undefined;
+}
+
+export type AutomationEditorSnapshot = {
+  id: string;
+  name: string;
+  displayName?: string | null;
+  prompt?: string | null;
+  body?: string | null;
+  model?: string | null;
+  schedule?: string | null;
+  enabled?: boolean;
+  source?: AutomationSource | null;
+  template?: AutomationTemplateId | null;
+  slackWorkspace?: "primary" | "secondary" | null;
+  slackChannelId?: string | null;
+  slackChannelName?: string | null;
+  repository?: string | null;
+  sentryOrgSlug?: string | null;
+  sentryProjectSlug?: string | null;
+  sentryEnvironment?: string | null;
+  authorMode?: AutomationAuthorMode | null;
+  authorIds?: readonly string[] | null;
+  authorFilter?: AutomationAuthorFilter | null;
+  scheduleMode?: AutomationScheduleMode | null;
+  intervalMinutes?: number | null;
+  dailyHour?: number | null;
+  dailyMinute?: number | null;
+  timezone?: string | null;
+  inboxLimit?: number | null;
+  workLimit?: number | null;
+  updatedAt?: string | number | null;
+  runs?: unknown;
+  pastRuns?: unknown;
+};
+
+/**
+ * Only fields the server round-trips through `list-factory-automations`. A
+ * client-only field here would never match the saved row, so the editor would
+ * look permanently unsaved and stop accepting server updates.
+ */
+export function automationEditorConfigKey(
+  automation: AutomationEditorSnapshot,
+): string {
+  const scheduleMode = automation.scheduleMode ?? "";
+  return JSON.stringify({
+    id: automation.id,
+    name: automation.name,
+    displayName: automation.displayName ?? "",
+    prompt: automation.prompt ?? automation.body ?? "",
+    model: automation.model ?? "",
+    schedule: automation.schedule ?? "",
+    enabled: Boolean(automation.enabled),
+    source: automation.source ?? "",
+    template: automation.template ?? "",
+    slackWorkspace: automation.slackWorkspace ?? "",
+    slackChannelId: automation.slackChannelId ?? "",
+    slackChannelName: automation.slackChannelName ?? "",
+    repository: automation.repository ?? "",
+    sentryOrgSlug: automation.sentryOrgSlug ?? "",
+    sentryProjectSlug: automation.sentryProjectSlug ?? "",
+    sentryEnvironment: automation.sentryEnvironment ?? "",
+    authorMode: automation.authorMode ?? "",
+    authorIds: automation.authorIds ?? [],
+    scheduleMode,
+    intervalMinutes: automation.intervalMinutes ?? null,
+    dailyHour: automation.dailyHour ?? null,
+    dailyMinute: automation.dailyMinute ?? null,
+    // Save clears the timezone outside daily mode, so an interval draft that
+    // still carries the browser zone must not read as a pending change.
+    timezone: scheduleMode === "daily" ? (automation.timezone ?? "") : "",
+    inboxLimit: automation.inboxLimit ?? null,
+    workLimit: automation.workLimit ?? null,
+  });
+}
+
+export function mergeListedAutomationDraft<T extends AutomationEditorSnapshot>(
+  current: T | null,
+  listed: T,
+  syncedKey: string | null,
+): { draft: T; syncedKey: string } {
+  const nextKey = automationEditorConfigKey(listed);
+  if (!current || current.id !== listed.id) {
+    return { draft: listed, syncedKey: nextKey };
+  }
+  const currentKey = automationEditorConfigKey(current);
+  const dirty = syncedKey != null && currentKey !== syncedKey;
+  if (dirty && currentKey !== nextKey) {
+    return {
+      draft: {
+        ...current,
+        runs: listed.runs,
+        pastRuns: listed.pastRuns,
+        updatedAt: listed.updatedAt,
+      },
+      syncedKey,
+    };
+  }
+  // `authorFilter` is a radio selection, not stored config: Include with no ids
+  // yet has the same saved shape as Everyone, so adopting the row would snap the
+  // radio back while the user is still adding ids.
+  return {
+    draft: {
+      ...listed,
+      authorFilter: current.authorFilter ?? listed.authorFilter,
+    },
+    syncedKey: nextKey,
+  };
+}
+
+type FactoryAutomationConfigQuery = {
+  error?: unknown;
+  data?: {
+    connections?: FactoryAutomationConnections;
+    readinessError?: string | null;
+  };
+};
+
+export function factoryAutomationConnectionsFromConfig(
+  query: FactoryAutomationConfigQuery,
+): FactoryAutomationConnections | undefined {
+  if (query.error || query.data?.readinessError) return undefined;
+  return query.data?.connections;
+}
+
+export function factoryAutomationReadinessFailed(
+  query: FactoryAutomationConfigQuery,
+): boolean {
+  return Boolean(query.error || query.data?.readinessError);
+}
+
+export function canCreateFactoryAutomation(
+  form: FactoryAutomationFormState,
+  connections?: FactoryAutomationConnections,
+): boolean {
+  if (!form.source || !form.displayName.trim()) return false;
+  if (form.authorFilter === "include" && form.authorIds.length === 0) {
+    return false;
+  }
+  if (!isDestinationFilled(form)) return false;
+  if (!form.enabled) return true;
+  return isDestinationReady(form.source, connections, form.slackWorkspace);
+}
+
+export function canSaveFactoryAutomation(
+  form: FactoryAutomationFormState,
+  connections?: FactoryAutomationConnections,
+): boolean {
+  if (!form.displayName.trim()) return false;
+  if (form.authorFilter === "include" && form.authorIds.length === 0) {
+    return false;
+  }
+  if (!form.enabled) return true;
+  return canCreateFactoryAutomation(form, connections);
+}
+
+function stripDispatchLeaf(href: string): string {
+  return href.replace(/\/(?:overview|apps)\/?$/, "");
+}
+
+export function dispatchIntegrationsHref(apps: unknown): string {
+  const list = Array.isArray(apps) ? apps : [];
+  const dispatch = list.find(
+    (entry) =>
+      entry &&
+      typeof entry === "object" &&
+      "isDispatch" in entry &&
+      (entry as { isDispatch?: boolean }).isDispatch === true,
+  ) as
+    | {
+        href?: string | null;
+        url?: string | null;
+        path?: string | null;
+      }
+    | undefined;
+  const raw =
+    dispatch?.href?.trim() ||
+    dispatch?.url?.trim() ||
+    dispatch?.path?.trim() ||
+    "/dispatch";
+  try {
+    const absolute = /^https?:\/\//.test(raw);
+    const url = new URL(raw, "https://workspace.local");
+    const basePath = stripDispatchLeaf(url.pathname).replace(/\/+$/, "");
+    url.pathname = `${basePath || (absolute ? "" : "/dispatch")}/admin/integrations`;
+    url.search = "";
+    url.hash = "";
+    if (absolute) return url.toString();
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    const basePath = stripDispatchLeaf(raw).replace(/\/+$/, "");
+    return `${basePath || "/dispatch"}/admin/integrations`;
+  }
 }
 
 export function timezoneOptions(): string[] {

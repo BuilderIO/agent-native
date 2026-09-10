@@ -3,6 +3,76 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-08
+
+### Fixed
+
+- A second GitHub or Sentry automation no longer flips to Slack, and author filters, destinations, and Run now keep the job you actually saved.
+- The automation editor now shows the saved values after you save, refuses to Run now while edits are unsaved, and says so when the automation you opened no longer exists.
+- Factory automations keep Slack channels and display names after enable, disable, or schedule updates.
+- Tagging @builderio-bot now works for factories whose GitHub repository comes from their automation instead of the factory's own field, and a dispatch that would post to a different repository than the factory is configured for is refused instead of posting there.
+- GitHub polling now looks past a page of filtered-out authors or already-queued items to find the pull requests and issues you asked for, and a run that stopped early is recorded as incomplete with the reason named — more pages remained, the author filter skipped something, or the inbox limit was reached — instead of blaming the author filter for all three.
+- PR governance now accepts the repository configured on the automation, so pull requests polled into the inbox are no longer rejected as out of scope when the factory's own repository field is empty.
+
+## 2026-09-04
+
+### Improved
+
+- Inbox rows now show the GitHub pull request or issue title instead of the first line of its description, and the detail view gives every item a title, a single metadata line, and separated Reason, Evidence, and Log sections so Slack and GitHub items read the same way.
+
+### Fixed
+
+- Audit run rows now show the GitHub pull request or issue title in the collapsible header instead of the first line of its description, and Slack rows keep using the message text because those items have no title of their own.
+- An automation's GitHub author filter now applies when items are polled instead of only when the inbox is read, so pull requests from other authors no longer fill the inbox and consume the item limit ahead of the authors you asked for.
+- PR babysitting now accepts the repository configured on the automation, so pull requests that were polled into the inbox no longer sit unreviewed when the factory's own repository field is empty.
+- The Automations tab still lists Factory jobs after their domain tag is missing.
+- The built-in Factory map can be saved the first time without a stale-version error.
+- Agent view-screen follows the Factory tab you are looking at when more than one is open.
+
+## 2026-09-03
+
+### Fixed
+
+- An AI map save no longer renames the built-in Factory before it has been saved.
+- Disabled Factory automations can clear a saved Slack channel, repository, or Sentry destination again.
+- Slack channel IDs on a Factory automation no longer disappear after Run now.
+
+## 2026-09-02
+
+### Improved
+
+- PR babysitting no longer fills an inbox item with the same “needs attention” line every few minutes. After it asks once, it steps out of the review queue until new human review feedback or a real merge conflict shows up.
+
+### Fixed
+
+- The Automations tab now has one create control, and it stays on screen when chat is open.
+- Creating a factory or automation from chat now opens Inbox or Automations instead of rewriting the map.
+- Factory automations stay listed, savable, runnable, and on schedule after a scheduler run updates their status.
+- PR babysitting now asks Builder when a reviewer leaves body-only feedback, not only inline comments.
+- PR babysitting no longer reopens a parked pull request when the author replies on an existing review thread.
+- PR babysitting now reopens a parked pull request for a new reviewer body, and for a later merge conflict after an earlier one was cleared.
+
+## 2026-09-01
+
+### Fixed
+
+- Deleting a factory now removes its automations, their run history, and polling cursors so leftover jobs cannot keep running.
+- PR babysitting posts one ask to Builder and does not poke again when GitHub finishes mergeability or the bot pushes a commit.
+
+## 2026-08-31
+
+### Improved
+
+- Audit runs now show what was added to the inbox, what the job worked on, and which actions it took.
+
+### Fixed
+
+- The connect banner now opens the workspace Dispatch host, and a vault outage no longer looks like a missing Slack connection.
+- Creating or editing a Slack, GitHub, or Sentry job now shows a Dispatch connect banner above Run when that source is missing, and Create stays off until the channel, repo, or Sentry slugs are filled.
+- Creating a Slack, GitHub, or Sentry job now works when the token is already in the vault, not only when Dispatch Integrations is connected.
+- You can disable a Slack, GitHub, or Sentry job even when that connector is missing or the vault is down.
+- Inbox and Audit stay usable when a connector lookup fails, and disabled job drafts can still set a destination.
+
 ## 2026-08-29
 
 ### Added

@@ -3,6 +3,49 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-09
+
+### Improved
+
+- Account avatars use a slimmer border.
+
+### Fixed
+
+- Select the first top label by default on open, cycle labels with Tab from anywhere, and eliminate skeleton flicker on label change
+
+## 2026-09-08
+
+### Improved
+
+- Login pages use the same mouse-reactive wave background as the docs and booking experiences.
+
+### Fixed
+
+- Mail renders Gmail signature email and social links correctly
+
+## 2026-09-04
+
+### Fixed
+
+- Mail sidebar remains toggleable while agent chat is open.
+
+## 2026-09-03
+
+### Improved
+
+- Faster Mail screen previews
+- Mail keeps Gmail labels and agent-created drafts in sync with the inbox.
+
+### Fixed
+
+- Mail filters exclude archived messages, Tab navigation no longer reloads the page, and inbox tabs open faster.
+
+## 2026-09-02
+
+### Improved
+
+- Mail now links pasted URLs, offers a combined inbox, and restores recipient contact autocomplete.
+
 ## 2026-08-28
 
 ### Fixed

@@ -43,6 +43,7 @@ import {
   getPenPathGeometry,
   hitTestPenAnchor,
   hitTestPenHandle,
+  isClosedPathData,
   isPenCloseTarget,
   movePenAnchor,
   movePenHandle,
@@ -58,6 +59,7 @@ import {
   IconCopy,
   IconDots,
   IconHandClick,
+  IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -87,10 +89,10 @@ import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
 import { parseBreakpointWidthInput } from "./BreakpointBar";
+import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import {
   canvasPrimitiveReactStyle,
-  DEFAULT_LINE_STROKE,
-  DEFAULT_LINE_STROKE_WIDTH_PX,
+  canvasVectorPaint,
 } from "./canvas-primitive-style";
 import {
   CONTENT_SIZE_REPORT_MESSAGE_TYPE,
@@ -146,6 +148,10 @@ import { type ElementInfo, type PortableStyleSnapshot } from "./types";
  * resizable frame inside an infinite, pannable surface.
  */
 const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
+/** The board layers sit inside the canvas container, which redefines this var
+ *  when the design stores a colour — so reading it live is what keeps every
+ *  board layer the same colour as the canvas around it. */
+const CANVAS_BACKGROUND_VAR = "var(--design-editor-canvas-bg)";
 const SCREEN_HEIGHT = 640;
 const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
@@ -224,7 +230,6 @@ function hasScreenChildLayers(content: string): boolean {
 }
 
 import {
-  BOARD_SURFACE_BACKGROUND,
   getBoardContentKey,
   getBoardContentLayerSignature,
   getBoardSurfaceContentBounds,
@@ -360,6 +365,7 @@ import {
 } from "./multi-screen/drill-in";
 import {
   angleBetween,
+  BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
   cloneFrameGeometryById,
   deviceViewportFloorForWidth,
@@ -409,6 +415,7 @@ import {
   accumulateZoomFactor,
   clampZoomFactor,
   normalizeWheelDeltaPx,
+  panAfterSurfaceLeftShift,
   resolveExternalZoomAnchor,
   resolveZoomGestureDevice,
   type ZoomGestureDevice,
@@ -521,6 +528,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   selectAllRequest,
   clearSelectionRequest,
   onAddBreakpoint,
+  breakpointMutationPending = false,
   onActiveBreakpointChange,
   onRemoveBreakpoint,
   onChangeBreakpointWidth,
@@ -530,6 +538,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   selectedLayerSelectorGroupsByScreen = EMPTY_SELECTED_LAYER_SELECTOR_GROUPS_BY_SCREEN,
   onCrossScreenElementDrop,
   boardFileId,
+  canvasBackground,
   boardFileContent,
   boardFrameGeometry,
   onBoardDrawPrimitive,
@@ -683,17 +692,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       height: surfaceSize.height / scale,
     };
   }, [canvasZoom, pan.x, pan.y, surfaceSize.height, surfaceSize.width]);
-  // The board iframe cannot read the host's CSS vars, so the themed canvas
-  // colour has to be resolved out here or the board stays dark in light mode.
-  const boardSurfaceBackground = useMemo(() => {
-    if (typeof window === "undefined") return BOARD_SURFACE_BACKGROUND;
-    const themed = window
-      .getComputedStyle(document.documentElement)
-      .getPropertyValue("--design-editor-canvas-bg")
-      .trim();
-    return themed || BOARD_SURFACE_BACKGROUND;
-  }, [resolvedTheme]);
-
   const boardSurfaceRenderGeometry = useMemo(() => {
     if (!boardFrameGeometry) return undefined;
     const focusGeometry = boardSurfaceFocusPoint
@@ -742,16 +740,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       return null;
     }
     return getBoardSurfaceStaticPreviewContent({
+      darkScheme: resolvedTheme === "dark",
       html: boardSurfaceHtml,
       logicalGeometry: boardFrameGeometry,
       viewport: boardStaticPreviewViewport,
-      background: boardSurfaceBackground,
     });
   }, [
     boardSurfaceHtml,
     boardFrameGeometry,
     boardStaticPreviewViewport,
-    boardSurfaceBackground,
+    resolvedTheme,
   ]);
   const showBoardStaticPreview = Boolean(
     boardFrameGeometry &&
@@ -1124,6 +1122,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // placeholders for live iframes one frame later — a visible cold-open flash.
   // The synchronous layout measurement keeps the first painted overview on
   // the correct culling tier while ResizeObserver owns later size changes.
+  //
+  // Also: when the left chrome opens/closes (or minimal mode toggles), the
+  // surface's left edge moves while its width changes. Without compensating
+  // pan.x by that left-edge delta, every board item appears to slide with the
+  // chrome. Keep world content fixed in viewport/monitor coordinates.
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
@@ -1137,6 +1140,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
     const rect = surface.getBoundingClientRect();
     updateSize(rect.width, rect.height);
+    let lastLeft = rect.left;
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -1148,6 +1152,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const contentRect = entry.contentRect;
         updateSize(contentRect.width, contentRect.height);
       }
+      const nextLeft = surface.getBoundingClientRect().left;
+      const deltaLeft = nextLeft - lastLeft;
+      lastLeft = nextLeft;
+      if (deltaLeft === 0) return;
+      panRef.current = panAfterSurfaceLeftShift(panRef.current, deltaLeft);
+      applyViewToDomRef.current();
+      // Keep React pan state in lockstep so the next committed gesture does
+      // not snap back to the pre-compensation value.
+      setPan(panRef.current);
     });
     observer.observe(surface);
     return () => observer.disconnect();
@@ -6985,6 +6998,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       claimKeyboardFocus();
       // Clear any stale pick-suppression left over from a prior resize/rotate/move
       // gesture that never received its trailing frame click — otherwise it would
@@ -8542,7 +8556,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 pointerEvents: "none",
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
-                background: BOARD_SURFACE_BACKGROUND,
+                background: CANVAS_BACKGROUND_VAR,
               }}
             />
           </div>
@@ -8567,8 +8581,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             });
             const boardLayerSignature =
               getBoardContentLayerSignature(boardFileContent);
-            const boardRenderContent =
-              getBoardSurfaceRenderContent(boardFileContent);
+            const boardRenderContent = getBoardSurfaceRenderContent(
+              boardFileContent,
+              resolvedTheme === "dark",
+            );
             return (
               // Overflow-hidden wrapper so the board iframe never bleeds outside
               // its declared logical surface. z-index 0 keeps it below screen
@@ -8579,10 +8595,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 // this layer's pointer events imperatively during a wheel
                 // gesture, exactly like the [data-screen-content] wrappers.
                 data-board-surface-layer
-                style={getBoardSurfaceLayerStyle({
-                  geometry: boardGeo,
-                  interactive: boardSurfaceInteractive,
-                })}
+                style={{
+                  ...getBoardSurfaceLayerStyle({
+                    geometry: boardGeo,
+                    interactive: boardSurfaceInteractive,
+                  }),
+                  // The live colour is painted here, behind a transparent
+                  // board document. Inside the document it would be part of
+                  // the srcdoc, so every colour-picker tick would rebuild the
+                  // iframe; out here it is a CSS change and updates instantly.
+                  background: CANVAS_BACKGROUND_VAR,
+                }}
               >
                 <DesignCanvas
                   content={boardRenderContent}
@@ -8593,7 +8616,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   zoom={100}
                   deviceFrame="none"
                   boardSurface
-                  embeddedFrameBackground={boardSurfaceBackground}
+                  // Transparent on purpose: the wrapper above paints the
+                  // board. A colour here lands after BOARD_SURFACE_RENDER_STYLE
+                  // in the head and, being !important too, would win and cover
+                  // the live colour with a stale one.
+                  transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),
@@ -8713,6 +8740,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               // instead of a fresh per-screen closure allocated on every
               // MultiScreenCanvas render, which used to defeat memo(Screen).
               onAddBreakpoint={onAddBreakpoint}
+              breakpointMutationPending={breakpointMutationPending}
               onActiveBreakpointChange={onActiveBreakpointChange}
               onRemoveBreakpoint={onRemoveBreakpoint}
               onChangeBreakpointWidth={onChangeBreakpointWidth}
@@ -9339,13 +9367,15 @@ function DraftPrimitiveContent({
       (draft.penPath
         ? serializePenPath(draft.penPath)
         : pointsToPath(draft.points ?? []));
-    // Figma parity: a freshly drawn line/arrow/pen path defaults to solid
-    // black at 1px (DEFAULT_LINE_STROKE / DEFAULT_LINE_STROKE_WIDTH_PX in
-    // canvas-primitive-style.ts), matching the committed board-file output
-    // and DesignEditor's appendCanvasPrimitiveToHtml. The arrowhead marker's
-    // fill is set to this same resolved stroke color (not `currentColor`) so
-    // it never disagrees with the shaft when a custom stroke is chosen.
-    const resolvedStroke = draft.stroke ?? DEFAULT_LINE_STROKE;
+    const paint = canvasVectorPaint({
+      closed: isClosedPathData(pathData),
+      fill: draft.fill,
+      stroke: draft.stroke,
+      strokeWidth: draft.strokeWidth,
+    });
+    // The arrowhead marker takes the resolved stroke color (not
+    // `currentColor`) so it never disagrees with the shaft.
+    const resolvedStroke = paint.stroke;
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
@@ -9368,11 +9398,11 @@ function DraftPrimitiveContent({
         ) : null}
         <path
           d={pathData}
-          fill="none"
+          fill={paint.fill}
           stroke={resolvedStroke}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth={draft.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX}
+          strokeWidth={paint.strokeWidth}
           markerEnd={draft.kind === "arrow" ? `url(#${markerId})` : undefined}
         />
       </svg>
@@ -9421,6 +9451,12 @@ function DraftPrimitiveContent({
   }
 
   if (draft.kind === "polygon" || draft.kind === "star") {
+    const polygonPaint = canvasVectorPaint({
+      closed: true,
+      fill: draft.fill,
+      stroke: draft.stroke,
+      strokeWidth: draft.strokeWidth,
+    });
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
@@ -9435,10 +9471,10 @@ function DraftPrimitiveContent({
             draft.geometry.width,
             draft.geometry.height,
           )}
-          fill={draft.fill ?? "hsl(var(--primary) / 0.12)"}
-          stroke={draft.stroke ?? "hsl(var(--primary))"}
+          fill={polygonPaint.fill}
+          stroke={polygonPaint.stroke}
           strokeLinejoin="round"
-          strokeWidth={draft.strokeWidth ?? 1.5}
+          strokeWidth={polygonPaint.strokeWidth}
         />
       </svg>
     );
@@ -10074,6 +10110,7 @@ interface ScreenProps {
   // onAddBreakpoint is design-scoped and takes no screen id at all — see its
   // doc on MultiScreenCanvasProps.
   onAddBreakpoint?: (widthPx: number) => void;
+  breakpointMutationPending?: boolean;
   onActiveBreakpointChange?: (
     screenId: string,
     widthPx: number | undefined,
@@ -10127,6 +10164,7 @@ const Screen = memo(function Screen({
   renderBreakpointContent,
   cullTier,
   onAddBreakpoint,
+  breakpointMutationPending = false,
   onActiveBreakpointChange,
   onRemoveBreakpoint,
   onChangeBreakpointWidth,
@@ -10294,7 +10332,7 @@ const Screen = memo(function Screen({
             maxWidth: labelInfoMaxWidth,
             transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
             transformOrigin: "left center",
-            transition: getChromeLabelTransition(),
+            transition: getChromeLabelTransition(chromeSettling),
           }}
         >
           {/* B5-3: the leading dot/bullet before the screen label was pure
@@ -10366,7 +10404,7 @@ const Screen = memo(function Screen({
             maxWidth: fullViewMaxWidth,
             transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
             transformOrigin: "right center",
-            transition: getChromeLabelTransition(),
+            transition: getChromeLabelTransition(chromeSettling),
           }}
           aria-label={frameActionLabel}
           title={frameActionLabel}
@@ -10443,7 +10481,9 @@ const Screen = memo(function Screen({
         }}
         onMouseLeave={() => updateDirectHover(false)}
         className={cn(
-          "group/artboard relative block overflow-visible rounded-lg bg-background text-left outline-none transition-colors",
+          // Square corners: a screen is a page, and a rounded card implies a
+          // corner radius the exported document does not have.
+          "group/artboard relative block overflow-visible bg-background text-left outline-none transition-colors",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           emphasized
             ? "text-foreground"
@@ -10628,6 +10668,7 @@ const Screen = memo(function Screen({
               : undefined
           }
           onAddBreakpoint={onAddBreakpoint}
+          breakpointMutationPending={breakpointMutationPending}
           onRemoveBreakpoint={
             onRemoveBreakpoint
               ? (widthPx) => onRemoveBreakpoint(screen.id, widthPx)
@@ -10707,6 +10748,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     // per-screen arrow allocated in the render loop, so these are expected
     // to be referentially stable across renders and are safe to compare.
     prev.onAddBreakpoint === next.onAddBreakpoint &&
+    prev.breakpointMutationPending === next.breakpointMutationPending &&
     prev.onActiveBreakpointChange === next.onActiveBreakpointChange &&
     prev.onRemoveBreakpoint === next.onRemoveBreakpoint &&
     prev.onChangeBreakpointWidth === next.onChangeBreakpointWidth &&
@@ -10765,6 +10807,7 @@ function BreakpointPreviewRow({
   onStartFrameDrag,
   onActiveBreakpointChange,
   onAddBreakpoint,
+  breakpointMutationPending = false,
   onRemoveBreakpoint,
   onChangeBreakpointWidth,
   onEditBreakpoint,
@@ -10821,6 +10864,7 @@ function BreakpointPreviewRow({
   onStartFrameDrag?: (id: string, e: React.MouseEvent) => void;
   onActiveBreakpointChange?: (widthPx: number | undefined) => void;
   onAddBreakpoint?: (widthPx: number) => void;
+  breakpointMutationPending?: boolean;
   /** Item 8b — "…" menu "Remove" for one breakpoint frame. */
   onRemoveBreakpoint?: (widthPx: number) => void;
   /** Item 8b — "…" menu "Change width" for one breakpoint frame. */
@@ -10961,7 +11005,7 @@ function BreakpointPreviewRow({
                 style={{
                   transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
                   transformOrigin: "left center",
-                  transition: getChromeLabelTransition(),
+                  transition: getChromeLabelTransition(chromeSettling),
                 }}
               >
                 <span
@@ -11073,12 +11117,21 @@ function BreakpointPreviewRow({
                       {onRemoveBreakpoint ? (
                         <DropdownMenuItem
                           className="h-7 px-2 py-0 !text-[12px] text-destructive focus:text-destructive"
+                          disabled={breakpointMutationPending}
                           onSelect={() => {
+                            if (breakpointMutationPending) return;
                             setMenuOpenForWidth(null);
                             onRemoveBreakpoint(widthPx);
                           }}
                         >
-                          {t("designEditor.breakpointBar.remove")}
+                          {breakpointMutationPending ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <IconLoader2 className="size-3 animate-spin" />
+                              {t("designEditor.breakpointBar.remove")}
+                            </span>
+                          ) : (
+                            t("designEditor.breakpointBar.remove")
+                          )}
                         </DropdownMenuItem>
                       ) : null}
                     </DropdownMenuContent>
@@ -11095,7 +11148,7 @@ function BreakpointPreviewRow({
               tabIndex={0}
               data-screen-card
               className={cn(
-                "group/artboard relative block cursor-pointer overflow-visible rounded-lg bg-background text-left outline-none transition-colors",
+                "group/artboard relative block cursor-pointer overflow-visible bg-background text-left outline-none transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               )}
               style={{ width: frameWidth, height: frameHeight }}
@@ -11255,8 +11308,13 @@ function BreakpointPreviewRow({
           // at FRAME_LABEL_HEIGHT * chromeScale below the wrapper top (see
           // the top: 0 + scaled-label-row comment above), and the button
           // itself is size-7 (28px), so subtract half of that.
+          //
+          // Gap: offsetX already includes BREAKPOINT_FRAME_GAP after the last
+          // card, then add a chrome-scaled inset so the constant-size "+" never
+          // sits flush against the frame edge at any zoom. transformOrigin is
+          // left-center so chromeScale grows the button away from the frame.
           style={{
-            left: offsetX,
+            left: offsetX + BREAKPOINT_ADD_BUTTON_GAP_PX * chromeScale,
             top:
               FRAME_LABEL_HEIGHT * chromeScale +
               primaryGeometry.height / 2 -
@@ -11266,13 +11324,16 @@ function BreakpointPreviewRow({
         >
           <button
             type="button"
+            disabled={breakpointMutationPending}
+            aria-busy={breakpointMutationPending || undefined}
             className={cn(
               "flex size-7 items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-sm transition-colors",
               "hover:border-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+              breakpointMutationPending && "opacity-70",
             )}
             style={{
               transform: `scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-              transformOrigin: "center",
+              transformOrigin: "left center",
             }}
             // Says "to all screens" because that is what it does: a design has
             // one breakpoint set, so this is not scoped to the frame it renders
@@ -11284,10 +11345,15 @@ function BreakpointPreviewRow({
             })}
             onClick={(e) => {
               e.stopPropagation();
+              if (breakpointMutationPending) return;
               onAddBreakpoint(nextWidth);
             }}
           >
-            <IconPlus className="size-3.5" />
+            {breakpointMutationPending ? (
+              <IconLoader2 className="size-3.5 animate-spin" />
+            ) : (
+              <IconPlus className="size-3.5" />
+            )}
           </button>
         </div>
       ) : null}
@@ -11427,7 +11493,6 @@ function PassiveSelectionBox({
         top: SURFACE_PADDING + geometry.y,
         width: geometry.width,
         height: geometry.height,
-        borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
         transition: getSelectionBoxTransition(chromeSettling),
         transform: geometry.rotation
@@ -11492,7 +11557,6 @@ function SelectionBox({
         background: filled
           ? "var(--design-editor-selection-color)"
           : "transparent",
-        borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
         transition: getSelectionBoxTransition(chromeSettling),
         transform: geometry.rotation

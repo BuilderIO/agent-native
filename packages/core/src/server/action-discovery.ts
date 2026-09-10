@@ -234,6 +234,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
+  if (typeof entry.endsTurn === "boolean") {
+    out.endsTurn = entry.endsTurn;
+  }
   if (typeof entry.dedupe === "boolean") {
     out.dedupe = entry.dedupe;
   }
@@ -680,6 +683,10 @@ export async function mergeCoreSharingActions(
       () => import("../email-catalog/actions/list-email-log.js"),
     ],
     [
+      "get-email-log-body",
+      () => import("../email-catalog/actions/get-email-log-body.js"),
+    ],
+    [
       "list-email-activity",
       () => import("../email-catalog/actions/list-email-activity.js"),
     ],
@@ -711,6 +718,14 @@ export async function mergeCoreSharingActions(
       "set-feature-flag",
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
+    [
+      "get-experiments",
+      () => import("../experiments/actions/get-experiments.js"),
+    ],
+    [
+      "set-experiment",
+      () => import("../experiments/actions/set-experiment.js"),
+    ],
     // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
     // recurring jobs and personal automations. The agent-facing native tools
     // remain the canonical conversational surface.
@@ -737,6 +752,10 @@ export async function mergeCoreSharingActions(
     [
       "list-automations",
       () => import("../triggers/actions/list-automations.js"),
+    ],
+    [
+      "list-automation-events",
+      () => import("../triggers/actions/list-automation-events.js"),
     ],
     [
       "manage-automation",

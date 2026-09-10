@@ -2,6 +2,13 @@ import type {
   AgentLoopFinalResponseGuardContext,
   AgentLoopFinalResponseGuardResult,
 } from "@agent-native/core/server";
+import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
+
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
+import {
+  isRepromptSelectionMessage,
+  isSelectionQuestionMessage,
+} from "./reprompt-action-guard.js";
 
 const DESIGN_MUTATION_ACTIONS = new Set([
   "apply-a11y-fix",
@@ -31,11 +38,21 @@ const DESIGN_MUTATION_ACTIONS = new Set([
 ]);
 
 const DESIGN_MUTATION_VERBS =
-  /\b(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|polish|place|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i;
+  /\b(?:add|adding|adjust|adjusting|align|aligning|apply|applying|build|building|change|changing|clean|cleaning|create|creating|decrease|decreasing|delete|deleting|design|designing|duplicate|duplicating|edit|editing|enhance|enhancing|fix|fixing|generate|generating|improve|improving|import|importing|increase|increasing|insert|inserting|make|making|modify|modifying|move|moving|polish|polishing|place|placing|reduce|reducing|refine|refining|remove|removing|replace|replacing|resize|resizing|restyle|restyling|rework|reworking|tune|tuning|update|updating)\b/i;
 const DESIGN_MUTATION_OBJECTS =
-  /\b(?:animation|animations|asset|background|behavior|behaviors|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|interaction|interactions|it|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|states|style|styles|text|this|theme|transition|transitions|typography|variant|version|width|wireframe)\b/i;
+  /\b(?:(?:animation|asset|background|behavior|border|button|canvas|card|color|component|design|file|footer|font|gap|header|height|hero|image|interaction|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|style|text|theme|transition|typography|variant|version|visual|width|wireframe)s?|it|this)\b/i;
 const DESIGN_ADVISORY_WORDS =
-  /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|thoughts?)\b/i;
+  /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|teach(?:ing)?|tip|tips|thoughts?|tutorials?)\b/i;
+const DESIGN_TEST_REQUEST =
+  /\bvisual(?:[\s-]+(?:regression|snapshot))?(?:[\s-]+(?:and|or|plus|&)[\s-]+(?:visual[\s-]+)?(?:regression|snapshot))?(?:[\s-]+(?:test|tests|testing|suite|suites)|[\s-]+snapshots?)\b/i;
+const DESIGN_TEST_TARGET_PREPOSITIONS =
+  /^(?:\s*(?:[,.!?;:]|[-–—])*\s*)(?:for|of|on|in|against|with|using)\b/i;
+const DESIGN_TEST_CLAUSE_BOUNDARY =
+  /[.!?,;]|(?<!\w)[-–—](?!\w)|\b(?:and|also|but|then|after(?:\s+that)?|afterwards?|subsequently|before|while|followed\s+by)\b/gi;
+const DESIGN_TEST_TARGET_DESCRIPTOR = new RegExp(
+  `^\\s*(?:(?:a|an|the|another|new)\\s+)?(?:[\\w-]+\\s+)*${DESIGN_MUTATION_OBJECTS.source}\\s*$`,
+  "i",
+);
 const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
 const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
 const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
@@ -314,6 +331,108 @@ function removeAdvisorySkillsClauses(text: string): string {
   return parts.join("");
 }
 
+function removeDesignTestRequests(text: string): string {
+  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but|or)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source}|(?<!\\w)[-–—](?!\\w)|[.!?]|[,;](?=\\s+(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source})|$`;
+  const mutationVerbs = new RegExp(DESIGN_MUTATION_VERBS.source, "gi");
+  const testRequests = new RegExp(DESIGN_TEST_REQUEST.source, "gi");
+  const targetSuffix = new RegExp(
+    `${DESIGN_TEST_TARGET_PREPOSITIONS.source}[^.!?]*?(?=${mutationClauseBoundary})`,
+    "i",
+  );
+  const sharedObjectPattern = new RegExp(
+    `(?:^|\\s)(?:and|plus|&)\\s+(?:[\\w-]+\\s+)*?(${DESIGN_MUTATION_OBJECTS.source})(?=\\s|$|[,.!?;])`,
+    "gi",
+  );
+  const removals: Array<[number, number]> = [];
+
+  for (const match of text.matchAll(testRequests)) {
+    const testStart = match.index ?? 0;
+    const testEnd = testStart + match[0].length;
+    const prefix = text.slice(0, testStart);
+    const boundaries = [...prefix.matchAll(DESIGN_TEST_CLAUSE_BOUNDARY)].filter(
+      (boundary) => {
+        const boundaryStart = boundary.index ?? 0;
+        const boundaryEnd = boundaryStart + boundary[0].length;
+        return (
+          !/\band\b/i.test(boundary[0]) ||
+          !DESIGN_TEST_TARGET_DESCRIPTOR.test(prefix.slice(boundaryEnd))
+        );
+      },
+    );
+    const lastBoundary = boundaries[boundaries.length - 1];
+    const clauseStart = lastBoundary
+      ? (lastBoundary.index ?? 0) + lastBoundary[0].length
+      : 0;
+    const precedingVerbs = [
+      ...prefix.slice(clauseStart).matchAll(mutationVerbs),
+    ];
+    const precedingVerb = precedingVerbs[precedingVerbs.length - 1];
+    const precedingVerbStart = precedingVerb
+      ? clauseStart + (precedingVerb.index ?? 0)
+      : testStart;
+    const precedingVerbEnd =
+      precedingVerbStart + (precedingVerb?.[0].length ?? 0);
+    const precedingText = text.slice(precedingVerbEnd, testStart);
+    const hasDesignObjectBeforeTest = precedingVerb
+      ? DESIGN_MUTATION_OBJECTS.test(precedingText) &&
+        !DESIGN_TEST_TARGET_DESCRIPTOR.test(precedingText)
+      : false;
+    const afterTest = text.slice(testEnd);
+    const sharedObject = [...afterTest.matchAll(sharedObjectPattern)].find(
+      (match) => {
+        const matchStart = match.index ?? 0;
+        const object = match[1] ?? "";
+        const hasMutationDeterminer =
+          /\b(?:a|an|another|new|some|any|one|two|three)\b/i.test(match[0]);
+        return (
+          !/[,;]/.test(afterTest.slice(0, matchStart)) &&
+          !DESIGN_TEST_REQUEST.test(afterTest.slice(matchStart)) &&
+          (hasMutationDeterminer ||
+            !/\b(?:for|of|on|in|against|with|using)\b/i.test(
+              afterTest.slice(0, matchStart),
+            )) &&
+          !/^(?:it|this)$/i.test(object) &&
+          DESIGN_MUTATION_OBJECTS.test(object)
+        );
+      },
+    );
+    const hasSharedDesignObject = sharedObject !== undefined;
+    let removalEnd = testEnd;
+    if (!hasSharedDesignObject) {
+      const target = targetSuffix.exec(afterTest);
+      if (target) removalEnd += target[0].length;
+    }
+    removals.push([
+      precedingVerb && !hasDesignObjectBeforeTest && !hasSharedDesignObject
+        ? precedingVerbStart
+        : testStart,
+      removalEnd,
+    ]);
+  }
+
+  if (removals.length === 0) return text;
+
+  removals.sort((left, right) => left[0] - right[0]);
+  const mergedRemovals: Array<[number, number]> = [];
+  for (const [start, end] of removals) {
+    const previous = mergedRemovals[mergedRemovals.length - 1];
+    if (previous && start <= previous[1]) {
+      previous[1] = Math.max(previous[1], end);
+    } else {
+      mergedRemovals.push([start, end]);
+    }
+  }
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const [start, end] of mergedRemovals) {
+    parts.push(text.slice(cursor, start), " ");
+    cursor = end;
+  }
+  parts.push(text.slice(cursor));
+  return parts.join("");
+}
+
 export function looksLikeDesignMutationRequest(text: string): boolean {
   const normalized = text.trim();
   if (!normalized) return false;
@@ -326,6 +445,15 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   if (/\bhow\s+to\b/i.test(normalized)) return false;
 
   const mutationText = removeAdvisorySkillsClauses(normalized);
+  if (DESIGN_TEST_REQUEST.test(mutationText)) {
+    const remainingMutationText = removeDesignTestRequests(mutationText);
+    if (
+      !DESIGN_MUTATION_VERBS.test(remainingMutationText) ||
+      !DESIGN_MUTATION_OBJECTS.test(remainingMutationText)
+    ) {
+      return false;
+    }
+  }
 
   const advisoryMatch = DESIGN_ADVISORY_WORDS.exec(mutationText);
   if (advisoryMatch) {
@@ -348,6 +476,26 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   );
 }
 
+/**
+ * Every app-authored generation directive block names mutating actions, so
+ * only the user's own words decide intent unless the attached context states
+ * outright that this turn has to persist something.
+ */
+function requiresPersistedDesignOutput(composedRequest: string): boolean {
+  const { message, context } =
+    splitAgentChatContextFromMessage(composedRequest);
+  // Preview and read-only turns are marked in the attached context, never in
+  // the instruction, which reads like any other edit request on its own.
+  if (
+    isRepromptSelectionMessage(context) ||
+    isSelectionQuestionMessage(context)
+  ) {
+    return false;
+  }
+  if (context.includes(DESIGN_MUTATION_REQUIRED_DIRECTIVE)) return true;
+  return looksLikeDesignMutationRequest(message);
+}
+
 export function designFinalResponseGuard(
   context: AgentLoopFinalResponseGuardContext,
 ): AgentLoopFinalResponseGuardResult | null {
@@ -355,7 +503,7 @@ export function designFinalResponseGuard(
 
   const requestText =
     context.requestText?.trim() || latestUserText(context.messages);
-  if (!looksLikeDesignMutationRequest(requestText)) return null;
+  if (!requiresPersistedDesignOutput(requestText)) return null;
   if (hasSuccessfulMutation(context.toolResults)) return null;
 
   return {

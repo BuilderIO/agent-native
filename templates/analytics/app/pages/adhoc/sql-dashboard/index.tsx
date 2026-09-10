@@ -34,6 +34,7 @@ import {
   type DragStartEvent,
   type CollisionDetection,
 } from "@dnd-kit/core";
+import { normalizeDashboardConfig } from "@shared/dashboard-config-normalization";
 import {
   IconArchive,
   IconArrowBackUp,
@@ -732,9 +733,10 @@ function SqlDashboardPageContent({
     mutateAsync: certifyDashboardAction,
     isPending: certificationPending,
   } = useActionMutation("certify-dashboard");
-  const { data: dashboardRevisions } = useDashboardRevisions(
-    !reportScreenshot && dashboardId ? dashboardId : null,
-  );
+  const { data: dashboardRevisions, refetch: refetchDashboardRevisions } =
+    useDashboardRevisions(dashboardId ?? null, {
+      enabled: !reportScreenshot && (dashboardActionsOpen || historyOpen),
+    });
   const restoreDashboardRevision = useRestoreDashboardRevision(
     dashboardId ?? "",
   );
@@ -893,7 +895,9 @@ function SqlDashboardPageContent({
       const raw = ytext.toJSON();
       if (!raw) return;
       try {
-        const parsed = JSON.parse(raw) as SqlDashboardConfig;
+        const parsed = normalizeDashboardConfig(
+          JSON.parse(raw) as Record<string, unknown>,
+        ) as unknown as SqlDashboardConfig;
         if (parsed && Array.isArray(parsed.panels)) {
           if (!revisionRestoreInFlightRef.current) {
             resetRevisionNavigation();
@@ -1155,6 +1159,9 @@ function SqlDashboardPageContent({
           queryClient.removeQueries({
             queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
           });
+          queryClient.removeQueries({
+            queryKey: ["dashboard-revisions", dashboardId, dashboardScope],
+          });
           void queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-sidebar", dashboardScope],
           });
@@ -1207,6 +1214,9 @@ function SqlDashboardPageContent({
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
+      queryClient.removeQueries({
+        queryKey: ["dashboard-revisions", dashboardId, dashboardScope],
+      });
       void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
@@ -1234,21 +1244,23 @@ function SqlDashboardPageContent({
     if (
       !dashboardId ||
       !canEdit ||
-      !canUndo ||
-      restoreDashboardRevision.isPending
+      restoreDashboardRevision.isPending ||
+      revisionRestoreInFlightRef.current
     ) {
       return;
     }
 
-    const revisions = dashboardRevisions ?? [];
-    const targetIndex =
-      undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
-    const targetRevision = revisions[targetIndex];
-    if (!targetRevision) return;
-
     revisionRestoreInFlightRef.current = true;
-    holdDashboardConfig();
     try {
+      const revisions =
+        dashboardRevisions ?? (await refetchDashboardRevisions()).data;
+      if (!revisions?.length) return;
+      const targetIndex =
+        undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
+      const targetRevision = revisions[targetIndex];
+      if (!targetRevision) return;
+
+      holdDashboardConfig();
       const restored = await restoreDashboardRevision.mutateAsync({
         dashboardId,
         revisionId: targetRevision.id,
@@ -1273,12 +1285,12 @@ function SqlDashboardPageContent({
     }
   }, [
     canEdit,
-    canUndo,
     dashboardId,
     dashboardRevisions,
     dashboardUpdatedAt,
     holdDashboardConfig,
     restoreDashboardRevision,
+    refetchDashboardRevisions,
     resetRevisionNavigation,
     t,
     undoRevisionId,
@@ -1349,7 +1361,10 @@ function SqlDashboardPageContent({
       ) {
         return;
       }
-      const canHandle = event.shiftKey ? canRedo : canUndo;
+      const canHandle = event.shiftKey
+        ? canRedo
+        : canUndo ||
+          (canEdit && !!dashboardId && dashboardRevisions === undefined);
       if (!canHandle || restoreDashboardRevision.isPending) return;
       event.preventDefault();
       void (event.shiftKey ? handleRedo() : handleUndo());
@@ -1360,6 +1375,9 @@ function SqlDashboardPageContent({
   }, [
     canUndo,
     canRedo,
+    canEdit,
+    dashboardId,
+    dashboardRevisions,
     handleRedo,
     handleUndo,
     reportScreenshot,
@@ -1912,7 +1930,7 @@ function SqlDashboardPageContent({
               tabs: [
                 {
                   value: "context",
-                  label: "Context",
+                  label: t("creativeContext.share.tabLabel"),
                   content: (
                     <CreativeContextShareTab
                       resource={{

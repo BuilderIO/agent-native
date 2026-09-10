@@ -671,7 +671,7 @@ export function CreateAppPopover({
       <PopoverContent
         align={align}
         sideOffset={10}
-        className="w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
+        className="relative w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
       >
         <CreateAppFlow onClose={() => setOpen(false)} onCreated={onCreated} />
       </PopoverContent>

@@ -9,6 +9,7 @@ import {
   DOCS_LOCALES,
   localizeDocsHref,
   localizeDocsMarkdownLinks,
+  localizeSiteHref,
   sitePathForLocale,
 } from "./docs-locale";
 
@@ -104,6 +105,12 @@ describe("localizeDocsHref", () => {
     );
   });
 
+  it("preserves an explicit default-locale guide link", () => {
+    expect(localizeDocsHref("/docs/en-US/server-database", "fr-FR")).toBe(
+      "/docs/server-database/",
+    );
+  });
+
   // A query would otherwise be read as part of the slug and end up inside the
   // path, as `/docs/client-data?tab=api/`.
   it("keeps a query string after the trailing slash", () => {
@@ -179,6 +186,23 @@ describe("localizeDocsMarkdownLinks", () => {
     expect(localizeDocsMarkdownLinks("use `[a](/docs/x)` here", "en-US")).toBe(
       "use `[a](/docs/x)` here",
     );
+  });
+});
+
+describe("localizeSiteHref", () => {
+  it("localizes policy links and preserves fragments", () => {
+    expect(localizeSiteHref("/legal/takedown#notice", "de-DE")).toBe(
+      "/de-de/legal/takedown/#notice",
+    );
+    expect(localizeSiteHref("/privacy", "es-ES")).toBe("/es-es/privacy/");
+  });
+
+  it("keeps an explicit policy locale", () => {
+    expect(localizeSiteHref("/fr-FR/terms", "de-DE")).toBe("/fr-fr/terms/");
+  });
+
+  it("leaves non-policy site links alone", () => {
+    expect(localizeSiteHref("/apps/forms", "de-DE")).toBe("/apps/forms");
   });
 });
 

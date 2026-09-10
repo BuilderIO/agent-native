@@ -5,8 +5,6 @@ import {
   IconGripVertical,
   IconSettings,
 } from "@tabler/icons-react-native";
-import { useMinimizeOnScroll } from "expo-glass-tabs";
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, PanResponder, Pressable, Text, View } from "react-native";
 // RN's Animated is already used for the drag-to-reorder gestures below.
@@ -17,10 +15,12 @@ import AppCard, {
   appAccentColor,
   AppIcon,
 } from "@/components/AppCard";
+import { useMinimizeOnScroll } from "@/components/TabBarEffects";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import * as AppStore from "@/lib/app-store";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { useMobileNavigation } from "@/lib/navigation";
 import { useTabBarLayout } from "@/lib/tab-bar-layout";
 import { useApps } from "@/lib/use-apps";
 import { useWorkspaceApps } from "@/lib/workspace-apps";
@@ -151,7 +151,7 @@ export default function AppsScreen() {
   const { contentInset } = useTabBarLayout();
   const onScroll = useMinimizeOnScroll();
   const colors = useMobileThemeColors();
-  const router = useRouter();
+  const navigation = useMobileNavigation();
   const { enabledApps: localApps } = useApps();
   const workspace = useWorkspaceApps();
   const workspaceEnabled = workspace.enabled;
@@ -232,9 +232,9 @@ export default function AppsScreen() {
 
   const openApp = useCallback(
     (id: string) => {
-      router.push(getAppRoute(id) as never);
+      navigation.push(getAppRoute(id));
     },
-    [router],
+    [navigation],
   );
 
   return (
@@ -272,7 +272,7 @@ export default function AppsScreen() {
             <Pressable
               accessibilityLabel="Settings"
               accessibilityRole="button"
-              onPress={() => router.push("/settings" as never)}
+              onPress={() => navigation.push("/settings")}
               className="items-center bg-card-dark border border-border-dark rounded-full h-11 w-11 justify-center active:opacity-75"
             >
               <IconSettings
@@ -332,7 +332,7 @@ export default function AppsScreen() {
         </Text>
         <Pressable
           accessibilityRole="button"
-          onPress={() => router.push("/settings" as never)}
+          onPress={() => navigation.push("/settings")}
           className="items-center bg-card-dark border border-border-dark rounded-2xl flex-row p-[14px] active:opacity-75"
         >
           <View className="items-center bg-gray-charcoal rounded-xl h-[42px] w-[42px] justify-center">

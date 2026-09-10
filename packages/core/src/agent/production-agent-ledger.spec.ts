@@ -10,6 +10,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { assembleA2AFinalResponse } from "../server/agent-chat/action-filters-a2a.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
@@ -19,9 +20,28 @@ import {
 
 // ─── Mock run-store so DB is never touched ───────────────────────────────────
 
-const writeLedgerMock = vi.hoisted(() => vi.fn<() => Promise<void>>());
+const writeLedgerMock = vi.hoisted(() =>
+  vi.fn<
+    (
+      threadId: string,
+      toolKey: string,
+      result: string,
+      artifacts: unknown[],
+    ) => Promise<void>
+  >(),
+);
 const readLedgerMock = vi.hoisted(() =>
-  vi.fn<() => Promise<string | null>>(() => Promise.resolve(null)),
+  vi.fn<
+    () => Promise<{
+      result: string;
+      artifacts: Array<{
+        kind: "image";
+        id: string;
+        url?: string;
+        runId?: string;
+      }>;
+    } | null>
+  >(() => Promise.resolve(null)),
 );
 const clearLedgerMock = vi.hoisted(() => vi.fn<() => Promise<void>>());
 const currentTurnEventsMock = vi.hoisted(() =>
@@ -154,6 +174,7 @@ describe("tool-call result ledger", () => {
       "thread-zombie",
       expect.stringContaining("save-data"),
       "zombie-result",
+      [],
     );
   });
 
@@ -184,10 +205,73 @@ describe("tool-call result ledger", () => {
     expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
+  it("emits and ledgers artifact receipts before the tool result is capped", async () => {
+    const action = makeWriteAction();
+    action.maxResultChars = 80;
+    (action.run as ReturnType<typeof vi.fn>).mockResolvedValue({
+      artifactType: "image",
+      id: "asset-large",
+      url: "/asset/asset-large",
+      runId: "generation-large",
+      payload: "X".repeat(500),
+      _agentImages: [
+        { url: "https://cdn.example.com/asset-large.png", label: "result" },
+      ],
+    });
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("generate-asset", { prompt: "large image" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "generate-asset": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-artifact",
+    });
+
+    const receipt = {
+      kind: "image",
+      id: "asset-large",
+      url: "/asset/asset-large",
+      runId: "generation-large",
+    };
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "generate-asset",
+        result: expect.stringContaining("...[truncated"),
+        artifacts: [receipt],
+      }),
+    );
+    expect(writeLedgerMock).toHaveBeenCalledWith(
+      "thread-artifact",
+      expect.stringContaining("generate-asset"),
+      expect.stringContaining('"payload"'),
+      [receipt],
+    );
+    const zombieWrite = writeLedgerMock.mock.calls.find(
+      ([threadId]) => threadId === "thread-artifact",
+    );
+    expect(zombieWrite?.[2]).not.toContain("_agentImages");
+  });
+
   it("returns the ledger result without re-executing on continuation match", async () => {
     // readLedgerEntry returns a cached result — the action must NOT run again.
-    const PRIOR_RESULT = "previously completed result";
-    readLedgerMock.mockResolvedValue(PRIOR_RESULT);
+    const PRIOR_RESULT =
+      `{"payload":"${"x".repeat(8_000)}` +
+      "\n...[ledger truncated at 8000 chars]";
+    const artifacts = [
+      {
+        kind: "image" as const,
+        id: "asset-recovered",
+        url: "/asset/asset-recovered",
+        runId: "generation-recovered",
+      },
+    ];
+    readLedgerMock.mockResolvedValue({ result: PRIOR_RESULT, artifacts });
 
     const action = makeWriteAction();
     const events: any[] = [];
@@ -257,12 +341,35 @@ describe("tool-call result ledger", () => {
       "Recovered from prior interrupted chunk",
     );
     expect(toolDone?.completedSideEffect).toBe(true);
+    expect(toolDone?.artifacts).toEqual(artifacts);
+
+    const toolResults = events
+      .filter(
+        (
+          event,
+        ): event is Extract<(typeof events)[number], { type: "tool_done" }> =>
+          event.type === "tool_done",
+      )
+      .map((event) => ({
+        tool: event.tool,
+        result: event.result,
+        isError: event.isError,
+        completedSideEffect: event.completedSideEffect,
+        artifacts: event.artifacts,
+      }));
+    const assembled = assembleA2AFinalResponse(events, toolResults, {
+      baseUrl: "https://assets.agent-native.com",
+    });
+    expect(assembled.finalText).toContain("Artifacts:");
+    expect(assembled.finalText).toContain(
+      "https://assets.agent-native.com/asset/asset-recovered",
+    );
   });
 
   it("waits briefly for a late zombie ledger result before re-executing", async () => {
     readLedgerMock
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce("late zombie result");
+      .mockResolvedValueOnce({ result: "late zombie result", artifacts: [] });
 
     const action = makeWriteAction();
     const events: any[] = [];
@@ -500,7 +607,10 @@ describe("tool-call result ledger", () => {
   it("never consults the ledger for read-only tools", async () => {
     // Even if readLedger were to return something, read-only tools should
     // bypass the ledger entirely — they have no side effects to protect.
-    readLedgerMock.mockResolvedValue("should-not-be-used");
+    readLedgerMock.mockResolvedValue({
+      result: "should-not-be-used",
+      artifacts: [],
+    });
 
     const action = makeReadAction();
     const events: any[] = [];

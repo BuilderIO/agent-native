@@ -4,6 +4,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import {
   getTranscriptSeekMs,
   mergeTranscriptSegmentsForDisplay,
@@ -81,6 +83,63 @@ describe("TranscriptPanel no-audio failures", () => {
     });
 
     expect(container.querySelector(".text-destructive")).not.toBeNull();
+  });
+
+  it("insets the active segment highlight within the panel frame", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[{ startMs: 0, endMs: 2_000, text: "Hello." }]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const scrollRegion = Array.from(
+      container.querySelectorAll<HTMLDivElement>("div"),
+    ).find(
+      (element) =>
+        element.classList.contains("overflow-y-auto") &&
+        element.classList.contains("px-3"),
+    );
+    const activeRow = container.querySelector('[role="button"]');
+
+    expect(scrollRegion).not.toBeUndefined();
+    expect(activeRow?.parentElement?.parentElement?.parentElement).toBe(
+      scrollRegion,
+    );
+  });
+
+  it("hides transcript cues that start inside an edited-out range", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[
+              { startMs: 0, endMs: 1_000, text: "Keep this." },
+              { startMs: 1_000, endMs: 2_000, text: "Cut this." },
+              { startMs: 2_000, endMs: 3_000, text: "Keep that." },
+            ]}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 1_000, endMs: 2_000, excluded: true }],
+              blurs: [],
+            })}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Keep this.");
+    expect(container.textContent).toContain("Keep that.");
+    expect(container.textContent).not.toContain("Cut this.");
   });
 });
 

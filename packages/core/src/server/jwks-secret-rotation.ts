@@ -4,10 +4,10 @@
  *
  * Better Auth encrypts the persisted JWT signing key with the current
  * `BETTER_AUTH_SECRET`. Rotating that secret leaves the newest `jwks` row
- * undecryptable, and the JWT plugin decrypts it on every `/get-session`
- * response (to emit `set-auth-jwt`) — so a rotation turns every session check
- * into a 500 and signs the whole deployment out (2026-08-28 outage on the
- * hosted design/clips apps). The release migration
+ * undecryptable, and the JWT plugin's optional response hook signs it on every
+ * `/get-session` response when enabled — so a rotation can turn every session
+ * check into a 500 and sign the whole deployment out (2026-08-28 outage on
+ * the hosted design/clips apps). The release migration
  * `better-auth-jwks-key-rotation-recovery` already expires stale rows, but
  * release migrations do not reach every deployed database, so the same
  * recovery must also run where the failure is actually observed.
@@ -57,13 +57,13 @@ export async function healUndecryptableJwks(): Promise<boolean> {
 async function attemptHeal(): Promise<boolean> {
   // Lazy imports keep this module cycle-free: better-auth-instance wraps the
   // JWT plugin with `withJwksRotationRecovery` from this file.
-  const [{ getDbExec, isPostgres }, { getAuthSecret }] = await Promise.all([
+  const [{ getDbExec }, { getAuthSecret }] = await Promise.all([
     import("../db/client.js"),
     import("./better-auth-instance.js"),
   ]);
 
-  const table = isPostgres() ? '"jwks"' : "jwks";
-  const nowValue = isPostgres() ? new Date().toISOString() : Date.now();
+  const table = '"jwks"';
+  const nowValue = new Date().toISOString();
   const { rows } = await getDbExec().execute({
     sql: `SELECT private_key FROM ${table} WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 1`,
     args: [nowValue],

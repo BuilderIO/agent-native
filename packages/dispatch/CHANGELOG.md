@@ -1,5 +1,106 @@
 # @agent-native/dispatch
 
+## 0.36.0
+
+### Minor Changes
+
+- 774e549: Add scoped DAU and WAU trends and tabbed Dispatch metrics navigation.
+- 46391ca: Store the rendered HTML/text body of every transactional email send alongside the existing send-log record, and show it in the Dispatch send log detail dialog so an org admin can see exactly what was sent, not just the redacted provider request. Magic links, password-reset/verification links, JWT-shaped tokens, and OTP/verification codes are redacted from the body before it is persisted, since `email_log` is org-admin readable. The list query never returns bodies (fetched lazily per row via a new `get-email-log-body` action once a row is opened), and the sandboxed HTML preview now carries a restrictive CSP so a body can't load remote tracking images/styles.
+
+### Patch Changes
+
+- b6bd189: Suppress telemetry for `+autoz` QA identities across the shared tracking paths.
+- 840cb6c: Add recipient, sender, and template inclusion and exclusion filters to the transactional email send log action and Dispatch controls.
+- 554c771: Keep share dialogs readable while additive migrations are pending, and let
+  ordinary iframe pages load cross-origin subresources. Improve new-project setup
+  and Slack identity recovery guidance. Keep Cloudflare Workers builds below the
+  static-header rule limit, allow local Ollama endpoints on local non-production
+  servers, surface provider-setting errors, keep one PGlite client across dev
+  reload realms, permit the optional terminal build in fresh scaffolds, and
+  clarify standalone deployment.
+- 4822dad: Preserve Vite assets for colliding workspace app ids and reconcile deployed app registry records.
+- Release all public npm packages with a patch version bump.
+- 934301f: Give Dispatch app cards a subtle surface and remove hover feedback from their non-clickable containers.
+- 4822dad: Restore Dispatch access for all authenticated organization members.
+- e89b114: Keep Google and email authentication as the only visible sign-in choices while optionally bootstrapping a Dispatch session and local cross-app session after sign-in. The handoff uses a short-lived, one-time server-side handle and preserves existing local accounts and cookies.
+- 6b397ca: Create and persist a Builder project from the starter template when no project ID is configured.
+- Updated dependencies [e8b291e]
+- Updated dependencies [4915b82]
+- Updated dependencies
+- Updated dependencies [3bde94f]
+  - @agent-native/toolkit@0.19.6
+
+## 0.35.0
+
+### Minor Changes
+
+- 48a4eca: Add a durable audit trail for every transactional email send attempt. The shared `sendEmail()` transport now records the outbound request payload (with auth links and message bodies redacted) and the raw provider response/status for both successes and failures, so Dispatch can show exactly what was sent, to whom, and why a send failed. The `list-email-log` action gained filters for recipient, sender, status, provider, and date range with stable pagination, and a new searchable "Send log" section was added to `/admin/transactional-email`. Magic-link sign-in emails are now tagged with a `core.magic-link` template id so they show up alongside other auth emails in the catalog and send log.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- c050912: Search fields that draw their own clear button no longer also show WebKit's native cancel widget, so only one clear control renders.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/toolkit@0.19.5
+
+## 0.34.0
+
+### Minor Changes
+
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+
+### Patch Changes
+
+- cb3a95f: Add opt-in canonical organization federation across Agent-Native app deployments.
+- Release all public npm packages with a patch version bump.
+- f24d3ec: Fix Dispatch metrics app adoption cards to handle unavailable values, rank apps by tracked usage, and progressively reveal the app list.
+- Updated dependencies [e29fee8]
+- Updated dependencies [cef8c06]
+- Updated dependencies
+- Updated dependencies [73c36ce]
+  - @agent-native/toolkit@0.19.4
+
+## 0.33.2
+
+### Patch Changes
+
+- 1466345: Nudge users toward their host agent chat from prompt popovers and shared
+  sidebar surfaces.
+- 9c3eded: Keep the Dispatch Open app action usable for mounted web apps.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [760d108]
+  - @agent-native/toolkit@0.19.3
+
+## 0.33.1
+
+### Patch Changes
+
+- 485642e: Keep hosted Dispatch app launches inline outside Builder editor sessions.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [0566ce9]
+  - @agent-native/toolkit@0.19.2
+
+## 0.33.0
+
+### Minor Changes
+
+- 1fc5184: Add friendly automation schedules and webhook triggers.
+
+### Patch Changes
+
+- 4d86bff: Update shared auth pages with per-app product previews and learn-more links.
+- bbbac69: Keep pending Builder app reservations visible for 30 days.
+- Release all public npm packages with a patch version bump.
+- 4deb8a1: Make hosted ask_app submissions retry-safe and return before the MCP transport deadline.
+- Updated dependencies [e74593d]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.1
+
 ## 0.32.0
 
 ### Minor Changes
@@ -816,52 +917,5 @@
 ### Minor Changes
 
 - 8f10ada: Move Dispatch management and operator tools into a dedicated Admin control plane.
-
-## 0.18.0
-
-### Minor Changes
-
-- d3f8794: Add a compact workspace app rail to Dispatch navigation for ready workspace apps.
-
-### Patch Changes
-
-- d3f8794: Restrict shared Vault values and mutations to workspace owners and admins while keeping safe key requests available to members.
-- Updated dependencies [d3f8794]
-  - @agent-native/toolkit@0.13.3
-
-## 0.17.6
-
-### Patch Changes
-
-- abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
-
-## 0.17.5
-
-### Patch Changes
-
-- 158965b: Report unauthorized thread-debug source access as a client-safe 403 instead of a server error.
-
-## 0.17.4
-
-### Patch Changes
-
-- 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
-
-## 0.17.3
-
-### Patch Changes
-
-- 277be3f: Clarify that a free Builder tier is available when connecting Dispatch app creation.
-- Updated dependencies [277be3f]
-- Updated dependencies [277be3f]
-  - @agent-native/toolkit@0.13.2
-
-## 0.17.2
-
-### Patch Changes
-
-- c71d383: Keep connected messaging chats out of app history by default, with an opt-in all-sources view and stable Dispatch branding.
-- Updated dependencies [c71d383]
-  - @agent-native/toolkit@0.13.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

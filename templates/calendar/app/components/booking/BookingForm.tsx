@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { Turnstile } from "@agent-native/core/client/ui";
 import type { CustomField } from "@shared/api";
+import { IconX } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 export interface BookingFormValue {
   name: string;
   email: string;
+  additionalGuestEmails: string[];
   notes: string;
   fieldResponses: Record<string, string | boolean>;
 }
@@ -27,6 +29,7 @@ interface BookingFormProps {
   onSubmit: (data: {
     name: string;
     email: string;
+    additionalGuestEmails?: string[];
     notes?: string;
     captchaToken?: string;
     fieldResponses?: Record<string, string | boolean>;
@@ -60,6 +63,30 @@ export function BookingForm({
       const next = { ...prev };
       delete next[id];
       return next;
+    });
+  }
+
+  function updateAdditionalGuest(index: number, email: string) {
+    updateValue({
+      additionalGuestEmails: value.additionalGuestEmails.map(
+        (currentEmail, currentIndex) =>
+          currentIndex === index ? email : currentEmail,
+      ),
+    });
+  }
+
+  function addAdditionalGuest() {
+    if (value.additionalGuestEmails.length >= 5) return;
+    updateValue({
+      additionalGuestEmails: [...value.additionalGuestEmails, ""],
+    });
+  }
+
+  function removeAdditionalGuest(index: number) {
+    updateValue({
+      additionalGuestEmails: value.additionalGuestEmails.filter(
+        (_, currentIndex) => currentIndex !== index,
+      ),
     });
   }
 
@@ -102,10 +129,15 @@ export function BookingForm({
 
     const fieldResponses =
       customFields.length > 0 ? { ...value.fieldResponses } : undefined;
+    const additionalGuestEmails = value.additionalGuestEmails
+      .map((guestEmail) => guestEmail.trim())
+      .filter(Boolean);
 
     onSubmit({
       name: name.trim(),
       email: email.trim(),
+      additionalGuestEmails:
+        additionalGuestEmails.length > 0 ? additionalGuestEmails : undefined,
       notes: notes.trim() || undefined,
       captchaToken,
       fieldResponses,
@@ -138,6 +170,40 @@ export function BookingForm({
           required
         />
       </div>
+
+      {value.additionalGuestEmails.map((guestEmail, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <Input
+            type="email"
+            value={guestEmail}
+            onChange={(e) => updateAdditionalGuest(index, e.target.value)}
+            placeholder={t("eventForm.attendeesPlaceholder")}
+            aria-label={`${t("attendees.addAnotherGuest")} ${index + 1}`}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-9 shrink-0"
+            onClick={() => removeAdditionalGuest(index)}
+            aria-label={t("attendees.removeAttendee", {
+              email: guestEmail || t("attendees.addAnotherGuest"),
+            })}
+          >
+            <IconX className="size-4" />
+          </Button>
+        </div>
+      ))}
+
+      <Button
+        type="button"
+        variant="link"
+        className="h-auto px-0 text-sm"
+        onClick={addAdditionalGuest}
+        disabled={value.additionalGuestEmails.length >= 5}
+      >
+        {t("attendees.addAnotherGuest")}
+      </Button>
 
       {customFields.map((field) => (
         <CustomFieldInput

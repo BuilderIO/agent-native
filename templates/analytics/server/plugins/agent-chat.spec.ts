@@ -1152,6 +1152,253 @@ describe("realDataFinalGuard", () => {
     expect(result).toBeNull();
   });
 
+  it("lets a data question through when the draft makes no analytics claim and no tool ran", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our signup conversion last week?",
+        draftText:
+          "I'd want to double check the exact denominator before stating a rate here.",
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries a data question with a numeric claim and no tool, carrying an unverified draft prefix", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our signup conversion last week?",
+        draftText: "Signup conversion was 4.2% last week.",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+      exhaustedDraftPrefix: expect.stringContaining("Unverified"),
+    });
+  });
+
+  it("treats a completed catalog/dashboard-reference search as discovery, not a dead end", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our signup conversion last week?",
+        draftText: "Signup conversion was 4.2% last week.",
+        toolResults: [
+          {
+            name: "search-analytics-query-catalog",
+            isError: false,
+            content: '[{"id":"conversion-dashboard"}]',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+      retryMessage: expect.stringContaining(
+        "You already ran catalog/dashboard-reference discovery",
+      ),
+      exhaustedDraftPrefix: expect.stringContaining("Unverified"),
+    });
+    const { retryMessage, fallbackMessage, exhaustedDraftPrefix } = result as {
+      retryMessage: string;
+      fallbackMessage: string;
+      exhaustedDraftPrefix: string;
+    };
+    expect(retryMessage).not.toMatch(/no match|nothing (was )?found/i);
+    expect(fallbackMessage).not.toContain("[connect data sources](");
+    expect(fallbackMessage).not.toContain("Connect data sources");
+    expect(exhaustedDraftPrefix).not.toContain("connect the missing source");
+  });
+
+  it("does not send a completed create-extension turn into the template-clone retry", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create an extension showing weekly signups by plan.",
+        draftText:
+          "Done — I created the extension and embedded it as a panel on the Growth dashboard.",
+        toolResults: [
+          {
+            name: "create-extension",
+            isError: false,
+            content: '{"id":"ext-weekly-signups"}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not discard a completed extension-update summary as an ungrounded analytics answer", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get this week?",
+        draftText:
+          "Done — I switched the extension display window from 7 days to 30 days.",
+        toolResults: [
+          {
+            name: "update-extension",
+            isError: false,
+            content: '{"id":"signups-panel"}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries a mutation-turn draft that also states an invented metric", () => {
+    // A completed mutation is not a license to also assert a number the
+    // mutation itself did not compute — see agent-chat.dashboard-edit.spec.ts
+    // A completed mutation is real work, and a claim-free summary of it is
+    // not asserting anything the guard has to ground.
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get this week?",
+        draftText:
+          "Done — I updated the extension; it now shows 1,204 signups this week.",
+        toolResults: [
+          {
+            name: "update-extension",
+            isError: false,
+            content: '{"id":"signups-panel"}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  const groundedPriorTurnMessages = (
+    followUp: string,
+  ): AgentLoopFinalResponseGuardContext["messages"] => [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "What was our signup count last week from BigQuery?",
+        },
+      ],
+    },
+    {
+      role: "assistant",
+      content: [{ type: "tool-call", id: "tc1", name: "bigquery", input: {} }],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "tc1",
+          toolName: "bigquery",
+          toolInput: "{}",
+          content: '{"rows":[{"count":532}]}',
+        },
+      ],
+    },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Signup count last week was 532, from BigQuery.",
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [{ type: "text", text: followUp }],
+    },
+  ];
+
+  it("treats a follow-up that restates an earlier turn's grounded figures as evidence, not a new ungrounded claim", () => {
+    const followUp = "Was that 532 for the full week?";
+    const result = realDataFinalGuard({
+      messages: groundedPriorTurnMessages(followUp),
+      requestText: followUp,
+      assistantContent: [],
+      text: "Yes — the 532 signups cover the full week, from BigQuery.",
+      toolCalls: [],
+      toolResults: [],
+      retryCount: 0,
+      executionMode: "act",
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("does not let an earlier turn's query ground a new figure the draft invents this turn", () => {
+    const followUp = "How many signups was that the week before?";
+    const result = realDataFinalGuard({
+      messages: groundedPriorTurnMessages(followUp),
+      requestText: followUp,
+      assistantContent: [],
+      text: "The week before that, signups were 480.",
+      toolCalls: [],
+      toolResults: [],
+      retryCount: 0,
+      executionMode: "act",
+    });
+
+    expect(result?.retryMessage).toMatch(/no real source query ran/);
+    expect(result?.exhaustedDraftPrefix).toMatch(/^Unverified/);
+  });
+
+  it("does not let a figure from three turns back ground a current answer", () => {
+    const followUp = "So signups were 532 last week, right?";
+    const result = realDataFinalGuard({
+      messages: [
+        ...groundedPriorTurnMessages("Thanks!"),
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "You're welcome." }],
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Which dashboard should I use for this?" },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Try the Growth dashboard." }],
+        },
+        { role: "user", content: [{ type: "text", text: followUp }] },
+      ],
+      requestText: followUp,
+      assistantContent: [],
+      text: "Yes — signups were 532 last week.",
+      toolCalls: [],
+      toolResults: [],
+      retryCount: 0,
+      executionMode: "act",
+    });
+
+    expect(result?.retryMessage).toMatch(/no real source query ran/);
+  });
+
+  it("does not let an earlier turn's figure be re-attributed to a metric that turn never queried", () => {
+    const followUp = "And how many paying customers this month?";
+    const result = realDataFinalGuard({
+      messages: groundedPriorTurnMessages(followUp),
+      requestText: followUp,
+      assistantContent: [],
+      text: "Paying customers were 532 this month.",
+      toolCalls: [],
+      toolResults: [],
+      retryCount: 0,
+      executionMode: "act",
+    });
+
+    expect(result?.retryMessage).toMatch(/no real source query ran/);
+  });
+
   it("does not let the guard's own non-analytics retry turn re-trigger the analytics retry path", () => {
     expect(
       looksLikeAnalyticsDataRequest(NON_ANALYTICS_FALLBACK_RETRY_MESSAGE),

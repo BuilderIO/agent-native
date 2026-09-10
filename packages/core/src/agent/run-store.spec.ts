@@ -32,11 +32,10 @@ let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
   started_at: number;
-  has_dispatch_payload?: boolean | number;
+  has_dispatch_payload?: boolean;
 }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
 let prunedRunRows: Array<Record<string, unknown>> = [];
-let postgres = false;
 // claimBackgroundRun CAS simulation: the real DB row only has `dispatch_mode
 // = 'background'` ONCE, so only the FIRST `claimBackgroundRun` UPDATE for a
 // given runId can match the WHERE clause; every subsequent attempt (a
@@ -148,8 +147,12 @@ const mockDb = {
     if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
       return { rows: [], rowsAffected: abortRowsAffected };
     }
-    // Tool-call result ledger: SELECT result_summary FROM agent_tool_ledger
-    if (/SELECT result_summary FROM agent_tool_ledger/i.test(rawSql)) {
+    // Tool-call result ledger: SELECT result_summary, artifacts_json FROM ...
+    if (
+      /SELECT result_summary, artifacts_json FROM agent_tool_ledger/i.test(
+        rawSql,
+      )
+    ) {
       return { rows: ledgerRows, rowsAffected: 0 };
     }
     // readRunDispatchPayload: SELECT dispatch_payload FROM agent_runs WHERE id = ?
@@ -191,8 +194,11 @@ const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "INTEGER",
-  isPostgres: () => postgres,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/capture-error.js", () => ({
@@ -246,7 +252,10 @@ const {
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
-let ledgerRows: Array<{ result_summary: string }> = [];
+let ledgerRows: Array<{
+  result_summary: string;
+  artifacts_json?: string | null;
+}> = [];
 
 describe("run store", () => {
   beforeEach(() => {
@@ -267,7 +276,6 @@ describe("run store", () => {
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
     prunedRunRows = [];
-    postgres = false;
     insertEventBehavior = () => {};
     abortRowsAffected = 1;
     __resetNoRunningRunsProbeForTests();
@@ -971,8 +979,6 @@ describe("run store", () => {
   });
 
   it("uses a transaction-scoped lease for Postgres cleanup", async () => {
-    postgres = true;
-
     await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const lock = execCalls.find((call) =>
@@ -1074,7 +1080,31 @@ describe("run store", () => {
     expect(insert?.args[0]).toBe("thread-abc");
     expect(insert?.args[1]).toBe("my-tool:{}");
     expect(insert?.args[2]).toBe("the result");
+    expect(insert?.args[3]).toBe("[]");
     expect(insert?.sql).toContain("ON CONFLICT");
+  });
+
+  it("writeLedgerEntry preserves artifact receipts outside the capped result", async () => {
+    const artifacts = [
+      {
+        kind: "image" as const,
+        id: "asset-1",
+        url: "/asset/asset-1",
+        runId: "run-1",
+      },
+    ];
+    await writeLedgerEntry(
+      "thread-artifacts",
+      "generate-image:{}",
+      "X".repeat(8_500),
+      artifacts,
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.args[2]).toContain("ledger truncated");
+    expect(JSON.parse(insert?.args[3] as string)).toEqual(artifacts);
   });
 
   it("writeLedgerEntry caps result at 8 000 chars and appends truncation marker", async () => {
@@ -1091,15 +1121,92 @@ describe("run store", () => {
   });
 
   it("readLedgerEntry returns the result when an entry exists", async () => {
-    ledgerRows = [{ result_summary: "cached output" }];
+    ledgerRows = [
+      {
+        result_summary: "cached output",
+        artifacts_json:
+          '[{"kind":"image","id":"asset-1","url":"/asset/asset-1"}]',
+      },
+    ];
     const result = await readLedgerEntry("thread-abc", "my-tool:{}");
 
-    expect(result).toBe("cached output");
+    expect(result).toEqual({
+      result: "cached output",
+      artifacts: [{ kind: "image", id: "asset-1", url: "/asset/asset-1" }],
+    });
     const select = execCalls.find((call) =>
-      /SELECT result_summary FROM agent_tool_ledger/i.test(call.sql),
+      /SELECT result_summary, artifacts_json FROM agent_tool_ledger/i.test(
+        call.sql,
+      ),
     );
     expect(select?.args[0]).toBe("thread-abc");
     expect(select?.args[1]).toBe("my-tool:{}");
+  });
+
+  it("readLedgerEntry backfills empty receipts for pre-column entries", async () => {
+    ledgerRows = [{ result_summary: "legacy output", artifacts_json: null }];
+
+    await expect(
+      readLedgerEntry("thread-legacy", "old-tool:{}"),
+    ).resolves.toEqual({ result: "legacy output", artifacts: [] });
+  });
+
+  it("readLedgerEntry preserves a completed result when receipt JSON is malformed", async () => {
+    ledgerRows = [
+      { result_summary: "completed output", artifacts_json: "{truncated" },
+    ];
+
+    await expect(
+      readLedgerEntry("thread-malformed", "write-tool:{}"),
+    ).resolves.toEqual({ result: "completed output", artifacts: [] });
+    expect(mockCaptureError).toHaveBeenCalledWith(
+      expect.any(SyntaxError),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          operation: "parse-tool-ledger-artifacts",
+        }),
+      }),
+    );
+  });
+
+  it("readLedgerEntry filters malformed receipt elements without hiding the completed result", async () => {
+    ledgerRows = [
+      {
+        result_summary: "completed with one valid receipt",
+        artifacts_json: JSON.stringify([
+          null,
+          {},
+          { kind: "image", id: "asset-valid", url: "/asset/asset-valid" },
+        ]),
+      },
+    ];
+
+    await expect(
+      readLedgerEntry("thread-invalid-elements", "write-tool:{}"),
+    ).resolves.toEqual({
+      result: "completed with one valid receipt",
+      artifacts: [
+        { kind: "image", id: "asset-valid", url: "/asset/asset-valid" },
+      ],
+    });
+    expect(mockCaptureError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("contains invalid receipts"),
+      }),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          operation: "parse-tool-ledger-artifacts",
+        }),
+      }),
+    );
+  });
+
+  it("readLedgerEntry preserves a completed result when receipts are undefined", async () => {
+    ledgerRows = [{ result_summary: "pre-receipt output" }];
+
+    await expect(
+      readLedgerEntry("thread-undefined", "legacy-tool:{}"),
+    ).resolves.toEqual({ result: "pre-receipt output", artifacts: [] });
   });
 
   it("readLedgerEntry returns null when no entry exists", async () => {
@@ -1369,8 +1476,6 @@ describe("run store", () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
       { id: "run-with-payload", started_at: 1, has_dispatch_payload: true },
       { id: "run-no-payload", started_at: 2, has_dispatch_payload: false },
-      // SQLite reports booleans as 1/0.
-      { id: "run-sqlite", started_at: 3, has_dispatch_payload: 1 },
     ];
 
     const rows = await listUnclaimedBackgroundRunRows();
@@ -1378,7 +1483,6 @@ describe("run store", () => {
     expect(rows).toEqual([
       { id: "run-with-payload", startedAt: 1, hasDispatchPayload: true },
       { id: "run-no-payload", startedAt: 2, hasDispatchPayload: false },
-      { id: "run-sqlite", startedAt: 3, hasDispatchPayload: true },
     ]);
   });
 

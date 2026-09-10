@@ -5,6 +5,7 @@ const mockCallAction = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mockCallAction(...args),
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
+  getBrowserTabId: () => "test-tab",
 }));
 
 vi.mock("react-dom", () => ({
@@ -65,6 +66,9 @@ describe("getUploadedImageAgentOptions", () => {
 describe("startDeckGeneration", () => {
   it("extracts an explicit target slide count for continuation", () => {
     expect(requestedSlideCount("Create a dark 6-slide presentation")).toBe(6);
+    expect(requestedSlideCount("Create exactly 8 slides about launches")).toBe(
+      8,
+    );
     expect(requestedSlideCount("Create a deck about launches")).toBeUndefined();
   });
 
@@ -249,6 +253,163 @@ describe("startDeckGeneration", () => {
           }),
         ],
       }),
+    );
+  });
+
+  it("lets a selected reference deck control styling without a design system", async () => {
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "get-deck-reference-context"
+        ? { agentContext: "REFERENCE_STYLE_CONTEXT" }
+        : undefined,
+    );
+    const deck = {
+      id: "deck-reference-style",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create an about us deck",
+        files: [],
+        referenceSelection: { referenceDeckId: "reference-deck-1" },
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    const context = agentSubmit.mock.calls[0]?.[1] as string;
+    expect(context).toContain("REFERENCE_STYLE_CONTEXT");
+    expect(context).toContain(
+      "Follow its visual language as the source of truth",
+    );
+    expect(context).not.toContain("Before generating a bare or on-brand deck");
+    expect(context).not.toContain("use a light warm-neutral canvas");
+  });
+
+  it("keeps a reference-import file out of source-preserving mode", async () => {
+    mockCallAction.mockClear();
+    mockCallAction.mockResolvedValue(undefined);
+    const deck = {
+      id: "deck-reference-file",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create an about us deck",
+        files: [
+          {
+            path: "/uploads/reference.pdf",
+            originalName: "reference.pdf",
+            filename: "reference.pdf",
+            type: "application/pdf",
+            size: 1024,
+          },
+        ],
+        referenceSelection: {
+          referenceDeckId: "reference-deck-1",
+          referenceFilePaths: ["/uploads/reference.pdf"],
+        },
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    expect(mockCallAction).not.toHaveBeenCalledWith(
+      "import-file",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "Attachments are context for the agent by default",
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).not.toContain(
+      "Source-preserving improvement mode",
+    );
+  });
+
+  it("keeps every imported reference file out of source-preserving mode", async () => {
+    mockCallAction.mockClear();
+    mockCallAction.mockResolvedValue(undefined);
+    const deck = {
+      id: "deck-multiple-reference-files",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a polished about us deck",
+        files: [
+          {
+            path: "/uploads/reference.pptx",
+            originalName: "reference.pptx",
+            filename: "reference.pptx",
+            type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            size: 1024,
+          },
+          {
+            path: "/uploads/reference.pdf",
+            originalName: "reference.pdf",
+            filename: "reference.pdf",
+            type: "application/pdf",
+            size: 1024,
+          },
+        ],
+        referenceSelection: {
+          referenceDeckId: "reference-deck-1",
+          referenceFilePaths: [
+            "/uploads/reference.pptx",
+            "/uploads/reference.pdf",
+          ],
+        },
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    expect(mockCallAction).not.toHaveBeenCalledWith(
+      "import-file",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).not.toContain(
+      "Source-preserving improvement mode",
     );
   });
 

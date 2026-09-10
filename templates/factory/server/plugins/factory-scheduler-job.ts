@@ -5,6 +5,7 @@ import {
   organizationResourceOwner,
   resourceDeleteByPath,
   resourceGetByPath,
+  resourceList,
   resourcePut,
   resourcePutIfCurrent,
   WORKSPACE_OWNER,
@@ -13,7 +14,7 @@ import {
   defineNitroPlugin,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { listAutomationDefinitions } from "@agent-native/core/triggers";
+import { deleteAutomationRuns } from "@agent-native/core/triggers";
 import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
@@ -22,8 +23,8 @@ import { renameFactoryActionMentions } from "../lib/factory-action-names.js";
 import {
   applyAutomationConfigFrontmatter,
   buildGuardrailsText,
+  canonicalSeedLeafName,
   defaultAutomationConfig,
-  inferAutomationSource,
   readFactoryAutomationConfig,
   replaceUserPrompt,
   scheduleCron,
@@ -37,13 +38,15 @@ import {
   type FactoryAutomationTemplateId,
 } from "../lib/factory-automation-config.js";
 import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
+import { listFactoryAutomationDefinitions } from "../lib/factory-automation-resources.js";
 import {
   DEFAULT_FACTORY_ID,
   assignCreatedByIfMissing,
   factoryAutomationJobPath,
+  factoryAutomationJobPrefix,
   factoryAutomationLeafName,
+  factoryAutomationRunHistoryKey,
   factoryConfigRowId,
-  readAutomationFactoryId,
   readFactoryIdFromAutomationPath,
   readTriageConfigRow,
   setAutomationFrontmatterField,
@@ -53,7 +56,10 @@ import {
   BABYSIT_SCOPE_INSTRUCTION,
   repairPrBabysitPrompt,
 } from "../lib/pr-babysit-prompt.js";
-import { repairSlackFeedbackPrompt } from "../lib/slack-feedback-prompt.js";
+import {
+  repairSlackFeedbackPrompt,
+  SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS,
+} from "../lib/slack-feedback-prompt.js";
 import {
   syncManagedReviewSkillAlignment,
   type FactoryAutomationName,
@@ -222,9 +228,7 @@ enough evidence to investigate — including visual/UI defects such as a
 duplicate control or broken layout. Feature requests, vague questions, and
 incomplete threads are not.
 
-For each item, call dispatch-factory-item with clearBug true or false,
-productUxImplications false unless it is a pure product or design decision
-with no single correct fix, a short reason, and reaction robot_face 🤖.
+${SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS}
 Cluster only items listed in this run: one dispatch with relatedItemIds. Do
 not dispatch needs_manual items or items that already started.
 
@@ -270,11 +274,10 @@ evidence confirms it.
     body: `
 # Factory GitHub issue triage
 
-Read the Factory configuration. When GitHub source polling is enabled and a
-repository is configured, call poll-github-sources with includeIssues true and
-includePullRequests false. List at most 3 new or changed issues by passing
-needsReview true, source github_issue, and limit 3. Never list the full queue or
-use the action's default page size.
+Call poll-github-sources with includeIssues true and includePullRequests false.
+List at most 3 new or changed issues by passing needsReview true, source
+github_issue, and limit 3. Never list the full queue or use the action's default
+page size.
 
 Treat an issue as a clear bug only when it has a concrete error report,
 reproduction, incorrect behavior, regression, or specific failing path. Do
@@ -318,11 +321,10 @@ waives ultra-scary review or the independent-review requirement for changes to
 review/approval policy, agent-safety instructions, membership verification, or
 CI/deployment security controls, and it never authorizes a merge.
 
-Read the Factory configuration. When GitHub polling is enabled and a repository
-is configured, call poll-github-sources with includeIssues false and
-includePullRequests true. List at most 3 new or changed pull requests by
-passing needsReview true, source github, and limit 3. Never list the full queue
-or use the action's default page size.
+Call poll-github-sources with includeIssues false and includePullRequests true.
+List at most 3 new or changed pull requests by passing needsReview true, source
+github, and limit 3. Never list the full queue or use the action's default page
+size.
 
 For each open factory-repository PR, inspect the item and classify whether it is a
 clear bug fix or has product or UX implications. Avoid duplicate review noise
@@ -359,25 +361,16 @@ confirms it.
     body: `
 # Factory PR babysitting
 
-Read the Factory configuration. When GitHub polling is enabled and a repository
-is configured, call poll-github-sources with includeIssues false and
-includePullRequests true. List at most 3 new or changed pull requests by
-passing needsReview true, source github, and limit 3. Never list the full queue
-or use the action's default page size. Each item includes author.
+Call poll-github-sources with includeIssues false and includePullRequests true.
+List at most 3 new or changed pull requests by passing needsReview true, source
+github, and limit 3. Never list the full queue or use the action's default page
+size. Each item includes author.
 
 ${BABYSIT_SCOPE_INSTRUCTION}
 
-When inScope is true, babysit-factory-pull-request fetches fresh GitHub
-review and CI evidence and is the only place allowed to decide whether to post
-the bounded feedback-fix request. It skips owner-managed Clips, Design, and
-Content work. It persists the latest feedback fingerprint and quiet window, so
-repeated scheduler ticks do not spam comments. A changed commit, new unresolved
-feedback, failing or pending CI, or merge conflict starts a new bounded
-request; twenty minutes without new work to address ends that babysitting
-window. The action never approves or merges.
-
-Preserve action errors and never claim that a follow-up fix landed unless fresh
-evidence confirms the resulting state.
+When inScope is true, call babysit-factory-pull-request. It owns GitHub
+evidence, the hardcoded comment, and the quiet window. Never approve or merge.
+Preserve action errors.
 `,
   },
 ];
@@ -514,11 +507,23 @@ export async function ensureFactoryAutomations(
   _options?: { enabled?: boolean; enabledNames?: ReadonlySet<string> },
 ): Promise<void> {
   const owner = organizationResourceOwner(orgId);
+  const listed = await listFactoryAutomationDefinitions(orgId, factoryId);
+  const paths = new Set([
+    ...AUTOMATION_SEEDS.map((seed) =>
+      factoryAutomationJobPath(factoryId, seed.name),
+    ),
+    ...listed.map((entry) => entry.resource.path),
+  ]);
   await Promise.all(
-    AUTOMATION_SEEDS.map(async (seed) => {
-      const path = factoryAutomationJobPath(factoryId, seed.name);
+    [...paths].map(async (path) => {
       const existing = await resourceGetByPath(owner, path);
       if (!existing) {
+        return;
+      }
+      const leafName = factoryAutomationLeafName(path);
+      const seedName = canonicalSeedLeafName(leafName);
+      const seed = AUTOMATION_SEEDS.find((entry) => entry.name === seedName);
+      if (!seed) {
         return;
       }
 
@@ -557,6 +562,9 @@ export async function ensureFactoryAutomations(
       ) {
         repaired = setFrontmatterField(repaired, "schedule", seed.schedule);
       }
+      // Keyed by the seed, not the leaf: a copy like `factory-pr-babysit-2`
+      // runs the same review contract, and an unrecognized name would silently
+      // skip the alignment block instead of syncing it.
       repaired = syncManagedReviewSkillAlignment(
         repaired,
         seed.name as FactoryAutomationName,
@@ -568,15 +576,14 @@ export async function ensureFactoryAutomations(
         repaired = repairPrBabysitPrompt(repaired);
       }
       repaired = repairAutomationFactoryScopeInstruction(repaired, factoryId);
-      const inferredSource =
-        inferAutomationSource(seed.name, repaired) ?? "slack";
-      const existingConfig = readFactoryAutomationConfig(repaired, seed.name);
+      // Every row here matched a seed, so the leaf resolves a definite source.
+      // Nothing in this loop may fall back to a guess.
+      const existingConfig = readFactoryAutomationConfig(repaired, leafName);
       repaired = applyAutomationConfigFrontmatter(repaired, {
         ...existingConfig,
-        source: existingConfig.source || inferredSource,
         template:
           existingConfig.template === "blank"
-            ? templateIdForSeedName(seed.name)
+            ? templateIdForSeedName(leafName)
             : existingConfig.template,
       });
       repaired = replaceUserPrompt(
@@ -611,7 +618,7 @@ export type FactoryAutomationSnapshot = {
 };
 
 export async function listFactoryAutomationResources(
-  ownerEmail: string,
+  _ownerEmail: string,
   orgId: string,
   factoryId: string,
 ): Promise<
@@ -623,24 +630,42 @@ export async function listFactoryAutomationResources(
     enabled: boolean;
   }>
 > {
-  const definitions = await listAutomationDefinitions(
-    { userEmail: ownerEmail, orgId, appId: "factory" },
-    "organization",
+  const definitions = await listFactoryAutomationDefinitions(orgId, factoryId);
+  return definitions.map(({ resource, name, meta }) => ({
+    id: resource.id,
+    name,
+    path: resource.path,
+    content: resource.content,
+    enabled: meta.enabled,
+  }));
+}
+
+export async function listFactoryAutomationCleanupPaths(
+  orgId: string,
+  factoryId: string,
+  ownerEmail?: string,
+): Promise<string[]> {
+  const owner = organizationResourceOwner(orgId);
+  const prefixResources = await resourceList(
+    owner,
+    factoryAutomationJobPrefix(factoryId),
   );
-  return definitions
-    .filter(
-      ({ meta, resource }) =>
-        meta.domain === "factory" &&
-        readAutomationFactoryId(meta, resource.content, resource.path) ===
-          factoryId,
-    )
-    .map(({ resource, name, meta }) => ({
-      id: resource.id,
-      name,
-      path: resource.path,
-      content: resource.content,
-      enabled: meta.enabled,
-    }));
+  const paths = new Set(
+    prefixResources
+      .map((resource) => resource.path)
+      .filter((path) => path.trim().length > 0),
+  );
+  if (ownerEmail) {
+    const discovered = await listFactoryAutomationResources(
+      ownerEmail,
+      orgId,
+      factoryId,
+    );
+    for (const resource of discovered) {
+      paths.add(resource.path);
+    }
+  }
+  return [...paths].sort();
 }
 
 export async function snapshotFactoryAutomations(
@@ -648,12 +673,23 @@ export async function snapshotFactoryAutomations(
   orgId: string,
   factoryId: string,
 ): Promise<FactoryAutomationSnapshot[]> {
-  const resources = await listFactoryAutomationResources(
-    ownerEmail,
+  const owner = organizationResourceOwner(orgId);
+  const paths = await listFactoryAutomationCleanupPaths(
     orgId,
     factoryId,
+    ownerEmail,
   );
-  return resources.map(({ path, content }) => ({ path, content }));
+  const snapshots: FactoryAutomationSnapshot[] = [];
+  for (const path of paths) {
+    const resource = await resourceGetByPath(owner, path);
+    if (!resource) {
+      throw new Error(
+        `Factory automation ${path} is unreadable and cannot be snapshotted.`,
+      );
+    }
+    snapshots.push({ path, content: resource.content });
+  }
+  return snapshots;
 }
 
 export async function restoreFactoryAutomationSnapshots(
@@ -773,26 +809,52 @@ export async function removeFactoryAutomationResources(
   orgId: string,
   factoryId: string,
   ownerEmail?: string,
+  extraPaths: readonly string[] = [],
 ): Promise<void> {
   const owner = organizationResourceOwner(orgId);
-  if (ownerEmail) {
-    const resources = await listFactoryAutomationResources(
-      ownerEmail,
-      orgId,
-      factoryId,
-    );
-    await Promise.all(
-      resources.map((resource) => resourceDeleteByPath(owner, resource.path)),
-    );
-    return;
-  }
-  await Promise.all(
-    AUTOMATION_SEEDS.map(async (seed) => {
-      await resourceDeleteByPath(
-        owner,
+  const listed = await listFactoryAutomationCleanupPaths(
+    orgId,
+    factoryId,
+    ownerEmail,
+  );
+  const seedFallback = ownerEmail
+    ? []
+    : AUTOMATION_SEEDS.map((seed) =>
         factoryAutomationJobPath(factoryId, seed.name),
       );
-    }),
+  const paths = [...new Set([...listed, ...extraPaths, ...seedFallback])];
+  await Promise.all(paths.map((path) => resourceDeleteByPath(owner, path)));
+  const remaining = await listFactoryAutomationCleanupPaths(
+    orgId,
+    factoryId,
+    ownerEmail,
+  );
+  if (remaining.length > 0) {
+    throw new Error(
+      `Factory automation cleanup could not delete: ${remaining.join(", ")}.`,
+    );
+  }
+}
+
+export async function removeFactoryAutomationRunHistory(
+  orgId: string,
+  factoryId: string,
+  ownerEmail?: string,
+  extraPaths: readonly string[] = [],
+): Promise<void> {
+  const owner = organizationResourceOwner(orgId);
+  const listed = await listFactoryAutomationCleanupPaths(
+    orgId,
+    factoryId,
+    ownerEmail,
+  );
+  const paths = [...new Set([...listed, ...extraPaths])];
+  await Promise.all(
+    paths
+      .filter((path) => path.endsWith(".md"))
+      .map((path) =>
+        deleteAutomationRuns(owner, factoryAutomationRunHistoryKey(path)),
+      ),
   );
 }
 

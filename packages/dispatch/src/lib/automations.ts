@@ -9,8 +9,9 @@ export interface DispatchAutomationItem {
   orgId?: string;
   scope?: "personal" | "organization";
   canUpdate?: boolean;
-  triggerType?: "schedule" | "event" | (string & {});
+  triggerType?: "schedule" | "event" | "webhook" | (string & {});
   event?: string;
+  webhookPath?: string;
   schedule?: string;
   scheduleDescription?: string;
   condition?: string;

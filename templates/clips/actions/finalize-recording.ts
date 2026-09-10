@@ -36,6 +36,7 @@ import {
   parseMediaVerificationMarker,
 } from "../server/lib/media-verification-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
 import {
   listRecordingChunkKeys,
   validateRecordingChunkKeys,
@@ -540,6 +541,36 @@ async function leaveRecordingProcessingForMediaVerification(params: {
   };
 }
 
+async function queueReadyRecordingThumbnail(
+  recordingId: string,
+): Promise<void> {
+  // Best-effort: gives a never-attempted row a 'pending' marker the thumbnail
+  // sweeper can find later if this dispatch never lands (cold start, DNS,
+  // throttling — see post-finalize-dispatch.ts). Never overwrites a terminal
+  // status from a prior attempt.
+  try {
+    await getDb()
+      .update(schema.recordings)
+      .set({ thumbnailStatus: "pending" })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          isNull(schema.recordings.thumbnailStatus),
+        ),
+      );
+  } catch (err: unknown) {
+    console.warn("[finalize] failed to mark thumbnail pending", {
+      id: recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  await dispatchPostFinalizeJob({
+    recordingId,
+    kind: "thumbnail",
+    requireAccepted: true,
+  });
+}
+
 // Flip recording to 'ready', seed transcript row, fire background transcript,
 // emit clip.created. Used by both the resumable and buffered upload paths.
 async function markRecordingReady(params: {
@@ -628,6 +659,19 @@ async function markRecordingReady(params: {
       id,
       status: postUpdate?.status,
     });
+    if (postUpdate?.status === "ready") {
+      await queueReadyRecordingThumbnail(id);
+      await reconcileMeetingOnRecordingReady({
+        recordingId: id,
+        ownerEmail,
+        endedAtIso: now,
+      }).catch((err: unknown) => {
+        console.error("[finalize] meeting reconcile failed", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     return {
       id,
       status:
@@ -641,6 +685,18 @@ async function markRecordingReady(params: {
       durationMs: finalDurationMs,
     };
   }
+
+  await queueReadyRecordingThumbnail(id);
+  await reconcileMeetingOnRecordingReady({
+    recordingId: id,
+    ownerEmail,
+    endedAtIso: now,
+  }).catch((err: unknown) => {
+    console.error("[finalize] meeting reconcile failed", {
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
@@ -1028,6 +1084,7 @@ export default defineAction({
       // chunks are gone by then).
       if (existing.status === "ready" && existing.videoUrl) {
         debugLog("[finalize] already finalized, returning existing", { id });
+        await queueReadyRecordingThumbnail(id);
         // A prior attempt may have persisted the ready row and then failed
         // before deleting its resumable-session handle. The provider upload is
         // complete at this point, so retire only the local retry state.

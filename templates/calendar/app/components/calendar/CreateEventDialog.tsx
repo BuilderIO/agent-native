@@ -509,17 +509,16 @@ export function CreateEventPopover({
     if (!date || !endDate || (!allDay && (!startTime || !endTime))) {
       return;
     }
-    const allDayEnd = new Date(`${endDate}T00:00:00`);
-    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const allDayEnd = addDaysToDateString(endDate, 1);
     const startValue = fullDayOutOfOffice
       ? date
       : effectiveAllDay
-        ? new Date(`${date}T00:00:00`).toISOString()
+        ? date
         : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
-        ? allDayEnd.toISOString()
+        ? allDayEnd
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
     const attachmentResult = validateAttachmentDrafts(attachments);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
@@ -776,17 +775,16 @@ export function CreateEventPopover({
 
     const fullDayOutOfOffice = isOutOfOffice && allDay;
     const effectiveAllDay = allDay && !timedOnlyStatus;
-    const allDayEnd = new Date(`${endDate}T00:00:00`);
-    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const allDayEnd = addDaysToDateString(endDate, 1);
     const startValue = fullDayOutOfOffice
       ? date
       : effectiveAllDay
-        ? new Date(`${date}T00:00:00`).toISOString()
+        ? date
         : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
-        ? allDayEnd.toISOString()
+        ? allDayEnd
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
 
     if (
@@ -1255,7 +1253,7 @@ export function CreateEventPopover({
                     className="flex w-full items-center gap-2 rounded-md py-1 text-left text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
                     onClick={() => setDescriptionOpen(true)}
                   >
-                    <IconMessage className="size-4 shrink-0" />
+                    <IconMessage className="size-[18px] shrink-0" />
                     {t("eventForm.description")}
                   </button>
                 )}

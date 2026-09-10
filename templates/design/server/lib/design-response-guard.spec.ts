@@ -1,6 +1,7 @@
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { describe, expect, it } from "vitest";
 
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
 import {
   designFinalResponseGuard,
   looksLikeDesignMutationRequest,
@@ -40,6 +41,245 @@ describe("Design final response guard", () => {
   it("recognizes design mutations while excluding how-to and preview requests", () => {
     expect(
       looksLikeDesignMutationRequest("can you create another version of this"),
+    ).toBe(true);
+    expect(looksLikeDesignMutationRequest("create a LinkedIn visual")).toBe(
+      true,
+    );
+    expect(
+      looksLikeDesignMutationRequest("create a hero visual regression test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("add a button visual regression test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a card visual snapshot"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "give me tips to create a LinkedIn visual",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual regression test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual snapshot test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual-regression test"),
+    ).toBe(false);
+    expect(looksLikeDesignMutationRequest("add a visual test")).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add a visual regression test for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add a visual regression test for the hero and footer",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero, footer and nav",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create visual snapshots for this design"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual snapshot of the hero"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a dark-mode visual regression test",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero layout and after that update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, then run it",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test — for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette, then run a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the hero layout after creating visual snapshots",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the hero layout for visual regression tests",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a visual snapshot test",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a hero visual regression test and a card visual snapshot",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a hero and footer visual regression test",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and buttons",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("add visual snapshots and cards"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero layout and a card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a new card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and some cards",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a primary button",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero after we update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, add buttons",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test; create cards",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero or update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero or a card",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette — create a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test before improving the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test after improving the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero — then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression and snapshot tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add visual regression and snapshot tests for the hero",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual snapshot and regression tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression or snapshot tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression and snapshot tests for the hero, then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette followed by run a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, — for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "give me a tutorial to create a LinkedIn visual",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("teach me to create a LinkedIn visual"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "teach me to improve this visual, then fix the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the visual regression in the hero layout",
+      ),
     ).toBe(true);
     expect(looksLikeDesignMutationRequest("how do I create a design?")).toBe(
       false,
@@ -359,6 +599,68 @@ describe("Design final response guard", () => {
     );
 
     expect(result).not.toBeNull();
+  });
+
+  it("judges the user's words, not the context the app attached to them", () => {
+    const intakeContext = [
+      "The user just created a new empty design.",
+      'Design id: "design-1"',
+      'User request: "hi"',
+      'This is a new UI-started design for design id "design-1". The design shell already exists - DO NOT call create-design.',
+      "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
+    ].join("\n");
+
+    expect(
+      designFinalResponseGuard(
+        guardContext(`hi\n\n<context>\n${intakeContext}\n</context>`),
+      ),
+    ).toBeNull();
+    expect(
+      designFinalResponseGuard(
+        guardContext(
+          `make it darker\n\n<context>\nDesign "Portfolio" is open.\n</context>`,
+        ),
+      ),
+    ).not.toBeNull();
+  });
+
+  it("leaves a preview or question turn alone when only its context says so", () => {
+    const repromptContext = [
+      "[Reprompt selection]",
+      "repromptId: reprompt-1",
+      "designId: design-1",
+      "baseVersionHash: hash-1",
+    ].join("\n");
+    const questionContext = [
+      "[Selection question]",
+      "designId: design-1",
+      "fileId: file-1",
+    ].join("\n");
+
+    expect(
+      designFinalResponseGuard(
+        guardContext(
+          `make the card darker\n\n<context>\n${repromptContext}\n</context>`,
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      designFinalResponseGuard(
+        guardContext(
+          `make the card darker\n\n<context>\n${questionContext}\n</context>`,
+        ),
+      ),
+    ).toBeNull();
+  });
+
+  it("guards a generation turn whose intent lives only in the attached context", () => {
+    expect(
+      designFinalResponseGuard(
+        guardContext(
+          `Here are my answers — go ahead.\n\n<context>\nAnswers: dark, minimal.\n${DESIGN_MUTATION_REQUIRED_DIRECTIVE}\n</context>`,
+        ),
+      ),
+    ).not.toBeNull();
   });
 
   it("does not guard read-only or plan turns", () => {

@@ -9,7 +9,7 @@ export interface DatabaseCsvColumn {
   };
 }
 
-function propertyValueText(
+export function databasePropertyValueText(
   property: DatabaseCsvColumn["property"],
   value: DocumentPropertyValue | undefined,
 ): string {
@@ -37,7 +37,7 @@ export interface DatabaseCsvRow {
   values: ReadonlyMap<string, DocumentPropertyValue>;
 }
 
-function csvCell(value: string): string {
+export function csvCell(value: string): string {
   const safe = /^[\t\r\n ]*[=+\-@]/.test(value) ? `'${value}` : value;
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
@@ -51,7 +51,10 @@ export function renderDatabaseCsv(
   const data = rows.map((row) => [
     row.title ?? "",
     ...columns.map((column) => {
-      return propertyValueText(column.property, row.values.get(column.id));
+      return databasePropertyValueText(
+        column.property,
+        row.values.get(column.id),
+      );
     }),
   ]);
   return [...[header], ...data]

@@ -19,7 +19,7 @@ cd my-forms
 pnpm install
 ```
 
-This needs [Node.js](https://nodejs.org) 22 or later and [pnpm](https://pnpm.io) installed first. See [Getting started](/docs/getting-started) if you haven't installed either yet, or don't have an LLM connection (Builder.io, an Anthropic/OpenAI key, or local Ollama) set up.
+This needs [Node.js](https://nodejs.org) 22.22 or later and [pnpm](https://pnpm.io) installed first. See [Getting started](/docs/getting-started) if you haven't installed either yet, or don't have an LLM connection (Builder.io, an Anthropic/OpenAI key, or local Ollama) set up.
 
 ### Start the dev server
 
@@ -73,10 +73,10 @@ The result is validated before it's persisted. `assertValidFields` rejects inval
 
 ### Database
 
-| Action       | What it does                                                                                                                                                                                                |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `db-status`  | Check the current database connection (local SQLite file vs. a configured remote `DATABASE_URL`).                                                                                                           |
-| `db-connect` | Explain how to configure `DATABASE_URL` / `DATABASE_AUTH_TOKEN` for a deployment. It does not write the connection itself, since those are deployment-level settings applied through your hosting provider. |
+| Action       | What it does                                                                                                                                                                       |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `db-status`  | Check the current PostgreSQL connection (`DATABASE_URL`).                                                                                                                          |
+| `db-connect` | Explain how to configure `DATABASE_URL` for a deployment. It does not write the connection itself, since that is a deployment-level setting applied through your hosting provider. |
 
 ### Navigation and UI state
 

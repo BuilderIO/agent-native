@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import {
   afterAll,
   beforeAll,
@@ -9,13 +8,14 @@ import {
   vi,
 } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
+
 vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>();
   return {
     ...actual,
     getDbExec: () => sharedClient,
-    isPostgres: () => false,
-    intType: () => "INTEGER",
+    isProductionServerlessFunctionRuntime: () => false,
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };
 });
@@ -27,7 +27,7 @@ interface FrameworkClient {
   }>;
 }
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let sharedClient: FrameworkClient = {
   async execute() {
     return { rows: [], rowsAffected: 0 };
@@ -35,66 +35,66 @@ let sharedClient: FrameworkClient = {
 };
 let previousSecretsEncryptionKey: string | undefined;
 
-beforeAll(() => {
+beforeAll(async () => {
   previousSecretsEncryptionKey = process.env.SECRETS_ENCRYPTION_KEY;
   process.env.SECRETS_ENCRYPTION_KEY = "workspace-connections-test-key";
-  sqlite = new Database(":memory:");
+  pglite = await createTestPglite();
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = sqlite.prepare(sql);
+      const stmt = await pglite.prepare(sql);
       if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   delete process.env.SLACK_BOT_TOKEN;
   try {
-    sqlite.prepare("DELETE FROM workspace_connection_grants").run();
+    await pglite.prepare("DELETE FROM workspace_connection_grants").run();
   } catch {
     // The first test creates the table through the store initializer.
   }
   try {
-    sqlite.prepare("DELETE FROM workspace_connections").run();
+    await pglite.prepare("DELETE FROM workspace_connections").run();
   } catch {
     // The first test creates the table through the store initializer.
   }
   try {
-    sqlite.prepare("DELETE FROM workspace_user_groups").run();
+    await pglite.prepare("DELETE FROM workspace_user_groups").run();
   } catch {
     // Group tests create the table on demand.
   }
   try {
-    sqlite.prepare("DELETE FROM org_members").run();
+    await pglite.prepare("DELETE FROM org_members").run();
   } catch {
     // Most store tests do not need organization membership rows.
   }
   try {
-    sqlite.prepare("DELETE FROM app_secrets").run();
+    await pglite.prepare("DELETE FROM app_secrets").run();
   } catch {
     // The first secret-backed test creates the table through the store.
   }
   try {
-    sqlite.prepare("DELETE FROM settings").run();
+    await pglite.prepare("DELETE FROM settings").run();
   } catch {
     // Credential fallback tests create the settings table on demand.
   }
 });
 
-afterAll(() => {
+afterAll(async () => {
   if (previousSecretsEncryptionKey === undefined) {
     delete process.env.SECRETS_ENCRYPTION_KEY;
   } else {
     process.env.SECRETS_ENCRYPTION_KEY = previousSecretsEncryptionKey;
   }
-  sqlite.close();
+  await pglite.close();
 });
 
 describe("workspace connection store", () => {
@@ -560,21 +560,22 @@ describe("workspace connection store", () => {
     const { upsertWorkspaceConnection, resolveWorkspaceConnectionForApp } =
       await import("./store.js");
 
-    sqlite.exec(`
+    await pglite.exec(`
       CREATE TABLE IF NOT EXISTS org_members (
         id TEXT PRIMARY KEY,
         org_id TEXT NOT NULL,
         email TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'member',
-        joined_at INTEGER NOT NULL DEFAULT 0
+        joined_at BIGINT NOT NULL DEFAULT 0,
+        federation_removal_pending_at INTEGER
       )
     `);
-    sqlite
+    await pglite
       .prepare(
         "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
       )
       .run("member-alice", "org-groups", "alice@example.com", "owner", 1);
-    sqlite
+    await pglite
       .prepare(
         "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
       )
@@ -608,7 +609,9 @@ describe("workspace connection store", () => {
     );
     expect(bobCanResolve.available).toBe(true);
 
-    sqlite.prepare("DELETE FROM org_members WHERE id = ?").run("member-bob");
+    await pglite
+      .prepare("DELETE FROM org_members WHERE id = ?")
+      .run("member-bob");
     const bobAfterOrgRemoval = await runWithRequestContext(
       { userEmail: "bob@example.com", orgId: "org-groups" },
       () =>
@@ -619,7 +622,7 @@ describe("workspace connection store", () => {
         }),
     );
     expect(bobAfterOrgRemoval.available).toBe(false);
-    sqlite
+    await pglite
       .prepare(
         "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
       )
@@ -1389,6 +1392,65 @@ describe("workspace connection store", () => {
     expect(grant?.lastUsedAt).toEqual(expect.any(String));
     expect(Date.parse(connection?.lastUsedAt ?? "")).toBeGreaterThan(0);
     expect(grant?.lastUsedAt).toBe(connection?.lastUsedAt);
+  }, 15_000);
+
+  it("skips last-used recording when recordUsage is false", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { writeAppSecret } = await import("../secrets/index.js");
+    const { resolveWorkspaceConnectionCredentialForApp } =
+      await import("./credentials.js");
+    const {
+      getWorkspaceConnection,
+      upsertWorkspaceConnection,
+      upsertWorkspaceConnectionGrant,
+    } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-slack-peek",
+          provider: "slack",
+          label: "Team Slack",
+          allowedApps: ["dispatch"],
+        });
+        await upsertWorkspaceConnectionGrant({
+          id: "grant-brain-peek",
+          connectionId: "conn-slack-peek",
+          appId: "brain",
+          credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+        });
+        await writeAppSecret({
+          key: "SLACK_BOT_TOKEN",
+          value: "xoxb-peek-token",
+          scope: "org",
+          scopeId: "org-1",
+        });
+      },
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "brain",
+          provider: "slack",
+          key: "SLACK_BOT_TOKEN",
+          recordUsage: false,
+        }),
+    );
+    expect(resolved).toMatchObject({
+      available: true,
+      status: "resolved",
+      value: "xoxb-peek-token",
+    });
+
+    const connection = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () => getWorkspaceConnection("conn-slack-peek"),
+    );
+    expect(connection?.lastUsedAt).toBeNull();
   }, 15_000);
 
   it("reports missing workspace connections and missing grants without reading env credentials", async () => {

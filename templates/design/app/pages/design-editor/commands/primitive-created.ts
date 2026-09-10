@@ -6,9 +6,15 @@ import {
   isTextEditSessionOutcome,
   scheduleBeginTextEditForScreen,
 } from "@/pages/design-editor/text-edit-utils";
-import type { DesignTool, EditorMode } from "@/pages/design-editor/types";
+import { shouldRevealLayersOnFirstCreate } from "@/pages/design-editor/tool-state";
+import type {
+  DesignLeftPanel,
+  DesignTool,
+  EditorMode,
+} from "@/pages/design-editor/types";
 
 export interface PrimitiveCreatedArgs {
+  activeLeftPanel: DesignLeftPanel | null;
   boardFileId: string | undefined;
   clearPendingOverviewLayerSelectionTimer: () => void;
   pendingEmptyTextEditRef: RefObject<{
@@ -20,11 +26,13 @@ export interface PrimitiveCreatedArgs {
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
   pendingOverviewScreenSelectionRef: RefObject<string | null>;
   pendingTextEditNodeIdRef: RefObject<string | null>;
+  layersRevealedForFirstCreateRef: RefObject<boolean>;
   removeEmptyTextNodeWithRetry: (
     screenId: string | null,
     nodeId: string,
   ) => void;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
+  setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
   setCreatedOverviewLayerSelection: Dispatch<
     SetStateAction<{ screenId: string; layerId: string } | null>
@@ -38,14 +46,17 @@ export interface PrimitiveCreatedArgs {
 
 export function runPrimitiveCreated(
   {
+    activeLeftPanel,
     boardFileId,
     clearPendingOverviewLayerSelectionTimer,
     pendingEmptyTextEditRef,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
     pendingTextEditNodeIdRef,
+    layersRevealedForFirstCreateRef,
     removeEmptyTextNodeWithRetry,
     setActiveFileId,
+    setActiveLeftPanel,
     setActiveTool,
     setCreatedOverviewLayerSelection,
     setHoveredElement,
@@ -78,6 +89,11 @@ export function runPrimitiveCreated(
   // for the board), but keep the previous active FILE and never put the
   // board id into the overview screen-frame selection.
   const isBoardTarget = Boolean(boardFileId && screenId === boardFileId);
+  const revealLayers = shouldRevealLayersOnFirstCreate({
+    activeLeftPanel,
+    alreadyRevealed: layersRevealedForFirstCreateRef.current,
+  });
+  layersRevealedForFirstCreateRef.current = true;
   pendingOverviewScreenSelectionRef.current = null;
   pendingOverviewLayerSelectionRef.current = nodeId;
   clearPendingOverviewLayerSelectionTimer();
@@ -92,6 +108,9 @@ export function runPrimitiveCreated(
     // The new node is the selection; leaving its parent frame selected too
     // hands Cmd+D and alt-drag to the screen-level duplicate instead.
     setOverviewSelectedScreenIds([]);
+    if (revealLayers) {
+      setActiveLeftPanel("file");
+    }
     if (!options?.preserveActiveTool) {
       setActiveTool(options?.nextTool ?? "move");
     }

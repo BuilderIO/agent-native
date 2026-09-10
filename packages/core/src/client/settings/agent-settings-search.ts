@@ -1,4 +1,4 @@
-import { MCP_SETTINGS_MESSAGES } from "../../localization/mcp-settings-messages.js";
+import { mcpSettingsMessagesForLocale } from "../../localization/mcp-settings-messages.js";
 import type { LocaleCode } from "../../localization/shared.js";
 import type { SettingsSearchEntry } from "./SettingsTabsPage.js";
 
@@ -132,7 +132,7 @@ const SETTINGS_SECTION_SEARCH_META: Record<
   },
   database: {
     label: "Database",
-    keywords: "postgres sqlite neon supabase turso storage sql pglite",
+    keywords: "postgres neon supabase storage sql pglite",
   },
   uploads: {
     label: "File uploads",
@@ -193,7 +193,7 @@ export interface AgentSettingsSearchTab {
 export function getAgentSettingsSearchTabs(
   locale: LocaleCode = "en-US",
 ): AgentSettingsSearchTab[] {
-  const mcpMessages = MCP_SETTINGS_MESSAGES[locale];
+  const mcpMessages = mcpSettingsMessagesForLocale(locale);
   return [
     {
       id: "agent",

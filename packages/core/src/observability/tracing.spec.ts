@@ -5,9 +5,11 @@ import {
   SPAN_STATUS_ERROR,
   SPAN_STATUS_OK,
   __resetAgentTracerCache,
+  __setAgentTraceRuntimeForTests,
   __setAgentTracerForTests,
   endAgentSpan,
   startAgentSpan,
+  withAgentSpanContext,
 } from "./tracing.js";
 
 /**
@@ -135,5 +137,48 @@ describe("tracing helper — test provider registered", () => {
     expect(spans[0].status?.message).toBe("Error: failed");
     expect(spans[0].exceptions).toEqual([{ message: "Error: failed" }]);
     expect(spans[0].ended).toBe(true);
+  });
+
+  it("installs a span as the active context for child spans", async () => {
+    const { tracer } = createTestTracer();
+    let activeSpan: AgentSpan | null = null;
+    __setAgentTraceRuntimeForTests({
+      tracer: tracer as any,
+      context: {
+        active: () => activeSpan,
+        with<T>(context: unknown, callback: () => T): T {
+          const previous = activeSpan;
+          activeSpan = context as AgentSpan;
+          let result: T;
+          try {
+            result = callback();
+          } catch (error) {
+            activeSpan = previous;
+            throw error;
+          }
+          if (
+            typeof (result as unknown as { then?: unknown } | null | undefined)
+              ?.then === "function"
+          ) {
+            return (result as unknown as Promise<unknown>).finally(() => {
+              activeSpan = previous;
+            }) as T;
+          }
+          activeSpan = previous;
+          return result;
+        },
+      },
+      trace: {
+        setSpan: (_context: unknown, span: AgentSpan) => span,
+      },
+    });
+
+    const rootSpan = await startAgentSpan("agent.run");
+    await withAgentSpanContext(rootSpan, async () => {
+      expect(activeSpan).toBe(rootSpan);
+      await Promise.resolve();
+      expect(activeSpan).toBe(rootSpan);
+    });
+    expect(activeSpan).toBeNull();
   });
 });

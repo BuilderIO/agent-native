@@ -72,6 +72,34 @@ const messages: AgentChatTranslation = {
     "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
+  "onboarding.capability.llm.keySummary":
+    "AIプロバイダーまたはローカルモデルに接続",
+  "onboarding.capability.fileStorage.keySummary":
+    "BuilderストレージまたはS3互換バケット",
+  "onboarding.capability.voiceInput.label": "音声入力",
+  "onboarding.capability.voiceInput.keySummary":
+    "ブラウザーの音声認識または音声文字変換",
+  "onboarding.capability.voiceInput.why":
+    "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
+  "onboarding.capability.assetsImageGeneration.label": "画像生成",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builderクレジットまたは画像プロバイダーのキー",
+  "onboarding.capability.assetsImageGeneration.why":
+    "画像生成はブランドに合ったアセットを作る中心的なワークフローです。",
+  "onboarding.capability.assetsVideoGeneration.label": "動画生成",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini APIキー",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "動画生成は任意です。Assetsの中心的なワークフローは画像生成です。",
+  "onboarding.capability.clipsObjectStorage.label": "オブジェクトストレージ",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "BuilderストレージまたはS3互換バケット",
+  "onboarding.capability.clipsObjectStorage.why":
+    "録画した動画は、再生または共有する前に永続的なオブジェクトストレージを必要とします。",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "音声文字変換プロバイダーのキー",
+  "onboarding.capability.about": "{{label}}について",
+  "onboarding.capability.why": "{{label}}が必要な理由",
+  "onboarding.openAiKeySettings": "AIキー設定を開く",
   "aboutAgentNative.title": "Agent-Native について",
   "aboutAgentNative.version": "バージョン",
   "aboutAgentNative.environment": "環境",
@@ -81,6 +109,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "エージェント",
   "agentPanel.mode": "モード",
   "agentPanel.uiMode": "UI",
+  "agentHostNudge.sidebarTitle": "{{agent}}のチャットを使う",
+  "agentHostNudge.sidebarDescription":
+    "すでに{{agent}}とチャットしています。このアプリを直接操作するよう依頼できます。",
+  "agentHostNudge.promptTitle": "代わりに{{agent}}に依頼する",
+  "agentHostNudge.promptDescription":
+    "{{agent}}にここで作成や変更を依頼できます。",
+  "agentHostNudge.useThisChat": "このチャットを使う",
+  "agentHostNudge.useThisPrompt": "この入力を使う",
   "common.cancel": "キャンセル",
   "common.collapse": "折りたたむ",
   "common.connect": "接続",
@@ -503,6 +539,23 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "前回のエージェントストリームは実行の復元中に終了しました。続行するか再試行して、実行に再接続してください。",
   "recovery.reconnectBuilder": "Builder.io に再接続",
+  "secrets.addCustomKeyNamed": "「{{name}}」をカスタムキーとして追加",
+  "secrets.customKey": "カスタムキー",
+  "secrets.customKeyHint": "名前を指定して任意のキーを追加",
+  "secrets.fromEnvironment": "デプロイ環境から提供されています。",
+  "secrets.managedInVault":
+    "ワークスペースの Vault で管理されています。このワークスペース内のすべてのアプリがこの値を使用します。",
+  "secrets.openVault": "Vault を開く",
+  "secrets.overridesVault":
+    "この個人用キーは、ワークスペースの Vault の値を上書きします。Vault のキーを使用するには削除してください。",
+  "secrets.overridesWorkspace":
+    "この個人用キーは、ワークスペースの値を上書きします。共有キーを使用するには削除してください。",
+  "secrets.setForWorkspace": "このワークスペースの全員に設定されています。",
+  "secrets.sourceEnvironment": "環境",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "ワークスペース",
+  "secrets.statusUnavailable": "利用できません",
+  "secrets.usePersonalKey": "代わりに個人用キーを使用",
   "selection.attached": "選択範囲の {{formattedCount}} 文字を添付しました",
   "selection.attached_other":
     "選択範囲の {{formattedCount}} 文字を添付しました",

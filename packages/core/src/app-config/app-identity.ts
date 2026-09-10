@@ -59,5 +59,5 @@ export function isFirstPartyApp(app: AppConfig["app"]): boolean {
 export function resolveAppHomePath(app: AppConfig["app"]): string {
   const configured = app.homePath?.trim();
   if (configured) return configured;
-  return isFirstPartyApp(app) ? "/home" : "/";
+  return "/home";
 }

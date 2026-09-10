@@ -13,22 +13,11 @@ import {
   type LocalizationPreference,
   useT,
 } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { docsUrl } from "@agent-native/core/shared";
-import {
-  IconHierarchy2,
-  IconCheck,
-  IconSun,
-  IconMoon,
-} from "@tabler/icons-react";
+import { IconCheck } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Links,
   Meta,
@@ -37,11 +26,12 @@ import {
   ScrollRestoration,
   useLoaderData,
   useLocation,
-  useNavigate,
   useRouteLoaderData,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 
+import { BugReportDialog } from "@/components/bug-report/bug-report-dialog";
+import { ClipsCommandMenu } from "@/components/clips-command-menu";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -54,9 +44,8 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { SEARCH_FOCUS_PATH } from "@/lib/search-focus";
+import { isStandalonePublicPath } from "@/lib/public-ssr-paths";
 
-import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog, loadI18nMessages } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -199,21 +188,6 @@ function DbSyncSetup() {
   return null;
 }
 
-function ThemeToggleItem() {
-  const { resolvedTheme, setTheme } = useTheme();
-  const t = useT();
-  const isDark = resolvedTheme === "dark";
-  return (
-    <CommandMenu.Item
-      onSelect={() => setTheme(isDark ? "light" : "dark")}
-      keywords={["theme", "dark", "light", "mode"]}
-    >
-      {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      {t("root.toggleTheme")}
-    </CommandMenu.Item>
-  );
-}
-
 type ExternalChromeRuntime = {
   lastError?: { message?: string };
   sendMessage: (
@@ -222,29 +196,6 @@ type ExternalChromeRuntime = {
     callback?: (response?: { ok?: boolean; error?: string }) => void,
   ) => void;
 };
-
-const CLIPS_COMMAND_DOCS = [
-  {
-    title: "Use the Chrome extension for browser logs",
-    description:
-      "Record a browser tab with redacted console logs, JavaScript exceptions, and fetch/XHR diagnostics.",
-    href: docsUrl("template-clips-capture-everywhere", {
-      hash: "browser-logs-with-the-chrome-extension",
-    }),
-    keywords: [
-      "logs",
-      "browser logs",
-      "developer logs",
-      "console logs",
-      "network logs",
-      "fetch",
-      "xhr",
-      "diagnostics",
-      "chrome extension",
-      "recording",
-    ],
-  },
-] satisfies React.ComponentProps<typeof CommandMenu.DocsGroup>["docs"];
 
 function ClipsExtensionAuthBridge() {
   const location = useLocation();
@@ -327,26 +278,6 @@ function ClipsExtensionAuthBridge() {
   );
 }
 
-/**
- * Paths that are fully public-facing and must SSR real content rather than
- * routing through the authenticated app shell. Kept in one place so both the
- * ClientOnly bypass in Root and the DbSync/CommandMenu skip in AppContent stay
- * in sync.
- */
-function isStandalonePublicPath(pathname: string): boolean {
-  const path = pathname.replace(/\/+$/, "") || "/";
-  return (
-    path === "/download" ||
-    path === "/bug-report" ||
-    path.startsWith("/bug-report/") ||
-    path === "/r" ||
-    path.startsWith("/r/") ||
-    path.startsWith("/share/") ||
-    path.startsWith("/embed/") ||
-    path.startsWith("/invite/")
-  );
-}
-
 function AppContent() {
   const location = useLocation();
   if (location.pathname === "/") return <Outlet />;
@@ -355,43 +286,17 @@ function AppContent() {
 
 function PrivateAppContent() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const t = useT();
   const standalonePublic = isStandalonePublicPath(location.pathname);
   const [cmdkOpen, setCmdkOpen] = useState(false);
-  useCommandMenuShortcut(
-    useCallback(() => {
-      if (!standalonePublic) setCmdkOpen(true);
-    }, [standalonePublic]),
-  );
 
   return (
     <>
       {standalonePublic ? null : <DbSyncSetup />}
       {standalonePublic ? null : <ClipsExtensionAuthBridge />}
       {standalonePublic ? null : (
-        <CommandMenu
-          open={cmdkOpen}
-          onOpenChange={setCmdkOpen}
-          changelog={changelog}
-          changelogLabel={t("settings.whatsNew")}
-          changelogKey="clips"
-        >
-          <CommandMenu.Group heading={t("root.commandActions")}>
-            <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
-              <IconHierarchy2 size={16} />
-              {t("root.openAgent")}
-            </CommandMenu.Item>
-            <CommandMenu.Item onSelect={() => navigate(SEARCH_FOCUS_PATH)}>
-              {t("root.commandSearch")}
-            </CommandMenu.Item>
-          </CommandMenu.Group>
-          <CommandMenu.DocsGroup docs={CLIPS_COMMAND_DOCS} />
-          <CommandMenu.Group heading={t("root.commandAppearance")}>
-            <ThemeToggleItem />
-          </CommandMenu.Group>
-        </CommandMenu>
+        <ClipsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
+      {standalonePublic ? null : <BugReportDialog />}
       {standalonePublic ? null : <DevOverlay />}
       <Outlet />
     </>
@@ -411,12 +316,22 @@ export default function Root() {
   const isMarketingHome = location.pathname === "/";
   const isPublicPath =
     isMarketingHome || isStandalonePublicPath(location.pathname);
+  const publicSharePath = location.pathname.startsWith("/share/");
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
-        toaster={<Toaster richColors position="bottom-left" />}
+        showEnvironmentBadge={isPublicPath && !publicSharePath}
+        toaster={
+          <Toaster
+            richColors
+            closeButton
+            position="top-center"
+            offset={{ top: 16 }}
+            mobileOffset={{ top: 12 }}
+          />
+        }
         i18n={{
           catalog: i18nCatalog,
           initialLocale: loaderData.locale,

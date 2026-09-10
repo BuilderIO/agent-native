@@ -1,10 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
+import { assertCanApprove } from "../server/lib/library-access.js";
 
 async function assertDestinationIsNotDescendant(
   db: ReturnType<typeof getDb>,
@@ -50,7 +50,7 @@ export default defineAction({
       .where(eq(schema.assetFolders.id, id))
       .limit(1);
     if (!folder) throw new Error("Folder not found.");
-    await assertAccess("asset-library", folder.libraryId, "editor");
+    await assertCanApprove(folder.libraryId, "Deleting a folder");
     const destinationId =
       moveToFolderId === undefined ? folder.parentId : moveToFolderId;
     if (destinationId) {

@@ -104,6 +104,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
       organizationId: "recordings.organizationId",
+      folderId: "recordings.folderId",
       archivedAt: "recordings.archivedAt",
       trashedAt: "recordings.trashedAt",
     },
@@ -259,8 +260,8 @@ describe("list-recordings shared view", () => {
     // Regression (two directions):
     // 1. An earlier version awaited the meeting-recording query into a plain
     //    `string[]` and bound the whole array through notInArray(). That
-    //    grows with the entire meetings table and can hit SQLite variable /
-    //    Postgres parameter limits for large libraries. The fix hands
+    //    grows with the entire meetings table and can hit PostgreSQL parameter
+    //    limits for large libraries. The fix hands
     //    notInArray() the query-builder chain itself (the exact object
     //    mockMeetingWhere() returned), so real drizzle-orm compiles it to
     //    `NOT IN (SELECT ...)` — database-side, no id list in memory.
@@ -281,6 +282,54 @@ describe("list-recordings shared view", () => {
             kind: "not-in-array",
             column: "recordings.id",
             values: meetingQueryResult,
+          },
+        ]),
+      }),
+    );
+  });
+});
+
+describe("list-recordings folder scope", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("excludes foldered recordings from the library root", async () => {
+    const parsed = action.schema.parse({
+      view: "library",
+      countOnly: true,
+    });
+
+    await action.run(parsed);
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          {
+            kind: "is-null",
+            column: "recordings.folderId",
+          },
+        ]),
+      }),
+    );
+  });
+
+  it("keeps foldered recordings scoped to the requested folder", async () => {
+    const parsed = action.schema.parse({
+      view: "library",
+      folderId: "folder_1",
+      countOnly: true,
+    });
+
+    await action.run(parsed);
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          {
+            kind: "eq",
+            column: "recordings.folderId",
+            value: "folder_1",
           },
         ]),
       }),

@@ -1,8 +1,3 @@
-import {
-  DASHBOARD_REDIRECT_PARAM,
-  DASHBOARD_REDIRECT_VALUE,
-} from "./share-attribution.js";
-
 /** Query params worth carrying from /share/:id over to /r/:id. */
 const FORWARDED_PARAMS = ["t", "at", "panel"] as const;
 
@@ -28,9 +23,6 @@ export function resolveDashboardRedirect(
   if (!input.canOpenDashboard || !input.recordingId) return null;
 
   const params = new URLSearchParams(input.search);
-  if (params.get(DASHBOARD_REDIRECT_PARAM) === DASHBOARD_REDIRECT_VALUE)
-    return null;
-
   const forwarded = new URLSearchParams();
   for (const key of FORWARDED_PARAMS) {
     const value = params.get(key);

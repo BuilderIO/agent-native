@@ -44,12 +44,18 @@ const messages = {
       noMatches: "Aucun résultat",
       localResults: "Dans cette boîte de réception",
       searchingGmail: "Recherche dans Gmail...",
+      saveAsTab: "Enregistrer comme onglet",
+      saveAsTabPrompt: "Nommer cet onglet",
+      saveAsTabFailed: "Impossible d’enregistrer cet onglet. Réessayez.",
+      filtersLimitReached: "Vous pouvez enregistrer jusqu’à 20 filtres.",
     },
     tabSettings: {
       views: "Vues",
       categories: "Catégories",
       rename: "Renommer",
       renameTab: "Renommer l’onglet",
+      savedFilters: "Filtres enregistrés",
+      combinedInbox: "Boîte de réception combinée",
       help: "Les éléments cochés s’affichent comme onglets. Les emails libellés sont séparés de la boîte de réception.",
     },
     accounts: {

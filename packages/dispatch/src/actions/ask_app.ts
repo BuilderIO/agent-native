@@ -17,7 +17,6 @@ export default defineAction({
       .number()
       .int()
       .min(0)
-      .max(25_000)
       .optional()
       .describe("Maximum inline wait in milliseconds."),
   }),

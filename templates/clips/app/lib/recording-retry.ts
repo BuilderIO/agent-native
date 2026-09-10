@@ -21,6 +21,7 @@ import {
   getRecordingBackupMeta,
   isCompleteRecordingBackup,
 } from "./recording-backup";
+import { uploadChunkRequest } from "./upload-request";
 
 export { hasRecordingBackup } from "./recording-backup";
 
@@ -147,11 +148,9 @@ export async function retryRecordingUploadFromBackup(
     const body = await recordingBlob
       .slice(start, end, meta.mimeType)
       .arrayBuffer();
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": meta.mimeType || "application/octet-stream",
-      },
+    const res = await uploadChunkRequest({
+      url,
+      contentType: meta.mimeType || "application/octet-stream",
       body,
     });
     if (!res.ok) {

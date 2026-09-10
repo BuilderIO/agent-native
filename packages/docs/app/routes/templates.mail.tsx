@@ -8,6 +8,7 @@ import {
 } from "@tabler/icons-react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -105,7 +106,7 @@ export default function MailTemplate() {
     <TemplateLandingShell>
       <TemplateHero
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -119,6 +120,7 @@ export default function MailTemplate() {
             </span>
           </>
         }
+        customizeTemplate={template}
         description={
           <p className="m-0">
             Superhuman-style keyboard shortcuts, AI triage, smart search, and
@@ -128,7 +130,7 @@ export default function MailTemplate() {
         }
         headingAction={
           <a
-            href="https://mail.agent-native.com"
+            href={firstPartyAppUrl("https://mail.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
             className={primaryLinkClassName}
@@ -186,10 +188,7 @@ export default function MailTemplate() {
             { number: "∞", label: t("templateLanding.mail.s005") },
           ].map((stat) => (
             <TemplateStatOrStepsGridItem key={stat.label}>
-              <div
-                className="text-3xl font-medium tracking-tight sm:text-4xl"
-                style={{ color: template.color }}
-              >
+              <div className="text-3xl font-medium tracking-tight sm:text-4xl text-[var(--fg-secondary)]">
                 {stat.number}
               </div>
               <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
@@ -219,10 +218,7 @@ export default function MailTemplate() {
             key={title}
             className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0"
           >
-            <div
-              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
-              style={{ color: template.color }}
-            >
+            <div className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
               <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
             </div>
             <div className="flex flex-col gap-2">
@@ -253,9 +249,8 @@ export default function MailTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.mail.${key}`)}
                 </li>
@@ -276,9 +271,8 @@ export default function MailTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.mail.${key}`)}
                 </li>
@@ -304,9 +298,8 @@ export default function MailTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.mail.${key}`)}
                 </li>
@@ -322,20 +315,20 @@ export default function MailTemplate() {
               </div>
               <div className="grid min-w-0 gap-3 break-words text-[var(--fg)]">
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  sync-inbox --since 7d
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action sync-inbox --since 7d
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  triage --label priority
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action triage --label priority
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  draft-reply --thread "RE: Q2 update"
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action draft-reply --thread "RE: Q2 update"
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  summarize --unread
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action summarize --unread
                 </div>
               </div>
             </div>
@@ -360,7 +353,7 @@ export default function MailTemplate() {
             {
               id: "agent-native",
               emphasized: true,
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { name: template.name },
             },
           ]}
           rows={[
@@ -415,10 +408,7 @@ export default function MailTemplate() {
 
       <TemplateFinalCta
         eyebrow={
-          <span
-            className="font-mono text-sm font-semibold tracking-[0.14em]"
-            style={{ color: template.color }}
-          >
+          <span className="font-mono text-sm font-semibold tracking-[0.14em] text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -433,7 +423,7 @@ export default function MailTemplate() {
       <TemplateLandingFaq
         idPrefix="mail-faq"
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }

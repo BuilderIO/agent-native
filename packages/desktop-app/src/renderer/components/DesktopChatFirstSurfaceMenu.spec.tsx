@@ -23,17 +23,14 @@ describe("DesktopChatFirstSurfaceMenu", () => {
     vi.unstubAllGlobals();
   });
 
-  it("exposes sidebar, app, and CLI actions from the full-screen menu", async () => {
+  it("exposes sidebar and CLI actions from the full-screen menu", async () => {
     const onToggleSidebar = vi.fn();
-    const onOpenApp = vi.fn();
     const onNewCliTab = vi.fn();
 
     act(() => {
       root.render(
         <DesktopChatFirstSurfaceMenu
-          apps={[{ id: "mail", name: "Mail" }]}
           onToggleSidebar={onToggleSidebar}
-          onOpenApp={onOpenApp}
           onNewCliTab={onNewCliTab}
         />,
       );
@@ -66,7 +63,7 @@ describe("DesktopChatFirstSurfaceMenu", () => {
       menuItems().some((item) =>
         item.textContent?.includes("Open app in sidebar"),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       menuItems().some((item) => item.textContent?.includes("New CLI tab")),
     ).toBe(true);
@@ -76,5 +73,32 @@ describe("DesktopChatFirstSurfaceMenu", () => {
     );
     await act(async () => sidebarItem?.click());
     expect(onToggleSidebar).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the current-type plus and close controls beside the menu", () => {
+    const onNewUiTab = vi.fn();
+    const onClose = vi.fn();
+
+    act(() => {
+      root.render(
+        <DesktopChatFirstSurfaceMenu
+          onNewUiTab={onNewUiTab}
+          onClose={onClose}
+        />,
+      );
+    });
+
+    const newTab = container.querySelector<HTMLButtonElement>(
+      '[aria-label="New UI tab"]',
+    );
+    const close = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Close chat"]',
+    );
+    expect(newTab).not.toBeNull();
+    expect(close).not.toBeNull();
+    act(() => newTab?.click());
+    act(() => close?.click());
+    expect(onNewUiTab).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

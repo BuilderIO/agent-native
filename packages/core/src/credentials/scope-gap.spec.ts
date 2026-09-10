@@ -130,7 +130,7 @@ describe("describeCredentialScopeGap", () => {
 
   it("stays quiet when the probe read fails", async () => {
     execute = async () => {
-      throw new Error("no such table: app_secrets");
+      throw new Error('relation "app_secrets" does not exist');
     };
 
     const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {

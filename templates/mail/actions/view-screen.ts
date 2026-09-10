@@ -1,8 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
-import { readAppState } from "@agent-native/core/application-state";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "@shared/search.js";
 import { z } from "zod";
 
 import {
@@ -10,12 +14,15 @@ import {
   filterInboxTabEmails,
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
+  pinnedTriageLabels,
+  inboxThreadKey,
+  savedFilterThreadIds,
 } from "../app/lib/inbox-tabs.js";
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
 import {
   isConnected,
-  getClients,
+  getClientsWithErrors,
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   listGmailMessages,
   gmailToEmailMessage,
@@ -30,10 +37,53 @@ import {
 import type { EmailMessage } from "../shared/types.js";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
+// Keep automatic screen context within the page-tool budget; list-emails is
+// the full inventory path when the agent needs more than this preview.
+const SCREEN_EMAIL_LIMIT = 10;
+// ponytail: stop after three pages; use list-emails for exhaustive filtered inventory.
+const SCREEN_EMAIL_MAX_PAGES = 3;
+
+type EmailPreviewResult = {
+  emails: any[];
+  truncated: boolean;
+  coverageComplete: boolean;
+  failedAccounts: string[];
+  error?: string;
+};
+
+function formatPreviewError(error: unknown): string {
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : "Unable to read Mail preview";
+  return (
+    message
+      .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+      .replace(
+        /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,
+        "$1=[redacted]",
+      )
+      .slice(0, 240) || "Unable to read Mail preview"
+  );
+}
+
+function boundEmailPreview(
+  emails: any[],
+  failedAccounts: string[] = [],
+  coverageComplete = failedAccounts.length === 0,
+): EmailPreviewResult {
+  return {
+    emails: emails.slice(0, SCREEN_EMAIL_LIMIT + 1),
+    truncated: emails.length > SCREEN_EMAIL_LIMIT,
+    coverageComplete,
+    failedAccounts,
+  };
+}
+
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<string, any>();
   for (const email of emails) {
-    const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
+    const key = inboxThreadKey(email);
     const existing = byThread.get(key);
     if (
       !existing ||
@@ -50,15 +100,15 @@ function latestPerThread(emails: any[]): any[] {
 async function fetchEmailList(
   view: string,
   search?: string,
-  _label?: string,
+  label?: string,
   activeInboxTab?: string,
   activeAccounts?: string[],
-): Promise<any[]> {
+  filterId?: string,
+): Promise<EmailPreviewResult> {
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
-    const shouldFilterOther =
-      view === "inbox" && !search && activeInboxTab === OTHER_INBOX_TAB_PARAM;
+    const requestedFilterId = filterId?.trim();
     const selectedAccountEmails = Array.isArray(activeAccounts)
       ? [
           ...new Set(
@@ -78,27 +128,64 @@ async function fetchEmailList(
       );
     };
 
-    if (view === "snoozed" || view === "scheduled") {
-      let emails = await getSyntheticEmailsForView(ownerEmail, view);
-      if (search) {
-        emails = emails.filter((e: any) =>
-          emailMessageMatchesSearch(e, search),
-        );
-      }
-      return filterSelectedAccounts(emails).slice(0, 50);
-    }
-
     const googleConnected = await isConnected(ownerEmail);
-    const settings =
-      googleConnected || shouldFilterOther
-        ? await readSettings(ownerEmail)
-        : undefined;
+    const shouldReadSettings =
+      googleConnected ||
+      Boolean(requestedFilterId) ||
+      (view === "inbox" &&
+        !search &&
+        (activeInboxTab === OTHER_INBOX_TAB_PARAM || Boolean(label)));
+    const settings = shouldReadSettings
+      ? await readSettings(ownerEmail)
+      : undefined;
+    const savedFilter = requestedFilterId
+      ? settings?.savedFilters?.find(
+          (filter) => filter.id === requestedFilterId,
+        )
+      : undefined;
+    const effectiveSearch = requestedFilterId ? savedFilter?.query : search;
+    const effectiveView = savedFilter ? "all" : view;
     const userPinnedLabels = settings?.pinnedLabels;
     const pinnedLabels = resolvePinnedLabels(userPinnedLabels, googleConnected);
+    const triageLabels = pinnedTriageLabels(pinnedLabels);
+    const activeTriageTab =
+      effectiveView === "inbox" && !effectiveSearch
+        ? activeInboxTab === OTHER_INBOX_TAB_PARAM
+          ? null
+          : label &&
+              triageLabels.includes(label) &&
+              isInboxScopedAppLabel(label)
+            ? label
+            : undefined
+        : undefined;
+    const savedFilterQueries =
+      settings?.savedFilters?.map((filter) => filter.query) ?? [];
+    const needsSavedFilterParts =
+      effectiveView === "inbox" &&
+      !effectiveSearch &&
+      savedFilterQueries.some(searchQueryNeedsAttachmentMetadata);
+    const needsLabelMap =
+      Boolean(label) ||
+      Boolean(activeInboxTab) ||
+      (effectiveView === "inbox" &&
+        !effectiveSearch &&
+        !label &&
+        savedFilterQueries.length > 0);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
-    const clients = googleConnected ? await getClients(ownerEmail) : [];
+    const { clients, errors: clientErrors } = googleConnected
+      ? await getClientsWithErrors(
+          ownerEmail,
+          selectedAccountEmails.length > 0 ? selectedAccountEmails : undefined,
+        )
+      : { clients: [], errors: [] };
     const connectedEmails = new Set(
       clients.map(({ email }) => email.toLowerCase()),
+    );
+    const clientErrorEmails = new Set(
+      clientErrors.map(({ email }) => email.toLowerCase()),
+    );
+    const missingSelectedAccounts = selectedAccountEmails.filter(
+      (email) => !connectedEmails.has(email) && !clientErrorEmails.has(email),
     );
     const prepareEmails = (emails: any[]) => {
       const augmented = augmentSelfSentLabels(emails as EmailMessage[], {
@@ -108,58 +195,133 @@ async function fetchEmailList(
       });
       return filterSelectedAccounts(augmented);
     };
-    const applyActiveInboxTab = (emails: any[]) =>
-      shouldFilterOther
-        ? filterInboxTabEmails(prepareEmails(emails), null, pinnedLabels)
-        : prepareEmails(emails);
+    const applyActiveInboxTab = (emails: any[]) => {
+      const prepared = prepareEmails(emails);
+      const filtered =
+        activeTriageTab !== undefined
+          ? filterInboxTabEmails(
+              prepared,
+              activeTriageTab,
+              pinnedLabels,
+              savedFilterQueries,
+            )
+          : prepared;
+      if (effectiveView !== "inbox" || effectiveSearch || label) {
+        return filtered;
+      }
+      const savedFilterThreads = savedFilterThreadIds(
+        filtered,
+        savedFilterQueries,
+      );
+      return filtered.filter(
+        (email) => !savedFilterThreads.has(inboxThreadKey(email)),
+      );
+    };
+    if (effectiveView === "snoozed" || effectiveView === "scheduled") {
+      let emails = await getSyntheticEmailsForView(ownerEmail, effectiveView);
+      if (effectiveSearch) {
+        emails = emails.filter((e: any) =>
+          emailMessageMatchesSearch(e, effectiveSearch),
+        );
+      }
+      return boundEmailPreview(filterSelectedAccounts(emails));
+    }
     if (googleConnected) {
       const labelMap = new Map<string, string>();
-      await Promise.all(
-        clients.map(async ({ accessToken }) => {
-          try {
-            const map = await fetchGmailLabelMap(accessToken);
-            for (const [id, name] of map) labelMap.set(id, name);
-          } catch {}
-        }),
-      );
+      const failedAccounts = new Set([
+        ...clientErrors.map(({ email }) => email),
+        ...missingSelectedAccounts,
+      ]);
+      if (needsLabelMap) {
+        await Promise.all(
+          clients.map(async ({ email, accessToken }) => {
+            try {
+              const map = await fetchGmailLabelMap(accessToken);
+              for (const [id, name] of map) labelMap.set(id, name);
+            } catch {
+              // coercion-ok: Label metadata is optional; Gmail messages remain usable without it.
+              failedAccounts.add(email);
+            }
+          }),
+        );
+      }
 
-      const gmailQuery = buildGmailEmailSearchQuery({ view, q: search });
+      const gmailQuery = buildGmailEmailSearchQuery({
+        view: effectiveView,
+        q: effectiveSearch,
+      });
       const effectiveQuery =
-        view === "all" && !search ? "" : gmailQuery || "in:inbox";
-      const { messages } = await listGmailMessages(
-        effectiveQuery,
-        50,
-        ownerEmail,
-        undefined,
+        effectiveView === "all" && !effectiveSearch
+          ? ""
+          : gmailQuery || "in:inbox";
+      const listOptions: NonNullable<Parameters<typeof listGmailMessages>[4]> =
         {
-          mode: "threads",
-          threadFormat: "metadata",
-          accountEmails:
-            selectedAccountEmails.length > 0
-              ? selectedAccountEmails
-              : undefined,
-          threadCandidateLimit: search ? 500 : undefined,
+          mode: "threads" as const,
+          // Metadata responses omit MIME parts. Saved-filter partitioning
+          // needs attachment filenames for has:attachment/filename queries.
+          threadFormat: needsSavedFilterParts ? "full" : "metadata",
+          threadCandidateLimit: effectiveSearch ? 500 : undefined,
           threadRecentMessageCandidateLimit:
-            !search && (view === "inbox" || view === "unread")
+            !effectiveSearch &&
+            (effectiveView === "inbox" || effectiveView === "unread")
               ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
               : undefined,
-        },
-      );
+        };
+      let pageTokens: Record<string, string> | undefined;
+      let pageAccountEmails =
+        selectedAccountEmails.length > 0 ? selectedAccountEmails : undefined;
+      let messages: any[] = [];
+      let filteredMessages: any[] = [];
+      let hasMore = false;
+      let pagesRead = 0;
 
-      return applyActiveInboxTab(
-        latestPerThread(
-          messages.map((m: any) =>
-            gmailToEmailMessage(m, m._accountEmail, labelMap),
-          ),
-        ),
-      ).slice(0, 50);
+      for (;;) {
+        const page = await listGmailMessages(
+          effectiveQuery,
+          SCREEN_EMAIL_LIMIT + 1,
+          ownerEmail,
+          pageTokens,
+          {
+            ...listOptions,
+            accountEmails: pageAccountEmails,
+          },
+        );
+        pagesRead += 1;
+        for (const error of page.errors ?? []) {
+          if (error?.email) failedAccounts.add(error.email);
+        }
+        messages = messages.concat(page.messages);
+        const preparedMessages = messages.map((m: any) =>
+          gmailToEmailMessage(m, m._accountEmail, labelMap),
+        );
+        filteredMessages = latestPerThread(
+          applyActiveInboxTab(preparedMessages),
+        );
+        pageTokens = page.nextPageTokens;
+        hasMore = Boolean(pageTokens && Object.keys(pageTokens).length > 0);
+        if (
+          !hasMore ||
+          filteredMessages.length > SCREEN_EMAIL_LIMIT ||
+          pagesRead >= SCREEN_EMAIL_MAX_PAGES
+        ) {
+          break;
+        }
+        pageAccountEmails = Object.keys(pageTokens!);
+      }
+
+      return {
+        emails: filteredMessages.slice(0, SCREEN_EMAIL_LIMIT + 1),
+        truncated: hasMore || filteredMessages.length > SCREEN_EMAIL_LIMIT,
+        coverageComplete: failedAccounts.size === 0,
+        failedAccounts: Array.from(failedAccounts),
+      };
     }
 
     // Fallback: local store
     const data = await getSetting("local-emails");
     if (data && Array.isArray((data as any).emails)) {
       let emails = (data as any).emails;
-      switch (view) {
+      switch (effectiveView) {
         case "inbox":
           emails = emails.filter(
             (e: any) =>
@@ -192,16 +354,20 @@ async function fetchEmailList(
           emails = emails.filter((e: any) => e.isTrashed);
           break;
       }
-      if (search) {
+      if (effectiveSearch) {
         emails = emails.filter((e: any) =>
-          emailMessageMatchesSearch(e, search),
+          emailMessageMatchesSearch(e, effectiveSearch),
         );
       }
-      return applyActiveInboxTab(emails).slice(0, 50);
+      return boundEmailPreview(applyActiveInboxTab(emails));
     }
-    return [];
-  } catch {
-    return [];
+    return boundEmailPreview([]);
+  } catch (error) {
+    return {
+      ...boundEmailPreview([]),
+      coverageComplete: false,
+      error: formatPreviewError(error),
+    };
   }
 }
 
@@ -264,7 +430,7 @@ async function fetchThreadMessages(threadId: string): Promise<any> {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
+    "See what the user is currently looking at on screen. Returns the current view, a bounded email preview, and the open thread (if any). Use list-emails for a full inventory. Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
   schema: z.object({
     full: z.coerce
       .boolean()
@@ -276,7 +442,9 @@ export default defineAction({
   http: false,
   readOnly: true,
   run: async () => {
-    const navigation = await readAppState("navigation");
+    const navigation = await readAppStateForCurrentTab("navigation", {
+      fallbackToGlobal: false,
+    });
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
@@ -316,13 +484,15 @@ export default defineAction({
         };
       }
     } else if (nav?.view) {
-      const emails = await fetchEmailList(
-        nav.view,
-        nav.search,
-        nav.label,
-        nav.activeInboxTab,
-        nav.activeAccounts,
-      );
+      const { emails, truncated, coverageComplete, failedAccounts, error } =
+        await fetchEmailList(
+          nav.view,
+          nav.search,
+          nav.label,
+          nav.activeInboxTab,
+          nav.activeAccounts,
+          nav.filter,
+        );
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
         ? new Set(
             nav.selectedThreadIds.filter(
@@ -330,7 +500,7 @@ export default defineAction({
             ),
           )
         : new Set<string>();
-      const compact = emails.slice(0, 50).map((e: any) => ({
+      const compact = emails.slice(0, SCREEN_EMAIL_LIMIT).map((e: any) => ({
         id: e.id,
         threadId: e.threadId,
         isSelected: selectedThreadIds.has(e.threadId || e.id),
@@ -346,11 +516,18 @@ export default defineAction({
       screen.emailList = {
         view: nav.view,
         label: nav.label ?? null,
+        filter: nav.filter ?? null,
         activeInboxTab: nav.activeInboxTab ?? null,
         activeAccounts: nav.activeAccounts ?? [],
         search: nav.search ?? null,
         selectedThreadIds: Array.from(selectedThreadIds),
         count: compact.length,
+        truncated,
+        coverage: {
+          complete: coverageComplete,
+          failedAccounts,
+          ...(error ? { error } : {}),
+        },
         emails: compact,
       };
     }

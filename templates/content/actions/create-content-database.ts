@@ -26,35 +26,110 @@ import {
   organizationContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { loadContext } from "./_database-row-mutation.js";
+import {
+  assertSetupAccess,
+  claimSetupIntent,
+  finishSetupIntent,
+  replaySetupIntent,
+  setupError,
+  setupAuditSummary,
+} from "./_database-setup-mutation.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 import { nanoid, seedDefaultBlocksField } from "./_property-utils.js";
 
-const createContentDatabaseSchema = z.object({
-  documentId: z
-    .string()
-    .optional()
-    .describe("Existing document to convert into a database page"),
-  spaceId: z
-    .string()
-    .optional()
-    .describe("Content space for a new top-level database"),
-  parentId: z
-    .string()
-    .nullish()
-    .describe("Parent document for a new database page"),
-  title: z.string().optional().describe("Database title"),
-  description: z
-    .string()
-    .optional()
-    .describe("Stable guidance describing what belongs in this database"),
+const createContentDatabaseSchema = z
+  .object({
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Intent key for reliable creation in an exact space"),
+    documentId: z
+      .string()
+      .optional()
+      .describe("Existing document to convert into a database page"),
+    newDocumentId: z
+      .string()
+      .optional()
+      .describe("Caller-provided document ID for a new database page"),
+    spaceId: z
+      .string()
+      .optional()
+      .describe("Content space for a new top-level database"),
+    parentId: z
+      .string()
+      .nullish()
+      .describe("Parent document for a new database page"),
+    title: z.string().optional().describe("Database title"),
+    description: z
+      .string()
+      .optional()
+      .describe("Stable guidance describing what belongs in this database"),
+  })
+  .strict();
+
+const createDatabaseAgentSchema = z
+  .object({
+    spaceId: z
+      .string()
+      .min(1)
+      .describe("Exact authorized Content space ID from list-content-spaces"),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .describe("Name of the new ordinary database"),
+    description: z
+      .string()
+      .max(10000)
+      .optional()
+      .describe("Guidance describing what belongs in this database"),
+    parentId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Optional editable parent Page in the same exact space"),
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe(
+        "Unique creation intent; reuse unchanged after a lost response",
+      ),
+  })
+  .strict();
+
+const createDatabaseReliableSchema = createDatabaseAgentSchema.extend({
+  newDocumentId: z.string().min(1).optional(),
+  parentId: z.string().min(1).nullish(),
 });
 
 export default defineAction({
   description:
-    "Create a Notion-style content database, optionally converting an existing document into the database page.",
+    "Create one ordinary Content database in an exact authorized space with a default table and verified receipt. Retry a lost response with the same payload and idempotency key.",
+  mcpTool: true,
+  agentInputSchema: createDatabaseAgentSchema,
+  audit: {
+    recordInputs: false,
+    target: (_args, result) => ({
+      type: "content-database",
+      id: (result as ContentDatabaseResponse).database.id,
+      visibility: "private",
+    }),
+    summary: (_args, result) =>
+      setupAuditSummary(result, "Created Content database"),
+  },
   schema: createContentDatabaseSchema,
   mcpApp: {
+    structuredContent: true,
     compactCatalog: true,
     resource: embedApp({
       title: "Open database",
@@ -64,7 +139,10 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, context) => {
+    if (context?.caller === "mcp") createDatabaseAgentSchema.parse(args);
+    if (args.idempotencyKey !== undefined)
+      return createReliableDatabase(createDatabaseReliableSchema.parse(args));
     const result = await createContentDatabaseCore(args);
     await writeAppState("refresh-signal", { ts: Date.now() });
     return result;
@@ -85,10 +163,93 @@ export default defineAction({
   },
 });
 
+async function createReliableDatabase(
+  args: z.infer<typeof createDatabaseReliableSchema>,
+) {
+  await resolveContentSpaceAccess(args.spaceId, "contributor");
+  if (args.parentId) await assertAccess("document", args.parentId, "editor");
+  const result = await getDb().transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    await resolveContentSpaceAccess(args.spaceId, "contributor", { db: tx });
+    const claim = await claimSetupIntent(
+      tx,
+      "create-content-database",
+      args.spaceId,
+      args.idempotencyKey,
+      args,
+    );
+    const replay = replaySetupIntent<{
+      databaseId: string;
+      defaultViewId: string;
+    }>(claim, { spaceId: args.spaceId });
+    if (replay) {
+      await assertSetupAccess(tx, replay.receipt.target);
+      const context = await loadContext(
+        replay.receipt.target,
+        "editor",
+        tx,
+        true,
+        true,
+      );
+      if (context.database.deletedAt)
+        setupError(
+          "DATABASE_TRASHED",
+          "The original database was created and is now in Trash. Restore it instead of retrying creation.",
+        );
+      return replay;
+    }
+    const databaseId = await createContentDatabaseRecord(args, {
+      db: tx,
+      spaceId: args.spaceId,
+    });
+    const [database] = await tx
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    if (!database)
+      setupError(
+        "READBACK_UNAVAILABLE",
+        "The new database could not be verified; creation was rolled back.",
+      );
+    const target = {
+      spaceId: args.spaceId,
+      databaseId,
+      databaseDocumentId: database.documentId,
+    };
+    const after = await loadContext(target, "editor", tx, true);
+    return finishSetupIntent(tx, claim, target, null, after, {
+      outcome: "created",
+      viewId: "default",
+      value: { databaseId, defaultViewId: "default" },
+    });
+  });
+  try {
+    const response = await getContentDatabaseResponse(result.value.databaseId);
+    await writeAppState("refresh-signal", { ts: Date.now() });
+    return {
+      ...response,
+      receipt: result.receipt,
+      defaultViewId: result.value.defaultViewId,
+    };
+  } catch {
+    setupError(
+      "READBACK_UNAVAILABLE",
+      `Database creation committed (receipt ${result.receipt.receiptId}), but its response is unavailable. Retry the same input and idempotency key; do not create another database.`,
+      503,
+    );
+  }
+}
+
 export async function createContentDatabaseCore(
   args: CreateDatabaseRequest,
   options: { db?: any } = {},
 ): Promise<ContentDatabaseResponse> {
+  if (args.documentId && args.newDocumentId) {
+    throw new Error("documentId and newDocumentId cannot both be provided");
+  }
+  if (args.newDocumentId !== undefined && !args.newDocumentId.trim()) {
+    throw new Error("newDocumentId cannot be empty");
+  }
   const db = options.db ?? getDb();
   const resolvedSpaceId = await resolveContentDatabaseSpace(args, db);
   let databaseId: string | null = null;
@@ -297,7 +458,7 @@ export async function createContentDatabaseRecord(
       visibility = orgId ? "org" : "private";
     }
 
-    documentId = nanoid();
+    documentId = args.newDocumentId ?? nanoid();
     // Snapshot as a const so the closure below keeps TypeScript's
     // non-undefined narrowing from the guard above (`let` bindings lose
     // narrowing across a closure boundary).
@@ -306,7 +467,7 @@ export async function createContentDatabaseRecord(
       documentsPositionScope(resolvedOwnerEmail, parentId),
       async () => {
         const [maxPos] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             parentId
@@ -330,7 +491,7 @@ export async function createContentDatabaseRecord(
           content: "",
           description: args.description?.trim() ?? "",
           icon: null,
-          position: (maxPos?.max ?? -1) + 1,
+          position: nextAppendPosition(maxPos?.max),
           isFavorite: 0,
           hideFromSearch,
           visibility,

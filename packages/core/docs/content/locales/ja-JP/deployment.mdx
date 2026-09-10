@@ -1,6 +1,6 @@
 ---
 title: "デプロイ"
-description: "永続 SQL データベースを使って、Agent-Native アプリまたはワークスペースを Nitro 対応プラットフォームにデプロイします。"
+description: "永続 PostgreSQL データベースを使って、Agent-Native アプリまたはワークスペースを Nitro 対応プラットフォームにデプロイします。"
 ---
 
 <!-- i18n-docs-ignore -->
@@ -26,9 +26,11 @@ Agent-Native アプリは Nitro で動作します。デプロイするものに
 
 ## デプロイ前に: 永続データベースを選択 {#persistent-database}
 
-デプロイするすべてのアプリには永続 SQL データベースが必要です。最初の本番デプロイ前に、デプロイ環境へ `DATABASE_URL` を設定してください。プロバイダーが別のトークンを必要とする場合は `DATABASE_AUTH_TOKEN` も設定します。
+デプロイするすべてのアプリには永続 PostgreSQL データベースが必要です。最初の本番デプロイ前に、デプロイ環境へ `DATABASE_URL` を設定してください。ホスト型 PostgreSQL プロバイダーには、[Neon](/docs/neon)、[Supabase](/docs/supabase)、Railway、Render、[Amazon RDS for PostgreSQL](/docs/aws-rds)、[Cloud SQL for PostgreSQL](/docs/cloud-sql)、[Azure Database for PostgreSQL](/docs/azure-postgresql) などがあります。[Plain Postgres](/docs/postgres) ガイドでは、その他のマネージドサービスとセルフホスト型 PostgreSQL サーバーについて説明しています。
 
 スタンドアロンアプリには安定した `BETTER_AUTH_SECRET` が必要です。署名付きのアプリ間リクエストを使うワークスペースには `A2A_SECRET` が必要です。
+
+これらの値はローカル`.env`だけでなく、ホスティングプロバイダーの環境設定に保存してください。認証シークレットは`openssl rand -hex 32`で生成します。Agent-Nativeにメール配信アカウントは含まれないため、ResendまたはSendGridを別途接続します。
 
 ## メール配信は任意ですが、推奨されます {#email-provider}
 

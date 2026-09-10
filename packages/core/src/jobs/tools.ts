@@ -23,7 +23,14 @@ import {
   effectiveTimezone,
   isValidTimezone,
 } from "./cron.js";
-import { classifyJobResource, jobBelongsToApp } from "./frontmatter.js";
+import {
+  assertJobExecutionTargetFields,
+  classifyJobResource,
+  jobBelongsToApp,
+  patchJobFrontmatterFields,
+  replaceJobResourceBody,
+  type JobFrontmatterPatch,
+} from "./frontmatter.js";
 import {
   parseJobFrontmatter,
   buildJobContent,
@@ -58,7 +65,10 @@ async function isCurrentUserOrgAdmin(
   try {
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [orgId, email.toLowerCase()],
     });
     if (rows.length === 0) return false;
@@ -301,7 +311,7 @@ async function runUpdate(
     return JSON.stringify({ error: `Job "${name}" not found` });
   }
 
-  const { meta, body } = parseJobFrontmatter(resource.content);
+  const { meta } = parseJobFrontmatter(resource.content);
   if (classifyJobResource(resource.content).kind === "automation") {
     return JSON.stringify({
       error: `"${name}" is an automation. Use manage-automations to update it.`,
@@ -318,7 +328,11 @@ async function runUpdate(
     return JSON.stringify({ error: denied });
   }
 
-  if (!meta.appId && appId?.trim()) meta.appId = appId.trim();
+  const fields: JobFrontmatterPatch = {};
+  if (!meta.appId && appId?.trim()) {
+    meta.appId = appId.trim();
+    fields.appId = meta.appId;
+  }
 
   if (schedule) {
     if (!isValidCron(schedule)) {
@@ -327,6 +341,7 @@ async function runUpdate(
       });
     }
     meta.schedule = schedule;
+    fields.schedule = schedule;
   }
 
   if (args.timezone !== undefined) {
@@ -336,6 +351,7 @@ async function runUpdate(
       });
     }
     meta.timezone = args.timezone;
+    fields.timezone = args.timezone;
   }
 
   if (schedule || args.timezone !== undefined) {
@@ -344,6 +360,7 @@ async function runUpdate(
       undefined,
       meta.timezone,
     ).toISOString();
+    fields.nextRun = meta.nextRun;
   }
 
   if (enabled !== undefined) {
@@ -351,29 +368,49 @@ async function runUpdate(
     // from non-LLM callers. `enabled === "true"` alone treats a boolean `true`
     // as false — silently *disabling* a job the caller meant to enable.
     meta.enabled = enabled === true || enabled === "true";
+    fields.enabled = meta.enabled;
   }
 
   if (runAs === "creator" || runAs === "shared") {
     meta.runAs = runAs;
+    fields.runAs = runAs;
   }
-  if (typeof model === "string" && model.trim()) meta.model = model.trim();
+  if (typeof model === "string" && model.trim()) {
+    meta.model = model.trim();
+    fields.model = meta.model;
+  }
   if (executionHostId !== undefined) {
     meta.executionHostId =
       typeof executionHostId === "string" && executionHostId.trim()
         ? executionHostId.trim()
         : undefined;
+    fields.executionHostId = meta.executionHostId;
   }
   if (executionEngine !== undefined) {
     meta.executionEngine =
       typeof executionEngine === "string" && executionEngine.trim()
         ? executionEngine.trim()
         : undefined;
+    fields.executionEngine = meta.executionEngine;
   }
   if (executionCwd !== undefined) {
     meta.executionCwd =
       typeof executionCwd === "string" && executionCwd.trim()
         ? executionCwd.trim()
         : undefined;
+    fields.executionCwd = meta.executionCwd;
+  }
+
+  if (
+    Object.hasOwn(fields, "executionHostId") ||
+    Object.hasOwn(fields, "executionEngine") ||
+    Object.hasOwn(fields, "executionCwd")
+  ) {
+    try {
+      assertJobExecutionTargetFields(meta);
+    } catch (err) {
+      return JSON.stringify({ error: (err as Error).message });
+    }
   }
 
   if (args.mcpTools !== undefined) {
@@ -381,13 +418,16 @@ async function runUpdate(
       const mcpTools = normalizeJobMcpTools(args.mcpTools) ?? [];
       if (mcpTools.length) meta.mcpTools = mcpTools;
       else delete meta.mcpTools;
+      fields.mcpTools = meta.mcpTools;
     } catch (err) {
       return JSON.stringify({ error: (err as Error).message });
     }
   }
 
-  const newBody = instructions || body;
-  const content = buildJobContent(meta, newBody);
+  let content = patchJobFrontmatterFields(resource.content, fields);
+  if (instructions) {
+    content = replaceJobResourceBody(content, instructions);
+  }
   await resourcePut(resource.owner, resource.path, content);
 
   return JSON.stringify({

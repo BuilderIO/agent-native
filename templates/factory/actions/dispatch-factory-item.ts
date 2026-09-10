@@ -8,6 +8,7 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import { resolveFactoryRepository } from "../server/lib/factory-repository-scope.js";
 import {
   DEFAULT_FACTORY_ID,
   factoryStillPresent,
@@ -16,7 +17,10 @@ import {
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
-import { parseGitHubRepositoryRef } from "../server/lib/github-repository.js";
+import {
+  gitHubRepositoriesEqual,
+  parseGitHubRepositoryRef,
+} from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -26,7 +30,10 @@ import {
   githubIssueReaction,
   parseOptionalReaction,
 } from "../server/lib/source-reaction.js";
-import { recordFactoryAudit } from "../server/triage/audit.js";
+import {
+  recordFactoryAudit,
+  recordFactoryAuditIfChanged,
+} from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { stableId } from "../server/triage/ids.js";
 import {
@@ -40,6 +47,7 @@ import {
   createSlackReader,
   isAgentNativeSlackUserName,
 } from "../server/triage/slack-client.js";
+import { dispatchSkipStatusWrite } from "../server/triage/slack-review-window.js";
 
 /** Slack notifies only with `<@USERID>`. Plaintext @handles do not ping anyone. */
 const REPLY_INSTRUCTION =
@@ -101,6 +109,40 @@ export function hasFeedbackCluster(metadata: Record<string, unknown>): boolean {
 
 export function isStartedTriageRunStatus(status: string): boolean {
   return startedTriageRunStatuses.has(status);
+}
+
+/**
+ * The repository a GitHub dispatch would post to. A GitHub issue carries its
+ * own repository and that wins, because the number in its external id is only
+ * meaningful there.
+ */
+export function dispatchRepositoryForItem(
+  item: {
+    source: string;
+    repository?: string | null;
+    externalId?: string | null;
+  },
+  authorizedRepository: string,
+): string {
+  if (item.source !== "github_issue") return authorizedRepository;
+  if (item.repository) return item.repository;
+  if (item.externalId?.includes("#")) {
+    return item.externalId.slice(0, item.externalId.lastIndexOf("#"));
+  }
+  return authorizedRepository;
+}
+
+/**
+ * Tagging @builderio-bot is an irreversible write, so an item pointing outside
+ * the factory's authorized repository is a stop rather than a preference.
+ * Without this the item's own repository silently won over the factory's.
+ */
+export function dispatchRepositoryConflictReason(
+  repositoryRef: string,
+  authorizedRepository: string,
+): string | null {
+  if (gitHubRepositoriesEqual(repositoryRef, authorizedRepository)) return null;
+  return `Factory item belongs to ${repositoryRef}, but this factory is configured for ${authorizedRepository}.`;
 }
 
 export function relatedDispatchConflictReason(
@@ -239,7 +281,7 @@ export async function recordAutomaticBuilderDecision(input: {
   userEmail: string;
   orgId: string;
   factoryId: string;
-  outcome: "propose_fix" | "needs_manual";
+  outcome: "propose_fix" | "needs_manual" | "observe";
   reason: string;
   guardResults: Array<{ code: string; passed: boolean; reason: string }>;
 }) {
@@ -282,13 +324,20 @@ export async function recordAutomaticBuilderDecision(input: {
 
 export default defineAction({
   description:
-    "Tag Builder for a Factory item, or record a skip when clearBug is false. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Pass optional reaction (an emoji name such as robot_face) to mark the item source when that provider can; omit it to add no reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository. Owner-managed Clips, Design, and Content items are always left for their owner.",
+    "Tag Builder for a Factory item, or record a skip when clearBug is false or alreadyClaimed is true. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Pass optional reaction (an emoji name such as robot_face) to mark the item source when that provider can; omit it to add no reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository. Owner-managed Clips, Design, and Content items are always left for their owner.",
   schema: z.object({
     itemId: z.string().min(1),
+    alreadyClaimed: z
+      .boolean()
+      .default(false)
+      .describe(
+        "True when the Slack parent already has eyes or robot_face. Records the skip without starting Builder work: received items become needs_manual so they leave needsReview; items that already started keep their status. clearBug may be omitted or false.",
+      ),
     clearBug: z
       .boolean()
+      .default(false)
       .describe(
-        "True when the item is a concrete, reproducible defect with enough evidence to investigate (including visual/UI defects such as a duplicate control, broken layout, or incorrect state). False for feature requests, vague questions, and incomplete threads.",
+        "True when the item is a concrete, reproducible defect with enough evidence to investigate (including visual/UI defects such as a duplicate control, broken layout, or incorrect state). False for feature requests, vague questions, incomplete threads, and claimed Slack parents. May be omitted when alreadyClaimed is true.",
       ),
     reason: z.string().trim().min(1).max(4_000),
     productUxImplications: z
@@ -318,6 +367,7 @@ export default defineAction({
   run: async (
     {
       itemId,
+      alreadyClaimed,
       clearBug,
       reason,
       productUxImplications,
@@ -453,17 +503,23 @@ export default defineAction({
           ]
         : []),
     ];
-    const blocked = guardResults.some((guard) => !guard.passed);
+    const blocked =
+      alreadyClaimed || guardResults.some((guard) => !guard.passed);
+    const skipStatus = dispatchSkipStatusWrite(item.status);
     const decisionId = await recordAutomaticBuilderDecision({
       itemId,
       userEmail,
       orgId,
       factoryId,
-      outcome: blocked ? "needs_manual" : "propose_fix",
+      outcome: blocked
+        ? skipStatus.statusPreserved
+          ? "observe"
+          : "needs_manual"
+        : "propose_fix",
       reason,
       guardResults,
     });
-    await recordFactoryAudit(
+    await recordFactoryAuditIfChanged(
       context,
       { userEmail, orgId },
       {
@@ -477,35 +533,49 @@ export default defineAction({
         summary: reason,
         details: {
           decisionId,
+          alreadyClaimed,
           clearBug,
           productUxImplications,
           ownerOwnedArea: ownerManagedArea,
+          statusPreserved: blocked ? skipStatus.statusPreserved : false,
           guardResults,
         },
       },
     );
     if (blocked) {
-      await db.transaction(async (tx) => {
-        await tx
-          .update(triageItems)
-          .set({ status: "needs_manual", updatedAt: new Date().toISOString() })
-          .where(
-            and(
-              eq(triageItems.id, itemId),
-              eq(triageItems.orgId, orgId),
-              factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
-            ),
+      const nextStatus = skipStatus.nextStatus;
+      if (nextStatus) {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(triageItems)
+            .set({
+              status: nextStatus,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(
+              and(
+                eq(triageItems.id, itemId),
+                eq(triageItems.orgId, orgId),
+                factoryStillPresent(
+                  tx as unknown as typeof db,
+                  orgId,
+                  factoryId,
+                ),
+              ),
+            );
+          await requireExistingFactory(
+            tx as unknown as typeof db,
+            orgId,
+            factoryId,
           );
-        await requireExistingFactory(
-          tx as unknown as typeof db,
-          orgId,
-          factoryId,
-        );
-      });
+        });
+      }
       return {
         ok: true,
         started: false,
-        needsManual: true,
+        needsManual: skipStatus.needsManual,
+        alreadyClaimed,
+        statusPreserved: skipStatus.statusPreserved,
         decisionId,
         reason,
       };
@@ -767,6 +837,7 @@ export default defineAction({
               runId,
               factoryRunId: runId,
               relatedItemIds: relatedItems.map(({ id }) => id),
+              ...(reactionName ? { slackReactionName: reactionName } : {}),
             },
           },
         );
@@ -785,18 +856,26 @@ export default defineAction({
           `Factory can only tag Builder from Slack, a GitHub issue, or Sentry. Received ${item.source}.`,
         );
       }
-      const config = await readTriageConfigRow(db, orgId, factoryId);
-      if (!config?.repository) {
+      const authorizedRepository = await resolveFactoryRepository(
+        db,
+        context,
+        { userEmail, orgId },
+        factoryId,
+      );
+      if (!authorizedRepository) {
         throw new Error(
           "Configure a Factory GitHub repository before tagging @builderio-bot.",
         );
       }
-      const repositoryRef =
-        item.source === "github_issue" && item.repository
-          ? item.repository
-          : item.source === "github_issue" && item.externalId?.includes("#")
-            ? item.externalId.slice(0, item.externalId.lastIndexOf("#"))
-            : config.repository;
+      const repositoryRef = dispatchRepositoryForItem(
+        item,
+        authorizedRepository,
+      );
+      const repositoryConflict = dispatchRepositoryConflictReason(
+        repositoryRef,
+        authorizedRepository,
+      );
+      if (repositoryConflict) throw new Error(repositoryConflict);
       const repository = parseGitHubRepositoryRef(repositoryRef);
       const github = createGitHubClient({ ownerEmail: userEmail, orgId });
       const dispatchBody = githubBotDispatchText({
@@ -888,6 +967,7 @@ export default defineAction({
             factoryRunId: runId,
             githubIssueNumber: issueNumber,
             githubIssueUrl: issueUrl,
+            ...(reactionName ? { slackReactionName: reactionName } : {}),
           },
         },
       );
@@ -927,6 +1007,7 @@ export default defineAction({
             provider: "bot-tag",
             runId,
             factoryRunId: runId,
+            ...(reactionName ? { slackReactionName: reactionName } : {}),
           },
         },
       );

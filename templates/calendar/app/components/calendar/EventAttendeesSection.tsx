@@ -1,6 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
-import { IconDots, IconMessageCircle, IconUser } from "@tabler/icons-react";
+import {
+  IconCalendarTime,
+  IconDots,
+  IconMessageCircle,
+  IconUser,
+} from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
@@ -34,6 +39,7 @@ import {
 import { getLocalTimezone } from "@/lib/event-form-utils";
 import {
   canInlineRsvp,
+  hasTimeProposal,
   RsvpStatusIcon,
   type RsvpStatus,
 } from "@/lib/rsvp-status";
@@ -43,6 +49,7 @@ type RecurringScope = "single" | "all" | "thisAndFollowing";
 
 type Attendee = NonNullable<CalendarEvent["attendees"]>[number];
 type EditableRsvpStatus = Exclude<RsvpStatus, "needsAction">;
+type ProposalAction = "propose" | "review";
 
 const ATTENDEE_TRUNCATE_THRESHOLD = 5;
 const ATTENDEE_INITIAL_SHOW = 3;
@@ -117,6 +124,8 @@ function RsvpControls({
   note,
   onChange,
   isRecurring,
+  proposalAction,
+  googleCalendarLink,
 }: {
   eventId: string;
   accountEmail?: string;
@@ -124,6 +133,8 @@ function RsvpControls({
   note?: string;
   onChange: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
+  proposalAction?: ProposalAction;
+  googleCalendarLink?: string;
 }) {
   const t = useT();
   const mutation = useRsvpEvent();
@@ -261,6 +272,29 @@ function RsvpControls({
         )}
       </div>
 
+      {proposalAction && googleCalendarLink && (
+        <Button
+          asChild
+          variant="ghost"
+          size="sm"
+          className="mt-1 h-8 w-full justify-start gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          <a
+            href={googleCalendarLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <IconCalendarTime aria-hidden="true" className="size-3.5" />
+            {t(
+              proposalAction === "review"
+                ? "eventForm.reviewProposedTime"
+                : "eventForm.proposeNewTime",
+            )}
+          </a>
+        </Button>
+      )}
+
       <PopoverContent
         side="left"
         align="center"
@@ -378,6 +412,8 @@ function AttendeeRow({
   currentNote,
   onResponseChange,
   isRecurring,
+  proposalAction,
+  googleCalendarLink,
   canEditOptional,
   onToggleOptional,
   timezoneOverrides,
@@ -394,6 +430,8 @@ function AttendeeRow({
   currentNote?: string;
   onResponseChange?: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
+  proposalAction?: ProposalAction;
+  googleCalendarLink?: string;
   canEditOptional?: boolean;
   onToggleOptional?: (email: string, optional: boolean) => void;
   timezoneOverrides?: Record<string, string>;
@@ -609,6 +647,8 @@ function AttendeeRow({
           note={currentNote}
           onChange={onResponseChange}
           isRecurring={isRecurring}
+          proposalAction={proposalAction}
+          googleCalendarLink={googleCalendarLink}
         />
       )}
     </div>
@@ -642,16 +682,19 @@ export function EventAttendeesSection({
     | "start"
     | "startTimeZone"
     | "allDay"
+    | "htmlLink"
+    | "organizer"
   >;
   canEditOptional?: boolean;
   onToggleOptional?: (email: string, optional: boolean) => void;
 }) {
   const t = useT();
   const attendees = event.attendees ?? [];
+  const organizerIsSelf = event.organizer?.self === true;
+  const initialSelfStatus: RsvpStatus =
+    event.responseStatus || (organizerIsSelf ? "accepted" : "needsAction");
   const [expanded, setExpanded] = useState(false);
-  const [selfStatus, setSelfStatus] = useState<RsvpStatus>(
-    event.responseStatus || "needsAction",
-  );
+  const [selfStatus, setSelfStatus] = useState<RsvpStatus>(initialSelfStatus);
   const [selfNote, setSelfNote] = useState(
     attendees.find((attendee) => attendee.self)?.comment?.trim() ?? "",
   );
@@ -663,17 +706,37 @@ export function EventAttendeesSection({
   const sorted = useMemo(() => sortAttendees(attendees), [attendees]);
   const canRsvpInline = canInlineRsvp(event);
   const selfAttendee = canRsvpInline
-    ? sorted.find((attendee) => attendee.self)
+    ? (sorted.find((attendee) => attendee.self) ??
+      (organizerIsSelf && event.organizer
+        ? {
+            email: event.organizer.email,
+            displayName: event.organizer.displayName,
+            organizer: true,
+            self: true,
+            responseStatus: initialSelfStatus,
+          }
+        : undefined))
     : undefined;
+  const userIsOrganizer = Boolean(
+    event.organizer?.self || selfAttendee?.organizer,
+  );
+  const proposalAction: ProposalAction | undefined =
+    selfAttendee && event.htmlLink && !event.allDay
+      ? userIsOrganizer
+        ? hasTimeProposal(event)
+          ? "review"
+          : undefined
+        : "propose"
+      : undefined;
   const others =
     canRsvpInline && selfAttendee
       ? sorted.filter((attendee) => !attendee.self)
       : sorted;
 
   useEffect(() => {
-    setSelfStatus(event.responseStatus || "needsAction");
+    setSelfStatus(initialSelfStatus);
     setSelfNote(selfAttendee?.comment?.trim() ?? "");
-  }, [event.id, event.responseStatus, selfAttendee?.comment]);
+  }, [event.id, initialSelfStatus, selfAttendee?.comment]);
 
   const handleSelfResponseChange = (status: RsvpStatus, note: string) => {
     setSelfStatus(status);
@@ -779,6 +842,8 @@ export function EventAttendeesSection({
               currentNote={selfNote}
               onResponseChange={handleSelfResponseChange}
               isRecurring={!!event.recurringEventId}
+              proposalAction={proposalAction}
+              googleCalendarLink={event.htmlLink}
               canEditOptional={canEditOptional}
               onToggleOptional={onToggleOptional}
               timezoneOverrides={timezoneOverrides}

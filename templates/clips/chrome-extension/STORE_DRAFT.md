@@ -56,8 +56,32 @@ Upload the generated artifact (the version matches `public/manifest.json`; the
 Chrome Web Store requires each upload to use a higher version than the last):
 
 ```txt
-templates/clips/chrome-extension/releases/clips-chrome-extension-0.1.19.zip
+templates/clips/chrome-extension/releases/clips-chrome-extension-0.1.21.zip
 ```
+
+## Automated release
+
+Use the **Publish Clips Chrome extension** workflow in GitHub Actions and run
+it from `main`. It runs the extension tests, typecheck, build, version guard,
+package upload, and Store publication submission. Anyone with permission to
+run repository workflows can start it; Chrome Web Store access is held by the
+short-lived GitHub OIDC identity.
+
+The repository must have these variables configured once:
+
+- `CLIPS_CWS_ITEM_ID`
+- `CLIPS_CWS_PUBLISHER_ID`
+- `CLIPS_CWS_SERVICE_ACCOUNT_EMAIL`
+- `CLIPS_CWS_WORKLOAD_IDENTITY_PROVIDER`
+
+Before the first run, add
+`clips-cws-publisher@builder-3b0a2.iam.gserviceaccount.com` to the Chrome Web
+Store Developer Dashboard under **Account** so the workflow can manage this
+listing. This is a one-time publisher-account grant, not a GitHub secret.
+
+Keep `public/manifest.json` at a version higher than the currently published
+version before running the workflow. Google review can still leave the Store
+submission in `PENDING_REVIEW` after the workflow succeeds.
 
 ## Web App Rollout Gate
 

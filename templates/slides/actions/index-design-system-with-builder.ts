@@ -1,6 +1,7 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   buildBuilderDesignSystemIndexFiles,
+  FeatureNotConfiguredError,
   startBuilderDesignSystemIndex,
 } from "@agent-native/core/server";
 import {
@@ -110,14 +111,28 @@ export default defineAction({
       codeFiles,
       designMd,
     });
-    const result = await startBuilderDesignSystemIndex({
-      projectName,
-      description,
-      githubRepoUrl,
-      githubRepos: githubSources,
-      connectedProjectId,
-      files,
-    });
+    let result: Awaited<ReturnType<typeof startBuilderDesignSystemIndex>>;
+    try {
+      result = await startBuilderDesignSystemIndex({
+        projectName,
+        description,
+        githubRepoUrl,
+        githubRepos: githubSources,
+        connectedProjectId,
+        files,
+      });
+    } catch (error) {
+      if (error instanceof FeatureNotConfiguredError) {
+        fail(error.message, {
+          errorCode: "builder_not_configured",
+          statusCode: 412,
+          ...(error.builderConnectUrl
+            ? { details: { builderConnectUrl: error.builderConnectUrl } }
+            : {}),
+        });
+      }
+      throw error;
+    }
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 

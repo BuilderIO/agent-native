@@ -22,8 +22,7 @@
  *   a plain dashed gray border.
  * - Stroke width: 1px for div-based shapes.
  * - Ellipse: borderRadius "50%" in both paths — no more "oval on commit" jump.
- * - Rect: borderRadius "2px" (small, matches the previous committed value; the
- *   preview used Tailwind `rounded-sm` which resolves to 2px).
+ * - Rect: borderRadius "0px" — square corners, like Figma.
  * - Text: inherits current color by default. Selection/edit chrome owns
  *   outlines so text does not carry a persistent border that double-stacks
  *   with focused states.
@@ -70,7 +69,8 @@ export interface CanvasPrimitiveVisual {
 // ---------------------------------------------------------------------------
 
 /** Default fill — a soft Figma-like neutral gray. */
-const DEFAULT_FILL = "rgb(218 218 218)";
+// guard:allow-raw-color — a drawn shape must not retint with the document theme.
+export const DEFAULT_SHAPE_FILL = "rgb(218 218 218)";
 
 /** Default stroke used when a caller explicitly enables a stroke. */
 const DEFAULT_STROKE = "rgb(168 168 168)";
@@ -90,8 +90,8 @@ const FRAME_BORDER = `${DEFAULT_STROKE_WIDTH_PX}px dashed ${DEFAULT_STROKE}`;
 /** Very faint fill for frames so the interior is readable. */
 const FRAME_FILL = "hsl(var(--primary) / 0.05)";
 
-/** Small radius matching Tailwind `rounded-sm` (2 px). */
-const RECT_RADIUS = "2px";
+/** Square corners by default; a radius is a user choice, not a house style. */
+const RECT_RADIUS = "0px";
 
 /**
  * Canonical default stroke for vector primitives (line / arrow / pen path).
@@ -109,6 +109,32 @@ export const DEFAULT_LINE_STROKE = "#000000";
 
 /** Default stroke width, in pixels, for a freshly drawn line/arrow/pen path. */
 export const DEFAULT_LINE_STROKE_WIDTH_PX = 1;
+
+/** Paint for the `<path>` of an SVG vector primitive. */
+export interface CanvasVectorPaint {
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+}
+
+/**
+ * A closed pen path is a shape, so it takes the same fill-and-no-stroke
+ * defaults a drawn rectangle or ellipse takes above; an open path, line, or
+ * arrow IS its stroke, and dropping that would commit an invisible element.
+ */
+export function canvasVectorPaint(overrides: {
+  closed: boolean;
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+}): CanvasVectorPaint {
+  const { closed, fill, stroke, strokeWidth } = overrides;
+  return {
+    fill: fill ?? (closed ? DEFAULT_SHAPE_FILL : "none"),
+    stroke: stroke ?? (closed ? "none" : DEFAULT_LINE_STROKE),
+    strokeWidth: strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // canvasPrimitiveVisual
@@ -133,7 +159,7 @@ export function canvasPrimitiveVisual(
   switch (kind) {
     case "ellipse":
       return {
-        background: DEFAULT_FILL,
+        background: DEFAULT_SHAPE_FILL,
         border: NO_BORDER,
         borderRadius: "50%",
       };
@@ -154,7 +180,7 @@ export function canvasPrimitiveVisual(
     case "rectangle":
     default:
       return {
-        background: DEFAULT_FILL,
+        background: DEFAULT_SHAPE_FILL,
         border: NO_BORDER,
         borderRadius: RECT_RADIUS,
       };

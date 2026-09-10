@@ -1,6 +1,8 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 
 describe("list-agent-engines", () => {
+  let readAppSecrets: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     vi.resetModules();
     vi.unstubAllEnvs();
@@ -15,12 +17,59 @@ describe("list-agent-engines", () => {
     vi.doMock("../../settings/index.js", () => ({
       getSetting: vi.fn().mockResolvedValue(null),
     }));
+    vi.doMock("../../oauth-tokens/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../oauth-tokens/store.js")>()),
+      getOAuthTokens: vi.fn().mockResolvedValue(null),
+    }));
     vi.doMock("../../agent/app-model-defaults.js", () => ({
       getAgentAppModelDefaultForCurrentRequest: vi.fn().mockResolvedValue(null),
     }));
+    readAppSecrets = vi.fn().mockResolvedValue(new Map());
     vi.doMock("../../secrets/storage.js", () => ({
       readAppSecret: vi.fn().mockResolvedValue(null),
+      readAppSecrets,
     }));
+  });
+
+  it("prefetches installed provider keys in one catalog batch", async () => {
+    const { registerAgentEngine } = await import("../../agent/engine/index.js");
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    registerAgentEngine({
+      name: "test:openai",
+      label: "OpenAI Test",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "gpt-test",
+      supportedModels: ["gpt-test"],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: vi.fn() as any,
+    });
+    registerAgentEngine({
+      name: "test:anthropic",
+      label: "Anthropic Test",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "claude-test",
+      supportedModels: ["claude-test"],
+      requiredEnvVars: ["ANTHROPIC_API_KEY"],
+      create: vi.fn() as any,
+    });
+
+    await runWithRequestContext(
+      { userEmail: "catalog@example.com", orgId: "org-catalog" },
+      () => run(),
+    );
+
+    expect(
+      readAppSecrets.mock.calls.some(
+        ([args]) =>
+          args.keys.includes("OPENAI_API_KEY") &&
+          args.keys.includes("ANTHROPIC_API_KEY"),
+      ),
+    ).toBe(true);
   });
 
   it("does not report AGENT_ENGINE as current when its optional package is missing", async () => {
@@ -48,6 +97,30 @@ describe("list-agent-engines", () => {
         (engine: any) => engine.name === "ai-sdk:missing-provider",
       )?.packageInstalled,
     ).toBe(false);
+  });
+
+  it("pairs the fallback provider with its own default model", async () => {
+    const { getAgentEngineEntry } = await import("../../agent/engine/index.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(await run());
+
+    expect(result.current).toEqual({
+      engine: "anthropic",
+      model: getAgentEngineEntry("anthropic")?.defaultModel,
+    });
+    expect(result.current.model).toMatch(/^claude-/);
+  });
+
+  it("reports that OpenRouter preserves custom model IDs", async () => {
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(await run());
+    const openRouter = result.engines.find(
+      (engine: any) => engine.name === "ai-sdk:openrouter",
+    );
+
+    expect(openRouter?.preserveCustomModels).toBe(true);
   });
 
   it("does not report AGENT_ENGINE as current when only blocked hosted deploy credentials exist", async () => {

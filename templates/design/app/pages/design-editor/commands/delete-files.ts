@@ -304,7 +304,10 @@ export function runDeleteFiles(
 
   void Promise.allSettled(
     filesToDelete.map((file) =>
-      deleteFileMutation.mutateAsync({ id: file.id } as any),
+      deleteFileMutation.mutateAsync({
+        id: file.id,
+        allowLockedLayers: true,
+      } as any),
     ),
   ).then((results) => {
     const deletedFiles = filesToDelete.filter((_, index) => {

@@ -73,7 +73,7 @@ Keep codes short and collision-safe — base62 over an auto-increment id beats r
       id: "t-schema",
       label: "schema.ts",
       language: "ts",
-      code: 'import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";\n\nexport const links = sqliteTable("links", {\n  code: text("code").primaryKey(),\n  targetUrl: text("target_url").notNull(),\n  clicks: integer("clicks").notNull().default(0),\n});',
+      code: 'import { pgTable, text, integer } from "drizzle-orm/pg-core";\n\nexport const links = pgTable("links", {\n  code: text("code").primaryKey(),\n  targetUrl: text("target_url").notNull(),\n  clicks: integer("clicks").notNull().default(0),\n});',
       caption: "Drizzle table for short links.",
     },
     {

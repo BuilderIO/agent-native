@@ -610,12 +610,48 @@
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: gray transparent;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.22) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+    background-color: hsl(var(--muted-foreground) / 0.22);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.34);
   }
 
   button,
   [role="button"] {
     cursor: pointer;
+  }
+
+  /* WebKit paints its own cancel/decoration widgets inside every
+     `input[type="search"]`, so a field that also renders a themed clear button
+     shows two "x" affordances side by side. Opting in per field rather than
+     suppressing globally is deliberate: a search field with no clear button of
+     its own still needs the platform widget, and a blanket rule would take
+     away its only pointer-accessible way to clear. `guard:single-search-clear`
+     fails when a field grows its own clear button without this class, so the
+     duplicate cannot come back silently. */
+  .agent-native-search-input::-webkit-search-cancel-button,
+  .agent-native-search-input::-webkit-search-decoration,
+  .agent-native-search-input::-webkit-search-results-button,
+  .agent-native-search-input::-webkit-search-results-decoration {
+    -webkit-appearance: none;
+    appearance: none;
   }
 }
 
@@ -795,6 +831,20 @@
 .agent-native-settings-row {
   container-type: inline-size;
   container-name: settings-row;
+}
+
+/* Integration cards use their content column, not the viewport, to choose a
+   two-column layout. Settings can leave a desktop viewport with only a narrow
+   content column once the navigation rail is open. */
+.agent-native-integration-grid {
+  container-type: inline-size;
+  container-name: integration-grid;
+}
+
+@container integration-grid (min-width: 56rem) {
+  .agent-native-integration-grid__items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @container settings-row (min-width: 36rem) {

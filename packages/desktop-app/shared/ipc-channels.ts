@@ -164,6 +164,12 @@ export const IPC = {
   QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
 
+export interface DesktopTerminalContext {
+  appId: string;
+  path?: string;
+  view?: string;
+}
+
 export type CodeAgentScheduleScope = "global" | "thread";
 export type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
 

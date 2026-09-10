@@ -17,7 +17,12 @@ describe("FactoryAuditView outcome-first audit", () => {
     expect(source).toContain("factory-audit-run-fields");
     expect(source).toContain("formatRunHeadline(run.counts, t)");
     expect(source).toContain("[overflow-wrap:anywhere]");
-    expect(source).toContain("run.items");
+    expect(source).toContain("run.inbox");
+    expect(source).toContain("run.work");
+    expect(source).toContain("run.actions");
+    expect(source).toContain('t("factoryRoute.auditSectionInbox")');
+    expect(source).toContain('t("factoryRoute.auditSectionWork")');
+    expect(source).toContain('t("factoryRoute.auditSectionActions")');
     expect(source).toContain('t("factoryRoute.auditTrace")');
     expect(source.indexOf("AuditDecisionFacts")).toBeLessThan(
       source.indexOf('t("factoryRoute.auditWhy")'),

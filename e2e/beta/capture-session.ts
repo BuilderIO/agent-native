@@ -17,12 +17,13 @@
  *
  * These tokens are framework sessions for whichever account you sign in with.
  * They last 30 days, they are as powerful as being logged in as that account,
- * and they belong in a secret store, never in the repo. Prefer a dedicated
- * e2e account over a personal one — then `BETA_E2E_EMAIL` is that account and
- * every authenticated spec asserts it is running as exactly that identity.
+ * and they belong in a secret store, never in the repo. Use a dedicated e2e
+ * account whose email contains `+autoz`; then `BETA_E2E_EMAIL` is that account
+ * and every authenticated spec asserts it is running as exactly that identity.
  */
 import { chromium } from "@playwright/test";
 
+import { isAutozQaEmail } from "../../packages/core/src/shared/qa-test-email";
 import { authenticatableSites, originFor, siteById } from "./lib/fleet";
 import {
   BETA_E2E_TEST_TRAFFIC_HEADERS,
@@ -60,11 +61,17 @@ function parseSessionEmail(
 function requestedSites() {
   const arg = process.argv[2]?.trim();
   if (!arg || arg === "all") return authenticatableSites();
-  return arg
+  const requested = arg
     .split(",")
     .map((id) => id.trim())
-    .filter(Boolean)
-    .map(siteById);
+    .filter(Boolean);
+  const disabled = requested.filter((id) => siteById(id).e2e === false);
+  if (disabled.length > 0) {
+    throw new Error(
+      `Cannot capture sessions for beta site(s) excluded from E2E: ${disabled.join(", ")}.`,
+    );
+  }
+  return requested.map(siteById);
 }
 
 async function capture(): Promise<void> {
@@ -127,6 +134,12 @@ async function capture(): Promise<void> {
         );
         await context.close();
         continue;
+      }
+
+      if (!isAutozQaEmail(resolved.email)) {
+        throw new Error(
+          `[${site.id}] sign in with a dedicated QA account whose email contains +autoz.`,
+        );
       }
 
       if (email && email !== resolved.email) {

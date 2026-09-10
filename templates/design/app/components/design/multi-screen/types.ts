@@ -247,6 +247,9 @@ export interface MultiScreenCanvasProps {
    *  the same widths, and a per-screen parameter here only ever promised
    *  scoping the action cannot deliver. */
   onAddBreakpoint?: (widthPx: number) => void;
+  /** True while an add/remove breakpoint mutation is in flight — disables the
+   *  "+" affordance and shows a brief spinner so the click is acknowledged. */
+  breakpointMutationPending?: boolean;
   /**
    * Called when the user clicks a breakpoint frame header to make it the
    * active edit scope.
@@ -334,6 +337,8 @@ export interface MultiScreenCanvasProps {
    * the screen iframes so board elements are editable through the bridge.
    */
   boardFileId?: string;
+  /** Host CSS vars do not reach the board iframe; omit this and coverage stays themed. */
+  canvasBackground?: string | null;
   /**
    * The current HTML content of the board file.
    * Passed as `content` to the board <DesignCanvas> instance.

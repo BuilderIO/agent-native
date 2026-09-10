@@ -80,6 +80,7 @@ const TEMPLATE_SITES: TemplateSite[] = Object.entries(NETLIFY_SITES)
 const SITE_BY_NAME = new Map(TEMPLATE_SITES.map((site) => [site.name, site]));
 const DEFAULT_SOURCES = [".env", ".env.local"];
 const DEFAULT_SCOPES = ["builds", "functions", "runtime"];
+const ENV_SCOPES_BY_KEY = new Map([["SENTRY_AUTH_TOKEN", ["builds"]]]);
 const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
@@ -106,7 +107,6 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "APP_URL",
   "BETTER_AUTH_URL",
   "BETTER_AUTH_TRUSTED_ORIGINS",
-  "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
   "EMAIL_FROM",
   "ENABLE_BUILDER",
@@ -121,12 +121,14 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "GOOGLE_PICKER_API_KEY",
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
-  "NETLIFY_DATABASE_AUTH_TOKEN",
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "NITRO_PRESET",
   "SENDGRID_API_KEY",
+  "SENTRY_AUTH_TOKEN",
   "SENTRY_DSN",
+  "SENTRY_ORG",
+  "SENTRY_PROJECT",
   "SENTRY_SERVER_DSN",
   "SUPABASE_URL",
   "SUPABASE_ANON_KEY",
@@ -134,20 +136,30 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
 ]);
 const HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES = ["VITE_"];
 const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
-  "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
   "FIGMA_ACCESS_TOKEN",
-  "NETLIFY_DATABASE_AUTH_TOKEN",
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "SENDGRID_API_KEY",
+  "SENTRY_AUTH_TOKEN",
   "SENTRY_DSN",
   "SENTRY_SERVER_DSN",
 ]);
+// Sentry build-time upload credentials are one org/project shared by every
+// hosted site, unlike SENTRY_DSN which can vary per site. Pulling them from
+// the invoking shell (rather than each template's committed .env) means the
+// token is never written to disk in this repo.
+const FLEET_WIDE_ENV_KEYS = [
+  "SENTRY_AUTH_TOKEN",
+  "SENTRY_ORG",
+  "SENTRY_PROJECT",
+];
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_EXACT = new Set([
   "ANTHROPIC_API_KEY",
+  "AMPLITUDE_API_KEY",
   "DEMO_MODE",
   "OPENAI_API_KEY",
+  "VITE_AMPLITUDE_API_KEY",
 ]);
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_PREFIXES = ["BUILDER_"];
 const SECRET_LIKE_ENV_KEY_PATTERN =
@@ -166,6 +178,10 @@ const PUBLIC_KEY_EXACT = new Set([
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
   "NITRO_PRESET",
+  // The org/project slugs identify a Sentry project, not a credential -
+  // SENTRY_AUTH_TOKEN is the actual secret and stays out of this set.
+  "SENTRY_ORG",
+  "SENTRY_PROJECT",
   "SUPABASE_URL",
   "SUPABASE_ANON_KEY",
   "ZOOM_CLIENT_ID",
@@ -211,6 +227,10 @@ Options:
                            GA_MEASUREMENT_ID and GTM_CONTAINER_ID default to the
                            hosted Agent-Native analytics configuration unless an
                            env source overrides them.
+                           SENTRY_AUTH_TOKEN, SENTRY_ORG, and SENTRY_PROJECT are
+                           read from this shell's environment (not any template
+                           .env) since they're the same for every hosted site.
+                           SENTRY_AUTH_TOKEN is always scoped to builds only.
   --help                  Show this help.
 
 Known templates:
@@ -371,6 +391,11 @@ function loadTemplateEnv(template: string, sources: string[]) {
   const foundSources: string[] = [];
   const sourcesByKey = new Map<string, string[]>();
 
+  for (const key of FLEET_WIDE_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) values.set(key, value);
+  }
+
   for (const source of sources) {
     const filePath = path.join(REPO_ROOT, "templates", template, source);
     if (!existsSync(filePath)) continue;
@@ -501,6 +526,13 @@ export function resolveNetlifyApiContext(context: string): string {
   // production branch. Their beta runtime therefore reads production-scoped
   // values, not generic branch-deploy values.
   return isBetaContext(context) ? "production" : context;
+}
+
+export function resolveNetlifyEnvScopes(
+  key: string,
+  scopes: string[],
+): string[] {
+  return ENV_SCOPES_BY_KEY.get(key) ?? scopes;
 }
 
 function siteIdForContext(site: TemplateSite, context: string): string {
@@ -747,7 +779,7 @@ async function main() {
         accountId: options.accountId!,
         context: options.context,
         key,
-        scopes: options.scopes,
+        scopes: resolveNetlifyEnvScopes(key, options.scopes),
         siteId: targetSiteId,
         token: token!,
         value,

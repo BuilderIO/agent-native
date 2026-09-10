@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { isBetaDocsDeployment } from "../components/deployment-links";
 import { trackEvent } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
 import {
@@ -314,7 +315,9 @@ function CreateCommandBlock() {
 export default function DownloadPage() {
   const t = useT();
   const [platform, setPlatform] = useState<Platform>("mac");
-  const [channel, setChannel] = useState<DesktopReleaseChannel>("production");
+  const [channel, setChannel] = useState<DesktopReleaseChannel>(() =>
+    isBetaDocsDeployment() ? "nightly" : "production",
+  );
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
   const [manifestRequest, setManifestRequest] = useState(0);

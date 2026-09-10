@@ -1,6 +1,11 @@
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
 import {
+  cdpTimestampMs,
+  cdpWallTimeMs,
+  elapsedMsFromCaptureStart,
+} from "./cdp-time";
+import {
   MediaPermissionRequiredError,
   mediaPermissionErrorFromResponse,
   mediaPermissionRequirements,
@@ -1553,6 +1558,10 @@ async function markRecordingStarted() {
   overlayPhase = "recording";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
+  const session = activeNativeRecording
+    ? sessions.get(activeNativeRecording.sessionId)
+    : null;
+  if (session) beginSessionCapture(session, overlayBaseEpochMs);
   if (activeNativeRecording) {
     activeNativeRecording.startedAtMs = overlayBaseEpochMs;
     activeNativeRecording.startedAt = new Date(
@@ -1737,7 +1746,6 @@ async function finishSaving(
   recording.error = null;
   if (recordingIdFromStatus) recording.recordingId = recordingIdFromStatus;
   recording.recordingUrl = recordingUrl(recording);
-  await saveNativeDiagnostics(recording);
   await deleteSession(recording.sessionId);
   await broadcastUnmount();
   broadcastOverlayState();
@@ -1758,6 +1766,8 @@ async function stopRecording() {
   // overlay. The popup stays disabled so the icon can't interrupt the save.
   overlayPhase = "saving";
   countdownEndsAtMs = 0;
+  const diagnostics = await stopNativeDiagnostics(recording);
+  const diagnosticsSave = saveNativeDiagnostics(recording, diagnostics);
   await saveActiveNativeRecording();
   await broadcastMount();
   broadcastOverlayState();
@@ -1770,6 +1780,7 @@ async function stopRecording() {
       sessionId: recording.sessionId,
     });
     if (response.result && response.result.status === "cancelled") {
+      await diagnosticsSave;
       // Stopped during the pre-roll countdown: no media was captured. Treat it
       // as an aborted take — discard the empty recording instead of opening a
       // playback tab for a finished-but-empty clip.
@@ -1787,6 +1798,7 @@ async function stopRecording() {
       response.result && typeof response.result.recordingId === "string"
         ? response.result.recordingId
         : undefined;
+    await diagnosticsSave;
     await finishSaving(recording, recordingId);
     return {
       ok: true,
@@ -1794,6 +1806,7 @@ async function stopRecording() {
       recordingUrl: recording.recordingUrl,
     };
   } catch (err) {
+    await diagnosticsSave;
     recording.status = "error";
     recording.error = friendlyRecordingError(
       err instanceof Error ? err.message : null,
@@ -1830,11 +1843,12 @@ async function cancelRecording() {
 
 async function saveNativeDiagnostics(
   recording: NativeRecording,
+  diagnostics?: BrowserDiagnosticsData | null,
 ): Promise<void> {
   if (!recording.includeDeveloperLogs) return;
   const session = sessions.get(recording.sessionId);
-  if (!session) return;
-  const diagnostics = snapshotSession(session);
+  const snapshot = diagnostics ?? (session ? snapshotSession(session) : null);
+  if (!snapshot) return;
   await postAction(
     settingsFromRecording(recording),
     "save-browser-diagnostics",
@@ -1843,16 +1857,30 @@ async function saveNativeDiagnostics(
       sessionId: recording.sessionId,
       source: "extension",
       phase: "recording",
-      pageUrl: diagnostics.pageUrl,
-      userAgent: diagnostics.userAgent,
-      startedAt: diagnostics.startedAt,
-      endedAt: diagnostics.endedAt,
-      consoleLogs: diagnostics.consoleLogs,
-      networkRequests: diagnostics.networkRequests,
+      pageUrl: snapshot.pageUrl,
+      userAgent: snapshot.userAgent,
+      startedAt: snapshot.startedAt,
+      endedAt: snapshot.endedAt,
+      consoleLogs: snapshot.consoleLogs,
+      networkRequests: snapshot.networkRequests,
     },
   ).catch((err) => {
     console.warn("[clips-extension] diagnostics save failed:", err);
   });
+}
+
+async function stopNativeDiagnostics(
+  recording: NativeRecording,
+): Promise<BrowserDiagnosticsData | null> {
+  const session = sessions.get(recording.sessionId);
+  if (!session) return null;
+  const diagnostics = recording.includeDeveloperLogs
+    ? snapshotSession(session)
+    : null;
+  await deleteSession(recording.sessionId).catch((err) => {
+    console.warn("[clips-extension] diagnostics detach failed:", err);
+  });
+  return diagnostics;
 }
 
 async function clearNativeRecording(): Promise<void> {
@@ -1997,6 +2025,17 @@ function snapshotSession(session: CaptureSession): BrowserDiagnosticsData {
   };
 }
 
+function beginSessionCapture(
+  session: CaptureSession,
+  startedAtMs = nowMs(),
+): void {
+  session.startedAtMs = startedAtMs;
+  session.startedAt = new Date(startedAtMs).toISOString();
+  session.consoleLogs = [];
+  session.networkRequests = [];
+  session.pendingNetworkRequests.clear();
+}
+
 async function attachSession(session: CaptureSession): Promise<void> {
   if (!session.includeDeveloperLogs || session.attached) return;
   try {
@@ -2049,6 +2088,10 @@ function pushConsole(
   const timestampMs = Number.isFinite(entry.timestampMs)
     ? (entry.timestampMs as number)
     : nowMs();
+  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  // Runtime and Log can replay old entries when the debugger attaches. Those
+  // entries belong to the page history, not the recording that just started.
+  if (elapsedMs === null) return;
   const message = truncate(
     redactString(entry.message, { redactQueryValues: true }),
     MAX_MESSAGE_LENGTH,
@@ -2061,7 +2104,7 @@ function pushConsole(
     : "";
   session.consoleLogs.push({
     timestampMs,
-    elapsedMs: Math.max(0, timestampMs - session.startedAtMs),
+    elapsedMs,
     level: entry.level,
     message,
     ...(stack ? { stack } : {}),
@@ -2160,8 +2203,7 @@ function handleConsoleEvent(session: CaptureSession, params: unknown): void {
     level: consoleLevel(event.type),
     message,
     stack: stackTraceText(event.stackTrace),
-    timestampMs:
-      typeof event.timestamp === "number" ? event.timestamp : undefined,
+    timestampMs: cdpTimestampMs(event.timestamp),
   });
 }
 
@@ -2180,6 +2222,8 @@ function handleExceptionEvent(session: CaptureSession, params: unknown): void {
     level: "error",
     message: description,
     stack: stackTraceText(item.stackTrace),
+    timestampMs:
+      typeof item.timestamp === "number" ? item.timestamp : undefined,
   });
 }
 
@@ -2194,8 +2238,7 @@ function handleLogEntryEvent(session: CaptureSession, params: unknown): void {
   pushConsole(session, {
     level: consoleLevel(item.level),
     message: `${source}${text}`,
-    timestampMs:
-      typeof item.timestamp === "number" ? item.timestamp : undefined,
+    timestampMs: cdpTimestampMs(item.timestamp),
   });
 }
 
@@ -2206,9 +2249,7 @@ function trackedNetworkType(value: unknown): NetworkType | null {
 }
 
 function requestTimestampMs(params: Record<string, unknown>): number {
-  return typeof params.wallTime === "number"
-    ? Math.round(params.wallTime * 1000)
-    : nowMs();
+  return cdpWallTimeMs(params.wallTime) ?? nowMs();
 }
 
 function handleRequestWillBeSent(
@@ -2226,12 +2267,14 @@ function handleRequestWillBeSent(
       : null;
   if (!type || !requestId || !request) return;
   const timestampMs = requestTimestampMs(event);
+  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  if (elapsedMs === null) return;
   const url = sanitizeUrl(typeof request.url === "string" ? request.url : "");
   if (!url) return;
   session.pendingNetworkRequests.set(requestId, {
     requestId,
     timestampMs,
-    elapsedMs: Math.max(0, timestampMs - session.startedAtMs),
+    elapsedMs,
     startedAtMonotonicSeconds:
       typeof event.timestamp === "number" ? event.timestamp : null,
     type,
@@ -2360,11 +2403,7 @@ async function handleExternalMessage(
     const session = sessions.get(message.sessionId);
     if (!session) return { ok: false, error: "Capture session not found." };
     session.recordingId = message.recordingId ?? null;
-    session.startedAtMs = nowMs();
-    session.startedAt = new Date(session.startedAtMs).toISOString();
-    session.consoleLogs = [];
-    session.networkRequests = [];
-    session.pendingNetworkRequests.clear();
+    beginSessionCapture(session);
     await attachSession(session);
     return {
       ok: true,

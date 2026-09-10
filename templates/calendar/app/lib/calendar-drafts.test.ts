@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildAllDayEventDraft,
   buildWorkingLocationDraft,
   resolveDraftWorkingLocation,
 } from "./calendar-drafts";
@@ -62,6 +63,27 @@ describe("working location drafts", () => {
     ).toEqual({
       workingLocationType: "customLocation",
       workingLocationLabel: "Library",
+    });
+  });
+});
+
+describe("all-day event drafts", () => {
+  it("creates a single-day event with an exclusive end date", () => {
+    expect(
+      buildAllDayEventDraft({
+        id: "slot-all-day",
+        date: dateKeyToDate("2026-08-14"),
+        accountEmail: "calendar@example.com",
+        now: "2026-08-01T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      start: "2026-08-14",
+      end: "2026-08-15",
+      allDay: true,
+      eventType: "default",
+      accountEmail: "calendar@example.com",
+      startTimeZone: undefined,
+      endTimeZone: undefined,
     });
   });
 });

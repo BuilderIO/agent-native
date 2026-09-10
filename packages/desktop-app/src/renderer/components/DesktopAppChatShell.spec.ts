@@ -37,8 +37,10 @@ describe("desktop app chat shell", () => {
     expect(source).toContain('position="left"');
     expect(source).toContain('agentChatSurface="desktop"');
     expect(source).toContain("toggleScopeId={toggleScopeId}");
-    expect(source).toContain("onNewCliTab={onNewCliTab}");
+    expect(source).toContain("defaultMode={defaultMode}");
+    expect(source).toContain("renderCliTab={");
     expect(source).toContain('newCliTabLabel="New CLI tab"');
+    expect(source).toContain("chatOnly={false}");
     expect(source).toContain("restoreActiveThread={false}");
     expect(source).toContain("enabled={showChatSidebar}");
     expect(source).not.toContain(

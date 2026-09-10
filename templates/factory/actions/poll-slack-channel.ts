@@ -26,6 +26,7 @@ import {
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import type { IngestionEnvelope } from "../server/triage/contracts.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
+import { mergeTriageMetadata } from "../server/triage/metadata.js";
 import {
   hasTriageSourceChanged,
   statusAfterTriageSourceUpdate,
@@ -124,13 +125,13 @@ export default defineAction({
       }
       accepted.push(envelope);
     }
-    const truncated = accepted.length < result.envelopes.length;
-    let nextHistoryCursor = truncated
-      ? (historyCursor ?? null)
-      : result.nextHistoryCursor;
+    const truncatedByAuthor = accepted.length < result.envelopes.length;
+    let nextHistoryCursor = result.nextHistoryCursor;
 
     const ingested: IngestionEnvelope[] = [];
+    const addedEnvelopes: IngestionEnvelope[] = [];
     let added = 0;
+    let updated = 0;
     await db.transaction(async (tx) => {
       for (const envelope of accepted) {
         const id = itemDedupeKey(envelope, orgId, factoryId);
@@ -145,7 +146,12 @@ export default defineAction({
           nextHistoryCursor = historyCursor ?? null;
           break;
         }
-        if (!existing) added += 1;
+        if (!existing) {
+          added += 1;
+          addedEnvelopes.push(envelope);
+        } else {
+          updated += 1;
+        }
         ingested.push(envelope);
         if (typeof envelope.metadata?.messageTs === "string") {
           nextLastSlackTs = envelope.metadata.messageTs;
@@ -173,6 +179,10 @@ export default defineAction({
         const lastSeenAt = sourceChanged
           ? sourceLastSeenAt
           : (existing?.lastSeenAt ?? now);
+        const metadataJson = mergeTriageMetadata(
+          existing?.metadataJson ?? "{}",
+          envelope.metadata ?? {},
+        );
         await tx
           .insert(triageItems)
           .values({
@@ -191,7 +201,7 @@ export default defineAction({
             headSha: envelope.headSha ?? null,
             coverage: envelope.coverage,
             dedupeKey: id,
-            metadataJson: JSON.stringify(envelope.metadata ?? {}),
+            metadataJson,
             lastSeenAt,
             createdAt: now,
             updatedAt,
@@ -208,7 +218,7 @@ export default defineAction({
               channelId: envelope.channelId ?? null,
               threadTs: envelope.threadTs ?? null,
               coverage: envelope.coverage,
-              metadataJson: JSON.stringify(envelope.metadata ?? {}),
+              metadataJson,
               status,
               lastSeenAt,
               updatedAt,
@@ -254,46 +264,55 @@ export default defineAction({
     });
 
     const truncatedByLimit = ingested.length < accepted.length;
-    if (ingested.length === 0) {
+    const authorFiltered = result.envelopes.length - accepted.length;
+    const truncated = result.hasMore || truncatedByAuthor || truncatedByLimit;
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "poll-slack-channel",
+        kind: "observed",
+        source: "slack",
+        summary:
+          added === 0
+            ? "No new Slack feedback was observed."
+            : `Added ${added} new Slack item${added === 1 ? "" : "s"}.`,
+        details: {
+          channelId,
+          inboxLimit,
+          added,
+          updated,
+          authorFiltered,
+          newerThanCursor: result.envelopes.length,
+          truncated,
+          coverage: truncated ? "partial" : "complete",
+          itemIds: addedEnvelopes.map((envelope) =>
+            itemDedupeKey(envelope, orgId, factoryId),
+          ),
+        },
+      },
+      factoryId,
+    );
+    for (const envelope of addedEnvelopes) {
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
         {
           action: "poll-slack-channel",
           kind: "observed",
-          source: "slack",
-          summary: "No new Slack feedback was observed.",
+          itemId: itemDedupeKey(envelope, orgId, factoryId),
+          source: envelope.source,
+          sourceUrl: envelope.sourceUrl ?? null,
+          summary: envelope.summary ?? envelope.title,
           details: {
             channelId,
-            coverage:
-              result.hasMore || truncated || truncatedByLimit
-                ? "partial"
-                : "complete",
+            threadTs: envelope.threadTs ?? null,
+            coverage: envelope.coverage,
+            added: true,
           },
         },
         factoryId,
       );
-    } else {
-      for (const envelope of ingested) {
-        await recordFactoryAudit(
-          context,
-          { userEmail, orgId },
-          {
-            action: "poll-slack-channel",
-            kind: "observed",
-            itemId: itemDedupeKey(envelope, orgId, factoryId),
-            source: envelope.source,
-            sourceUrl: envelope.sourceUrl ?? null,
-            summary: envelope.summary ?? envelope.title,
-            details: {
-              channelId,
-              threadTs: envelope.threadTs ?? null,
-              coverage: envelope.coverage,
-            },
-          },
-          factoryId,
-        );
-      }
     }
 
     return {

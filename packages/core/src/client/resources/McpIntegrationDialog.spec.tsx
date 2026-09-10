@@ -41,7 +41,7 @@ describe("McpIntegrationDialog", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    mocks.navigateToMcpOAuthStart.mockReset();
+    mocks.navigateToMcpOAuthStart.mockReset().mockReturnValue(true);
     mocks.mcpServersQuery.isSuccess = true;
     mocks.mcpServersQuery.isError = false;
     mocks.mcpServersQuery.error = null;
@@ -97,6 +97,92 @@ describe("McpIntegrationDialog", () => {
     expect(
       new URL(url, "https://analytics.example.com").searchParams.get("scope"),
     ).toBe("user");
+  });
+
+  it("recovers when the OAuth popup is blocked", () => {
+    const linear = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "linear",
+    )!;
+    mocks.navigateToMcpOAuthStart.mockReturnValueOnce(false);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="linear"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[linear]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const connect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    act(() => connect?.click());
+
+    expect(document.body.textContent).toContain("Connection error");
+    expect(connect).not.toHaveProperty("disabled", true);
+  });
+
+  it("opens Sigma's organization-specific URL form before OAuth", () => {
+    const sigma = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "sigma",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="sigma"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[sigma]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "Sigma's MCP URL is organization-specific.",
+    );
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+
+    const urlInput = document.body.querySelector<HTMLInputElement>(
+      'input[placeholder="https://example.com/agent-integration"]',
+    );
+    expect(urlInput).toBeTruthy();
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    act(() => {
+      valueSetter?.call(urlInput, "https://acme.sigmacomputing.com/mcp");
+      urlInput?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const connect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    expect(connect).toHaveProperty("disabled", false);
+    act(() => connect?.click());
+
+    const oauthUrl = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    expect(
+      new URL(oauthUrl, "https://analytics.example.com").searchParams.get(
+        "url",
+      ),
+    ).toBe("https://acme.sigmacomputing.com/mcp");
   });
 
   it("waits for the desktop OAuth target before connecting", () => {
@@ -579,13 +665,14 @@ describe("McpIntegrationDialog", () => {
     const linear = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "linear",
     )!;
+    const onOpenChange = vi.fn();
 
     act(() => {
       root.render(
         <TooltipProvider>
           <McpIntegrationDialog
             open
-            onOpenChange={() => {}}
+            onOpenChange={onOpenChange}
             connectIntegrationId="linear"
             defaultScope="org"
             canCreateOrgMcp
@@ -599,7 +686,40 @@ describe("McpIntegrationDialog", () => {
 
     expect(document.body.textContent).not.toContain("Who should use this?");
     expect(document.body.textContent).not.toContain("Set up for workspace");
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
 
+    const connect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    act(() => connect?.click());
+
+    expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("waits for a user click before quick-connect OAuth", () => {
+    const linear = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "linear",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="linear"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[linear]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
     const connect = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent === "Connect",
     );

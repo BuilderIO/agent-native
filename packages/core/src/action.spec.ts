@@ -9,6 +9,7 @@ import {
   isAgentActionStopError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  validateActionArgs,
 } from "./action.js";
 
 describe("ActionContractError", () => {
@@ -121,6 +122,16 @@ describe("defineAction", () => {
       run: async () => "ok",
     });
     expect(action.parallelSafe).toBe(true);
+  });
+
+  it("preserves explicit endsTurn metadata", () => {
+    const action = defineAction({
+      description: "puts a question form on screen",
+      parameters: { x: { type: "string" } },
+      endsTurn: true,
+      run: async () => "ok",
+    });
+    expect(action.endsTurn).toBe(true);
   });
 
   it("preserves explicit duplicate-read opt-out metadata", () => {
@@ -243,6 +254,17 @@ describe("defineAction", () => {
       isActionExposedToExternalAgents({ agentTool: true, mcpTool: false }),
     ).toBe(false);
 
+    // A turn-ending action (e.g. an in-app question form) is in-app only by
+    // default — the user's answer flows back through the in-app chat that
+    // an external caller is not on — unless `mcpTool: true` is explicit.
+    expect(isActionExposedToExternalAgents({ endsTurn: true })).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, agentTool: true }),
+    ).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, mcpTool: true }),
+    ).toBe(true);
+
     // The runtime backstop refuses only what no surface may run, so an
     // MCP-only action stays callable through the external registries.
     expect(isActionHiddenFromEveryAgentSurface({ agentTool: false })).toBe(
@@ -272,6 +294,17 @@ describe("defineAction", () => {
     expect(action.mcpApp?.resource.csp).toEqual({
       connectDomains: ["https://mail.agent-native.com"],
     });
+  });
+
+  it("preserves an action title for WebMCP and MCP hosts", () => {
+    const action = defineAction({
+      title: "Review draft",
+      description: "review draft",
+      parameters: {},
+      run: async () => "ok",
+    });
+
+    expect(action.tool.title).toBe("Review draft");
   });
 
   it("drops malformed MCP Apps config", () => {
@@ -759,6 +792,122 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     // The truncation ellipsis is appended; the full 2000-char blob is not echoed.
     expect(message).toContain("…");
     expect(message.length).toBeLessThan(1000);
+  });
+
+  it("validateActionArgs lets a matching schema's run() skip re-validation when passed the same ctx", async () => {
+    let received: unknown;
+    const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
+    const action = defineAction({
+      description: "tag",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    // The marker is keyed by `ctx` (see `preValidatedForContext`), not by
+    // `args` — so the exact same context object must be passed to both calls.
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(
+      schema,
+      { tag: "a" },
+      undefined,
+      ctx,
+    );
+    await action.run(validated, ctx);
+    // A second pass through the non-idempotent preprocess would have produced
+    // "a!!"; the marker means run() executes with the exact value validated.
+    expect(received).toEqual({ tag: "a!" });
+  });
+
+  it("re-validates normally when run() is called without the marking ctx", async () => {
+    let received: unknown;
+    const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
+    const action = defineAction({
+      description: "tag",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    // Validated with no ctx, so nothing is marked and run() validates as usual
+    // — a primitive-valued schema result (which a WeakMap/WeakSet can't key
+    // on directly) still goes through the normal path safely.
+    const validated = await validateActionArgs(schema, { tag: "a" });
+    await action.run(validated);
+    expect(received).toEqual({ tag: "a!!" });
+  });
+
+  it("does not let a value validated for one action's schema skip a different action's validation", async () => {
+    const schemaA = z.object({ tag: z.string() });
+    const schemaB = z.object({ name: z.string() });
+    let ranB = false;
+    const actionB = defineAction({
+      description: "needs name",
+      schema: schemaB,
+      run: async () => {
+        ranB = true;
+        return "ok";
+      },
+    });
+
+    // Validated against schemaA, so it satisfies schemaA but is missing the
+    // field schemaB requires.
+    const validatedForA = await validateActionArgs(schemaA, { tag: "x" });
+    await expect(actionB.run(validatedForA)).rejects.toThrow(
+      /Invalid action parameters/,
+    );
+    expect(ranB).toBe(false);
+  });
+
+  it("skips re-validation for a schema that validates down to a primitive", async () => {
+    // A WeakMap/WeakSet can't key on a primitive value at all — this is why
+    // the marker is keyed by `ctx` instead of by the validated value.
+    let received: unknown;
+    const schema = z.preprocess((v) => `${v}!`, z.string());
+    const action = defineAction({
+      description: "primitive schema",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(schema, "a", undefined, ctx);
+    expect(validated).toBe("a!");
+    await action.run(validated, ctx);
+    // A second pass would have produced "a!!"; skipping it keeps this the
+    // exact value a `needsApproval` predicate would have decided against.
+    expect(received).toBe("a!");
+  });
+
+  it("recognizes a cached NaN result via Object.is instead of ===", async () => {
+    // NaN !== NaN, so a `===` comparison would miss the cache entry and
+    // silently re-invoke a schema transform a caller already validated
+    // against — reopening the same non-idempotent-transform gap for any
+    // schema that legitimately validates down to NaN.
+    let transformCalls = 0;
+    const schema = z.preprocess(() => {
+      transformCalls += 1;
+      return NaN;
+    }, z.any());
+    const action = defineAction({
+      description: "nan schema",
+      schema,
+      run: async () => "ok",
+    });
+
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(schema, {}, undefined, ctx);
+    expect(Number.isNaN(validated)).toBe(true);
+    expect(transformCalls).toBe(1);
+    await action.run(validated, ctx);
+    expect(transformCalls).toBe(1);
   });
 });
 

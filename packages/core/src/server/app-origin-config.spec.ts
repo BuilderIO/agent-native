@@ -38,8 +38,8 @@ describe("app origin client config", () => {
   });
 
   it("projects the default public app home when no origin is configured", () => {
-    expect(resolvePublicAppOriginConfig()).toEqual({ appHomePath: "/" });
-    expect(getAppOriginClientConfigScript()).toContain('"appHomePath":"/"');
+    expect(resolvePublicAppOriginConfig()).toEqual({ appHomePath: "/home" });
+    expect(getAppOriginClientConfigScript()).toContain('"appHomePath":"/home"');
   });
 
   it("projects the declared origins into the shell", () => {
@@ -48,7 +48,7 @@ describe("app origin client config", () => {
     process.env.WORKSPACE_OAUTH_ORIGIN = "https://oauth.example.com";
 
     expect(resolvePublicAppOriginConfig()).toEqual({
-      appHomePath: "/",
+      appHomePath: "/home",
       appUrl: "https://app.example.com",
       workspaceGatewayUrl: "https://gateway.example.com",
       workspaceOAuthOrigin: "https://oauth.example.com",
@@ -62,7 +62,7 @@ describe("app origin client config", () => {
     process.env.VITE_WORKSPACE_GATEWAY_URL = "https://vite-gw.example.com";
 
     expect(resolvePublicAppOriginConfig()).toEqual({
-      appHomePath: "/",
+      appHomePath: "/home",
       appUrl: "https://vite.example.com",
       workspaceGatewayUrl: "https://vite-gw.example.com",
     });
@@ -72,8 +72,21 @@ describe("app origin client config", () => {
     process.env.AGENT_NATIVE_WORKSPACE = "true";
 
     expect(resolvePublicAppOriginConfig()).toEqual({
-      appHomePath: "/",
+      appHomePath: "/home",
       workspaceRuntime: true,
+    });
+  });
+
+  it("projects workspace mount paths for early runtime path reconciliation", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "dispatch", path: "/dispatch" },
+      { id: "diagrams", path: "/diagrams/" },
+    ]);
+
+    expect(resolvePublicAppOriginConfig()).toEqual({
+      appHomePath: "/home",
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch", "/diagrams"],
     });
   });
 
@@ -104,6 +117,16 @@ describe("app origin client config", () => {
       "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,",
     );
     expect(script).toContain('"appUrl":"https://app.example.com"');
+  });
+
+  it("HTML-escapes the public config payload", () => {
+    process.env.APP_URL = "https://app.example.com/?value=</script>&next=>";
+
+    const script = getAppOriginClientConfigScript();
+
+    expect(script).toContain("\\u003c/script\\u003e");
+    expect(script).toContain("\\u0026next=\\u003e");
+    expect(script.match(/<\/script>/g)).toEqual(["</script>"]);
   });
 
   it("omits absent fields instead of emitting undefined", () => {

@@ -17,7 +17,7 @@ export function recordingShareUrl(
   });
 }
 
-async function writeClipboardText(text: string): Promise<boolean> {
+export async function writeClipboardText(text: string): Promise<boolean> {
   // Rust-side write first: at recording-stop time the popover webview is
   // usually not focused, and `navigator.clipboard.writeText` rejects with
   // `NotAllowedError: Document is not focused` in exactly that case.

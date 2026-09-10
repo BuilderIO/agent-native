@@ -218,6 +218,7 @@ describe("workspace provider OAuth", () => {
       scope: "user",
       flowId: "flow-1",
       provider: "google_slides",
+      oauthTargetId: "calendar-account-1",
     });
 
     expect(decodeOAuthState(state, "")).toMatchObject({
@@ -225,6 +226,7 @@ describe("workspace provider OAuth", () => {
       scope: "user",
       flowId: "flow-1",
       provider: "google_slides",
+      oauthTargetId: "calendar-account-1",
     });
   });
 

@@ -66,6 +66,31 @@ const messages: AgentChatTranslation = {
   "onboarding.builderProvisioningDescription":
     "正在建立或重新使用您的 Builder.io 帳戶，通常需要幾秒鐘。",
   "onboarding.builderConnectionDescription": "在新視窗中按一下即可完成連線。",
+  "onboarding.capability.llm.keySummary": "連線 AI 提供者或本機模型",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder 儲存空間或相容 S3 的儲存桶",
+  "onboarding.capability.voiceInput.label": "語音輸入",
+  "onboarding.capability.voiceInput.keySummary": "瀏覽器語音辨識或語音轉文字",
+  "onboarding.capability.voiceInput.why":
+    "語音輸入會將口述要求轉換為文字；隨時都可以使用鍵盤輸入。",
+  "onboarding.capability.assetsImageGeneration.label": "影像生成",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder 點數或影像提供者金鑰",
+  "onboarding.capability.assetsImageGeneration.why":
+    "影像生成是建立符合品牌素材的核心工作流程。",
+  "onboarding.capability.assetsVideoGeneration.label": "影片生成",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API 金鑰",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "影片生成是選用功能；Assets 的核心工作流程是影像生成。",
+  "onboarding.capability.clipsObjectStorage.label": "物件儲存空間",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder 儲存空間或相容 S3 的儲存桶",
+  "onboarding.capability.clipsObjectStorage.why":
+    "錄製的影片需要持久的物件儲存空間，才能播放或分享。",
+  "onboarding.capability.clipsTranscription.keySummary": "語音轉文字提供者金鑰",
+  "onboarding.capability.about": "關於{{label}}",
+  "onboarding.capability.why": "為什麼需要{{label}}",
+  "onboarding.openAiKeySettings": "開啟 AI 金鑰設定",
   "aboutAgentNative.title": "關於 Agent-Native",
   "aboutAgentNative.version": "版本",
   "aboutAgentNative.environment": "環境",
@@ -75,6 +100,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "代理",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "介面",
+  "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
+  "agentHostNudge.sidebarDescription":
+    "你已經在與 {{agent}} 聊天。可以直接請它操作此應用程式。",
+  "agentHostNudge.promptTitle": "改為詢問 {{agent}}",
+  "agentHostNudge.promptDescription":
+    "你可以請 {{agent}} 在這裡建立或修改內容。",
+  "agentHostNudge.useThisChat": "使用此聊天",
+  "agentHostNudge.useThisPrompt": "使用此提示",
   "common.cancel": "取消",
   "common.collapse": "收合",
   "common.connect": "連線",
@@ -476,6 +509,23 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "上一次代理串流在復原執行時結束。請繼續或重試以重新連線至該執行。",
   "recovery.reconnectBuilder": "重新連線至 Builder.io",
+  "secrets.addCustomKeyNamed": "新增「{{name}}」作為自訂金鑰",
+  "secrets.customKey": "自訂金鑰",
+  "secrets.customKeyHint": "依名稱新增任何金鑰",
+  "secrets.fromEnvironment": "由部署環境提供。",
+  "secrets.managedInVault":
+    "在工作區 Vault 中管理。此工作區中的每個應用程式都會使用此值。",
+  "secrets.openVault": "開啟 Vault",
+  "secrets.overridesVault":
+    "此個人金鑰會覆寫工作區 Vault 的值。移除後即可使用 Vault 金鑰。",
+  "secrets.overridesWorkspace":
+    "此個人金鑰會覆寫工作區的值。移除後即可使用共用金鑰。",
+  "secrets.setForWorkspace": "已為此工作區中的所有人設定。",
+  "secrets.sourceEnvironment": "環境",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "工作區",
+  "secrets.statusUnavailable": "不可用",
+  "secrets.usePersonalKey": "改用個人金鑰",
   "selection.attached": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.attached_other": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.clear": "清除所選內容的上下文",

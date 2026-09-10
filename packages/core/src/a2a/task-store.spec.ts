@@ -123,12 +123,20 @@ function createMockDb() {
 }
 
 const mockDb = createMockDb();
+const executeDdlMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
 }));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: (_table: string, _column: string, sql: string) =>
+    executeDdlMock(sql),
+  ensureIndexExists: (_index: string, sql: string) => executeDdlMock(sql),
+  ensureTableExists: (_table: string, sql: string) => executeDdlMock(sql),
+}));
+
+executeDdlMock.mockImplementation((sql: string) => mockDb.execute(sql));
 
 function makeMessage(text: string, role: "user" | "agent" = "user"): Message {
   return {

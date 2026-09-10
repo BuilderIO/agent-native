@@ -10,6 +10,10 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Calendar",
+    screenshotPath: "/auth-marketing/calendar.webp",
+    screenshotWidth: 914,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/calendar",
     tagline:
       "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
     features: [

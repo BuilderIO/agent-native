@@ -44,12 +44,18 @@ const messages = {
       noMatches: "No matches",
       localResults: "In this inbox",
       searchingGmail: "Searching Gmail...",
+      saveAsTab: "Save as tab",
+      saveAsTabPrompt: "Name this tab",
+      saveAsTabFailed: "Couldn't save this tab. Try again.",
+      filtersLimitReached: "You can save up to 20 filters.",
     },
     tabSettings: {
       views: "Views",
       categories: "Categories",
       rename: "Rename",
       renameTab: "Rename tab",
+      savedFilters: "Saved filters",
+      combinedInbox: "Combined inbox",
       help: "Checked items show as tabs. Label emails split from inbox.",
     },
     accounts: {

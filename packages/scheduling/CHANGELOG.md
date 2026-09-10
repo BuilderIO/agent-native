@@ -1,5 +1,68 @@
 # @agent-native/scheduling
 
+## 0.1.60
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 8f0c972: Keep the event-type authorization test fixture in step with the shared shares
+  table, which now records when a share notification was sent.
+- Updated dependencies [e8b291e]
+- Updated dependencies [4915b82]
+- Updated dependencies
+- Updated dependencies [3bde94f]
+  - @agent-native/toolkit@0.19.6
+
+## 0.1.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/toolkit@0.19.5
+
+## 0.1.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+- Updated dependencies [e29fee8]
+- Updated dependencies [cef8c06]
+- Updated dependencies
+- Updated dependencies [73c36ce]
+  - @agent-native/toolkit@0.19.4
+
+## 0.1.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [760d108]
+  - @agent-native/toolkit@0.19.3
+
+## 0.1.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [0566ce9]
+  - @agent-native/toolkit@0.19.2
+
+## 0.1.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [e74593d]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.1
+
 ## 0.1.54
 
 ### Patch Changes
@@ -421,7 +484,7 @@
 
 ### Patch Changes
 
-- 79a0eb9: Align local Drizzle peer resolution with the framework's libsql driver version.
+- 79a0eb9: Align local Drizzle peer resolution with the framework's Postgres driver version.
 
 ## 0.1.4
 

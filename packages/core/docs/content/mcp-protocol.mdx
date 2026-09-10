@@ -31,6 +31,29 @@ Key concepts:
 - **Standard remote MCP OAuth** — OAuth 2.1 discovery, dynamic client registration, authorization-code + PKCE, refresh-token rotation
 - **Bearer auth fallback** — uses `ACCESS_TOKEN`, `ACCESS_TOKENS`, or connect-minted JWTs for clients that cannot run OAuth
 
+## Fetch-first discovery {#fetch-first-discovery}
+
+Agent-Native additionally serves `GET /.well-known/mcp.json` as an HTTP
+compatibility catalog. It is designed for simple agents and integrations that
+can use `fetch` or `curl` but do not have a running browser. The catalog
+describes eligible action endpoints, their JSON schemas, whether they are
+read-only, and whether authentication is required. Each tool can be called at
+`POST /mcp/tool/:name`; that route reuses the same action dispatcher as the
+framework's existing WebMCP HTTP route.
+
+This document is an Agent-Native interoperability convention, not a claim that
+`/.well-known/mcp.json` is part of the WebMCP browser API or the MCP
+Streamable HTTP protocol. MCP hosts should continue to connect to `/mcp` and
+run `initialize` → `tools/list` → `tools/call`. Browser agents should use
+page-local `document.modelContext` when they need live UI state. Both remain
+first-class paths.
+
+For object-scoped resources, follow the resource page's alternate JSON link or
+embedded discovery metadata. For example, a Clips share page points to an
+agent context document that advertises complete transcript and JPEG frame URLs,
+so a non-browser agent can fetch the content directly without opening the
+player.
+
 <Diagram id="doc-block-1362vx8" title="Your app as an MCP server" summary={"External hosts connect over Streamable HTTP. Each action is one tool; ask-agent delegates to the full agent loop."}>
 
 ```html

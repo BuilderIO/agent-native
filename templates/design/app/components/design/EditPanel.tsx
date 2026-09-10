@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import type { EditorMode } from "@/pages/design-editor/types";
 
 import { DesignContextUsageBadge } from "./DesignContextUsageBadge";
 import { AppearanceProperties } from "./edit-panel/appearance-properties";
@@ -236,6 +237,9 @@ export function mergeOptimisticInteractionStateStyles(
 
 export type InspectorTab = "design" | "tweaks" | "comments" | "code";
 
+/** Board ("overview") vs inside one screen ("single"). */
+export type DesignViewMode = "single" | "overview";
+
 /** Floor for a typed/preset frame size. Matches the frame tool's own minimum
  *  so a frame cannot be typed smaller than it can be drawn. */
 const MIN_SCREEN_FRAME_SIZE_PX = 24;
@@ -258,9 +262,11 @@ interface EditPanelProps {
    * full-panel preset list is only reachable *before* a frame exists, so
    * without this an existing frame could never be set to a device size.
    */
-  /** Design-level canvas background — the surround, not a screen's document.
-   *  Omit onCanvasBackgroundChange to hide the Canvas section (read-only). */
+  /** Design-level canvas background — the surround, not a screen's document. */
   canvasBackground?: string | null;
+  /** What the canvas is actually painted with when nothing is stored, so the
+   *  swatch reads as a colour rather than as an absent value. */
+  canvasBackgroundFallback?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
   onScreenGeometryChange?: (
     screenId: string,
@@ -269,16 +275,31 @@ interface EditPanelProps {
     >,
   ) => void;
   pageStyles?: Record<string, string>;
+  /** The selected screen's own document element, plus the writer for it. A
+   *  screen's box comes from the board and its paint from that document, which
+   *  now fills the frame — so both halves belong in one inspector, the way a
+   *  Figma frame carries box and paint together. */
+  selectedScreenElement?: ElementInfo | null;
+  onSelectedScreenStyleChange?: StyleChangeHandler;
+  /** Batched sibling of the above. Gradients and image fills patch several
+   *  properties at once; without this they degrade to one-at-a-time writes
+   *  that each rebuild from the same stale projection. */
+  onSelectedScreenStylesChange?: StylesChangeHandler;
   zoom?: number;
   headerTrailing?: ReactNode;
   /** Draws the inspector's canonical 28-column / 8px baseline overlay. */
   inspectorGridDebug?: boolean;
   onInspectorGridDebugChange?: (visible: boolean) => void;
   width?: number;
+  /** Board vs single screen, and which editor mode — together they select the
+   *  nothing-selected panel's background scope (resolveBackgroundPanelScope). */
+  viewMode: DesignViewMode;
+  mode: EditorMode;
   /** Viewer mode exposes inspection and comments, never editing controls. */
   readOnly?: boolean;
   activeTab?: InspectorTab;
   onActiveTabChange?: (tab: InspectorTab) => void;
+  tweaksEnabled?: boolean;
   tweaks?: TweakDefinition[];
   tweakValues?: Record<string, string | number | boolean>;
   onTweakChange?: (id: string, value: string | number | boolean) => void;
@@ -441,6 +462,12 @@ interface EditPanelProps {
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
+  /**
+   * True when `onAlignSelection` would refuse this selection — a lone
+   * top-level frame, or fewer than two selected screens in overview. The row
+   * stays rendered and goes disabled, so the buttons never look live.
+   */
+  alignSelectionDisabled?: boolean;
   // -------------------------------------------------------------------------
   // Element interaction states (hover / focus / focus-visible / active /
   // disabled) — see shared/interaction-states.ts for the persisted format
@@ -578,9 +605,7 @@ function sourcePositionLabel(
   source: Pick<InspectCodeSourceLocation, "filePath" | "line" | "column">,
 ): string {
   if (source.line == null) return source.filePath;
-  return `${source.filePath}:${source.line}${
-    source.column == null ? "" : `:${source.column}`
-  }`;
+  return `${source.filePath}:${source.line}${source.column == null ? "" : `:${source.column}`}`;
 }
 
 function sourcePrecisionLabel(
@@ -1265,6 +1290,7 @@ function InspectorTabsHeader({
   commentsCount = 0,
   inspectorGridDebug = false,
   onInspectorGridDebugChange,
+  tweaksEnabled,
 }: {
   activeTab: InspectorTab;
   readOnly: boolean;
@@ -1273,6 +1299,7 @@ function InspectorTabsHeader({
   commentsCount?: number;
   inspectorGridDebug?: boolean;
   onInspectorGridDebugChange?: (visible: boolean) => void;
+  tweaksEnabled: boolean;
 }) {
   const t = useT();
 
@@ -1316,7 +1343,7 @@ function InspectorTabsHeader({
                   </span>
                 ) : null}
               </TabsTrigger>
-              {!readOnly ? (
+              {!readOnly && tweaksEnabled ? (
                 <TabsTrigger
                   value="tweaks"
                   aria-label={t("designEditor.tweaks")}
@@ -1382,18 +1409,42 @@ function InspectorTabsHeader({
   );
 }
 
+/**
+ * Which background scope the nothing-selected panel addresses. Scope follows
+ * what you are looking at; permission only decides whether the section appears
+ * at all. Deciding by callback presence instead handed read-only viewers the
+ * live document controls and editors the board colour.
+ *
+ * `single` alone does not mean "inside a screen editing it" — standalone it is
+ * the responsive interactive view, and only a host-embedded editor stays in
+ * `edit` there. Document scope needs both.
+ */
+export function resolveBackgroundPanelScope(input: {
+  viewMode: DesignViewMode;
+  mode: EditorMode;
+  readOnly: boolean;
+}): "canvas" | "document" | null {
+  if (input.readOnly) return null;
+  if (input.viewMode === "single" && input.mode === "edit") return "document";
+  return "canvas";
+}
+
 /** Page-level properties when nothing is selected */
 function PageProperties({
+  scope,
   styles,
   onStyleChange,
   onStylesChange,
   canvasBackground,
+  canvasBackgroundFallback,
   onCanvasBackgroundChange,
 }: {
+  scope: "canvas" | "document";
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   canvasBackground?: string | null;
+  canvasBackgroundFallback?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
@@ -1416,14 +1467,11 @@ function PageProperties({
 
   return (
     <div>
-      {/* With nothing selected you are looking at the canvas, so this edits the
-          canvas surround. The section below still owns the SCREEN's own
-          document background and type defaults. */}
-      {onCanvasBackgroundChange ? (
+      {scope === "canvas" && onCanvasBackgroundChange ? (
         <PanelSection title={t("editPanel.sections.canvas")}>
           <ColorInput
             label={t("editPanel.labels.background")}
-            value={canvasBackground ?? ""}
+            value={canvasBackground ?? canvasBackgroundFallback ?? ""}
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
@@ -1431,47 +1479,49 @@ function PageProperties({
           />
         </PanelSection>
       ) : null}
-      <PanelSection title={t("editPanel.sections.page")}>
-        <ColorInput
-          label={t("editPanel.labels.background")}
-          value={styles.backgroundColor || ""}
-          onChange={(v, meta) => onStyleChange("backgroundColor", v, meta)}
-          backgroundImage={styles.backgroundImage}
-          backgroundSize={styles.backgroundSize}
-          backgroundRepeat={styles.backgroundRepeat}
-          backgroundPosition={styles.backgroundPosition}
-          onBackgroundImageChange={(v) => onStyleChange("backgroundImage", v)}
-          // Layer-index-aware: ColorInput merges the edited image into the
-          // correct backgroundImage/backgroundSize/backgroundRepeat/
-          // backgroundPosition index and hands back the full four-property
-          // patch here, already preserving every other stacked
-          // gradient/image layer (same pattern as FillProperties' base fill
-          // row — see fill-properties.tsx). The single-layer
-          // `onImageFillChange` this previously used always overwrote the
-          // *whole* background stack via `imageFillToBackgroundStyles`,
-          // silently wiping any other stacked background layer.
-          onImageFillLayerChange={(patch) =>
-            commitStylePatch(patch, onStyleChange, onStylesChange)
-          }
-          blendMode={styles.backgroundBlendMode || "normal"}
-          onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}
-          supportsLayeredFills
-          allowDesignHistoryHotkeys
-        />
-        <PropSelect
-          label={t("editPanel.labels.font")}
-          value={fontFamily}
-          onChange={(v) => onStyleChange("fontFamily", v)}
-          options={fontFamilyOptions}
-        />
-        <PropInput
-          label={t("editPanel.labels.baseSize")}
-          value={styles.fontSize || "16px"}
-          onChange={(v) => onStyleChange("fontSize", v)}
-          placeholder="16px"
-          defaultUnit="px"
-        />
-      </PanelSection>
+      {scope === "document" ? (
+        <PanelSection title={t("editPanel.sections.page")}>
+          <ColorInput
+            label={t("editPanel.labels.background")}
+            value={styles.backgroundColor || ""}
+            onChange={(v, meta) => onStyleChange("backgroundColor", v, meta)}
+            backgroundImage={styles.backgroundImage}
+            backgroundSize={styles.backgroundSize}
+            backgroundRepeat={styles.backgroundRepeat}
+            backgroundPosition={styles.backgroundPosition}
+            onBackgroundImageChange={(v) => onStyleChange("backgroundImage", v)}
+            // Layer-index-aware: ColorInput merges the edited image into the
+            // correct backgroundImage/backgroundSize/backgroundRepeat/
+            // backgroundPosition index and hands back the full four-property
+            // patch here, already preserving every other stacked
+            // gradient/image layer (same pattern as FillProperties' base fill
+            // row — see fill-properties.tsx). The single-layer
+            // `onImageFillChange` this previously used always overwrote the
+            // *whole* background stack via `imageFillToBackgroundStyles`,
+            // silently wiping any other stacked background layer.
+            onImageFillLayerChange={(patch) =>
+              commitStylePatch(patch, onStyleChange, onStylesChange)
+            }
+            blendMode={styles.backgroundBlendMode || "normal"}
+            onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}
+            supportsLayeredFills
+            allowDesignHistoryHotkeys
+          />
+          <PropSelect
+            label={t("editPanel.labels.font")}
+            value={fontFamily}
+            onChange={(v) => onStyleChange("fontFamily", v)}
+            options={fontFamilyOptions}
+          />
+          <PropInput
+            label={t("editPanel.labels.baseSize")}
+            value={styles.fontSize || "16px"}
+            onChange={(v) => onStyleChange("fontSize", v)}
+            placeholder="16px"
+            defaultUnit="px"
+          />
+        </PanelSection>
+      ) : null}
     </div>
   );
 }
@@ -1734,9 +1784,15 @@ export const EditPanel = memo(function EditPanel({
   selectedScreenLayoutGrid,
   onLayoutGridChange,
   canvasBackground,
+  canvasBackgroundFallback,
   onCanvasBackgroundChange,
   onScreenGeometryChange,
   pageStyles = {},
+  selectedScreenElement,
+  onSelectedScreenStyleChange,
+  onSelectedScreenStylesChange,
+  viewMode,
+  mode,
   headerTrailing,
   inspectorGridDebug = false,
   onInspectorGridDebugChange,
@@ -1744,6 +1800,7 @@ export const EditPanel = memo(function EditPanel({
   readOnly = false,
   activeTab = "design",
   onActiveTabChange,
+  tweaksEnabled = true,
   tweaks = [],
   tweakValues = {},
   onTweakChange,
@@ -1774,6 +1831,7 @@ export const EditPanel = memo(function EditPanel({
   activeTool,
   onCreateScreenFromPreset,
   onAlignSelection,
+  alignSelectionDisabled = false,
   onDisableAutoLayout,
   onApplyLayoutFlow,
   onInteractionStateChange,
@@ -1884,6 +1942,11 @@ export const EditPanel = memo(function EditPanel({
   if (selectedCount <= 1 && inspectorElement?.sourceId) {
     lastInteractionStateSourceIdRef.current = inspectorElement.sourceId;
   }
+  const backgroundPanelScope = resolveBackgroundPanelScope({
+    viewMode,
+    mode,
+    readOnly,
+  });
   const shouldRenderInteractionStatePanel = Boolean(
     (selectedCount <= 1 && inspectorElement?.sourceId) ||
     ((interactionState !== null || interactionStateMenuOpen) &&
@@ -1896,8 +1959,11 @@ export const EditPanel = memo(function EditPanel({
     (element) => isContainerElement(element),
   );
   const handleActiveTabChange = useCallback(
-    (tab: InspectorTab) => onActiveTabChange?.(tab),
-    [onActiveTabChange],
+    (tab: InspectorTab) => {
+      if (tab === "tweaks" && !tweaksEnabled) return;
+      onActiveTabChange?.(tab);
+    },
+    [onActiveTabChange, tweaksEnabled],
   );
   const handleTweakChange = useCallback(
     (tweakId: string, value: string | number | boolean) => {
@@ -2106,7 +2172,9 @@ export const EditPanel = memo(function EditPanel({
   const resolvedActiveTab: InspectorTab =
     readOnly && (activeTab === "design" || activeTab === "tweaks")
       ? "code"
-      : activeTab;
+      : !tweaksEnabled && activeTab === "tweaks"
+        ? "design"
+        : activeTab;
 
   // Frame presets belong to the Design inspector. Keep Comments and Tweaks
   // visible when the Frame tool remains armed while another tab is active.
@@ -2138,6 +2206,7 @@ export const EditPanel = memo(function EditPanel({
           commentsCount={reviewCommentsCount}
           inspectorGridDebug={inspectorGridDebug}
           onInspectorGridDebugChange={onInspectorGridDebugChange}
+          tweaksEnabled={tweaksEnabled}
         />
 
         {showFramePresets ? (
@@ -2277,20 +2346,42 @@ export const EditPanel = memo(function EditPanel({
                       }
                     />
                   ) : null}
+                  {selectedScreenElement && onSelectedScreenStyleChange ? (
+                    <>
+                      <FillProperties
+                        element={selectedScreenElement}
+                        onStyleChange={onSelectedScreenStyleChange}
+                        onStylesChange={onSelectedScreenStylesChange}
+                        documentColorPalette={documentColorPalette}
+                      />
+                      <StrokeProperties
+                        element={selectedScreenElement}
+                        onStyleChange={onSelectedScreenStyleChange}
+                        onStylesChange={onSelectedScreenStylesChange}
+                      />
+                      <EffectsProperties
+                        element={selectedScreenElement}
+                        onStyleChange={onSelectedScreenStyleChange}
+                        onStylesChange={onSelectedScreenStylesChange}
+                      />
+                    </>
+                  ) : null}
                 </>
               ) : null}
 
-              {!inspectorElement && !selectedScreenGeometry && (
+              {!inspectorElement &&
+              !selectedScreenGeometry &&
+              backgroundPanelScope ? (
                 <PageProperties
+                  scope={backgroundPanelScope}
                   styles={pageStyles}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   canvasBackground={canvasBackground}
-                  onCanvasBackgroundChange={
-                    readOnly ? undefined : onCanvasBackgroundChange
-                  }
+                  canvasBackgroundFallback={canvasBackgroundFallback}
+                  onCanvasBackgroundChange={onCanvasBackgroundChange}
                 />
-              )}
+              ) : null}
 
               {shouldRenderInteractionStatePanel ? (
                 <InteractionStatePanel
@@ -2310,6 +2401,7 @@ export const EditPanel = memo(function EditPanel({
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
                     onAlignSelection={onAlignSelection}
+                    alignSelectionDisabled={alignSelectionDisabled}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
@@ -2373,7 +2465,10 @@ export const EditPanel = memo(function EditPanel({
                   ) : null}
                 </>
               )}
-              {onExport ? (
+              {/* Export acts on a selection. With nothing selected there is
+                  nothing to export, so the section was pure chrome on the
+                  empty-canvas panel. */}
+              {onExport && (inspectorElement || selectedScreenGeometry) ? (
                 <PanelSection title={t("editPanel.sections.export")}>
                   <ExportSettingsPanel
                     key={selectedElementKey}

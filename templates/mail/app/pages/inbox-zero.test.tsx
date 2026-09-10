@@ -21,6 +21,12 @@ const emptyLabel: InboxZeroState = {
   activeLabel: "github",
 };
 
+const emptySavedFilter: InboxZeroState = {
+  ...emptyInbox,
+  searchQuery: "from:notifications@github.com",
+  isSavedFilter: true,
+};
+
 function InboxZeroBoundary({ state }: { state: InboxZeroState }) {
   return shouldShowInboxZero(state) ? (
     <div data-testid="inbox-zero" />
@@ -51,6 +57,15 @@ describe("InboxZero rendering", () => {
   it("renders Inbox Zero for an empty label filter", () => {
     const markup = renderToStaticMarkup(
       <InboxZeroBoundary state={emptyLabel} />,
+    );
+
+    expect(markup).toContain('data-testid="inbox-zero"');
+    expect(markup).not.toContain('data-testid="email-list"');
+  });
+
+  it("renders Inbox Zero for an empty saved filter", () => {
+    const markup = renderToStaticMarkup(
+      <InboxZeroBoundary state={emptySavedFilter} />,
     );
 
     expect(markup).toContain('data-testid="inbox-zero"');

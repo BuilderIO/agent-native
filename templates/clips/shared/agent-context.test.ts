@@ -4,6 +4,7 @@ import {
   agentAccessTokenResourceId,
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
+  buildAgentHttpToolManifest,
   buildRecommendedFrames,
   formatAgentTimestamp,
   safeJsonForHtml,
@@ -33,12 +34,78 @@ describe("agent clip context helpers", () => {
       "clips-get-transcript",
       "clips-get-frame",
     ]);
+    expect(payload.http.tools.map((tool) => tool.name)).toEqual([
+      "clips-get-context",
+      "clips-get-transcript",
+    ]);
   });
 
   it("scopes private agent access tokens separately from media tokens", () => {
     expect(agentAccessTokenResourceId("rec-1")).toBe(
       "clip-agent-context:rec-1",
     );
+  });
+
+  it("keeps browser-independent HTTP access first-class", () => {
+    const payload = buildAgentDiscoveryPayload({
+      recordingId: "rec-1",
+      title: "Clip",
+      status: "ready",
+      agentContextUrl:
+        "https://clips.example.com/api/agent-context.json?id=rec-1",
+    });
+
+    expect(payload.instructions).toContain("this works without a browser");
+    expect(payload.webmcp.instructions).toContain(
+      "For browser-independent access from any HTTP client",
+    );
+    expect(payload.webmcp.instructions).toContain(
+      "For a complete transcript, use the HTTP apis.transcript URL",
+    );
+    expect(payload.webmcp.instructions).toContain("bounded read-only access");
+    expect(payload.webmcp.instructions).toContain(
+      "its sourceUrl points to the HTTP transcript",
+    );
+    expect(payload.http.tools).toMatchObject([
+      {
+        name: "clips-get-context",
+        method: "GET",
+        endpoint: "https://clips.example.com/api/agent-context.json?id=rec-1",
+        responseType: "application/json",
+      },
+      {
+        name: "clips-get-transcript",
+        method: "GET",
+        endpoint:
+          "https://clips.example.com/api/agent-transcript.json?id=rec-1",
+        responseType: "application/json",
+      },
+      {
+        name: "clips-get-frame",
+        method: "GET",
+        endpoint:
+          "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={atMs}",
+        responseType: "image/jpeg",
+      },
+    ]);
+  });
+
+  it("describes the same clip tools as browser-independent fetch endpoints", () => {
+    const manifest = buildAgentHttpToolManifest({
+      contextUrl: "https://clips.example.com/api/agent-context.json?id=rec-1",
+      transcriptUrl:
+        "https://clips.example.com/api/agent-transcript.json?id=rec-1",
+      frameUrlTemplate:
+        "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={timestampMs}",
+    });
+
+    expect(manifest).toMatchObject({
+      schema_version: "v1",
+      browserRequired: false,
+    });
+    expect(manifest.tools).toHaveLength(3);
+    expect(manifest.tools[1].parameters).toEqual(manifest.tools[1].inputSchema);
+    expect(manifest.tools[2].endpoint).toContain("atMs={atMs}");
   });
 
   it("builds shareable agent API URLs with base path and token", () => {

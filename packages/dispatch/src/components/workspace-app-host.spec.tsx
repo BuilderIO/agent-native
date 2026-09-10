@@ -38,6 +38,7 @@ const clientState = vi.hoisted(() => {
     legacyMutateError: null as Error | null,
     legacyErrorMutateAsync,
     inBuilderFrame: false,
+    clientSurface: "web" as "web" | "electron" | "tauri",
     frameLoadHandler: null as (() => void) | null,
     suppressFrameLoad: false,
     theme: "dark" as "dark" | "light",
@@ -95,6 +96,7 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
+  getClientSurface: () => clientState.clientSurface,
   isInBuilderFrame: () => clientState.inBuilderFrame,
 }));
 
@@ -190,6 +192,7 @@ describe("WorkspaceAppKeepAlive", () => {
     clientState.legacyMutateError = null;
     clientState.legacyErrorMutateAsync.mockReset();
     clientState.inBuilderFrame = false;
+    clientState.clientSurface = "web";
     clientState.frameLoadHandler = null;
     clientState.suppressFrameLoad = false;
     clientState.workspaceSsoMutateAsync.mockClear();
@@ -661,6 +664,27 @@ describe("WorkspaceAppKeepAlive", () => {
       chrome: "minimal",
     });
     expect(container.querySelector("iframe")).not.toBeNull();
+  });
+
+  it("opens the app in the top window for a native desktop host", async () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    const expectedUrl = new URL("/mail", window.location.href).href;
+    clientState.clientSurface = "electron";
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(topWindow.location.href).toBe(expectedUrl);
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(container.querySelector("iframe")).toBeNull();
   });
 
   it("falls back to the embedded app when top-window navigation is blocked", async () => {

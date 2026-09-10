@@ -43,6 +43,7 @@ import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   referenceDeckId?: string | null;
+  referenceFilePaths?: string[];
   referenceSource?: {
     kind: "google-docs" | "website" | "figma";
     value: string;
@@ -56,8 +57,11 @@ export type NewDeckReferenceSource = NonNullable<
 export interface ImportedReference {
   id: string;
   title: string;
-  source: "pptx" | "pdf" | "google-slides";
+  source: "pptx" | "pdf" | "docx" | "google-slides";
+  referenceFilePaths?: string[];
 }
+
+type FileImportSource = Exclude<ImportedReference["source"], "google-slides">;
 
 interface DesignSystemOption {
   id: string;
@@ -123,6 +127,8 @@ export function NewDeckReferenceStep({
     useState<NewDeckReferenceSelection["referenceSource"]>(null);
   const [referenceDeckSearchOpen, setReferenceDeckSearchOpen] = useState(false);
   const [continuing, setContinuing] = useState(false);
+  const [importingSource, setImportingSource] =
+    useState<FileImportSource | null>(null);
   const busy = importing || continuing;
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
@@ -144,12 +150,20 @@ export function NewDeckReferenceStep({
     if (open) setContinuing(false);
   }, [open]);
 
-  const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleImport = async (
+    event: ChangeEvent<HTMLInputElement>,
+    source: FileImportSource,
+  ) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
-    const imported = await onImport(files);
-    if (imported) applyImportedReference(imported);
+    setImportingSource(source);
+    try {
+      const imported = await onImport(files);
+      if (imported) applyImportedReference(imported);
+    } finally {
+      setImportingSource(null);
+    }
   };
 
   const applyImportedReference = (imported: ImportedReference) => {
@@ -178,6 +192,9 @@ export function NewDeckReferenceStep({
         designSystemId: selectedDesignSystemId,
         referenceDeckId: selectedReferenceDeckId,
         referenceSource: trimmedSource,
+        ...(importedReference?.referenceFilePaths?.length
+          ? { referenceFilePaths: importedReference.referenceFilePaths }
+          : {}),
       });
     } finally {
       setContinuing(false);
@@ -405,10 +422,10 @@ export function NewDeckReferenceStep({
                   label="PPT"
                   imported={importedReference?.source === "pptx"}
                   importedLabel={t("home.imported")}
-                  importing={importing}
+                  importing={importing && importingSource === "pptx"}
                   importingLabel={importingLabel}
                   disabled={busy}
-                  onChange={handleImport}
+                  onChange={(event) => void handleImport(event, "pptx")}
                 />
                 <FileImportOption
                   accept=".pdf"
@@ -416,21 +433,21 @@ export function NewDeckReferenceStep({
                   label="PDF"
                   imported={importedReference?.source === "pdf"}
                   importedLabel={t("home.imported")}
-                  importing={importing}
+                  importing={importing && importingSource === "pdf"}
                   importingLabel={importingLabel}
                   disabled={busy}
-                  onChange={handleImport}
+                  onChange={(event) => void handleImport(event, "pdf")}
                 />
                 <FileImportOption
                   accept=".docx"
                   icon={<IconFileText className="size-4" />}
                   label="DOCX"
-                  imported={false}
+                  imported={importedReference?.source === "docx"}
                   importedLabel={t("home.imported")}
-                  importing={importing}
+                  importing={importing && importingSource === "docx"}
                   importingLabel={importingLabel}
                   disabled={busy}
-                  onChange={handleImport}
+                  onChange={(event) => void handleImport(event, "docx")}
                 />
                 <ImportOption
                   icon={<IconBrandGoogle className="size-4" />}
@@ -569,7 +586,13 @@ function FileImportOption({
         "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
         (importing || disabled) && "pointer-events-none opacity-60",
       )}
-      aria-label={imported ? `${label} - ${importedLabel}` : label}
+      aria-label={
+        importing
+          ? `${label} - ${importingLabel}`
+          : imported
+            ? `${label} - ${importedLabel}`
+            : label
+      }
     >
       {imported ? <IconCheck className="size-4 text-primary" /> : icon}
       <span>{importing ? importingLabel : label}</span>

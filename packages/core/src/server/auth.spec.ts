@@ -13,6 +13,7 @@ import {
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   DISABLED_SSR_CACHE_HEADERS,
   SSR_CACHE_ENV_VAR,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -53,6 +54,13 @@ const UNAVAILABLE_EMAIL_READINESS = {
   provider: "unknown",
 } as const;
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 function clearAuthPublicPathRegistry(): void {
   const globalState = globalThis as unknown as {
     [key: symbol]: unknown;
@@ -83,6 +91,7 @@ describe("server/auth", () => {
     vi.doUnmock("./better-auth-instance.js");
     vi.doUnmock("../db/client.js");
     vi.doUnmock("../org/context.js");
+    vi.doUnmock("../org/auth-policy.js");
     vi.doUnmock("./embed-session.js");
     vi.doUnmock("./email.js");
     vi.doUnmock("./sentry.js");
@@ -320,8 +329,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -436,8 +443,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -543,8 +548,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -612,8 +615,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -721,8 +722,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -857,9 +856,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("../org/context.js", () => ({
@@ -1208,9 +1205,7 @@ describe("server/auth", () => {
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -1397,8 +1392,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -1439,6 +1432,137 @@ describe("server/auth", () => {
       expect(setCookie).toContain("Partitioned");
       expect(setCookie).toContain(
         "better-auth.session_data=; Max-Age=0; Path=/",
+      );
+    });
+
+    it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {
+      // Reproduces the reported bug: a token whose legacy `sessions` row was
+      // never written (the magic-link `addSession` mirror is best-effort —
+      // see `persistMagicLinkLegacySession`) resolves ONLY through Better
+      // Auth's own `"session"` table via `emailFromBetterAuthSessionToken`.
+      // `auth.api.signOut()` can't revoke it because it looks for Better
+      // Auth's own session cookie, which the browser never held — only the
+      // framework's `an_session` cookie carrying the same token value. If
+      // logout relies solely on `signOut()`, this session survives logout
+      // and `getSession()` resurrects the "logged out" user on the very next
+      // request.
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const liveBetterAuthTokens = new Set(["ba_session_token"]);
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? undefined : query.args;
+        if (typeof sql !== "string") return { rows: [] };
+        if (sql.includes('DELETE FROM "session"')) {
+          liveBetterAuthTokens.delete(args?.[0]);
+          return { rows: [] };
+        }
+        if (sql.includes('FROM "session"') && args?.[0]) {
+          return liveBetterAuthTokens.has(args[0])
+            ? { rows: [{ email: "designer@example.com" }] }
+            : { rows: [] };
+        }
+        // The legacy `sessions` table never has this token — modeling the
+        // best-effort `addSession()` mirror having failed to persist.
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => ({
+          api: {
+            signOut: vi.fn(async () => ({ headers: new Headers() })),
+          },
+        }),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const logoutEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { cookie: "an_session=ba_session_token" },
+      );
+
+      const sessionBeforeLogout = createMockEvent({
+        headers: { cookie: "an_session=ba_session_token" },
+      });
+      expect(await getSession(sessionBeforeLogout)).toEqual({
+        email: "designer@example.com",
+        token: "ba_session_token",
+      });
+
+      await logoutHandler(logoutEvent);
+
+      expect(liveBetterAuthTokens.has("ba_session_token")).toBe(false);
+
+      const sessionAfterLogout = createMockEvent({
+        headers: { cookie: "an_session=ba_session_token" },
+      });
+      expect(await getSession(sessionAfterLogout)).toBeNull();
+    });
+
+    it("reports a failed Better Auth session revoke during logout instead of swallowing it", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        if (typeof sql === "string" && sql.includes('DELETE FROM "session"')) {
+          throw new Error("connection reset");
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => ({
+          api: { signOut: vi.fn(async () => ({ headers: new Headers() })) },
+        }),
+        getBetterAuthSync: () => null,
+      }));
+      const captureAuthError = vi.fn();
+      vi.doMock("./sentry.js", () => ({ captureAuthError }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const logoutEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { cookie: "an_session=ba_session_token" },
+      );
+
+      // Logout still reports success — this only asserts the failure is
+      // tracked, not that it changes the response contract.
+      await expect(logoutHandler(logoutEvent)).resolves.toEqual({ ok: true });
+
+      expect(captureAuthError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "connection reset" }),
+        { route: "logout" },
       );
     });
 
@@ -1548,6 +1672,9 @@ describe("server/auth", () => {
       expect(new URL(result.url).searchParams.get("client_id")).toBe(
         "sign-in-client",
       );
+      expect(new URL(result.url).searchParams.get("scope")).toBe(
+        "openid email profile",
+      );
       expect(
         decodeOAuthState(
           new URL(result.url).searchParams.get("state") ?? undefined,
@@ -1628,9 +1755,7 @@ describe("server/auth", () => {
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -2104,6 +2229,24 @@ describe("server/auth", () => {
       expect(result).toBeUndefined();
     });
 
+    it("lets auth marketing WebP assets reach the public static handler", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createMockEvent({ path: "/auth-marketing/analytics.webp" })),
+      ).resolves.toBeUndefined();
+    });
+
     it("allows public workspace app pages while keeping API and framework routes protected", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -2148,6 +2291,58 @@ describe("server/auth", () => {
         createMockEvent({ path: "/portal/_agent-native/actions/list" }),
       );
       expect(actionResult).toEqual({ error: "Unauthorized" });
+    });
+
+    it("allows standalone Dispatch APIs for organization members", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({
+          email: "member@example.com",
+          orgId: "org-1",
+        }),
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const event = createMockEvent({
+        path: "/_agent-native/actions/list",
+      });
+
+      await expect(guard(event)).resolves.toBeUndefined();
+      expect(event.res.status).not.toBe(403);
+    });
+
+    it("does not apply Dispatch access to a renamed Dispatch scaffold", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      defineAppConfig({
+        app: {
+          id: "custom-control-plane",
+          name: "Custom control plane",
+          sourceTemplate: "dispatch",
+        },
+      });
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({
+          email: "member@example.com",
+          orgId: "org-1",
+        }),
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+
+      await expect(
+        guard(createMockEvent({ path: "/_agent-native/actions/list" })),
+      ).resolves.toBeUndefined();
     });
 
     it("allows framework-managed bearer routes to reach their own verifier", async () => {
@@ -2790,6 +2985,31 @@ describe("server/auth", () => {
       await expect(guard(event)).resolves.toBeUndefined();
     });
 
+    it("lets signed Creative Context processors bypass the global auth guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/slides");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of [
+        "/slides/_agent-native/creative-context/process-import",
+        "/slides/_agent-native/creative-context/process-background",
+      ]) {
+        const event = createMockEvent({ path });
+        event.req.method = "POST";
+        event.node.req.method = "POST";
+        await expect(guard(event)).resolves.toBeUndefined();
+      }
+    });
+
     it("lets the durable _process-run processor routes bypass the global auth guard", async () => {
       // Both the agent-teams sub-agent processor AND the durable-background
       // agent-chat processor are self-fired with ONLY an HMAC Bearer token (no
@@ -3027,6 +3247,42 @@ describe("server/auth", () => {
       }
     });
 
+    it("uses the continuation query when SSR renders the login entry", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_MAGIC_LINK", "0");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        marketing: {
+          appName: "Slides",
+          tagline: "Build presentations alongside your agent.",
+        },
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(
+        createMockEvent({
+          path: "/sign-in",
+          query: { c: "continuation" },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe(
+        "query",
+      );
+      expect(
+        readAuthPageData(await (result as Response).text()).initialView,
+      ).toBe("login");
+    });
+
     it("serves the public home with the same cached auth document and head handoff", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -3058,6 +3314,34 @@ describe("server/auth", () => {
       expect(handoff).toBeLessThan(html.indexOf("</head>"));
       expect(handoff).toBeLessThan(html.indexOf("<body>"));
       expect(getSession).not.toHaveBeenCalled();
+    });
+
+    it("does not serve the login document at / when homePath is the root", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      // With the app home at "/", the root is the authenticated app shell, not
+      // a public marketing surface. Serving the login document there would
+      // bounce a signed-in visitor back to "/" forever.
+      defineAppConfig({ app: { homePath: "/" } });
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(createMockEvent({ path: "/" }));
+
+      // The app-shell path returns undefined so the SSR handler renders "/".
+      expect(result).not.toBeInstanceOf(Response);
     });
 
     it("keeps the cached root auth document independent of request host", async () => {
@@ -3100,6 +3384,78 @@ describe("server/auth", () => {
       expect(handoff).toBeLessThan(firstHtml.indexOf("</HEAD>"));
       expect(firstHtml).not.toContain("first.example");
       expect(firstHtml).not.toContain("second.example");
+    });
+
+    it("keeps the cached login document independent of workspace mount", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv(
+        "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+        JSON.stringify([{ id: "plan" }, { id: "diagrams" }]),
+      );
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const firstEvent = createMockEvent({ path: "/login" });
+      firstEvent.context._mountedPathname = "/plan/login";
+      const secondEvent = createMockEvent({ path: "/login" });
+      secondEvent.context._mountedPathname = "/diagrams/login";
+      const first = await guard(firstEvent);
+      const second = await guard(secondEvent);
+
+      const firstHtml = await (first as Response).text();
+      const secondHtml = await (second as Response).text();
+      expect(firstHtml).toBe(secondHtml);
+      expect(firstHtml).toContain(
+        '"workspaceAppMountPaths":["/plan","/diagrams"]',
+      );
+      expect(
+        firstHtml.indexOf("data-agent-native-app-origin-config"),
+      ).toBeLessThan(firstHtml.indexOf('data-agent-native-beta-redirect="1"'));
+      expect(firstHtml).not.toContain("/plan/_agent-native/auth/session");
+      expect(firstHtml).not.toContain("/diagrams/_agent-native/auth/session");
+    });
+
+    it("includes workspace metadata before configured login redirects", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv(
+        "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+        JSON.stringify([{ id: "plan" }, { id: "diagrams" }]),
+      );
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth, getConfiguredLoginHtml } =
+        await import("./auth.js");
+
+      await autoMountAuth(createMockApp(), {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const event = createMockEvent({ path: "/plan/open" });
+      const html = getConfiguredLoginHtml(event);
+
+      expect(html).toContain('"workspaceAppMountPaths":["/plan","/diagrams"]');
+      expect(html).toContain("/plan/_agent-native/auth/session");
+      expect(html!.indexOf("data-agent-native-app-origin-config")).toBeLessThan(
+        html!.indexOf('data-agent-native-beta-redirect="1"'),
+      );
     });
 
     it("normalizes fragment login HTML before adding the root handoff", async () => {
@@ -3424,9 +3780,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -3511,9 +3865,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -3828,9 +4180,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -3899,9 +4249,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -3947,9 +4295,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4048,9 +4394,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4100,9 +4444,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4129,9 +4471,152 @@ describe("server/auth", () => {
       expect(JSON.stringify(result)).not.toContain('select "id"');
     });
 
+    it("classifies register failures without masking unknown errors as conflicts", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn(async ({ body }: any) => {
+        if (body.email === "existing@example.com") {
+          throw new Error("User already exists");
+        }
+        throw new Error("Unexpected signup provider failure");
+      });
+      const isGoogleSignInRequiredForEmail = vi.fn(
+        async (email: string) => email === "google-only@example.com",
+      );
+      vi.doMock("../org/auth-policy.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        isGoogleSignInRequiredForEmail,
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const registerHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/register",
+      )?.[1];
+      expect(registerHandler).toBeTypeOf("function");
+
+      const unknownEvent = createJsonPostEvent("/_agent-native/auth/register", {
+        email: "unknown@example.com",
+        password: "secret-password",
+      });
+      await expect(registerHandler(unknownEvent)).resolves.toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+      });
+      expect(unknownEvent.res.status).toBe(500);
+
+      const existingEvent = createJsonPostEvent(
+        "/_agent-native/auth/register",
+        {
+          email: "existing@example.com",
+          password: "secret-password",
+        },
+      );
+      await expect(registerHandler(existingEvent)).resolves.toEqual({
+        error:
+          "An account with this email already exists. Sign in instead or reset your password.",
+      });
+      expect(existingEvent.res.status).toBe(409);
+
+      const googleEvent = createJsonPostEvent("/_agent-native/auth/register", {
+        email: "google-only@example.com",
+        password: "secret-password",
+      });
+      await expect(registerHandler(googleEvent)).resolves.toEqual({
+        error: "This organization requires Google sign-in.",
+      });
+      expect(googleEvent.res.status).toBe(403);
+      expect(signUpEmail).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns 500 for unknown signup failures on the lazy fallback route", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn(async () => {
+        throw new Error("Unexpected lazy signup failure");
+      });
+      const auth = {
+        handler: vi.fn(async () => new Response("{}")),
+        api: {
+          getSession: vi.fn(async () => null),
+          signInEmail: vi.fn(),
+          signUpEmail,
+          signOut: vi.fn(),
+        },
+      };
+      const getBetterAuth = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Better Auth initialization failed"))
+        .mockResolvedValue(auth);
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth,
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const registerHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/register",
+      )?.[1];
+      expect(registerHandler).toBeTypeOf("function");
+
+      const event = createJsonPostEvent("/_agent-native/auth/register", {
+        email: "unknown@example.com",
+        password: "secret-password",
+      });
+      await expect(registerHandler(event)).resolves.toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+      });
+      expect(event.res.status).toBe(500);
+      expect(signUpEmail).toHaveBeenCalledTimes(1);
+      expect(getBetterAuth).toHaveBeenCalledTimes(2);
+    });
+
     it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.ACCESS_TOKENS;
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -4150,6 +4635,54 @@ describe("server/auth", () => {
 
       expect(event.res.status).toBe(200);
       expect(result).toEqual({ error: "Not authenticated" });
+    });
+
+    it("returns a retryable status when session resolution is unavailable", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const getBetterAuth = vi.fn(async () => {
+        throw new Error("session database unavailable");
+      });
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth,
+        getBetterAuthSync: () => undefined,
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async (query: any) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            if (sql?.includes("SELECT email, created_at FROM sessions")) {
+              throw new Error("legacy sessions unavailable");
+            }
+            return { rows: [] };
+          }),
+        }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await expect(autoMountAuth(app)).resolves.toBe(true);
+
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+      expect(sessionHandler).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/_agent-native/auth/session",
+        headers: { cookie: "an_session=legacy-session-token" },
+      });
+      const result = await sessionHandler(event);
+
+      expect(event.res.status).toBe(503);
+      expect(result).toEqual({ error: "Session unavailable" });
     });
 
     it("desktop exchange establishes the session cookie when redeeming a token", async () => {
@@ -4178,9 +4711,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4285,9 +4816,7 @@ describe("server/auth", () => {
       );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4386,9 +4915,7 @@ describe("server/auth", () => {
       );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4460,9 +4987,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4518,9 +5043,7 @@ describe("server/auth", () => {
 
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4577,9 +5100,7 @@ describe("server/auth", () => {
 
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4864,9 +5385,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4895,6 +5414,161 @@ describe("server/auth", () => {
       });
       expect(JSON.stringify(body)).not.toContain("Failed query");
       expect(JSON.stringify(body)).not.toContain('select "id"');
+    });
+
+    it("logs the real Better Auth code/message and reports to Sentry before sanitizing an error body", async () => {
+      // Regression for the 2026-08-29 INVALID_ORIGIN outage: magic-link
+      // signup 403'd for a full day and the sanitized public body was the
+      // only thing any log or Sentry surface ever showed — nobody could see
+      // *why* it was failing.
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  code: "INVALID_ORIGIN",
+                  message: "Invalid origin",
+                }),
+                {
+                  status: 403,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      const captureAuthError = vi.fn();
+      vi.doMock("./sentry.js", () => ({ captureAuthError }));
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const response = await baHandler(
+        createJsonPostEvent("/_agent-native/auth/ba/sign-up/email", {
+          email: "user@example.com",
+          password: "secret-password",
+        }),
+      );
+
+      // Public response is exactly what the sanitizer would have produced
+      // before this change — unaffected by the added logging/reporting.
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(403);
+      const body = await (response as Response).json();
+      expect(body).toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+        message: "We couldn't create your account right now. Please try again.",
+      });
+
+      const logCall = consoleErrorSpy.mock.calls.find(
+        ([label]) => label === "[agent-native][auth] better-auth error",
+      );
+      expect(logCall).toBeDefined();
+      expect(logCall?.[1]).toEqual(
+        expect.objectContaining({
+          status: 403,
+          code: "INVALID_ORIGIN",
+          message: "Invalid origin",
+          path: "/_agent-native/auth/ba/sign-up/email",
+          method: "POST",
+        }),
+      );
+
+      expect(captureAuthError).toHaveBeenCalledTimes(1);
+      const [reportedError, reportedContext] = captureAuthError.mock.calls[0]!;
+      expect(reportedError).toBeInstanceOf(Error);
+      expect((reportedError as Error).message).toContain("INVALID_ORIGIN");
+      expect(reportedContext).toEqual(
+        expect.objectContaining({ route: "better-auth" }),
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("does not log or report a successful Better Auth response", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(
+            async () =>
+              new Response(JSON.stringify({ ok: true }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+          ),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      const captureAuthError = vi.fn();
+      vi.doMock("./sentry.js", () => ({ captureAuthError }));
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const response = await baHandler(
+        createJsonPostEvent("/_agent-native/auth/ba/sign-up/email", {
+          email: "user@example.com",
+          password: "secret-password",
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(200);
+      const body = await (response as Response).json();
+      expect(body).toEqual({ ok: true });
+
+      expect(captureAuthError).not.toHaveBeenCalled();
+      expect(
+        consoleErrorSpy.mock.calls.some(
+          ([label]) => label === "[agent-native][auth] better-auth error",
+        ),
+      ).toBe(false);
+
+      consoleErrorSpy.mockRestore();
     });
 
     it("sanitizes resend verification callback URLs before forwarding to Better Auth", async () => {
@@ -5101,8 +5775,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5215,8 +5887,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5309,8 +5979,6 @@ describe("server/auth", () => {
       );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5398,7 +6066,7 @@ describe("server/auth", () => {
       expect(cookies).not.toContain("an_session=ba_unsigned_token.");
       expect(cookies).toContain("session_data=");
       expect(mockExecute).toHaveBeenCalledWith({
-        sql: "INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)",
+        sql: "INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at",
         args: ["ba_unsigned_token", "designer@example.com", expect.any(Number)],
       });
     });
@@ -5426,8 +6094,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5513,8 +6179,6 @@ describe("server/auth", () => {
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5608,8 +6272,6 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5939,9 +6601,7 @@ describe("server/auth", () => {
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -5964,9 +6624,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -5990,9 +6648,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6016,9 +6672,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6046,9 +6700,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6187,9 +6839,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6232,9 +6882,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -6266,9 +6914,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       // Keep the real auth secret resolver; just take Better Auth out of the
@@ -6318,9 +6964,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6364,9 +7008,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6419,9 +7061,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -6458,9 +7098,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -6508,9 +7146,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6552,9 +7188,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6597,9 +7231,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -6641,9 +7273,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -6685,9 +7315,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -6751,9 +7379,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -6786,7 +7412,7 @@ describe("server/auth", () => {
           return { rows: [{ org_id: "org-a" }, { org_id: "org-b" }] };
         }
         if (
-          /FROM\s+settings\b/i.test(sql) &&
+          /FROM\s+(?:public\.)?settings\b/i.test(sql) &&
           args[0] === "u:user@gmail.com:active-org-id"
         ) {
           return { rows: [{ value: JSON.stringify({ orgId: "org-b" }) }] };
@@ -6795,9 +7421,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7276,13 +7900,12 @@ describe("server/auth", () => {
   describe("OAuth session creation", () => {
     it("uses cross-site cookie attributes for HTTPS Google sign-in sessions", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7307,13 +7930,12 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".example.com");
       vi.stubEnv("APP_NAME", "slides");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7350,15 +7972,14 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
       const trackSignupEvent = vi.fn(async () => {});
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
         hasBetterAuthUserEmail,
@@ -7423,15 +8044,14 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
       const trackSignupEvent = vi.fn(async () => {});
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
         hasBetterAuthUserEmail,
@@ -7489,15 +8109,14 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
       const trackSignupEvent = vi.fn(async () => {});
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
         hasBetterAuthUserEmail,
@@ -7525,13 +8144,12 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
       vi.stubEnv("APP_NAME", "slides");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7803,21 +8421,22 @@ describe("server/auth", () => {
 
     it("mobile callback deep-links to the native app but falls back to the return URL, not the homepage", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        },
+        query: { state: "state-1" },
+      });
+      event.res.headers.append(
+        "set-cookie",
+        "an_session=mobile-session; Path=/; HttpOnly; SameSite=Lax",
+      );
       const response = await Promise.resolve(
-        oauthCallbackResponse(
-          createMockEvent({
-            headers: {
-              "user-agent":
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            },
-            query: { state: "state-1" },
-          }),
-          "steve@example.com",
-          {
-            sessionToken: "token-1",
-            returnUrl: "/recaps/recap-abc",
-          },
-        ),
+        oauthCallbackResponse(event, "steve@example.com", {
+          sessionToken: "token-1",
+          returnUrl: "/recaps/recap-abc",
+        }),
       );
 
       expect(response).toBeInstanceOf(Response);
@@ -7830,6 +8449,10 @@ describe("server/auth", () => {
       // original page the visitor opened — never the bare app root.
       expect(html).toContain('window.location.href="/recaps/recap-abc"');
       expect(html).not.toContain('window.location.href="/"');
+      const setCookie = (response as Response).headers.getSetCookie?.() ?? [
+        (response as Response).headers.get("set-cookie") ?? "",
+      ];
+      expect(setCookie.join("\n")).toContain("an_session=mobile-session");
     });
 
     it("mobile callback fallback defaults to the app root when there is no return URL", async () => {
@@ -8301,9 +8924,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 

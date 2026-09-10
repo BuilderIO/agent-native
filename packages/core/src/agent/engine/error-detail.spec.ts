@@ -250,3 +250,59 @@ describe("isProviderConnectionErrorMessage", () => {
     expect(isProviderConnectionError(new Error("bad request"))).toBe(false);
   });
 });
+
+describe("classifyProviderError retryAfterMs", () => {
+  it("reads a seconds-form retry-after off the error's own responseHeaders", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "retry-after": "5" },
+    });
+    expect(classifyProviderError(apiError).retryAfterMs).toBe(5000);
+  });
+
+  it("reads retry-after off the AI SDK RetryError's unwrapped lastError", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      // Header lookup is case-insensitive.
+      responseHeaders: { "Retry-After": "5" },
+    });
+    const retryError = Object.assign(
+      new Error("Failed after 2 attempts. Last error: Too many requests"),
+      { lastError: apiError },
+    );
+    expect(classifyProviderError(retryError).retryAfterMs).toBe(5000);
+  });
+
+  it("falls back to a plain .cause when neither the error nor lastError carries headers", () => {
+    const err = Object.assign(new Error("upstream failure"), {
+      cause: { responseHeaders: { "retry-after": "5" } },
+    });
+    expect(classifyProviderError(err).retryAfterMs).toBe(5000);
+  });
+
+  it("parses an HTTP-date retry-after into a millisecond delta", () => {
+    const future = new Date(Date.now() + 7000).toUTCString();
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "retry-after": future },
+    });
+    const ms = classifyProviderError(apiError).retryAfterMs;
+    expect(ms).toBeGreaterThan(6000);
+    expect(ms).toBeLessThanOrEqual(7000);
+  });
+
+  it("leaves retryAfterMs undefined with no header present", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+    });
+    expect(classifyProviderError(apiError).retryAfterMs).toBeUndefined();
+  });
+
+  it("caps an oversized retry-after at 60s instead of trusting it outright", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "retry-after": "600" },
+    });
+    expect(classifyProviderError(apiError).retryAfterMs).toBe(60_000);
+  });
+});

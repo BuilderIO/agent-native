@@ -138,10 +138,11 @@ function completedLedger(
   tool: string,
   input: Record<string, string>,
   result: string,
+  artifacts?: unknown[],
 ): unknown[] {
   return [
     { type: "tool_start", tool, input },
-    { type: "tool_done", tool, result },
+    { type: "tool_done", tool, result, ...(artifacts ? { artifacts } : {}) },
   ];
 }
 
@@ -157,6 +158,13 @@ describe("tool-call journal hard-block", () => {
         "bigquery",
         { sql: "select count(*)" },
         '{"rows":[{"count":3}]}',
+        [
+          {
+            kind: "analysis",
+            id: "analysis-prior",
+            url: "/analyses/analysis-prior",
+          },
+        ],
       ),
     );
     const guard = vi.fn(() => null);
@@ -192,14 +200,24 @@ describe("tool-call journal hard-block", () => {
         input: { sql: "select count(*)" },
         content: '{"rows":[{"count":3}]}',
         isError: false,
+        artifacts: [
+          {
+            kind: "analysis",
+            id: "analysis-prior",
+            url: "/analyses/analysis-prior",
+          },
+        ],
       },
     ]);
   });
 
   it("does NOT re-execute a journaled-complete write call on resume", async () => {
     const PRIOR_RESULT = "email-sent-id-42";
+    const artifacts = [
+      { kind: "image", id: "asset-journal", url: "/asset/asset-journal" },
+    ];
     currentTurnEventsMock.mockResolvedValue(
-      completedLedger("send-email", { to: "a@b.com" }, PRIOR_RESULT),
+      completedLedger("send-email", { to: "a@b.com" }, PRIOR_RESULT, artifacts),
     );
 
     const action = makeWriteAction();
@@ -229,6 +247,7 @@ describe("tool-call journal hard-block", () => {
     expect(toolDone?.result).toContain(PRIOR_RESULT);
     expect(toolDone?.result).toContain("Already completed");
     expect(toolDone?.completedSideEffect).toBe(true);
+    expect(toolDone?.artifacts).toEqual(artifacts);
   });
 
   it("executes a fresh call normally when the journal is empty", async () => {

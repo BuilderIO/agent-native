@@ -4,6 +4,16 @@ const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 const readFactoryDefinitionMock = vi.hoisted(() => vi.fn());
 const createFactoryAutomationMock = vi.hoisted(() => vi.fn());
+const assertFactoryConnectorReadyMock = vi.hoisted(() => vi.fn());
+const writeAppStateForCurrentTabMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/application-state", () => ({
+  writeAppStateForCurrentTab: writeAppStateForCurrentTabMock,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: vi.fn(() => "/factory"),
+}));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -35,6 +45,11 @@ vi.mock("../server/plugins/factory-scheduler-job.js", () => ({
   factoryAutomationTemplatePrompt: () => "# Slack",
 }));
 
+vi.mock("../server/connectors/credentials.js", () => ({
+  assertFactoryConnectorReady: assertFactoryConnectorReadyMock,
+  VaultUnavailableError: class VaultUnavailableError extends Error {},
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   requireWorkspaceMemberMock.mockResolvedValue({
@@ -51,6 +66,7 @@ beforeEach(() => {
     name: "factory-slack-feedback",
     path: "jobs/factories/support-triage/factory-slack-feedback.md",
   });
+  assertFactoryConnectorReadyMock.mockResolvedValue(undefined);
 });
 
 describe("create-factory-automation", () => {
@@ -125,5 +141,75 @@ describe("create-factory-automation", () => {
         }),
       }),
     );
+    expect(assertFactoryConnectorReadyMock).not.toHaveBeenCalled();
+  });
+
+  it("creates an enabled Slack job only when the connector is ready", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "Slack feedback",
+        source: "slack",
+        slackChannelId: "C123",
+        enabled: true,
+      },
+      { userEmail: "owner@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, id: "resource-1" });
+    expect(assertFactoryConnectorReadyMock).toHaveBeenCalledWith(
+      "slack",
+      "owner@example.com",
+      expect.objectContaining({
+        orgId: "org-1",
+        slackWorkspace: "primary",
+        verb: "creating",
+      }),
+    );
+  });
+
+  it("rejects Slack jobs when the connector is missing", async () => {
+    assertFactoryConnectorReadyMock.mockRejectedValue(
+      new Error(
+        "Connect Slack in Dispatch or add a vault token before creating this job.",
+      ),
+    );
+    const { default: action } = await import("./create-factory-automation.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          displayName: "Slack feedback",
+          source: "slack",
+          slackChannelId: "C123",
+          enabled: true,
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      message:
+        "Connect Slack in Dispatch or add a vault token before creating this job.",
+      actionContractError: true,
+      statusCode: 400,
+    });
+    expect(createFactoryAutomationMock).not.toHaveBeenCalled();
+  });
+
+  it("opens Automations when the agent creates a job", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "Slack feedback",
+        source: "slack",
+        slackChannelId: "C123",
+      },
+      { userEmail: "owner@example.com", caller: "tool" },
+    );
+    expect(writeAppStateForCurrentTabMock).toHaveBeenCalledWith("navigate", {
+      view: "factory",
+      path: "/factory?factoryId=support-triage&tab=automations&automationId=resource-1",
+      _writeId: expect.any(String),
+    });
   });
 });

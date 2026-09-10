@@ -109,7 +109,9 @@
       "sourceEntries": ["src/collab-ui"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-tooltip",
+        "@tabler/icons-react",
         "clsx",
         "react",
         "tailwind-merge",
@@ -383,6 +385,7 @@
         }
       ],
       "dependencies": [
+        "@radix-ui/react-dropdown-menu",
         "@tabler/icons-react",
         "@radix-ui/react-popover",
         "@radix-ui/react-tooltip",
@@ -408,6 +411,7 @@
         "highlight.js",
         "lowlight",
         "react",
+        "react-dom",
         "tailwind-merge",
         "tiptap-markdown",
         "y-protocols",

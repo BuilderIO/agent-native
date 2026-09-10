@@ -4,6 +4,10 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Assets",
+    screenshotPath: "/auth-marketing/assets.webp",
+    screenshotWidth: 914,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/assets",
     tagline:
       "Your AI agent creates, refines, and organizes on-brand assets alongside you.",
     features: [

@@ -43,7 +43,7 @@ import {
  *    is a 4xx client error (NOT a 500); converting a document-only plan with no
  *    canvas is a 4xx client error (NOT a 500).
  *
- * Reviewer identity for the authed project is e2e-tester@plan.test
+ * Reviewer identity for the authed project is e2e+autoz@plan.test
  * (e2e/global-setup.ts). Every assertion encodes CORRECT behavior; a genuine
  * failure of correct behavior is a reported app bug, not a flaky spec. Specs use
  * web-first auto-retrying assertions (no fixed sleeps) so concurrent-agent HMR
@@ -69,7 +69,7 @@ const REVIEWER_EMAIL =
       // global-setup writes the actual per-run authed identity here.
       return readFileSync(planE2eAuthEmailPath(), "utf8").trim();
     } catch {
-      return "e2e-tester@plan.test";
+      return "e2e+autoz@plan.test";
     }
   })();
 const EXPECTED_COMMENT_AUTHOR_EMAIL =

@@ -1,11 +1,18 @@
 import { randomUUID } from "node:crypto";
 
+import { and, eq, inArray, or, sql } from "drizzle-orm";
+
 import { ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER } from "../action-ui.js";
-import { AgentActionStopError, type ActionRunContext } from "../action.js";
+import {
+  AgentActionStopError,
+  fail,
+  type ActionRunContext,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
+import { createGetDb } from "../db/create-get-db.js";
 import { readResource } from "../resources/script-helpers.js";
 import {
   getRequestOrgId,
@@ -13,7 +20,7 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { resolveAccess } from "../sharing/access.js";
-import { roleSatisfies } from "../sharing/schema.js";
+import { ROLE_RANK, roleSatisfies, type ShareRole } from "../sharing/schema.js";
 import {
   readWorkspaceFile,
   type WorkspaceFilesScope,
@@ -30,6 +37,7 @@ import {
   type LocalExtensionRow,
 } from "./local.js";
 import { extensionPath } from "./path.js";
+import { extensions, extensionShares } from "./schema.js";
 import {
   addExtensionSlotTarget,
   installExtensionSlot,
@@ -59,6 +67,108 @@ import {
   type ExtensionHistoryEntry,
   type ExtensionRow,
 } from "./store.js";
+
+const getExtensionsAccessDb = createGetDb({
+  extensions,
+  extensionShares,
+});
+
+/**
+ * Resolve the current user's access role for many already-listed extensions
+ * in one share-table query. `listExtensions` already applied `accessFilter`,
+ * so every id is at least viewer-accessible — this only needs ownership +
+ * share roles, not a per-row `resolveAccess`.
+ */
+async function resolveExtensionAccessRoles(
+  rows: Array<Pick<ExtensionRow, "id" | "ownerEmail" | "visibility" | "orgId">>,
+): Promise<Map<string, ShareRole | "owner">> {
+  const roles = new Map<string, ShareRole | "owner">();
+  if (rows.length === 0) return roles;
+
+  const userEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
+  const orgId = getRequestOrgId();
+  const pending: typeof rows = [];
+
+  for (const row of rows) {
+    if (userEmail && row.ownerEmail.trim().toLowerCase() === userEmail) {
+      roles.set(row.id, "owner");
+    } else {
+      pending.push(row);
+    }
+  }
+
+  if (pending.length === 0) return roles;
+
+  const pendingIds = pending.map((row) => row.id);
+  const principalClauses = [];
+  if (userEmail) {
+    principalClauses.push(
+      and(
+        eq(extensionShares.principalType, "user"),
+        sql`lower(${extensionShares.principalId}) = ${userEmail}`,
+      ),
+    );
+  }
+  if (orgId) {
+    principalClauses.push(
+      and(
+        eq(extensionShares.principalType, "org"),
+        eq(extensionShares.principalId, orgId),
+      ),
+    );
+  }
+
+  let batched = false;
+  if (principalClauses.length > 0) {
+    try {
+      await ensureExtensionsTables();
+      const db = getExtensionsAccessDb();
+      const shareRows = (await db
+        .select({
+          resourceId: extensionShares.resourceId,
+          role: extensionShares.role,
+        })
+        .from(extensionShares)
+        .where(
+          and(
+            inArray(extensionShares.resourceId, pendingIds),
+            or(...principalClauses),
+          ),
+        )) as Array<{ resourceId: string; role: ShareRole }>;
+
+      for (const share of shareRows) {
+        const prev = roles.get(share.resourceId);
+        if (!prev || ROLE_RANK[share.role] > ROLE_RANK[prev]) {
+          roles.set(share.resourceId, share.role);
+        }
+      }
+      batched = true;
+    } catch {
+      // Unit tests mock `./store.js` without a live DB. Fall back below.
+      batched = false;
+    }
+  }
+
+  if (!batched) {
+    await Promise.all(
+      pending.map(async (row) => {
+        const access = await resolveAccess("extension", row.id).catch(
+          () => null,
+        );
+        roles.set(row.id, access?.role ?? "viewer");
+      }),
+    );
+    return roles;
+  }
+
+  // accessFilter already admitted these rows (owner / org / share / group).
+  // Anything without an explicit share role is at least a viewer.
+  for (const row of pending) {
+    if (!roles.has(row.id)) roles.set(row.id, "viewer");
+  }
+
+  return roles;
+}
 
 // A 200k extension body containing JSON-sensitive HTML/JS characters (quotes,
 // backslashes, and newlines) expands to about 400k characters when pretty-JSON
@@ -125,6 +235,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           await listExtensions({
             includeHidden,
             includeGloballyHidden,
+            ...(includeContent ? { includeContent: true } : {}),
           });
         const localRows = await listLocalExtensions();
         const allRows: Array<ExtensionRow | LocalExtensionRow> = [
@@ -143,8 +254,13 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         }
 
         rows = rows.slice(0, limit);
+        const roleById = await resolveExtensionAccessRoles(
+          rows.filter((row): row is ExtensionRow => !isLocalExtensionRow(row)),
+        );
         const extensions = await Promise.all(
-          rows.map((row) => summarizeExtension(row, hiddenIds, includeContent)),
+          rows.map((row) =>
+            summarizeExtension(row, hiddenIds, includeContent, roleById),
+          ),
         );
         return {
           ok: true,
@@ -462,13 +578,20 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           if (match) {
             id = match.id;
           } else {
+            const roleById = await resolveExtensionAccessRoles(
+              rows.filter(
+                (row): row is ExtensionRow => !isLocalExtensionRow(row),
+              ),
+            );
             return {
               ok: false,
               error: `No extension matched "${args?.search}".`,
               available: await Promise.all(
                 rows
                   .slice(0, 10)
-                  .map((row) => summarizeExtension(row, hiddenIds, false)),
+                  .map((row) =>
+                    summarizeExtension(row, hiddenIds, false, roleById),
+                  ),
               ),
             };
           }
@@ -777,19 +900,14 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             const message =
               `The extension edit was not applied: ${error.message} ` +
               "Do not retry the same arguments. Read the current extension and submit one focused patch or edit with an exact target.";
-            throw new AgentActionStopError(message, {
-              errorCode: "extension_content_edit_failed",
-              toolResult: JSON.stringify(
-                {
-                  error: "extension_content_edit_failed",
-                  message: error.message,
-                  recoverable: false,
-                  next: "Read the current extension with get-extension, then make one focused update-extension patches/edits call. Do not retry unchanged arguments.",
-                },
-                null,
-                2,
-              ),
-            });
+            // A text/marker mismatch is not terminal like a missing credential
+            // or a policy block — the model can read the error (which now
+            // carries closest-match candidates or the ambiguous locations) and
+            // retarget. Report it as a normal action failure so it reaches the
+            // model as a retryable tool error, bounded by the identical-error
+            // breaker (3 tries) and the across-arguments breaker (6); an
+            // AgentActionStopError here would end the turn on the first miss.
+            fail(message, { errorCode: "extension_content_edit_failed" });
           }
         }
 
@@ -884,7 +1002,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const now = new Date().toISOString();
         const scopeKey = scope === "org" ? `org:${orgId}` : userEmail;
         const client = getDbExec();
-        const pg = isPostgres();
+        const pg = true;
         const conflictClause = pg
           ? `ON CONFLICT (tool_id, collection, scope_key, item_id)
              DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`
@@ -1389,11 +1507,25 @@ async function summarizeExtension(
   row: ExtensionRow | LocalExtensionRow,
   hiddenIds: Set<string>,
   includeContent: boolean,
+  roleById?: Map<string, ShareRole | "owner">,
 ) {
   const local = isLocalExtensionRow(row);
-  const access = local
-    ? ({ role: "viewer" } as const)
-    : await resolveAccess("extension", row.id).catch(() => null);
+  let role: ShareRole | "owner" | null;
+  if (local) {
+    role = "viewer";
+  } else if (roleById) {
+    role = roleById.get(row.id) ?? null;
+  } else {
+    // coercion-ok: unit mocks and offline runs may lack database tables, falling back to null access role
+    const access = await resolveAccess("extension", row.id).catch(() => null);
+    role = access?.role ?? null;
+  }
+  const contentLength =
+    typeof row.contentLength === "number"
+      ? row.contentLength
+      : row.content.length;
+  // When listing without the body, content is an empty stub — do not hash it.
+  const contentLoaded = row.content.length > 0 || contentLength === 0;
   return {
     id: row.id,
     name: row.name,
@@ -1402,21 +1534,19 @@ async function summarizeExtension(
     icon: row.icon,
     ownerEmail: row.ownerEmail,
     visibility: row.visibility,
-    role: access?.role ?? null,
-    canEdit: access
-      ? ["owner", "admin", "editor"].includes(access.role)
-      : false,
-    canDelete: access ? ["owner", "admin"].includes(access.role) : false,
+    role,
+    canEdit: role ? ["owner", "admin", "editor"].includes(role) : false,
+    canDelete: role ? ["owner", "admin"].includes(role) : false,
     hidden: hiddenIds.has(row.id),
     globallyHidden: row.hiddenAt != null,
     hiddenAt: row.hiddenAt,
     hiddenBy: row.hiddenBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    contentLength: row.content.length,
-    contentHash: contentFingerprint(row.content),
+    contentLength,
+    ...(contentLoaded ? { contentHash: contentFingerprint(row.content) } : {}),
     ...(local ? { source: row.source } : {}),
-    ...(includeContent ? { content: row.content } : {}),
+    ...(includeContent && contentLoaded ? { content: row.content } : {}),
   };
 }
 

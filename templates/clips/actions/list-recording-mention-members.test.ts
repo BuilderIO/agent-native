@@ -47,10 +47,18 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("../server/lib/recording-page-access.js", () => ({
-  isRecordingExpired: vi.fn((expiresAt: string | null | undefined) => {
-    if (!expiresAt) return false;
-    return new Date(expiresAt).getTime() < Date.now();
-  }),
+  isRecordingExpiredForViewer: vi.fn(
+    ({
+      expiresAt,
+      viewerIsOwner,
+    }: {
+      expiresAt: string | null | undefined;
+      viewerIsOwner: boolean;
+    }) =>
+      !viewerIsOwner &&
+      Boolean(expiresAt) &&
+      new Date(expiresAt as string).getTime() < Date.now(),
+  ),
 }));
 
 import action from "./list-recording-mention-members";
@@ -107,6 +115,20 @@ describe("list-recording-mention-members", () => {
         ...baseResource,
         visibility: "public" as const,
         password: "secret",
+      },
+    });
+
+    await expect(
+      action.run({ recordingId: "rec-1" } as never),
+    ).resolves.toEqual(expect.objectContaining({ members: expect.any(Array) }));
+  });
+
+  it("keeps mention lookup available to the owner after expiry", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        ...baseResource,
+        expiresAt: "2020-01-01T00:00:00.000Z",
       },
     });
 

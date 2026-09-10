@@ -17,7 +17,11 @@ import {
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 import { wrapDocumentResponse } from "../../lib/analytics";
-import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
+import {
+  applyCommunityAppSsrCacheHeaders,
+  applyDocsSsrCacheKeyHeaders,
+  isCloudGettingStartedPath,
+} from "../../lib/ssr-cache";
 import {
   acceptsMarkdown,
   appendVary,
@@ -75,7 +79,12 @@ export default async function docsPageHandler(event: H3Event) {
   ) {
     return buildMarkdownNotFoundResponse();
   }
-  return responseWithVaryAccept(response);
+  const requestUrl = getRequestURL(event);
+  return responseWithVaryAccept(
+    response,
+    requestUrl.pathname,
+    isCloudGettingStartedPath(requestUrl),
+  );
 }
 
 function setSsrCacheHeaders(event: H3Event) {
@@ -94,10 +103,15 @@ function setSsrCacheHeaders(event: H3Event) {
 // Core has already promoted query-preserving HTML redirects to a full
 // query cache key. Keep that stronger key when adding Docs' Accept variant;
 // replacing it here would collapse distinct redirect targets again.
-function responseWithVaryAccept(response: Response): Response {
+function responseWithVaryAccept(
+  response: Response,
+  pathname: string,
+  varyByQuery = false,
+): Response {
   const headers = new Headers(response.headers);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
-  applyDocsSsrCacheKeyHeaders(headers);
+  applyDocsSsrCacheKeyHeaders(headers, { varyByQuery });
+  applyCommunityAppSsrCacheHeaders(headers, pathname, response.status);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

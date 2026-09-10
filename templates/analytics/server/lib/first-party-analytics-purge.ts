@@ -34,11 +34,12 @@ function purgeWhereSql(
   window: FirstPartyAnalyticsPurgeWindow,
 ): { sql: string; args: unknown[]; timeColumn: CountTimeColumn } {
   const scopeSql = includeLegacyOwnerRows
-    ? "(org_id = ? OR (org_id IS NULL AND owner_email = ?))"
-    : "org_id = ?";
+    ? "(org_id = $1 OR (org_id IS NULL AND owner_email = $2))"
+    : "org_id = $1";
   const args: unknown[] = includeLegacyOwnerRows
     ? [scope.orgId, scope.userEmail]
     : [scope.orgId];
+  const timeParameter = args.length + 1;
   const timeColumn =
     table === "analytics_events" ? "received_at" : "event_date";
   args.push(
@@ -51,7 +52,7 @@ function purgeWhereSql(
       ? " AND event_name IS DISTINCT FROM 'http.response'"
       : "";
   return {
-    sql: `${scopeSql}${eventFilter} AND ${timeColumn} >= ?`,
+    sql: `${scopeSql}${eventFilter} AND ${timeColumn} >= $${timeParameter}`,
     args,
     timeColumn,
   };
@@ -65,11 +66,12 @@ async function countScopedRows(
   window: FirstPartyAnalyticsPurgeWindow,
 ): Promise<number> {
   const scopeSql = includeLegacyOwnerRows
-    ? "(org_id = ? OR (org_id IS NULL AND owner_email = ?))"
-    : "org_id = ?";
+    ? "(org_id = $1 OR (org_id IS NULL AND owner_email = $2))"
+    : "org_id = $1";
   const args: unknown[] = includeLegacyOwnerRows
     ? [scope.orgId, scope.userEmail]
     : [scope.orgId];
+  const timeParameter = args.length + 1;
   const eventFilter =
     table === "analytics_events"
       ? "\n             AND event_name IS DISTINCT FROM 'http.response'"
@@ -85,7 +87,7 @@ async function countScopedRows(
            FROM ${table}
            WHERE ${scopeSql}
              ${eventFilter}
-             AND ${timeColumn} >= ?`,
+             AND ${timeColumn} >= $${timeParameter}`,
     args,
     timeoutMs: PURGE_COUNT_TIMEOUT_MS,
     maxAttempts: 1,
@@ -157,7 +159,7 @@ export async function purgeFirstPartyAnalyticsPostgresRows(
           FROM ${table}
           WHERE ${whereSql}
           ORDER BY ${timeColumn}, id
-          LIMIT ?
+          LIMIT $${args.length + 1}
         )
         DELETE FROM ${table}
         WHERE id IN (SELECT id FROM candidates)`,

@@ -1,4 +1,7 @@
+import { createSign } from "node:crypto";
+
 import { resolveConnectorSecret } from "../connectors/credentials.js";
+import type { TriageCoverage } from "./contracts.js";
 import type { ReviewCommentObservation } from "./pr-babysit.js";
 import type {
   PullRequestCheckObservation,
@@ -18,6 +21,45 @@ export interface GitHubClientIdentity {
 export interface GitHubClientOptions extends GitHubClientIdentity {
   baseUrl?: string;
   fetchImpl?: FetchLike;
+}
+
+const GITHUB_APP_KEYS = [
+  "GITHUB_APP_ID",
+  "GITHUB_APP_INSTALLATION_ID",
+  "GITHUB_APP_PRIVATE_KEY",
+] as const;
+const INSTALLATION_TOKEN_CACHE_BUFFER_MS = 60_000;
+
+interface GitHubAppConfig {
+  appId: string;
+  installationId: string;
+  privateKey: string;
+}
+
+function base64Url(value: string): string {
+  return Buffer.from(value).toString("base64url");
+}
+
+function positiveIntegerString(value: string | undefined, key: string): string {
+  if (!value || !/^[1-9]\d*$/.test(value)) {
+    throw new Error(`${key} must be a positive integer string`);
+  }
+  return value;
+}
+
+function normalizePrivateKey(value: string): string {
+  return value.trim().replace(/\\n/g, "\n");
+}
+
+function createGitHubAppJwt(config: GitHubAppConfig): string {
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = base64Url(
+    JSON.stringify({ iat: now - 60, exp: now + 540, iss: config.appId }),
+  );
+  const signer = createSign("RSA-SHA256");
+  signer.update(`${header}.${payload}`);
+  return `${header}.${payload}.${signer.sign(config.privateKey, "base64url")}`;
 }
 
 export interface GitHubRepositoryRef {
@@ -60,6 +102,7 @@ export interface GitHubPullRequestSummary extends GitHubPullRequest {
   changedFiles: number;
   mergeable: boolean | null;
   mergeableState: string | null;
+  reviewComments: number;
 }
 
 export interface GitHubMemberCheck {
@@ -97,6 +140,15 @@ export class GitHubRequestError extends Error {
   }
 }
 
+function isChecksPermissionDenied(error: unknown): boolean {
+  return (
+    error instanceof GitHubRequestError &&
+    error.status === 403 &&
+    !error.rateLimited &&
+    /resource not accessible by personal access token/i.test(error.message)
+  );
+}
+
 export interface GitHubIssueCreateResult {
   number: number;
   htmlUrl: string;
@@ -106,8 +158,26 @@ export interface GitHubPullRequestEvidence {
   comments: readonly ReviewCommentObservation[];
   commentsTruncated: boolean;
   reviews: readonly PullRequestReviewObservation[];
+  reviewsTruncated: boolean;
   checks: readonly PullRequestCheckObservation[];
+  checksCoverage: TriageCoverage;
 }
+
+/**
+ * One page of an open-item listing. `hasMore` reflects the raw provider page,
+ * not the parsed items: `listOpenIssues` drops pull requests from the issues
+ * endpoint, so a full provider page can yield fewer issues and still have a
+ * next page behind it. `unparsed` counts those dropped entries so a caller can
+ * tell "the repository has no issues" from "this page held only pull
+ * requests"; without it an empty `items` reads the same either way.
+ */
+export interface GitHubOpenItemPage<T> {
+  items: T[];
+  unparsed: number;
+  hasMore: boolean;
+}
+
+const MAX_REVIEW_PAGES = 5;
 
 interface JsonResponse {
   ok: boolean;
@@ -152,6 +222,13 @@ function pageSize(limit?: number): number {
     );
   }
   return limit;
+}
+
+function requirePositivePage(page: number): number {
+  if (!Number.isInteger(page) || page < 1) {
+    throw new Error("GitHub page must be an integer of 1 or more");
+  }
+  return page;
 }
 
 function repositoryPath(repository: GitHubRepositoryRef): string {
@@ -309,6 +386,27 @@ function parseCheckRun(value: unknown): PullRequestCheckObservation {
   };
 }
 
+function parseWorkflowRun(value: unknown): PullRequestCheckObservation {
+  const item = record(value);
+  const status = requiredString(item.status, "workflow-run status");
+  const conclusion =
+    item.conclusion === null || item.conclusion === undefined
+      ? undefined
+      : requiredString(item.conclusion, "workflow-run conclusion");
+  const observedAt =
+    (typeof item.updated_at === "string" && item.updated_at) ||
+    (typeof item.run_started_at === "string" && item.run_started_at) ||
+    (typeof item.created_at === "string" && item.created_at);
+  if (!observedAt) {
+    throw new Error("GitHub workflow-run response is missing created_at");
+  }
+  return {
+    name: requiredString(item.name, "workflow-run name"),
+    state: normalizeCheckState(status, conclusion),
+    observedAt,
+  };
+}
+
 function parseIssue(value: unknown): GitHubIssue | null {
   const item = record(value);
   if (item.pull_request !== undefined) return null;
@@ -336,14 +434,83 @@ export function createGitHubClient(options: GitHubClientOptions) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
 
-  async function token(): Promise<string> {
-    const value = await resolveConnectorSecret(
-      "GITHUB_TOKEN",
-      options.ownerEmail,
-      {
-        orgId: options.orgId,
-      },
+  let cachedAppConfig: GitHubAppConfig | null | undefined;
+  let cachedInstallationToken: { value: string; expiresAt: number } | undefined;
+  let cachedAppBotIdentity: { login: string; id: number } | undefined;
+
+  async function connectorSecret(key: string): Promise<string | undefined> {
+    return resolveConnectorSecret(key, options.ownerEmail, {
+      orgId: options.orgId,
+    });
+  }
+
+  async function appConfig(): Promise<GitHubAppConfig | null> {
+    if (cachedAppConfig !== undefined) return cachedAppConfig;
+    const [appId, installationId, privateKey] = await Promise.all(
+      GITHUB_APP_KEYS.map((key) => connectorSecret(key)),
     );
+    const configured = [appId, installationId, privateKey].filter(
+      Boolean,
+    ).length;
+    if (configured === 0) {
+      cachedAppConfig = null;
+      return cachedAppConfig;
+    }
+    if (configured !== GITHUB_APP_KEYS.length) {
+      throw new Error(
+        "GitHub App configuration is incomplete; configure GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, and GITHUB_APP_PRIVATE_KEY",
+      );
+    }
+    cachedAppConfig = {
+      appId: positiveIntegerString(appId, "GITHUB_APP_ID"),
+      installationId: positiveIntegerString(
+        installationId,
+        "GITHUB_APP_INSTALLATION_ID",
+      ),
+      privateKey: normalizePrivateKey(privateKey as string),
+    };
+    return cachedAppConfig;
+  }
+
+  async function token(): Promise<string> {
+    const app = await appConfig();
+    if (app) {
+      const now = Math.floor(Date.now() / 1000);
+      if (
+        cachedInstallationToken &&
+        cachedInstallationToken.expiresAt >
+          now * 1000 + INSTALLATION_TOKEN_CACHE_BUFFER_MS
+      ) {
+        return cachedInstallationToken.value;
+      }
+      const jwt = createGitHubAppJwt(app);
+      const response = (await fetchImpl(
+        `${baseUrl}/app/installations/${app.installationId}/access_tokens`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${jwt}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        },
+      )) as JsonResponse;
+      if (!response.ok) {
+        throw new Error(
+          `GitHub App installation token request failed: HTTP ${response.status}`,
+        );
+      }
+      const body = record(await response.json());
+      const value = requiredString(body.token, "GitHub App installation token");
+      const expiresAt = Date.parse(
+        requiredString(body.expires_at, "GitHub App token expiry"),
+      );
+      if (!Number.isFinite(expiresAt))
+        throw new Error("GitHub App token expiry is invalid");
+      cachedInstallationToken = { value, expiresAt };
+      return value;
+    }
+    const value = await connectorSecret("GITHUB_TOKEN");
     if (!value)
       throw new Error("GITHUB_TOKEN is not configured for this workspace");
     return value;
@@ -397,25 +564,72 @@ export function createGitHubClient(options: GitHubClientOptions) {
     async listOpenPullRequests(
       repository: GitHubRepositoryRef,
       limit?: number,
-    ) {
+      options: { page?: number } = {},
+    ): Promise<GitHubOpenItemPage<GitHubPullRequest>> {
+      const perPage = pageSize(limit);
+      const page = requirePositivePage(options.page ?? 1);
       const value = await request<unknown>(
-        `${repositoryPath(repository)}/pulls?state=open&per_page=${pageSize(limit)}`,
+        `${repositoryPath(repository)}/pulls?state=open&per_page=${perPage}&page=${page}`,
       );
       if (!Array.isArray(value))
         throw new Error("GitHub pull request response was not an array");
-      return value.map(parsePullRequest);
+      return {
+        items: value.map(parsePullRequest),
+        unparsed: 0,
+        hasMore: value.length >= perPage,
+      };
     },
 
-    async listOpenIssues(repository: GitHubRepositoryRef, limit?: number) {
+    async listOpenIssues(
+      repository: GitHubRepositoryRef,
+      limit?: number,
+      options: { page?: number } = {},
+    ): Promise<GitHubOpenItemPage<GitHubIssue>> {
+      const perPage = pageSize(limit);
+      const page = requirePositivePage(options.page ?? 1);
       const value = await request<unknown>(
-        `${repositoryPath(repository)}/issues?state=open&per_page=${pageSize(limit)}`,
+        `${repositoryPath(repository)}/issues?state=open&per_page=${perPage}&page=${page}`,
       );
       if (!Array.isArray(value))
         throw new Error("GitHub issue response was not an array");
-      return value.flatMap((item) => {
+      const items = value.flatMap((item) => {
         const issue = parseIssue(item);
         return issue ? [issue] : [];
       });
+      return {
+        items,
+        unparsed: value.length - items.length,
+        hasMore: value.length >= perPage,
+      };
+    },
+
+    async listPullRequestReviews(
+      repository: GitHubRepositoryRef,
+      pullRequestNumber: number,
+    ) {
+      requirePositivePullRequestNumber(pullRequestNumber);
+      const observedAt = new Date().toISOString();
+      const reviews: PullRequestReviewObservation[] = [];
+      let reviewsTruncated = false;
+      for (let page = 1; page <= MAX_REVIEW_PAGES; page += 1) {
+        const payload = requireArray(
+          await request<unknown>(
+            `${repositoryPath(repository)}/pulls/${pullRequestNumber}/reviews?per_page=${pageSize()}&page=${page}`,
+          ),
+          "review",
+        );
+        reviews.push(
+          ...payload.map((review) => parseReview(review, observedAt)),
+        );
+        if (payload.length < MAX_PAGE_SIZE) {
+          reviewsTruncated = false;
+          break;
+        }
+        if (page === MAX_REVIEW_PAGES) {
+          reviewsTruncated = true;
+        }
+      }
+      return { reviews, reviewsTruncated };
     },
 
     async listPullRequestReviewComments(
@@ -445,40 +659,71 @@ export function createGitHubClient(options: GitHubClientOptions) {
       if (!sha) throw new Error("GitHub pull request head SHA is required");
       const root = repositoryPath(repository);
       const page = pageSize();
-      const [reviewPayload, commentPayload, checkPayload] = await Promise.all([
-        request<unknown>(
-          `${root}/pulls/${pullRequestNumber}/reviews?per_page=${page}`,
-        ),
+      const [reviewPage, commentPayload] = await Promise.all([
+        this.listPullRequestReviews(repository, pullRequestNumber),
         request<unknown>(
           `${root}/pulls/${pullRequestNumber}/comments?per_page=${page}`,
         ),
-        request<unknown>(
-          `${root}/commits/${encodeURIComponent(sha)}/check-runs?per_page=${page}`,
-        ),
       ]);
-      const observedAt = new Date().toISOString();
       const comments = requireArray(commentPayload, "review comment").map(
         parseReviewComment,
       );
-      const reviews = requireArray(reviewPayload, "review").map((review) =>
-        parseReview(review, observedAt),
-      );
-      const checkBody = record(checkPayload);
-      const checkRuns = requireArray(checkBody.check_runs, "check-run");
-      const totalCount = requiredNumber(
-        checkBody.total_count,
-        "check-run total_count",
-      );
-      if (totalCount > checkRuns.length) {
-        throw new Error(
-          "GitHub check-run page was truncated; cannot treat CI as complete.",
+      const reviews = reviewPage.reviews;
+      const reviewsTruncated = reviewPage.reviewsTruncated;
+      let checks: PullRequestCheckObservation[];
+      let checksCoverage: TriageCoverage = "complete";
+      try {
+        const checkBody = record(
+          await request<unknown>(
+            `${root}/commits/${encodeURIComponent(sha)}/check-runs?per_page=${page}`,
+          ),
         );
+        const checkRuns = requireArray(checkBody.check_runs, "check-run");
+        const totalCount = requiredNumber(
+          checkBody.total_count,
+          "check-run total_count",
+        );
+        if (totalCount > checkRuns.length) {
+          throw new Error(
+            "GitHub check-run page was truncated; cannot treat CI as complete.",
+          );
+        }
+        checks = checkRuns.map(parseCheckRun);
+      } catch (error) {
+        if (!isChecksPermissionDenied(error)) throw error;
+
+        checksCoverage = "partial";
+
+        // Fine-grained PATs expose Actions read but not Checks in GitHub's
+        // permission editor. Use workflow runs for GitHub Actions CI as
+        // partial evidence only; required non-Actions checks remain unknown.
+        const workflowBody = record(
+          await request<unknown>(
+            `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=${page}`,
+          ),
+        );
+        const workflowRuns = requireArray(
+          workflowBody.workflow_runs,
+          "workflow-run",
+        );
+        const totalCount = requiredNumber(
+          workflowBody.total_count,
+          "workflow-run total_count",
+        );
+        if (totalCount > workflowRuns.length) {
+          throw new Error(
+            "GitHub workflow-run page was truncated; cannot treat CI as complete.",
+          );
+        }
+        checks = workflowRuns.map(parseWorkflowRun);
       }
       return {
         comments,
         commentsTruncated: comments.length >= MAX_PAGE_SIZE,
         reviews,
-        checks: checkRuns.map(parseCheckRun),
+        reviewsTruncated,
+        checks,
+        checksCoverage,
       };
     },
 
@@ -533,10 +778,41 @@ export function createGitHubClient(options: GitHubClientOptions) {
                 item.mergeable_state,
                 "pull request mergeable state",
               ),
+        reviewComments: requiredNumber(
+          item.review_comments,
+          "pull request review comments",
+        ),
       } satisfies GitHubPullRequestSummary;
     },
 
     async getAuthenticatedUser() {
+      const app = await appConfig();
+      if (app) {
+        if (!cachedAppBotIdentity) {
+          const response = (await fetchImpl(`${baseUrl}/app`, {
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: `Bearer ${createGitHubAppJwt(app)}`,
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
+          })) as JsonResponse;
+          if (!response.ok) {
+            throw new Error(
+              `GitHub App metadata request failed: HTTP ${response.status}`,
+            );
+          }
+          const metadata = record(await response.json());
+          const login = `${requiredString(metadata.slug, "GitHub App slug")}[bot]`;
+          const bot = record(
+            await request<unknown>(`/users/${encodeURIComponent(login)}`),
+          );
+          cachedAppBotIdentity = {
+            login: requiredString(bot.login, "GitHub App bot login"),
+            id: requiredNumber(bot.id, "GitHub App bot id"),
+          };
+        }
+        return cachedAppBotIdentity;
+      }
       const item = record(await request<unknown>("/user"));
       return {
         login: requiredString(item.login, "authenticated GitHub user login"),

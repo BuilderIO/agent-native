@@ -1,6 +1,6 @@
 ---
 title: "Implementación"
-description: "Implementa una aplicación o un espacio de trabajo Agent-Native en una plataforma compatible con Nitro y una base de datos SQL persistente."
+description: "Implementa una aplicación o un espacio de trabajo Agent-Native en una plataforma compatible con Nitro y una base de datos PostgreSQL persistente."
 ---
 
 <!-- i18n-docs-ignore -->
@@ -26,9 +26,11 @@ Ejecuta varias aplicaciones bajo un mismo origen con inicio de sesión compartid
 
 ## Antes de implementar: elige una base de datos persistente {#persistent-database}
 
-Cada aplicación implementada necesita una base de datos SQL persistente. Configura `DATABASE_URL` en el entorno de implementación antes del primer despliegue de producción. Usa `DATABASE_AUTH_TOKEN` si tu proveedor requiere un token separado.
+Cada aplicación implementada necesita una base de datos PostgreSQL persistente. Configura `DATABASE_URL` en el entorno de implementación antes del primer despliegue de producción. Entre los proveedores de PostgreSQL alojados se incluyen [Neon](/docs/neon), [Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](/docs/aws-rds), [Cloud SQL for PostgreSQL](/docs/cloud-sql) y [Azure Database for PostgreSQL](/docs/azure-postgresql). Consulta la guía [Plain Postgres](/docs/postgres) para otros servicios administrados y servidores PostgreSQL autohospedados.
 
 Las aplicaciones independientes necesitan un `BETTER_AUTH_SECRET` estable. Los espacios de trabajo con solicitudes firmadas entre aplicaciones necesitan `A2A_SECRET`.
+
+Configura estos valores en los ajustes de entorno del proveedor de alojamiento, no solo en el `.env` local. Genera el secreto de autenticación con `openssl rand -hex 32`. Agent-Native no incluye una cuenta de envío de correo; conecta Resend o SendGrid por separado.
 
 ## El envío de correo es opcional, pero recomendable {#email-provider}
 

@@ -15,11 +15,13 @@ import {
   getAgentPanelShortcutHints,
   getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
+  focusAgentChat,
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelFullViewAction,
   resolveAgentPanelChatSurface,
   shouldDefaultAgentChatSurfacePageNewChatButton,
   shouldHandleAgentSidebarToggle,
+  shouldHandleAgentPanelChatShortcut,
   shouldShowAgentPanelFullViewAction,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
@@ -420,6 +422,116 @@ describe("AgentPanel shortcut hints", () => {
       widenChat: "^⇧\\",
     });
   });
+
+  it("does not capture chat focus inside editable controls", () => {
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    const nested = document.createElement("span");
+    editor.appendChild(nested);
+
+    expect(shouldHandleAgentPanelChatShortcut(input)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(editor)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(nested)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(document.body)).toBe(true);
+  });
+});
+
+describe("AgentSidebar composer focus", () => {
+  it("opens the sidebar and focuses its composer", () => {
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const events: string[] = [];
+    const panel = document.createElement("div");
+    const composer = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.dataset.agentSidebarState = "open";
+    composer.className = "ProseMirror";
+    panel.appendChild(composer);
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+    const recordEvent = (event: Event) => events.push(event.type);
+    window.addEventListener("agent-panel:set-mode", recordEvent);
+    window.addEventListener("agent-panel:open", recordEvent);
+
+    try {
+      focusAgentChat();
+
+      expect(events).toEqual(["agent-panel:set-mode", "agent-panel:open"]);
+      expect(frames).toHaveLength(1);
+
+      frames[0]!(0);
+
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      window.removeEventListener("agent-panel:set-mode", recordEvent);
+      window.removeEventListener("agent-panel:open", recordEvent);
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+    }
+  });
+
+  it("waits for a lazy-loaded composer", () => {
+    vi.useFakeTimers();
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.dataset.agentSidebarState = "open";
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+
+    try {
+      focusAgentChat();
+      frames[0]!(0);
+
+      const composer = document.createElement("div");
+      composer.className = "ProseMirror";
+      panel.appendChild(composer);
+      vi.advanceTimersByTime(50);
+
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it("focuses a frame-owned composer", () => {
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const panel = document.createElement("div");
+    const composer = document.createElement("div");
+    panel.className = "agent-frame-sidebar";
+    panel.dataset.agentFrameSidebarState = "open";
+    composer.className = "ProseMirror";
+    panel.appendChild(composer);
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+
+    try {
+      focusAgentChat();
+      frames[0]!(0);
+
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+    }
+  });
 });
 
 describe("AgentSidebar toggle routing", () => {
@@ -510,10 +622,14 @@ describe("AgentPanel header overflow actions", () => {
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
     expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
+    expect(source).toContain("event.preventDefault();");
+    expect(overflowMenu).toContain(
+      'toggleHistory,\n                    "timeout"',
+    );
     expect(overflowMenu).toContain("onCloseAutoFocus");
     expect(
       overflowMenu.match(/closeHeaderMenuForOverlay/g)?.length,
-    ).toBeGreaterThanOrEqual(3);
+    ).toBeGreaterThanOrEqual(2);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
     expect(source).toContain("onFullViewRequest={onFullscreenRequest}");
@@ -546,6 +662,42 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain(
       ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}",
     );
+  });
+
+  it("supports a persistent two-state sidebar toggle", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("if (open && !showWhenOpen) return null");
+    expect(source).toContain("aria-pressed={open}");
+    expect(source).toContain('data-state={open ? "open" : "closed"}');
+    expect(source).toContain("{icon ?? <IconMessageDots");
+    expect(source).toContain("{onCollapse && showCollapseButton && (");
+    expect(source).toContain("showCollapseButton={showCollapseButton}");
+  });
+
+  it("keeps host CLI tabs mounted while chat is active", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('(mode === "cli" || Boolean(renderCliTab))');
+    expect(source).toContain('active: mode === "cli" && id === activeCliTab');
+    expect(source).toContain("const [mountedCliTabs, setMountedCliTabs]");
+    expect(source).toContain(
+      "cliTabs.filter((id) => mountedCliTabs.includes(id))",
+    );
+    expect(source).toContain("previousDefaultModeRef.current === defaultMode");
+  });
+
+  it("only shows tabs for the active desktop surface", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(/\{mode === "chat" &&\s+mainTabs\.map/);
+    expect(source).toMatch(/\{mode === "cli" &&\s+cliTabs\.map/);
   });
 });
 

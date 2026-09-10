@@ -106,8 +106,8 @@ describe("buildGmailEmailSearchQuery", () => {
 });
 
 describe("gmailLabelSearchClause", () => {
-  it("quotes Gmail labels that need quoting", () => {
-    expect(gmailLabelSearchClause("Team/Foo Bar")).toBe('label:"Team/Foo-Bar"');
+  it("preserves nested Gmail label paths", () => {
+    expect(gmailLabelSearchClause("Team/Foo Bar")).toBe("label:Team/Foo-Bar");
   });
 });
 

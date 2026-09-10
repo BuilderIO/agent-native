@@ -8,8 +8,6 @@ vi.mock("../org/accept-pending.js", () => ({
 }));
 
 import {
-  buildDatabaseConfig,
-  configureLocalSqlite,
   desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
   getAuthSecret,
@@ -17,93 +15,6 @@ import {
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
-
-describe("configureLocalSqlite", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("waits for competing app writes before giving up", async () => {
-    const pragma = vi.fn();
-
-    await configureLocalSqlite({ pragma });
-
-    expect(pragma.mock.calls).toEqual([
-      ["busy_timeout = 10000"],
-      ["journal_mode = WAL"],
-    ]);
-  });
-
-  it("retries a stale-runtime lock while enabling WAL instead of throwing straight out of boot", async () => {
-    vi.useFakeTimers();
-    const locked = Object.assign(new Error("database is locked"), {
-      code: "SQLITE_BUSY",
-    });
-    const pragma = vi
-      .fn()
-      .mockReturnValueOnce(undefined) // busy_timeout = 10000
-      .mockImplementationOnce(() => {
-        throw locked; // journal_mode = WAL, first attempt: still locked by the app connection's migration burst
-      })
-      .mockReturnValueOnce([{ journal_mode: "wal" }]); // journal_mode = WAL, retry succeeds
-
-    const pending = configureLocalSqlite({ pragma, close: vi.fn() });
-    await vi.advanceTimersByTimeAsync(500);
-    await pending;
-
-    expect(pragma.mock.calls).toEqual([
-      ["busy_timeout = 10000"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-    ]);
-  });
-
-  it("closes the handle and surfaces a lock that outlasts every retry", async () => {
-    vi.useFakeTimers();
-    const locked = Object.assign(new Error("database is locked"), {
-      code: "SQLITE_BUSY",
-    });
-    const pragma = vi.fn((statement: string) => {
-      if (statement === "journal_mode = WAL") throw locked;
-    });
-    const close = vi.fn();
-
-    const pending = expect(
-      configureLocalSqlite({ pragma, close }),
-    ).rejects.toBe(locked);
-    await vi.advanceTimersByTimeAsync(5_000);
-    await pending;
-
-    expect(pragma.mock.calls).toEqual([
-      ["busy_timeout = 10000"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-    ]);
-    expect(close).toHaveBeenCalledOnce();
-  });
-
-  it("retries the WAL negotiation while a dev-server handoff holds the file", async () => {
-    const pragma = vi.fn((statement: string) => {
-      if (statement === "journal_mode = WAL" && pragma.mock.calls.length <= 2) {
-        throw Object.assign(new Error("database is locked"), {
-          code: "SQLITE_BUSY",
-        });
-      }
-      return undefined;
-    });
-    const close = vi.fn();
-
-    await configureLocalSqlite({ pragma, close });
-
-    expect(close).not.toHaveBeenCalled();
-    expect(
-      pragma.mock.calls.filter(([s]) => s === "journal_mode = WAL"),
-    ).toHaveLength(2);
-  });
-});
 
 describe("desktopMagicLinkLandingUrl", () => {
   it("moves only desktop verification links behind a non-consuming landing page", () => {
@@ -148,27 +59,6 @@ describe("desktopMagicLinkLandingUrl", () => {
     expect(
       desktopMagicLinkLandingUrl(externalCallbackURL.toString()),
     ).toBeUndefined();
-  });
-});
-
-describe("buildDatabaseConfig", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("uses the Cloudflare D1 binding for Better Auth", async () => {
-    const d1 = { prepare: vi.fn() };
-    vi.stubGlobal("__env__", { DB: d1 });
-
-    const database = await buildDatabaseConfig("d1");
-
-    expect(database).toEqual(expect.any(Function));
-  });
-
-  it("fails clearly when the D1 binding is unavailable", async () => {
-    await expect(buildDatabaseConfig("d1")).rejects.toThrow(
-      "Cloudflare D1 database binding is unavailable",
-    );
   });
 });
 

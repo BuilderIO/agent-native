@@ -66,25 +66,15 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
+import {
+  isCanonicalIdentitySsoClientRequest,
+  isCanonicalIdentitySsoClientConfigured,
+  isIdentitySsoAvailableForRequest,
+} from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 function hasGoogleOAuth(): boolean {
   return hasGoogleSignInCredentials();
-}
-
-function getConnectionLabel(): string {
-  const url = process.env.DATABASE_URL || "";
-  if (!url) return "SQLite (local file)";
-  if (url.startsWith("pglite:")) return "PGlite (local Postgres)";
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
-    if (url.includes("neon.tech")) return "Neon Postgres";
-    if (url.includes("supabase")) return "Supabase Postgres";
-    return "Postgres";
-  }
-  if (url.startsWith("file:")) return "SQLite (local file)";
-  if (url.startsWith("libsql://") || url.includes("turso.io")) return "Turso";
-  return "SQL database";
 }
 
 function isWorkspaceRuntime(): boolean {
@@ -94,7 +84,9 @@ function isWorkspaceRuntime(): boolean {
   );
 }
 
-function workspaceBasePathFromRequest(requestPath: string | undefined): string {
+export function workspaceBasePathFromRequest(
+  requestPath: string | undefined,
+): string {
   if (!isWorkspaceRuntime() || !requestPath) return "";
   const pathname = requestPath.split(/[?#]/, 1)[0] || "/";
   const firstSegment = pathname.split("/").find(Boolean);
@@ -121,6 +113,29 @@ const AGENT_NATIVE_TERMS_URL = "https://www.agent-native.com/terms";
 const AGENT_NATIVE_PRIVACY_URL = "https://www.agent-native.com/privacy";
 const BUILDER_PREVIEW_LOCAL_DEV_ENV =
   "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
+
+function authClientBuildId(): string {
+  const buildId =
+    typeof __AGENT_NATIVE_BUILD_ID__ === "string"
+      ? __AGENT_NATIVE_BUILD_ID__
+      : (
+          globalThis as typeof globalThis & {
+            __AGENT_NATIVE_BUILD_ID__?: string;
+          }
+        ).__AGENT_NATIVE_BUILD_ID__;
+  return (
+    buildId?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ID?.trim() || // config-ok: deploy metadata is compiled into the Nitro server
+    ""
+  );
+}
+
+function authClientAssetPath(appBasePath: string): string {
+  const path = `${appBasePath}/assets/auth-client.js`;
+  const buildId = authClientBuildId();
+  return buildId ? `${path}?__an_build=${encodeURIComponent(buildId)}` : path;
+}
 
 function isBuilderPreviewLocalDevEnabled(): boolean {
   if (
@@ -172,8 +187,6 @@ const EN_AUTH_COPY = {
   resendEmail: "Resend email",
   sendResetLink: "Send reset link",
   backToSignIn: "Back to sign in",
-  localNotePrefix: "Your account is stored in this app's own DB",
-  localNoteSuffix: ", not a third-party service.",
   localDevButton: "Continue as local dev",
   localDevDescription: "Only works in local development on this computer.",
   localDevHelp: "Learn about local development sign-in",
@@ -181,6 +194,8 @@ const EN_AUTH_COPY = {
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
   openSource: "100% free and open source",
+  newToApp: "New to {appName}?",
+  learnMore: "Learn more",
   useOwnGoogleClient: "Use your own Google OAuth client:",
   copyCommand: "Copy command",
   copied: "Copied",
@@ -258,8 +273,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "重新发送邮件",
     sendResetLink: "发送重置链接",
     backToSignIn: "返回登录",
-    localNotePrefix: "你的账户存储在此应用自己的数据库中",
-    localNoteSuffix: "，而不是第三方服务。",
     localDevButton: "以本地开发身份继续",
     localDevDescription: "仅在此计算机的本地开发环境中有效。",
     localDevHelp: "了解本地开发登录",
@@ -267,6 +280,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "本地开发登录不可用。",
     localDevFullOptions: "显示完整登录选项",
     openSource: "100% 免费且开源",
+    newToApp: "第一次使用 {appName}？",
+    learnMore: "了解更多",
     useOwnGoogleClient: "使用你自己的 Google OAuth 客户端：",
     copyCommand: "复制命令",
     copied: "已复制",
@@ -332,8 +347,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "重新寄送郵件",
     sendResetLink: "寄送重設連結",
     backToSignIn: "返回登入",
-    localNotePrefix: "你的帳號儲存在此應用程式自己的資料庫中",
-    localNoteSuffix: "，而不是第三方服務。",
     localDevButton: "以本機開發身分繼續",
     localDevDescription: "僅在這台電腦的本機開發環境中有效。",
     localDevHelp: "了解本機開發登入",
@@ -341,6 +354,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "本機開發登入無法使用。",
     localDevFullOptions: "顯示完整登入選項",
     openSource: "100% 免費且開源",
+    newToApp: "第一次使用 {appName}？",
+    learnMore: "深入瞭解",
     useOwnGoogleClient: "使用你自己的 Google OAuth 用戶端：",
     copyCommand: "複製指令",
     copied: "已複製",
@@ -408,9 +423,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "Reenviar email",
     sendResetLink: "Enviar enlace de restablecimiento",
     backToSignIn: "Volver a iniciar sesión",
-    localNotePrefix:
-      "Tu cuenta se almacena en la propia base de datos de esta app",
-    localNoteSuffix: ", no en un servicio de terceros.",
     localDevButton: "Continuar como desarrollador local",
     localDevDescription: "Solo funciona en el desarrollo local de este equipo.",
     localDevHelp: "Más información sobre el inicio de sesión local",
@@ -419,6 +431,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "El inicio de sesión de desarrollo local no está disponible.",
     localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
     openSource: "100% gratis y de código abierto",
+    newToApp: "¿Nuevo en {appName}?",
+    learnMore: "Más información",
     useOwnGoogleClient: "Usa tu propio cliente de Google OAuth:",
     copyCommand: "Copiar comando",
     copied: "Copiado",
@@ -492,9 +506,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "Renvoyer l'e-mail",
     sendResetLink: "Envoyer le lien de réinitialisation",
     backToSignIn: "Retour à la connexion",
-    localNotePrefix:
-      "Votre compte est stocké dans la base de données propre à cette app",
-    localNoteSuffix: ", pas dans un service tiers.",
     localDevButton: "Continuer comme développeur local",
     localDevDescription:
       "Fonctionne uniquement en développement local sur cet ordinateur.",
@@ -503,6 +514,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "La connexion de développement local est indisponible.",
     localDevFullOptions: "Afficher toutes les options de connexion",
     openSource: "100 % gratuit et open source",
+    newToApp: "Nouveau sur {appName} ?",
+    learnMore: "En savoir plus",
     useOwnGoogleClient: "Utilisez votre propre client Google OAuth :",
     copyCommand: "Copier la commande",
     copied: "Copié",
@@ -577,9 +590,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "E-Mail erneut senden",
     sendResetLink: "Reset-Link senden",
     backToSignIn: "Zurück zur Anmeldung",
-    localNotePrefix:
-      "Dein Konto wird in der eigenen Datenbank dieser App gespeichert",
-    localNoteSuffix: ", nicht bei einem Drittanbieter.",
     localDevButton: "Als lokale Entwicklung fortfahren",
     localDevDescription:
       "Funktioniert nur in der lokalen Entwicklung auf diesem Computer.",
@@ -588,6 +598,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
     localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
     openSource: "100 % kostenlos und Open Source",
+    newToApp: "Neu bei {appName}?",
+    learnMore: "Mehr erfahren",
     useOwnGoogleClient: "Eigenen Google-OAuth-Client verwenden:",
     copyCommand: "Befehl kopieren",
     copied: "Kopiert",
@@ -662,8 +674,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "メールを再送信",
     sendResetLink: "リセットリンクを送信",
     backToSignIn: "サインインに戻る",
-    localNotePrefix: "アカウントはこのアプリ自身の DB に保存されます",
-    localNoteSuffix: "。サードパーティサービスには保存されません。",
     localDevButton: "ローカル開発として続行",
     localDevDescription: "このコンピューターのローカル開発でのみ利用できます。",
     localDevHelp: "ローカル開発サインインについて詳しく見る",
@@ -671,6 +681,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "ローカル開発のサインインは利用できません。",
     localDevFullOptions: "完全なサインイン オプションを表示",
     openSource: "100% 無料でオープンソース",
+    newToApp: "{appName} は初めてですか？",
+    learnMore: "詳細を見る",
     useOwnGoogleClient: "自分の Google OAuth クライアントを使用:",
     copyCommand: "コマンドをコピー",
     copied: "コピーしました",
@@ -744,8 +756,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "이메일 다시 보내기",
     sendResetLink: "재설정 링크 보내기",
     backToSignIn: "로그인으로 돌아가기",
-    localNotePrefix: "계정은 이 앱의 자체 DB에 저장됩니다",
-    localNoteSuffix: ", 타사 서비스가 아닙니다.",
     localDevButton: "로컬 개발자로 계속",
     localDevDescription: "이 컴퓨터의 로컬 개발 환경에서만 작동합니다.",
     localDevHelp: "로컬 개발 로그인 자세히 보기",
@@ -753,6 +763,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
     localDevFullOptions: "전체 로그인 옵션 보기",
     openSource: "100% 무료 오픈 소스",
+    newToApp: "{appName}이(가) 처음이신가요?",
+    learnMore: "자세히 알아보기",
     useOwnGoogleClient: "내 Google OAuth 클라이언트 사용:",
     copyCommand: "명령 복사",
     copied: "복사됨",
@@ -822,9 +834,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "Reenviar email",
     sendResetLink: "Enviar link de redefinição",
     backToSignIn: "Voltar para entrar",
-    localNotePrefix:
-      "Sua conta fica armazenada no banco de dados próprio deste app",
-    localNoteSuffix: ", não em um serviço de terceiros.",
     localDevButton: "Continuar como desenvolvedor local",
     localDevDescription:
       "Funciona apenas no desenvolvimento local deste computador.",
@@ -833,6 +842,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "O login de desenvolvimento local não está disponível.",
     localDevFullOptions: "Mostrar todas as opções de login",
     openSource: "100% grátis e open source",
+    newToApp: "Novo no {appName}?",
+    learnMore: "Saiba mais",
     useOwnGoogleClient: "Use seu próprio cliente Google OAuth:",
     copyCommand: "Copiar comando",
     copied: "Copiado",
@@ -905,8 +916,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "ईमेल फिर भेजें",
     sendResetLink: "रीसेट लिंक भेजें",
     backToSignIn: "साइन इन पर वापस जाएं",
-    localNotePrefix: "आपका खाता इस ऐप के अपने DB में संग्रहीत है",
-    localNoteSuffix: ", किसी third-party सेवा में नहीं।",
     localDevButton: "स्थानीय डेवलपर के रूप में जारी रखें",
     localDevDescription: "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
     localDevHelp: "स्थानीय विकास साइन-इन के बारे में जानें",
@@ -914,6 +923,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
     localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
     openSource: "100% मुफ्त और open source",
+    newToApp: "{appName} पर नए हैं?",
+    learnMore: "और जानें",
     useOwnGoogleClient: "अपना Google OAuth client उपयोग करें:",
     copyCommand: "कमांड कॉपी करें",
     copied: "कॉपी हो गया",
@@ -983,8 +994,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "إعادة إرسال البريد",
     sendResetLink: "إرسال رابط إعادة التعيين",
     backToSignIn: "العودة إلى تسجيل الدخول",
-    localNotePrefix: "يتم تخزين حسابك في قاعدة بيانات هذا التطبيق",
-    localNoteSuffix: "، وليس في خدمة خارجية.",
     localDevButton: "المتابعة كمطور محلي",
     localDevDescription: "يعمل فقط أثناء التطوير المحلي على هذا الكمبيوتر.",
     localDevHelp: "تعرف على تسجيل دخول التطوير المحلي",
@@ -992,6 +1001,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
     localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
     openSource: "مجاني ومفتوح المصدر 100%",
+    newToApp: "هل أنت جديد على {appName}؟",
+    learnMore: "معرفة المزيد",
     useOwnGoogleClient: "استخدم عميل Google OAuth الخاص بك:",
     copyCommand: "نسخ الأمر",
     copied: "تم النسخ",
@@ -1107,6 +1118,10 @@ export interface OnboardingHtmlOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    screenshotPath?: string;
+    screenshotWidth?: number;
+    screenshotHeight?: number;
+    learnMoreUrl?: string;
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -1115,6 +1130,10 @@ export interface OnboardingHtmlOptions {
    * default auth guard serves before a template-specific auth plugin.
    */
   requestHost?: string;
+  /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
+  identitySsoRequestHost?: string;
+  /** @deprecated Browser SSO was removed. The field is retained for patch compatibility. */
+  identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
   /**
@@ -1150,6 +1169,7 @@ function initialAuthView(
     if (requestedView === "login" || requestedView === "signup") {
       return requestedView;
     }
+    if (url.searchParams.get("c")) return "login";
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     if (pathname.endsWith("/login")) return "login";
     if (pathname.endsWith("/signup")) return "signup";
@@ -1250,28 +1270,34 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
-  const identitySsoEnabled = Boolean(identitySsoLoginButtonHtml());
-  const embeddedAuthCss = identitySsoEnabled
-    ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
-    : "";
-  const identitySsoMagicLinkSelector = identitySsoEnabled
-    ? "  .card.magic-link-complete #identity-sso-btn,\n"
-    : "";
-
+  const identitySsoRequestHost =
+    opts.identitySsoRequestHost ?? opts.requestHost;
+  const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const identitySsoEnabled = isIdentitySsoAvailableForRequest({
+    requestHost: identitySsoRequestHost,
+    requestProtocol: identitySsoRequestProtocol,
+  });
+  const identitySsoAuto =
+    identitySsoEnabled &&
+    (isCanonicalIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    ) ||
+      (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; }
-  #starfield {
+  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
+  [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.35;
+    opacity: 0.15;
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    #starfield { opacity: 0.18; }
+    [data-agent-native-starfield] { opacity: 0.15; }
   }
   .split {
     position: relative;
@@ -1281,6 +1307,37 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     width: 100%;
     max-width: 1100px;
     margin: 0 auto;
+  }
+  .auth-marketing-learn-more {
+    display: block;
+    color: hsl(var(--foreground, 0 0% 90%));
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .auth-marketing-learn-more:hover { color: hsl(var(--foreground, 0 0% 90%)); }
+  .auth-marketing-learn-more-link { color: hsl(var(--primary, 195 100% 50%)); }
+  .auth-marketing-screenshot-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 3rem);
+    aspect-ratio: 914 / 818;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.38); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  }
+  .auth-marketing-screenshot {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-height: calc(100vh - 3rem);
+    object-fit: cover;
   }
   .marketing-panel {
     flex: 1;
@@ -1381,8 +1438,24 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     padding: 2rem;
   }
   .form-panel .card { max-width: 400px; }
-  .form-panel .local-note { max-width: 400px; }
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  .auth-marketing-home .card { box-shadow: 0 18px 50px rgba(0,0,0,0.62); }
   @media (max-width: 900px) {
+    .auth-marketing-shell-with-top-right {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      min-height: auto;
+    }
+    .auth-marketing-top-right {
+      display: flex;
+      justify-content: flex-start;
+      flex: none;
+      padding: 1rem 1rem 0;
+    }
+    .auth-marketing-learn-more {
+      font-size: 0.75rem;
+    }
     .split { flex-direction: column; min-height: auto; }
     .marketing-panel { padding: 4.25rem 1.5rem 1.5rem; }
     .app-name { font-size: 1.375rem; }
@@ -1391,6 +1464,134 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .app-desc { margin-bottom: 1rem; }
     .feature-list { gap: 0.5rem; }
     .form-panel { flex: none; padding: 1.5rem 1rem; }
+  }
+  @media (prefers-color-scheme: light) {
+    body.has-marketing {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+      color-scheme: light;
+    }
+    .auth-marketing-home {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more,
+    .auth-marketing-home .auth-marketing-learn-more:hover,
+    body.has-marketing .locale-trigger {
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more-link {
+      color: LinkText;
+    }
+    .auth-marketing-home .card {
+      background: Canvas;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      color: CanvasText;
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card h1 { color: CanvasText; }
+    .auth-marketing-home .card .subtitle,
+    .auth-marketing-home .card label { color: GrayText; }
+    .auth-marketing-home .card input {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card input::placeholder { color: GrayText; }
+    .auth-marketing-home .card .tabs {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+    }
+    .auth-marketing-home .card .tab { color: GrayText; }
+    .auth-marketing-home .card .tab.active {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+      color: CanvasText;
+      box-shadow: 0 1px 2px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card button[type="submit"],
+    .auth-marketing-home .card .btn-primary {
+      background: CanvasText;
+      color: Canvas;
+    }
+    .auth-marketing-home .card button[type="submit"]:hover,
+    .auth-marketing-home .card .btn-primary:hover {
+      background: color-mix(in srgb, CanvasText 82%, Canvas);
+    }
+    .auth-marketing-home .card .btn-google {
+      background: Canvas;
+      color: CanvasText;
+      border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-google:hover {
+      background: color-mix(in srgb, CanvasText 6%, Canvas);
+    }
+    .auth-marketing-home .card .btn-secondary {
+      color: GrayText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-secondary:hover,
+    .auth-marketing-home .card .link-button:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 24%, transparent);
+    }
+    .auth-marketing-home .card .divider { color: GrayText; }
+    .auth-marketing-home .card .divider::before,
+    .auth-marketing-home .card .divider::after {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+    .auth-marketing-home .card .legal-note,
+    .auth-marketing-home .card .legal-note a,
+    .auth-marketing-home .card .local-dev-full-options {
+      color: GrayText;
+    }
+    .auth-marketing-home .card .signup-local-mode-note {
+      color: GrayText;
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .signup-local-mode-note code { color: CanvasText; }
+    .auth-marketing-home .card .progress-step { color: GrayText; }
+    .auth-marketing-home .card .progress-step::before {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+    .auth-marketing-home .card .progress-step span {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+      color: GrayText;
+    }
+    .auth-marketing-home .card .progress-step.complete,
+    .auth-marketing-home .card .progress-step.current { color: CanvasText; }
+    .auth-marketing-home .card .progress-step.complete span {
+      background: color-mix(in srgb, LinkText 16%, transparent);
+      border-color: color-mix(in srgb, LinkText 55%, transparent);
+      color: LinkText;
+    }
+    .auth-marketing-home .card .progress-step.current span {
+      background: CanvasText;
+      border-color: CanvasText;
+      color: Canvas;
+      box-shadow: 0 0 0 4px color-mix(in srgb, CanvasText 8%, transparent);
+    }
+    .auth-marketing-home .card .verification-panel {
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .verification-kicker { color: LinkText; }
+    .auth-marketing-home .card .verification-copy,
+    .auth-marketing-home .card .verification-copy strong { color: CanvasText; }
+    .auth-marketing-home .card .verification-note,
+    .auth-marketing-home .card .link-button { color: GrayText; }
+    body.has-marketing .locale-menu {
+      background: Canvas;
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    body.has-marketing .locale-menu-item { color: GrayText; }
+    body.has-marketing .locale-menu-item:hover,
+    body.has-marketing .locale-menu-item:focus,
+    body.has-marketing .locale-menu-item[aria-checked="true"] {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+      color: CanvasText;
+    }
   }
 `
     : "";
@@ -1424,18 +1625,36 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       value: locale,
       label: localeDisplayName(locale),
     })),
-    marketing: hasMarketing && marketing ? marketing : undefined,
+    marketing:
+      hasMarketing && marketing
+        ? {
+            appName: marketing.appName,
+            tagline: marketing.tagline,
+            description: marketing.description,
+            features: marketing.features,
+            screenshotSrc: marketing.screenshotPath
+              ? withAppBasePath(marketing.screenshotPath, appBasePath)
+              : undefined,
+            screenshotWidth: marketing.screenshotWidth,
+            screenshotHeight: marketing.screenshotHeight,
+            learnMoreUrl:
+              marketing.learnMoreUrl ??
+              (marketingSlug
+                ? `https://agent-native.com/apps/${marketingSlug}`
+                : undefined),
+          }
+        : undefined,
     marketingLocales: authMarketingLocales,
     brandMarkSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
     showGoogle,
     signupLegalNotice,
     signupLocalModeNote,
-    connectionLabel: getConnectionLabel(),
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
     identitySsoEnabled,
+    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -1489,13 +1708,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     width: 2rem;
     height: 2rem;
     padding: 0;
-    background: rgba(20,20,20,0.82);
+    background: transparent;
     color: #e5e5e5;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 8px;
+    border: 0;
     cursor: pointer;
     outline: none;
-    backdrop-filter: blur(12px);
   }
   .locale-trigger svg {
     width: 1rem;
@@ -1508,11 +1725,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .locale-trigger:hover,
   .locale-trigger[aria-expanded="true"] {
-    border-color: rgba(255,255,255,0.22);
-    background: rgba(28,28,28,0.92);
+    border-color: transparent;
+    background: transparent;
   }
   .locale-trigger:focus {
-    border-color: rgba(255,255,255,0.42);
     box-shadow: 0 0 0 3px rgba(255,255,255,0.08);
   }
   .locale-menu {
@@ -1975,7 +2191,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .card.magic-link-complete .subtitle,
   .card.magic-link-complete #google-signin,
-${identitySsoMagicLinkSelector}
   .card.magic-link-complete #auth-divider,
   .card.magic-link-complete #auth-tabs,
   .card.magic-link-complete #upgrade-note,
@@ -2041,43 +2256,104 @@ ${identitySsoMagicLinkSelector}
     word-break: break-word;
   }
   .google-debug.show { display: block; }
-  .local-note {
-    display: none;
-    max-width: 400px;
-    width: 100%;
-    margin-top: 1rem;
-    padding: 0.625rem 0.875rem;
-    font-size: 0.6875rem;
-    line-height: 1.5;
-    color: #666;
-    border: 1px dashed rgba(255,255,255,0.08);
-    border-radius: 8px;
-    text-align: center;
-  }
-  .local-note.show { display: block; }
-  .local-note strong { color: #999; font-weight: 500; }
-  .local-note a { color: #888; text-decoration: none; }
-  .local-note a:hover { color: #bbb; }
 ${marketingStyles}
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
-  body.simplified-auth .local-note { display: none !important; }
-${embeddedAuthCss}
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
   .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow-x: hidden; }
   .auth-marketing-shell { padding: 0; }
-  .auth-marketing-home .split { width: 100%; }
+  .auth-marketing-home .auth-marketing-shell-with-top-right {
+    position: relative;
+    display: block;
+    min-height: 100vh;
+  }
+  .auth-marketing-top-right {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    position: absolute;
+    padding: 0;
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    inset-inline-end: max(1rem, env(safe-area-inset-right));
+    z-index: 2;
+  }
+  .auth-marketing-learn-more { font-size: 0.8rem; }
+  .auth-marketing-home .auth-marketing-layout {
+    min-height: 100vh;
+    display: flex;
+    align-items: stretch;
+  }
+  .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
   .auth-marketing-home .marketing-panel { min-width: 0; }
+  .auth-marketing-home.has-product-screenshot .marketing-panel {
+    flex: 1 1 0;
+    max-width: none;
+    padding: 0;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+  }
+  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    filter: none;
+    opacity: 0.15;
+  }
+  .auth-marketing-home.has-product-screenshot .form-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding: 1rem;
+    overflow-y: auto;
+  }
+  .auth-marketing-home.has-product-screenshot .form-panel > .card {
+    margin-block: auto;
+  }
   .auth-marketing-home .form-panel { min-width: 0; }
-  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
+  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; transform: translateY(-5vh); }
   @media (max-width: 900px) {
+    body.has-marketing {
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+    .auth-marketing-home .auth-marketing-top-right {
+      top: auto;
+      bottom: max(1rem, env(safe-area-inset-bottom));
+      inset-inline-start: 50%;
+      inset-inline-end: auto;
+      transform: translateX(-50%);
+    }
+    .auth-marketing-home .auth-marketing-layout { min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
+    .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
+    .auth-marketing-home.has-product-screenshot .form-panel {
+      min-width: 0;
+      padding: 1rem;
+    }
   }
 `;
-  const authClientScriptPath = `${appBasePath}/assets/auth-client.js`;
+  const authClientScriptPath = authClientAssetPath(appBasePath);
   const title = hasMarketing
     ? `${marketing!.appName} — ${t("pageTitleSignIn")}`
     : t("pageTitleWelcome");
@@ -2275,7 +2551,7 @@ export function getResetPasswordHtml(requestPath?: string): string {
         }),
         createElement("script", {
           type: "module",
-          src: `${appBasePath}/assets/auth-client.js`,
+          src: authClientAssetPath(appBasePath),
         }),
       ),
       createElement(

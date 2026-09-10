@@ -13,6 +13,7 @@ use screencapturekit::error::SCError;
 use screencapturekit::stream::delegate_trait::SCStreamDelegateTrait;
 use std::io::{Seek, SeekFrom, Write};
 use std::sync::RwLock;
+use tauri::{AppHandle, Emitter};
 
 /// `AVAssetWriter.status` raw value for `.completed`.
 const AV_WRITER_STATUS_COMPLETED: i64 = 2;
@@ -1011,6 +1012,7 @@ unsafe impl Send for CustomScreenCaptureWriterState {}
 /// registrations and across watchdog stream rebuilds, so the same writer
 /// keeps receiving samples over the whole recording.
 struct CustomScreenCaptureOutputHandler {
+    app: AppHandle,
     writer: CustomScreenCaptureWriter,
     /// Only callbacks from this stream generation may reach the writer. A
     /// ScreenCaptureKit stream can still have callbacks queued after stop; a
@@ -1026,6 +1028,7 @@ struct CustomScreenCaptureOutputHandler {
     clip_sink: Arc<Mutex<Option<ClipSinkSlot>>>,
     recording_enabled: Arc<AtomicBool>,
     mic_ready: Option<Arc<AtomicBool>>,
+    audio_level_tick: Arc<AtomicU32>,
     watch: Arc<CaptureWatch>,
 }
 
@@ -1299,6 +1302,7 @@ impl CustomScreenCaptureOutputHandler {
             .unwrap_or_else(|error| error.into_inner());
         let stream_generation = self.active_stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
         Self {
+            app: self.app.clone(),
             writer: self.writer.clone(),
             stream_generation,
             active_stream_generation: Arc::clone(&self.active_stream_generation),
@@ -1306,6 +1310,7 @@ impl CustomScreenCaptureOutputHandler {
             clip_sink: Arc::clone(&self.clip_sink),
             recording_enabled: Arc::clone(&self.recording_enabled),
             mic_ready: self.mic_ready.clone(),
+            audio_level_tick: Arc::clone(&self.audio_level_tick),
             watch: Arc::clone(&self.watch),
         }
     }
@@ -1323,6 +1328,23 @@ impl CustomScreenCaptureOutputHandler {
             self.active_stream_generation.load(Ordering::SeqCst),
             self.stream_generation,
         )
+    }
+
+    fn emit_microphone_level(&self, samples: &[f32]) {
+        let tick = self.audio_level_tick.fetch_add(1, Ordering::Relaxed);
+        if tick % 3 != 0 || samples.is_empty() {
+            return;
+        }
+        let level = samples
+            .iter()
+            .copied()
+            .map(f32::abs)
+            .fold(0.0_f32, f32::max)
+            .min(1.0);
+        let _ = self.app.emit(
+            "voice:audio-level",
+            serde_json::json!({ "level": level, "source": "mic" }),
+        );
     }
 }
 
@@ -1358,13 +1380,19 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
             of_type,
             SCStreamOutputType::Audio | SCStreamOutputType::Microphone
         ) {
+            let mut decoded_mic = None;
             let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let _ = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
-                    self.writer.publish_audio_sample(&sample_buffer, of_type);
+                    decoded_mic = self.writer.publish_audio_sample(&sample_buffer, of_type);
                 }));
             }));
             if panic_result.is_err() {
                 eprintln!("[mixer] panic while publishing shared {of_type:?} PCM");
+            }
+            if matches!(of_type, SCStreamOutputType::Microphone) {
+                if let Some(samples) = decoded_mic.as_deref() {
+                    self.emit_microphone_level(samples);
+                }
             }
         }
         if !self.recording_enabled.load(Ordering::SeqCst) {
@@ -1661,17 +1689,17 @@ impl CustomScreenCaptureWriter {
         &self,
         sample: &screencapturekit::cm::CMSampleBuffer,
         of_type: SCStreamOutputType,
-    ) {
+    ) -> Option<Vec<f32>> {
         if self.audio_producer.is_none() && self.audio_sidecars.is_none() {
-            return;
+            return None;
         }
         let label = match of_type {
             SCStreamOutputType::Audio => "shared-system",
             SCStreamOutputType::Microphone => "shared-mic",
-            _ => return,
+            _ => return None,
         };
         let Some((interleaved, pts_seconds)) = extract_interleaved_stereo(sample, label) else {
-            return;
+            return None;
         };
         let mono: Vec<f32> = interleaved
             .chunks_exact(2)
@@ -1691,7 +1719,7 @@ impl CustomScreenCaptureWriter {
             }
         }
         let Some(producer) = self.audio_producer.as_ref() else {
-            return;
+            return Some(mono);
         };
         match of_type {
             SCStreamOutputType::Audio => {
@@ -1702,6 +1730,7 @@ impl CustomScreenCaptureWriter {
             }
             _ => {}
         }
+        Some(mono)
     }
 
     /// Whether the writer runs the segmented (zero-based, append-only) output
@@ -4348,6 +4377,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     let mic_ready = include_audio.then(|| Arc::new(AtomicBool::new(false)));
     let watch = Arc::new(CaptureWatch::new());
     let handler = CustomScreenCaptureOutputHandler {
+        app: app.clone(),
         writer: writer.clone(),
         stream_generation: 0,
         active_stream_generation: Arc::new(AtomicU64::new(0)),
@@ -4355,6 +4385,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         clip_sink: Arc::clone(&clip_sink),
         recording_enabled: Arc::clone(&recording_enabled),
         mic_ready: mic_ready.clone(),
+        audio_level_tick: Arc::new(AtomicU32::new(0)),
         watch: Arc::clone(&watch),
     };
 

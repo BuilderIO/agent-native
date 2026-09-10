@@ -12,12 +12,17 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
 import {
+  canCreateFactoryAutomation,
   defaultWorkLimit,
+  dispatchIntegrationsHref,
   emptyAutomationForm,
+  factoryAutomationConnectionsFromConfig,
+  factoryAutomationReadinessFailed,
   parseDailyTime,
   persistAuthorFilter,
   type AutomationSource,
   type AutomationTemplateId,
+  type FactoryAutomationConnections,
   type FactoryAutomationFormState,
 } from "./factory-automation-form";
 import { FactoryAutomationFields } from "./FactoryAutomationFields";
@@ -52,24 +57,30 @@ export function CreateFactoryAutomationView({
   const [form, setForm] = useState<FactoryAutomationFormState>(
     emptyAutomationForm(),
   );
-  const createMutation = useActionMutation("create-factory-automation");
+  const createMutation = useActionMutation("create-factory-automation", {
+    skipActionQueryInvalidation: true,
+  });
   const templatesQuery = useActionQuery<Template[]>(
     "list-factory-automation-templates",
     { source: form.source },
     { enabled: Boolean(form.source) },
   );
   const configQuery = useActionQuery<{
-    connections?: { slack: boolean; github: boolean; sentry: boolean };
+    connections?: FactoryAutomationConnections;
+    readinessError?: string | null;
   }>("get-triage-config", { factoryId });
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+  });
   const templates = useMemo(
     () => templatesQuery.data ?? [],
     [templatesQuery.data],
   );
   const authors = persistAuthorFilter(form.authorFilter, form.authorIds);
-  const canCreate =
-    Boolean(form.source) &&
-    Boolean(form.displayName.trim()) &&
-    (form.authorFilter !== "include" || form.authorIds.length > 0);
+  const connections = factoryAutomationConnectionsFromConfig(configQuery);
+  const readinessError = factoryAutomationReadinessFailed(configQuery);
+  const canCreate = canCreateFactoryAutomation(form, connections);
+  const workspaceIntegrationsHref = dispatchIntegrationsHref(appsQuery.data);
 
   function applyTemplate(templateId: AutomationTemplateId) {
     const template = templates.find((entry) => entry.id === templateId);
@@ -160,7 +171,9 @@ export function CreateFactoryAutomationView({
       <FactoryAutomationFields
         form={form}
         onChange={setForm}
-        connections={configQuery.data?.connections}
+        connections={connections}
+        readinessError={readinessError}
+        workspaceIntegrationsHref={workspaceIntegrationsHref}
         showGuardrails
         guardrails={t("factoryRoute.automationGuardrailsSummary", {
           inbox: form.inboxLimit,

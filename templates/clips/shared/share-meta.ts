@@ -1,4 +1,6 @@
 import {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
@@ -9,6 +11,7 @@ import {
 } from "@agent-native/core/shared";
 
 import { buildAgentApiUrls } from "./agent-context";
+import { isLoomEmbedBackedRecording } from "./loom";
 
 export const CLIPS_DEFAULT_TITLE = "Untitled recording";
 
@@ -23,6 +26,9 @@ export type ClipsShareMetaRecording = {
   hasPassword?: boolean;
   archivedAt?: string | null;
   trashedAt?: string | null;
+  sourceAppName?: string | null;
+  videoUrl?: string | null;
+  isLoomEmbedBacked?: boolean;
 };
 
 const SOCIAL_FRAME_AT_MS = 350;
@@ -96,7 +102,7 @@ function appPath(path: string, basePath: string): string {
   return normalizedBasePath ? `${normalizedBasePath}${path}` : path;
 }
 
-function canUseGeneratedSocialFrame(
+function canUseSocialImage(
   recording: ClipsShareMetaRecording | null,
 ): recording is ClipsShareMetaRecording & {
   id: string;
@@ -133,8 +139,23 @@ export function resolveClipsSocialImageUrl(options: {
     return absoluteUrl(storedImage, origin);
   }
 
-  if (!origin || !canUseGeneratedSocialFrame(recording)) return undefined;
+  if (!canUseSocialImage(recording)) return undefined;
+  if (
+    !origin ||
+    recording.isLoomEmbedBacked === true ||
+    isLoomEmbedBackedRecording(recording)
+  ) {
+    console.warn("clips.thumbnail.publish_fallback", {
+      recordingId: recording.id,
+      fallback: "default-image",
+    });
+    return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
+  }
 
+  console.warn("clips.thumbnail.publish_fallback", {
+    recordingId: recording.id,
+    fallback: "live-frame",
+  });
   return buildAgentApiUrls(recording.id, {
     origin,
     basePath,
@@ -172,7 +193,10 @@ export function buildClipsShareMeta(options: {
           { property: "og:image:secure_url", content: absoluteImage },
           {
             property: "og:image:type",
-            content: AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+            content:
+              absoluteImage === AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE
+                ? AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE
+                : AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
           },
           {
             property: "og:image:width",

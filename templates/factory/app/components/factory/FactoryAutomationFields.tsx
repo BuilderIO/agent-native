@@ -1,9 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
-import { IconX } from "@tabler/icons-react";
+import { IconAlertCircle, IconX } from "@tabler/icons-react";
 import { type ReactNode, useState } from "react";
-import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,17 +10,51 @@ import { Textarea } from "@/components/ui/textarea";
 
 import {
   INTERVAL_MINUTES,
+  isConnectorExplicitlyMissing,
+  isDestinationReady,
   timezoneOptions,
   type AutomationAuthorFilter,
+  type FactoryAutomationConnections,
   type FactoryAutomationFormState,
 } from "./factory-automation-form";
 
 const fieldControlClass = "h-9 w-full sm:w-64";
 
+function WorkspaceConnectionBanner({
+  title,
+  actionLabel,
+  href,
+}: {
+  title: string;
+  actionLabel?: string;
+  href?: string;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        <IconAlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+        <p className="text-sm font-medium text-destructive">{title}</p>
+      </div>
+      {actionLabel && href ? (
+        <Button asChild type="button" size="sm" className="shrink-0">
+          <a href={href} target="_blank" rel="noreferrer">
+            {actionLabel}
+          </a>
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function FactoryAutomationFields({
   form,
   onChange,
   connections,
+  readinessError = false,
+  workspaceIntegrationsHref: workspaceIntegrationsHrefProp,
   sourcePicker,
   startFrom,
   modelControl,
@@ -40,7 +72,9 @@ export function FactoryAutomationFields({
 }: {
   form: FactoryAutomationFormState;
   onChange: (next: FactoryAutomationFormState) => void;
-  connections?: { slack: boolean; github: boolean; sentry: boolean };
+  connections?: FactoryAutomationConnections;
+  readinessError?: boolean;
+  workspaceIntegrationsHref?: string;
   sourcePicker?: ReactNode;
   startFrom?: ReactNode;
   modelControl?: ReactNode;
@@ -59,13 +93,11 @@ export function FactoryAutomationFields({
   const t = useT();
   const [authorDraft, setAuthorDraft] = useState("");
   const destinationReady =
-    form.source === "slack"
-      ? connections?.slack !== false
-      : form.source === "github"
-        ? connections?.github !== false
-        : form.source === "sentry"
-          ? connections?.sentry !== false
-          : false;
+    !readinessError &&
+    isDestinationReady(form.source, connections, form.slackWorkspace);
+  const destinationLocked = disabled || (form.enabled && !destinationReady);
+  const workspaceIntegrationsHref =
+    workspaceIntegrationsHrefProp ?? "/dispatch/admin/integrations";
   const showIdentity =
     Boolean(sourcePicker) || (showSource && Boolean(form.source));
   const showRun =
@@ -80,6 +112,29 @@ export function FactoryAutomationFields({
       Boolean(modelControl));
   const showInstructions =
     Boolean(form.source) && (showGuardrails || showPrompt);
+  const missingBanner =
+    form.source === "slack"
+      ? {
+          title: t("factoryRoute.automationMissingSlack"),
+          actionLabel: t("factoryRoute.automationConnectSlack"),
+        }
+      : form.source === "github"
+        ? {
+            title: t("factoryRoute.automationMissingGithub"),
+            actionLabel: t("factoryRoute.automationConnectGithub"),
+          }
+        : form.source === "sentry"
+          ? {
+              title: t("factoryRoute.automationMissingSentry"),
+              actionLabel: t("factoryRoute.automationConnectSentry"),
+            }
+          : null;
+  const showMissingBanner = Boolean(
+    missingBanner &&
+    !readinessError &&
+    isConnectorExplicitlyMissing(form.source, connections, form.slackWorkspace),
+  );
+  const showReadinessErrorBanner = Boolean(form.source && readinessError);
 
   function addAuthorId() {
     const id = authorDraft.trim();
@@ -136,6 +191,20 @@ export function FactoryAutomationFields({
         </SettingsGroup>
       ) : null}
 
+      {showReadinessErrorBanner ? (
+        <WorkspaceConnectionBanner
+          title={t("factoryRoute.automationReadinessUnavailable")}
+        />
+      ) : null}
+
+      {showMissingBanner && missingBanner ? (
+        <WorkspaceConnectionBanner
+          title={missingBanner.title}
+          actionLabel={missingBanner.actionLabel}
+          href={workspaceIntegrationsHref}
+        />
+      ) : null}
+
       {showRun ? (
         <SettingsGroup
           variant="soft"
@@ -165,77 +234,45 @@ export function FactoryAutomationFields({
           ) : null}
           {startFrom}
           {showDestination && form.source === "slack" ? (
-            <>
-              <SettingsRow
-                label={t("factoryRoute.automationSlackChannel")}
-                description={t(
-                  "factoryRoute.automationSlackChannelDescription",
-                )}
-                control={
-                  <Input
-                    id="factory-automation-channel"
-                    aria-label={t("factoryRoute.automationSlackChannel")}
-                    value={form.slackChannelId}
-                    onChange={(event) =>
-                      onChange({
-                        ...form,
-                        slackChannelId: event.target.value,
-                      })
-                    }
-                    placeholder={t("triage.slackChannelPlaceholder")}
-                    disabled={disabled || !destinationReady}
-                    className={fieldControlClass}
-                  />
-                }
-              />
-              {!destinationReady ? (
-                <SettingsRow
-                  label={t("factoryRoute.automationConnectSlack")}
-                  description={t("factoryRoute.automationConnectDescription")}
-                  control={
-                    <Button asChild type="button" variant="outline">
-                      <Link to={buildSettingsRoute("integrations")}>
-                        {t("factoryRoute.automationConnectSlack")}
-                      </Link>
-                    </Button>
+            <SettingsRow
+              label={t("factoryRoute.automationSlackChannel")}
+              description={t("factoryRoute.automationSlackChannelDescription")}
+              control={
+                <Input
+                  id="factory-automation-channel"
+                  aria-label={t("factoryRoute.automationSlackChannel")}
+                  value={form.slackChannelId}
+                  onChange={(event) =>
+                    onChange({
+                      ...form,
+                      slackChannelId: event.target.value,
+                    })
                   }
+                  placeholder={t("triage.slackChannelPlaceholder")}
+                  disabled={destinationLocked}
+                  className={fieldControlClass}
                 />
-              ) : null}
-            </>
+              }
+            />
           ) : null}
           {showDestination && form.source === "github" ? (
-            <>
-              <SettingsRow
-                label={t("factoryRoute.automationRepository")}
-                description={t("factoryRoute.automationRepositoryDescription")}
-                control={
-                  <Input
-                    id="factory-automation-repo"
-                    aria-label={t("factoryRoute.automationRepository")}
-                    value={form.repository}
-                    onChange={(event) =>
-                      onChange({ ...form, repository: event.target.value })
-                    }
-                    placeholder={t("triage.repositoryPlaceholder")}
-                    disabled={disabled || !destinationReady}
-                    className={fieldControlClass}
-                  />
-                }
-              />
-              {!destinationReady ? (
-                <SettingsRow
-                  label={t("factoryRoute.automationConnectGithub")}
-                  description={t("factoryRoute.automationConnectDescription")}
-                  control={
-                    <Button asChild type="button" variant="outline">
-                      <Link to={buildSettingsRoute("integrations")}>
-                        {t("factoryRoute.automationConnectGithub")}
-                      </Link>
-                    </Button>
+            <SettingsRow
+              label={t("factoryRoute.automationRepository")}
+              description={t("factoryRoute.automationRepositoryDescription")}
+              control={
+                <Input
+                  id="factory-automation-repo"
+                  aria-label={t("factoryRoute.automationRepository")}
+                  value={form.repository}
+                  onChange={(event) =>
+                    onChange({ ...form, repository: event.target.value })
                   }
+                  placeholder={t("triage.repositoryPlaceholder")}
+                  disabled={destinationLocked}
+                  className={fieldControlClass}
                 />
-              ) : null}
-            </>
+              }
+            />
           ) : null}
           {showDestination && form.source === "sentry" ? (
             <>
@@ -254,7 +291,7 @@ export function FactoryAutomationFields({
                       })
                     }
                     placeholder={t("triage.sentryOrgPlaceholder")}
-                    disabled={disabled || !destinationReady}
+                    disabled={destinationLocked}
                     className={fieldControlClass}
                   />
                 }
@@ -276,24 +313,11 @@ export function FactoryAutomationFields({
                       })
                     }
                     placeholder={t("triage.sentryProjectPlaceholder")}
-                    disabled={disabled || !destinationReady}
+                    disabled={destinationLocked}
                     className={fieldControlClass}
                   />
                 }
               />
-              {!destinationReady ? (
-                <SettingsRow
-                  label={t("factoryRoute.automationConnectSentry")}
-                  description={t("factoryRoute.automationConnectDescription")}
-                  control={
-                    <Button asChild type="button" variant="outline">
-                      <Link to={buildSettingsRoute("integrations")}>
-                        {t("factoryRoute.automationConnectSentry")}
-                      </Link>
-                    </Button>
-                  }
-                />
-              ) : null}
             </>
           ) : null}
           {showAuthors && form.source !== "sentry" ? (

@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -12,6 +11,7 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { resolveAppRuntimeUrl } from "./app-url.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export interface DiscoveredAgent {
@@ -537,7 +537,8 @@ async function readStrictRemoteAgentResources(): Promise<
   } = await import("../resources/store.js");
   const { REMOTE_AGENT_RESOURCE_PREFIXES } =
     await import("../resources/metadata.js");
-  const activeOwner = sharedResourceOwner(getRequestOrgId());
+  const orgId = getRequestOrgId() ?? null;
+  const activeOwner = sharedResourceOwner(orgId);
   const owners = [...new Set([SHARED_OWNER, activeOwner])];
   const prefixes = [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse();
   const ownerRank = new Map(owners.map((owner, index) => [owner, index]));
@@ -546,6 +547,7 @@ async function readStrictRemoteAgentResources(): Promise<
   const resources = await resourceListContentByOwnersAndPrefixes(
     owners,
     prefixes,
+    { orgId },
   );
   resources.sort((a, b) => {
     const ownerDelta =
@@ -686,6 +688,7 @@ function hasPublicRuntimeUrl(): boolean {
     "BETTER_AUTH_URL",
     "VITE_BETTER_AUTH_URL",
     "VERCEL_URL",
+    "VERCEL_BRANCH_URL",
     "VERCEL_PROJECT_PRODUCTION_URL",
   ];
 
@@ -895,15 +898,7 @@ function readWorkspaceAppsFromFilesystem(
 }
 
 function workspaceBaseUrl(): string | null {
-  const config = getAppConfig();
-  // `URL` / `DEPLOY_URL` stay raw: they are platform facts, not app config.
-  return (
-    config.workspace.gatewayUrl ??
-    config.app.url ??
-    process.env.URL ??
-    process.env.DEPLOY_URL ??
-    null
-  );
+  return resolveAppRuntimeUrl() ?? null;
 }
 
 function workspaceAppUrl(

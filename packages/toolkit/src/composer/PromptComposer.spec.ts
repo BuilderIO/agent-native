@@ -128,6 +128,30 @@ describe("buildPromptComposerSubmission", () => {
 });
 
 describe("PromptComposer scoped runtime", () => {
+  it("does not loop when the selection observer updates state with an inline callback", async () => {
+    let calls = 0;
+    function ObserverHarness() {
+      const [, setSelection] = React.useState<unknown>();
+      return React.createElement(PromptComposer, {
+        includeDefaultSlashSkills: false,
+        onModelSelectionChange: (selection) => {
+          calls += 1;
+          setSelection(selection);
+        },
+        onSubmit: () => {},
+        showModelSelector: false,
+        voiceEnabled: false,
+      });
+    }
+
+    await act(async () => {
+      root.render(React.createElement(ObserverHarness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(calls).toBe(1);
+  });
+
   it("does not carry attachments across draft scopes", async () => {
     let attachedFiles: PromptComposerFile[] = [];
     const renderComposer = (draftScope: string) =>

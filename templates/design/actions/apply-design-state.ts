@@ -5,37 +5,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-
-/**
- * Maximum serialised size of a replayed `captureData` payload. Captured DOM
- * snapshots are arbitrary caller markup; cap them so a single state can't bloat
- * the design row (and the shareable content it feeds).
- */
-const CAPTURE_DATA_MAX_BYTES = 256 * 1024; // 256KB
-
-/**
- * Strip stored-XSS vectors out of an HTML/markup string before it is persisted
- * and later replayed into shareable design content. Mirrors the framework's
- * text-edit HTML sanitiser: removes script/style/iframe/object/embed/link/meta/
- * base tags, inline `on*` handlers, and `javascript:` / `vbscript:` / `data:`
- * URLs in `href` / `src` / `xlink:href`.
- */
-function sanitizeMarkup(html: string): string {
-  return html
-    .replace(
-      /<\s*(script|style|iframe|object|embed|link|meta|base)\b[\s\S]*?<\s*\/\s*\1\s*>/gi,
-      "",
-    )
-    .replace(
-      /<\s*(script|style|iframe|object|embed|link|meta|base)\b[^>]*\/?\s*>/gi,
-      "",
-    )
-    .replace(/\s+on[A-Za-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g, "")
-    .replace(
-      /\s+(href|src|xlink:href)\s*=\s*(?:(["'])\s*(?:javascript|vbscript|data):[\s\S]*?\2|(?:javascript|vbscript|data):[^\s>]*)/gi,
-      "",
-    );
-}
+import {
+  CAPTURE_DATA_MAX_BYTES,
+  sanitizeMarkup,
+} from "../shared/capture-sanitize.js";
 
 /**
  * A string "looks like markup" — and is therefore worth sanitising — when it

@@ -30,6 +30,7 @@ import {
 import {
   decodeOAuthState,
   encodeOAuthState,
+  logOAuthStateDecodeFailure,
   oauthCallbackResponse,
   oauthErrorPage,
   resolveOAuthRedirectUri,
@@ -40,6 +41,11 @@ import {
   type IntervalJobHandle,
 } from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { dispatchAutomationWebhookTask } from "../triggers/dispatcher.js";
+import {
+  AUTOMATION_WEBHOOK_PLATFORM,
+  type AutomationWebhookTaskPayload,
+} from "../triggers/webhook.js";
 import {
   processA2AContinuationById,
   processDueA2AContinuations,
@@ -195,6 +201,7 @@ import {
 } from "./usage-budget-store.js";
 import {
   handleWebhook,
+  integrationResponseIdempotencyKey,
   processIntegrationTask,
   recordIntegrationResponseDelivery,
   type IntegrationResponseDeliveryTaskPayload,
@@ -2023,6 +2030,7 @@ export function createIntegrationsPlugin(
         let taskPayload:
           | IntegrationSystemNoticeTaskPayload
           | IntegrationResponseDeliveryTaskPayload
+          | AutomationWebhookTaskPayload
           | { kind?: undefined };
         try {
           taskPayload = JSON.parse(task.payload) as typeof taskPayload;
@@ -2089,6 +2097,54 @@ export function createIntegrationsPlugin(
             }
           | undefined;
         try {
+          if (task.platform === AUTOMATION_WEBHOOK_PLATFORM) {
+            if (
+              taskPayload.kind !== "automation-webhook" ||
+              campaignContinuation
+            ) {
+              await markTaskFailed(taskId, "Invalid automation webhook task");
+              setResponseStatus(event, 400);
+              return { error: "Invalid automation webhook task" };
+            }
+            const webhookResult = await runWithRequestContext(
+              {
+                userEmail: task.ownerEmail,
+                ...(task.orgId ? { orgId: task.orgId } : {}),
+                isIntegrationCaller: true,
+              },
+              () =>
+                dispatchAutomationWebhookTask(
+                  taskPayload as AutomationWebhookTaskPayload,
+                ),
+            );
+            if (webhookResult === "retry") {
+              await markTaskRetryable(
+                taskId,
+                "Automation is already running.",
+                { resetAttempts: true },
+              );
+              setResponseStatus(event, 202);
+              return { ok: true, taskId, retrying: "automation-active" };
+            }
+            await markTaskCompleted(taskId);
+            const nextTask = await getNextPendingTaskForThread(
+              task.platform,
+              task.externalThreadId,
+            );
+            if (nextTask) {
+              await dispatchPendingIntegrationTask({
+                taskId: nextTask.id,
+                task: {
+                  platform: task.platform,
+                  externalThreadId: task.externalThreadId,
+                },
+                event,
+                baseUrl: getBaseUrl(event),
+              });
+            }
+            setResponseStatus(event, 200);
+            return { ok: true, taskId };
+          }
           const adapter = adapterMap.get(task.platform);
           if (!adapter) {
             await markTaskFailed(taskId, `Unknown platform: ${task.platform}`);
@@ -2179,6 +2235,13 @@ export function createIntegrationsPlugin(
                       ...(taskPayload.placeholderRef
                         ? { placeholderRef: taskPayload.placeholderRef }
                         : {}),
+                      ...(taskPayload.strictTargetRef
+                        ? { strictTargetRef: true }
+                        : {}),
+                      idempotencyKey: integrationResponseIdempotencyKey(
+                        task.id,
+                      ),
+                      reconcileAfter: task.createdAt,
                     },
                   );
                 }
@@ -3001,6 +3064,12 @@ export function createIntegrationsPlugin(
           typeof query.state === "string" ? query.state : undefined,
           fallbackRedirect,
         );
+        if (!state.ok) {
+          logOAuthStateDecodeFailure(event, state.reason, "slack");
+          return oauthErrorPage(
+            "Your Slack install session expired or changed. Sign in and start again.",
+          );
+        }
         const session = await getSession(event).catch(() => null);
         const org = await getOrgContext(event).catch(() => null);
         if (

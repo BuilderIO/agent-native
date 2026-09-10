@@ -1,11 +1,12 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import { useExperimentState } from "@agent-native/core/client/experiments";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
+import { CLIPS_MEETINGS } from "@shared/experiments";
 import {
   IconArrowLeft,
   IconCheck,
@@ -25,7 +26,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router";
+import { Navigate, NavLink, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
@@ -43,6 +44,7 @@ import {
   TranscriptBubbles,
   type TranscriptSegment,
 } from "@/components/meetings/transcript-bubbles";
+import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -458,6 +460,7 @@ function ActionItemTextEditor({
 
 export default function MeetingDetailRoute() {
   const t = useT();
+  const experiment = useExperimentState(CLIPS_MEETINGS.key);
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -1029,6 +1032,10 @@ export default function MeetingDetailRoute() {
   // never retries, so collapsing any of them into the skeleton pins it forever.
   // A failed live-poll on top of an already-loaded meeting is none of them —
   // keep showing the meeting.
+  if (experiment.isSuccess && !experiment.enabled) {
+    return <Navigate replace to="/library" />;
+  }
+
   if (isError && !meeting) {
     return (
       <div className="p-6 max-w-2xl mx-auto w-full">
@@ -1163,7 +1170,7 @@ export default function MeetingDetailRoute() {
                 Boolean(data?.transcript?.fullText?.trim()))
             }
           >
-            <ShareTrigger
+            <ClipsShareTrigger
               label={t("meetingDetail.share")}
               className="shrink-0"
             />
@@ -1318,7 +1325,7 @@ export default function MeetingDetailRoute() {
         )}
       </div>
 
-      <div className="clips-meeting-detail-grid grid grid-cols-1 gap-6 flex-1 min-h-0 lg:overflow-hidden">
+      <div className="clips-meeting-detail-grid grid grid-cols-1 gap-6 flex-1 min-h-0 overflow-y-auto">
         {/* Summary canvas with generated bullets and action items. */}
         <div
           className={cn(

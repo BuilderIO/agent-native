@@ -56,14 +56,30 @@ export default defineEventHandler(async (event: H3Event) => {
     const owner = session?.email;
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
+    const calendarConnect =
+      q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
     const flowId =
-      desktop && typeof q.flow_id === "string" ? q.flow_id : undefined;
+      typeof q.flow_id === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(q.flow_id)
+        ? q.flow_id
+        : undefined;
+    const rawOauthTargetId = q.oauth_target_id;
+    if (
+      calendarConnect &&
+      rawOauthTargetId !== undefined &&
+      (typeof rawOauthTargetId !== "string" ||
+        !/^[a-zA-Z0-9_-]{1,128}$/.test(rawOauthTargetId))
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid calendar account target." };
+    }
+    const oauthTargetId =
+      calendarConnect && typeof rawOauthTargetId === "string"
+        ? rawOauthTargetId
+        : undefined;
     if (getMethod(event) === "POST" && (!desktop || !flowId)) {
       setResponseStatus(event, 400);
       return { error: "Invalid desktop exchange challenge." };
     }
-    const calendarConnect =
-      q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
     const desktopWebview = desktop && q.webview === "1" && !calendarConnect;
     let desktopVerifierHash: string | undefined;
     let desktopBrowserBindingHash: string | undefined;
@@ -129,7 +145,8 @@ export default defineEventHandler(async (event: H3Event) => {
       addAccount: calendarConnect,
       app: CLIPS_GOOGLE_OAUTH_APP_ID,
       returnUrl: desktopWebview ? "/?desktop_auth=complete" : returnUrl,
-      flowId: calendarConnect ? undefined : flowId,
+      flowId,
+      oauthTargetId,
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });

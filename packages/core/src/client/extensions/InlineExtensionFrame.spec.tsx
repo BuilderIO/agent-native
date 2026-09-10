@@ -222,6 +222,9 @@ describe("InlineExtensionFrame", () => {
     const headers = (request as RequestInit).headers as Headers;
     expect(headers.get("X-Request-Source")).toBe("inline-ui");
     expect(headers.get("X-Agent-Native-Extension-Id")).toBe("inline-test");
+    expect(headers.get("X-Agent-Native-Browser-Tab")).toEqual(
+      expect.any(String),
+    );
   });
 
   it("honors extensionData.set scope from the request body in transient previews", async () => {

@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  callAction,
   getBrowserTabId,
   readClientAppState,
   useActionMutation,
@@ -43,7 +44,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -114,7 +115,7 @@ import type {
   ImageQualityTier,
   StyleStrength,
 } from "../../shared/api";
-import { MODEL_ASPECT_RATIOS } from "../../shared/api";
+import { MODEL_ASPECT_RATIOS, type AssetAccessRole } from "../../shared/api";
 import {
   DEFAULT_LIBRARY_PRESETS,
   LibraryPreset,
@@ -193,6 +194,7 @@ type Library = {
   id: string;
   title: string;
   description?: string | null;
+  accessRole?: AssetAccessRole;
 };
 
 type GenerationConfig = {
@@ -1159,6 +1161,11 @@ function AllAssetsBrowser({
     () => new URLSearchParams(searchParamsKey).get("q") ?? "",
     [searchParamsKey],
   );
+  const routeRequestsSearchFocus = useMemo(
+    () => new URLSearchParams(searchParamsKey).get("focus") === "search",
+    [searchParamsKey],
+  );
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(urlQuery);
   const [debouncedQuery, setDebouncedQuery] = useState(urlQuery);
   const [assetTab, setAssetTab] = useState<AssetTab>(urlAssetTab);
@@ -1359,6 +1366,21 @@ function AllAssetsBrowser({
     setQuery(urlQuery);
   }, [urlQuery]);
   useEffect(() => {
+    if (!routeRequestsSearchFocus || isDraftsTab) return;
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("focus");
+          return next;
+        },
+        { replace: true },
+      );
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isDraftsTab, routeRequestsSearchFocus, setSearchParams]);
+  useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setDebouncedQuery(query);
       if (query === urlQuery) return;
@@ -1456,6 +1478,7 @@ function AllAssetsBrowser({
             <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
               <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
               <input
+                ref={searchInputRef}
                 type="search"
                 value={query}
                 onChange={(event) => handleQueryChange(event.target.value)}
@@ -1997,6 +2020,40 @@ function LibraryCandidateStage({
         .sort((left, right) => String(right.id).localeCompare(String(left.id))),
     [libraryAssets, liveAssetIds],
   );
+  // Approving is per kit: this stage can show candidates from several kits at
+  // once, and the caller may be an editor in one and a viewer in the next. Ask
+  // once per kit on screen rather than assuming, or showing a Save that 403s.
+  const stageLibraryIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (activeLibraryId) ids.add(activeLibraryId);
+    if (liveLibraryId) ids.add(liveLibraryId);
+    for (const asset of draftAssets) {
+      if (asset.libraryId) ids.add(asset.libraryId);
+    }
+    return Array.from(ids);
+  }, [activeLibraryId, liveLibraryId, draftAssets]);
+  const libraryAccessResults = useQueries({
+    queries: stageLibraryIds.map((id) => ({
+      queryKey: ["action", "get-library-access", { libraryId: id }],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        callAction<{ libraryId: string; canApprove: boolean }>(
+          "get-library-access",
+          { libraryId: id } as never,
+          { method: "GET", signal },
+        ),
+    })),
+  });
+  const approvableLibraryIds = useMemo(() => {
+    const approvable = new Set<string>();
+    for (const result of libraryAccessResults) {
+      if (result.data?.canApprove) approvable.add(result.data.libraryId);
+    }
+    return approvable;
+  }, [libraryAccessResults]);
+  const canApproveLibrary = useCallback(
+    (id?: string | null) => Boolean(id && approvableLibraryIds.has(id)),
+    [approvableLibraryIds],
+  );
   const totalCount = slots.length + draftAssets.length;
   // Don't flash the empty state before the candidate sources have resolved, and
   // don't misreport a load failure as "no drafts".
@@ -2195,6 +2252,7 @@ function LibraryCandidateStage({
         foldersByLibraryId={foldersByLibraryId}
         savingSlotId={savingCandidateSlotId}
         promotingReferenceKeys={promotingReferenceKeys}
+        canApproveLibrary={canApproveLibrary}
         onSave={(slot, folderId) => {
           void handleSaveLiveCandidate(slot, folderId);
         }}

@@ -6,10 +6,6 @@ import {
   useActionMutation,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
-import {
-  injectSessionReplayIframeBootstrap,
-  SESSION_REPLAY_IFRAME_ATTRIBUTE,
-} from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   CreativeContextShareSheet,
@@ -32,9 +28,6 @@ import {
   IconDots,
   IconTrash,
   IconCopy,
-  IconCode,
-  IconStack2,
-  IconUserCircle,
   IconX,
   IconPencil,
 } from "@tabler/icons-react";
@@ -45,6 +38,8 @@ import { useNavigate, Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
+import { DesignThumbnail } from "@/components/design/DesignThumbnail";
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type {
   PromptTemplateOption,
@@ -91,8 +86,6 @@ import {
   writePendingGeneration,
 } from "@/lib/pending-generation";
 
-import { withLocalRuntimes } from "../components/design/design-canvas/local-runtime";
-
 type ProjectType = "prototype" | "other";
 interface Design {
   id: string;
@@ -119,7 +112,9 @@ interface DesignListResult {
   designs: Design[];
 }
 
-const DESIGN_PAGE_SIZE = 12;
+// The New Design card shares the grid, so a full page is pageSize + 1 tiles;
+// 12 is what divides evenly into every breakpoint's column count.
+const DESIGN_PAGE_SIZE = 11;
 
 export default function Index() {
   const t = useT();
@@ -203,6 +198,16 @@ export default function Index() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems();
+
+  /**
+   * The picker showed a column of near-identical names ("Builder indexed
+   * design system" three times over). Each system already carries its palette
+   * in `data`, so the row can show it and be chosen by colour.
+   */
+  const designSystemOptions = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
 
   const designs = useMemo(
     () => designsData?.designs ?? [],
@@ -292,19 +297,6 @@ export default function Index() {
       setSearchParams(next, { replace: true });
     },
     [searchParams, setSearchParams],
-  );
-
-  const openNewDesign = useCallback(
-    (e: React.MouseEvent<HTMLElement>) => {
-      anchorElRef.current = e.currentTarget;
-      newDesignSystemWasChosenRef.current = false;
-      syncSelectedTemplate(null);
-      setNewDesignSystemId(
-        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
-      );
-      setShowNewPrompt(true);
-    },
-    [designSystemsLoading, resolveDefaultDesignSystemId, syncSelectedTemplate],
   );
 
   const handleNewPromptOpenChange = useCallback(
@@ -729,11 +721,7 @@ export default function Index() {
     ],
   );
 
-  const handleSkipToEditor = useCallback(async () => {
-    if (selectedTemplate && newDesignMode === "design") {
-      await handleSubmitPrompt("", [], {});
-      return false;
-    }
+  const startBlankDesign = useCallback(async () => {
     if (skipToEditorPendingRef.current) return;
     skipToEditorPendingRef.current = true;
     setNewDesignHandoffPending(true);
@@ -753,7 +741,6 @@ export default function Index() {
       // row to persist so the first get-design read cannot briefly return 404.
       await ready;
       void navigate(`/design/${id}`);
-      return false;
     } catch (error) {
       skipToEditorPendingRef.current = false;
       setNewDesignHandoffPending(false);
@@ -762,14 +749,33 @@ export default function Index() {
     }
   }, [
     createDesign,
-    handleSubmitPrompt,
     navigate,
-    newDesignMode,
     newDesignSystemId,
     resolveDefaultDesignSystemId,
-    selectedTemplate,
     t,
   ]);
+
+  const handleSkipToEditor = useCallback(async () => {
+    if (selectedTemplate && newDesignMode === "design") {
+      await handleSubmitPrompt("", [], {});
+      return false;
+    }
+    await startBlankDesign();
+    return false;
+  }, [handleSubmitPrompt, newDesignMode, selectedTemplate, startBlankDesign]);
+
+  const openNewDesign = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      anchorElRef.current = e.currentTarget;
+      newDesignSystemWasChosenRef.current = false;
+      syncSelectedTemplate(null);
+      setNewDesignSystemId(
+        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
+      );
+      setShowNewPrompt(true);
+    },
+    [designSystemsLoading, resolveDefaultDesignSystemId, syncSelectedTemplate],
+  );
 
   const handleDelete = useCallback(() => {
     if (!deleteId) return;
@@ -945,7 +951,6 @@ export default function Index() {
           aria-label={t("home.showMineDesigns")}
           className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
         >
-          <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
           {t("home.mine")}
         </ToggleGroupItem>
         <ToggleGroupItem
@@ -953,7 +958,6 @@ export default function Index() {
           aria-label={t("home.showAllDesigns")}
           className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
         >
-          <IconStack2 className="me-1.5 h-3.5 w-3.5" />
           {t("home.all")}
         </ToggleGroupItem>
       </ToggleGroup>
@@ -1180,9 +1184,14 @@ export default function Index() {
                             aria-label={t("home.actionsForDesign", {
                               title: design.title,
                             })}
-                            className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                            // A scrim over the user's thumbnail, which is
+                            // their content: a theme-following chip vanishes
+                            // on a thumbnail that happens to match it.
+                            // guard:allow-raw-color — scrim over user content
+                            className="h-7 w-7 bg-black/60 hover:bg-black/75 cursor-pointer"
                           >
-                            <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                            {/* guard:allow-raw-color — scrim over user content */}
+                            <IconDots className="w-3.5 h-3.5 text-white" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
@@ -1300,7 +1309,7 @@ export default function Index() {
         skipLabel={
           selectedTemplate
             ? t("templatesPage.useTemplate")
-            : t("home.skipToEditor")
+            : t("promptDialog.skipPrompt")
         }
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
@@ -1308,7 +1317,7 @@ export default function Index() {
         templatesLoading={templatesLoading}
         selectedTemplateId={newTemplateId}
         onTemplateChange={handleTemplateChange}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={handleNewDesignSystemChange}
@@ -1457,77 +1466,6 @@ function DesignAuthorByline({
  * allow-scripts (no allow-same-origin) so Tailwind/Alpine CDN render without
  * granting arbitrary design HTML access to the host origin.
  */
-function DesignThumbnail({ html }: { html: string | null }) {
-  const t = useT();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(0.25);
-  const [loaded, setLoaded] = useState(false);
-
-  // Designs are generated for a desktop-ish viewport. Render at 1280×720 then
-  // shrink — close enough to 16:10 for the aspect-video card without leaving
-  // a sliver of letterbox at the bottom.
-  const NATURAL_WIDTH = 1280;
-  const NATURAL_HEIGHT = 720;
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const update = () => {
-      const w = el.clientWidth;
-      if (w > 0) setScale(w / NATURAL_WIDTH);
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    setLoaded(false);
-  }, [html]);
-
-  if (!html) {
-    return (
-      <div className="aspect-video bg-muted/50 flex items-center justify-center">
-        <IconCode className="w-8 h-8 text-muted-foreground/40" />
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative aspect-video overflow-hidden bg-muted"
-    >
-      {!loaded ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted">
-          <IconCode className="h-8 w-8 text-muted-foreground/40" />
-        </div>
-      ) : null}
-      <iframe
-        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-        srcDoc={injectSessionReplayIframeBootstrap(withLocalRuntimes(html))}
-        sandbox="allow-scripts"
-        loading="lazy"
-        tabIndex={-1}
-        aria-hidden
-        title={t("home.designPreview")}
-        onLoad={() => setLoaded(true)}
-        className="relative bg-muted transition-opacity duration-200"
-        style={{
-          width: `${NATURAL_WIDTH}px`,
-          height: `${NATURAL_HEIGHT}px`,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
-          border: 0,
-          pointerEvents: "none",
-          opacity: loaded ? 1 : 0,
-        }}
-      />
-    </div>
-  );
-}
-
 function NewDesignHandoffOverlay() {
   const t = useT();
   return (

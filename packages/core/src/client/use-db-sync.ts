@@ -315,6 +315,7 @@ const INTERACTION_CRITICAL_APP_STATE_KEYS = [
   "show-questions",
   "__set_url__",
 ];
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
 /**
  * True for sync events that drive immediate, agent-initiated UI navigation
@@ -447,6 +448,7 @@ class SyncTransport {
   private subscribers = new Map<symbol, TransportSubscription>();
   private cursorRef: SyncCursor = { ...INITIAL_SYNC_CURSOR };
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private refreshRequested = false;
   private removeVisibilityListener?: () => void;
   private stopped = false;
   private inFlight = false;
@@ -1110,11 +1112,11 @@ class SyncTransport {
     }
   }
 
-  private async poll(): Promise<void> {
+  private async poll(force = false): Promise<void> {
     if (this.stopped || this.inFlight) return;
     // Re-checked here, not only at the schedule sites: whatever path
     // reached poll(), a host-hidden surface must not issue a request.
-    if (this.shouldStayIdle()) return;
+    if (!force && this.shouldStayIdle()) return;
     this.inFlight = true;
     try {
       if (this.mode === "hosted" && this.gateway && !this.token) {
@@ -1161,7 +1163,12 @@ class SyncTransport {
       // Network error — retried on the next (backed-off) interval.
     } finally {
       this.inFlight = false;
-      this.schedulePoll();
+      if (this.refreshRequested && !this.stopped) {
+        this.refreshRequested = false;
+        void this.poll(true);
+      } else {
+        this.schedulePoll();
+      }
     }
   }
 
@@ -1203,6 +1210,20 @@ class SyncTransport {
 
   private handleFocus = (): void => {
     this.pollNow();
+  };
+
+  private handleRefreshData = (): void => {
+    // A write announced through refresh-data (a WebMCP call from a host
+    // evaluator, a host bridge command) proves someone is driving this page
+    // even when the document reports hidden, so this one poll skips the idle
+    // gate; schedulePoll still honors it, so nothing keeps polling after.
+    // A poll already in flight may predate the write, so remember the request
+    // and run again when it settles instead of dropping it.
+    if (this.inFlight) {
+      this.refreshRequested = true;
+      return;
+    }
+    void this.poll(true);
   };
 
   private handleChatRunning = (event: Event): void => {
@@ -1261,6 +1282,7 @@ class SyncTransport {
       void this.poll();
     }
     window.addEventListener("focus", this.handleFocus);
+    window.addEventListener("agentNative:refresh-data", this.handleRefreshData);
     window.addEventListener("agentNative.chatRunning", this.handleChatRunning);
     this.removeVisibilityListener = addSurfaceVisibilityListener(
       this.handleVisibilityChange,
@@ -1288,6 +1310,10 @@ class SyncTransport {
       this.localReconnectTimer = null;
     }
     window.removeEventListener("focus", this.handleFocus);
+    window.removeEventListener(
+      "agentNative:refresh-data",
+      this.handleRefreshData,
+    );
     window.removeEventListener(
       "agentNative.chatRunning",
       this.handleChatRunning,
@@ -1426,7 +1452,8 @@ export function subscribeSyncEvents(
  *   value. Use a per-tab ID so the UI ignores its own writes while still
  *   picking up changes from other tabs, agents, and scripts.
  * @param options.actionInvalidatePredicate - Optional filter for the broad
- *   compatibility invalidate triggered by `action` events. Use this to keep
+ *   compatibility invalidate triggered by sync events. The current event batch
+ *   is provided so apps can preserve action-level targeting. Use this to keep
  *   expensive active queries on explicit-refresh semantics while still letting
  *   normal source-versioned queries react through `useChangeVersion`.
  * @param options.suppressActionInvalidationFor - Action names whose sync events
@@ -1446,7 +1473,10 @@ export function useDbSync(
     fallbackInterval?: number;
     pauseWhenHidden?: boolean;
     ignoreSource?: string;
-    actionInvalidatePredicate?: (query: Query) => boolean;
+    actionInvalidatePredicate?: (
+      query: Query,
+      events: readonly SyncEvent[],
+    ) => boolean;
     suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
@@ -1544,6 +1574,27 @@ export function useDbSync(
           (event.key === key ||
             event.key === "*" ||
             (typeof event.key === "string" && event.key.startsWith(`${key}:`))),
+      );
+    }
+
+    function appStateEventTabIds(events: SyncEvent[], key: string): string[] {
+      const prefix = `${key}:`;
+      return Array.from(
+        new Set(
+          events.flatMap((event) => {
+            if (
+              event.source !== "app-state" ||
+              typeof event.key !== "string" ||
+              !event.key.startsWith(prefix)
+            ) {
+              return [];
+            }
+            const browserTabId = event.key.slice(prefix.length);
+            return SAFE_BROWSER_TAB_ID_RE.test(browserTabId)
+              ? [browserTabId]
+              : [];
+          }),
+        ),
       );
     }
 
@@ -1673,7 +1724,10 @@ export function useDbSync(
           // makes one agent write fan out across unrelated provider reads,
           // dashboards, and background status checks. Older apps that still
           // need broad compatibility can opt in with a predicate.
-          const predicate = actionInvalidatePredicateRef.current;
+          const appPredicate = actionInvalidatePredicateRef.current;
+          const predicate = appPredicate
+            ? (query: Query) => appPredicate(query, invalidating)
+            : undefined;
           invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },
           );
@@ -1725,7 +1779,10 @@ export function useDbSync(
               // ["action"] query regardless of what the app opted out of — and
               // an app cannot work around it, because both the prefix and this
               // call are framework-owned.
-              const predicate = actionInvalidatePredicateRef.current;
+              const appPredicate = actionInvalidatePredicateRef.current;
+              const predicate = appPredicate
+                ? (query: Query) => appPredicate(query, invalidating)
+                : undefined;
               invalidateWithoutCancel(
                 predicate ? { predicate } : { queryKey: ["action"] },
               );
@@ -1768,13 +1825,43 @@ export function useDbSync(
             );
           }
           if (hasAppStateEvent(invalidating, "navigate")) {
-            invalidateWithoutCancel({ queryKey: ["navigate-command"] });
+            for (const browserTabId of appStateEventTabIds(
+              invalidating,
+              "navigate",
+            )) {
+              invalidateWithoutCancel({
+                queryKey: ["navigate-command", browserTabId],
+              });
+            }
+            const hasUnscopedNavigateEvent = invalidating.some(
+              (event) =>
+                event.source === "app-state" &&
+                (event.key === "navigate" || event.key === "*"),
+            );
+            if (hasUnscopedNavigateEvent) {
+              invalidateWithoutCancel({ queryKey: ["navigate-command"] });
+            }
           }
           if (hasAppStateEvent(invalidating, "show-questions")) {
             invalidateWithoutCancel({ queryKey: ["show-questions"] });
           }
           if (hasAppStateEvent(invalidating, "__set_url__")) {
-            invalidateWithoutCancel({ queryKey: ["__set_url__"] });
+            for (const browserTabId of appStateEventTabIds(
+              invalidating,
+              "__set_url__",
+            )) {
+              invalidateWithoutCancel({
+                queryKey: ["__set_url__", browserTabId],
+              });
+            }
+            const hasUnscopedSetUrlEvent = invalidating.some(
+              (event) =>
+                event.source === "app-state" &&
+                (event.key === "__set_url__" || event.key === "*"),
+            );
+            if (hasUnscopedSetUrlEvent) {
+              invalidateWithoutCancel({ queryKey: ["__set_url__"] });
+            }
           }
         }
       }

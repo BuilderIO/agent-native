@@ -29,7 +29,8 @@ vi.mock("@agent-native/core/server", () => ({
   resolveSecret: vi.fn(),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: vi.fn((...args) => ({ op: "and", args })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
   inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),
@@ -45,6 +46,7 @@ vi.mock("./storage.js", () => ({
 }));
 
 import { selectReferences } from "./generation.js";
+import { unrestrictedDraftReadScope } from "./library-access.js";
 
 type AssetRow = {
   id: string;
@@ -55,6 +57,7 @@ type AssetRow = {
   objectKey: string;
   metadata: string;
   collectionId?: string | null;
+  generationRunId?: string | null;
 };
 
 function createDb(settings: Record<string, unknown>, assets: AssetRow[]) {
@@ -153,6 +156,7 @@ describe("selectReferences", () => {
     const randomSpy = vi.spyOn(Math, "random");
 
     const refs = await selectReferences({
+      draftScope: unrestrictedDraftReadScope(),
       libraryId: "library-1",
       subjectAssetId: "subject",
       intent: "restyle",
@@ -160,6 +164,7 @@ describe("selectReferences", () => {
       limit: 4,
     });
     const refsAgain = await selectReferences({
+      draftScope: unrestrictedDraftReadScope(),
       libraryId: "library-1",
       subjectAssetId: "subject",
       intent: "restyle",
@@ -231,6 +236,7 @@ describe("selectReferences", () => {
     );
 
     const refs = await selectReferences({
+      draftScope: unrestrictedDraftReadScope(),
       libraryId: "library-1",
       referenceAssetIds: ["content-1"],
       intent: "generate",
@@ -284,6 +290,7 @@ describe("selectReferences", () => {
     );
 
     const refs = await selectReferences({
+      draftScope: unrestrictedDraftReadScope(),
       libraryId: "library-1",
       referenceAssetIds: ["content-1", "style-picked"],
       intent: "generate",
@@ -327,6 +334,7 @@ describe("selectReferences", () => {
     getDbMock.mockReturnValue(createDb({}, assets));
 
     const refs = await selectReferences({
+      draftScope: unrestrictedDraftReadScope(),
       libraryId: "library-1",
       subjectAssetId: "subject",
       referenceAssetIds: ["explicit-b", "explicit-a"],
@@ -366,6 +374,7 @@ describe("selectReferences", () => {
     getDbMock.mockReturnValue(createDb({}, assets));
 
     const refs = await selectReferences({
+      draftScope: unrestrictedDraftReadScope(),
       libraryId: "library-1",
       referenceAssetIds: ["skeleton-plate", "explicit-style"],
       excludeAssetIds: ["skeleton-plate"],
@@ -409,11 +418,69 @@ describe("selectReferences", () => {
     getDbMock.mockReturnValue(createDb({}, assets));
 
     const refs = await selectReferences({
+      draftScope: unrestrictedDraftReadScope(),
       libraryId: "library-1",
       intent: "generate",
       limit: 4,
     });
 
     expect(refs.map((ref) => ref.id)).toEqual(["style-ref"]);
+  });
+});
+describe("selectReferences draft scope", () => {
+  const candidate = (id: string, generationRunId: string): AssetRow => ({
+    id,
+    role: "generated",
+    mimeType: "image/png",
+    status: "candidate",
+    createdAt: "2026-05-24T00:00:00.000Z",
+    objectKey: `${id}-bytes`,
+    metadata: "{}",
+    generationRunId,
+  });
+  const viewerScope = {
+    unrestricted: false,
+    approvableLibraryIds: new Set<string>(),
+    ownRunIds: new Set(["run-mine"]),
+    callerEmail: "viewer@example.test",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getObjectMock.mockImplementation(async (key: string) => Buffer.from(key));
+  });
+
+  it("keeps another drafter's candidate out of the automatic pool", async () => {
+    getDbMock.mockReturnValue(
+      createDb({}, [
+        candidate("mine", "run-mine"),
+        candidate("theirs", "run-theirs"),
+      ]),
+    );
+
+    const refs = await selectReferences({
+      draftScope: viewerScope,
+      libraryId: "lib-1",
+      intent: "generate",
+      limit: 5,
+    });
+
+    expect(refs.map((ref) => ref.id)).toEqual(["mine"]);
+  });
+
+  it("drops another drafter's candidate passed explicitly", async () => {
+    getDbMock.mockReturnValue(
+      createDb({}, [candidate("theirs", "run-theirs")]),
+    );
+
+    const refs = await selectReferences({
+      draftScope: viewerScope,
+      libraryId: "lib-1",
+      referenceAssetIds: ["theirs"],
+      intent: "generate",
+      limit: 5,
+    });
+
+    expect(refs).toEqual([]);
   });
 });

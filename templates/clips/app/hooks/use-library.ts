@@ -20,6 +20,8 @@ export interface RecordingSummary {
   uploadProgress?: number;
   failureReason?: string | null;
   visibility: "private" | "org" | "public";
+  hasPassword: boolean;
+  expiresAt: string | null;
   ownerEmail: string;
   ownerName?: string | null;
   folderId: string | null;

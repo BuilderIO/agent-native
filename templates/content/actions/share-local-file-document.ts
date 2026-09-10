@@ -9,6 +9,7 @@ import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -26,7 +27,11 @@ import {
   isLocalFileDocumentId,
   localDocumentPathFromId,
 } from "./_local-file-documents.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -127,6 +132,7 @@ export default defineAction({
           spaceId: existing.spaceId ?? targetSpaceId,
           title: localDocument.title,
           content: localDocument.content,
+          bodyRevision: bodyRevisionForContent(localDocument.content),
           icon: localDocument.icon,
           isFavorite: localDocument.isFavorite ? 1 : 0,
           hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
@@ -159,7 +165,7 @@ export default defineAction({
       documentsPositionScope(userEmail, null),
       async () => {
         const [{ max: maxPosition } = { max: -1 }] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             and(
@@ -177,7 +183,7 @@ export default defineAction({
           title: localDocument.title,
           content: localDocument.content,
           icon: localDocument.icon,
-          position: (maxPosition ?? -1) + 1,
+          position: nextAppendPosition(maxPosition),
           isFavorite: localDocument.isFavorite ? 1 : 0,
           hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
           visibility: "private",

@@ -4505,12 +4505,20 @@ describe("journal-recovery tool replay coalescing", () => {
       // Continuation chunk replays the same call via the tool-call journal
       // (id-less re-emit with the marker result).
       { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
-      { type: "tool_done", tool: "edit-screen", result: JOURNAL_MARKER },
+      {
+        type: "tool_done",
+        tool: "edit-screen",
+        result: JOURNAL_MARKER,
+        artifacts: [{ kind: "design", id: "design_replayed", fileCount: 3 }],
+      },
     ]);
 
     const toolCards = content.filter((p) => p.type === "tool-call");
     expect(toolCards).toHaveLength(1);
     expect(toolCards[0].result).toBe("real result");
+    expect(toolCards[0].artifacts).toEqual([
+      { kind: "design", id: "design_replayed", fileCount: 3 },
+    ]);
   });
 
   it("resolves an interrupted spinner with the ledger-recovered result and removes the replay artifact", async () => {
@@ -4520,13 +4528,27 @@ describe("journal-recovery tool replay coalescing", () => {
       // Next chunk replays it; the id-less tool_done name-matches the original
       // pending card, leaving the replay's own start as a stuck spinner.
       { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
-      { type: "tool_done", tool: "edit-screen", result: LEDGER_MARKER },
+      {
+        type: "tool_done",
+        tool: "edit-screen",
+        result: LEDGER_MARKER,
+        artifacts: [
+          {
+            kind: "design",
+            id: "design_recovered",
+            fileCount: 2,
+          },
+        ],
+      },
     ]);
 
     const toolCards = content.filter((p) => p.type === "tool-call");
     expect(toolCards).toHaveLength(1);
     expect(toolCards[0].result).toBe(LEDGER_MARKER);
     expect(toolCards[0].toolCallId).toBe("srv_1");
+    expect(toolCards[0].artifacts).toEqual([
+      { kind: "design", id: "design_recovered", fileCount: 2 },
+    ]);
   });
 
   it("keeps genuinely repeated identical calls that are not journal replays", async () => {

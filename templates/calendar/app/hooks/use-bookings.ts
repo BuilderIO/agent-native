@@ -85,6 +85,7 @@ export function useCreateBooking() {
     mutationFn: async (data: {
       name: string;
       email: string;
+      additionalGuestEmails?: string[];
       notes?: string;
       captchaToken?: string;
       fieldResponses?: Record<string, string | boolean>;

@@ -17,9 +17,7 @@ describe("FactoryInboxView", () => {
     expect(source).toContain("TriageRiskPill");
     expect(source).toContain("TriageStatusPill");
     expect(source).toContain('t("triage.evidence")');
-    expect(source).toContain('t("triage.evidenceDescription")');
     expect(source).toContain('t("triage.actionsTaken")');
-    expect(source).toContain('t("triage.actionsTakenDescription")');
     expect(source).toContain("nextCursor");
     expect(source).toContain("inboxListColumns");
     expect(source).toContain("factory-inbox-pane-detail");
@@ -58,12 +56,41 @@ describe("FactoryInboxView", () => {
     expect(source).not.toContain(
       "lg:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.4fr)]",
     );
-    expect(source).toContain('t("triage.author")');
     expect(source).toContain("item.author");
     expect(source).toContain("resolveInboxSourceUrl");
     expect(source).toContain('t("triage.feedbackError")');
     expect(source).toContain("triage.statusValues.");
     expect(source).toContain('t("triage.untitled")');
     expect(source).not.toContain('t("factoryRoute.selectObservation")');
+  });
+
+  it("separates identity, reason, evidence, and log into banded sections", () => {
+    const source = readViewSource();
+    // Both sources share one card shell so Slack and GitHub items read alike.
+    expect(source).toContain("InboxMessageCard");
+    expect(source).not.toContain("SlackMessageCard");
+    // Bands are divided by hairlines; the pane already sits inside a Card.
+    expect(source).toContain("border-t border-border pt-4");
+    expect(source).toContain("lg:border-s lg:border-border lg:ps-4");
+    // The reason is the system's verdict, not source content.
+    expect(source).toContain("border-s-2 border-primary/40 ps-3");
+    const headerAt = source.indexOf("<header");
+    const reasonAt = source.indexOf("{reason ? (");
+    const evidenceAt = source.indexOf('t("triage.evidence")');
+    expect(headerAt).toBeGreaterThan(-1);
+    expect(reasonAt).toBeGreaterThan(headerAt);
+    expect(evidenceAt).toBeGreaterThan(reasonAt);
+  });
+
+  it("keeps explanatory subtitles out of the detail sections", () => {
+    const source = readViewSource();
+    for (const key of [
+      "triage.evidenceDescription",
+      "triage.actionsTakenDescription",
+      "triage.feedbackDescription",
+      "triage.author",
+    ]) {
+      expect(source).not.toContain(key);
+    }
   });
 });

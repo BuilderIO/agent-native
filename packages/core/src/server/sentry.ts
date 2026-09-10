@@ -229,8 +229,20 @@ export function setSentryRequestContext(ctx: {
 export function captureAuthError(
   error: unknown,
   context: {
-    route: "login" | "signup" | "logout" | "magic-link" | "verify-email";
+    route:
+      | "login"
+      | "signup"
+      | "logout"
+      | "magic-link"
+      | "verify-email"
+      // Catch-all for the direct Better Auth handler, which forwards
+      // arbitrary Better Auth sub-paths (`/token`, `/reset-password`, ...)
+      // that don't each warrant their own route label — use `path` below
+      // for the specific sub-path.
+      | "better-auth";
     email?: string;
+    /** The specific request path, for the `"better-auth"` catch-all route. */
+    path?: string;
   },
 ): string | undefined {
   if (getRequestContext()?.isSyntheticTraffic) return undefined;
@@ -239,6 +251,7 @@ export function captureAuthError(
     return Sentry.withScope((scope) => {
       scope.setLevel("warning");
       scope.setTag("auth", context.route);
+      if (context.path) scope.setTag("path", context.path);
       if (context.email) {
         scope.setUser({ id: context.email, email: context.email });
       }

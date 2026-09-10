@@ -12,7 +12,8 @@
  * - `o:<orgId>:sql-dashboard-{id}` → kind='sql',      owner=caller, visibility='org'
  * - `adhoc-analysis-{id}`          → owner=caller,   legacy visibility from its source key
  */
-import { isPostgres } from "@agent-native/core/db";
+import { createHash } from "node:crypto";
+
 import { getRequestRunContext, recordChange } from "@agent-native/core/server";
 import {
   getOrgSetting,
@@ -39,6 +40,7 @@ import {
   sql,
 } from "drizzle-orm";
 
+import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
   parseDashboardCertification,
@@ -134,7 +136,12 @@ export interface DashboardRevisionRecord {
   chatContext: AnalyticsRevisionChatContext | null;
 }
 
-export type DashboardRevisionMetadata = Omit<DashboardRevisionRecord, "config">;
+export type DashboardRevisionMetadata = Omit<
+  DashboardRevisionRecord,
+  "config"
+> & {
+  chatContextStatus: RevisionChatContextStatus;
+};
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
 export type DashboardHiddenFilter = "visible" | "hidden" | "all";
@@ -183,6 +190,21 @@ export interface AnalyticsRevisionChatContext {
   runId?: string;
   turnId?: string;
 }
+
+export type RevisionChatContextStatus = "absent" | "valid" | "unreadable";
+
+export type AnalysisRevisionMetadata = Pick<
+  AnalysisRevisionRecord,
+  | "id"
+  | "analysisId"
+  | "name"
+  | "description"
+  | "createdAt"
+  | "createdBy"
+  | "chatContext"
+> & {
+  chatContextStatus: RevisionChatContextStatus;
+};
 
 interface AccessCtx {
   email: string;
@@ -236,12 +258,62 @@ const MAX_DASHBOARD_REFERENCE_RESULTS = 24;
 const MAX_DASHBOARD_REFERENCE_CANDIDATES = 200;
 const OUT_OF_SCOPE_REFERENCE_PROBE_LIMIT = 5;
 
+function stableStringify(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new Error("Analytics revision contains an unserializable value.");
+    }
+    return serialized;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
+    .join(",")}}`;
+}
+
+function comparableJson(raw: string | null): string | null {
+  if (raw === null) return null;
+  try {
+    return stableStringify(JSON.parse(raw));
+  } catch {
+    // coercion-ok: invalid legacy JSON stays distinct and cannot suppress a save.
+    return raw;
+  }
+}
+
+function revisionId(
+  prefix: string,
+  resourceId: string,
+  previousRevisionId: string | undefined,
+  payload: unknown,
+): string {
+  const fingerprint = stableStringify({
+    resourceId,
+    previousRevisionId: previousRevisionId ?? "initial",
+    payload,
+  });
+  return `${prefix}-${createHash("sha256").update(fingerprint).digest("hex")}`;
+}
+
 export function normalizeDashboardName(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function nextRevisionTimestamp(previous: string | null | undefined): string {
+  const previousMs = previous ? Date.parse(previous) : Number.NaN;
+  return new Date(
+    Math.max(Date.now(), Number.isFinite(previousMs) ? previousMs + 1 : 0),
+  ).toISOString();
 }
 
 function revisionChatContextFromFields(value: {
@@ -284,6 +356,24 @@ function parseRevisionChatContext(
   );
   if (!context) throw new Error("Analytics revision chat metadata is invalid.");
   return context;
+}
+
+export function parseRevisionChatContextMetadata(raw: unknown): {
+  chatContext: AnalyticsRevisionChatContext | null;
+  chatContextStatus: RevisionChatContextStatus;
+} {
+  if (raw == null) {
+    return { chatContext: null, chatContextStatus: "absent" };
+  }
+  try {
+    const chatContext = parseRevisionChatContext(raw);
+    return {
+      chatContext,
+      chatContextStatus: chatContext ? "valid" : "absent",
+    };
+  } catch {
+    return { chatContext: null, chatContextStatus: "unreadable" };
+  }
 }
 
 function escapeLikeLiteral(value: string): string {
@@ -447,8 +537,7 @@ function nanoidFallback(): string {
 }
 
 /**
- * Normalize affected-row metadata from every createGetDb backend: libSQL,
- * PGlite, Neon, postgres.js, better-sqlite3, and D1. Mirrors
+ * Normalize affected-row metadata from PGlite and hosted Postgres. Mirrors
  * templates/design/actions/update-design.ts's `affectedRowCount`.
  */
 function affectedRowCount(result: unknown): number | undefined {
@@ -543,12 +632,14 @@ function accessFields(role?: AccessRole): {
 
 function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
   const certification = parseDashboardCertification(row.certification);
+  const rawConfig =
+    typeof row.config === "string" ? JSON.parse(row.config) : row.config;
   return {
     id: row.id,
     kind: row.kind,
     title: row.title,
     config:
-      typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+      row.kind === "sql" ? normalizeDashboardConfig(rawConfig) : rawConfig,
     ownerEmail: row.ownerEmail,
     orgId: row.orgId ?? null,
     visibility: row.visibility,
@@ -567,13 +658,15 @@ function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
 }
 
 function rowToDashboardRevision(row: any): DashboardRevisionRecord {
+  const rawConfig =
+    typeof row.config === "string" ? JSON.parse(row.config) : row.config;
   return {
     id: row.id,
     dashboardId: row.dashboardId,
     kind: row.kind,
     title: row.title,
     config:
-      typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+      row.kind === "sql" ? normalizeDashboardConfig(rawConfig) : rawConfig,
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
     chatContext: parseRevisionChatContext(row.chatContext),
@@ -588,7 +681,7 @@ function rowToDashboardRevisionMetadata(row: any): DashboardRevisionMetadata {
     title: row.title,
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
-    chatContext: parseRevisionChatContext(row.chatContext),
+    ...parseRevisionChatContextMetadata(row.chatContext),
   };
 }
 
@@ -599,7 +692,10 @@ function configDescriptionFromValue(
   return typeof description === "string" ? description : null;
 }
 
-function configFromSettings(data: Record<string, unknown>): {
+function configFromSettings(
+  data: Record<string, unknown>,
+  kind?: DashboardKind,
+): {
   title: string;
   config: Record<string, unknown>;
 } {
@@ -609,7 +705,10 @@ function configFromSettings(data: Record<string, unknown>): {
       : typeof (data as any).title === "string"
         ? (data as any).title
         : "Untitled";
-  return { title, config: data };
+  return {
+    title,
+    config: kind === "sql" ? normalizeDashboardConfig(data) : data,
+  };
 }
 
 function stringProperty(value: unknown, key: string): string | null {
@@ -639,7 +738,7 @@ async function migrateDashboardFromSettings(
   visibility: DashboardRecord["visibility"],
   role?: AccessRole,
 ): Promise<DashboardRecord> {
-  const { title, config } = configFromSettings(settingsValue);
+  const { title, config } = configFromSettings(settingsValue, kind);
   const db = getDb() as any;
   const createdAt =
     (typeof (settingsValue as any).createdAt === "string" &&
@@ -879,33 +978,21 @@ export async function listDashboardSummaries(
   else if (hidden === "hidden")
     conditions.push(isNotNull(schema.dashboards.hiddenAt));
   const where = conditions.length === 1 ? conditions[0] : and(...conditions);
-  const parentId = isPostgres()
-    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'parentId')`
-    : sql<
-        string | null
-      >`json_extract(${schema.dashboards.config}, '$.parentId')`;
-  const description = isPostgres()
-    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'description')`
-    : sql<
-        string | null
-      >`json_extract(${schema.dashboards.config}, '$.description')`;
-  const configName = isPostgres()
-    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'name')`
-    : sql<string | null>`json_extract(${schema.dashboards.config}, '$.name')`;
-  const catalogTemplateId = isPostgres()
-    ? sql<
-        string | null
-      >`(${schema.dashboards.config}::jsonb -> 'catalog' ->> 'templateId')`
-    : sql<
-        string | null
-      >`json_extract(${schema.dashboards.config}, '$.catalog.templateId')`;
-  const demoId = isPostgres()
-    ? sql<
-        string | null
-      >`(${schema.dashboards.config}::jsonb -> 'demo' ->> 'id')`
-    : sql<
-        string | null
-      >`json_extract(${schema.dashboards.config}, '$.demo.id')`;
+  const parentId = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb ->> 'parentId')`;
+  const description = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb ->> 'description')`;
+  const configName = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb ->> 'name')`;
+  const catalogTemplateId = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb -> 'catalog' ->> 'templateId')`;
+  const demoId = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb -> 'demo' ->> 'id')`;
   const rows = await db
     .select({
       id: schema.dashboards.id,
@@ -981,7 +1068,7 @@ export async function listDashboardSummaries(
       if (filter?.kind && filter.kind !== kind) continue;
       seen.add(id);
       const config = value as Record<string, unknown>;
-      const { title } = configFromSettings(config);
+      const { title } = configFromSettings(config, kind);
       const catalogMetadata = includeCatalogMetadata
         ? catalogMetadataFromConfig(config)
         : {
@@ -1139,6 +1226,7 @@ export async function searchDashboardReferences(
     }
     const { title, config } = configFromSettings(
       value as Record<string, unknown>,
+      scope.kind,
     );
     const match = dashboardReferenceMatch(
       {
@@ -1289,6 +1377,7 @@ export async function loadDashboardCatalogDashboards(
       if (!config || typeof config !== "object" || Array.isArray(config)) {
         return [];
       }
+      if (row.kind === "sql") config = normalizeDashboardConfig(config);
       const certification = parseDashboardCertification(row.certification);
       const description =
         typeof row.description === "string"
@@ -1323,7 +1412,7 @@ export async function loadDashboardCatalogDashboards(
 
     const legacy = await findLegacyDashboard(id, ctx);
     if (!legacy) continue;
-    const { title, config } = configFromSettings(legacy.data);
+    const { title, config } = configFromSettings(legacy.data, legacy.kind);
     out.push({
       id,
       kind: legacy.kind,
@@ -1373,7 +1462,7 @@ async function lockDashboardNames(db: any, names: string[]): Promise<void> {
       .insert(schema.dashboardNameLocks)
       .values({ nameKey, createdAt: nowIso() })
       .onConflictDoNothing();
-    if (isPostgres()) {
+    {
       await db.execute(
         sql`SELECT name_key FROM dashboard_name_locks WHERE name_key = ${nameKey} FOR UPDATE`,
       );
@@ -1418,7 +1507,10 @@ async function pruneDashboardRevisions(
     .select({ id: schema.dashboardRevisions.id })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
-    .orderBy(desc(schema.dashboardRevisions.createdAt));
+    .orderBy(
+      desc(schema.dashboardRevisions.createdAt),
+      desc(schema.dashboardRevisions.id),
+    );
   const stale = rows.slice(DASHBOARD_REVISION_LIMIT);
   for (const row of stale) {
     await db
@@ -1433,19 +1525,49 @@ async function snapshotDashboardRevision(
   ctx: AccessCtx,
   chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
 ): Promise<string> {
-  const id = `dashrev-${Date.now()}-${nanoidFallback()}`;
-  await db.insert(schema.dashboardRevisions).values({
-    id,
-    dashboardId: dashboard.id,
+  const config = stableStringify(dashboard.config);
+  const [latest] = await db
+    .select({
+      kind: schema.dashboardRevisions.kind,
+      title: schema.dashboardRevisions.title,
+      config: schema.dashboardRevisions.config,
+      id: schema.dashboardRevisions.id,
+      createdAt: schema.dashboardRevisions.createdAt,
+    })
+    .from(schema.dashboardRevisions)
+    .where(eq(schema.dashboardRevisions.dashboardId, dashboard.id))
+    .orderBy(
+      desc(schema.dashboardRevisions.createdAt),
+      desc(schema.dashboardRevisions.id),
+    )
+    .limit(1);
+  if (
+    latest?.kind === dashboard.kind &&
+    latest.title === dashboard.title &&
+    comparableJson(latest.config) === config
+  ) {
+    return latest.id;
+  }
+  const id = revisionId("dashrev", dashboard.id, latest?.id, {
     kind: dashboard.kind,
     title: dashboard.title,
-    config: JSON.stringify(dashboard.config),
-    createdAt: nowIso(),
-    createdBy: ctx.email,
-    ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
-    ownerEmail: dashboard.ownerEmail,
-    orgId: dashboard.orgId,
+    config,
   });
+  await db
+    .insert(schema.dashboardRevisions)
+    .values({
+      id,
+      dashboardId: dashboard.id,
+      kind: dashboard.kind,
+      title: dashboard.title,
+      config,
+      createdAt: nextRevisionTimestamp(latest?.createdAt),
+      createdBy: ctx.email,
+      ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
+      ownerEmail: dashboard.ownerEmail,
+      orgId: dashboard.orgId,
+    })
+    .onConflictDoNothing();
   await pruneDashboardRevisions(db, dashboard.id);
   return id;
 }
@@ -1476,7 +1598,7 @@ export async function createDashboardRevisionSnapshot(
  *
  * `expectedUpdatedAt` fences the update against concurrent writers: pass the
  * `updatedAt` observed by an earlier `getDashboard` call and the UPDATE only
- * applies `WHERE id = ? AND updated_at = ?`. If another writer already saved
+ * applies `WHERE id = $1 AND updated_at = $2`. If another writer already saved
  * in between, the fenced UPDATE affects zero rows and this throws
  * `DashboardConflictError` instead of silently clobbering their write. Omit
  * it (the default) to keep the prior unconditional last-write-wins behavior,
@@ -1501,14 +1623,20 @@ export async function upsertDashboard(
     throw new DashboardConflictError(id);
   }
   const db = getDb() as any;
-  const { title, config } = configFromSettings(body);
-  const configJson = JSON.stringify(config);
+  const { title, config } = configFromSettings(body, kind);
+  const configJson = stableStringify(config);
   if (existing) {
     await assertAccess("dashboard", id, "editor", {
       userEmail: ctx.email,
       orgId: ctx.orgId ?? undefined,
     });
   }
+  const changed =
+    !existing ||
+    existing.kind !== kind ||
+    existing.title !== title ||
+    stableStringify(existing.config) !== configJson;
+  if (existing && !changed) return existing;
   const nameChanged =
     !existing ||
     normalizeDashboardName(existing.title) !== normalizeDashboardName(title);
@@ -1517,10 +1645,6 @@ export async function upsertDashboard(
   }
   const persist = async (writeDb: any): Promise<void> => {
     if (existing) {
-      const changed =
-        existing.kind !== kind ||
-        existing.title !== title ||
-        JSON.stringify(existing.config) !== configJson;
       const setValues = {
         kind,
         title,
@@ -1544,7 +1668,7 @@ export async function upsertDashboard(
         const affected = affectedRowCount(updateResult);
         if (affected === undefined) {
           throw new Error(
-            "The database driver did not report an affected-row count for the fenced dashboard update.",
+            "The Postgres update did not report an affected-row count for the fenced dashboard update.",
           );
         }
         if (affected === 0) {
@@ -1575,7 +1699,7 @@ export async function upsertDashboard(
         id,
         kind,
         title,
-        config: JSON.stringify(config),
+        config: configJson,
         ownerEmail: ctx.email,
         orgId: ctx.orgId,
         visibility: "private",
@@ -1738,7 +1862,7 @@ export async function certifyDashboardWithRetry(
     const affected = affectedRowCount(updateResult);
     if (affected === undefined) {
       throw new Error(
-        "The database driver did not report an affected-row count for the dashboard certification update.",
+        "The Postgres update did not report an affected-row count for the dashboard certification update.",
       );
     }
     if (affected === 0) {
@@ -1787,7 +1911,10 @@ export async function listDashboardRevisions(
     .select()
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
-    .orderBy(desc(schema.dashboardRevisions.createdAt))
+    .orderBy(
+      desc(schema.dashboardRevisions.createdAt),
+      desc(schema.dashboardRevisions.id),
+    )
     .limit(DASHBOARD_REVISION_LIMIT);
   return rows.map(rowToDashboardRevision);
 }
@@ -1815,7 +1942,10 @@ export async function listDashboardRevisionMetadata(
     })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
-    .orderBy(desc(schema.dashboardRevisions.createdAt))
+    .orderBy(
+      desc(schema.dashboardRevisions.createdAt),
+      desc(schema.dashboardRevisions.id),
+    )
     .limit(DASHBOARD_REVISION_LIMIT);
   return rows.map(rowToDashboardRevisionMetadata);
 }
@@ -1893,7 +2023,7 @@ export async function restoreDashboardRevision(
       const affected = affectedRowCount(updateResult);
       if (affected === undefined) {
         throw new Error(
-          "The database driver did not report an affected-row count for the fenced dashboard restore.",
+          "The Postgres update did not report an affected-row count for the fenced dashboard restore.",
         );
       }
       if (affected === 0) throw new DashboardConflictError(dashboardId);
@@ -2197,6 +2327,18 @@ function rowToAnalysisRevision(row: any): AnalysisRevisionRecord {
   };
 }
 
+function rowToAnalysisRevisionMetadata(row: any): AnalysisRevisionMetadata {
+  return {
+    id: row.id,
+    analysisId: row.analysisId,
+    name: row.name,
+    description: row.description,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy ?? null,
+    ...parseRevisionChatContextMetadata(row.chatContext),
+  };
+}
+
 function safeJsonParse<T>(s: unknown, fallback: T): T {
   if (typeof s !== "string") return fallback;
   try {
@@ -2427,7 +2569,10 @@ async function pruneAnalysisRevisions(
     .select({ id: schema.analysisRevisions.id })
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
-    .orderBy(desc(schema.analysisRevisions.createdAt));
+    .orderBy(
+      desc(schema.analysisRevisions.createdAt),
+      desc(schema.analysisRevisions.id),
+    );
   const stale = rows.slice(ANALYSIS_REVISION_LIMIT);
   for (const row of stale) {
     await db
@@ -2442,24 +2587,68 @@ async function snapshotAnalysisRevision(
   ctx: AccessCtx,
   chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
 ): Promise<void> {
-  await db.insert(schema.analysisRevisions).values({
-    id: `analysisrev-${Date.now()}-${nanoidFallback()}`,
-    analysisId: analysis.id,
+  const dataSources = stableStringify(analysis.dataSources);
+  const resultData = analysis.resultData
+    ? stableStringify(analysis.resultData)
+    : null;
+  const [latest] = await db
+    .select({
+      id: schema.analysisRevisions.id,
+      name: schema.analysisRevisions.name,
+      description: schema.analysisRevisions.description,
+      question: schema.analysisRevisions.question,
+      instructions: schema.analysisRevisions.instructions,
+      dataSources: schema.analysisRevisions.dataSources,
+      resultMarkdown: schema.analysisRevisions.resultMarkdown,
+      resultData: schema.analysisRevisions.resultData,
+      createdAt: schema.analysisRevisions.createdAt,
+    })
+    .from(schema.analysisRevisions)
+    .where(eq(schema.analysisRevisions.analysisId, analysis.id))
+    .orderBy(
+      desc(schema.analysisRevisions.createdAt),
+      desc(schema.analysisRevisions.id),
+    )
+    .limit(1);
+  if (
+    latest?.name === analysis.name &&
+    latest.description === analysis.description &&
+    latest.question === analysis.question &&
+    latest.instructions === analysis.instructions &&
+    comparableJson(latest.dataSources) === dataSources &&
+    latest.resultMarkdown === analysis.resultMarkdown &&
+    comparableJson(latest.resultData) === resultData
+  ) {
+    return;
+  }
+  const id = revisionId("analysisrev", analysis.id, latest?.id, {
     name: analysis.name,
     description: analysis.description,
     question: analysis.question,
     instructions: analysis.instructions,
-    dataSources: JSON.stringify(analysis.dataSources),
+    dataSources,
     resultMarkdown: analysis.resultMarkdown,
-    resultData: analysis.resultData
-      ? JSON.stringify(analysis.resultData)
-      : null,
-    createdAt: nowIso(),
-    createdBy: ctx.email,
-    ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
-    ownerEmail: analysis.ownerEmail,
-    orgId: analysis.orgId,
+    resultData,
   });
+  await db
+    .insert(schema.analysisRevisions)
+    .values({
+      id,
+      analysisId: analysis.id,
+      name: analysis.name,
+      description: analysis.description,
+      question: analysis.question,
+      instructions: analysis.instructions,
+      dataSources,
+      resultMarkdown: analysis.resultMarkdown,
+      resultData,
+      createdAt: nextRevisionTimestamp(latest?.createdAt),
+      createdBy: ctx.email,
+      ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
+      ownerEmail: analysis.ownerEmail,
+      orgId: analysis.orgId,
+    })
+    .onConflictDoNothing();
   await pruneAnalysisRevisions(db, analysis.id);
 }
 
@@ -2489,7 +2678,7 @@ export async function createAnalysisRevisionSnapshot(
  *
  * `expectedUpdatedAt` fences the update against concurrent writers: pass the
  * `updatedAt` observed by an earlier `getAnalysis` call and the UPDATE only
- * applies `WHERE id = ? AND updated_at = ?`. If another writer already saved
+ * applies `WHERE id = $1 AND updated_at = $2`. If another writer already saved
  * in between, the fenced UPDATE affects zero rows and this throws
  * `AnalysisConflictError` instead of silently clobbering their write. Omit it
  * (the default) to keep the prior unconditional last-write-wins behavior,
@@ -2527,18 +2716,31 @@ export async function upsertAnalysis(
       userEmail: ctx.email,
       orgId: ctx.orgId ?? undefined,
     });
+    let storedJson:
+      | { dataSources: string; resultData: string | null }
+      | undefined;
+    if (body.dataSources !== undefined || body.resultData !== undefined) {
+      [storedJson] = await db
+        .select({
+          dataSources: schema.analyses.dataSources,
+          resultData: schema.analyses.resultData,
+        })
+        .from(schema.analyses)
+        .where(eq(schema.analyses.id, id))
+        .limit(1);
+    }
     const patch: Record<string, unknown> = { updatedAt: nowIso() };
     if (body.name !== undefined) patch.name = body.name;
     if (body.description !== undefined) patch.description = body.description;
     if (body.question !== undefined) patch.question = body.question;
     if (body.instructions !== undefined) patch.instructions = body.instructions;
     if (body.dataSources !== undefined)
-      patch.dataSources = JSON.stringify(body.dataSources);
+      patch.dataSources = stableStringify(body.dataSources);
     if (body.resultMarkdown !== undefined)
       patch.resultMarkdown = body.resultMarkdown;
     if (body.resultData !== undefined)
       patch.resultData = body.resultData
-        ? JSON.stringify(body.resultData)
+        ? stableStringify(body.resultData)
         : null;
     const next = {
       name: (patch.name as string | undefined) ?? existing.name,
@@ -2561,10 +2763,18 @@ export async function upsertAnalysis(
       next.description !== existing.description ||
       next.question !== existing.question ||
       next.instructions !== existing.instructions ||
-      JSON.stringify(next.dataSources) !==
-        JSON.stringify(existing.dataSources) ||
+      (body.dataSources !== undefined &&
+        (!storedJson ||
+          comparableJson(storedJson.dataSources) !==
+            stableStringify(body.dataSources))) ||
       next.resultMarkdown !== existing.resultMarkdown ||
-      JSON.stringify(next.resultData) !== JSON.stringify(existing.resultData);
+      (body.resultData !== undefined &&
+        (!storedJson ||
+          comparableJson(storedJson.resultData) !==
+            (body.resultData === null
+              ? null
+              : stableStringify(body.resultData))));
+    if (!changed) return existing;
     if (expectedUpdatedAt !== undefined) {
       // Fenced write. Snapshot the revision only after we know this exact
       // write actually landed — otherwise a lost race would record a
@@ -2581,7 +2791,7 @@ export async function upsertAnalysis(
       const affected = affectedRowCount(updateResult);
       if (affected === undefined) {
         throw new Error(
-          "The database driver did not report an affected-row count for the fenced analysis update.",
+          "The Postgres update did not report an affected-row count for the fenced analysis update.",
         );
       }
       if (affected === 0) {
@@ -2720,7 +2930,10 @@ export async function listAnalysisRevisions(
     .select()
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
-    .orderBy(desc(schema.analysisRevisions.createdAt))
+    .orderBy(
+      desc(schema.analysisRevisions.createdAt),
+      desc(schema.analysisRevisions.id),
+    )
     .limit(ANALYSIS_REVISION_LIMIT);
   return rows.map(rowToAnalysisRevision);
 }
@@ -2728,18 +2941,7 @@ export async function listAnalysisRevisions(
 export async function listAnalysisRevisionMetadata(
   analysisId: string,
   ctx: AccessCtx,
-): Promise<
-  Pick<
-    AnalysisRevisionRecord,
-    | "id"
-    | "analysisId"
-    | "name"
-    | "description"
-    | "createdAt"
-    | "createdBy"
-    | "chatContext"
-  >[]
-> {
+): Promise<AnalysisRevisionMetadata[]> {
   const existing = await getAnalysis(analysisId, ctx);
   if (!existing) return [];
   await assertAccess("analysis", analysisId, "viewer", {
@@ -2759,9 +2961,12 @@ export async function listAnalysisRevisionMetadata(
     })
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
-    .orderBy(desc(schema.analysisRevisions.createdAt))
+    .orderBy(
+      desc(schema.analysisRevisions.createdAt),
+      desc(schema.analysisRevisions.id),
+    )
     .limit(ANALYSIS_REVISION_LIMIT);
-  return rows;
+  return rows.map(rowToAnalysisRevisionMetadata);
 }
 
 export async function restoreAnalysisRevision(

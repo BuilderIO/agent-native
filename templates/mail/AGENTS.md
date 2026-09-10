@@ -19,13 +19,12 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use actions for reads, labels, settings, drafts, queued drafts, filters,
   scheduling, refresh, and CRM context. Don't edit mail SQL directly unless a
   skill or action calls for it.
-- Two backends, chosen automatically per user: real Gmail when a Google account
-  is connected, synthetic `local-emails` data otherwise. Call actions the same
-  way either way, and never claim fallback data or a fallback send touched the
-  user's real inbox.
+- Use real Gmail when connected, otherwise synthetic `local-emails`; call
+  actions the same way and never claim fallback data or sends touched the real inbox.
 - Interactive sends require explicit user approval. Draft or queue for review by
   default; automation-triggered sends remain approval-gated unless the owner
   opts into Mail's "Allow automations to send emails automatically" setting.
@@ -63,12 +62,13 @@ Read the relevant skill before deeper work:
 | Action | Purpose |
 | --- | --- |
 | `search-emails` / `list-emails` | Query mail by view/query. |
+| `list-labels` | List mailbox labels. |
 | `get-email` / `get-thread` | Full body/metadata for a message or thread. |
 | `find-contact` | Resolve a name/partial address to a real email. |
 | `get-hubspot-contact` | HubSpot contact + deals + tickets by email. |
 | `create-attachment-upload` | Short-lived upload URL for an attachment. |
 | `manage-draft` | Create/update/delete a `compose-{id}` draft. |
-| `send-email` | Real send; interactive calls require approval, while automation calls require the Mail opt-in setting. |
+| `send-email` / `send-queued-drafts` | Approval-gated real sends; not registered as page-local WebMCP tools. Hand sends to the in-app agent or MCP rather than `provider-api-request`. |
 | `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts` | Teammate/Slack draft review. |
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
 | `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |

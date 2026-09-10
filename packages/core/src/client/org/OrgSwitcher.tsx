@@ -4,6 +4,7 @@ import {
   IconArrowUpRight,
   IconBrain,
   IconBrandJira,
+  IconBriefcase,
   IconBrush,
   IconCalendar,
   IconCalendarTime,
@@ -39,8 +40,8 @@ import {
   IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
@@ -62,6 +63,14 @@ import {
   visibleOrgAppLinks,
   type OrgSwitcherAppLink,
 } from "./workspace-app-links.js";
+
+export interface OrgSwitcherUtilityLink {
+  id: string;
+  label: string;
+  href: string;
+  icon?: ReactNode;
+  external?: boolean;
+}
 
 export interface OrgSwitcherProps {
   className?: string;
@@ -94,6 +103,8 @@ export interface OrgSwitcherProps {
   agentPath?: string | null;
   /** Omit the link to the app that currently owns this switcher. */
   currentAppId?: string;
+  /** App-owned, low-frequency utilities rendered before sign out. */
+  utilityLinks?: readonly OrgSwitcherUtilityLink[];
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -209,6 +220,7 @@ function AppMenuLink({
 function AppsSubmenu({
   apps,
   isLoading,
+  isWorkspace,
   dispatchHref,
   dispatchAllAppsHref,
   currentAppId,
@@ -216,6 +228,7 @@ function AppsSubmenu({
 }: {
   apps: OrgSwitcherAppLink[];
   isLoading: boolean;
+  isWorkspace: boolean;
   dispatchHref: string;
   dispatchAllAppsHref: string;
   currentAppId?: string;
@@ -226,17 +239,20 @@ function AppsSubmenu({
     : apps;
   const { links, overflowCount } = visibleOrgAppLinks(appsForMenu);
   const visibleDispatchApp = links.find((app) => app.isDispatch);
-  const dispatchApp =
-    currentAppId === "dispatch"
-      ? null
-      : (visibleDispatchApp ??
-        ({
+  const fallbackDispatchApp =
+    !isWorkspace || isLoading
+      ? {
           id: "dispatch",
           name: "Dispatch",
           href: dispatchHref,
           isDispatch: true,
-          status: "ready",
-        } satisfies OrgSwitcherAppLink));
+          status: "ready" as const,
+        }
+      : null;
+  const dispatchApp =
+    currentAppId === "dispatch"
+      ? null
+      : (visibleDispatchApp ?? fallbackDispatchApp);
   const visibleNonDispatch = links
     .filter((app) => !app.isDispatch)
     .slice(0, dispatchApp ? undefined : ORG_SWITCHER_MAX_APP_LINKS);
@@ -315,7 +331,7 @@ function OrgSwitcherLoadingPlaceholder({ className }: { className?: string }) {
       aria-label="Loading organization"
       className={`${SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
     >
-      <IconUsersGroup className="h-3.5 w-3.5 shrink-0 opacity-60" />
+      <IconBriefcase className="h-3.5 w-3.5 shrink-0 opacity-60" />
       <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
       <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
     </button>
@@ -337,6 +353,7 @@ export function OrgSwitcher({
   profilePath = DEFAULT_PROFILE_PATH,
   agentPath = DEFAULT_AGENT_PATH,
   currentAppId,
+  utilityLinks,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const { session } = useSession();
@@ -408,7 +425,7 @@ export function OrgSwitcher({
   const triggerLabel = demoModeEnabled
     ? `${buttonLabel}, Demo mode`
     : buttonLabel;
-  const ButtonIcon = inOrg ? IconUsersGroup : IconUser;
+  const ButtonIcon = inOrg ? IconBriefcase : IconUser;
   const organizationSettingsHref = settingsPath
     ? organizationSettingsPath(settingsPath)
     : null;
@@ -514,9 +531,7 @@ export function OrgSwitcher({
                   </span>
                 </div>
               )}
-              {orgs.length > 0 && (
-                <div className={SECTION_LABEL_CLASS}>Organizations</div>
-              )}
+              <div className={SECTION_LABEL_CLASS}>Organizations</div>
               {orgs.map((o) => (
                 <button
                   key={o.orgId}
@@ -536,7 +551,7 @@ export function OrgSwitcher({
                   disabled={switchOrg.isPending}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
-                  <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <IconBriefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate flex-1 text-start">
                     {o.orgName}
                   </span>
@@ -638,45 +653,20 @@ export function OrgSwitcher({
                 </>
               )}
 
-              <div className="my-1 h-px bg-border" />
-              <AppsSubmenu
-                apps={appLinks.apps}
-                isLoading={appLinks.isLoading}
-                dispatchHref={appLinks.dispatchHref}
-                dispatchAllAppsHref={appLinks.dispatchAllAppsHref}
-                currentAppId={currentAppId}
-                onNavigate={() => setOpen(false)}
-              />
-              {profilePath && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    void navigate(profilePath);
-                  }}
-                  className={`${ITEM_CLASS} cursor-pointer`}
-                >
-                  <IconUserCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-start">
-                    {t("settings.profileMenuItem")}
-                  </span>
-                </button>
+              {(pendingInvitations.length > 0 || domainMatches.length > 0) && (
+                <div className="my-1 h-px bg-border" />
               )}
-              {agentPath && (
+              {canInvite && (
                 <button
                   type="button"
                   onClick={() => {
-                    setOpen(false);
-                    void navigate(agentPath);
+                    setInviteEmail("");
+                    setMode("invite");
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
-                  <IconBrain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-start">
-                    {t("settings.manageAgentMenuItem", {
-                      defaultValue: "Manage agent",
-                    })}
-                  </span>
+                  <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 text-start">Invite member</span>
                 </button>
               )}
               {inOrg && (
@@ -717,18 +707,104 @@ export function OrgSwitcher({
                 <IconPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="flex-1 text-start">Create organization</span>
               </button>
-              {canInvite && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInviteEmail("");
-                    setMode("invite");
-                  }}
-                  className={`${ITEM_CLASS} cursor-pointer`}
-                >
-                  <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-start">Invite member</span>
-                </button>
+
+              <div className="my-1 h-px bg-border" />
+              <div className={SECTION_LABEL_CLASS}>
+                {t("settings.workspaceTitle")}
+              </div>
+              <AppsSubmenu
+                apps={appLinks.apps}
+                isLoading={appLinks.isLoading}
+                isWorkspace={appLinks.isWorkspace}
+                dispatchHref={appLinks.dispatchHref}
+                dispatchAllAppsHref={appLinks.dispatchAllAppsHref}
+                currentAppId={currentAppId}
+                onNavigate={() => setOpen(false)}
+              />
+              {(profilePath || agentPath) && (
+                <>
+                  <div className="my-1 h-px bg-border" />
+                  <div className={SECTION_LABEL_CLASS}>
+                    {t("settings.profileTitle")}
+                  </div>
+                  {profilePath && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpen(false);
+                        void navigate(profilePath);
+                      }}
+                      className={`${ITEM_CLASS} cursor-pointer`}
+                    >
+                      <IconUserCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="flex-1 text-start">
+                        {t("settings.profileMenuItem")}
+                      </span>
+                    </button>
+                  )}
+                  {agentPath && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpen(false);
+                        void navigate(agentPath);
+                      }}
+                      className={`${ITEM_CLASS} cursor-pointer`}
+                    >
+                      <IconBrain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="flex-1 text-start">
+                        {t("settings.manageAgentMenuItem", {
+                          defaultValue: "Manage agent",
+                        })}
+                      </span>
+                    </button>
+                  )}
+                </>
+              )}
+              {utilityLinks && utilityLinks.length > 0 && (
+                <>
+                  <div className="my-1 h-px bg-border" />
+                  <div className={SECTION_LABEL_CLASS}>
+                    {t("contextXray.provenance.tools", {
+                      defaultValue: "Tools",
+                    })}
+                  </div>
+                  {utilityLinks.map((link) => {
+                    const content = (
+                      <>
+                        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
+                          {link.icon ?? <IconExternalLink />}
+                        </span>
+                        <span className="flex-1 text-start">{link.label}</span>
+                        {link.external && (
+                          <IconArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                      </>
+                    );
+
+                    return link.external ? (
+                      <a
+                        key={link.id}
+                        href={link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setOpen(false)}
+                        className={ITEM_CLASS}
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      <Link
+                        key={link.id}
+                        to={link.href}
+                        onClick={() => setOpen(false)}
+                        className={ITEM_CLASS}
+                      >
+                        {content}
+                      </Link>
+                    );
+                  })}
+                </>
               )}
 
               <div className="my-1 h-px bg-border" />

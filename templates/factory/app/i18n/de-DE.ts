@@ -105,15 +105,10 @@ const messages = {
     empty: "Noch keine Beobachtungen.",
     risk: "Risiko",
     status: "Status",
-    author: "Autor",
     coverage: "Abdeckung",
     reason: "Grund",
     evidence: "Nachweis",
-    evidenceDescription:
-      "Der Quellthread oder Bericht, aus dem dieses Element stammt.",
     actionsTaken: "Protokoll",
-    actionsTakenDescription:
-      "Shadow-Entscheidungen, Governance und bereits gestartete Arbeit für dieses Element.",
     threadTruncated: "Dieser Slack-Thread ist unvollständig.",
     threadUnavailable: "Dieser Slack-Thread konnte nicht geladen werden.",
     noEvidence: "Für dieses Element ist kein Quellnachweis gespeichert.",
@@ -131,8 +126,6 @@ const messages = {
     noteLabel: "Feedback-Notiz",
     submitFeedback: "Feedback speichern",
     feedbackTitle: "Feedback speichern",
-    feedbackDescription:
-      "Markiere, ob die Shadow-Entscheidung richtig war. Das wird zur Überprüfung gespeichert und startet keinen Lauf.",
     feedbackError: "Feedback konnte nicht gespeichert werden.",
     noDecisions: "Noch keine Entscheidungen aufgezeichnet.",
     rulesTitle: "Triage-Regeln",
@@ -324,10 +317,21 @@ const messages = {
     auditDispatched: "{{count}} gesendet",
     auditObserved: "{{count}} neu",
     auditScanned: "{{count}} geprüft",
-    auditOutcomeHeld: "Zurückgehalten",
-    auditOutcomeDispatched: "Gesendet",
+    auditOutcomeHeld: "Übersprungen",
+    auditOutcomeDispatched: "Gestartet",
     auditOutcomeFailed: "Versand fehlgeschlagen",
-    auditOutcomeInspected: "Geprüft",
+    auditOutcomeInspected: "Geöffnet",
+    auditOutcomeLeft: "Offen gelassen",
+    auditSectionInbox: "Zum Posteingang hinzufügen",
+    auditSectionWork: "In diesem Lauf bearbeiten",
+    auditSectionActions: "Ausgeführte Aktionen",
+    auditAdded: "{{count}} hinzugefügt",
+    auditListed: "{{count}} gelistet",
+    auditSkipped: "{{count}} übersprungen",
+    auditStartedCount: "{{count}} gestartet",
+    auditSeenBefore: "Schon gesehen",
+    auditNewThisRun: "Neu",
+    auditAlreadyStarted: "Bereits gestartet",
     historyTab: "Verlauf",
     historyTitle: "Gespeicherte Versionen",
     historyLoading: "Gespeicherte Versionen werden geladen",
@@ -387,6 +391,8 @@ const messages = {
       "Diesen Job im Automatisierungen-Tab speichern.",
     automationCreated: "Automatisierung erstellt",
     automationCreateFailed: "Automatisierung konnte nicht erstellt werden.",
+    automationCreateRefreshFailed:
+      "Erstellt, aber die Liste wurde nicht aktualisiert. Bleib hier oder öffne Automatisierungen erneut.",
     automationSource: "Quelle",
     automationSourceDescription: "Wählen Sie, wo dieser Job liest.",
     automationSourceSlackHint: "Kanalnachrichten und Threads.",
@@ -405,7 +411,12 @@ const messages = {
     automationConnectGithub: "GitHub verbinden",
     automationConnectSentry: "Sentry verbinden",
     automationConnectDescription:
-      "Öffnen Sie die Workspace-Integrationen, verbinden Sie die Quelle und kehren Sie zurück.",
+      "Verbinden Sie diese Quelle in den Dispatch-Integrationen und kehren Sie zurück.",
+    automationMissingSlack: "Slack ist in Dispatch nicht verbunden",
+    automationMissingGithub: "GitHub ist in Dispatch nicht verbunden",
+    automationMissingSentry: "Sentry ist in Dispatch nicht verbunden",
+    automationReadinessUnavailable:
+      "Der Connector konnte nicht bestätigt werden. Bitte gleich erneut versuchen.",
     automationAuthors: "Autoren",
     automationAuthorsDescription:
       "Optional. Filtern Sie nach Slack-Mitglieds-IDs oder numerischen GitHub-Benutzer-IDs, nicht nach Namen.",
@@ -444,10 +455,10 @@ const messages = {
     automationTemplateSentryErrors: "Sentry-Fehler",
     automationInboxLimit: "Zum Posteingang hinzufügen",
     automationInboxLimitDescription:
-      "Neue Einträge, die dieser Lauf hinzufügen darf. Maximal 50.",
-    automationWorkLimit: "In diesem Lauf bearbeiten",
+      "Wie viele neue Einträge dieser Job pro Lauf in den Posteingang legen darf. Maximal 50.",
+    automationWorkLimit: "Arbeit pro Lauf",
     automationWorkLimitDescription:
-      "Einträge, die list-triage-items diesem Job zurückgeben darf. Maximal 10.",
+      "Wie viele Einträge der Agent pro Lauf bearbeitet. Maximal 10.",
     automationGuardrails: "Leitplanken",
     automationGuardrailsDescription:
       "Von Factory eingefügt. Der Prompt kann diese Regeln nicht ändern.",
@@ -468,6 +479,7 @@ const messages = {
     automationEvent: "Ereignis",
     automationTimezone: "Zeitzone",
     selectAutomation: "Wähle eine Automatisierung zum Bearbeiten.",
+    automationNotFound: "Diese Automatisierung existiert nicht mehr.",
     automationModel: "Modell",
     automationDisplayName: "Anzeigename",
     automationDisplayNamePlaceholder: "Zum Beispiel Slack-Feedback",
@@ -486,6 +498,8 @@ const messages = {
     automationSaveFailed:
       "Die Automatisierung konnte nicht gespeichert werden.",
     automationRunFailed: "Die Automatisierung konnte nicht ausgeführt werden.",
+    automationRunNeedsSave:
+      "Speichere deine Änderungen, bevor du diese Automatisierung ausführst.",
     automationRunning: "Wird ausgeführt",
     runNow: "Jetzt ausführen",
     automationHealthTitle: "Scheduler-Status",

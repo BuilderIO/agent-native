@@ -33,7 +33,7 @@ import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
-  isRecordingExpired,
+  isRecordingExpiredForViewer,
 } from "../server/lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
 import {
@@ -123,7 +123,12 @@ export default defineAction({
     const db = getDb();
     const rec: any = access.resource;
 
-    if (isRecordingExpired(rec.expiresAt)) {
+    if (
+      isRecordingExpiredForViewer({
+        expiresAt: rec.expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
       throw new ForbiddenError("Recording has expired");
     }
 
@@ -368,6 +373,7 @@ export default defineAction({
         animatedThumbnailEnabled: Boolean(rec.animatedThumbnailEnabled),
         visibility: rec.visibility,
         ownerEmail: rec.ownerEmail,
+        folderId: rec.folderId,
         spaceIds: parseSpaceIds(rec.spaceIds),
         createdAt: rec.createdAt,
         updatedAt: rec.updatedAt,

@@ -44,7 +44,7 @@ import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import { cn } from "@/lib/utils";
 
 const START_HOUR = 7;
-const END_HOUR = 19;
+const END_HOUR = 24;
 const HOUR_HEIGHT = 44;
 const PARTICIPANT_COLORS = [
   "hsl(var(--primary))",

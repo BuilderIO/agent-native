@@ -4,6 +4,10 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Forms",
+    screenshotPath: "/auth-marketing/forms.webp",
+    screenshotWidth: 914,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/forms",
     tagline:
       "Your AI agent builds, publishes, and analyzes forms alongside you.",
     features: [
@@ -12,5 +16,11 @@ export default createAuthPlugin({
       "Response summaries, exports, and trend analysis on demand",
     ],
   },
-  publicPaths: ["/f", "/api/forms/public", "/api/forms/og", "/api/submit"],
+  publicPaths: [
+    "/f",
+    "/api/forms/public",
+    "/api/forms/og",
+    "/api/upload",
+    "/api/submit",
+  ],
 });

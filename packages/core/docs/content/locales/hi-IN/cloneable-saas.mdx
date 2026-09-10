@@ -152,7 +152,7 @@ Hosted demo वैकल्पिक है। यदि आप एक देत
 
 - **एक कार्यशील एजेंट** — ऐप से जुड़ा हुआ, आपके डेटा पर actions लेने में सक्षम, और आप जो देख रहे हैं उसके बारे में जागरूक। [Messaging the agent](/docs/messaging) देखें।
 - **ऑथ** — साइन-इन, सत्र, संगठन, और बहु-किरायेदार अलगाव।
-- **एक डेटाबेस** — स्कीमा, क्वेरीज़ और माइग्रेशन, उपयोग के लिए तैयार। अपना खुद का SQL डेटाबेस (Postgres, SQLite, Turso, D1) लाएँ; फ्रेमवर्क अनुकूल हो जाता है।
+- **एक डेटाबेस** — स्कीमा, क्वेरी और माइग्रेशन उपयोग के लिए तैयार। Development में local PGlite और deployed environments में hosted PostgreSQL का उपयोग करें।
 - **एक वास्तविक समय UI** — स्क्रीन एजेंट के साथ सिंक में रहती है। उदाहरण के लिए, चैट में ईमेल का मसौदा तैयार करना तुरंत इनबॉक्स को अपडेट करता है।
 - **तैनाती के लिए तैयार** — नेटलिफाई, वर्सेल, क्लाउडफ्लेयर, AWS, या किसी भी host पर तैनात करें जो Node चलाता है।
 - **ब्रांडिंग हुक** — नाम, रंग, लोगो और कॉपी बदलें।
@@ -298,6 +298,6 @@ CLI पहले पूछता है **आप कैसे शुरू क�
 
 `.env` (`ANTHROPIC_API_KEY` और `DATABASE_URL`) भरें, फिर `pnpm install` और `pnpm dev` चलाएँ। कोई login लागू करने के लिए नहीं है और कोई प्लेसहोल्डर रूट नहीं है।
 
-परिनियोजन लक्ष्य: कोई भी Nitro-संगत होस्ट (नोड, क्लाउडफ्लेयर, नेटलिफाई, वर्सेल, डेनो, लैम्ब्डा, बन) और कोई भी Drizzle-संगत SQL डेटाबेस (SQLite, Postgres, Turso, D1, Supabase, Neon)। कार्यस्थानों के लिए, `npx @agent-native/core@latest deploy` प्रत्येक ऐप को एक ही बार में बनाता है और उन्हें एक ही मूल में शिप करता है। [Deployment](/docs/deployment) देखें.
+परिनियोजन लक्ष्य: कोई भी Nitro-compatible host और hosted PostgreSQL database। Workspaces के लिए `npx @agent-native/core@latest deploy` हर app को एक साथ बनाकर single origin के पीछे ship करता है। [Deployment](/docs/deployment) देखें।
 
 अपना स्वयं का ऐप टेम्पलेट लिखने और प्रकाशित करने के लिए, [Creating Templates](/docs/creating-templates) देखें।

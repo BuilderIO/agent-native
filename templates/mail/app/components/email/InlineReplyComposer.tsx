@@ -408,8 +408,12 @@ export const InlineReplyComposer = forwardRef<
       const attachments = await uploadFiles(files);
       const existing = draft.attachments ?? [];
       onUpdate(draft.id, { attachments: [...existing, ...attachments] });
-    } catch {
-      toast.error(t("mail.toasts.failedToAttachFile"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("mail.toasts.failedToAttachFile"),
+      );
     }
   };
 

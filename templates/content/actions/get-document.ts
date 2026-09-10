@@ -1,14 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { resolveAccess, roleSatisfies } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { roleSatisfies } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { getDb } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
-import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   getDatabaseByDocumentId,
   getBuilderBodyHydrationMembershipByDocumentId,
@@ -17,6 +15,11 @@ import {
   isSoftDeletedDatabaseDocument,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
+import { resolveDocumentAccess } from "./_document-access.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getDatabaseById,
@@ -38,26 +41,6 @@ function canCommentRole(role: string) {
 
 function canManageRole(role: string) {
   return role === "owner" || role === "admin";
-}
-
-async function resolveDocumentAccess(id: string) {
-  const current = await resolveAccess("document", id);
-  if (current) return current;
-  const [reference] = await getDb()
-    .select({ spaceId: schema.documents.spaceId })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, id))
-    .limit(1);
-  if (!reference?.spaceId) return null;
-  try {
-    const spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
-    return resolveAccess("document", id, {
-      userEmail: spaceAccess.authority.userEmail,
-      orgId: spaceAccess.authority.orgId ?? undefined,
-    });
-  } catch {
-    return null;
-  }
 }
 
 export default defineAction({
@@ -175,6 +158,10 @@ export default defineAction({
         databaseMembership && !propertyDatabaseAccess ? null : doc.parentId,
       title: doc.title,
       content: doc.content,
+      revision: documentRevisionToken(doc.bodyRevision, doc.content ?? ""),
+      baseRevision: documentRevisionToken(doc.bodyRevision, doc.content ?? ""),
+      bodyRevision: doc.bodyRevision,
+      contentHash: documentContentHash(doc.content ?? ""),
       description: doc.description,
       icon: doc.icon,
       position: doc.position,

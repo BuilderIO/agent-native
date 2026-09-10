@@ -29,6 +29,15 @@ test("maps the production chat alias to the starter site", () => {
   assert.match(target.host, /^starter\./);
 });
 
+test("maps PR previews to canonical production sites with a preview ref", () => {
+  const target = resolveNetlifyPrebuiltTarget("preview", "slides");
+
+  assert.equal(target.siteName, "slides");
+  assert.equal(target.sourceTemplate, "slides");
+  assert.equal(target.sourceRef, "preview");
+  assert.equal(target.host, "slides.agent-native.com");
+});
+
 test("maps the framework production site to the docs project", () => {
   const target = resolveNetlifyPrebuiltTarget("production", "fw");
 
@@ -40,6 +49,21 @@ test("maps the framework production site to the docs project", () => {
     "packages/docs/.netlify/functions-internal",
   );
   assert.equal(target.host, "www.agent-native.com");
+});
+
+test("maps the framework beta site to the docs project", () => {
+  const target = resolveNetlifyPrebuiltTarget("beta", "fw");
+
+  assert.equal(target.siteName, "fw");
+  assert.equal(target.sourceTemplate, "@agent-native/docs");
+  assert.equal(target.sourceRef, "beta");
+  assert.equal(target.publishDirectory, "packages/docs/dist");
+  assert.equal(
+    target.functionsDirectory,
+    "packages/docs/.netlify/functions-internal",
+  );
+  assert.equal(target.host, "beta.agent-native.com");
+  assert.equal(target.siteId, "f5cdb30b-4be2-46b8-839f-294f4c3ac89f");
 });
 
 test("rejects production sites without a source project instead of guessing", () => {
