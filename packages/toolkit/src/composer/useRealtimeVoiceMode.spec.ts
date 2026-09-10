@@ -8,6 +8,7 @@ import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 import {
   createRealtimeVoiceGreetingEvent,
   createRealtimeVoiceGreetingStarter,
+  createRealtimeVoiceLanguageUpdate,
   createRealtimeVoicePreferenceUpdate,
   createRealtimeVoiceResponseCoordinator,
   createRealtimeVoiceSession,
@@ -139,6 +140,14 @@ describe("Realtime voice client transport", () => {
           responses: { reasoning: { effort: "medium" } },
         },
       },
+    });
+  });
+
+  it("updates the active GPT-Live language through appended instructions", () => {
+    expect(createRealtimeVoiceLanguageUpdate("auto", ["es-MX"])).toEqual({
+      type: "session.instructions.append",
+      delegation_id: null,
+      content: "Speak in es unless the user asks to switch languages.",
     });
   });
 
@@ -1066,6 +1075,22 @@ describe("Realtime voice startup and transcript ordering", () => {
     expect(published).toEqual([
       { role: "user", text: "Can you help me?" },
       { role: "assistant", text: "Absolutely." },
+    ]);
+
+    sequencer.handle({
+      type: "session.input_transcript.delta",
+      delta: "Next question.",
+    });
+    sequencer.handle({
+      type: "session.output_transcript.delta",
+      delta: "Next answer.",
+    });
+    sequencer.handle({ type: "response.completed" });
+    expect(published).toEqual([
+      { role: "user", text: "Can you help me?" },
+      { role: "assistant", text: "Absolutely." },
+      { role: "user", text: "Next question." },
+      { role: "assistant", text: "Next answer." },
     ]);
   });
 });

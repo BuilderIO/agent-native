@@ -39,6 +39,7 @@ const REALTIME_VOICE_MAX_TOOLS = 32;
 const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
 const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
 const REALTIME_VOICE_TOOL_UPDATE_TIMEOUT_MS = 5_000;
+const REALTIME_VOICE_LIVE_CLOSE_DRAIN_TIMEOUT_MS = 2_000;
 const REALTIME_VOICE_PRIORITY_TOOL_NAMES = [
   "navigate",
   "set-url-path",
@@ -109,6 +110,18 @@ export const REALTIME_VOICE_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
 };
 
 type RealtimeServerEvent = Record<string, unknown> & { type?: string };
+
+function normalizeRealtimeVoiceResponseEvent(
+  event: RealtimeServerEvent,
+): RealtimeServerEvent {
+  const nestedEvent = event.event;
+  return event.type === "response.event" &&
+    nestedEvent &&
+    typeof nestedEvent === "object" &&
+    !Array.isArray(nestedEvent)
+    ? (nestedEvent as RealtimeServerEvent)
+    : event;
+}
 
 export interface RealtimeVoiceToolResult {
   callId: string;
@@ -327,6 +340,21 @@ export function createRealtimeVoicePreferenceUpdate(
   };
 }
 
+export function createRealtimeVoiceLanguageUpdate(
+  language: RealtimeVoiceLanguage,
+  browserLanguages: readonly string[] = [],
+): Record<string, unknown> {
+  const resolvedLanguage = resolveRealtimeVoiceLanguage(
+    language,
+    browserLanguages,
+  );
+  return {
+    type: "session.instructions.append",
+    delegation_id: null,
+    content: `Speak in ${resolvedLanguage} unless the user asks to switch languages.`,
+  };
+}
+
 export interface CompletedRealtimeVoiceTranscript {
   role: "user" | "assistant";
   text: string;
@@ -419,12 +447,9 @@ export function createRealtimeVoiceTranscriptSequencer(
       }
       if (
         event.type === "session.closed" ||
-        (event.type === "response.event" &&
-          event.event &&
-          typeof event.event === "object" &&
-          !Array.isArray(event.event) &&
-          ((event.event as RealtimeServerEvent).type === "response.completed" ||
-            (event.event as RealtimeServerEvent).type === "response.done"))
+        normalizeRealtimeVoiceResponseEvent(event).type ===
+          "response.completed" ||
+        normalizeRealtimeVoiceResponseEvent(event).type === "response.done"
       ) {
         flushLiveTranscript();
       }
@@ -621,14 +646,7 @@ export function createRealtimeVoiceResponseCoordinator(
       flush();
     },
     handleEvent(event) {
-      const nestedEvent = event.event;
-      const responseEvent =
-        event.type === "response.event" &&
-        nestedEvent &&
-        typeof nestedEvent === "object" &&
-        !Array.isArray(nestedEvent)
-          ? (nestedEvent as RealtimeServerEvent)
-          : event;
+      const responseEvent = normalizeRealtimeVoiceResponseEvent(event);
       if (responseEvent.type === "response.created") {
         active = true;
         requestInFlight = false;
@@ -1530,6 +1548,7 @@ function useRealtimeVoiceModeController(
   const lastUserTextRef = useRef("");
   const lastAssistantTextRef = useRef("");
   const transcriptThreadIdRef = useRef<string | undefined>(undefined);
+  const liveCloseDrainTimerRef = useRef<number | null>(null);
   const transcriptSequenceRef = useRef(0);
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
@@ -1652,6 +1671,12 @@ function useRealtimeVoiceModeController(
     (language: RealtimeVoiceLanguage) => {
       const next = { ...preferencesRef.current, language };
       savePreferences(next);
+      if (protocolRef.current === "live") {
+        sendDataChannelEvent(
+          channelRef.current,
+          createRealtimeVoiceLanguageUpdate(language, navigator.languages),
+        );
+      }
       updateLivePreferences(next);
     },
     [savePreferences, updateLivePreferences],
@@ -1837,6 +1862,10 @@ function useRealtimeVoiceModeController(
   switchMicrophoneRef.current = setMicrophone;
 
   const cleanupTransport = useCallback(() => {
+    if (liveCloseDrainTimerRef.current !== null) {
+      window.clearTimeout(liveCloseDrainTimerRef.current);
+      liveCloseDrainTimerRef.current = null;
+    }
     connectionGateRef.current?.cancel();
     connectionGateRef.current = null;
     transportGenerationRef.current += 1;
@@ -1968,6 +1997,10 @@ function useRealtimeVoiceModeController(
       responseCoordinator.handleEvent(event);
       transcriptSequencer.handle(event);
       greetingStarter.handleEvent(event);
+      const responseEvent = normalizeRealtimeVoiceResponseEvent(event);
+      const responseBoundary =
+        responseEvent.type === "response.done" ||
+        responseEvent.type === "response.completed";
       const sessionLifecycle =
         event.type === "session.started" || event.type === "session.created";
       if (sessionLifecycle) {
@@ -2031,8 +2064,8 @@ function useRealtimeVoiceModeController(
         transition("speaking");
       } else if (event.type === "session.closed") {
         transcriptSequencer.flush();
-      } else if (event.type === "response.done") {
-        const response = event.response;
+      } else if (responseEvent.type === "response.done") {
+        const response = responseEvent.response;
         const status =
           response && typeof response === "object"
             ? (response as { status?: unknown }).status
@@ -2042,16 +2075,18 @@ function useRealtimeVoiceModeController(
           handledCallsRef.current.clear();
           responseCoordinator.reset();
           toolManifestCoordinator.reset();
+          lastUserTextRef.current = "";
+          lastAssistantTextRef.current = "";
           transition("listening");
           return;
         }
-      } else if (event.type === "response.completed") {
-        transition("listening");
-      } else if (event.type === "response.failed") {
+      } else if (responseEvent.type === "response.failed") {
         transportGenerationRef.current += 1;
         handledCallsRef.current.clear();
         responseCoordinator.reset();
         toolManifestCoordinator.reset();
+        lastUserTextRef.current = "";
+        lastAssistantTextRef.current = "";
         transition("listening");
         return;
       } else if (event.type === "error") {
@@ -2095,19 +2130,12 @@ function useRealtimeVoiceModeController(
 
       const calls = extractRealtimeVoiceFunctionCalls(event);
       for (const call of calls) void handleFunctionCall(call);
-      if (
-        (event.type === "response.done" ||
-          event.type === "response.completed" ||
-          (event.type === "response.event" &&
-            event.event &&
-            typeof event.event === "object" &&
-            !Array.isArray(event.event) &&
-            ((event.event as RealtimeServerEvent).type === "response.done" ||
-              (event.event as RealtimeServerEvent).type ===
-                "response.completed"))) &&
-        calls.length === 0
-      ) {
+      if (responseBoundary && calls.length === 0) {
         transition("listening");
+      }
+      if (responseBoundary) {
+        lastUserTextRef.current = "";
+        lastAssistantTextRef.current = "";
       }
     },
     [
@@ -2224,7 +2252,7 @@ function useRealtimeVoiceModeController(
       channelRef.current = channel;
       channel.onopen = connectionGate.markTransportReady;
       channel.onmessage = (messageEvent) => {
-        if (!isCurrentAttempt()) return;
+        if (!isCurrentAttempt() || stateRef.current === "ending") return;
         try {
           handleServerEvent(JSON.parse(String(messageEvent.data)));
         } catch {
@@ -2232,7 +2260,7 @@ function useRealtimeVoiceModeController(
         }
       };
       channel.onerror = () => {
-        if (!isCurrentAttempt()) return;
+        if (!isCurrentAttempt() || stateRef.current === "ending") return;
         fail(
           copy?.errors.channelDisconnected ??
             t("agentChat.voiceMode.errors.channelDisconnected", {
@@ -2241,7 +2269,7 @@ function useRealtimeVoiceModeController(
         );
       };
       peer.onconnectionstatechange = () => {
-        if (!isCurrentAttempt()) return;
+        if (!isCurrentAttempt() || stateRef.current === "ending") return;
         if (peer.connectionState === "connected") {
           connectionGate.markTransportReady();
         }
@@ -2328,37 +2356,49 @@ function useRealtimeVoiceModeController(
     if (stateRef.current === "idle" || stateRef.current === "ending") return;
     const transcriptThreadId = transcriptThreadIdRef.current;
     const activeThreadId = realtimeVoiceTranscriptRegistry.activeThreadId();
+    const protocol = protocolRef.current;
     transition("ending");
     transcriptSequencer.flush();
-    if (protocolRef.current === "live") {
+    if (protocol === "live") {
       sendDataChannelEvent(channelRef.current, {
         type: "session.close",
         event_id: "realtime_voice_session_close",
       });
     }
-    cleanupTransport();
-    setError(null);
-    sessionIdRef.current = undefined;
-    startedAtRef.current = undefined;
-    transcriptThreadIdRef.current = undefined;
-    setChatVisible(true);
-    if (
-      shouldRestoreRealtimeVoiceTranscriptThread(
-        transcriptThreadId,
-        activeThreadId,
-      )
-    ) {
-      adapters.agentChat!.requestThreadOpen!({
-        threadId: transcriptThreadId,
-        // The request is delivered asynchronously. Re-checking this at the
-        // receiver prevents a navigation that happened during that gap from
-        // being overwritten.
-        onlyIfActiveThreadId: transcriptThreadId,
-      });
-    } else {
-      window.dispatchEvent(new Event("agent-panel:open"));
+    const finish = () => {
+      liveCloseDrainTimerRef.current = null;
+      cleanupTransport();
+      setError(null);
+      sessionIdRef.current = undefined;
+      startedAtRef.current = undefined;
+      transcriptThreadIdRef.current = undefined;
+      setChatVisible(true);
+      if (
+        shouldRestoreRealtimeVoiceTranscriptThread(
+          transcriptThreadId,
+          activeThreadId,
+        )
+      ) {
+        adapters.agentChat!.requestThreadOpen!({
+          threadId: transcriptThreadId,
+          // The request is delivered asynchronously. Re-checking this at the
+          // receiver prevents a navigation that happened during that gap from
+          // being overwritten.
+          onlyIfActiveThreadId: transcriptThreadId,
+        });
+      } else {
+        window.dispatchEvent(new Event("agent-panel:open"));
+      }
+      transition("idle");
+    };
+    if (protocol === "live") {
+      liveCloseDrainTimerRef.current = window.setTimeout(
+        finish,
+        REALTIME_VOICE_LIVE_CLOSE_DRAIN_TIMEOUT_MS,
+      );
+      return;
     }
-    transition("idle");
+    finish();
   }, [adapters, cleanupTransport, transcriptSequencer, transition]);
 
   const toggleChat = useCallback(() => {
