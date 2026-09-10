@@ -1009,6 +1009,7 @@ const messages = {
       layerMoveRedirected: "已移至原位置附近——精確的放置目標無法編輯",
       duplicateElementFailed: "無法複製該元素",
       repeatListNotEditable: "無法更新此重複清單",
+      repeatRowPickOnCanvas: "在畫布上雙擊某一列以編輯其文字",
       eyedropperUnsupported: "此瀏覽器不支援取色器",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",

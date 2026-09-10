@@ -40,6 +40,7 @@ function makeNode(overrides: Partial<CodeLayerNode> = {}): CodeLayerNode {
     layerName: overrides.layerName ?? "Div",
     layerNameSource: overrides.layerNameSource ?? "tag",
     paintsOwnText: overrides.paintsOwnText ?? false,
+    repeatXFor: overrides.repeatXFor ?? null,
     selector,
     selectors: overrides.selectors ?? [selector],
     path: overrides.path ?? selector,

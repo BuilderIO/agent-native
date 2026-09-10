@@ -152,6 +152,7 @@ describe("what it declines to do", () => {
     });
 
     expect(result.status).toBe("refused");
+    expect(result.status === "refused" && result.refusal).toBe("no-item");
   });
 
   it("refuses a collection it cannot locate as a literal", () => {
@@ -162,7 +163,7 @@ describe("what it declines to do", () => {
     });
 
     expect(result.status).toBe("refused");
-    expect(result.status === "refused" && result.reason).toBeTruthy();
+    expect(result.status === "refused" && result.refusal).toBe("unwritable");
   });
 
   it("refuses an index past the end of the collection", () => {

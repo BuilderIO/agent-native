@@ -12,9 +12,15 @@ export type RepeatItemOperation =
   | { kind: "move"; to: number }
   | { kind: "set-value"; binding: string; value: string };
 
+export type RepeatItemRefusal =
+  /** The selection is the layer, which renders every row — no single item. */
+  | "no-item"
+  /** The collection or field cannot be written from here. */
+  | "unwritable";
+
 export type RepeatItemEditResult =
   | { status: "written"; content: string }
-  | { status: "refused"; reason: string }
+  | { status: "refused"; refusal: RepeatItemRefusal; reason: string }
   | { status: "not-a-repeat" };
 
 export interface RepeatItemTarget {
@@ -40,6 +46,7 @@ export function runRepeatItemEdit(args: {
   if (!Number.isInteger(target.itemIndex) || target.itemIndex < 0) {
     return {
       status: "refused",
+      refusal: "no-item",
       reason: `Could not tell which item of "${target.xFor}" this row renders.`,
     };
   }
@@ -70,7 +77,7 @@ export function runRepeatItemEdit(args: {
 
   return write.status === "written"
     ? { status: "written", content: write.html }
-    : { status: "refused", reason: write.reason };
+    : { status: "refused", refusal: "unwritable", reason: write.reason };
 }
 
 /**
@@ -87,6 +94,7 @@ function setValue(
   if (!itemVariable) {
     return {
       status: "refused",
+      refusal: "unwritable",
       reason: `Could not read an item name out of "${target.xFor}".`,
     };
   }
@@ -94,6 +102,7 @@ function setValue(
   if (!bindingTarget) {
     return {
       status: "refused",
+      refusal: "unwritable",
       reason: `"${operation.binding}" is computed, so it has no single value to write.`,
     };
   }
@@ -106,5 +115,5 @@ function setValue(
   });
   return write.status === "written"
     ? { status: "written", content: write.html }
-    : { status: "refused", reason: write.reason };
+    : { status: "refused", refusal: "unwritable", reason: write.reason };
 }

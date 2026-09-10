@@ -114,19 +114,28 @@ export function runTextContentChange(
   }
   const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
   const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
+  const projection = buildCodeLayerProjection(baseContent);
+  const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
+  const targetNode = targetInfo
+    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+    : resolveCodeLayerNodeFromBridge(projection, selector);
   // An x-text row shows a value from the collection, so its text has one home:
   // the item. A markup edit changes nothing — the next render puts the data
-  // back — which reads as "editing the text does nothing".
-  const repeat = elementInfo?.repeat;
-  if (repeat?.xFor && repeat.textBinding) {
+  // back. Read from the projection, not from the bridge payload, so this does
+  // not depend on which bridge build the iframe happens to be running.
+  const repeatXFor = targetNode?.repeatXFor;
+  const textBinding =
+    typeof targetNode?.attributes["x-text"] === "string"
+      ? targetNode.attributes["x-text"]
+      : "";
+  if (repeatXFor && textBinding) {
     const edit = runRepeatItemEdit({
       content: baseContent,
-      target: repeat,
-      operation: {
-        kind: "set-value",
-        binding: repeat.textBinding,
-        value,
+      target: {
+        xFor: repeatXFor,
+        itemIndex: elementInfo?.repeat?.itemIndex ?? -1,
       },
+      operation: { kind: "set-value", binding: textBinding, value },
     });
     if (edit.status === "written") {
       applyLocalContentUpdate(edit.content, {
@@ -141,15 +150,16 @@ export function runTextContentChange(
         operation: "set-value",
         reason: edit.reason,
       });
-      toast.error(t("designEditor.toasts.repeatListNotEditable"));
+      toast.error(
+        t(
+          edit.refusal === "no-item"
+            ? "designEditor.toasts.repeatRowPickOnCanvas"
+            : "designEditor.toasts.repeatListNotEditable",
+        ),
+      );
       return;
     }
   }
-  const projection = buildCodeLayerProjection(baseContent);
-  const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
-  const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
-    : resolveCodeLayerNodeFromBridge(projection, selector);
   const isEmpty = value.trim().length === 0;
   const removedContent =
     isEmpty && targetNode

@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -62,15 +60,6 @@ describe("x-if content is reachable", () => {
 
     expect(body?.dataAttributes["data-agent-native-node-id"]).toBeTruthy();
   });
-
-  it("reaches the real settings panel your design hides", () => {
-    const html = readFileSync("/tmp/d-one.html", "utf8");
-    const nodes = project(html);
-    const text = nodes.map((node) => node.textSnippet ?? "").join(" | ");
-
-    expect(text).toContain("API access tokens");
-    expect(text).toContain("Session timeout");
-  });
 });
 
 describe("x-for content is reachable", () => {
@@ -80,12 +69,6 @@ describe("x-for content is reachable", () => {
 
     expect(rows).toHaveLength(1);
     expect(nodes.some((node) => node.classes.includes("label"))).toBe(true);
-  });
-
-  it("projects every repeat in your sprint board", () => {
-    const html = readFileSync("/tmp/d-two.html", "utf8");
-    const before = 24;
-    expect(project(html).length).toBeGreaterThan(before);
   });
 });
 

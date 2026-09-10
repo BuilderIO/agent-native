@@ -1136,6 +1136,7 @@ const enUS = {
         "Moved next to its original spot — the exact drop target isn't editable",
       duplicateElementFailed: "Could not duplicate that element",
       repeatListNotEditable: "Couldn't update this repeated list",
+      repeatRowPickOnCanvas: "Double-click a row on the canvas to edit its text",
       eyedropperUnsupported: "Eyedropper isn't supported in this browser",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
@@ -10201,6 +10202,7 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected: "已移动到原位置附近——精确的放置目标不可编辑",
         duplicateElementFailed: "无法复制该元素",
         repeatListNotEditable: "无法更新此重复列表",
+        repeatRowPickOnCanvas: "在画布上双击某一行以编辑其文本",
         eyedropperUnsupported: "此浏览器不支持取色器",
       },
     },
@@ -10308,6 +10310,7 @@ const designCanvasFeatureOverrides = {
           "Se movió cerca de su lugar original — el destino exacto no es editable",
         duplicateElementFailed: "No se pudo duplicar ese elemento",
         repeatListNotEditable: "No se pudo actualizar esta lista repetida",
+        repeatRowPickOnCanvas: "Haz doble clic en una fila del lienzo para editar su texto",
         eyedropperUnsupported:
           "El cuentagotas no es compatible con este navegador",
       },
@@ -10419,6 +10422,7 @@ const designCanvasFeatureOverrides = {
         duplicateElementFailed: "Impossible de dupliquer cet élément",
         repeatListNotEditable:
           "Impossible de mettre à jour cette liste répétée",
+        repeatRowPickOnCanvas: "Double-cliquez sur une ligne du canevas pour modifier son texte",
         eyedropperUnsupported:
           "La pipette n'est pas prise en charge par ce navigateur",
       },
@@ -10530,6 +10534,7 @@ const designCanvasFeatureOverrides = {
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
         repeatListNotEditable:
           "Diese wiederholte Liste konnte nicht aktualisiert werden",
+        repeatRowPickOnCanvas: "Doppelklicke auf eine Zeile auf der Leinwand, um ihren Text zu bearbeiten",
         eyedropperUnsupported:
           "Die Pipette wird von diesem Browser nicht unterstützt",
       },
@@ -10637,6 +10642,7 @@ const designCanvasFeatureOverrides = {
           "元の位置の近くに移動しました — 正確なドロップ先は編集できません",
         duplicateElementFailed: "その要素を複製できませんでした",
         repeatListNotEditable: "この繰り返しリストを更新できませんでした",
+        repeatRowPickOnCanvas: "キャンバス上の行をダブルクリックしてテキストを編集してください",
         eyedropperUnsupported: "このブラウザではスポイトツールを使用できません",
       },
     },
@@ -10743,6 +10749,7 @@ const designCanvasFeatureOverrides = {
           "원래 위치 근처로 이동되었습니다 — 정확한 놓기 대상은 편집할 수 없습니다",
         duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
         repeatListNotEditable: "이 반복 목록을 업데이트할 수 없습니다",
+        repeatRowPickOnCanvas: "캔버스에서 행을 두 번 클릭해 텍스트를 편집하세요",
         eyedropperUnsupported: "이 브라우저에서는 스포이드를 지원하지 않습니다",
       },
     },
@@ -10850,6 +10857,7 @@ const designCanvasFeatureOverrides = {
           "Movido para perto do local original — o destino exato não é editável",
         duplicateElementFailed: "Não foi possível duplicar esse elemento",
         repeatListNotEditable: "Não foi possível atualizar esta lista repetida",
+        repeatRowPickOnCanvas: "Clique duas vezes em uma linha na tela para editar o texto",
         eyedropperUnsupported:
           "O conta-gotas não é compatível com este navegador",
       },
@@ -10957,6 +10965,7 @@ const designCanvasFeatureOverrides = {
           "मूल स्थान के पास ले जाया गया — सटीक ड्रॉप लक्ष्य संपादन योग्य नहीं है",
         duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
         repeatListNotEditable: "यह दोहराई गई सूची अपडेट नहीं हो सकी",
+        repeatRowPickOnCanvas: "टेक्स्ट बदलने के लिए कैनवास पर किसी पंक्ति पर डबल-क्लिक करें",
         eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
       },
     },
@@ -11063,6 +11072,7 @@ const designCanvasFeatureOverrides = {
           "تم النقل بالقرب من الموضع الأصلي — الهدف الدقيق للإفلات غير قابل للتحرير",
         duplicateElementFailed: "تعذّر تكرار هذا العنصر",
         repeatListNotEditable: "لم يتمكن من تحديث هذه القائمة المتكررة",
+        repeatRowPickOnCanvas: "انقر نقرًا مزدوجًا على صف في اللوحة لتعديل نصه",
         eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
       },
     },

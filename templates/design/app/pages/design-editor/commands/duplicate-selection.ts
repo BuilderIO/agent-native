@@ -130,7 +130,13 @@ export function runDuplicateSelection({
         operation: "duplicate",
         reason: edit.reason,
       });
-      toast.error(t("designEditor.toasts.repeatListNotEditable"));
+      toast.error(
+        t(
+          edit.refusal === "no-item"
+            ? "designEditor.toasts.repeatRowPickOnCanvas"
+            : "designEditor.toasts.repeatListNotEditable",
+        ),
+      );
       return;
     }
   }

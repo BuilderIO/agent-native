@@ -88,15 +88,34 @@ function matchBracket(source: string, openIndex: number): number {
   return -1;
 }
 
+type ArrayLiteralLookup =
+  | { status: "found"; span: RepeatSpan }
+  | { status: "absent" }
+  /** A name that cannot be resolved to one array without guessing. */
+  | { status: "ambiguous"; reason: string };
+
+/**
+ * Locate the one array literal a collection names. A dotted path
+ * (`column.cards`) is refused rather than matched by its leaf: several objects
+ * can own a `cards` array, and picking the first writes a different collection
+ * while reporting success.
+ */
 function locateArrayLiteral(
   html: string,
   collection: string,
-): RepeatSpan | null {
-  const leaf = collection.split(".").pop() ?? collection;
+): ArrayLiteralLookup {
+  if (collection.includes(".")) {
+    return {
+      status: "ambiguous",
+      reason: `"${collection}" is nested inside another collection, so it cannot be located without guessing which one.`,
+    };
+  }
+  const leaf = collection;
   const pattern = new RegExp(
     `(?:^|[^A-Za-z0-9_$.])${leaf.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*[:=]\\s*\\[`,
     "g",
   );
+  const spans: RepeatSpan[] = [];
   for (const region of scriptRegions(html)) {
     const body = html.slice(region.start, region.end);
     pattern.lastIndex = 0;
@@ -106,13 +125,20 @@ function locateArrayLiteral(
       if (openIndex === -1) continue;
       const closeIndex = matchBracket(body, openIndex);
       if (closeIndex === -1) continue;
-      return {
+      spans.push({
         start: region.start + openIndex,
         end: region.start + closeIndex + 1,
-      };
+      });
     }
   }
-  return null;
+  if (spans.length === 0) return { status: "absent" };
+  if (spans.length > 1) {
+    return {
+      status: "ambiguous",
+      reason: `"${collection}" is declared ${spans.length} times in this document.`,
+    };
+  }
+  return { status: "found", span: spans[0]! };
 }
 
 interface Cursor {
@@ -243,14 +269,18 @@ export function readRepeatData(html: string, xFor: string): RepeatDataRead {
       reason: "The iterated expression is not a plain identifier.",
     };
   }
-  const arraySpan = locateArrayLiteral(html, collection);
-  if (!arraySpan) {
+  const lookup = locateArrayLiteral(html, collection);
+  if (lookup.status === "ambiguous") {
+    return { status: "unsupported", collection, reason: lookup.reason };
+  }
+  if (lookup.status === "absent") {
     return {
       status: "not-found",
       collection,
       reason: `No array literal named "${collection}" is declared in this document.`,
     };
   }
+  const arraySpan = lookup.span;
   const inner = html.slice(arraySpan.start + 1, arraySpan.end - 1);
   const cursor: Cursor = { source: inner, at: 0 };
   const items: RepeatDataItem[] = [];

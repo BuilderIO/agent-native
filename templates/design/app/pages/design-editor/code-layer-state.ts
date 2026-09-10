@@ -502,6 +502,24 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
     hasOwnText: node.paintsOwnText,
+    // A layers-panel selection is the LAYER, which renders every row, so no
+    // single item index exists. Reported anyway so a content edit refuses with
+    // a reason instead of writing markup the next render throws away.
+    ...(node.repeatXFor
+      ? {
+          repeat: {
+            sourceSelector: preferredCodeLayerSelector(node),
+            instanceCount: 0,
+            instanceIndex: 0,
+            xFor: node.repeatXFor,
+            itemIndex: -1,
+            textBinding:
+              typeof node.attributes["x-text"] === "string"
+                ? node.attributes["x-text"]
+                : "",
+          },
+        }
+      : {}),
     childElementCount: node.children.length,
     isFlexChild: node.layout.parentDisplay?.includes("flex") ? true : false,
     isFlexContainer: node.layout.isFlexContainer,

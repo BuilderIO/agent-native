@@ -184,7 +184,13 @@ export function runDeleteSelection({
         operation: "remove",
         reason: edit.reason,
       });
-      toast.error(t("designEditor.toasts.repeatListNotEditable"));
+      toast.error(
+        t(
+          edit.refusal === "no-item"
+            ? "designEditor.toasts.repeatRowPickOnCanvas"
+            : "designEditor.toasts.repeatListNotEditable",
+        ),
+      );
       return;
     }
   }

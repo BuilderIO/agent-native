@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import { buildCodeLayerProjection, buildCodeLayerTree } from "./code-layer";
@@ -65,22 +63,5 @@ describe("component identity is the annotation, not a guess at the class name", 
     expect(
       buildCodeLayerProjection(html).nodes.filter(isComponentInstance),
     ).toHaveLength(1);
-  });
-});
-
-describe("against the real generated design", () => {
-  it("marks no element whose only claim is a class name", () => {
-    const html = readFileSync("/tmp/d-three.html", "utf8");
-    const nodes = buildCodeLayerProjection(html).nodes;
-    const annotated = nodes.filter(isComponentInstance).length;
-    const formControls = nodes.filter(
-      (node) =>
-        !isComponentInstance(node) &&
-        ["button", "input", "select", "textarea"].includes(node.tag),
-    ).length;
-
-    expect(annotated).toBe(8);
-    // Was 13: `card`, `control-panel` and `product-card-wrapper` divs too.
-    expect(componentNames(html)).toHaveLength(annotated + formControls);
   });
 });

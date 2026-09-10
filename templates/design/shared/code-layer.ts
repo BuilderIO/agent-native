@@ -307,6 +307,8 @@ export interface CodeLayerNode {
   textSnippet: string | null;
   /** Text this element holds directly, not text a child holds. */
   paintsOwnText: boolean;
+  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
+  repeatXFor: string | null;
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   styleTokens: StyleToken[];
   parentId?: string;
@@ -647,6 +649,8 @@ export interface PatchNodeSummary {
   textSnippet: string | null;
   /** Text this element holds directly, not text a child holds. */
   paintsOwnText: boolean;
+  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
+  repeatXFor: string | null;
 }
 
 export interface PatchResult {
@@ -2358,6 +2362,26 @@ function paintsOwnTextFor(
   return Boolean(html.slice(at, element.contentEnd).trim());
 }
 
+/** The `x-for` of the nearest enclosing template, for a node inside a repeat. */
+function repeatXForFor(
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): string | null {
+  let at = element.parentIndex;
+  while (at !== undefined) {
+    const ancestor = elements[at];
+    if (!ancestor) return null;
+    if (ancestor.tag === "template") {
+      const xFor = ancestor.attributes.find(
+        (attribute) => attribute.name === "x-for",
+      );
+      if (xFor && typeof xFor.value === "string") return xFor.value;
+    }
+    at = ancestor.parentIndex;
+  }
+  return null;
+}
+
 function layerNameFor(
   html: string,
   element: ParsedElement,
@@ -2722,6 +2746,7 @@ function buildProjection(
       classes,
       textSnippet: textSnippetFor(html, element),
       paintsOwnText: paintsOwnTextFor(html, element, elements),
+      repeatXFor: repeatXForFor(element, elements),
       style,
       styleTokens: styleTokensFor(element),
       parentId,
@@ -3432,6 +3457,7 @@ function summarizeNode(node: CodeLayerNode): PatchNodeSummary {
     style: { ...node.style },
     textSnippet: node.textSnippet,
     paintsOwnText: node.paintsOwnText,
+    repeatXFor: node.repeatXFor,
   };
 }
 
