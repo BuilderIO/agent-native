@@ -1,13 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
   findNetlifyReleaseMigrationIssues,
   validateBetaPrebuiltReleaseEnvironment,
-  validateBetaSchemaOwnerRuntimeContract,
   validateFrameworkOnlyReleaseScript,
   validateManagedDrizzleMigrationOwnership,
   validateNetlifyReleaseMigrationConfig,
@@ -85,33 +81,15 @@ describe("Netlify release migration guard", () => {
     );
   });
 
-  it("leaves Clips beta schema ownership to the prebuilt workflow", () => {
-    const source =
-      `[build]\ncommand = "if [ \\\"\${agentNativePrebuiltBuild:-}\\\" != \\\"true\\\" ]; then pnpm migrate:production; fi"\n\n` +
-      `[context.production.environment]\nAGENT_NATIVE_RELEASE_MIGRATIONS = "1"\n`;
-    assert.deepEqual(
-      validatePublishedNetlifyReleaseMigrationConfig(
-        source,
-        "templates/clips/netlify.toml",
-        "clips",
-      ),
-      [],
-    );
-  });
-
   it("requires all beta-only runtime flags in the reusable build lane", () => {
     const source = `if [[ "$TARGET" == "beta" ]]; then
-  if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then
-    export AGENT_NATIVE_RELEASE_MIGRATIONS=1
-    export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
-  else
-    export AGENT_NATIVE_BETA_SCHEMA_OWNER=production
-  fi
+  export AGENT_NATIVE_RELEASE_MIGRATIONS=1
+  export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
   export AGENT_NATIVE_ENABLE_KEEP_WARM=1
   export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
   export AGENT_NATIVE_HOSTED_HARNESS=true
 fi
-if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
+if [[ "$SKIP_BUILD_MIGRATIONS" == "true" ]]; then`;
     assert.deepEqual(validateBetaPrebuiltReleaseEnvironment(source), []);
     assert.notDeepEqual(
       validateBetaPrebuiltReleaseEnvironment(
@@ -121,22 +99,13 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
     );
     assert.notDeepEqual(
       validateBetaPrebuiltReleaseEnvironment(
-        source.replace("export AGENT_NATIVE_BETA_SCHEMA_OWNER=production", ""),
+        source.replace("export AGENT_NATIVE_RELEASE_MIGRATIONS=1", ""),
       ),
       [],
     );
     assert.notDeepEqual(
       validateBetaPrebuiltReleaseEnvironment(
-        source.replace(
-          "else\n    export AGENT_NATIVE_BETA_SCHEMA_OWNER=production\n  fi",
-          "fi\n  export AGENT_NATIVE_BETA_SCHEMA_OWNER=production",
-        ),
-      ),
-      [],
-    );
-    assert.notDeepEqual(
-      validateBetaPrebuiltReleaseEnvironment(
-        source.replace('if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then', ""),
+        source.replace("export AGENT_NATIVE_HOSTED_HARNESS=true", ""),
       ),
       [],
     );
@@ -188,59 +157,5 @@ try {
       ),
       [],
     );
-  });
-
-  it("requires the beta schema owner marker to reach runtime", () => {
-    assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(), []);
-  });
-
-  it("accepts the config-backed migration consumer without a raw env read", () => {
-    const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
-    try {
-      for (const relativeFile of [
-        "packages/core/src/db/migrations.ts",
-        "packages/core/src/vite/client.ts",
-        "packages/core/src/deploy/build.ts",
-      ]) {
-        const file = path.join(repoRoot, relativeFile);
-        mkdirSync(path.dirname(file), { recursive: true });
-        writeFileSync(
-          file,
-          relativeFile.endsWith("migrations.ts")
-            ? 'import { getAppConfig } from "../app-config/index.js";\nreturn getAppConfig().migration.betaSchemaOwner;\n'
-            : "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER\n",
-        );
-      }
-
-      assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(repoRoot), []);
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects a migration runtime that stops consuming the config marker", () => {
-    const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
-    try {
-      for (const relativeFile of [
-        "packages/core/src/db/migrations.ts",
-        "packages/core/src/vite/client.ts",
-        "packages/core/src/deploy/build.ts",
-      ]) {
-        const file = path.join(repoRoot, relativeFile);
-        mkdirSync(path.dirname(file), { recursive: true });
-        writeFileSync(
-          file,
-          relativeFile.endsWith("migrations.ts")
-            ? "export function runMigrations() {}\n"
-            : "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER\n",
-        );
-      }
-
-      assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(repoRoot), [
-        "packages/core/src/db/migrations.ts: must consume or embed AGENT_NATIVE_BETA_SCHEMA_OWNER instead of treating it as a config-only marker",
-      ]);
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true });
-    }
   });
 });

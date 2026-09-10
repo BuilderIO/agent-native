@@ -251,7 +251,7 @@ describe("production Netlify site concurrency guard", () => {
       String(betaConcurrency.group),
       /'deploy-agent-native-beta-sites-prebuilt'/,
     );
-    assert.equal((beta.permissions as Workflow).contents, "write");
+    assert.equal((beta.permissions as Workflow).contents, "read");
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
       8,
@@ -265,144 +265,17 @@ describe("production Netlify site concurrency guard", () => {
     assert.deepEqual((beta.jobs as Workflow).deploy.needs, [
       "resolve-source",
       "discover-sites",
-      "schema-gate",
     ]);
-    const schemaGate = (beta.jobs as Workflow)["schema-gate"] as Workflow;
-    assert.equal(schemaGate.needs, "resolve-source");
-    const schemaGateStep = (schemaGate.steps as Array<Workflow>).find(
-      (step) =>
-        step.name ===
-        "Detect schema-dependent beta code without production migration",
-    );
-    assert.match(String(schemaGateStep?.run), /migrated_source_sha/);
-    assert.match(String(schemaGateStep?.run), /base_sha_input/);
-    assert.equal(
-      schemaGateStep?.env?.base_sha_input,
-      "${{ github.event.before }}",
-    );
-    assert.match(
-      String(schemaGateStep?.run),
-      /git hash-object -t tree \/dev\/null/,
-    );
-    assert.match(String(schemaGateStep?.run), /git diff --name-only/);
-    assert.match(String(schemaGateStep?.run), /grep -E/);
-    assert.doesNotMatch(String(schemaGateStep?.run), /\brg\b/);
-    assert.match(String(schemaGateStep?.run), /\[\[ "\$status" -eq 1 \]\]/);
-    assert.match(
-      String(schemaGateStep?.run),
-      /git tag --list 'agent-native-beta-pending\/\*'/,
-    );
-    assert.match(String(schemaGateStep?.run), /agent-native-beta-migrated/);
-    assert.match(String(schemaGateStep?.run), /unresolved_pending_sha/);
-    assert.match(String(schemaGateStep?.run), /required_source_sha/);
-    assert.match(String(schemaGateStep?.run), /schema_files/);
-    assert.match(String(schemaGateStep?.run), /schema_files_between/);
-    assert.match(
-      String(schemaGateStep?.run),
-      /Ignoring obsolete beta migration marker/,
-    );
-    assert.match(
-      String(schemaGateStep?.run),
-      /if ! changed_files="\$\(git diff --name-only "\$1" "\$2"\)"/,
-    );
-    assert.match(
-      String(schemaGateStep?.run),
-      /pending_schema_files="\$\(schema_files_between "\$pending_base" "\$pending_sha"\)"/,
-    );
-    assert.match(String(schemaGateStep?.run), /\[\[ "\$status" -eq 0 \]\]/);
-    assert.match(
-      String(schemaGateStep?.run),
-      /is_ancestor "\$latest_migrated_sha" "\$pending_sha"/,
-    );
-    assert.doesNotMatch(
-      String(schemaGateStep?.run),
-      /packages\/core\/src\/db\/\|/,
-    );
-    const schemaPattern = String(schemaGateStep?.run).match(
-      /grep -E '([^']+)'/,
-    )?.[1];
-    assert(schemaPattern);
-    const classifiesAsSchemaDependent = new RegExp(schemaPattern).test.bind(
-      new RegExp(schemaPattern),
-    );
-    assert.equal(
-      classifiesAsSchemaDependent("packages/core/src/db/client.ts"),
-      false,
-    );
-    assert.equal(
-      classifiesAsSchemaDependent("packages/core/src/db/schema.ts"),
-      true,
-    );
-    const schemaGateBlockStep = (schemaGate.steps as Array<Workflow>).find(
-      (step) =>
-        step.name ===
-        "Block schema-dependent beta code until production migration",
-    );
-    assert.match(String(schemaGateBlockStep?.run), /required_source_sha/);
-    const migrationMarkerStep = (schemaGate.steps as Array<Workflow>).find(
-      (step) => step.name === "Record pending beta migration marker",
-    );
-    assert.match(
-      String(schemaGateStep?.run),
-      /No production-owned migration marker exists/,
-    );
-    assert.match(String(migrationMarkerStep?.if), /record_pending/);
-    assert.match(
-      String(migrationMarkerStep?.with?.script),
-      /Concurrent beta pending marker/,
-    );
-    assert.match(String(migrationMarkerStep?.with?.script), /createRef/);
-    assert.equal(
-      (schemaGate.steps as Array<Workflow>)[0].with?.["fetch-depth"],
-      0,
-    );
     const production = readWorkflow(
       ".github/workflows/deploy-production-sites-prebuilt.yml",
     );
     const productionDiscover = (production.jobs as Workflow)[
       "discover-sites"
     ] as Workflow;
+    assert.equal(productionDiscover.outputs?.complete_fleet, undefined);
     assert.equal(
-      productionDiscover.outputs?.complete_fleet,
-      "${{ steps.matrix.outputs.complete_fleet }}",
-    );
-    assert.match(
-      String(productionDiscover.steps[1].run),
-      /completeFleet.*productionNames/s,
-    );
-    assert.match(
-      String(productionDiscover.steps[1].run),
-      /productionNames\.every/,
-    );
-    assert.match(
-      String(productionDiscover.steps[1].run),
-      /names\.includes\(name\)/,
-    );
-    assert.match(String(productionDiscover.steps[1].run), /buildable\.some/);
-    assert.doesNotMatch(
-      String(productionDiscover.steps[1].run),
-      /unsupported\.length\s*===\s*0/,
-    );
-    const productionMarker = (production.jobs as Workflow)[
-      "record-beta-migration"
-    ] as Workflow;
-    assert.match(
-      String(productionMarker.if),
-      /needs\.discover-sites\.outputs\.complete_fleet == 'true'/,
-    );
-    assert.match(
-      String(productionMarker.if),
-      /needs\.deploy\.result == 'success'/,
-    );
-    assert.deepEqual(productionMarker.needs, [
-      "resolve-source",
-      "discover-sites",
-      "deploy",
-    ]);
-    assert.equal((productionMarker.permissions as Workflow).contents, "write");
-    assert.match(
-      String(productionMarker.steps[0].with?.script),
-      /agent-native-beta-migrated/,
+      (production.jobs as Workflow)["record-beta-migration"],
+      undefined,
     );
     const reusable = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -831,7 +704,7 @@ describe("production Netlify site concurrency guard", () => {
 
     assert.match(
       workflow,
-      /ANALYTICS_DATABASE_URL_SECRET: \$\{\{ inputs\.target == 'production' && steps\.target\.outputs\.source_template == 'analytics' && secrets\.ANALYTICS_DATABASE_URL \|\| '' \}\}/,
+      /ANALYTICS_DATABASE_URL_SECRET: \$\{\{ \(inputs\.target == 'production' \|\| inputs\.target == 'beta'\) && steps\.target\.outputs\.source_template == 'analytics' && secrets\.ANALYTICS_DATABASE_URL \|\| '' \}\}/,
     );
     assert.match(build, /export ANALYTICS_DATABASE_URL_SECRET/);
     assert.match(analyticsNetlify, /ANALYTICS_DATABASE_URL_SECRET/);
@@ -991,7 +864,6 @@ describe("production Netlify site concurrency guard", () => {
     const verifyStart = workflow.indexOf("name: Verify deploy directories");
     assert.ok(migrationStart >= 0 && migrationStart < verifyStart);
     const migration = workflow.slice(migrationStart, verifyStart);
-    assert.match(migration, /inputs\.target == 'production'/);
     assert.match(migration, /inputs\.deploy_mode == 'production'/);
     assert.match(migration, /source_template == 'clips'/);
     assert.match(migration, /CLIPS_DATABASE_URL/);
@@ -1012,7 +884,6 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.ok(migrationStart > pauseStart && migrationStart < unlockStart);
     const migration = workflow.slice(migrationStart, unlockStart);
-    assert.match(migration, /inputs\.target == 'production'/);
     assert.match(migration, /inputs\.deploy_mode == 'production'/);
     assert.match(migration, /source_template == 'crm'/);
     assert.match(migration, /getSiteDatabase/);
@@ -1147,27 +1018,18 @@ describe("production Netlify site concurrency guard", () => {
     );
     const build = workflow.slice(buildStart, buildEnd);
     const betaStart = build.indexOf('if [[ "$TARGET" == "beta" ]]');
-    const clipsStart = build.indexOf(
-      'if [[ "$SOURCE_TEMPLATE" == "clips" ]]',
+    const betaEnd = build.indexOf(
+      'if [[ "$SKIP_BUILD_MIGRATIONS" == "true"',
       betaStart,
     );
-    const beta = build.slice(betaStart, clipsStart);
-    const nonClipsStart = beta.indexOf(
-      'if [[ "$SOURCE_TEMPLATE" != "clips" ]]',
-    );
-    const nonClipsEnd = beta.indexOf("\n          fi", nonClipsStart);
-    const nonClips = beta.slice(nonClipsStart, nonClipsEnd);
+    const beta = build.slice(betaStart, betaEnd);
 
+    // Beta and production share one database, so beta actually runs the
+    // release migration unconditionally rather than trusting production ran
+    // it — no per-template carve-out.
     for (const flag of [
       "AGENT_NATIVE_RELEASE_MIGRATIONS=1",
       "AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1",
-    ]) {
-      assert.match(
-        nonClips,
-        new RegExp(`export ${flag.replace(/[=]/g, "\\=")}`),
-      );
-    }
-    for (const flag of [
       "AGENT_NATIVE_ENABLE_KEEP_WARM=1",
       "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
       "AGENT_NATIVE_HOSTED_HARNESS=true",

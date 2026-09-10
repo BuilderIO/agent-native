@@ -194,11 +194,7 @@ function isServerlessRequestRuntime(): boolean {
 }
 
 function appMigratesAtRelease(): boolean {
-  const { migration } = getAppConfig();
-  return (
-    migration.releaseMigrations ||
-    migration.betaSchemaOwner?.toLowerCase() === "production"
-  );
+  return getAppConfig().migration.releaseMigrations;
 }
 
 export { withMigrationRuntime } from "./migration-runtime.js";

@@ -50,14 +50,15 @@ import { runFrameworkSchemaEnsures } from "./release-schema.js";
  * still reports success — `Applied migration ...` lines, a zero exit, a
  * published deploy — so this has to fail here or it fails silently forever.
  *
- * Scoped to `CONTEXT=production` on purpose. The beta lane deliberately builds
- * with `AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1` under a branch-deploy context
- * against masked site secrets, and its databases are migrated by their
- * production twin — so keying off that flag would fail every beta deploy while
- * never guarding the production one this exists for.
+ * Gated on `releaseMigrations` (`AGENT_NATIVE_RELEASE_MIGRATIONS=1`), not on
+ * `CONTEXT=production`. Beta and production share one database and both now
+ * run this release migration for real, so a masked or local credential must
+ * fail loudly in either lane — a beta deploy that silently skipped this check
+ * could "succeed" against a throwaway database while the shared schema never
+ * changed, which is exactly the failure mode this guard exists to catch.
  */
 function assertReleaseMigrationTargetsRemoteDatabase(): void {
-  if (getAppConfig().migration.deployContext !== "production") return;
+  if (!getAppConfig().migration.releaseMigrations) return;
   const url = getDatabaseUrl();
   // `isLocalDatabase()` alone is not enough. Netlify hands the CLI a MASKED
   // secret ("****************uire") outside its own build infra, and that is
@@ -66,7 +67,7 @@ function assertReleaseMigrationTargetsRemoteDatabase(): void {
   if (url.includes("://")) return;
   throw new Error(
     `Release migrations resolved to an unusable database (${describeReleaseMigrationUrl(url)}). ` +
-      "In a production deploy the schema must be applied to the same remote " +
+      "In a release deploy the schema must be applied to the same remote " +
       "database the deployed functions use; migrating a local or unconnectable " +
       "URL succeeds silently and publishes a site whose database never received " +
       "the schema. Supply the site's real DATABASE_URL to the deploy step. Note " +

@@ -6,7 +6,10 @@ const mocks = vi.hoisted(() => {
     isLocalDatabase: vi.fn(() => false),
     getDatabaseUrl: vi.fn(() => "postgres://db.example/app"),
     getAppConfig: vi.fn(() => ({
-      migration: { deployContext: undefined as string | undefined },
+      migration: {
+        deployContext: undefined as string | undefined,
+        releaseMigrations: undefined as boolean | undefined,
+      },
     })),
     identityRows,
     // Faked against one shared in-memory row, not a pass-through stub: the
@@ -261,7 +264,7 @@ describe("runFrameworkReleaseMigrations", () => {
   // never existed on the database the deployed functions use.
   it("fails a production release migration that resolved to a local database", async () => {
     mocks.getAppConfig.mockReturnValue({
-      migration: { deployContext: "production" },
+      migration: { deployContext: "production", releaseMigrations: true },
     });
     mocks.isLocalDatabase.mockReturnValue(true);
     mocks.getDatabaseUrl.mockReturnValue("pglite:/tmp/release-test");
@@ -273,16 +276,21 @@ describe("runFrameworkReleaseMigrations", () => {
     expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
   });
 
-  // The beta lane runs release migrations under a branch-deploy context against
-  // masked site secrets; its databases are migrated by their production twin.
-  it("allows a local database on a beta branch-deploy build", async () => {
+  // Beta and production share one database and both now run this release
+  // migration for real, so a beta branch-deploy build that resolved to a local
+  // or masked database must fail exactly like a broken production one would —
+  // it can no longer be trusted to be a harmless no-op mirrored by production.
+  it("fails a beta branch-deploy release migration that resolved to a local database", async () => {
     mocks.getAppConfig.mockReturnValue({
-      migration: { deployContext: "branch-deploy" },
+      migration: { deployContext: "branch-deploy", releaseMigrations: true },
     });
     mocks.isLocalDatabase.mockReturnValue(true);
+    mocks.getDatabaseUrl.mockReturnValue("pglite:/tmp/release-test");
 
-    await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
-    expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
+    await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow(
+      /unusable database/,
+    );
+    expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
   });
 
   // Netlify hands the CLI a masked secret outside its own build infra. That is
@@ -290,7 +298,20 @@ describe("runFrameworkReleaseMigrations", () => {
   // while it is unconnectable — factory published green off exactly this.
   it("fails when the production database url is a masked secret", async () => {
     mocks.getAppConfig.mockReturnValue({
-      migration: { deployContext: "production" },
+      migration: { deployContext: "production", releaseMigrations: true },
+    });
+    mocks.isLocalDatabase.mockReturnValue(false);
+    mocks.getDatabaseUrl.mockReturnValue("****************uire");
+
+    await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow(
+      /masked secret/,
+    );
+    expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+  });
+
+  it("fails when a beta branch-deploy database url is a masked secret", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { deployContext: "branch-deploy", releaseMigrations: true },
     });
     mocks.isLocalDatabase.mockReturnValue(false);
     mocks.getDatabaseUrl.mockReturnValue("****************uire");
@@ -303,9 +324,30 @@ describe("runFrameworkReleaseMigrations", () => {
 
   it("allows a production release migration against a remote database", async () => {
     mocks.getAppConfig.mockReturnValue({
-      migration: { deployContext: "production" },
+      migration: { deployContext: "production", releaseMigrations: true },
     });
     mocks.isLocalDatabase.mockReturnValue(false);
+
+    await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
+    expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
+  });
+
+  it("allows a beta branch-deploy release migration against a remote database", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { deployContext: "branch-deploy", releaseMigrations: true },
+    });
+    mocks.isLocalDatabase.mockReturnValue(false);
+
+    await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
+    expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
+  });
+
+  it("does not require a remote database when the release-owner flag is unset", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { deployContext: undefined, releaseMigrations: false },
+    });
+    mocks.isLocalDatabase.mockReturnValue(true);
+    mocks.getDatabaseUrl.mockReturnValue("pglite:/tmp/release-test");
 
     await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
     expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
