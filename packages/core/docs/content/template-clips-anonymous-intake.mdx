@@ -29,7 +29,7 @@ The intake token is signed with the existing scoped-token mechanism. The token i
 5. Clips creates one private recording and sends the media through its existing chunk and finalize pipeline.
 6. The completion page mints a separate read-only agent context link and posts the result to the host window.
 
-The browser never receives the Clips workspace session. A failed, expired, or already-used intake URL cannot be retried to create another recording.
+The browser never receives the Clips workspace session. If the create response is lost after Clips attaches the recording, retrying the same signed create request returns that recording's upload URLs instead of creating a second row. Expired or terminal intake URLs remain unusable.
 
 ## Mint an intake URL
 
@@ -55,6 +55,8 @@ const { result } = await response.json();
 ```
 
 `ttlSeconds` is optional. It must be between 60 seconds and four hours. The default is one hour. The response also includes `intakeId`, `expiresAt`, and `ttlSeconds`.
+
+The create request is safe to retry with the same `intakeId` and `intakeToken` if its response is lost. Clips returns the existing recording after attachment; it never creates a second recording for the same intake. Do not retry with a different intake token or reuse the upload URLs after an abort.
 
 Do not mint this URL in an anonymous browser. Do not put a long-lived Clips session or a service credential into the customer-facing page.
 
@@ -123,7 +125,7 @@ The intake action creates the recording with private visibility regardless of th
 
 **The recorder opens a sign-in page.** Make sure the intake URL includes both `clip_intake_id` and `clip_intake`. The `/record` route is public for the intake handoff, while normal recording creation remains session protected.
 
-**The recording says the intake URL is unavailable.** The URL may have expired or already created a recording. Mint a new intake URL. Each intake URL is intentionally one-use.
+**The recording says the intake URL is unavailable.** The URL may have expired, been aborted, or be mid-creation. Retry the original create request once if its response was lost; otherwise mint a new intake URL. Each intake URL still creates at most one recording.
 
 **The completion has no agent link.** The recording may still be waiting for storage verification, or the read-only link action may have failed. Retry link creation with the same intake URL before it expires. Treat repeated failure as an operational error.
 

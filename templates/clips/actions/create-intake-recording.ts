@@ -6,8 +6,11 @@ import {
   abandonClipIntake,
   attachClipIntakeRecording,
   claimClipIntakeRecording,
+  findClipIntakeSession,
+  findRecoverableClipIntakeRecording,
   releaseClipIntakeCreation,
 } from "../server/lib/clip-intake.js";
+import { getResumableSession } from "../server/lib/resumable-session.js";
 import { BUG_REPORT_SEVERITIES } from "../shared/bug-report.js";
 import { buildClipIntakeUrl } from "../shared/clip-intake.js";
 import createRecording from "./create-recording.js";
@@ -38,6 +41,33 @@ const intakeRecordingSchema = createRecordingSchema
     bugReport: bugReportSchema.nullish(),
   });
 
+function intakeUploadUrls(
+  intakeId: string,
+  intakeToken: string,
+  recordingId: string,
+) {
+  return {
+    uploadChunkUrl: buildClipIntakeUrl("/api/clip-intake", {
+      recordingId,
+      operation: "chunk",
+      intakeId,
+      token: intakeToken,
+    }),
+    resetChunksUrl: buildClipIntakeUrl("/api/clip-intake", {
+      recordingId,
+      operation: "reset",
+      intakeId,
+      token: intakeToken,
+    }),
+    abortUrl: buildClipIntakeUrl("/api/clip-intake", {
+      recordingId,
+      operation: "abort",
+      intakeId,
+      token: intakeToken,
+    }),
+  };
+}
+
 export default defineAction({
   description:
     "Create the one recording allowed by a signed Clips intake URL. This is a write-only anonymous capability and never grants library or agent read access.",
@@ -52,6 +82,23 @@ export default defineAction({
       args.intakeToken,
     );
     if (!claimed) {
+      const existingSession = await findClipIntakeSession(
+        args.intakeId,
+        args.intakeToken,
+      );
+      const existing = existingSession
+        ? await findRecoverableClipIntakeRecording(existingSession)
+        : null;
+      if (existing && existingSession) {
+        const resumableSession = await getResumableSession(existing.id);
+        return {
+          id: existing.id,
+          organizationId: existing.organizationId,
+          status: "uploading" as const,
+          uploadMode: resumableSession ? ("streaming" as const) : "buffered",
+          ...intakeUploadUrls(args.intakeId, args.intakeToken, existing.id),
+        };
+      }
       fail("This intake URL has expired or has already been used.", {
         errorCode: "intake_unavailable",
         statusCode: 409,
@@ -161,25 +208,11 @@ export default defineAction({
     }
 
     return {
-      ...created,
-      uploadChunkUrl: buildClipIntakeUrl("/api/clip-intake", {
-        recordingId: created.id,
-        operation: "chunk",
-        intakeId,
-        token: intakeToken,
-      }),
-      resetChunksUrl: buildClipIntakeUrl("/api/clip-intake", {
-        recordingId: created.id,
-        operation: "reset",
-        intakeId,
-        token: intakeToken,
-      }),
-      abortUrl: buildClipIntakeUrl("/api/clip-intake", {
-        recordingId: created.id,
-        operation: "abort",
-        intakeId,
-        token: intakeToken,
-      }),
+      id: created.id,
+      organizationId: created.organizationId,
+      status: created.status,
+      uploadMode: created.uploadMode,
+      ...intakeUploadUrls(intakeId, intakeToken, created.id),
     };
   },
 });

@@ -565,6 +565,38 @@ interface PendingRecording {
   uploadMode?: UploadMode;
 }
 
+async function createRecordingRequest(
+  url: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const request = () =>
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+  try {
+    return await request();
+  } catch (error) {
+    if (
+      typeof body.intakeId !== "string" ||
+      typeof body.intakeToken !== "string" ||
+      signal?.aborted
+    ) {
+      throw error;
+    }
+
+    // The server may have claimed and attached the recording before a lost
+    // response reaches the browser. The signed action is idempotent after
+    // attachment, so one bounded retry can recover its upload URLs.
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    return request();
+  }
+}
+
 function PreRecordPanelSkeleton() {
   return (
     <div
@@ -1308,26 +1340,20 @@ export default function RecordRoute() {
           mimeType: pickMimeType() || undefined,
           requestStreaming: canUseTimeslicedRecorderChunks(pickMimeType()),
         };
-        const res = await fetch(
+        const res = await createRecordingRequest(
           agentNativePath(
             intake
               ? "/_agent-native/actions/create-intake-recording"
               : "/_agent-native/actions/create-recording",
           ),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(
-              intake
-                ? {
-                    ...recordingPayload,
-                    intakeId: intake.intakeId,
-                    intakeToken: intake.token,
-                    bugReport: reportContext ?? undefined,
-                  }
-                : recordingPayload,
-            ),
-          },
+          intake
+            ? {
+                ...recordingPayload,
+                intakeId: intake.intakeId,
+                intakeToken: intake.token,
+                bugReport: reportContext ?? undefined,
+              }
+            : recordingPayload,
         );
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) {
@@ -1669,27 +1695,21 @@ export default function RecordRoute() {
           requestStreaming: true,
         };
 
-        const res = await fetch(
+        const res = await createRecordingRequest(
           agentNativePath(
             intake
               ? "/_agent-native/actions/create-intake-recording"
               : "/_agent-native/actions/create-recording",
           ),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: abort.signal,
-            body: JSON.stringify(
-              intake
-                ? {
-                    ...recordingPayload,
-                    intakeId: intake.intakeId,
-                    intakeToken: intake.token,
-                    bugReport: reportContext ?? undefined,
-                  }
-                : recordingPayload,
-            ),
-          },
+          intake
+            ? {
+                ...recordingPayload,
+                intakeId: intake.intakeId,
+                intakeToken: intake.token,
+                bugReport: reportContext ?? undefined,
+              }
+            : recordingPayload,
+          abort.signal,
         );
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) {

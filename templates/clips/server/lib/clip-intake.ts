@@ -7,6 +7,7 @@ import {
   parseClipIntakeParams,
 } from "../../shared/clip-intake.js";
 import { getDb, schema } from "../db/index.js";
+import { ownerEmailMatches } from "./recordings.js";
 
 export type ClipIntakeSession = typeof schema.clipIntakeSessions.$inferSelect;
 
@@ -128,6 +129,32 @@ export async function claimClipIntakeRecording(
     )
     .returning();
   return claimed ?? null;
+}
+
+export async function findRecoverableClipIntakeRecording(
+  session: ClipIntakeSession,
+): Promise<{ id: string; organizationId: string } | null> {
+  if (session.status !== "recording" || !session.recordingId) return null;
+
+  const [recording] = await getDb()
+    .select({
+      id: schema.recordings.id,
+      organizationId: schema.recordings.organizationId,
+      status: schema.recordings.status,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, session.recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, session.ownerEmail),
+        eq(schema.recordings.organizationId, session.organizationId),
+      ),
+    )
+    .limit(1);
+
+  return recording?.status === "uploading"
+    ? { id: recording.id, organizationId: recording.organizationId }
+    : null;
 }
 
 export async function releaseClipIntakeCreation(
