@@ -83,6 +83,40 @@ export async function recordFactoryAudit(
     });
 }
 
+/**
+ * Persist a human-initiated item action regardless of caller. Unlike
+ * `recordFactoryAudit`, this is not gated on an automation run id, so a
+ * manual UI edit still lands on the item's own timeline (`get-triage-item`
+ * reads this table by itemId, not by run).
+ */
+export async function recordManualFactoryAudit(
+  identity: { userEmail: string; orgId: string },
+  input: FactoryAuditInput,
+  factoryId?: string | null,
+): Promise<void> {
+  const resolvedFactoryId = factoryId ?? input.factoryId ?? null;
+  await getDb()
+    .insert(factoryAuditEvents)
+    .values({
+      id: randomUUID(),
+      automationRunId: null,
+      automationThreadId: null,
+      automationName: null,
+      factoryId: resolvedFactoryId,
+      itemId: input.itemId ?? null,
+      source: input.source ?? null,
+      sourceUrl: input.sourceUrl ?? null,
+      action: boundedText(input.action, 120),
+      kind: input.kind,
+      status: input.status ?? "success",
+      summary: boundedText(input.summary, MAX_SUMMARY_LENGTH),
+      detailsJson: boundedDetails(input.details),
+      createdAt: new Date().toISOString(),
+      ownerEmail: identity.userEmail,
+      orgId: identity.orgId,
+    });
+}
+
 /** Skip an item-scoped decision that repeats the last recorded summary. */
 export async function recordFactoryAuditIfChanged(
   context: ActionRunContext | undefined,

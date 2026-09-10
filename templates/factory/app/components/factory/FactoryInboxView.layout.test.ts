@@ -64,6 +64,17 @@ describe("FactoryInboxView", () => {
     expect(source).not.toContain('t("factoryRoute.selectObservation")');
   });
 
+  it("lets a person resolve or reopen an item without going through automation", () => {
+    const source = readViewSource();
+    expect(source).toContain("TriageOutcomeMenu");
+    expect(source).toContain('role="button"');
+    expect(source).toContain("tabIndex={0}");
+    // The row is a role="button" div, not a real <button>, so the outcome
+    // menu's own trigger button can nest inside it without invalid HTML.
+    const rowAt = source.indexOf("<div\n                        key={id}");
+    expect(rowAt).toBeGreaterThan(-1);
+  });
+
   it("separates identity, reason, evidence, and log into banded sections", () => {
     const source = readViewSource();
     // Both sources share one card shell so Slack and GitHub items read alike.
