@@ -47,6 +47,7 @@ vi.mock("@agent-native/core/client/integrations", () => ({
 // ExportMenu.google-availability.test.tsx.
 vi.mock("@/lib/google-slides-export-availability-client", () => ({
   useGoogleSlidesExportAvailability: () => ({ available: true }),
+  fetchGoogleSlidesExportAvailability: async () => ({ available: true }),
   invalidateGoogleSlidesExportAvailability: vi.fn(),
 }));
 

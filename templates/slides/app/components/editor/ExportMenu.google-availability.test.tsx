@@ -50,7 +50,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 
-import { resetGoogleSlidesExportAvailabilityCache } from "@/lib/google-slides-export-availability-client";
+import {
+  fetchGoogleSlidesExportAvailability,
+  resetGoogleSlidesExportAvailabilityCache,
+} from "@/lib/google-slides-export-availability-client";
 
 import { ExportMenu } from "./ExportMenu";
 
@@ -173,6 +176,61 @@ describe("<ExportMenu> Google Slides availability", () => {
     await vi.waitFor(() =>
       expect(onExportGoogleSlides).toHaveBeenCalledTimes(1),
     );
+  });
+
+  it("blocks a click made before the probe has answered", async () => {
+    // The badge is driven by render state, which is still the optimistic
+    // default on the very first interaction. Clicking that fast must not sail
+    // past a rejection the menu has not received yet.
+    let releaseStatus: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    globalThis.fetch = vi.fn(async () => {
+      await held;
+      return statusResponse({
+        googleSlidesExport: { available: false, reason: "oauth-rejected" },
+      });
+    }) as typeof fetch;
+    const onExportGoogleSlides = vi.fn();
+
+    renderMenu(onExportGoogleSlides);
+    openExportMenu();
+
+    const item = await googleSlidesItem();
+    // Still enabled: the verdict has not arrived, and flashing the item
+    // disabled on every open would be its own bug.
+    expect(item.getAttribute("data-disabled")).toBeNull();
+    fireEvent.click(item);
+
+    releaseStatus?.();
+
+    await vi.waitFor(() =>
+      expect(screen.queryAllByText(/Export failed/).length).toBeGreaterThan(0),
+    );
+    expect(onExportGoogleSlides).not.toHaveBeenCalled();
+    expect(startWorkspaceProviderOAuth).not.toHaveBeenCalled();
+  });
+
+  it("re-asks the server once the cached verdict expires", async () => {
+    // Switching organization only invalidates React Query caches, and this
+    // module is not one of them, so a verdict that never expired would
+    // outlive the credentials it was computed from.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn(async () =>
+      statusResponse({ googleSlidesExport: { available: true } }),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await fetchGoogleSlidesExportAvailability();
+    await fetchGoogleSlidesExportAvailability();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(31_000);
+    await fetchGoogleSlidesExportAvailability();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
   });
 
   it("keeps the export usable against a server that predates the gate", async () => {

@@ -12,6 +12,21 @@ export type GoogleSlidesExportAvailability =
 let inFlight: Promise<GoogleSlidesExportAvailability> | null = null;
 
 /**
+ * The verdict is org-scoped on the server and can change without this page
+ * reloading — switching organization only invalidates React Query caches, which
+ * this module is not one of, and repairing the Google client fixes it server
+ * side with no client event at all. So a resolved verdict expires instead of
+ * living as long as the tab. The sibling status readers in this app refetch on
+ * every mount; this keeps the shared dedupe while staying about as fresh.
+ */
+const VERDICT_TTL_MS = 30_000;
+
+let cached: {
+  value: GoogleSlidesExportAvailability;
+  expiresAt: number;
+} | null = null;
+
+/**
  * Drops the cached verdict so the next export menu asks the server again. Call
  * this after a Google Slides export fails at runtime: the failure is evidence
  * the cached "available" answer may be stale, but not proof of it, so this
@@ -19,11 +34,13 @@ let inFlight: Promise<GoogleSlidesExportAvailability> | null = null;
  */
 export function invalidateGoogleSlidesExportAvailability(): void {
   inFlight = null;
+  cached = null;
 }
 
-/** Exposed for tests; the promise is otherwise cached for the page's lifetime. */
+/** Exposed for tests; production callers rely on the TTL. */
 export function resetGoogleSlidesExportAvailabilityCache(): void {
   inFlight = null;
+  cached = null;
 }
 
 type StatusBody = { googleSlidesExport?: GoogleSlidesExportAvailability };
@@ -61,9 +78,16 @@ async function load(): Promise<GoogleSlidesExportAvailability> {
 }
 
 export function fetchGoogleSlidesExportAvailability(): Promise<GoogleSlidesExportAvailability> {
-  inFlight ??= load().catch(
-    () => ({ available: true }) as GoogleSlidesExportAvailability,
-  );
+  if (cached && cached.expiresAt > Date.now()) {
+    return Promise.resolve(cached.value);
+  }
+  inFlight ??= load()
+    .catch(() => ({ available: true }) as GoogleSlidesExportAvailability)
+    .then((value) => {
+      cached = { value, expiresAt: Date.now() + VERDICT_TTL_MS };
+      inFlight = null;
+      return value;
+    });
   return inFlight;
 }
 

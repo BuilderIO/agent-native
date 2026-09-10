@@ -36,6 +36,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useDecks } from "@/context/DeckContext";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import {
+  fetchGoogleSlidesExportAvailability,
   invalidateGoogleSlidesExportAvailability,
   useGoogleSlidesExportAvailability,
 } from "@/lib/google-slides-export-availability-client";
@@ -386,18 +387,24 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
 
     const handleExportGoogleSlides = async () => {
       if (!onExportGoogleSlides) return;
-      // The connect step is a top-level navigation to Google. When Google
-      // refuses the request itself the user leaves the editor and never comes
-      // back, so a known-broken integration must not start the flow at all.
-      if (!googleSlidesExport.available) {
-        updateExportStatus({
-          state: "error",
-          message: t("editorExport.googleSlidesUnavailableHint"),
-        });
-        return;
-      }
       if (!beginExport("google-slides")) return;
       try {
+        // The connect step is a top-level navigation to Google. When Google
+        // refuses the request itself the user leaves the editor and never
+        // comes back, so a known-broken integration must not start the flow.
+        //
+        // Enforced on the probe rather than on `googleSlidesExport`: that
+        // value is still the optimistic default until the first status
+        // response lands, so a click right after opening the menu would
+        // otherwise sail past a verdict the badge has not received yet.
+        const availability = await fetchGoogleSlidesExportAvailability();
+        if (!availability.available) {
+          updateExportStatus({
+            state: "error",
+            message: t("editorExport.googleSlidesUnavailableHint"),
+          });
+          return;
+        }
         const result = await onExportGoogleSlides();
         if ("requiresConnection" in result && result.requiresConnection) {
           updateExportStatus({ state: "idle" });
