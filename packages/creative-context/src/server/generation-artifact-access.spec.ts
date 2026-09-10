@@ -62,8 +62,55 @@ describe("generation artifact access capabilities", () => {
       "record",
     );
     expect(() =>
-      assertGenerationArtifactAccessProof(identity, proof, "editor"),
+      assertGenerationArtifactAccessProof(identity, proof, "record"),
     ).not.toThrow();
+  });
+
+  it("mints the host-declared role when recording is only draft work", async () => {
+    mocks.assertAccess.mockResolvedValue({ role: "viewer" });
+
+    const token = await createGenerationArtifactAccessCapability(
+      { appId: "assets", artifactType: "generation-run", artifactId: "run-1" },
+      {
+        resourceType: "asset-library",
+        resourceId: "lib-1",
+        recordMinRole: "viewer",
+      },
+      "record",
+    );
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "asset-library",
+      "lib-1",
+      "viewer",
+      undefined,
+      { skipResourceBody: true },
+    );
+
+    const proof = await verifyGenerationArtifactAccessCapability(
+      token,
+      { appId: "assets", artifactType: "generation-run", artifactId: "run-1" },
+      "record",
+    );
+    expect(proof.verifiedRole).toBe("viewer");
+  });
+
+  it("will not let a read capability stand in for a record", async () => {
+    const readToken = await createGenerationArtifactAccessCapability(
+      identity,
+      { resourceType: "deck", resourceId: "deck-1" },
+      "read",
+    );
+    const readProof = await verifyGenerationArtifactAccessCapability(
+      readToken,
+      identity,
+      "read",
+    );
+
+    // Both operations can now resolve to `viewer`, so the operation binding is
+    // the only thing left separating a provenance read from a provenance write.
+    expect(() =>
+      assertGenerationArtifactAccessProof(identity, readProof, "record"),
+    ).toThrow(/verified by the host application/i);
   });
 
   it("binds the capability to caller, artifact identity, and operation", async () => {
