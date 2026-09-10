@@ -43,6 +43,29 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard dashboard edits", () => {
+  it("does not retry a successful dashboard automation as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create an automation for the Revenue dashboard and run it every morning",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("accepts a dashboard edit that saved a mutation without a data query", () => {
     const result = realDataFinalGuard(
       guardContext({

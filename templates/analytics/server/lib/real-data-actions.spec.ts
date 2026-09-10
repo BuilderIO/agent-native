@@ -1046,6 +1046,14 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("does not treat an automation targeting a dashboard as dashboard construction", () => {
+    const request =
+      "Create an automation for the Revenue dashboard and run it every morning";
+
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+  });
+
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
     expect(
       looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),

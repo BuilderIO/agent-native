@@ -183,6 +183,7 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = stripInjectedAnalyticsGuardContext(text);
   const lower = requestText.toLowerCase();
   if (!lower) return false;
+  if (looksLikeWorkflowOrAutomationRequest(lower)) return false;
   const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(lower);
   const targetsDashboard =
     DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(lower) ||
@@ -299,10 +300,13 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
     /\b(recurring job|scheduled job|job|automation|automations|workflow|workflows|cron)\b/.test(
       lower,
     );
+  const hasExplicitAutomationTarget =
+    /\b(recurring job|scheduled job|automation|automations|cron)\b/.test(lower);
 
   return (
     /\brecurring job\b/.test(lower) ||
     (hasWorkflowArtifact && hasCreationIntent) ||
+    (hasCreationIntent && hasExplicitAutomationTarget) ||
     (hasCreationIntent &&
       hasAutomationTarget &&
       /\bgithub actions?\b/.test(lower))
