@@ -18,7 +18,9 @@ const mocks = vi.hoisted(() => {
     orgId: "designSystems.orgId",
     updatedAt: "designSystems.updatedAt",
   };
-  const designSystemSharesTable = { resourceId: "designSystemShares.resourceId" };
+  const designSystemSharesTable = {
+    resourceId: "designSystemShares.resourceId",
+  };
 
   const state = {
     linkedDesignRows: [] as Array<{ id: string }>,
@@ -70,7 +72,8 @@ const mocks = vi.hoisted(() => {
   };
 
   const resolveAccess = vi.fn(
-    async (type: string, id: string) => state.resolvedAccess.get(`${type}:${id}`) ?? null,
+    async (type: string, id: string) =>
+      state.resolvedAccess.get(`${type}:${id}`) ?? null,
   );
 
   return {

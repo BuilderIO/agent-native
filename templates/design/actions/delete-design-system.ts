@@ -150,7 +150,9 @@ export default defineAction({
     return {
       id,
       deleted: true,
-      ...(designsSkippedForAccess.length > 0 ? { designsSkippedForAccess } : {}),
+      ...(designsSkippedForAccess.length > 0
+        ? { designsSkippedForAccess }
+        : {}),
       ...(templatesSkippedForAccess.length > 0
         ? { templatesSkippedForAccess }
         : {}),
