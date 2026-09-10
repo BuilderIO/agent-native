@@ -11,7 +11,7 @@ description: "Slack、Microsoft Teams、Discord インタラクション、メ�
 >
 > Teams には `MICROSOFT_TEAMS_APP_ID`、`MICROSOFT_TEAMS_APP_PASSWORD`、`MICROSOFT_TEAMS_ALLOWED_TENANT_IDS` が必要です。Discord には `DISCORD_APPLICATION_ID` と `DISCORD_PUBLIC_KEY` が必要です。Telegram には `TELEGRAM_WEBHOOK_SECRET`、WhatsApp には `WHATSAPP_APP_SECRET` も必要です。
 
-> **ディスパッチ テンプレートを使用しますか?** これらすべては **[設定] → [メッセージング]** で設定されます。クリックして各プラットフォームに接続します。独自のテンプレートをカスタマイズまたは構築する場合を除き、このページの残りの部分を読む必要はありません。 [Dispatch](/docs/dispatch) または [Dispatch template reference](/docs/template-dispatch) を参照してください。
+> **ディスパッチ テンプレートを使用しますか?** これらすべては **[管理] → [メッセージング]** で設定されます。クリックして各プラットフォームに接続します。独自のテンプレートをカスタマイズまたは構築する場合を除き、このページの残りの部分を読む必要はありません。 [Dispatch](/docs/dispatch) または [Dispatch template reference](/docs/template-dispatch) を参照してください。
 
 ## あなたにできること {#what-you-can-do}
 
@@ -135,7 +135,7 @@ Slack アプリには 1 つのイベント API リクエスト URL がありま�
 
 ### 管理対象の Add to Slack
 
-管理対象 OAuth が推奨設定です。**設定 → Messaging** で **Agent manifest** を選択し、
+管理対象 OAuth が推奨設定です。**管理 → Messaging** で **Agent manifest** を選択し、
 ホスト固有の `agent-native-slack-manifest.json` をダウンロードして、Slack の
 **App Manifest** からインポートします。このマニフェストは現在の `agent_view` と、
 DM 用の書き込み可能な **Messages** タブを有効にします。次の Bot Token Scopes を確認します。
@@ -171,7 +171,7 @@ Interactivity Request URL を
 `https://your-app.example.com/_agent-native/integrations/slack/interactions` に設定します。
 `app_home_opened`、`app_context_changed`、`app_mention`、`message.im` を購読します。
 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`、`SLACK_SIGNING_SECRET`
-を設定したら、**設定 → Messaging** で **Add to Slack** を選択します。各インストールの
+を設定したら、**管理 → Messaging** で **Add to Slack** を選択します。各インストールの
 トークンは暗号化され、会話キーはワークスペース、アプリ、チャンネル、スレッド別です。
 
 マニフェスト、スコープ、イベント、Agent view、Messages タブを変更した後は Slack アプリを
@@ -488,7 +488,7 @@ export default defineAction({
 
 - **1 つのエージェント、1 つの受信箱。** すべてのチャネル (Slack、電子メール、テレグラム、WhatsApp) が Dispatch に流れます。統合のセットアップは 1 回だけです。
 - **代理人を派遣します。** 「先週のサインアップを要約してください」と依頼する — 派遣は分析エージェントに電話します。 「アリスへの返信の下書き」を依頼します。ディスパッチはメール エージェントに電話します。
-- **設定ではなくクリックです。** Dispatch の **[設定] → [メッセージング]** ページには、env-var フィールドが組み込まれたすべてのプラットフォームの接続ボタンがあります。
+- **設定ではなくクリックです。** Dispatch の **[管理] → [メッセージング]** ページには、env-var フィールドが組み込まれたすべてのプラットフォームの接続ボタンがあります。
 
 オーケストレーターが必要ない場合は、このページの環境変数を使用して、単一のテンプレートでメッセージングを直接接続できます。
 

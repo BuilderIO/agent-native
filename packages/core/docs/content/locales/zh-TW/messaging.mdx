@@ -11,7 +11,7 @@ description: "透過 Slack、Microsoft Teams、Discord 互動、電子郵件、T
 >
 > Teams 需要 `MICROSOFT_TEAMS_APP_ID`、`MICROSOFT_TEAMS_APP_PASSWORD` 和 `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`。Discord 需要 `DISCORD_APPLICATION_ID` 和 `DISCORD_PUBLIC_KEY`。Telegram 還需要 `TELEGRAM_WEBHOOK_SECRET`，WhatsApp 還需要 `WHATSAPP_APP_SECRET`。
 
-> **使用調度範本？** 所有這些都已在 **設定 → 訊息傳送** 中為您做好準備。點選以連線每個平台 - 您無需閱讀本頁面的其餘部分，除非您正在自訂或建置自己的範本。請參閱 [Dispatch](/docs/dispatch) 或 [Dispatch template reference](/docs/template-dispatch)。
+> **使用調度範本？** 所有這些都已在 **管理 → 訊息傳送** 中為您做好準備。點選以連線每個平台 - 您無需閱讀本頁面的其餘部分，除非您正在自訂或建置自己的範本。請參閱 [Dispatch](/docs/dispatch) 或 [Dispatch template reference](/docs/template-dispatch)。
 
 ## 你能做什麼 {#what-you-can-do}
 
@@ -135,7 +135,7 @@ Slack 應用程式有一個事件 API 請求 URL。如果同一個 Slack 應用�
 
 ### 受管理的 Add to Slack
 
-建議使用受管理的 OAuth。在**設定 → 訊息**中選擇 **Agent manifest**，下載目前主機專用的
+建議使用受管理的 OAuth。在**管理 → 訊息**中選擇 **Agent manifest**，下載目前主機專用的
 `agent-native-slack-manifest.json`，再從 Slack 的 **App Manifest** 匯入。
 此清單會啟用目前的 `agent_view` 體驗，以及可寫入的 **Messages** 私訊分頁。
 請確認包含以下 Bot Token Scopes：
@@ -171,7 +171,7 @@ Interactivity Request URL 設為
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`。
 訂閱 `app_home_opened`、`app_context_changed`、`app_mention` 和 `message.im`。
 設定 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET` 和
-`SLACK_SIGNING_SECRET` 後，在**設定 → 訊息**中點選 **Add to Slack**。
+`SLACK_SIGNING_SECRET` 後，在**管理 → 訊息**中點選 **Add to Slack**。
 每個安裝使用獨立的加密權杖，並依工作區、應用、頻道和對話串隔離會話鍵。
 
 變更清單、權限範圍、事件、Agent view 或 Messages 分頁後，請重新安裝 Slack 應用程式。
@@ -485,7 +485,7 @@ export default defineAction({
 
 - **一名代理，一個收件箱。**您的所有管道（Slack、電子郵件、Telegram、WhatsApp）都會流入 Dispatch。您只需設定整合一次。
 - **調度代表。** 詢問“總結上週的註冊情況” - Dispatch 呼叫分析代理。詢問“起草給 Alice 的回覆”——Dispatch 呼叫郵件代理。
-- **點選，而不是設定。** Dispatch 的 **設定 → 訊息傳遞** 頁面具有針對每個平台的連線按鈕，並內建了 env-var 欄位。
+- **點選，而不是設定。** Dispatch 的 **管理 → 訊息傳遞** 頁面具有針對每個平台的連線按鈕，並內建了 env-var 欄位。
 
 如果您不需要協調器，任何單一範本都可以使用此頁面上的環境變數直接連線訊息傳遞。
 

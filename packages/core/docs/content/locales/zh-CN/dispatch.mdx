@@ -89,7 +89,7 @@ Dispatch 是中央应用程序，位于工作区中所有其他应用程序的�
 
 | 能力            | 它给你什么                                                            | 设置                                                           |
 | --------------- | --------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **中央收件箱**  | Slack、电子邮件、Telegram、WhatsApp 均通过共享内存 + 工具到达一个代理 | **设置 → 消息传送** ([Messaging](/docs/messaging))             |
+| **中央收件箱**  | Slack、电子邮件、Telegram、WhatsApp 均通过共享内存 + 工具到达一个代理 | **管理 → 消息传送** ([Messaging](/docs/messaging))             |
 | **秘密金库**    | 将每个凭证存储一次；在每个应用程序的一处轮换                          | **保管库** + 访问模式（所有应用程序或手动）                    |
 | **跨应用委托**  | 通过 A2A 将请求路由到正确的专业应用并在线程内回复                     | 自动（[A2A](/docs/a2a-protocol)）                              |
 | **统一MCP网关** | 用于外部代理的一个 MCP 连接器可到达每个授权的工作区应用               | [External Agents](/docs/external-agents)                       |
@@ -101,7 +101,7 @@ Dispatch 是中央应用程序，位于工作区中所有其他应用程序的�
 
 ### 中央收件箱
 
-Slack、电子邮件、Telegram 和 WhatsApp 都流入 Dispatch 的代理循环。在**设置 → 消息传送**中连接每个平台一次，每个渠道都会使用相同的内存和工具到达相同的代理。 Slack 私信 和发送给 `agent@yourcompany.com` 的电子邮件最终会成为一个对话历史记录中的两个表面，而不是两个断开连接的机器人。请参阅 [Messaging](/docs/messaging) 以获取凭证和 Webhook URL。
+Slack、电子邮件、Telegram 和 WhatsApp 都流入 Dispatch 的代理循环。在**管理 → 消息传送**中连接每个平台一次，每个渠道都会使用相同的内存和工具到达相同的代理。 Slack 私信 和发送给 `agent@yourcompany.com` 的电子邮件最终会成为一个对话历史记录中的两个表面，而不是两个断开连接的机器人。请参阅 [Messaging](/docs/messaging) 以获取凭证和 Webhook URL。
 
 ### 秘密金库
 
@@ -256,7 +256,7 @@ Dispatch 可以在管理员审核后控制敏感的运行时更改。如今，�
 三个简短步骤：
 
 1. **搭建一个包含 Dispatch 的工作区。**运行 `npx @agent-native/core@latest create my-company-platform` 并选择 `dispatch` 以及您想要的任何域模板。 Dispatch 位于 `apps/dispatch`，其余应用程序位于它旁边。参见[Multi-App Workspace](/docs/multi-app-workspace)。
-2. **连接消息传递。** 在 Dispatch 中打开 **设置 → 消息传递**，然后单击连接 Slack、电子邮件、电报或 WhatsApp。表单字段与 [Messaging](/docs/messaging) 文档中的环境变量相匹配 - 请参阅那里了解每个平台的需求。
+2. **连接消息传递。** 在 Dispatch 中打开 **管理 → 消息传递**，然后单击连接 Slack、电子邮件、电报或 WhatsApp。表单字段与 [Messaging](/docs/messaging) 文档中的环境变量相匹配 - 请参阅那里了解每个平台的需求。
 3. **添加其他应用程序。**从每个域应用程序的工作区根运行 `npx @agent-native/core@latest add-app`。它们在 Dispatch 的 `list-workspace-apps` 中自动显示为 A2A 对等体 — 无需手动注册，无需编辑代理卡。一旦可以联系到他们的代理卡，Dispatch 就会开始委派给他们。
 
 然后将凭据添加到保管库并（可选）在**资源**下创作全局工作区资源。保管库密钥仍然可以根据访问模式同步或授予；所有应用程序工作区资源都会自动继承。如果您需要每个应用程序的秘密隔离，请在授予单个应用程序之前将保管库访问设置切换为手动。
