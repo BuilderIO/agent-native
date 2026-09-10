@@ -137,6 +137,86 @@ describe("selectParkedRowsForRecheck", () => {
       ),
     ).toEqual([]);
   });
+
+  // `/pulls?state=open` sorts by creation, so a long-parked pull request that
+  // later gets human feedback is only reachable through this extra set. Raise
+  // the limit if real inventory outgrows it; do not park items in `active` to
+  // keep them on the listed page.
+  it("covers the newest parked pull requests up to the default limit", async () => {
+    const { selectParkedRowsForRecheck, PARKED_PR_RECHECK_EXTRA_LIMIT } =
+      await import("./poll-github-sources.js");
+    const rows = Array.from(
+      { length: PARKED_PR_RECHECK_EXTRA_LIMIT + 5 },
+      (_, index) => ({
+        pullRequestNumber: index + 1,
+        repository: "acme/current",
+        updatedAt: `2026-09-${String((index % 28) + 1).padStart(2, "0")}T00:00:00.000Z`,
+      }),
+    );
+    const selected = selectParkedRowsForRecheck(rows, {
+      configuredRepository: "acme/current",
+      listedOpenPrNumbers: new Set(),
+    });
+    expect(selected).toHaveLength(PARKED_PR_RECHECK_EXTRA_LIMIT);
+    expect(selected[0]?.updatedAt).toBe(
+      rows
+        .map((row) => row.updatedAt)
+        .sort()
+        .at(-1),
+    );
+  });
+});
+
+describe("parkedRecheckEvidencePatch", () => {
+  const recheck = {
+    humanReviewCommentCount: 1,
+    humanReviewBodyCount: 0,
+    commentsTruncated: false,
+    reviewsTruncated: false,
+    changesRequested: false,
+  };
+
+  it("keeps a stored conflict when GitHub has not recomputed mergeability", async () => {
+    const { parkedRecheckEvidencePatch } =
+      await import("./poll-github-sources.js");
+    expect(
+      parkedRecheckEvidencePatch(
+        { prBabysitMergeConflict: true, prBabysitMergeabilityComputed: true },
+        { ...recheck, mergeable: null, mergeableState: "unknown" },
+      ),
+    ).toMatchObject({
+      prBabysitMergeConflict: true,
+      prBabysitMergeabilityComputed: true,
+    });
+  });
+
+  it("adopts a definite reading and records that it was definite", async () => {
+    const { parkedRecheckEvidencePatch } =
+      await import("./poll-github-sources.js");
+    expect(
+      parkedRecheckEvidencePatch(
+        {},
+        { ...recheck, mergeable: true, mergeableState: "unstable" },
+      ),
+    ).toMatchObject({
+      prBabysitMergeConflict: false,
+      prBabysitMergeabilityComputed: true,
+    });
+  });
+
+  it("does not invent a definite reading for a row that never had one", async () => {
+    const { parkedRecheckEvidencePatch } =
+      await import("./poll-github-sources.js");
+    expect(
+      parkedRecheckEvidencePatch(
+        {},
+        { ...recheck, mergeable: null, mergeableState: "unknown" },
+      ),
+    ).toMatchObject({
+      prBabysitMergeConflict: false,
+      prBabysitMergeabilityComputed: false,
+    });
+  });
 });
 
 describe("mapWithConcurrency", () => {

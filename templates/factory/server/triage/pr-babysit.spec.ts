@@ -4,12 +4,17 @@ import {
   babysitFingerprint,
   babysitLeavesReviewWindow,
   babysitOutOfScopeClause,
+  countBabysitComments,
+  decideBabysitPing,
   DEFAULT_BABYSIT_PR_COMMENT,
   formatBabysitAuditSummary,
   hasCompletePassingChecks,
   hasMergeConflict,
+  hasNewDefiniteMergeConflict,
+  MIN_BABYSIT_COMMENT_INTERVAL_MS,
+  mergeabilityComputed,
   reconcileBabysitState,
-  shouldPostBabysitComment,
+  resolveStickyMergeability,
   shouldRecordBabysitAudit,
   countHumanReviewBodies,
   countHumanReviewComments,
@@ -324,8 +329,7 @@ describe("reconcileBabysitState", () => {
     expect(result.humanReviewBodyKeys).toEqual(["reviewer:please fix the API"]);
     expect(
       shouldRequestBabysitWork({
-        mergeable: true,
-        mergeableState: "clean",
+        mergeConflict: false,
         snapshot: result,
       }),
     ).toBe(true);
@@ -357,8 +361,7 @@ describe("babysit work policy", () => {
   it("requests work for outstanding evidence, not for a clean snapshot", () => {
     expect(
       shouldRequestBabysitWork({
-        mergeable: true,
-        mergeableState: "clean",
+        mergeConflict: false,
         snapshot: clean,
       }),
     ).toBe(false);
@@ -368,15 +371,13 @@ describe("babysit work policy", () => {
     });
     expect(
       shouldRequestBabysitWork({
-        mergeable: true,
-        mergeableState: "clean",
+        mergeConflict: false,
         snapshot: failing,
       }),
     ).toBe(true);
     expect(
       shouldRequestBabysitWork({
-        mergeable: false,
-        mergeableState: "dirty",
+        mergeConflict: true,
         snapshot: clean,
       }),
     ).toBe(true);
@@ -435,8 +436,7 @@ describe("babysit work policy", () => {
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedMergeConflict: false,
-        nextMergeConflict: false,
+        newDefiniteMergeConflict: false,
         storedChangesRequested: false,
         nextChangesRequested: false,
         storedCommentsTruncated: false,
@@ -447,8 +447,7 @@ describe("babysit work policy", () => {
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedMergeConflict: false,
-        nextMergeConflict: false,
+        newDefiniteMergeConflict: false,
         storedChangesRequested: false,
         nextChangesRequested: false,
         storedCommentsTruncated: false,
@@ -459,8 +458,7 @@ describe("babysit work policy", () => {
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedMergeConflict: false,
-        nextMergeConflict: true,
+        newDefiniteMergeConflict: true,
         storedChangesRequested: false,
         nextChangesRequested: false,
         storedCommentsTruncated: false,
@@ -471,8 +469,7 @@ describe("babysit work policy", () => {
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedMergeConflict: false,
-        nextMergeConflict: false,
+        newDefiniteMergeConflict: false,
         storedChangesRequested: false,
         nextChangesRequested: true,
         storedCommentsTruncated: false,
@@ -483,8 +480,7 @@ describe("babysit work policy", () => {
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedMergeConflict: false,
-        nextMergeConflict: false,
+        newDefiniteMergeConflict: false,
         storedChangesRequested: false,
         nextChangesRequested: false,
         storedCommentsTruncated: true,
@@ -495,8 +491,7 @@ describe("babysit work policy", () => {
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedMergeConflict: false,
-        nextMergeConflict: false,
+        newDefiniteMergeConflict: false,
         storedChangesRequested: false,
         nextChangesRequested: false,
         storedCommentsTruncated: true,
@@ -511,8 +506,7 @@ describe("babysit work policy", () => {
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedMergeConflict: false,
-        nextMergeConflict: false,
+        newDefiniteMergeConflict: false,
         storedChangesRequested: false,
         nextChangesRequested: false,
         storedCommentsTruncated: false,
@@ -610,47 +604,270 @@ describe("babysit work policy", () => {
     ).not.toBe(baseline);
   });
 
-  it("posts once for a new unfinished episode, not for SHA or CI flicker", () => {
-    const now = 1_000_000;
+  it("separates uncomputed mergeability from a definite reading", () => {
     expect(
-      shouldPostBabysitComment({
-        previousFingerprint: '{"mergeConflict":false}',
-        fingerprint: '{"mergeConflict":false}',
-        previousState: null,
-        lastCommentAtMs: null,
-        nowMs: now,
-        minCommentIntervalMs: 90_000,
-      }),
+      mergeabilityComputed({ mergeable: null, mergeableState: "unknown" }),
+    ).toBe(false);
+    expect(
+      mergeabilityComputed({ mergeable: null, mergeableState: "dirty" }),
+    ).toBe(false);
+    expect(
+      mergeabilityComputed({ mergeable: true, mergeableState: "unknown" }),
+    ).toBe(false);
+    for (const state of [
+      "clean",
+      "unstable",
+      "blocked",
+      "behind",
+      "has_hooks",
+    ]) {
+      expect(
+        mergeabilityComputed({ mergeable: true, mergeableState: state }),
+      ).toBe(true);
+    }
+    expect(
+      mergeabilityComputed({ mergeable: false, mergeableState: "dirty" }),
     ).toBe(true);
+  });
+
+  it("holds the last definite mergeability instead of storing uncomputed as clean", () => {
     expect(
-      shouldPostBabysitComment({
-        previousFingerprint: '{"mergeConflict":false}',
-        fingerprint: '{"mergeConflict":false}',
-        previousState: "active",
-        lastCommentAtMs: now - 200_000,
-        nowMs: now,
-        minCommentIntervalMs: 90_000,
+      resolveStickyMergeability(
+        { mergeConflict: true, mergeabilityComputed: true },
+        { mergeable: null, mergeableState: "unknown" },
+      ),
+    ).toEqual({ mergeConflict: true, mergeabilityComputed: true });
+    expect(
+      resolveStickyMergeability(
+        { mergeConflict: true, mergeabilityComputed: true },
+        { mergeable: true, mergeableState: "clean" },
+      ),
+    ).toEqual({ mergeConflict: false, mergeabilityComputed: true });
+    expect(
+      resolveStickyMergeability(
+        { mergeConflict: undefined, mergeabilityComputed: undefined },
+        { mergeable: null, mergeableState: "unknown" },
+      ),
+    ).toEqual({ mergeConflict: false, mergeabilityComputed: false });
+  });
+
+  it("counts a first computation as adoption, not a new conflict", () => {
+    const dirty = { mergeable: false, mergeableState: "dirty" };
+    expect(
+      hasNewDefiniteMergeConflict({
+        storedMergeConflict: false,
+        storedMergeabilityComputed: false,
+        ...dirty,
       }),
     ).toBe(false);
     expect(
-      shouldPostBabysitComment({
-        previousFingerprint: '{"mergeConflict":false}',
-        fingerprint: '{"mergeConflict":false}',
-        previousState: "clean",
-        lastCommentAtMs: now - 200_000,
-        nowMs: now,
-        minCommentIntervalMs: 90_000,
+      hasNewDefiniteMergeConflict({
+        storedMergeConflict: undefined,
+        storedMergeabilityComputed: undefined,
+        ...dirty,
+      }),
+    ).toBe(false);
+    expect(
+      hasNewDefiniteMergeConflict({
+        storedMergeConflict: false,
+        storedMergeabilityComputed: true,
+        ...dirty,
       }),
     ).toBe(true);
     expect(
-      shouldPostBabysitComment({
-        previousFingerprint: '{"unanswered":[]}',
-        fingerprint: '{"unanswered":["c1"]}',
-        previousState: "active",
-        lastCommentAtMs: now - 200_000,
-        nowMs: now,
-        minCommentIntervalMs: 90_000,
+      hasNewDefiniteMergeConflict({
+        storedMergeConflict: true,
+        storedMergeabilityComputed: true,
+        ...dirty,
       }),
+    ).toBe(false);
+    expect(
+      hasNewDefiniteMergeConflict({
+        storedMergeConflict: false,
+        storedMergeabilityComputed: true,
+        mergeable: null,
+        mergeableState: "unknown",
+      }),
+    ).toBe(false);
+  });
+
+  it("counts only Factory's own hardcoded request", () => {
+    expect(
+      countBabysitComments([
+        { body: `  ${DEFAULT_BABYSIT_PR_COMMENT}  ` },
+        { body: "unrelated human comment" },
+        { body: DEFAULT_BABYSIT_PR_COMMENT },
+      ]),
+    ).toBe(2);
+    expect(countBabysitComments([])).toBe(0);
+  });
+
+  it("allows a first ask and refuses one it cannot show to be first", () => {
+    const now = 1_000_000;
+    const base = {
+      previousState: null as string | null,
+      lastCommentAtMs: null as number | null,
+      nowMs: now,
+      minCommentIntervalMs: MIN_BABYSIT_COMMENT_INTERVAL_MS,
+      existingBabysitCommentCount: 0,
+      commentScanTruncated: false,
+      newHumanWork: false,
+      newDefiniteMergeConflict: false,
+      mergeabilityComputed: true,
+    };
+    const asked = {
+      ...base,
+      previousState: "waiting",
+      lastCommentAtMs: now - 200_000,
+    };
+    expect(decideBabysitPing(base)).toEqual({
+      allowed: true,
+      reason: "first-ask",
+    });
+    expect(decideBabysitPing({ ...base, commentScanTruncated: true })).toEqual({
+      allowed: false,
+      reason: "comment-scan-truncated",
+    });
+    expect(
+      decideBabysitPing({ ...base, existingBabysitCommentCount: 1 }),
+    ).toEqual({ allowed: false, reason: "duplicate-comment" });
+    expect(
+      decideBabysitPing({
+        ...base,
+        previousState: "clean",
+        lastCommentAtMs: now - 200_000,
+      }),
+    ).toEqual({ allowed: true, reason: "first-ask" });
+    expect(
+      decideBabysitPing({ ...asked, lastCommentAtMs: now - 10_000 }),
+    ).toEqual({ allowed: false, reason: "too-soon" });
+    expect(decideBabysitPing({ ...asked, newHumanWork: true })).toEqual({
+      allowed: true,
+      reason: "new-human-work",
+    });
+    expect(
+      decideBabysitPing({ ...asked, newDefiniteMergeConflict: true }),
+    ).toEqual({ allowed: true, reason: "new-definite-conflict" });
+    expect(
+      decideBabysitPing({ ...asked, existingBabysitCommentCount: 1 }),
+    ).toEqual({ allowed: false, reason: "duplicate-comment" });
+    expect(
+      decideBabysitPing({ ...asked, mergeabilityComputed: false }),
+    ).toEqual({ allowed: false, reason: "mergeability-uncomputed" });
+    expect(decideBabysitPing(asked)).toEqual({
+      allowed: false,
+      reason: "already-asked",
+    });
+  });
+
+  // Pull request 4495 was pinged three times in seven minutes: a first look with
+  // mergeability uncomputed, then uncomputed becoming dirty, then dirty going
+  // back to uncomputed. Only the first look may post.
+  it("posts exactly once across the pull request 4495 mergeability flicker", () => {
+    const failing = reconcileBabysitState({
+      ...baseInput,
+      checks: [check("ci", "failed")],
+    });
+    const reads = [
+      {
+        at: Date.parse("2026-08-11T15:23:49.000Z"),
+        mergeable: null,
+        mergeableState: "unknown",
+      },
+      {
+        at: Date.parse("2026-08-11T15:25:33.000Z"),
+        mergeable: false,
+        mergeableState: "dirty",
+      },
+      {
+        at: Date.parse("2026-08-11T15:30:31.000Z"),
+        mergeable: null,
+        mergeableState: "unknown",
+      },
+    ];
+    let stored = {
+      babysitState: null as string | null,
+      lastCommentAtMs: null as number | null,
+      mergeConflict: undefined as boolean | undefined,
+      mergeabilityComputed: undefined as boolean | undefined,
+      babysitCommentCount: 0,
+    };
+    const fingerprints: string[] = [];
+    const outcomes: string[] = [];
+    for (const { at, ...live } of reads) {
+      const decision = decideBabysitPing({
+        previousState: stored.babysitState,
+        lastCommentAtMs: stored.lastCommentAtMs,
+        nowMs: at,
+        minCommentIntervalMs: MIN_BABYSIT_COMMENT_INTERVAL_MS,
+        existingBabysitCommentCount: stored.babysitCommentCount,
+        commentScanTruncated: false,
+        newHumanWork: false,
+        newDefiniteMergeConflict: hasNewDefiniteMergeConflict({
+          storedMergeConflict: stored.mergeConflict,
+          storedMergeabilityComputed: stored.mergeabilityComputed,
+          ...live,
+        }),
+        mergeabilityComputed: mergeabilityComputed(live),
+      });
+      outcomes.push(decision.reason);
+      fingerprints.push(
+        babysitFingerprint({
+          ...live,
+          storedMergeConflict: stored.mergeConflict,
+          snapshot: failing,
+        }),
+      );
+      const mergeability = resolveStickyMergeability(stored, live);
+      stored = {
+        babysitState: "waiting",
+        lastCommentAtMs: decision.allowed ? at : stored.lastCommentAtMs,
+        mergeConflict: mergeability.mergeConflict,
+        mergeabilityComputed: mergeability.mergeabilityComputed,
+        babysitCommentCount:
+          stored.babysitCommentCount + (decision.allowed ? 1 : 0),
+      };
+    }
+    expect(outcomes).toEqual([
+      "first-ask",
+      "duplicate-comment",
+      "duplicate-comment",
+    ]);
+    expect(stored.babysitCommentCount).toBe(1);
+    // The third read returns to uncomputed, so the sticky bit holds the conflict
+    // and the fingerprint does not move back.
+    expect(fingerprints[2]).toBe(fingerprints[1]);
+  });
+
+  it("keeps quiet rows parked and takes stuck out of the review window", () => {
+    for (const state of ["waiting", "quiet", "clean", "stuck"]) {
+      expect(babysitLeavesReviewWindow(state)).toBe(true);
+    }
+    for (const state of ["active", "queued", "out-of-scope", null, undefined]) {
+      expect(babysitLeavesReviewWindow(state)).toBe(false);
+    }
+  });
+
+  it("reopens stuck for human review but not for a merge conflict", () => {
+    const base = {
+      parked: true,
+      parkedState: "stuck",
+      newDefiniteMergeConflict: true,
+      storedChangesRequested: false,
+      nextChangesRequested: false,
+      storedCommentsTruncated: false,
+      storedHumanReviewCommentCount: 1,
+      nextHumanReviewCommentCount: 1,
+    };
+    expect(shouldReopenParkedBabysit(base)).toBe(false);
+    expect(shouldReopenParkedBabysit({ ...base, parkedState: "waiting" })).toBe(
+      true,
+    );
+    expect(
+      shouldReopenParkedBabysit({ ...base, nextChangesRequested: true }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({ ...base, nextHumanReviewCommentCount: 2 }),
     ).toBe(true);
   });
 

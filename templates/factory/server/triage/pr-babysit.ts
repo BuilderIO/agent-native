@@ -57,9 +57,13 @@ export interface BabysitProposal {
   isClean: boolean;
 }
 
+/**
+ * `mergeConflict` is the caller's resolved answer, not a raw GitHub reading.
+ * Deriving it here would let an uncomputed read flip a conflicted branch to
+ * clean, which restarts the episode and earns the pull request another ping.
+ */
 export interface BabysitWorkSignal {
-  mergeable: boolean | null;
-  mergeableState: string | null;
+  mergeConflict: boolean;
   snapshot: BabysitProposal;
 }
 
@@ -75,7 +79,7 @@ export function hasMergeConflict(input: {
 }
 
 export function shouldRequestBabysitWork(input: BabysitWorkSignal): boolean {
-  return hasMergeConflict(input) || !input.snapshot.isClean;
+  return input.mergeConflict || !input.snapshot.isClean;
 }
 
 export function hasCompletePassingChecks(input: {
@@ -92,32 +96,150 @@ export function hasCompletePassingChecks(input: {
 export const DEFAULT_BABYSIT_PR_COMMENT =
   "@builderio-bot look at the latest PR feedback and fix anything you agree with. Be skeptical. Reply on each comment thread whether you fixed it and why. Get CI green and keep the branch mergeable.";
 
-/** First unfinished episode, or new human feedback / real conflict. SHA and CI flicker are not a new episode. */
-export function shouldPostBabysitComment(input: {
-  previousFingerprint: string | null | undefined;
-  fingerprint: string;
+/** Shared by the read-only briefing and the write action so their verdicts cannot diverge. */
+export const MIN_BABYSIT_COMMENT_INTERVAL_MS = 90_000;
+
+/** How many times Factory's own hardcoded request is already on the pull request. */
+export function countBabysitComments(
+  comments: readonly { body: string }[],
+  body: string = DEFAULT_BABYSIT_PR_COMMENT,
+): number {
+  const target = body.trim();
+  return comments.filter((comment) => comment.body.trim() === target).length;
+}
+
+export function mergeabilityComputed(input: {
+  mergeable: boolean | null;
+  mergeableState: string | null;
+}): boolean {
+  return input.mergeable !== null && input.mergeableState !== "unknown";
+}
+
+export interface StoredMergeability {
+  mergeConflict: boolean | null | undefined;
+  mergeabilityComputed: boolean | null | undefined;
+}
+
+/**
+ * GitHub computes mergeability lazily, so the first read of a pull request
+ * answers null and a later read answers for real. Holding the last definite
+ * reading keeps that computation from looking like a changed branch. The two
+ * fields move together: overwriting the conflict bit while dropping the
+ * definite flag would erase the basis every rising-edge check depends on.
+ */
+export function resolveStickyMergeability(
+  stored: StoredMergeability,
+  live: { mergeable: boolean | null; mergeableState: string | null },
+): { mergeConflict: boolean; mergeabilityComputed: boolean } {
+  if (mergeabilityComputed(live)) {
+    return {
+      mergeConflict: hasMergeConflict(live),
+      mergeabilityComputed: true,
+    };
+  }
+  return {
+    mergeConflict: stored.mergeConflict === true,
+    mergeabilityComputed: stored.mergeabilityComputed === true,
+  };
+}
+
+/**
+ * A conflict that appeared after a definite no-conflict reading. A stored
+ * reading that was never definite cannot produce a rising edge, so GitHub
+ * finishing its first computation is adoption rather than new work — including
+ * on rows written before `prBabysitMergeabilityComputed` existed.
+ */
+export function hasNewDefiniteMergeConflict(input: {
+  storedMergeConflict: boolean | null | undefined;
+  storedMergeabilityComputed: boolean | null | undefined;
+  mergeable: boolean | null;
+  mergeableState: string | null;
+}): boolean {
+  return (
+    mergeabilityComputed(input) &&
+    hasMergeConflict(input) &&
+    input.storedMergeabilityComputed === true &&
+    input.storedMergeConflict !== true
+  );
+}
+
+export type BabysitPingReason =
+  | "first-ask"
+  | "new-human-work"
+  | "new-definite-conflict"
+  | "comment-scan-truncated"
+  | "too-soon"
+  | "duplicate-comment"
+  | "mergeability-uncomputed"
+  | "already-asked";
+
+export interface BabysitPingDecision {
+  allowed: boolean;
+  reason: BabysitPingReason;
+}
+
+/**
+ * The only gate on posting the hardcoded comment. The agent classifies, this
+ * decides whether the classification may reach GitHub, so the read-only
+ * briefing and the write action both call it instead of re-deriving the rule.
+ */
+export function decideBabysitPing(input: {
   previousState: string | null | undefined;
   lastCommentAtMs: number | null;
   nowMs: number;
   minCommentIntervalMs: number;
-}): boolean {
-  const intervalOk =
-    input.lastCommentAtMs === null ||
-    input.nowMs - input.lastCommentAtMs >= input.minCommentIntervalMs;
-  if (!intervalOk) return false;
-  const firstPokeForThisWork =
+  existingBabysitCommentCount: number;
+  commentScanTruncated: boolean;
+  newHumanWork: boolean;
+  newDefiniteMergeConflict: boolean;
+  mergeabilityComputed: boolean;
+}): BabysitPingDecision {
+  // A capped page cannot prove the hardcoded comment is absent, and absence is
+  // what authorizes a first ask.
+  if (input.commentScanTruncated) {
+    return { allowed: false, reason: "comment-scan-truncated" };
+  }
+  if (
+    input.lastCommentAtMs !== null &&
+    input.nowMs - input.lastCommentAtMs < input.minCommentIntervalMs
+  ) {
+    return { allowed: false, reason: "too-soon" };
+  }
+  const alreadyAskedOnGitHub = input.existingBabysitCommentCount > 0;
+  const neverAskedThisEpisode =
     input.lastCommentAtMs === null || input.previousState === "clean";
-  return (
-    firstPokeForThisWork || input.previousFingerprint !== input.fingerprint
-  );
+  if (neverAskedThisEpisode && !alreadyAskedOnGitHub) {
+    return { allowed: true, reason: "first-ask" };
+  }
+  if (input.newHumanWork) return { allowed: true, reason: "new-human-work" };
+  if (input.newDefiniteMergeConflict) {
+    return { allowed: true, reason: "new-definite-conflict" };
+  }
+  if (alreadyAskedOnGitHub) {
+    return { allowed: false, reason: "duplicate-comment" };
+  }
+  if (!input.mergeabilityComputed) {
+    return { allowed: false, reason: "mergeability-uncomputed" };
+  }
+  return { allowed: false, reason: "already-asked" };
 }
 
-export const PARKED_BABYSIT_STATES = ["waiting", "quiet", "clean"] as const;
+/**
+ * `quiet` is no longer written, because posting parks straight to `waiting`.
+ * Rows stored before that change still carry it, and dropping the string here
+ * would put every one of them back into needsReview for another ping.
+ */
+export const PARKED_BABYSIT_STATES = [
+  "waiting",
+  "quiet",
+  "clean",
+  "stuck",
+] as const;
 
 export function babysitLeavesReviewWindow(
   state: string | null | undefined,
 ): boolean {
-  return state === "waiting" || state === "quiet" || state === "clean";
+  return PARKED_BABYSIT_STATES.some((parked) => parked === state);
 }
 
 export function hasChangesRequested(
@@ -213,11 +335,7 @@ export function hasHumanReviewWork(
   );
 }
 
-/** New top-level human review work or a real conflict. Author replies, bot replies, and truncated totals do not reopen. */
-export function shouldReopenParkedBabysit(input: {
-  parked: boolean;
-  storedMergeConflict: boolean;
-  nextMergeConflict: boolean;
+export interface HumanReviewWorkComparison {
   storedChangesRequested: boolean;
   nextChangesRequested: boolean;
   storedCommentsTruncated: boolean;
@@ -227,9 +345,12 @@ export function shouldReopenParkedBabysit(input: {
   nextHumanReviewBodyCount?: number | null | undefined;
   storedReviewsTruncated?: boolean;
   nextReviewsTruncated?: boolean;
-}): boolean {
-  if (!input.parked) return false;
-  if (input.nextMergeConflict && !input.storedMergeConflict) return true;
+}
+
+/** New top-level human review work. Author replies, bot replies, and truncated totals do not count. */
+export function hasNewHumanReviewWork(
+  input: HumanReviewWorkComparison,
+): boolean {
   if (input.nextChangesRequested && !input.storedChangesRequested) return true;
   if (
     !input.storedReviewsTruncated &&
@@ -241,14 +362,32 @@ export function shouldReopenParkedBabysit(input: {
     return true;
   }
   if (input.storedCommentsTruncated) return false;
-  if (
+  return (
     typeof input.nextHumanReviewCommentCount === "number" &&
     typeof input.storedHumanReviewCommentCount === "number" &&
     input.nextHumanReviewCommentCount > input.storedHumanReviewCommentCount
-  ) {
+  );
+}
+
+/**
+ * New human review work, or a conflict that rose on a parked state that still
+ * reopens for one. Takes the rising edge rather than the raw conflict bits, so
+ * reopen and the ping veto cannot disagree about what counts as a new conflict.
+ */
+export function shouldReopenParkedBabysit(
+  input: HumanReviewWorkComparison & {
+    parked: boolean;
+    parkedState?: string | null;
+    newDefiniteMergeConflict: boolean;
+  },
+): boolean {
+  if (!input.parked) return false;
+  // `stuck` is the agent's judgement that another ask cannot help, so a
+  // conflict appearing on it is not news. Only a human reopens it.
+  if (input.parkedState !== "stuck" && input.newDefiniteMergeConflict) {
     return true;
   }
-  return false;
+  return hasNewHumanReviewWork(input);
 }
 
 /** Work that may start another GitHub poke. SHA, CI flicker, and uncomputed mergeability do not. */
@@ -256,6 +395,7 @@ export function babysitFingerprint(input: {
   headSha?: string;
   mergeable: boolean | null;
   mergeableState: string | null;
+  storedMergeConflict?: boolean | null;
   snapshot: BabysitProposal;
   reviewStates?: readonly string[];
 }): string {
@@ -265,10 +405,13 @@ export function babysitFingerprint(input: {
       body: comment.body,
       isResolved: comment.isResolved ?? null,
     })),
-    mergeConflict: hasMergeConflict({
-      mergeable: input.mergeable,
-      mergeableState: input.mergeableState,
-    }),
+    mergeConflict: resolveStickyMergeability(
+      {
+        mergeConflict: input.storedMergeConflict,
+        mergeabilityComputed: undefined,
+      },
+      input,
+    ).mergeConflict,
     commentsTruncated: input.snapshot.commentsTruncated,
     reviewsTruncated: input.snapshot.reviewsTruncated,
     humanReviewBodyKeys: input.snapshot.humanReviewBodyKeys,
@@ -369,4 +512,32 @@ export function babysitOutOfScopeClause(author: string | null): string {
   return author
     ? `skipped; author ${author} is out of scope.`
     : "skipped; out of scope.";
+}
+
+const BABYSIT_PING_REASON_CLAUSES: Record<BabysitPingReason, string> = {
+  "first-ask": "this is the first request of the episode",
+  "new-human-work": "there is new human review feedback",
+  "new-definite-conflict": "a merge conflict appeared on a clean branch",
+  "comment-scan-truncated":
+    "the comment list was capped, so an earlier request cannot be ruled out",
+  "too-soon": "the minimum interval since the last request has not elapsed",
+  "duplicate-comment": "the same request is already on the pull request",
+  "mergeability-uncomputed": "GitHub has not finished computing mergeability",
+  "already-asked": "Factory already asked and there is no new human feedback",
+};
+
+export function babysitPingReasonClause(reason: BabysitPingReason): string {
+  return BABYSIT_PING_REASON_CLAUSES[reason];
+}
+
+export function babysitHeldPingClause(reason: BabysitPingReason): string {
+  return `waiting; held the request because ${babysitPingReasonClause(reason)}.`;
+}
+
+export function babysitAlreadyAskedClause(): string {
+  return "waiting; already asked and no new human feedback.";
+}
+
+export function babysitStuckClause(): string {
+  return "stuck; another request cannot unblock it, so it needs a human.";
 }

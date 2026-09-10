@@ -147,8 +147,13 @@ Babysit pull requests.
 
   it("keeps the PR babysit prompt as a thin action playbook", () => {
     const prompt = factoryAutomationTemplatePrompt("pr-babysit", "github");
+    expect(prompt).toContain("propose-pr-babysit-status");
     expect(prompt).toContain("babysit-factory-pull-request");
-    expect(prompt).toContain("It owns GitHub");
+    expect(prompt).toContain("already_asked");
+    expect(prompt).toContain("stuck");
+    expect(prompt).toContain("is not new work");
+    expect(prompt).not.toContain("It owns GitHub");
+    expect(prompt).not.toContain("the quiet window");
     expect(prompt).not.toContain("A changed commit, new unresolved");
     expect(prompt).not.toContain("2 minutes");
     expect(prompt).not.toContain("Do not ask the bot to poll");

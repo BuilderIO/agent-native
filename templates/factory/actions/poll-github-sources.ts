@@ -46,8 +46,10 @@ import {
   countHumanReviewBodies,
   countHumanReviewComments,
   hasHumanChangesRequested,
-  hasMergeConflict,
+  hasNewDefiniteMergeConflict,
+  resolveStickyMergeability,
   shouldReopenParkedBabysit,
+  type StoredMergeability,
 } from "../server/triage/pr-babysit.js";
 import {
   hasTriageSourceChanged,
@@ -119,13 +121,16 @@ export async function collectOpenItems<T>(
   return { items, authorFiltered, unparsed, pagesFetched, hasMore };
 }
 
+// Live mergeability, not a resolved conflict flag: a recheck that ran before
+// GitHub finished computing must not overwrite a stored definite reading.
 type ParkedRecheck = {
   humanReviewCommentCount: number;
   humanReviewBodyCount: number;
   commentsTruncated: boolean;
   reviewsTruncated: boolean;
   changesRequested: boolean;
-  mergeConflict: boolean;
+  mergeable: boolean | null;
+  mergeableState: string | null;
 };
 
 export async function mapWithConcurrency<T>(
@@ -146,14 +151,32 @@ export async function mapWithConcurrency<T>(
   );
 }
 
-function parkedRecheckEvidencePatch(recheck: ParkedRecheck) {
+function storedMergeability(metadata: TriageMetadata): StoredMergeability {
+  return {
+    mergeConflict: metadataBoolean(metadata, "prBabysitMergeConflict"),
+    mergeabilityComputed: metadataBoolean(
+      metadata,
+      "prBabysitMergeabilityComputed",
+    ),
+  };
+}
+
+export function parkedRecheckEvidencePatch(
+  existingMetadata: TriageMetadata,
+  recheck: ParkedRecheck,
+) {
+  const mergeability = resolveStickyMergeability(
+    storedMergeability(existingMetadata),
+    recheck,
+  );
   return {
     prBabysitHumanReviewCommentCount: recheck.humanReviewCommentCount,
     prBabysitHumanReviewBodyCount: recheck.humanReviewBodyCount,
     prBabysitCommentsTruncated: recheck.commentsTruncated,
     prBabysitReviewsTruncated: recheck.reviewsTruncated,
     prBabysitChangesRequested: recheck.changesRequested,
-    prBabysitMergeConflict: recheck.mergeConflict,
+    prBabysitMergeConflict: mergeability.mergeConflict,
+    prBabysitMergeabilityComputed: mergeability.mergeabilityComputed,
   };
 }
 
@@ -161,12 +184,20 @@ function shouldReopenFromRecheck(
   existingMetadata: TriageMetadata,
   recheck: ParkedRecheck | undefined,
   parked: boolean,
+  parkedState?: string | null,
 ): boolean {
+  const stored = storedMergeability(existingMetadata);
   return shouldReopenParkedBabysit({
     parked,
-    storedMergeConflict:
-      metadataBoolean(existingMetadata, "prBabysitMergeConflict") === true,
-    nextMergeConflict: recheck?.mergeConflict === true,
+    parkedState,
+    newDefiniteMergeConflict: recheck
+      ? hasNewDefiniteMergeConflict({
+          storedMergeConflict: stored.mergeConflict,
+          storedMergeabilityComputed: stored.mergeabilityComputed,
+          mergeable: recheck.mergeable,
+          mergeableState: recheck.mergeableState,
+        })
+      : false,
     storedChangesRequested:
       metadataBoolean(existingMetadata, "prBabysitChangesRequested") === true,
     nextChangesRequested: recheck?.changesRequested === true,
@@ -472,10 +503,8 @@ export default defineAction({
             commentsTruncated: evidence.commentsTruncated,
             reviewsTruncated: evidence.reviewsTruncated,
             changesRequested: hasHumanChangesRequested(evidence.reviews),
-            mergeConflict: hasMergeConflict({
-              mergeable: summary.mergeable,
-              mergeableState: summary.mergeableState,
-            }),
+            mergeable: summary.mergeable,
+            mergeableState: summary.mergeableState,
           });
         } catch (error) {
           if (isAbsentParkedPullRequest(error)) return;
@@ -622,10 +651,11 @@ export default defineAction({
           existingMetadata,
           parkedRecheck,
           babysitLeavesReviewWindow(existingBabysitState),
+          existingBabysitState,
         );
         const metadataWithBabysit = parkedRecheck
           ? mergeTriageMetadata(metadata, {
-              ...parkedRecheckEvidencePatch(parkedRecheck),
+              ...parkedRecheckEvidencePatch(existingMetadata, parkedRecheck),
               ...(reopenParked ? { prBabysitState: "queued" } : {}),
             })
           : reopenParked
@@ -635,7 +665,8 @@ export default defineAction({
           existingStatus: existing?.status,
           existingAuthor: metadataString(existingMetadata, "author"),
           nextAuthor: pullRequest.userLogin,
-          existingBabysitState: reopenParked ? "queued" : existingBabysitState,
+          existingBabysitState,
+          babysitReopened: reopenParked,
           nextDraft: pullRequest.draft,
           sourceChanged,
         });
@@ -722,17 +753,19 @@ export default defineAction({
         )[0];
         if (!current) continue;
         const currentMetadata = parseTriageMetadata(current.metadataJson);
-        const stillParked = babysitLeavesReviewWindow(
-          metadataString(currentMetadata, "prBabysitState"),
+        const currentBabysitState = metadataString(
+          currentMetadata,
+          "prBabysitState",
         );
-        if (!stillParked) continue;
+        if (!babysitLeavesReviewWindow(currentBabysitState)) continue;
         const reopenParked = shouldReopenFromRecheck(
           currentMetadata,
           parkedRecheck,
           true,
+          currentBabysitState,
         );
         const metadataWithBabysit = mergeTriageMetadata(current.metadataJson, {
-          ...parkedRecheckEvidencePatch(parkedRecheck),
+          ...parkedRecheckEvidencePatch(currentMetadata, parkedRecheck),
           ...(reopenParked ? { prBabysitState: "queued" } : {}),
         });
         await tx
