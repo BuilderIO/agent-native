@@ -1163,7 +1163,17 @@ describe("incomplete evidence detection", () => {
     ).toBe(false);
     expect(
       looksLikeDashboardConstructionRequest(
+        "Create a job that refreshes the dashboard",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
         "Create an automation to clone the Revenue dashboard template every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard automation to clone the Revenue dashboard template",
       ),
     ).toBe(false);
     expect(
@@ -1255,6 +1265,7 @@ describe("incomplete evidence detection", () => {
       "Create a dashboard refresh schedule",
       "Create a job to refresh the dashboard",
       "Set up a job for the dashboard",
+      "Create a job that refreshes the dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
     }
@@ -1266,6 +1277,7 @@ describe("incomplete evidence detection", () => {
       "Create a dashboard refresh schedule",
       "Create a job to refresh the dashboard",
       "Set up a job for the dashboard",
+      "Create a job that refreshes the dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
@@ -1280,6 +1292,9 @@ describe("incomplete evidence detection", () => {
       "Show the refresh rate of the dashboard",
       "What is the dashboard refresh frequency?",
       "What is the widget refresh frequency?",
+      "How frequently does the dashboard refresh?",
+      "What is the dashboard refresh interval?",
+      "How often does the dashboard update?",
       "How often does the Revenue dashboard refresh?",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
@@ -1306,6 +1321,10 @@ describe("incomplete evidence detection", () => {
       "How many dashboard automation runs failed?",
       "What is the dashboard automation run count?",
       "Show dashboard automation run count",
+      "How many dashboard automation executions occurred?",
+      "How many dashboard automations ran?",
+      "What is the run count for dashboard automations?",
+      "How many dashboard automation job counts are there?",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
