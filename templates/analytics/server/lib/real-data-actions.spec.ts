@@ -1253,6 +1253,8 @@ describe("incomplete evidence detection", () => {
       "Update the Revenue dashboard on a cron schedule",
       "Create a dashboard refresh job",
       "Create a dashboard refresh schedule",
+      "Create a job to refresh the dashboard",
+      "Set up a job for the dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
     }
@@ -1262,6 +1264,8 @@ describe("incomplete evidence detection", () => {
     for (const request of [
       "Create a dashboard refresh job",
       "Create a dashboard refresh schedule",
+      "Create a job to refresh the dashboard",
+      "Set up a job for the dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
@@ -1274,6 +1278,8 @@ describe("incomplete evidence detection", () => {
       "Show the dashboard refresh rate via cron for the past week.",
       "What is the refresh rate of the dashboard?",
       "Show the refresh rate of the dashboard",
+      "What is the dashboard refresh frequency?",
+      "What is the widget refresh frequency?",
       "How often does the Revenue dashboard refresh?",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
@@ -1298,6 +1304,8 @@ describe("incomplete evidence detection", () => {
     for (const request of [
       "Show me the dashboard automation conversion rate",
       "How many dashboard automation runs failed?",
+      "What is the dashboard automation run count?",
+      "Show dashboard automation run count",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);

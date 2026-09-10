@@ -189,13 +189,13 @@ const DASHBOARD_AUTOMATION_SUBJECT_TERMS =
   /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:dashboard|extension|panel|widget)\b/i;
 
 const DASHBOARD_AUTOMATION_NESTED_ACTION_TERMS =
-  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then)\b|\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:and|then)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b)*(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then)\b|\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:and|then)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b)*(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
 
 const DASHBOARD_AUTOMATION_NESTED_ACTION_LIST_TERMS =
-  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then)\b|,|\b(?:dashboard|extension|panel|widget)\b)[^.!?;\n])*?(?:,\s*(?:and|then)?|\b(?:and|then)\b)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b)+(?:(?!\b(?:and|or|then)\b|,)[^.!?;\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then)\b|,|\b(?:dashboard|extension|panel|widget)\b)[^.!?;\n])*?(?:,\s*(?:and|then)?|\b(?:and|then)\b)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b)+(?:(?!\b(?:and|or|then)\b|,)[^.!?;\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
 
 const DASHBOARD_AUTOMATION_NESTED_TEMPLATE_TERMS =
-  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\b)(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b/gi;
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\b)(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b/gi;
 
 const DASHBOARD_AUTOMATION_AND_DASHBOARD_TERMS =
   /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b\s+(?:and|or|then)\s+(?:(?:a|an|the)\s+)?(?:(?!\b(?:and|or|then)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
@@ -227,6 +227,9 @@ const DASHBOARD_REFRESH_RATE_REVERSE_QUERY_TERMS =
 const DASHBOARD_REFRESH_FREQUENCY_QUERY_TERMS =
   /\b(?:how\s+often|when)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
 
+const DASHBOARD_REFRESH_FREQUENCY_REVERSE_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\s+refresh\s+frequency\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
 const DASHBOARD_REFRESH_RATE_REPORT_QUERY_TERMS =
   /\b(?:create|make|build)\s+(?:a|an|the)\s+(?:report|analysis|chart|metric)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\s+rate\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
 
@@ -238,6 +241,7 @@ function isDashboardRefreshRateQuery(text: string): boolean {
     DASHBOARD_REFRESH_RATE_QUERY_TERMS.test(text) ||
     DASHBOARD_REFRESH_RATE_REVERSE_QUERY_TERMS.test(text) ||
     DASHBOARD_REFRESH_FREQUENCY_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_FREQUENCY_REVERSE_QUERY_TERMS.test(text) ||
     DASHBOARD_REFRESH_RATE_REPORT_QUERY_TERMS.test(text) ||
     DASHBOARD_REFRESH_RATE_REPORT_REVERSE_QUERY_TERMS.test(text)
   );
@@ -423,7 +427,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
       lower,
     );
   const hasExplicitAutomationTarget =
-    /\b(?:want|need|create|make|set up|setup|add|configure|build|define)\b(?:(?!\b(?:dashboard|extension|panel|widget|report|reports|analysis|analyses|chart|charts|metric|metrics|rate|rates|conversion|conversions)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define)\b(?:(?!\b(?:dashboard|extension|panel|widget|report|reports|analysis|analyses|chart|charts|metric|metrics|rate|rates|conversion|conversions)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
       lower,
     );
   const hasScheduledAutomationTarget =
@@ -446,7 +450,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
     DASHBOARD_CRON_SCHEDULED_DASHBOARD_UPDATE_TERMS.test(lower);
   const hasDashboardAutomationTarget =
     DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower) &&
-    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule|scheduled|update|edit|change|modify|rename|adjust|refresh|run|trigger)\b/.test(
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule|scheduled|update|edit|change|modify|rename|adjust|refresh)\b/.test(
       lower,
     );
 
