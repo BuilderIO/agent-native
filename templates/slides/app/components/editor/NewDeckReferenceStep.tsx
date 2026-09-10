@@ -581,7 +581,13 @@ function FileImportOption({
         "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
         (importing || disabled) && "pointer-events-none opacity-60",
       )}
-      aria-label={imported ? `${label} - ${importedLabel}` : label}
+      aria-label={
+        importing
+          ? `${label} - ${importingLabel}`
+          : imported
+            ? `${label} - ${importedLabel}`
+            : label
+      }
     >
       {imported ? <IconCheck className="size-4 text-primary" /> : icon}
       <span>{importing ? importingLabel : label}</span>

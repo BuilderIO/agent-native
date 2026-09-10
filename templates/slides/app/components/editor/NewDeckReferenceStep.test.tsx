@@ -180,7 +180,8 @@ describe("<NewDeckReferenceStep>", () => {
     });
 
     expect(
-      document.querySelector('label[aria-label="PDF"]')?.textContent,
+      document.querySelector('label[aria-label="PDF - Importing..."]')
+        ?.textContent,
     ).toContain("Importing...");
     expect(
       document.querySelector('label[aria-label="PPT"]')?.textContent,
