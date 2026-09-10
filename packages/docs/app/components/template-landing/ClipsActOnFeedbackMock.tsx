@@ -6,10 +6,10 @@
  * page.
  *
  * All CSS lives here, scoped under `.clips-cell-mock`, following the same
- * convention as `ClipsLibraryMock.tsx`. Unlike that hero mock, this one has
- * no card/background of its own — it sits directly on whatever surface the
- * caller places it on, so it reads as a chat transcript rather than a boxed
- * screenshot.
+ * convention as `ClipsLibraryMock.tsx`. The chat renders inside its own
+ * floating window card (background, rounded corners, shadow) so it reads as
+ * an app screenshot even though the section behind it has no panel of its
+ * own.
  *
  * i18n-raw-literal-disable-file -- this is artwork, not UI copy. The wrapper is
  * a `role="img"` with a localized `aria-label` and the entire frame inside it
@@ -27,25 +27,26 @@ const FIXED_ITEMS = [
 const CLIPS_CELL_MOCK_CSS = [
   ".clips-cell-mock { position: relative; width: 100%; }",
   ".clips-cell-mock, .clips-cell-mock * { box-sizing: border-box; }",
-  ".clips-cell-mock-frame { display: flex; flex-direction: column; gap: 18px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
+  ".clips-cell-mock-frame { display: flex; flex-direction: column; gap: 20px; padding: 28px; border-radius: 22px; background: var(--cell-window-bg); border: 1px solid var(--cell-window-border); box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
 
-  ".clips-cell-mock { --cell-prompt-bg: #262626; --cell-prompt-border: #383838; --cell-prompt-fg: #e6e6e6; --cell-fg: #e6e6e6; --cell-fg-muted: #999999; --cell-fg-subtle: #808080; --cell-composer-bg: #212121; --cell-composer-border: #333333; }",
+  ".clips-cell-mock { --cell-window-bg: #1c1c1c; --cell-window-border: #2c2c2c; --cell-prompt-bg: #2c2c2c; --cell-prompt-border: #3d3d3d; --cell-prompt-fg: #e6e6e6; --cell-fg: #e6e6e6; --cell-fg-muted: #999999; --cell-fg-subtle: #808080; --cell-composer-bg: #262626; --cell-composer-border: #383838; }",
 
-  ".clips-cell-mock-prompt { padding: 14px 16px; border-radius: 18px; background: var(--cell-prompt-bg); border: 1px solid var(--cell-prompt-border); color: var(--cell-prompt-fg); font-size: 13.5px; line-height: 1.5; }",
+  ".clips-cell-mock-prompt { padding: 14px 16px; border-radius: 18px; background: var(--cell-prompt-bg); border: 1px solid var(--cell-prompt-border); color: var(--cell-prompt-fg); font-size: 14.5px; line-height: 1.5; }",
   ".clips-cell-mock-prompt-link { color: var(--cell-fg-muted); }",
 
-  ".clips-cell-mock-response { display: flex; flex-direction: column; gap: 8px; }",
-  ".clips-cell-mock-searched { display: flex; align-items: center; gap: 2px; color: var(--cell-fg-subtle); font-size: 12px; }",
-  ".clips-cell-mock-heading { color: var(--cell-fg); font-size: 13px; font-weight: 500; }",
-  ".clips-cell-mock-list { display: flex; flex-direction: column; gap: 6px; padding: 0; margin: 0; list-style: none; }",
-  ".clips-cell-mock-list-item { display: flex; align-items: flex-start; gap: 8px; color: var(--cell-fg-muted); font-size: 13px; line-height: 1.5; }",
+  ".clips-cell-mock-response { display: flex; flex-direction: column; gap: 9px; }",
+  ".clips-cell-mock-searched { display: flex; align-items: center; gap: 2px; color: var(--cell-fg-subtle); font-size: 13px; }",
+  ".clips-cell-mock-heading { color: var(--cell-fg); font-size: 14px; font-weight: 500; }",
+  ".clips-cell-mock-list { display: flex; flex-direction: column; gap: 7px; padding: 0; margin: 0; list-style: none; }",
+  ".clips-cell-mock-list-item { display: flex; align-items: flex-start; gap: 8px; color: var(--cell-fg-muted); font-size: 14px; line-height: 1.5; }",
   ".clips-cell-mock-list-index { flex-shrink: 0; color: var(--cell-fg-subtle); }",
 
-  ".clips-cell-mock-composer { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 999px; background: var(--cell-composer-bg); border: 1px solid var(--cell-composer-border); color: var(--cell-fg-subtle); }",
-  ".clips-cell-mock-composer-label { flex: 1 1 auto; font-size: 13px; }",
-  ".clips-cell-mock-composer-send { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; background: var(--cell-fg); color: #191919; flex-shrink: 0; }",
+  ".clips-cell-mock-composer { display: flex; align-items: center; gap: 10px; padding: 11px 15px; border-radius: 999px; background: var(--cell-composer-bg); border: 1px solid var(--cell-composer-border); color: var(--cell-fg-subtle); }",
+  ".clips-cell-mock-composer-label { flex: 1 1 auto; font-size: 14px; }",
+  ".clips-cell-mock-composer-send { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: var(--cell-fg); color: #191919; flex-shrink: 0; }",
 
-  "html.light .clips-cell-mock { --cell-prompt-bg: #fdfdfb; --cell-prompt-border: #e3e0d8; --cell-prompt-fg: #22201c; --cell-fg: #22201c; --cell-fg-muted: #56534d; --cell-fg-subtle: #827e76; --cell-composer-bg: #fdfdfb; --cell-composer-border: #e3e0d8; }",
+  "html.light .clips-cell-mock { --cell-window-bg: #fdfdfb; --cell-window-border: #e3e0d8; --cell-prompt-bg: #f1f0ea; --cell-prompt-border: #e3e0d8; --cell-prompt-fg: #22201c; --cell-fg: #22201c; --cell-fg-muted: #56534d; --cell-fg-subtle: #827e76; --cell-composer-bg: #f1f0ea; --cell-composer-border: #e3e0d8; }",
+  "html.light .clips-cell-mock-frame { box-shadow: 0 24px 48px rgba(50, 48, 38, 0.14); }",
   "html.light .clips-cell-mock-composer-send { color: #f1f0ea; }",
 ].join("\n");
 

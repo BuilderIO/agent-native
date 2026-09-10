@@ -238,7 +238,7 @@ export default function ClipsTemplate() {
                   }`}
                 >
                   {useCase.id === "act-on-feedback" ? (
-                    <ClipsActOnFeedbackMock className="w-full max-w-[520px]" />
+                    <ClipsActOnFeedbackMock className="w-full max-w-[620px]" />
                   ) : (
                     <ImgPlaceholder
                       aspectRatio="4 / 3"
