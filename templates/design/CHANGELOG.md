@@ -9,14 +9,19 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Design editor version history: browse and restore saved checkpoints from the top-left menu or Cmd+K.
 
+### Improved
+
+- The Layers panel is denser with smaller text, icons, and row height.
+- Opening or closing the left sidebar (or toggling minimal mode) no longer shifts designs on the canvas.
+- Breakpoint add control keeps a clear gap from the screen edge and shows immediate feedback while adding.
+
+### Changed
+
+- Design canvas chrome now overlays instead of resizing the board, so opening or closing the left panel and minimal mode no longer shifts screens on the canvas.
+
 ### Removed
 
 - Removed the always-visible design system picker above the design editor chat.
-
-### Improved
-
-- Opening or closing the left sidebar (or toggling minimal mode) no longer shifts designs on the canvas.
-- Breakpoint add control keeps a clear gap from the screen edge and shows immediate feedback while adding.
 
 ## 2026-09-09
 
