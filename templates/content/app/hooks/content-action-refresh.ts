@@ -81,6 +81,18 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
   "update-content-database-personal-view",
 ]);
 
+const DATABASE_LIFECYCLE_MUTATIONS = new Set([
+  "delete-content-database",
+  "restore-content-database",
+]);
+
+const DATABASE_LIFECYCLE_QUERIES = new Set([
+  "list-content-databases",
+  "list-documents",
+  "list-trashed-content-databases",
+  "list-trashed-documents",
+]);
+
 const CONTENT_MUTATIONS = new Set([
   ...COMMENT_MUTATIONS,
   ...DOCUMENT_MUTATIONS,
@@ -111,7 +123,8 @@ function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
   if (
     query.queryKey[1] !== "get-document" &&
-    query.queryKey[1] !== "list-comments"
+    query.queryKey[1] !== "list-comments" &&
+    query.queryKey[1] !== "list-document-properties"
   ) {
     return false;
   }
@@ -185,6 +198,14 @@ function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
   );
 }
 
+function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    typeof query.queryKey[1] === "string" &&
+    DATABASE_LIFECYCLE_QUERIES.has(query.queryKey[1])
+  );
+}
+
 export function contentDocumentIdFromPathname(
   pathname: string,
 ): string | undefined {
@@ -197,6 +218,27 @@ export function contentActionInvalidatePredicate(
 ): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
   return (query, events) => {
+    const args = query.queryKey[2];
+    const targetId =
+      args && typeof args === "object"
+        ? "id" in args
+          ? args.id
+          : "documentId" in args
+            ? args.documentId
+            : undefined
+        : undefined;
+    if (
+      (isDatabaseLifecycleQuery(query) ||
+        (isDatabaseQuery(query) && query.isActive?.() === true)) &&
+      events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          DATABASE_LIFECYCLE_MUTATIONS.has(event.key),
+      )
+    ) {
+      return true;
+    }
     if (documentId === undefined) {
       return false;
     }
@@ -218,7 +260,13 @@ export function contentActionInvalidatePredicate(
     ) {
       return eventsIncludeMutation(events, REVIEW_MUTATIONS);
     }
-    if (queryTargetsDocument(query, documentId)) {
+    if (
+      typeof targetId === "string" &&
+      queryTargetsDocument(query, targetId) &&
+      (query.isActive ? query.isActive() : targetId === documentId)
+    ) {
+      // Mounted Page surfaces can belong to a collection preview rather than
+      // the route. Keep inactive cached Pages out of the refresh fan-out.
       return events.some(
         (event) =>
           event.source === "action" &&

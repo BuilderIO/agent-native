@@ -19,6 +19,7 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use actions for documents, blocks, comments, media, sharing, navigation, and
   Notion integration. Do not mutate document rows directly unless a skill says to
   and access checks are preserved. Never use `curl`, raw HTTP requests, or

@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 
 import { getDbExec } from "@agent-native/core/db";
+import { getRequestRunContext } from "@agent-native/core/server";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { resolveCredential } from "./credentials";
@@ -157,6 +158,11 @@ function getCacheKey(
     .digest("hex");
 }
 
+function addUtcDateCacheKey(sql: string): string {
+  if (!/\bCURRENT_DATE\s*(?:\(\s*\))?/i.test(sql)) return sql;
+  return `${sql}\n/* agent-native-utc-date:${new Date().toISOString().slice(0, 10)} */`;
+}
+
 function getL1(key: string): QueryResult | null {
   const entry = l1Cache.get(key);
   if (!entry) return null;
@@ -202,13 +208,9 @@ async function setL2(
     const now = new Date();
     const expiresAt = new Date(now.getTime() + CACHE_TTL_MS);
     const serialized = JSON.stringify(result);
-    // Upsert - use delete+insert to keep the sink write semantics explicit.
+    // Upsert in one statement so the awaited persistence has a bounded DB cost.
     await db.execute({
-      sql: "DELETE FROM bigquery_cache WHERE key = $1",
-      args: [key],
-    });
-    await db.execute({
-      sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6)",
+      sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (key) DO UPDATE SET sql = EXCLUDED.sql, result = EXCLUDED.result, bytes_processed = EXCLUDED.bytes_processed, created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at",
       args: [
         key,
         sql,
@@ -470,8 +472,9 @@ export async function runQuery(
     projectId,
     appEventsTable,
   );
+  const cacheableSql = addUtcDateCacheKey(resolvedSql);
 
-  const cacheKey = getCacheKey(resolvedSql, projectId, cacheScope);
+  const cacheKey = getCacheKey(cacheableSql, projectId, cacheScope);
   const l1Hit = getL1(cacheKey);
   if (l1Hit) {
     return { ...l1Hit, cached: true };
@@ -494,7 +497,7 @@ export async function runQuery(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      query: resolvedSql,
+      query: cacheableSql,
       useLegacySql: false,
       maximumBytesBilled: "750000000000", // 750GB cap
     }),
@@ -569,7 +572,12 @@ export async function runQuery(
   };
 
   setL1(cacheKey, result);
-  await setL2(cacheKey, resolvedSql, result);
+  // Await shared persistence when no runtime continuation hook is available;
+  // otherwise the serverless platform owns completion after the response.
+  const l2Persistence = setL2(cacheKey, cacheableSql, result);
+  const waitUntil = getRequestRunContext()?.waitUntil;
+  if (waitUntil) waitUntil(l2Persistence);
+  else await l2Persistence;
 
   return result;
 }

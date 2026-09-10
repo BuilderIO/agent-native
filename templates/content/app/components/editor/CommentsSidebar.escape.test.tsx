@@ -446,7 +446,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
       "utf8",
     );
     expect(source).toMatch(
-      /<SheetContent[\s\S]*?onEscapeKeyDown=\{preserveCommentReplyEscape\}/,
+      /<SheetContent\s+ref=\{setUtilityPanelSheetContainer\}[\s\S]*?onEscapeKeyDown=\{\(event\) => \{\s+preserveCommentReplyEscape\(event\);\s+if \(event\.defaultPrevented\) return;\s+const target = event\.target;\s+const nestedPopper =/,
     );
   });
 });

@@ -87,6 +87,7 @@ interface Props {
   serverUrl: string;
   selectedMicId: string | null;
   selectedMicLabel: string | null;
+  enabled: boolean;
 }
 
 const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
@@ -113,6 +114,7 @@ export function useMeetingTranscription({
   serverUrl,
   selectedMicId,
   selectedMicLabel,
+  enabled,
 }: Props): void {
   const sessionRef = useRef<MeetingTranscriptionSession | null>(null);
   const pendingPillInitRef = useRef<{
@@ -291,12 +293,18 @@ export function useMeetingTranscription({
     [callClipsAction, flushTranscript, normalizedServerUrl],
   );
 
+  useEffect(() => {
+    if (enabled) return;
+    stopTranscription("experiment-disabled").catch(() => {});
+  }, [enabled, stopTranscription]);
+
   // -------------------------------------------------------------------------
   // Start
   // -------------------------------------------------------------------------
 
   const runStartTranscription = useCallback(
     async (payload: MeetingTranscriptionPayload) => {
+      if (!enabled) return;
       const meetingId = payload.meetingId;
       if (!meetingId) return;
 
@@ -989,6 +997,7 @@ export function useMeetingTranscription({
       selectedMicId,
       selectedMicLabel,
       stopTranscription,
+      enabled,
     ],
   );
 
@@ -1030,6 +1039,7 @@ export function useMeetingTranscription({
   // -------------------------------------------------------------------------
 
   useEffect(() => {
+    if (!enabled) return;
     const unlisteners: Array<() => void> = [];
     let stopped = false;
     const track = (promise: Promise<() => void>) => {
@@ -1064,7 +1074,7 @@ export function useMeetingTranscription({
       });
       unlisteners.length = 0;
     };
-  }, [startTranscription]);
+  }, [enabled, startTranscription]);
 
   // -------------------------------------------------------------------------
   // Server-ended backstop
@@ -1076,6 +1086,7 @@ export function useMeetingTranscription({
   // reconcile hook — still stops local capture instead of leaving it
   // recording into a meeting the server already considers over.
   useEffect(() => {
+    if (!enabled) return;
     const timer = window.setInterval(() => {
       const session = sessionRef.current;
       if (!session || session.stopping) return;
@@ -1095,9 +1106,10 @@ export function useMeetingTranscription({
         });
     }, MEETING_ENDED_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [callClipsAction, stopTranscription]);
+  }, [callClipsAction, enabled, stopTranscription]);
 
   useEffect(() => {
+    if (!enabled) return;
     let stopped = false;
     const unlistens: Array<Promise<() => void>> = [];
 
@@ -1184,5 +1196,5 @@ export function useMeetingTranscription({
           .catch(() => {}),
       );
     };
-  }, [callClipsAction, normalizedServerUrl]);
+  }, [callClipsAction, enabled, normalizedServerUrl]);
 }

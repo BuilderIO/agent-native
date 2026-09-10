@@ -276,4 +276,60 @@ describe("list-triage-items automation limits", () => {
     expect(result.hasMore).toBe(false);
     expect(result.nextCursor).toBeNull();
   });
+
+  it("drops started and already-marked Slack items from the review window", async () => {
+    const slackItem = (
+      id: string,
+      status: string,
+      slackReactionName?: string,
+    ) => ({
+      ...item(id, "99"),
+      id,
+      source: "slack",
+      status,
+      metadataJson: JSON.stringify({
+        authorId: "99",
+        author: "octocat",
+        ...(slackReactionName ? { slackReactionName } : {}),
+      }),
+    });
+    const rows = [
+      slackItem("started", "automation_started"),
+      slackItem("marked", "received", "robot_face"),
+      slackItem("fresh", "received"),
+    ];
+    let selectCalls = 0;
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => {
+            selectCalls += 1;
+            if (selectCalls === 1) {
+              return {
+                orderBy: vi.fn(() => ({
+                  limit: vi.fn().mockResolvedValue(rows),
+                })),
+              };
+            }
+            return { orderBy: vi.fn().mockResolvedValue([]) };
+          }),
+        })),
+      })),
+    });
+    const { default: action } = await import("./list-triage-items.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        source: "slack",
+        needsReview: true,
+        limit: 5,
+      },
+      {
+        userEmail: "owner@example.com",
+      },
+    );
+    expect(result.items.map((entry: { id: string }) => entry.id)).toEqual([
+      "fresh",
+    ]);
+  });
 });

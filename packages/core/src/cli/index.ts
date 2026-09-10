@@ -28,21 +28,26 @@ try {
   _version = pkg.version;
 } catch {}
 
-// Fail fast on unsupported Node versions. `engines.node: ">=22"` is only
-// advisory — npx/pnpm merely warn — so without this an older Node (18/20)
-// first fails deep inside a scaffold dynamic import with a cryptic
-// ERR_MODULE / syntax error that `handleScaffoldImportError` misreports as a
-// corrupt npx cache. A clear up-front message saves that whole detour.
+// Fail fast on unsupported Node versions. The package engine is only
+// advisory — npx/pnpm merely warn — so without this an older Node first fails
+// deep inside a scaffold dynamic import with a cryptic ERR_MODULE / syntax
+// error that `handleScaffoldImportError` misreports as a corrupt npx cache.
 const REQUIRED_NODE_MAJOR = 22;
-const _nodeMajor = Number(process.versions.node.split(".")[0]);
-if (Number.isFinite(_nodeMajor) && _nodeMajor < REQUIRED_NODE_MAJOR) {
+const REQUIRED_NODE_MINOR = 22;
+const _nodeVersion = process.versions.node;
+const _nodeIsStable = /^\d+\.\d+\.\d+$/.test(_nodeVersion);
+const [_nodeMajor, _nodeMinor] = _nodeVersion.split(".").map(Number);
+const _unsupportedNode =
+  !_nodeIsStable ||
+  _nodeMajor < REQUIRED_NODE_MAJOR ||
+  (_nodeMajor === REQUIRED_NODE_MAJOR && _nodeMinor < REQUIRED_NODE_MINOR);
+if (_unsupportedNode) {
   console.error(
-    `agent-native requires Node.js ${REQUIRED_NODE_MAJOR} or newer, but you're on Node ${process.versions.node}.\n` +
+    `agent-native requires Node.js ${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}.0 or newer, but you're on Node ${process.versions.node}.\n` +
       `Upgrade Node (https://nodejs.org) and re-run. With nvm: \`nvm install ${REQUIRED_NODE_MAJOR}\`.`,
   );
   process.exit(1);
 }
-
 /**
  * Build a redacted "command" tag from process.argv. Strips the value that
  * follows any --token / --key / --secret / --password / --api-key flag so

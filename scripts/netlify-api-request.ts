@@ -1,9 +1,8 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 const MAX_RATE_LIMIT_ATTEMPTS = 6;
 const RATE_LIMIT_BACKOFF_MS = 30_000;
 const MAX_RATE_LIMIT_DELAY_MS = 120_000;
-
-const sleep = (milliseconds: number) =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function retryDelayMilliseconds(response: Response, attempt: number): number {
   const retryAfter = response.headers.get("retry-after");

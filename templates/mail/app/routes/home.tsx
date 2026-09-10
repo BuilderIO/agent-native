@@ -3,6 +3,8 @@ import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
+import { resolveDefaultMailHref } from "@/lib/inbox-tabs";
+
 const SEO_TITLE =
   "Mail - Open Source AI email client and Superhuman alternative";
 const SEO_DESCRIPTION =
@@ -36,20 +38,33 @@ export function meta() {
 type MailPreferences = {
   pinnedLabels?: string[];
   combineInbox?: boolean;
+  savedFilters?: { id: string }[];
 };
 
 async function resolveRootInboxHref(): Promise<string> {
   try {
-    const response = await fetch(
-      agentNativePath("/_agent-native/actions/get-mail-preferences"),
+    const [prefRes, googleRes] = await Promise.allSettled([
+      fetch(agentNativePath("/_agent-native/actions/get-mail-preferences")),
+      fetch(agentNativePath("/_agent-native/google/status")),
+    ]);
+    if (prefRes.status !== "fulfilled" || !prefRes.value.ok) return "/inbox";
+    if (googleRes.status !== "fulfilled" || !googleRes.value.ok)
+      return "/inbox";
+    const settings = (await prefRes.value.json()) as MailPreferences;
+    const isGoogleConnected = Boolean(
+      (
+        (await googleRes.value.json()) as {
+          connected?: boolean;
+          accounts?: unknown[];
+        }
+      )?.connected,
     );
-    if (!response.ok) return "/inbox";
-    const settings = (await response.json()) as MailPreferences;
-    return settings.combineInbox
-      ? "/inbox"
-      : settings.pinnedLabels === undefined
-        ? "/inbox?label=important"
-        : "/inbox";
+    return resolveDefaultMailHref({
+      combineInbox: settings.combineInbox,
+      pinnedLabels: settings.pinnedLabels,
+      savedFilters: settings.savedFilters,
+      isGoogleConnected,
+    });
   } catch {
     return "/inbox";
   }

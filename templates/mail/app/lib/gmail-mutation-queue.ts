@@ -14,8 +14,8 @@ export interface GmailMutationTarget {
 
 interface QueuedMutation extends GmailMutationTarget {
   kind: GmailMutationKind;
-  resolve: () => void;
-  reject: (error: unknown) => void;
+  resolves: Array<() => void>;
+  rejects: Array<(error: unknown) => void>;
 }
 
 const DEFAULT_DEBOUNCE_MS = 280;
@@ -98,10 +98,16 @@ class GmailMutationQueue {
     return new Promise<void>((resolve, reject) => {
       const existing = this.pending.get(key);
       if (existing) {
-        // Drop the superseded waiter as success — the newer op owns the flush.
-        existing.resolve();
+        existing.resolves.push(resolve);
+        existing.rejects.push(reject);
+      } else {
+        this.pending.set(key, {
+          kind,
+          ...target,
+          resolves: [resolve],
+          rejects: [reject],
+        });
       }
-      this.pending.set(key, { kind, ...target, resolve, reject });
       if (!this.firstEnqueueAt) this.firstEnqueueAt = Date.now();
       this.scheduleFlush();
     });
@@ -120,7 +126,7 @@ class GmailMutationQueue {
         (removeLabel === undefined || op.removeLabel === removeLabel)
       ) {
         this.pending.delete(key);
-        op.resolve();
+        for (const resolve of op.resolves) resolve();
         cancelled = true;
       }
     }
@@ -236,10 +242,14 @@ class GmailMutationQueue {
         ...bulkArgs(ops),
         removeLabel: ops[0]?.removeLabel,
       }).then(assertActionSuccess);
-      for (const op of ops) op.resolve();
+      for (const op of ops) {
+        for (const resolve of op.resolves) resolve();
+      }
       this.emit({ kind: "archive", count: ops.length });
     } catch (error) {
-      for (const op of ops) op.reject(error);
+      for (const op of ops) {
+        for (const reject of op.rejects) reject(error);
+      }
       this.emit({ kind: "archive", count: ops.length, error });
     }
   }
@@ -253,10 +263,14 @@ class GmailMutationQueue {
         ...bulkArgs(ops),
         unread: !isRead,
       }).then(assertActionSuccess);
-      for (const op of ops) op.resolve();
+      for (const op of ops) {
+        for (const resolve of op.resolves) resolve();
+      }
       this.emit({ kind: "mark-read", count: ops.length });
     } catch (error) {
-      for (const op of ops) op.reject(error);
+      for (const op of ops) {
+        for (const reject of op.rejects) reject(error);
+      }
       this.emit({ kind: "mark-read", count: ops.length, error });
     }
   }
@@ -270,10 +284,14 @@ class GmailMutationQueue {
         ...bulkArgs(ops),
         unstar: !isStarred,
       }).then(assertActionSuccess);
-      for (const op of ops) op.resolve();
+      for (const op of ops) {
+        for (const resolve of op.resolves) resolve();
+      }
       this.emit({ kind: "star", count: ops.length });
     } catch (error) {
-      for (const op of ops) op.reject(error);
+      for (const op of ops) {
+        for (const reject of op.rejects) reject(error);
+      }
       this.emit({ kind: "star", count: ops.length, error });
     }
   }
@@ -306,7 +324,9 @@ class GmailMutationQueue {
   /** Test helper: wipe pending state. */
   resetForTests() {
     this.clearTimers();
-    for (const op of this.pending.values()) op.resolve();
+    for (const op of this.pending.values()) {
+      for (const resolve of op.resolves) resolve();
+    }
     this.pending.clear();
     this.firstEnqueueAt = 0;
     this.flushing = null;

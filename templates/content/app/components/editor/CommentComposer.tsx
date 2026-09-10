@@ -154,6 +154,7 @@ export const CommentComposer = forwardRef<
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         setQuery(null);
         return true;
       }

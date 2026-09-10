@@ -11,6 +11,7 @@ import {
   estimateThreadCardHeight,
   findPendingCommentOffset,
   findThreadPosition,
+  getAiCommentSource,
   layoutCommentThreads,
   scrollToCommentAnchor,
 } from "./CommentsSidebar";
@@ -51,8 +52,13 @@ describe("comments sidebar layout", () => {
     );
     expect(history).toContain("threads, selectedThreadId]");
     expect(source).toContain(
-      'presentation !== "history" && selectedThreadId === thread.threadId',
+      'presentation === "inline" && thread.threadId === selectedThreadId',
     );
+    const resolve = source.slice(
+      source.indexOf("const handleResolve ="),
+      source.indexOf("const handleReopen ="),
+    );
+    expect(resolve).not.toContain("onSelectedThreadChange");
   });
   it("keeps stale suggestions discoverable in the pending filter", () => {
     const source = readFileSync(
@@ -158,6 +164,14 @@ describe("comments sidebar layout", () => {
       ),
     ).toBeNull();
   });
+  it("attributes only comments submitted through AI surfaces", () => {
+    expect(getAiCommentSource("mcp")).toBe("mcp");
+    expect(getAiCommentSource("agent")).toBe("agent");
+    expect(getAiCommentSource("frontend")).toBeNull();
+    expect(getAiCommentSource("automation")).toBeNull();
+    expect(getAiCommentSource(null)).toBeNull();
+  });
+
   it("tracks both document and desktop-rail positions for a highlight", () => {
     document.body.innerHTML =
       '<div id="scroll"><div data-document-scroll-content><span data-comment-thread="thread-1"></span></div></div><div id="rail"></div>';
@@ -326,8 +340,11 @@ describe("comments sidebar layout", () => {
       'resolved ? "comments.reopen" : "comments.resolve"',
     );
     expect(source).toContain('aria-label={t("comments.submit")}');
-    expect(source).toContain('aria-label={t("comments.reopen")}');
+    expect(source).toMatch(
+      /aria-label=\{t\(\s+resolved \? "comments.reopen" : "comments.resolve"/,
+    );
     expect(source).toContain("group-focus-within/thread:opacity-100");
+    expect(source).toContain("focus-visible:ring-ring");
     expect(source).not.toContain("hidden group-hover/thread:flex");
     expect(source).toContain('presentation === "history"');
     expect(source).toContain("data-comments-history");
@@ -436,7 +453,7 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source.match(/<DropdownMenu>/g)).toHaveLength(1);
+    expect(source.match(/t\("comments.filter"\)/g)).toHaveLength(1);
     expect(source).toContain("DropdownMenuCheckboxItem");
     expect(source).toContain('"all" | "comments" | "suggestions"');
     expect(source).toContain('historyKind === "comments"');

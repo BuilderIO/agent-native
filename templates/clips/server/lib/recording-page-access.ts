@@ -20,6 +20,14 @@ export function isRecordingExpired(
   return Number.isFinite(expires) && expires < now;
 }
 
+export function isRecordingExpiredForViewer(input: {
+  expiresAt: string | null | undefined;
+  viewerIsOwner: boolean;
+  now?: number;
+}): boolean {
+  return !input.viewerIsOwner && isRecordingExpired(input.expiresAt, input.now);
+}
+
 /**
  * Decide whether an authenticated request may use the editor/player route.
  * Public visibility is intentionally a share-link concern; a direct `/r/*`

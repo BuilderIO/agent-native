@@ -1,4 +1,5 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { emailToColor } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -29,6 +30,7 @@ import {
   useLayoutEffect,
   useMemo,
   useCallback,
+  useId,
   type RefObject,
   type ReactNode,
 } from "react";
@@ -76,7 +78,8 @@ import {
   useCommentPanelSession,
 } from "./comment-drafts";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
-import { CommentEntry } from "./CommentEntry";
+import { CommentEntry, CommentAttributionBadge } from "./CommentEntry";
+export { getAiCommentSource } from "./CommentEntry";
 import { ReviewCommentMenu, ReviewReactionList } from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
@@ -132,15 +135,6 @@ function emailToInitial(email: string) {
   return (email.split("@")[0]?.[0] ?? "?").toUpperCase();
 }
 
-function emailToAvatarColor(email: string) {
-  let hash = 0;
-  for (let i = 0; i < email.length; i++) {
-    hash = email.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 55%, 55%)`;
-}
-
 function CommentAvatar({
   email,
   name,
@@ -157,7 +151,7 @@ function CommentAvatar({
       {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
       <UserAvatarFallback
         className="text-[11px] font-medium text-primary-foreground"
-        style={{ backgroundColor: emailToAvatarColor(email ?? "user") }}
+        style={{ backgroundColor: emailToColor(email ?? "user") }}
       >
         {emailToInitial(label)}
       </UserAvatarFallback>
@@ -782,7 +776,12 @@ export function CommentsSidebar({
   const openThreads = useMemo(() => {
     if (presentation === "inline" && !alignToAnchors && activeSuggestionId)
       return [];
-    const open = threads?.filter((thread) => !thread.resolved) ?? [];
+    const open =
+      threads?.filter(
+        (thread) =>
+          !thread.resolved ||
+          (presentation === "inline" && thread.threadId === selectedThreadId),
+      ) ?? [];
     return visibleThreadId
       ? open.filter((thread) => thread.threadId === visibleThreadId)
       : open;
@@ -792,6 +791,7 @@ export function CommentsSidebar({
     presentation,
     alignToAnchors,
     activeSuggestionId,
+    selectedThreadId,
   ]);
   const inlineSuggestions = useMemo(
     () =>
@@ -1234,11 +1234,6 @@ export function CommentsSidebar({
   };
   const handleResolve = (thread: CommentThread) => {
     void changeResolution(thread, true);
-    if (presentation !== "history" && selectedThreadId === thread.threadId)
-      onSelectedThreadChange?.(null);
-    if (replyingThreadId === thread.threadId) {
-      setReplyingThreadId(null);
-    }
   };
 
   const handleReopen = (thread: CommentThread) => {
@@ -1385,6 +1380,7 @@ export function CommentsSidebar({
         ref={setHistoryPortalContainer}
         className="min-h-full w-full bg-background"
         data-comments-history
+        data-comments-sidebar
       >
         <div className="sticky top-0 z-10 flex items-center border-b border-border bg-background px-3 py-2">
           <DropdownMenu>
@@ -1507,7 +1503,18 @@ export function CommentsSidebar({
             historySuggestions.length === 0 &&
             historyDraftSuggestions.length === 0 ? (
             <div className="px-2 py-10 text-center text-sm text-muted-foreground">
-              {t("comments.noFilteredComments")}
+              {historyKind !== "suggestions" &&
+              historyStatus !== "resolved" &&
+              historyAuthor === null &&
+              threads.length === 0 &&
+              suggestions.length === 0 &&
+              draftSuggestions.length === 0
+                ? t(
+                    canComment
+                      ? "comments.selectTextToComment"
+                      : "comments.empty",
+                  )
+                : t("comments.noFilteredComments")}
             </div>
           ) : (
             historyThreads.map((thread) =>
@@ -1657,28 +1664,54 @@ function HistoryThreadView({
   onOpen: () => void;
 }) {
   const first = thread.comments[0];
+  const t = useT();
+  const labelId = useId();
+  const contentId = useId();
   return (
-    <button
-      type="button"
-      className="w-full min-w-0 overflow-hidden rounded-lg bg-popover p-3 text-start shadow-sm ring-1 ring-border/50 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      onClick={onOpen}
-    >
-      {thread.quotedText ? (
-        <p className="mb-2 line-clamp-2 border-s-2 border-border ps-2 text-xs italic text-muted-foreground">
-          {thread.quotedText}
-        </p>
-      ) : null}
-      <div className="flex items-start gap-2">
-        <CommentAvatar
-          email={first.author_email}
-          name={first.author_name ?? first.author_email}
-          className="size-5 shrink-0"
-        />
-        <span className="min-w-0 flex-1 break-words text-[13px] text-foreground/90">
-          {renderCommentBody(first.content, first.mentions)}
-        </span>
+    <div className="w-full min-w-0 overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50 group/history relative">
+      <button
+        type="button"
+        className="absolute inset-0 rounded-lg hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        aria-labelledby={`${labelId} ${contentId}`}
+        onClick={onOpen}
+      />
+      <div className="pointer-events-none relative p-3">
+        {thread.quotedText ? (
+          <p className="mb-2 line-clamp-2 border-s-2 border-border ps-[26px] text-xs italic leading-4 text-muted-foreground">
+            {thread.quotedText}
+          </p>
+        ) : null}
+        <div className="flex items-start gap-2">
+          <CommentAvatar
+            email={first.author_email}
+            name={first.author_name ?? first.author_email}
+            className="size-5 shrink-0"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex h-5 min-w-0 items-center gap-1.5">
+              <span
+                id={labelId}
+                className="truncate text-[13px] font-semibold leading-5 text-foreground"
+              >
+                {first.author_name ?? first.author_email.split("@")[0]}
+              </span>
+              <CommentAttributionBadge comment={first} />
+            </div>
+            <div
+              id={contentId}
+              className="break-words text-start text-[13px] leading-5 text-foreground/90 [&_a]:pointer-events-auto [&_a]:relative"
+            >
+              {renderCommentBody(first.content, first.mentions)}
+            </div>
+          </div>
+        </div>
+        {thread.comments.length > 1 && (
+          <span className="mt-2 block text-xs text-muted-foreground">
+            {t("comments.replyCount", { count: thread.comments.length - 1 })}
+          </span>
+        )}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -2334,6 +2367,18 @@ function ThreadView({
   return (
     <div
       ref={cardRef}
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (
+          !isSubmitting &&
+          canExpand &&
+          event.target === event.currentTarget &&
+          (event.key === "Enter" || event.key === " ")
+        ) {
+          event.preventDefault();
+          onExpand();
+        }
+      }}
       data-thread-card={thread.threadId}
       className={cn(
         "group/thread mx-2 mr-4 cursor-pointer rounded-lg shadow-md ring-1 ring-border/50 transition-[background-color,transform,translate] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:focus-within:translate-x-0",
@@ -2466,7 +2511,7 @@ function ThreadView({
 
       {feedback}
       {/* Expanded: Notion-style reply input */}
-      {isExpanded && canComment && (
+      {isExpanded && canComment && !resolved && (
         <div
           data-comment-reply-composer
           className="flex items-center gap-2 px-3 pb-3 pt-1"
@@ -2487,12 +2532,15 @@ function ThreadView({
               onChange={onReplyChange}
               onMentionAdd={onReplyMentionAdd}
               onSubmit={onSubmitReply}
-              onEscape={onCollapse}
+              onEscape={() => {
+                onCollapse();
+                requestAnimationFrame(() => cardRef.current?.focus());
+              }}
               members={members}
               placeholder={t("comments.reply")}
               disabled={isSubmitting}
               rows={1}
-              className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none pr-16"
+              className="block w-full resize-none bg-transparent [font-family:inherit] text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none pe-8"
             />
             <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
               <button
@@ -2508,54 +2556,6 @@ function ThreadView({
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function ResolvedThreadView({
-  thread,
-  onReopen,
-  canResolve,
-  t,
-}: {
-  thread: CommentThread;
-  onReopen: () => void;
-  canResolve: boolean;
-  t: ReturnType<typeof useT>;
-}) {
-  const first = thread.comments[0];
-  return (
-    <div className="group/resolved w-full min-w-0 overflow-hidden rounded-lg bg-muted/40 p-3 ring-1 ring-border/40">
-      {thread.quotedText && (
-        <p className="mb-1.5 truncate border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
-          {thread.quotedText}
-        </p>
-      )}
-      <div className="flex items-center gap-2">
-        <CommentAvatar
-          email={first.author_email}
-          name={first.author_name ?? first.author_email}
-          className="h-5 w-5 shrink-0 opacity-80"
-        />
-        <span className="flex-1 truncate text-[13px] text-muted-foreground">
-          {renderCommentBody(first.content, first.mentions)}
-        </span>
-        {canResolve ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("comments.reopen")}
-                onClick={onReopen}
-                className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/resolved:opacity-100 group-focus-within/resolved:opacity-100 focus:opacity-100"
-              >
-                <IconArrowBackUp size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("comments.reopen")}</TooltipContent>
-          </Tooltip>
-        ) : null}
-      </div>
     </div>
   );
 }

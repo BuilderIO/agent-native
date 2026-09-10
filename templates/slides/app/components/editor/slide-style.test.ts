@@ -94,7 +94,7 @@ describe("value formatting", () => {
 
 describe("slide background parsing", () => {
   it("falls back to the renderer default when unset", () => {
-    expect(backgroundCssValue(undefined)).toBe("#000000");
+    expect(backgroundCssValue(undefined)).toBe("#F5F2EA");
   });
 
   it("unwraps Tailwind arbitrary values", () => {

@@ -1029,11 +1029,7 @@ function CommentAvatar({
     size === "pin" ? "size-7" : size === "md" ? "size-8" : "size-7";
   return (
     <Avatar
-      className={cn(
-        sizeClass,
-        "border-2 border-background shadow-sm ring-1 ring-border/60",
-        className,
-      )}
+      className={cn(sizeClass, "border border-background shadow-sm", className)}
       title={author.email ? `${author.name} (${author.email})` : author.name}
     >
       {author.avatarUrl && (
@@ -3877,7 +3873,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const handleNativeReaderScroll = () => {
     documentStateRef.current = readNativeDocumentState();
     setNativeSelectionComment(null);
-    scheduleNativeMarkerUpdate();
+    if (commentMarkersVisible || pendingAnnotation || activeAnnotation) {
+      // Ordinary reading must not invalidate the document tree on every wheel frame.
+      scheduleNativeMarkerUpdate();
+    }
   };
 
   const readNativeSelectionComment =

@@ -17,10 +17,9 @@ import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
 } from "../../lib/agent-readable-resource-context.js";
-import { repairCanonicalFirstPartyDashboardQueries } from "../../lib/canonical-first-party-dashboard-repair.js";
+import { repairKnownFirstPartyDashboardQueries } from "../../lib/canonical-first-party-dashboard-repair.js";
 import { loadDashboardSeed } from "../../lib/dashboard-seeds.js";
 import type { DashboardRecord } from "../../lib/dashboards-store.js";
-import { FIRST_PARTY_DASHBOARD_ID } from "../../lib/first-party-metric-catalog.js";
 
 function queryString(value: unknown): string {
   if (typeof value === "string") return value;
@@ -96,10 +95,7 @@ export default defineEventHandler(async (event) => {
       setResponseStatus(event, 403);
       return { error: "Invalid or expired agent access token" };
     }
-    const config =
-      id === FIRST_PARTY_DASHBOARD_ID
-        ? repairCanonicalFirstPartyDashboardQueries(seed).config
-        : seed;
+    const config = repairKnownFirstPartyDashboardQueries(id, seed).config;
     return buildDashboardSeedAgentContext(id, config, { includeConfig: true });
   }
 
@@ -115,13 +111,11 @@ export default defineEventHandler(async (event) => {
 
   const dashboard = rowToDashboard(row);
   return buildDashboardAgentContext(
-    dashboard.id === FIRST_PARTY_DASHBOARD_ID
-      ? {
-          ...dashboard,
-          config: repairCanonicalFirstPartyDashboardQueries(dashboard.config)
-            .config,
-        }
-      : dashboard,
+    {
+      ...dashboard,
+      config: repairKnownFirstPartyDashboardQueries(id, dashboard.config)
+        .config,
+    },
     { includeConfig: true },
   );
 });

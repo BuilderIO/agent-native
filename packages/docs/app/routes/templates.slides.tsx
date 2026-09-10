@@ -137,7 +137,7 @@ export default function SlidesTemplate() {
     <TemplateLandingShell>
       <TemplateHero
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -195,8 +195,7 @@ export default function SlidesTemplate() {
             <TemplateStatOrStepsGridItem key={step.title}>
               <span
                 aria-hidden="true"
-                className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
-                style={{ color: template.color }}
+                className="font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]"
               >
                 {String(index + 1).padStart(2, "0")}
               </span>
@@ -232,8 +231,7 @@ export default function SlidesTemplate() {
           >
             <div
               aria-hidden="true"
-              className="h-1 w-10 rounded-full"
-              style={{ backgroundColor: template.color }}
+              className="h-1 w-10 rounded-full bg-[var(--docs-border)]"
             />
             <h3 className="m-0 text-lg font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
               {capability.title}
@@ -267,8 +265,7 @@ export default function SlidesTemplate() {
                 <li key={item} className="flex items-start gap-3">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
-                    style={{ color: template.color }}
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                   />
                   <span>{item}</span>
                 </li>
@@ -334,7 +331,7 @@ export default function SlidesTemplate() {
               id: "slides",
               className: "w-[30%]",
               emphasized: true,
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { name: template.name },
             },
           ]}
           rows={[
@@ -374,7 +371,7 @@ export default function SlidesTemplate() {
       <TemplateLandingFaq
         idPrefix="slides-faq"
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }

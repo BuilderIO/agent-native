@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { setDreamSettings } from "../server/lib/dreams-store.js";
 
 export default defineAction({
   description:
     "Update recurring Dispatch dream settings without immediately running or applying a dream pass.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     enabled: z
       .boolean()

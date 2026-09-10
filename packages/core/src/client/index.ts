@@ -16,7 +16,10 @@ export {
   AgentNativeI18nProvider,
   LanguagePicker,
   getLocaleInitScript,
+  isLocaleCode,
+  isValidLocaleCode,
   localeDirection,
+  localeMetadataFor,
   normalizeLocaleCode,
   normalizeLocalePreference,
   normalizeLocalizationPreference,
@@ -32,6 +35,7 @@ export {
   SUPPORTED_LOCALES,
   type AgentNativeI18nCatalog,
   type AgentNativeI18nProviderProps,
+  type BuiltinLocaleCode,
   type LocaleCode,
   type LocaleHydrationPayload,
   type LocaleMessages,
@@ -51,6 +55,14 @@ export {
   type FeatureFlagRules,
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
+export {
+  ExperimentsSettings,
+  useExperiment,
+  useExperimentState,
+  useExperiments,
+  type ExperimentValues,
+  type ExperimentsSettingsProps,
+} from "./experiments/index.js";
 export { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 export {
   SettingsPanel,

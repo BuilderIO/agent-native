@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/extensions";
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -64,7 +65,6 @@ import {
 import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
-import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery } from "@/lib/sql-query";
@@ -84,6 +84,25 @@ import type {
 } from "@/pages/adhoc/sql-dashboard/types";
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
+
+const MAX_CHART_POINTS = 400;
+
+export function limitChartRows(
+  rows: Record<string, unknown>[],
+  chartType: ChartType,
+): Record<string, unknown>[] {
+  if (
+    rows.length <= MAX_CHART_POINTS ||
+    !["line", "area", "bar", "pie", "heatmap", "funnel", "callout"].includes(
+      chartType,
+    )
+  ) {
+    return rows;
+  }
+  return chartType !== "line" && chartType !== "area" && chartType !== "heatmap"
+    ? rows.slice(0, MAX_CHART_POINTS)
+    : rows.slice(-MAX_CHART_POINTS);
+}
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -1292,9 +1311,12 @@ interface SqlChartProps {
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
+  timeRange?: number;
   reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
+  /** Keeps same-dashboard panels deduplicated without sharing across dashboards. */
+  dashboardId?: string;
   /** Dashboard/panel state sent to slot-backed extension boxes. */
   extensionContext?: Record<string, unknown> | null;
 }
@@ -1303,9 +1325,11 @@ export function SqlChart({
   panel,
   resolvedSql,
   loadData = true,
+  timeRange,
   reportScreenshot = false,
   onExportCsvChange,
   onCopyTableChange,
+  dashboardId,
   extensionContext,
 }: SqlChartProps) {
   const t = useT();
@@ -1324,7 +1348,7 @@ export function SqlChart({
     error: queryError,
     refetch,
   } = useSqlQuery(
-    ["sql-chart", panel.id, sql, panel.source],
+    ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
@@ -1342,11 +1366,12 @@ export function SqlChart({
     if (panel.config?.pivot && rawRows.length) {
       const pivoted = pivotRows(rawRows, panel.config.pivot, {
         fillDateGaps: panel.chartType !== "bar",
+        timeRange,
       });
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
     }
     return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.chartType, panel.config?.pivot]);
+  }, [rawRows, panel.chartType, panel.config?.pivot, timeRange]);
 
   const { xKey, yKeys } = useMemo(
     () => detectKeys(queryRows, panel.config, forcedYKeys),
@@ -1363,6 +1388,18 @@ export function SqlChart({
         ? createDemoChartTrendRows(queryRows, yKeys, panel.id)
         : queryRows,
     [queryRows, yKeys, panel.id, shouldCreateDemoTrend],
+  );
+  // Legacy normalization: older saved dashboards may still have stacked-*
+  // chart types. Render them unstacked rather than silently blank.
+  const chartType: ChartType =
+    (panel.chartType as string) === "stacked-bar"
+      ? "bar"
+      : (panel.chartType as string) === "stacked-area"
+        ? "area"
+        : panel.chartType;
+  const chartRows = useMemo(
+    () => limitChartRows(rows, chartType),
+    [chartType, rows],
   );
 
   // Section panels are pure layout — no query, no chart. Render a header with
@@ -1452,14 +1489,6 @@ export function SqlChart({
     );
   }
 
-  // Legacy normalization: older saved dashboards may still have stacked-*
-  // chart types. Render them unstacked rather than silently blank.
-  const chartType: ChartType =
-    (panel.chartType as string) === "stacked-bar"
-      ? "bar"
-      : (panel.chartType as string) === "stacked-area"
-        ? "area"
-        : panel.chartType;
   const missingConfigKeys = configuredKeysMissingFromRows(rows, panel);
   const withConfigWarning = (node: ReactNode) =>
     missingConfigKeys.length > 0 ? (
@@ -1489,7 +1518,7 @@ export function SqlChart({
   if (chartType === "pie") {
     return withConfigWarning(
       <PieRenderer
-        rows={rows}
+        rows={chartRows}
         xKey={xKey}
         yKey={yKeys[0]}
         colors={colors}
@@ -1501,7 +1530,7 @@ export function SqlChart({
   if (chartType === "bar") {
     return withConfigWarning(
       <BarRenderer
-        rows={rows}
+        rows={chartRows}
         xKey={xKey}
         yKeys={yKeys}
         colors={colors}
@@ -1514,16 +1543,18 @@ export function SqlChart({
 
   if (chartType === "funnel") {
     return withConfigWarning(
-      <FunnelRenderer rows={rows} panel={panel} colors={colors} />,
+      <FunnelRenderer rows={chartRows} panel={panel} colors={colors} />,
     );
   }
 
   if (chartType === "heatmap") {
-    return withConfigWarning(<HeatmapRenderer rows={rows} panel={panel} />);
+    return withConfigWarning(
+      <HeatmapRenderer rows={chartRows} panel={panel} />,
+    );
   }
 
   if (chartType === "callout") {
-    return withConfigWarning(<CalloutRenderer rows={rows} />);
+    return withConfigWarning(<CalloutRenderer rows={chartRows} />);
   }
 
   if (chartType !== "line" && chartType !== "area") {
@@ -1532,7 +1563,7 @@ export function SqlChart({
 
   return withConfigWarning(
     <TimeSeriesRenderer
-      rows={rows}
+      rows={chartRows}
       xKey={xKey}
       yKeys={yKeys}
       colors={colors}

@@ -12,6 +12,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
+  applyDocSurgically,
   createSharedEditorExtensions,
   useCollabReconcile,
   type UseCollabReconcileResult,
@@ -65,6 +66,7 @@ import {
   Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -1138,6 +1140,9 @@ interface VisualEditorProps {
     controller: VisualEditorHistoryController | null,
   ) => void;
   onHistoryStateChange?: (state: VisualEditorHistoryState) => void;
+  onPersistenceControllerChange?: (
+    controller: VisualEditorPersistenceController | null,
+  ) => void;
 }
 
 export interface VisualEditorHistoryState {
@@ -1148,6 +1153,25 @@ export interface VisualEditorHistoryState {
 export interface VisualEditorHistoryController {
   undo: () => boolean;
   redo: () => boolean;
+  replaceWithAuthoritativeContent: (snapshot: {
+    content: string;
+    contentUpdatedAt: string;
+    contentRevision: string | null;
+  }) => boolean;
+}
+
+export interface VisualEditorPersistenceController {
+  flushLatest: () => Promise<boolean>;
+}
+
+export function shouldFlushVisualEditorDraft({
+  editable,
+  hasUserEditIntent,
+}: {
+  editable: boolean;
+  hasUserEditIntent: boolean;
+}) {
+  return editable && hasUserEditIntent;
 }
 
 export function suggestionReplacementIntentForTransaction(
@@ -2570,6 +2594,7 @@ export function VisualEditor({
   notionPageId,
   onHistoryControllerChange,
   onHistoryStateChange,
+  onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
@@ -2769,8 +2794,10 @@ export function VisualEditor({
   // only fires once the editor exists, by which point the ref holds the guards.
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
   const lastUserEditIntentAtRef = useRef(0);
+  const hasUserEditIntentRef = useRef(false);
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
+    hasUserEditIntentRef.current = true;
   }, []);
   const persistEditorContent = useCallback(
     (
@@ -2779,13 +2806,14 @@ export function VisualEditor({
         markdown?: string;
         immediate?: boolean;
         userInitiated?: boolean;
+        strict?: boolean;
       },
     ) => {
       const guards = guardsRef.current;
       if (!guards) return false;
       try {
         const serialized = serializeEditorDraftForPersistence(editorToPersist);
-        if (serialized === null) return true;
+        if (serialized === null) return options?.strict !== true;
         const normalized = options?.markdown ?? serialized;
         if (localFileMode && normalized === content) return true;
         // TipTap/Yjs can emit a local-looking empty-paragraph transaction while
@@ -2842,6 +2870,12 @@ export function VisualEditor({
   };
 
   const historyEditorRef = useRef<CoreEditor | null>(null);
+  const acknowledgedRestoreRef = useRef<{
+    documentId: string | null;
+    content: string;
+    contentUpdatedAt: string;
+    contentRevision: string | null;
+  } | null>(null);
   const selectionSyncTimerRef = useRef<
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
@@ -3045,6 +3079,7 @@ export function VisualEditor({
           Date.now() - lastUserEditIntentAtRef.current < 2000,
         transactionUiEvent: transaction.getMeta("uiEvent"),
       });
+      if (userInitiated) hasUserEditIntentRef.current = true;
       if (
         !shouldPersistCollaborativeEditorUpdate({
           collab: !!ydoc,
@@ -3090,19 +3125,82 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor) {
+      onPersistenceControllerChange?.(null);
+      return;
+    }
+    onPersistenceControllerChange?.({
+      flushLatest: async () => {
+        if (
+          !shouldFlushVisualEditorDraft({
+            editable,
+            hasUserEditIntent: hasUserEditIntentRef.current,
+          })
+        ) {
+          return true;
+        }
+        return await Promise.resolve(
+          persistEditorContent(editor, {
+            immediate: true,
+            userInitiated: true,
+            strict: true,
+          }),
+        );
+      },
+    });
+    return () => onPersistenceControllerChange?.(null);
+  }, [editable, editor, onPersistenceControllerChange, persistEditorContent]);
+
+  useEffect(() => {
+    if (!editor) {
       onHistoryControllerChange?.(null);
       return;
     }
     onHistoryControllerChange?.({
       undo: () => runPersistableHistoryCommand(editor, "undo"),
       redo: () => runPersistableHistoryCommand(editor, "redo"),
+      replaceWithAuthoritativeContent: (snapshot) => {
+        const parsed = parseNfmForCollabReconcile(editor, snapshot.content);
+        if (!parsed) return false;
+        applyDocSurgically(editor, parsed);
+        let applied =
+          canonicalizeNfm(docToNfm(editor.getJSON() as any)) ===
+          canonicalizeNfm(snapshot.content);
+        if (!applied) {
+          editor
+            .chain()
+            .command(({ tr }) => {
+              tr.setMeta("addToHistory", false);
+              return true;
+            })
+            .setContent(nfmToDoc(snapshot.content), { emitUpdate: false })
+            .run();
+          applied =
+            canonicalizeNfm(docToNfm(editor.getJSON() as any)) ===
+            canonicalizeNfm(snapshot.content);
+        }
+        if (applied) {
+          acknowledgedRestoreRef.current = {
+            documentId: documentId ?? null,
+            ...snapshot,
+          };
+          yUndoPluginKey.getState(editor.state)?.undoManager.clear();
+          notifyHistoryStateChange({ canUndo: false, canRedo: false });
+        }
+        return applied;
+      },
     });
     onHistoryStateChange?.({
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
     });
     return () => onHistoryControllerChange?.(null);
-  }, [editor, onHistoryControllerChange, onHistoryStateChange]);
+  }, [
+    editor,
+    documentId,
+    notifyHistoryStateChange,
+    onHistoryControllerChange,
+    onHistoryStateChange,
+  ]);
 
   // Clear the agent's selection context when this document closes — on
   // unmount, and on document change (the editor is reused across route
@@ -3210,14 +3308,45 @@ export function VisualEditor({
   // `<empty-block/>`-aware seed predicate). `initialAppliedUpdatedAt: null`
   // preserves Content's "first run reconciles a stale persisted Y.Doc against
   // authoritative SQL" behavior (an agent that edited the CLOSED doc).
+  let acknowledgedRestore = acknowledgedRestoreRef.current;
+  if (
+    acknowledgedRestore &&
+    acknowledgedRestore.documentId !== (documentId ?? null)
+  ) {
+    acknowledgedRestoreRef.current = null;
+    acknowledgedRestore = null;
+  } else if (
+    acknowledgedRestore &&
+    contentUpdatedAt &&
+    contentUpdatedAt >= acknowledgedRestore.contentUpdatedAt
+  ) {
+    acknowledgedRestore = {
+      documentId: documentId ?? null,
+      content,
+      contentUpdatedAt,
+      contentRevision: contentRevision ?? null,
+    };
+    acknowledgedRestoreRef.current = acknowledgedRestore;
+  }
+  const propsPredateAcknowledgedRestore = Boolean(
+    acknowledgedRestore &&
+    (!contentUpdatedAt ||
+      contentUpdatedAt < acknowledgedRestore.contentUpdatedAt),
+  );
   const collabState = useCollabReconcile({
     editor,
     ydoc,
     collabSynced,
     awareness: localAwareness,
-    value: content,
-    contentUpdatedAt,
-    contentRevision,
+    value: propsPredateAcknowledgedRestore
+      ? acknowledgedRestore!.content
+      : content,
+    contentUpdatedAt: propsPredateAcknowledgedRestore
+      ? acknowledgedRestore!.contentUpdatedAt
+      : contentUpdatedAt,
+    contentRevision: propsPredateAcknowledgedRestore
+      ? acknowledgedRestore!.contentRevision
+      : contentRevision,
     onBaseAwareReconcile,
     editable,
     isEditorFocused: isVisualEditorFocused,

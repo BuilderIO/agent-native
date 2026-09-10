@@ -220,6 +220,7 @@ function AppMenuLink({
 function AppsSubmenu({
   apps,
   isLoading,
+  isWorkspace,
   dispatchHref,
   dispatchAllAppsHref,
   currentAppId,
@@ -227,6 +228,7 @@ function AppsSubmenu({
 }: {
   apps: OrgSwitcherAppLink[];
   isLoading: boolean;
+  isWorkspace: boolean;
   dispatchHref: string;
   dispatchAllAppsHref: string;
   currentAppId?: string;
@@ -237,17 +239,20 @@ function AppsSubmenu({
     : apps;
   const { links, overflowCount } = visibleOrgAppLinks(appsForMenu);
   const visibleDispatchApp = links.find((app) => app.isDispatch);
-  const dispatchApp =
-    currentAppId === "dispatch"
-      ? null
-      : (visibleDispatchApp ??
-        ({
+  const fallbackDispatchApp =
+    !isWorkspace || isLoading
+      ? {
           id: "dispatch",
           name: "Dispatch",
           href: dispatchHref,
           isDispatch: true,
-          status: "ready",
-        } satisfies OrgSwitcherAppLink));
+          status: "ready" as const,
+        }
+      : null;
+  const dispatchApp =
+    currentAppId === "dispatch"
+      ? null
+      : (visibleDispatchApp ?? fallbackDispatchApp);
   const visibleNonDispatch = links
     .filter((app) => !app.isDispatch)
     .slice(0, dispatchApp ? undefined : ORG_SWITCHER_MAX_APP_LINKS);
@@ -710,6 +715,7 @@ export function OrgSwitcher({
               <AppsSubmenu
                 apps={appLinks.apps}
                 isLoading={appLinks.isLoading}
+                isWorkspace={appLinks.isWorkspace}
                 dispatchHref={appLinks.dispatchHref}
                 dispatchAllAppsHref={appLinks.dispatchAllAppsHref}
                 currentAppId={currentAppId}

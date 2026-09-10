@@ -22,6 +22,7 @@ const __dirname = path.dirname(__filename);
 
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
+const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
@@ -2011,6 +2012,7 @@ function postProcessStandalone(
         }
       }
       pkg.dependencies = pkg.dependencies ?? {};
+      pkg.dependencies["@electric-sql/pglite"] ??= PGLITE_DEPENDENCY_VERSION;
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
@@ -3982,7 +3984,15 @@ function tryGitInit(dir: string): boolean {
 function renameGitignore(dir: string): void {
   const src = path.join(dir, "_gitignore");
   const dst = path.join(dir, ".gitignore");
-  if (fs.existsSync(src)) fs.renameSync(src, dst);
+  if (!fs.existsSync(src)) return;
+  fs.renameSync(src, dst);
+  const contents = fs.readFileSync(dst, "utf8");
+  if (!contents.includes("data/*.lock")) {
+    fs.appendFileSync(
+      dst,
+      `${contents.endsWith("\n") ? "" : "\n"}data/*.lock\n`,
+    );
+  }
 }
 
 function replacePlaceholders(

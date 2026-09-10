@@ -64,6 +64,7 @@ const messages = {
     extensions: "Rallonges",
     newRecording: "Nouvel enregistrement",
     folders: "Dossiers",
+    recordings: "Enregistrements",
     newFolder: "Nouveau dossier",
     noSpaces: "Aucun espace pour le moment",
     desktopCta: "Obtenir l’app de bureau",
@@ -516,6 +517,11 @@ const messages = {
     shareLink: "Lien de partage",
     shareWithHumans: "Partager avec des personnes",
     shareWithAgents: "Partager avec les agents",
+    people: "Personnes",
+    agents: "Agents",
+    openInClaude: "Ouvrir dans Claude",
+    openInClaudeCode: "Ouvrir dans Claude Code",
+    openInCodex: "Ouvrir dans Codex",
     copyAgentPrompt: "Copier le prompt pour agent",
     agentPrompt:
       "Récupère cette URL de contexte Clips pour agent : {{agentContextUrl}}. Utilise transcript.segments pour le contexte parlé, récupère recommendedFrames ou les URLs de l'API d'images pour voir l'écran, et consulte browserDiagnostics s'il est présent pour les journaux de console expurgés et les métadonnées de requêtes fetch/XHR.",
@@ -721,6 +727,17 @@ const messages = {
     agentTitle: "Gérer l’agent",
     title: "Paramètres",
     pageTitle: "Paramètres · Clips",
+    experiments: "Expériences",
+    experimentsIntro:
+      "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
+    experimentVideoEditing: "Montage vidéo",
+    experimentVideoEditingDescription: "Essayez le nouvel éditeur vidéo.",
+    experimentMeetings: "Réunions et transcription",
+    experimentMeetingsDescription:
+      "Essayez la capture et la transcription automatiques des réunions.",
+    experimentWisprFlow: "Dictée vocale",
+    experimentWisprFlowDescription:
+      "Essayez la nouvelle fonction de dictée vocale.",
     intro: "Préférences et services connectés pour cet espace Clips.",
     preferencesTitle: "Préférences",
     languageTitle: "Langue",
@@ -1744,6 +1761,7 @@ const messages = {
     donePageTitle: "Rapport de bug envoyé · Clips",
     eyebrow: "Rapport de bug",
     title: "Enregistrer un rapport de bug",
+    sidebarCta: "Envoyer des commentaires",
     description:
       "Capturez une courte reproduction avec écran, voix et contexte navigateur expurgé pour votre équipe.",
     issueTitleLabel: "Titre du problème",
@@ -1819,7 +1837,7 @@ const messages = {
     refreshing: "Refreshing… (Localisé)",
     howToTriggerTitle: "How to trigger meeting notes (Localisé)",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (Localisé)",
+      "Meeting notes in Clips bring calendar events, desktop audio capture, and transcripts plus AI notes together in one history. (Localisé)",
     guideCalendarTitle: "Connect Google Calendar (Localisé)",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you. (Localisé)",
@@ -1845,6 +1863,37 @@ const messages = {
       "Utile pour retrouver le début d’une explication plus longue.",
     privateReady:
       "Ce clip est privé. Vous pouvez maintenant ajouter l’historique Rewind local.",
+  },
+  browserDiagnostics: {
+    debug: "Débogage",
+    title: "Diagnostics du navigateur",
+    failureSummary:
+      "{{consoleCount}} problèmes de console · {{networkCount}} requêtes échouées",
+    noFailures: "Aucun échec détecté",
+    failuresPresent: "Des erreurs de navigateur ont été détectées",
+    captureSuccessful: "Diagnostics capturés avec succès",
+    capturedFrom: "Capturé depuis {{source}}",
+    browserCapture: "Capture du navigateur",
+    views: "Vues de diagnostic",
+    issues: "Problèmes",
+    consoleSource: "Console",
+    networkSource: "Réseau",
+    consoleCount: "Console {{count}}",
+    networkCount: "Réseau {{count}}",
+    afterRecording: "Après l’enregistrement",
+    seekToTime: "Aller à {{time}}",
+    occurrences: "Occurrences",
+    message: "Message",
+    stackTrace: "Trace de la pile",
+    request: "Requête",
+    status: "État",
+    duration: "Durée",
+    error: "Erreur",
+    noIssuesTitle: "Aucun problème de navigateur détecté",
+    noConsoleTitle: "Aucun événement de console",
+    noNetworkTitle: "Aucune requête réseau",
+    capturedDescription:
+      "Les diagnostics ont été capturés pour cet enregistrement.",
   },
   timeline: { clipStartedHere: "Le clip commence ici" },
 };

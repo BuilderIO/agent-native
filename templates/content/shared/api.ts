@@ -122,6 +122,7 @@ export interface DocumentCreateRequest {
 export interface DocumentUpdateRequest {
   title?: string;
   content?: string;
+  historySessionId?: string;
   description?: string;
   icon?: string | null;
   isFavorite?: boolean;
@@ -854,8 +855,8 @@ export interface ContentDatabaseSource {
   rows: ContentDatabaseSourceRow[];
   changeSets: ContentDatabaseSourceChangeSet[];
   projection?: {
-    rows: "complete" | "page";
-    changeSets: "complete" | "page";
+    rows: "complete" | "page" | "omitted";
+    changeSets: "complete" | "page" | "omitted";
   };
   bodyHydration?: ContentDatabaseBodyHydrationSummary;
 }
@@ -908,6 +909,8 @@ export interface NotionDatabaseSourcesResponse {
 }
 
 export interface ContentDatabaseResponse {
+  configurationRevision?: string;
+  setupContract?: ContentDatabaseSetupContract;
   database: ContentDatabase;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -981,6 +984,7 @@ export interface ContentDatabaseSourceFieldPropertyResponse {
 }
 
 export interface CreateDatabaseRequest {
+  idempotencyKey?: string;
   documentId?: string;
   newDocumentId?: string;
   spaceId?: string;
@@ -1164,9 +1168,28 @@ export interface ContentSystemCollectionSummary {
 }
 
 export interface ContentDatabaseDescriptionResponse {
+  configurationRevision?: string;
+  mutationContract?: ContentDatabaseMutationContract;
+  setupContract?: ContentDatabaseSetupContract;
   database: ContentDatabase;
   contextPath: ContentContextPathEntry[];
   properties: DocumentProperty[];
+}
+
+export interface ContentDatabaseSetupContract {
+  target: { spaceId: string; databaseId: string; databaseDocumentId: string };
+  databaseUrl: string;
+  viewUrls: Array<{ viewId: string; url: string }>;
+  supportedPropertyTypes: string[];
+  canEditSchema: boolean;
+  canEditViews: boolean;
+  canManageLifecycle: boolean;
+  sourceComposition: "unsupported";
+  properties: Array<{
+    propertyId: string;
+    editable: boolean;
+    reason: string | null;
+  }>;
 }
 
 export interface ListContentDatabasesResponse {
@@ -1176,6 +1199,8 @@ export interface ListContentDatabasesResponse {
 }
 
 export interface TrashedContentDatabaseSummary {
+  spaceId?: string | null;
+  configurationRevision?: string;
   databaseId: string;
   title: string;
   documentId: string;
@@ -1186,6 +1211,8 @@ export interface TrashedContentDatabaseSummary {
 
 export interface ListTrashedContentDatabasesResponse {
   databases: TrashedContentDatabaseSummary[];
+  hasMore?: boolean;
+  nextOffset?: number | null;
 }
 
 export interface TrashedDocumentSummary {

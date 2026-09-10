@@ -3,6 +3,7 @@ import {
   ActionContractError,
   defineAction,
   embedApp,
+  fail,
 } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -114,6 +115,7 @@ export default defineAction({
     "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
     "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
+    "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, use a light neutral canvas with ink text and one or two restrained accents; never default to a black canvas with white text. " +
     "For a single-call bulk append, use `patch-deck` with add-slide operations. " +
     "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
   schema: z.object({
@@ -221,8 +223,15 @@ export default defineAction({
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId));
 
+      // Reachable only in the narrow window where access resolved and the row
+      // was deleted before this select. A wrong deck id never gets here:
+      // assertAccess throws Forbidden first, on purpose, so a non-member
+      // cannot probe a deck id for existence. Do not delete this as dead.
       if (!rows.length) {
-        throw new Error(`Deck ${deckId} not found`);
+        fail(`Deck ${deckId} not found`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
       }
 
       const row = rows[0];

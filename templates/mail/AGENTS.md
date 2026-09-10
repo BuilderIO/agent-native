@@ -19,13 +19,12 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use actions for reads, labels, settings, drafts, queued drafts, filters,
   scheduling, refresh, and CRM context. Don't edit mail SQL directly unless a
   skill or action calls for it.
-- Two backends, chosen automatically per user: real Gmail when a Google account
-  is connected, synthetic `local-emails` data otherwise. Call actions the same
-  way either way, and never claim fallback data or a fallback send touched the
-  user's real inbox.
+- Use real Gmail when connected, otherwise synthetic `local-emails`; call
+  actions the same way and never claim fallback data or sends touched the real inbox.
 - Interactive sends require explicit user approval. Draft or queue for review by
   default; automation-triggered sends remain approval-gated unless the owner
   opts into Mail's "Allow automations to send emails automatically" setting.

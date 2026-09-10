@@ -683,6 +683,10 @@ export async function mergeCoreSharingActions(
       () => import("../email-catalog/actions/list-email-log.js"),
     ],
     [
+      "get-email-log-body",
+      () => import("../email-catalog/actions/get-email-log-body.js"),
+    ],
+    [
       "list-email-activity",
       () => import("../email-catalog/actions/list-email-activity.js"),
     ],
@@ -713,6 +717,14 @@ export async function mergeCoreSharingActions(
     [
       "set-feature-flag",
       () => import("../feature-flags/actions/set-feature-flag.js"),
+    ],
+    [
+      "get-experiments",
+      () => import("../experiments/actions/get-experiments.js"),
+    ],
+    [
+      "set-experiment",
+      () => import("../experiments/actions/set-experiment.js"),
     ],
     // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
     // recurring jobs and personal automations. The agent-facing native tools

@@ -395,6 +395,15 @@ CREATE INDEX IF NOT EXISTS designs_normalized_owner_org_updated_idx ON designs (
 ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS file_count INTEGER;
 CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions (design_id, created_at)`,
     },
+    {
+      version: 26,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS design_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS design_system_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS design_template_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
   ],
   { table: "design_migrations" },
 );

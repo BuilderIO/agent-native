@@ -108,29 +108,15 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
     return () => cancelAnimationFrame(frame);
   }, [focusSearchInput, routeRequestsFocus, setSearchParams]);
 
-  // "/" is the inline search shortcut. Cmd+K belongs to the app command menu.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (
-        e.key === "/" &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        (e.target as HTMLElement)?.tagName?.toLowerCase() !== "input" &&
-        (e.target as HTMLElement)?.tagName?.toLowerCase() !== "textarea" &&
-        !(e.target as HTMLElement)?.isContentEditable
-      ) {
-        e.preventDefault();
-        focusSearchInput();
-      }
-      if (e.key === "Escape") {
-        setOpen(false);
-        inputRef.current?.blur();
-      }
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      inputRef.current?.blur();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusSearchInput]);
+  }, []);
 
   function pickResult(hit: SearchHit) {
     setOpen(false);
@@ -184,7 +170,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
                 aria-hidden="true"
                 className="absolute end-1.5 top-1/2 h-5 -translate-y-1/2 px-1 font-mono text-[10px]"
               >
-                {shortcutLabel("/")}
+                {shortcutLabel("cmd+k")}
               </Kbd>
             )}
           </div>

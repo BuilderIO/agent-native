@@ -86,13 +86,30 @@ describe("dispatch migrations", () => {
     const { rows } = await freshExec.execute(
       "SELECT MAX(version) as version FROM dispatch_migrations",
     );
-    expect(rows[0]?.version).toBe(6);
+    expect(rows[0]?.version).toBe(9);
     const { rows: identityRows } = await freshExec.execute({
       sql: `SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = ?`,
       args: ["identity_sso_authorization_code"],
     });
     expect(identityRows).toHaveLength(1);
+    const { rows: bootstrapColumns } = await freshExec.execute({
+      sql: `SELECT column_name, data_type FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = ?
+        ORDER BY column_name`,
+      args: ["identity_sso_bootstrap"],
+    });
+    expect(bootstrapColumns).toEqual(
+      expect.arrayContaining([
+        { column_name: "created_at", data_type: "bigint" },
+        { column_name: "expires_at", data_type: "bigint" },
+        { column_name: "consumed_at", data_type: "bigint" },
+        { column_name: "activation_expires_at", data_type: "bigint" },
+        { column_name: "browser_binding_hash", data_type: "text" },
+        { column_name: "org_id", data_type: "text" },
+        { column_name: "auth_provider", data_type: "text" },
+      ]),
+    );
     const { rows: widenedRows } = await freshExec.execute({
       sql: `SELECT column_name, data_type FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = ?

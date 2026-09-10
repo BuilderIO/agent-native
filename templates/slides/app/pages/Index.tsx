@@ -133,6 +133,7 @@ const RETRY_REASONING_EFFORTS = new Set([
 interface DeckGenerationRetryState {
   retryPrompt?: string;
   retryFiles?: UploadedFile[];
+  retryReferenceFilePaths?: string[];
   retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
   modelSelection?: DeckModelSelection;
@@ -387,6 +388,8 @@ export default function Index() {
   const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
     [],
   );
+  const [newDeckRetryReferenceFilePaths, setNewDeckRetryReferenceFilePaths] =
+    useState<string[]>([]);
   const [newDeckRetryContext, setNewDeckRetryContext] = useState<
     string | undefined
   >();
@@ -402,6 +405,7 @@ export default function Index() {
   const [pendingDeck, setPendingDeck] = useState<{
     prompt: string;
     files: UploadedFile[];
+    referenceFilePaths: string[];
     context?: string;
     attachments: ReadonlyArray<PromptChatAttachment>;
     modelSelection?: DeckModelSelection;
@@ -596,6 +600,7 @@ export default function Index() {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
+          setNewDeckRetryReferenceFilePaths([]);
           setNewDeckRetryContext(undefined);
           setNewDeckRetryPrompt(undefined);
           setNewDeckRetryAttachments([]);
@@ -628,6 +633,7 @@ export default function Index() {
       setNewDeckRetryContext(options.context);
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles([]);
+      setNewDeckRetryReferenceFilePaths([]);
       setNewDeckRetryAttachments(options.attachments ?? []);
       setNewDeckRetryModelSelection(options.modelSelection);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
@@ -722,6 +728,7 @@ export default function Index() {
       setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     }
     setNewDeckRetryFiles(state.retryFiles ?? []);
+    setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? []);
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
@@ -807,6 +814,12 @@ export default function Index() {
         : selectedReferenceDeckId && selectedReferenceDeckId !== "none"
           ? selectedReferenceDeckId
           : null;
+    const referenceFilePaths = new Set(
+      referenceSelection.referenceFilePaths ?? [],
+    );
+    const filesForSourceImprovement = filesForGeneration.filter(
+      (file) => !referenceFilePaths.has(file.path),
+    );
     const selectedDesignSystem = designSystemId
       ? designSystems.find((ds) => ds.id === designSystemId)
       : undefined;
@@ -851,6 +864,7 @@ export default function Index() {
       setNewDeckRetryContext(additionalContext || undefined);
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles(filesForGeneration);
+      setNewDeckRetryReferenceFilePaths([...referenceFilePaths]);
       setNewDeckRetryAttachments(attachmentsForGeneration);
       setNewDeckRetryModelSelection(modelSelection);
       deleteDeck(deckId);
@@ -864,6 +878,7 @@ export default function Index() {
           state: {
             retryPrompt: prompt,
             retryFiles: filesForGeneration,
+            retryReferenceFilePaths: [...referenceFilePaths],
             retryContext: additionalContext || undefined,
             retryAttachments: attachmentsForGeneration,
             modelSelection,
@@ -885,10 +900,10 @@ export default function Index() {
     }
 
     let importedSourceDeck: ImportedSourceDeck | null = null;
-    if (isSourceImprovementRequest(prompt, filesForGeneration)) {
+    if (isSourceImprovementRequest(prompt, filesForSourceImprovement)) {
       try {
         importedSourceDeck = await importUploadedDeckIntoDeck(
-          filesForGeneration,
+          filesForSourceImprovement,
           deckId,
         );
       } catch (error) {
@@ -904,6 +919,7 @@ export default function Index() {
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
+    setNewDeckRetryReferenceFilePaths([]);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryAttachments([]);
@@ -952,8 +968,14 @@ export default function Index() {
           "",
           "Design system selection:",
           "- No design system was selected in the picker.",
-          "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
-          "- If no workspace default exists, report the missing configuration instead of inventing a generic Builder-like palette.",
+          ...(referenceDeckId
+            ? [
+                "- A reference deck is selected above. Follow its visual language as the source of truth. Do not call `get-workspace-defaults` or apply a workspace default design system.",
+              ]
+            : [
+                "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
+                "- If no workspace default exists, use a light warm-neutral canvas, dark ink text, Inter or a close sans-serif, 64px by 80px minimum padding, strong title/body scale contrast, and one restrained blue or coral accent. Never default to a black canvas with white text or omit the padded fmd-slide wrapper.",
+              ]),
         ].join("\n");
     const referenceSource = referenceSelection.referenceSource;
     const referenceSourceContext = referenceSource
@@ -1019,7 +1041,7 @@ export default function Index() {
       "The original brief and uploaded/reference handles are persisted on the deck as generationContext. On every continuation or follow-up, call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message.",
       "An explicit theme or brand instruction in the original brief overrides the background, palette, and styling of an uploaded/reference image or source page. Preserve source content and imagery, but do not copy a white wireframe background when the requested theme is dark.",
       "Do not report completion until the persisted generationContext targetSlideCount is reached, or, for source-preserving mode, get-deck compact=true reports sourceCoverage.complete=true for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
-      "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
+      "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 800x412px available inside standard 64px 80px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
       "When no reference deck or hydrated design system is available, use a restrained, content-first visual language. Do not invent colorful cards, boxes, or decorative rectangles behind or over text; add a colored shape only when it has a clear semantic role and leaves the text unobscured. Prefer typography, spacing, alignment, and one restrained accent.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
@@ -1126,9 +1148,12 @@ export default function Index() {
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
+      const retryReferenceFilePaths =
+        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
       setPendingDeck({
         prompt,
         files,
+        referenceFilePaths: retryReferenceFilePaths,
         context: retryContext,
         attachments: [
           ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
@@ -1143,6 +1168,7 @@ export default function Index() {
           : newDeckRetryModelSelection,
       });
       setNewDeckRetryPrompt(undefined);
+      setNewDeckRetryReferenceFilePaths([]);
       setNewDeckRetryContext(undefined);
       setNewDeckRetryAttachments([]);
       setNewDeckRetryModelSelection(undefined);
@@ -1150,7 +1176,9 @@ export default function Index() {
       return "retain" as const;
     },
     [
+      newDeckRetryFiles,
       newDeckRetryAttachments,
+      newDeckRetryReferenceFilePaths,
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
@@ -1162,10 +1190,16 @@ export default function Index() {
     settlePendingDeckAttachments("discard");
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryReferenceFilePaths([]);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryAttachments([]);
     setNewDeckRetryModelSelection(undefined);
-    setPendingDeck({ prompt: "", files: [], attachments: [] });
+    setPendingDeck({
+      prompt: "",
+      files: [],
+      referenceFilePaths: [],
+      attachments: [],
+    });
     setShowNewDeckReferenceStep(true);
   }, [setNewDeckPromptOpen, settlePendingDeckAttachments]);
 
@@ -1307,10 +1341,19 @@ export default function Index() {
           forgetReference("deck");
         }
       }
+      const referenceFilePaths = [
+        ...new Set([
+          ...(pending.referenceFilePaths ?? []),
+          ...(selection.referenceFilePaths ?? []),
+        ]),
+      ];
       const generation = runPendingDeckGeneration(
         pending.prompt,
         pending.files,
-        selection,
+        {
+          ...selection,
+          ...(referenceFilePaths.length > 0 ? { referenceFilePaths } : {}),
+        },
         pending.context,
         pending.attachments,
         pending.modelSelection,
@@ -1338,7 +1381,12 @@ export default function Index() {
         const docxReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".docx"),
         );
+        const referenceFilePaths = uploaded
+          .filter((file) => /\.(pdf|pptx|docx)$/i.test(file.originalName))
+          .map((file) => file.path);
         let importedReference: ImportedReference | null = null;
+        // The target generation context must retain the source handle; the
+        // imported reference deck stores rendered slides, not the original file.
         let generationFiles = uploaded;
         if (pptxReference) {
           const imported = (await callAction(
@@ -1367,8 +1415,8 @@ export default function Index() {
                 ? imported.title
                 : t("home.importedReferenceDeck"),
             source: "pptx",
+            referenceFilePaths,
           };
-          generationFiles = uploaded.filter((file) => file !== pptxReference);
         } else if (pdfReference || docxReference) {
           const documentReference = pdfReference ?? docxReference;
           const documentFormat = pdfReference ? "pdf" : "docx";
@@ -1425,10 +1473,8 @@ export default function Index() {
                   ? imported.title
                   : t("home.importedReferenceDeck"),
               source: documentFormat,
+              referenceFilePaths,
             };
-            generationFiles = uploaded.filter(
-              (file) => file !== documentReference,
-            );
           } catch (error) {
             deleteDeck(referenceDeck.id);
             throw error;
@@ -1436,7 +1482,16 @@ export default function Index() {
         }
         setPendingDeck((current) =>
           current
-            ? { ...current, files: [...current.files, ...generationFiles] }
+            ? {
+                ...current,
+                files: [...current.files, ...generationFiles],
+                referenceFilePaths: [
+                  ...new Set([
+                    ...current.referenceFilePaths,
+                    ...(importedReference?.referenceFilePaths ?? []),
+                  ]),
+                ],
+              }
             : current,
         );
         if (importedReference) {
@@ -1531,6 +1586,9 @@ export default function Index() {
       {
         designSystemId: null,
         referenceDeckId: null,
+        ...(pending.referenceFilePaths.length > 0
+          ? { referenceFilePaths: pending.referenceFilePaths }
+          : {}),
       },
       pending.context,
       pending.attachments,

@@ -1,6 +1,6 @@
 /** @jsxRuntime classic */
 
-import { MarketingHome, Starfield } from "@agent-native/toolkit/marketing";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
@@ -10,6 +10,7 @@ import {
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
   | "signup"
@@ -633,6 +634,13 @@ function headingKeys(view: AuthView): { heading: string; subtitle: string } {
   return { heading: "welcomeTitle", subtitle: "createAccountSubtitle" };
 }
 
+export function shouldHideAuthSubtitle(
+  view: AuthView,
+  localDevAvailable: boolean,
+): boolean {
+  return view === "signup" && localDevAvailable;
+}
+
 export function AuthPage(props: AuthPageProps) {
   const {
     authMode,
@@ -655,6 +663,8 @@ export function AuthPage(props: AuthPageProps) {
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl,
+    identitySsoEnabled = false,
+    identitySsoAuto = false,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -710,6 +720,9 @@ export function AuthPage(props: AuthPageProps) {
   const verificationCheckInFlight = React.useRef(false);
   const verifiedReturnHandled = React.useRef(false);
   const verificationStepStartedRef = React.useRef(false);
+  const [sessionProbeComplete, setSessionProbeComplete] = React.useState(false);
+  const [sessionProbeAnonymous, setSessionProbeAnonymous] =
+    React.useState(false);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -734,6 +747,10 @@ export function AuthPage(props: AuthPageProps) {
     (path: string) => `${runtimeAppBasePath}${path}`,
     [runtimeAppBasePath],
   );
+  const identityHref = React.useMemo(
+    () => apiPath("/_agent-native/identity/login"),
+    [apiPath],
+  );
   const journey = React.useCallback((): SignInJourney => {
     if (typeof window === "undefined") {
       return signInJourney({
@@ -754,11 +771,24 @@ export function AuthPage(props: AuthPageProps) {
     });
   }, [homePath, runtimeAppBasePath]);
   const resumeHref = React.useCallback(() => journey().resumeHref, [journey]);
+  const identityBootstrapHref = React.useCallback(
+    (target?: string) => {
+      const safeTarget = target || resumeHref();
+      if (!identitySsoEnabled || isAgentNativeDesktop()) return safeTarget;
+      const url = new URL(
+        apiPath("/_agent-native/identity/bootstrap"),
+        window.location.origin,
+      );
+      url.searchParams.set("return", safeTarget);
+      return `${url.pathname}${url.search}`;
+    },
+    [apiPath, identitySsoEnabled, resumeHref],
+  );
   const redirectToSignedInApp = React.useCallback(
     (target?: string) => {
-      window.location.replace(target || resumeHref());
+      window.location.replace(identityBootstrapHref(target));
     },
-    [resumeHref],
+    [identityBootstrapHref],
   );
   const setNotice = React.useCallback((key: string, notice: Notice) => {
     setMessages((current) => ({ ...current, [key]: notice }));
@@ -898,6 +928,7 @@ export function AuthPage(props: AuthPageProps) {
             return;
           }
           if (isConfirmedAnonymousAuthSession(response, data, readable)) {
+            setSessionProbeAnonymous(true);
             return;
           }
           retry = shouldRetryAuthSessionProbe(response, readable);
@@ -910,8 +941,38 @@ export function AuthPage(props: AuthPageProps) {
         );
       }
     };
-    void probe();
+    void probe().finally(() => setSessionProbeComplete(true));
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
+
+  React.useEffect(() => {
+    if (
+      !identitySsoAuto ||
+      !runtimeBasePathResolved ||
+      !sessionProbeComplete ||
+      !sessionProbeAnonymous ||
+      isAgentNativeDesktop() ||
+      (view !== "login" && view !== "signup")
+    ) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("sso") || params.has("error") || params.has("verified")) {
+      return;
+    }
+    const probeParams = new URLSearchParams({
+      return: resumeHref(),
+      prompt: "none",
+    });
+    window.location.replace(`${identityHref}?${probeParams.toString()}`);
+  }, [
+    identityHref,
+    identitySsoAuto,
+    resumeHref,
+    runtimeBasePathResolved,
+    sessionProbeAnonymous,
+    sessionProbeComplete,
+    view,
+  ]);
 
   React.useEffect(() => {
     if (!runtimeBasePathResolved || view !== "magicLinkSent") return;
@@ -1410,11 +1471,16 @@ export function AuthPage(props: AuthPageProps) {
       // coercion-ok: analytics session storage is optional.
     }
     const target = resumeHref();
-    const oauthTarget = oauthReturnTarget(target, workspaceGatewayReturnOrigin);
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
     const nativeDesktop = flow === "redirect" && isAgentNativeDesktop();
+    const oauthTarget = oauthReturnTarget(
+      flow === "redirect" && !nativeDesktop
+        ? identityBootstrapHref(target)
+        : target,
+      workspaceGatewayReturnOrigin,
+    );
     if (nativeDesktop) {
       stopNativeOAuth();
       nativeOAuthFlowId.current = flowId;
@@ -1535,6 +1601,7 @@ export function AuthPage(props: AuthPageProps) {
   }, [
     googleAuthUrlPath,
     googleBusy,
+    identityBootstrapHref,
     resolveGoogleFlow,
     resumeHref,
     showGoogle,
@@ -1766,7 +1833,7 @@ export function AuthPage(props: AuthPageProps) {
             body: JSON.stringify({
               email,
               password: signupPassword,
-              callbackURL: resumeHref(),
+              callbackURL: identityBootstrapHref(resumeHref()),
             }),
           },
         );
@@ -1817,6 +1884,7 @@ export function AuthPage(props: AuthPageProps) {
     },
     [
       apiPath,
+      identityBootstrapHref,
       pendingEmailStorageKey,
       redirectToSignedInApp,
       resumeHref,
@@ -1959,7 +2027,7 @@ export function AuthPage(props: AuthPageProps) {
               email,
               callbackURL: desktop
                 ? apiPath("/_agent-native/auth/magic-link/desktop-callback")
-                : resumeHref(),
+                : identityBootstrapHref(resumeHref()),
             }),
           },
         );
@@ -1996,6 +2064,7 @@ export function AuthPage(props: AuthPageProps) {
     },
     [
       apiPath,
+      identityBootstrapHref,
       magicLinkEmail,
       resumeHref,
       setNotice,
@@ -2016,7 +2085,10 @@ export function AuthPage(props: AuthPageProps) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, callbackURL: resumeHref() }),
+          body: JSON.stringify({
+            email,
+            callbackURL: identityBootstrapHref(resumeHref()),
+          }),
         },
       );
       if (response.ok) {
@@ -2041,6 +2113,7 @@ export function AuthPage(props: AuthPageProps) {
     }
   }, [
     apiPath,
+    identityBootstrapHref,
     readPendingSignupEmail,
     resumeHref,
     setNotice,
@@ -2228,7 +2301,12 @@ export function AuthPage(props: AuthPageProps) {
       <h1 id="heading" data-i18n={keys.heading}>
         {t(keys.heading)}
       </h1>
-      <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
+      <p
+        id="subtitle"
+        className="subtitle"
+        data-i18n={keys.subtitle}
+        hidden={shouldHideAuthSubtitle(view, localDevAvailable)}
+      >
         {t(keys.subtitle)}
       </p>
       <p
@@ -2761,7 +2839,9 @@ export function AuthPage(props: AuthPageProps) {
       appName={marketingCopy.appName}
       variant="auth"
       background={
-        marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
+        marketingCopy.screenshotSrc ? null : (
+          <OceanBackground className="auth-marketing-background" />
+        )
       }
       topRight={
         marketingCopy.learnMoreUrl ? (
@@ -2800,15 +2880,7 @@ export function AuthPage(props: AuthPageProps) {
             aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
           }}
         >
-          <img
-            className="auth-marketing-screenshot"
-            src={marketingCopy.screenshotSrc}
-            alt={`${marketingCopy.appName} preview`}
-            width={marketingCopy.screenshotWidth}
-            height={marketingCopy.screenshotHeight}
-            fetchPriority="high"
-            decoding="async"
-          />
+          <OceanBackground className="auth-marketing-screenshot" />
         </div>
       ) : (
         <div className="marketing-content">

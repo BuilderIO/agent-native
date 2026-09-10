@@ -1,3 +1,4 @@
+import { emailToColor } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT, useFormatters } from "@agent-native/core/client/i18n";
 import {
@@ -21,6 +22,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useCreateComment,
   useEditComment,
@@ -76,15 +82,6 @@ function emailToInitial(email: string) {
   return (email.split("@")[0]?.[0] ?? "?").toUpperCase();
 }
 
-function emailToAvatarColor(email: string) {
-  let hash = 0;
-  for (let i = 0; i < email.length; i++) {
-    hash = email.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 55%, 55%)`;
-}
-
 function CommentAvatar({
   email,
   name,
@@ -101,11 +98,68 @@ function CommentAvatar({
       {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
       <UserAvatarFallback
         className="text-[11px] font-medium text-primary-foreground"
-        style={{ backgroundColor: emailToAvatarColor(email ?? "user") }}
+        style={{ backgroundColor: emailToColor(email ?? "user") }}
       >
         {emailToInitial(label)}
       </UserAvatarFallback>
     </UserAvatar>
+  );
+}
+
+export function getAiCommentSource(
+  submissionSource: string | null | undefined,
+): "mcp" | "agent" | null {
+  return submissionSource === "mcp" || submissionSource === "agent"
+    ? submissionSource
+    : null;
+}
+
+export function CommentAttributionBadge({ comment }: { comment: Comment }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const source = getAiCommentSource(comment.submission_source);
+  if (!source) return null;
+
+  const authorName =
+    comment.author_name ??
+    comment.author_email.split("@")[0] ??
+    comment.author_email;
+  const attribution = t("comments.aiAttribution", { name: authorName });
+  const sourceLabel = t(
+    source === "mcp" ? "comments.aiSourceMcp" : "comments.aiSourceAgent",
+  );
+
+  return (
+    <Tooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${attribution}. ${sourceLabel}`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(true);
+          }}
+          className="pointer-events-auto -m-1 inline-flex shrink-0 items-center justify-center rounded p-1 leading-none text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-comment-ai-attribution={source}
+        >
+          <span className="inline-flex h-4 min-w-5 items-center justify-center rounded border border-border bg-muted/50 px-1 text-[10px] font-semibold leading-none tracking-wide">
+            {t("comments.aiBadge")}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="w-max max-w-60 px-2 py-1.5 text-xs leading-4"
+      >
+        <span className="grid gap-0.5">
+          <span>{attribution}</span>
+          <span className="text-muted-foreground">{sourceLabel}</span>
+        </span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -218,6 +272,7 @@ export function CommentEntry({
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
           {comment.author_name ?? comment.author_email.split("@")[0]}
         </span>
+        <CommentAttributionBadge comment={comment} />
         <span className="text-xs text-muted-foreground">
           {formatDate(comment.created_at, { month: "short", day: "numeric" })}
         </span>

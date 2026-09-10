@@ -176,7 +176,9 @@ export function describeDesignHtmlIntegrityIssue(
 
 export class DesignHtmlIntegrityError extends Error {
   readonly code = DESIGN_HTML_INTEGRITY_ERROR_CODE;
-  readonly status = 422;
+  // action-routes.ts reads `.statusCode`, not `.status` — without this the
+  // route swallows this error's actionable message into a generic 500.
+  readonly statusCode = 422;
   readonly issue: DesignHtmlIntegrityIssue;
   readonly detail?: DesignHtmlIntegrityIssueDetail[];
 

@@ -2,6 +2,7 @@ import enUS from "../i18n/en-US";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "./docs-locale";
 
@@ -189,6 +190,16 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "cloneable-saas",
         labelKey: "templatesOverview",
         slug: "cloneable-saas",
+      },
+      {
+        id: "creating-templates",
+        labelKey: "creatingTemplates",
+        slug: "creating-templates",
+      },
+      {
+        id: "syncing-template-changes",
+        labelKey: "syncingTemplateChanges",
+        slug: "syncing-template-changes",
       },
       {
         id: "pure-agent-apps",
@@ -788,6 +799,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "generative-ui",
       },
       {
+        id: "embedding-sdk",
+        labelKey: "embeddingSdk",
+        slug: "embedding-sdk",
+      },
+      {
         id: "real-time-collaboration",
         labelKey: "realTimeCollaboration",
         slug: "real-time-collaboration",
@@ -802,6 +818,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "agent-resources-overview",
         labelKey: "agentResourcesOverview",
         slug: "agent-resources",
+      },
+      {
+        id: "writing-agent-instructions",
+        labelKey: "writingAgentInstructions",
+        slug: "writing-agent-instructions",
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {
@@ -898,29 +919,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "workspaceConnections",
         slug: "workspace-connections",
       },
-    ],
-  },
-  {
-    id: "build-apps",
-    titleKey: "buildApps",
-    items: [
-      {
-        id: "creating-templates",
-        labelKey: "creatingTemplates",
-        slug: "creating-templates",
-      },
-      {
-        id: "syncing-template-changes",
-        labelKey: "syncingTemplateChanges",
-        slug: "syncing-template-changes",
-      },
-      {
-        id: "writing-agent-instructions",
-        labelKey: "writingAgentInstructions",
-        slug: "writing-agent-instructions",
-      },
-      { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
-      { id: "frames", labelKey: "frames", slug: "frames" },
     ],
   },
   {
@@ -1134,14 +1132,15 @@ function toNavItem(
 }
 
 export function getDocsNavSections(
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
   t: Translate = enMessage,
 ): NavSection[] {
+  const docsLocale = docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE;
   return NAV_SECTION_CONFIG_IN_DISPLAY_ORDER.map((section) => ({
     id: section.id,
     title: navLabel(t, section.titleKey),
     items: section.items
-      .map((item) => toNavItem(item, locale, t))
+      .map((item) => toNavItem(item, docsLocale, t))
       .filter((item): item is NavItem => item !== null),
   })).filter((section) => section.items.length > 0);
 }
@@ -1162,7 +1161,7 @@ function flattenItems(items: NavItem[]): NavItem[] {
 }
 
 export function getDocsNavItems(
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
   t: Translate = enMessage,
 ): (NavItem & { to: string })[] {
   return getDocsNavSections(locale, t)

@@ -67,12 +67,10 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 `zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`,
 और `ar-SA`।
 
-यह सूची फ्रेमवर्क द्वारा तय की गई है। यह केवल इस उदाहरण में bundle किए गए locales तक
-सीमित नहीं है। `LocaleCode` ठीक इन्हीं codes का एक TypeScript union है, और
-`set-localization-preference` runtime पर इनके अलावा किसी भी अन्य मान को अस्वीकार कर
-देता है। प्रत्येक locale को framework-curated metadata की भी आवश्यकता होती है, जैसे
-right-to-left भाषाओं के लिए text direction। एक नया locale जोड़ने का मतलब है फ्रेमवर्क
-को स्वयं विस्तारित करना, न कि अपने ऐप में केवल एक catalog फ़ाइल जोड़ना।
+फ्रेमवर्क built-in locales देता है। ऐप्स अपने metadata, जैसे native और English
+नाम तथा text direction, के साथ अतिरिक्त canonical BCP-47 locales पंजीकृत कर
+सकते हैं। वैकल्पिक framework अनुवादों के लिए `coreMessageOverrides` का उपयोग
+करें; अनुपलब्ध keys English पर वापस आती हैं।
 
 `createAgentNativeI18nCatalog` एक वैकल्पिक `sourceLocale` भी स्वीकार करता है, जो
 डिफ़ॉल्ट रूप से `en-US` होता है, और एक वैकल्पिक `supportedLocales` array भी।
@@ -80,7 +78,10 @@ right-to-left भाषाओं के लिए text direction। एक न�
 कुछ के लिए ही अनुवाद प्रदान करता हो। यह डिफ़ॉल्ट रूप से फ्रेमवर्क द्वारा समर्थित हर
 locale को शामिल करता है। `LanguagePicker` केवल इसी सेट में मौजूद locales को
 सूचीबद्ध करता है, और इसके बाहर पहचाना गया या अनुरोधित कोई भी locale `sourceLocale`
-पर वापस आ जाता है।
+पर वापस आ जाता है। `locales` में पंजीकृत locales इस सूची में जोड़े जाते हैं,
+भले ही `supportedLocales` built-in locales को सीमित करे। `agent-native.json` में
+`translations.locales` ऐप की स्पष्ट allowlist है और catalog registration पर
+प्राथमिकता रखती है।
 
 ## UI
 
@@ -109,7 +110,7 @@ locale-sensitive date/number formatting को translation strings के अं
 - `get-localization-preference` — वर्तमान उपयोगकर्ता का `{ locale, timezone }` पढ़ें
 - `set-localization-preference` — `locale` और/या `timezone` सेट करें, प्रत्येक वैकल्पिक है
 
-`locale` या तो `"system"` होता है या एक समर्थित BCP-47 locale। `timezone` या तो
+`locale` या तो `"system"` होता है या ऐप द्वारा पंजीकृत मान्य BCP-47 locale। `timezone` या तो
 `"system"` होता है या `America/New_York` जैसा कोई IANA zone। यह इसलिए मौजूद है ताकि
 scheduled और automation कार्य host के बजाय उपयोगकर्ता के zone में चलें। केवल एक
 फ़ील्ड सेट करने पर दूसरी फ़ील्ड अपरिवर्तित रहती है, क्योंकि

@@ -277,6 +277,41 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
+  it("refreshes mounted preview Page data without refreshing inactive cached rows", () => {
+    const predicate = contentActionInvalidatePredicate("/page/collection");
+    for (const name of [
+      "get-document",
+      "list-comments",
+      "list-document-properties",
+    ]) {
+      const query = {
+        queryKey: [
+          "action",
+          name,
+          { id: "row", documentId: "row", databaseId: "db" },
+        ],
+        isActive: () => true,
+      };
+      expect(
+        predicate(query, [{ source: "action", key: "update-document" }]),
+      ).toBe(true);
+      expect(
+        predicate({ ...query, isActive: () => false }, [
+          { source: "action", key: "update-document" },
+        ]),
+      ).toBe(false);
+    }
+    expect(
+      predicate(
+        {
+          queryKey: ["action", "get-content-database", { id: "collection" }],
+          isActive: () => true,
+        },
+        [{ source: "action", key: "update-document" }],
+      ),
+    ).toBe(true);
+  });
+
   it("refreshes bounded database results after external row changes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
 
@@ -403,6 +438,65 @@ describe("contentActionInvalidatePredicate", () => {
       ]),
     ).toBe(true);
   });
+
+  it.each(["/page/database-page", "/home", "/trash"])(
+    "refreshes document and Trash lists after external database lifecycle changes on %s",
+    (pathname) => {
+      const predicate = contentActionInvalidatePredicate(pathname);
+
+      for (const queryName of [
+        "list-content-databases",
+        "list-documents",
+        "list-trashed-content-databases",
+        "list-trashed-documents",
+      ]) {
+        const query = { queryKey: ["action", queryName, {}] };
+        expect(
+          predicate(query, [
+            { source: "action", key: "delete-content-database" },
+          ]),
+        ).toBe(true);
+        expect(
+          predicate(query, [
+            { source: "action", key: "restore-content-database" },
+          ]),
+        ).toBe(true);
+        expect(
+          predicate(query, [{ source: "action", key: "update-document" }]),
+        ).toBe(false);
+      }
+    },
+  );
+
+  it.each(["/home", "/settings", "/trash"])(
+    "refreshes active sidebar database reads after lifecycle changes on %s",
+    (pathname) => {
+      const predicate = contentActionInvalidatePredicate(pathname);
+      for (const queryName of [
+        "get-content-database",
+        "query-content-database-items",
+      ]) {
+        const query = {
+          queryKey: ["action", queryName, { databaseId: "files" }],
+          isActive: () => true,
+        };
+        for (const key of [
+          "delete-content-database",
+          "restore-content-database",
+        ]) {
+          expect(predicate(query, [{ source: "action", key }])).toBe(true);
+          expect(
+            predicate({ ...query, isActive: () => false }, [
+              { source: "action", key },
+            ]),
+          ).toBe(false);
+        }
+        expect(
+          predicate(query, [{ source: "action", key: "update-document" }]),
+        ).toBe(false);
+      }
+    },
+  );
 
   it("refreshes only the active personal-view query for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
