@@ -5,6 +5,10 @@ import type {
   VideoModel,
   VideoResolution,
 } from "../../shared/api.js";
+import {
+  isModelUnavailableDetail,
+  readableProviderErrorDetail,
+} from "../../shared/provider-error.js";
 import { getGeminiApiKey } from "./generation.js";
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
@@ -114,9 +118,15 @@ export async function startGeminiVideoGeneration(input: {
   );
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
+    // coercion-ok: the response already failed; an unreadable body only costs
+    // detail, and the thrown error still carries the status.
+    const errorBody = await response.text().catch(() => "");
+    console.error(
+      `[assets] video-gen provider error status=${response.status} model=${input.model} body=${errorBody.slice(0, 2000)}`,
+    );
+    const detail = videoErrorDetailForUser(errorBody, input.model);
     throw new Error(
-      `Gemini video generation failed (${response.status})${detail ? `: ${extractErrorDetail(detail)}` : "."}`,
+      `Gemini video generation failed (${response.status})${detail ? `: ${detail}` : "."}`,
     );
   }
   const body = (await response.json()) as { name?: string };
@@ -141,15 +151,25 @@ export async function pollGeminiVideoGeneration(
     signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
+    // coercion-ok: the response already failed; an unreadable body only costs
+    // detail, and the thrown error still carries the status.
+    const body = await response.text().catch(() => "");
+    console.error(
+      `[assets] video-gen poll error status=${response.status} body=${body.slice(0, 2000)}`,
+    );
+    const detail = videoErrorDetailForUser(body);
     throw new Error(
-      `Gemini video operation poll failed (${response.status})${detail ? `: ${extractErrorDetail(detail)}` : "."}`,
+      `Gemini video operation poll failed (${response.status})${detail ? `: ${detail}` : "."}`,
     );
   }
   const operation = (await response.json()) as Record<string, unknown>;
   if (operation.error) {
+    console.error(
+      `[assets] video-gen operation error ${JSON.stringify(operation.error).slice(0, 2000)}`,
+    );
+    const detail = videoErrorDetailForUser(operation.error);
     throw new Error(
-      `Gemini video generation failed: ${extractErrorDetail(operation.error)}`,
+      `Gemini video generation failed${detail ? `: ${detail}` : "."}`,
     );
   }
   if (operation.done !== true) return { status: "processing", operation };
@@ -222,27 +242,16 @@ function extractVideo(
   return null;
 }
 
-function extractErrorDetail(value: unknown): string {
-  if (typeof value === "string") {
-    try {
-      return extractErrorDetail(JSON.parse(value));
-    } catch {
-      return value.trim().slice(0, 500);
-    }
+// Mirrors the image path: the failure text reaches the generation tray and the
+// audit page verbatim, so it must be prose rather than the provider payload.
+function videoErrorDetailForUser(value: unknown, model?: VideoModel): string {
+  const detail = readableProviderErrorDetail(value, 500);
+  if (!detail) return "";
+  if (isModelUnavailableDetail(detail)) {
+    const label = model ? `the ${model} model` : "the requested video model";
+    return `${label} is unavailable right now. Pick a different video model and try again.`;
   }
-  const record = readRecord(value);
-  if (!record) return String(value).slice(0, 500);
-  for (const key of ["message", "error", "detail", "status"]) {
-    const candidate = record[key];
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim().slice(0, 500);
-    }
-    if (candidate && typeof candidate === "object") {
-      const nested = extractErrorDetail(candidate);
-      if (nested) return nested;
-    }
-  }
-  return JSON.stringify(record).slice(0, 500);
+  return detail;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

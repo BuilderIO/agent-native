@@ -20,6 +20,10 @@ import type {
   StyleStrength,
   StyleBrief,
 } from "../../shared/api.js";
+import {
+  isModelUnavailableDetail,
+  readableProviderErrorDetail,
+} from "../../shared/provider-error.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./json.js";
 import { canReadDraftAsset, type DraftReadScope } from "./library-access.js";
@@ -385,8 +389,17 @@ export async function generateWithBuilderImageApi(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    const detail = extractBuilderErrorDetail(text);
+    const detail = builderErrorDetailForUser(text, input.model);
     const code = extractBuilderErrorCode(text);
+    logGeneration("builder.error", {
+      model: requestModel,
+      requestedModel: input.model,
+      status: response.status,
+      code,
+      detail,
+      rawBody: text.slice(0, 2000),
+      runId: input.runId,
+    });
     throw new BuilderImageGenerationError(
       `Builder-managed image generation failed (${response.status})${detail ? `: ${detail}` : "."}`,
       response.status,
@@ -729,17 +742,17 @@ function builderImageGenerationFallbackMessage(
   }
 }
 
-function extractBuilderErrorDetail(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed) return "";
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    const detail = readProviderErrorDetail(parsed);
-    if (detail) return detail.slice(0, 300);
-  } catch {
-    // Fall back to the raw response text below.
+// This string is rendered verbatim in the candidate tray, so it must never
+// carry the upstream payload. The managed service wraps the provider failure
+// in a JSON string, which wraps the Vertex failure in another JSON string;
+// returning the first value found put an escaped 404 body in front of users.
+function builderErrorDetailForUser(text: string, model: ImageModel): string {
+  const detail = readableProviderErrorDetail(text);
+  if (!detail) return "";
+  if (isModelUnavailableDetail(detail)) {
+    return `the ${model} model is unavailable right now. Pick a different image model and try again.`;
   }
-  return trimmed.slice(0, 300);
+  return detail;
 }
 
 // The managed service tags errors with a stable machine code (e.g.
@@ -753,19 +766,6 @@ function extractBuilderErrorCode(text: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function readProviderErrorDetail(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ["message", "error", "detail"]) {
-    const candidate = record[key];
-    if (typeof candidate === "string" && candidate.trim()) return candidate;
-    const nested = readProviderErrorDetail(candidate);
-    if (nested) return nested;
-  }
-  return null;
 }
 
 export async function generateWithGemini(
