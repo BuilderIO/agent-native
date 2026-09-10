@@ -6,6 +6,7 @@ import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { ClipsActOnFeedbackMock } from "../components/template-landing/ClipsActOnFeedbackMock";
+import { ClipsBriefOutputsMock } from "../components/template-landing/ClipsBriefOutputsMock";
 import { ClipsInvestigateBugMock } from "../components/template-landing/ClipsInvestigateBugMock";
 import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { ClipsShareMenuMock } from "../components/template-landing/ClipsShareMenuMock";
@@ -13,7 +14,6 @@ import { templates, trackEvent } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
-import { ImgPlaceholder } from "../components/website-redesign/ds/img-placeholder";
 import {
   GridInner,
   PageSection,
@@ -51,9 +51,6 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "clips")!;
 
-// Each id/label pair below is a literal instruction from the copy doc for
-// what the placeholder art should eventually show — kept here so whoever
-// drops in the real asset knows which one without re-reading the doc.
 // Which side carries the text is data rather than row parity: the two
 // act-on-feedback variants sit next to each other so they can be compared, and
 // deriving the side from the index would have flipped every row below them.
@@ -62,28 +59,24 @@ const USE_CASES = [
     id: "act-on-feedback",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
-    imageLabel: "ASSET U1",
     textLeft: true,
   },
   {
     id: "act-on-feedback-bare",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
-    imageLabel: "ASSET U1",
     textLeft: true,
   },
   {
     id: "investigate-bug",
     titleKey: "useCase2Title",
     bodyKey: "useCase2Body",
-    imageLabel: "ASSET U2",
     textLeft: false,
   },
   {
     id: "create-from-brief",
     titleKey: "useCase3Title",
     bodyKey: "useCase3Body",
-    imageLabel: "ASSET U3",
     textLeft: true,
   },
 ] as const;
@@ -245,12 +238,6 @@ export default function ClipsTemplate() {
                 <div
                   key="media"
                   className={`order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)] ${
-                    useCase.id === "investigate-bug" ||
-                    useCase.id === "act-on-feedback" ||
-                    useCase.id === "act-on-feedback-bare"
-                      ? ""
-                      : "bg-[var(--b-bg-raised)]"
-                  } ${
                     // The recording-page art is a crop that runs off its left
                     // edge under a fade, so it takes the full cell width.
                     useCase.id === "act-on-feedback" ? "ps-0 lg:ps-0" : ""
@@ -263,13 +250,7 @@ export default function ClipsTemplate() {
                   ) : useCase.id === "act-on-feedback-bare" ? (
                     <ClipsShareMenuMock className="w-full" />
                   ) : (
-                    <ImgPlaceholder
-                      aspectRatio="4 / 3"
-                      label={useCase.imageLabel}
-                      rounded={false}
-                      background="transparent"
-                      bordered={false}
-                    />
+                    <ClipsBriefOutputsMock className="w-full" />
                   )}
                 </div>
               );
