@@ -155,23 +155,26 @@ const AGENT_ROWS = [
   { label: "Open in Codex", icon: <IconBrandOpenai className="size-4" /> },
 ] as const;
 
-// The page is laid out at desktop width so the real `lg:` layout applies, then
-// scaled into the card. Below `lg` the product drops the transcript panel
-// under the player, which is a different screen than the one this depicts.
+// The page is laid out at desktop width so the real `lg:` layout applies.
+// Below `lg` the product moves the transcript panel under the player, which is
+// a different screen than the one this depicts.
 const DESIGN_WIDTH = 1120;
 const DESIGN_HEIGHT = 580;
 
-const SCALE_STEPS = Array.from({ length: 60 }, (_, index) => 240 + index * 16)
-  .map(
-    (width) =>
-      `@container (min-width: ${width}px) { .clips-page-mock-page { transform: scale(${(
-        width / DESIGN_WIDTH
-      ).toFixed(4)}); } }`,
-  )
-  .join("\n");
+// The page is deliberately wider than the card at these scales: it is anchored
+// to the right so the share popover and transcript panel stay whole, and the
+// player runs off the left edge under the fade. Shrinking it to fit instead
+// would make the UI too small to read as a product screenshot.
+const SCALE = 0.8;
+const MOBILE_SCALE = 0.55;
+
+// Matches the pinned row background on the landing page
+// (app/routes/templates.clips.tsx), so the crop dissolves into the section
+// rather than ending on a visible edge.
+const FADE_COLOR = "#0a0a0a";
 
 const CLIPS_PAGE_MOCK_CSS = [
-  ".clips-page-mock { container-type: inline-size; width: 100%; }",
+  ".clips-page-mock { width: 100%; }",
 
   // Clips' own dark palette (templates/clips/app/global.css:50-84), pinned so
   // the real utility classes below resolve to the app's colours instead of the
@@ -182,12 +185,17 @@ const CLIPS_PAGE_MOCK_CSS = [
   // is what makes the header's share controls read as solid white on dark.
   ".clips-page-mock-share-group { --primary: 0 0% 100%; }",
 
-  ".clips-page-mock-crop { position: relative; width: 100%; overflow: hidden; border-radius: 12px; }",
-  `.clips-page-mock-crop { aspect-ratio: ${DESIGN_WIDTH} / ${DESIGN_HEIGHT}; }`,
-  `.clips-page-mock-page { position: absolute; top: 0; left: 0; width: ${DESIGN_WIDTH}px; height: ${DESIGN_HEIGHT}px; transform-origin: top left; transform: scale(${(
-    240 / DESIGN_WIDTH
-  ).toFixed(4)}); }`,
-  SCALE_STEPS,
+  ".clips-page-mock-crop { position: relative; width: 100%; overflow: hidden; border-radius: 0 12px 12px 0; }",
+  `.clips-page-mock-crop { height: ${Math.round(DESIGN_HEIGHT * SCALE)}px; }`,
+  `.clips-page-mock-page { position: absolute; top: 0; right: 0; width: ${DESIGN_WIDTH}px; height: ${DESIGN_HEIGHT}px; transform-origin: top right; transform: scale(${SCALE}); }`,
+
+  // Short on purpose: the fade only has to dissolve the cut edge, so it has to
+  // clear the player before the video itself goes dark.
+  `.clips-page-mock-fade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, ${FADE_COLOR} 0%, ${FADE_COLOR} 3%, transparent 22%); }`,
+
+  `@media (max-width: 768px) { .clips-page-mock-crop { height: ${Math.round(
+    DESIGN_HEIGHT * MOBILE_SCALE,
+  )}px; } .clips-page-mock-page { transform: scale(${MOBILE_SCALE}); } }`,
 ].join("\n");
 
 function IconBtn({ children }: { children: React.ReactNode }) {
@@ -434,9 +442,9 @@ export function ClipsActOnFeedbackMock({
           </div>
 
           {/* ShareRecordingPopover, open on the Agents tab. */}
-          {/* `align="end"` anchors it to the Share trigger, whose right edge
-              sits one 32px copy button in from the header padding. */}
-          <div className="absolute end-12 top-[46px] z-20 w-[360px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md">
+          {/* `align="end"`, so the popover and the 360px panel below it share a
+              right edge — the same coincidence the real page has. */}
+          <div className="absolute end-4 top-[46px] z-20 w-[360px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md">
             <div className="px-3 py-2">
               <div className="flex flex-col gap-3">
                 <div className="flex h-8 w-full items-center justify-start gap-1 rounded-none px-0 py-0 text-muted-foreground">
@@ -467,6 +475,8 @@ export function ClipsActOnFeedbackMock({
             </div>
           </div>
         </div>
+
+        <div className="clips-page-mock-fade" />
       </div>
     </div>
   );

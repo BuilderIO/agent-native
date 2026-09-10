@@ -233,9 +233,14 @@ export default function ClipsTemplate() {
                 <div
                   key="media"
                   className={`order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)] ${
-                    useCase.id === "investigate-bug" || useCase.id === "act-on-feedback"
+                    useCase.id === "investigate-bug" ||
+                    useCase.id === "act-on-feedback"
                       ? ""
                       : "bg-[var(--b-bg-raised)]"
+                  } ${
+                    // The recording-page art is a crop that runs off its left
+                    // edge under a fade, so it takes the full cell width.
+                    useCase.id === "act-on-feedback" ? "ps-0 lg:ps-0" : ""
                   }`}
                 >
                   {useCase.id === "investigate-bug" ? (
