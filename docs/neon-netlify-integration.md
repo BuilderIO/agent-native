@@ -14,12 +14,15 @@ trusted base revision, builds its trusted Functions, and receives the PR's
 static artifact. PR-controlled Functions are never deployed.
 
 Preview deploys do not create an isolated database. Before each GitHub Actions
-upload, the workflow copies the canonical site's production PostgreSQL values
-into the `deploy-preview` context, and the deployed preview smoke check requires
-the database and schema to be healthy. Treat every preview as non-isolated and
-unsafe to write. Only database variables are copied; other provider credentials
-remain managed by the Netlify site. The workflow below also cleans up branch
-resources left by the former isolation flow.
+upload, the workflow copies the production PostgreSQL URL from the matching
+`NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` GitHub secret into the
+`deploy-preview` context, and the deployed preview smoke check requires the
+database and schema to be healthy. Those secrets mirror the matching local
+`templates/<template>/.env` `DATABASE_URL`; `chat` uses the production Netlify
+database because its local template has no database URL. Treat every preview as
+non-isolated and unsafe to write. Only database variables are copied; other
+provider credentials remain managed by the Netlify site. The workflow below also
+cleans up branch resources left by the former isolation flow.
 
 ## How it works
 
@@ -53,6 +56,7 @@ external side effects.
 | `NEON_API_KEY`       | Neon dashboard → Account → API Keys           |
 | `NETLIFY_AUTH_TOKEN` | Netlify User Settings → Personal Access Token |
 | `NETLIFY_ACCOUNT_ID` | Netlify team settings → Team ID               |
+| `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` | Matching production `templates/<template>/.env` URL; `CHAT` uses the production Netlify database |
 
 ## Restoring production env vars
 

@@ -3,91 +3,186 @@ import { describe, it } from "node:test";
 
 import {
   mirrorProductionDatabaseVariables,
-  productionDatabaseVariables,
+  parseNetlifyDatabaseVariables,
+  previewDatabaseVariables,
 } from "./sync-netlify-preview-database.ts";
 
-describe("productionDatabaseVariables", () => {
-  it("selects production values and ignores non-database variables", () => {
+describe("previewDatabaseVariables", () => {
+  it("derives the direct URL and preserves an existing app-scoped key", () => {
     assert.deepEqual(
-      productionDatabaseVariables([
+      previewDatabaseVariables({
+        databaseUrl:
+          "postgresql://user:password@ep-example-pooler.us-east-1.neon.tech/app?sslmode=require",
+        existingKeys: ["PLAN_DATABASE_URL", "OTHER"],
+        sourceTemplate: "plan",
+      }),
+      [
         {
           key: "DATABASE_URL",
-          values: [
-            { context: "all", value: "postgresql://all.example/db" },
-            { context: "production", value: "postgresql://prod.example/db" },
-          ],
+          value:
+            "postgresql://user:password@ep-example-pooler.us-east-1.neon.tech/app?sslmode=require",
         },
         {
-          key: "DESIGN_DATABASE_URL_UNPOOLED",
-          values: [{ context: "all", value: "postgres://design.example/db" }],
+          key: "DATABASE_URL_UNPOOLED",
+          value:
+            "postgresql://user:password@ep-example.us-east-1.neon.tech/app?sslmode=require",
         },
         {
-          key: "BETTER_AUTH_SECRET",
-          values: [{ context: "production", value: "not-a-database" }],
+          key: "NETLIFY_DATABASE_URL",
+          value:
+            "postgresql://user:password@ep-example-pooler.us-east-1.neon.tech/app?sslmode=require",
         },
-      ]),
-      [
-        { key: "DATABASE_URL", value: "postgresql://prod.example/db" },
         {
-          key: "DESIGN_DATABASE_URL_UNPOOLED",
-          value: "postgres://design.example/db",
+          key: "NETLIFY_DATABASE_URL_UNPOOLED",
+          value:
+            "postgresql://user:password@ep-example.us-east-1.neon.tech/app?sslmode=require",
+        },
+        {
+          key: "PLAN_DATABASE_URL",
+          value:
+            "postgresql://user:password@ep-example-pooler.us-east-1.neon.tech/app?sslmode=require",
         },
       ],
     );
   });
 
-  it("rejects a malformed production database value", () => {
+  it("rejects non-PostgreSQL sources", () => {
     assert.throws(
       () =>
-        productionDatabaseVariables([
-          {
-            key: "DATABASE_URL",
-            values: [{ context: "production", value: "not-a-database" }],
-          },
-        ]),
-      /DATABASE_URL: production Netlify database value is missing or not PostgreSQL/,
+        previewDatabaseVariables({
+          databaseUrl: "pglite:./data/pglite",
+          sourceTemplate: "assets",
+        }),
+      /Preview database URL must be a PostgreSQL URL/,
+    );
+  });
+});
+
+describe("parseNetlifyDatabaseVariables", () => {
+  it("reads metadata without depending on secret values", () => {
+    assert.deepEqual(
+      parseNetlifyDatabaseVariables([
+        {
+          key: "DATABASE_URL",
+          is_secret: true,
+          values: [
+            { context: "production", id: "production-id", value: "masked" },
+            { context: "deploy-preview", id: "preview-id", value: "masked" },
+          ],
+        },
+        { key: "BETTER_AUTH_SECRET", values: [] },
+      ]),
+      [
+        {
+          key: "DATABASE_URL",
+          values: [
+            { context: "production", id: "production-id" },
+            { context: "deploy-preview", id: "preview-id" },
+          ],
+        },
+      ],
     );
   });
 });
 
 describe("mirrorProductionDatabaseVariables", () => {
-  it("copies selected production values to deploy-preview", async () => {
+  it("updates the preview context and removes stale database overrides", async () => {
     const requests: Array<{ url: string; options?: RequestInit }> = [];
     const keys = await mirrorProductionDatabaseVariables({
       accountId: "builder-io",
+      databaseUrl: "postgresql://preview.example/db",
       siteId: "site",
+      sourceTemplate: "plan",
       token: "test-token",
       request: async (url, options) => {
         requests.push({ url, options });
+        if (options?.method === "DELETE")
+          return new Response(null, { status: 204 });
+        if (options?.method === "POST")
+          return new Response(null, { status: 201 });
         if (options?.method === "PATCH")
           return new Response(null, { status: 200 });
         return Response.json([
           {
             key: "DATABASE_URL",
             values: [
-              { context: "production", value: "postgresql://prod.example/db" },
+              {
+                context: "production",
+                id: "database-production",
+                value: "masked",
+              },
+              {
+                context: "deploy-preview",
+                id: "database-preview",
+                value: "masked",
+              },
             ],
           },
           {
-            key: "PLAN_DATABASE_URL_UNPOOLED",
-            values: [{ context: "all", value: "postgres://plan.example/db" }],
+            key: "NETLIFY_DATABASE_URL",
+            values: [
+              {
+                context: "deploy-preview",
+                id: "netlify-preview",
+                value: "masked",
+              },
+            ],
+          },
+          {
+            key: "PLAN_DATABASE_URL",
+            values: [
+              { context: "production", id: "plan-production", value: "masked" },
+            ],
+          },
+          {
+            key: "OLD_DATABASE_URL",
+            values: [
+              {
+                context: "deploy-preview",
+                id: "stale-preview",
+                value: "masked",
+              },
+            ],
           },
         ]);
       },
     });
 
-    assert.deepEqual(keys, ["DATABASE_URL", "PLAN_DATABASE_URL_UNPOOLED"]);
-    assert.equal(requests.length, 3);
-    assert.match(requests[1].url, /\/env\/DATABASE_URL\?site_id=site$/);
-    assert.equal(requests[1].options?.method, "PATCH");
-    assert.deepEqual(JSON.parse(String(requests[1].options?.body)), {
-      context: "deploy-preview",
-      value: "postgresql://prod.example/db",
+    assert.deepEqual(keys, {
+      mirroredKeys: [
+        "DATABASE_URL",
+        "DATABASE_URL_UNPOOLED",
+        "NETLIFY_DATABASE_URL",
+        "NETLIFY_DATABASE_URL_UNPOOLED",
+        "PLAN_DATABASE_URL",
+      ],
+      removedKeys: ["OLD_DATABASE_URL"],
     });
-    assert.equal(requests[2].options?.method, "PATCH");
-    assert.deepEqual(JSON.parse(String(requests[2].options?.body)), {
+    assert.equal(requests.length, 7);
+    assert.equal(requests[1].options?.method, "DELETE");
+    assert.match(
+      requests[1].url,
+      /\/env\/OLD_DATABASE_URL\/value\/stale-preview/,
+    );
+
+    const createKeys = requests
+      .filter(({ options }) => options?.method === "POST")
+      .map(({ options }) => JSON.parse(String(options?.body))[0].key)
+      .sort();
+    assert.deepEqual(createKeys, [
+      "DATABASE_URL_UNPOOLED",
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+    ]);
+
+    const databaseUpdate = requests.find(
+      ({ url, options }) =>
+        url.endsWith("/env/DATABASE_URL?site_id=site") &&
+        options?.method === "PATCH",
+    );
+    assert(databaseUpdate);
+    assert.deepEqual(JSON.parse(String(databaseUpdate.options?.body)), {
       context: "deploy-preview",
-      value: "postgres://plan.example/db",
+      value: "postgresql://preview.example/db",
     });
   });
 });

@@ -1267,10 +1267,24 @@ describe("production Netlify site concurrency guard", () => {
       /sync-netlify-preview-database\.ts/,
     );
     assert.equal(previewDatabaseMirror.env?.NETLIFY_ACCOUNT_ID, "builder-io");
+    assert.equal(
+      previewDatabaseMirror.env?.NETLIFY_PREVIEW_DATABASE_URL,
+      "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}",
+    );
+    assert.equal(
+      previewDatabaseMirror.env?.NETLIFY_SOURCE_TEMPLATE,
+      "${{ steps.target.outputs.source_template }}",
+    );
     assert(
       steps.findIndex((step) => step === previewDatabaseMirror) <
         steps.findIndex((step) => step.id === "deploy"),
     );
+    const previewDatabaseScript = readFileSync(
+      "scripts/sync-netlify-preview-database.ts",
+      "utf8",
+    );
+    assert.doesNotMatch(previewDatabaseScript, /productionDatabaseVariables/);
+    assert.doesNotMatch(previewDatabaseScript, /candidate\.value\b/);
     assert.doesNotMatch(
       readFileSync("scripts/smoke-check-health.ts", "utf8"),
       /previewDatabaseGap/,

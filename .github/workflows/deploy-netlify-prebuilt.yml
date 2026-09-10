@@ -153,6 +153,30 @@ on:
         required: false
       CLIPS_DATABASE_URL:
         required: false
+      NETLIFY_PREVIEW_DATABASE_URL_ANALYTICS:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_ASSETS:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_CALENDAR:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_CHAT:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_CLIPS:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_CONTENT:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_DESIGN:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_DISPATCH:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_FORMS:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_MAIL:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_PLAN:
+        required: false
+      NETLIFY_PREVIEW_DATABASE_URL_SLIDES:
+        required: false
 
 permissions:
   contents: read
@@ -1088,13 +1112,16 @@ jobs:
         env:
           NETLIFY_ACCOUNT_ID: builder-io
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_PREVIEW_DATABASE_URL: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          NETLIFY_SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
-          # Copy only the canonical site's PostgreSQL values. PR previews use
-          # the production database intentionally; other provider credentials
-          # remain managed by the Netlify site instead of entering the runner.
+          : "${NETLIFY_PREVIEW_DATABASE_URL:?NETLIFY_PREVIEW_DATABASE_URL_<APP> secret is required}"
+          # PR previews use the production database intentionally. The value is
+          # supplied by the per-app GitHub secret mirror of templates/<app>/.env;
+          # other provider credentials remain managed by Netlify.
           node --experimental-strip-types scripts/sync-netlify-preview-database.ts
 
       - name: Upload the prebuilt deploy

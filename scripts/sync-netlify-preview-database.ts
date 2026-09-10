@@ -5,12 +5,23 @@ import { requestNetlifyApi } from "./netlify-api-request.ts";
 
 const PREVIEW_CONTEXT = "deploy-preview";
 const DATABASE_ENV_KEY_PATTERN = /(?:^|_)DATABASE_URL(?:_UNPOOLED)?$/;
+const DATABASE_SCOPES = ["builds", "functions", "runtime"];
 
 type JsonRecord = Record<string, unknown>;
 
 type Requester = (url: string, options?: RequestInit) => Promise<Response>;
 
-export type DatabaseEnvVariable = {
+type NetlifyEnvValue = {
+  context: string;
+  id?: string;
+};
+
+type NetlifyEnvVariable = {
+  key: string;
+  values: NetlifyEnvValue[];
+};
+
+export type PreviewDatabaseVariable = {
   key: string;
   value: string;
 };
@@ -21,33 +32,79 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function isPostgresUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  try {
-    return ["postgres:", "postgresql:"].includes(new URL(value).protocol);
-  } catch {
-    return false;
-  }
+  if (!URL.canParse(value)) return false;
+  return ["postgres:", "postgresql:"].includes(new URL(value).protocol);
 }
 
 function netlifyEnvUrl(
   accountId: string,
   siteId: string,
   key?: string,
+  valueId?: string,
 ): string {
   const encodedAccount = encodeURIComponent(accountId);
   const encodedSite = encodeURIComponent(siteId);
   const keyPath = key ? `/${encodeURIComponent(key)}` : "";
-  return `https://api.netlify.com/api/v1/accounts/${encodedAccount}/env${keyPath}?site_id=${encodedSite}`;
+  const valuePath = valueId ? `/value/${encodeURIComponent(valueId)}` : "";
+  return `https://api.netlify.com/api/v1/accounts/${encodedAccount}/env${keyPath}${valuePath}?site_id=${encodedSite}`;
 }
 
-export function productionDatabaseVariables(
+function appEnvPrefix(sourceTemplate: string): string {
+  if (!/^[a-z][a-z0-9-]*$/.test(sourceTemplate)) {
+    throw new Error(`Unsupported preview app template ${sourceTemplate}.`);
+  }
+  return sourceTemplate.toUpperCase().replaceAll("-", "_");
+}
+
+function unpooledDatabaseUrl(databaseUrl: string): string {
+  const url = new URL(databaseUrl);
+  url.hostname = url.hostname.replace(/-pooler(?=\.)/i, "");
+  return url.toString();
+}
+
+export function previewDatabaseVariables({
+  databaseUrl,
+  existingKeys,
+  sourceTemplate,
+}: {
+  databaseUrl: string;
+  existingKeys?: Iterable<string>;
+  sourceTemplate: string;
+}): PreviewDatabaseVariable[] {
+  if (!isPostgresUrl(databaseUrl)) {
+    throw new Error("Preview database URL must be a PostgreSQL URL.");
+  }
+
+  const unpooled = unpooledDatabaseUrl(databaseUrl);
+  const variables: PreviewDatabaseVariable[] = [
+    { key: "DATABASE_URL", value: databaseUrl },
+    { key: "DATABASE_URL_UNPOOLED", value: unpooled },
+    { key: "NETLIFY_DATABASE_URL", value: databaseUrl },
+    { key: "NETLIFY_DATABASE_URL_UNPOOLED", value: unpooled },
+  ];
+  const keys = new Set(existingKeys);
+  const prefix = appEnvPrefix(sourceTemplate);
+  for (const suffix of ["DATABASE_URL", "DATABASE_URL_UNPOOLED"]) {
+    const key = `${prefix}_${suffix}`;
+    if (keys.has(key)) {
+      variables.push({
+        key,
+        value: suffix.endsWith("UNPOOLED") ? unpooled : databaseUrl,
+      });
+    }
+  }
+  return variables;
+}
+
+export function parseNetlifyDatabaseVariables(
   input: unknown,
-): DatabaseEnvVariable[] {
+): NetlifyEnvVariable[] {
   if (!Array.isArray(input)) {
     throw new Error("Netlify environment response must be an array.");
   }
 
   const seenKeys = new Set<string>();
-  const variables: DatabaseEnvVariable[] = [];
+  const variables: NetlifyEnvVariable[] = [];
   for (const candidate of input) {
     if (
       !isRecord(candidate) ||
@@ -63,21 +120,22 @@ export function productionDatabaseVariables(
     }
     seenKeys.add(candidate.key);
 
-    const values = Array.isArray(candidate.values) ? candidate.values : [];
-    const production = values.find(
-      (value) => isRecord(value) && value.context === "production",
-    );
-    const all = values.find(
-      (value) => isRecord(value) && value.context === "all",
-    );
-    const selected = production ?? all;
-    if (!isRecord(selected) || selected.value === undefined) continue;
-    if (!isPostgresUrl(selected.value)) {
-      throw new Error(
-        `${candidate.key}: production Netlify database value is missing or not PostgreSQL.`,
-      );
+    if (!Array.isArray(candidate.values)) {
+      throw new Error(`${candidate.key}: Netlify returned invalid values.`);
     }
-    variables.push({ key: candidate.key, value: selected.value });
+    const values: NetlifyEnvValue[] = [];
+    for (const value of candidate.values) {
+      if (!isRecord(value) || typeof value.context !== "string") {
+        throw new Error(
+          `${candidate.key}: Netlify returned invalid value metadata.`,
+        );
+      }
+      values.push({
+        context: value.context,
+        ...(typeof value.id === "string" ? { id: value.id } : {}),
+      });
+    }
+    variables.push({ key: candidate.key, values });
   }
   return variables;
 }
@@ -94,17 +152,61 @@ async function readJson(response: Response, label: string): Promise<unknown> {
   }
 }
 
-export async function mirrorProductionDatabaseVariables({
+async function assertResponse(
+  response: Response,
+  label: string,
+): Promise<void> {
+  await response.arrayBuffer();
+  if (!response.ok) {
+    throw new Error(`${label} failed with HTTP ${response.status}.`);
+  }
+}
+
+async function deletePreviewValue({
   accountId,
+  key,
+  request,
   siteId,
   token,
-  request = requestNetlifyApi,
+  value,
 }: {
   accountId: string;
+  key: string;
+  request: Requester;
   siteId: string;
   token: string;
+  value: NetlifyEnvValue;
+}): Promise<void> {
+  if (!value.id) {
+    throw new Error(`${key}: deploy-preview value has no Netlify id.`);
+  }
+  await assertResponse(
+    await request(netlifyEnvUrl(accountId, siteId, key, value.id), {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "User-Agent": "agent-native-netlify-preview-database-sync",
+      },
+    }),
+    `${key} deploy-preview value deletion`,
+  );
+}
+
+export async function mirrorProductionDatabaseVariables({
+  accountId,
+  databaseUrl,
+  request = requestNetlifyApi,
+  siteId,
+  sourceTemplate,
+  token,
+}: {
+  accountId: string;
+  databaseUrl: string;
   request?: Requester;
-}): Promise<string[]> {
+  siteId: string;
+  sourceTemplate: string;
+  token: string;
+}): Promise<{ mirroredKeys: string[]; removedKeys: string[] }> {
   if (!accountId.trim()) throw new Error("Netlify account id is required.");
   if (!siteId.trim()) throw new Error("Netlify site id is required.");
   if (!token.trim()) throw new Error("Netlify auth token is required.");
@@ -114,54 +216,118 @@ export async function mirrorProductionDatabaseVariables({
     "User-Agent": "agent-native-netlify-preview-database-sync",
   };
   const response = await request(netlifyEnvUrl(accountId, siteId), { headers });
-  const variables = productionDatabaseVariables(
-    await readJson(response, "Netlify environment lookup"),
+  const existing = parseNetlifyDatabaseVariables(
+    await readJson(response, "Netlify environment metadata lookup"),
   );
-  if (variables.length === 0) {
-    throw new Error(
-      `No production PostgreSQL database environment variable found for Netlify site ${siteId}.`,
-    );
+  const desired = previewDatabaseVariables({
+    databaseUrl,
+    existingKeys: existing.map(({ key }) => key),
+    sourceTemplate,
+  });
+  const desiredKeys = new Set(desired.map(({ key }) => key));
+  const existingByKey = new Map(
+    existing.map((variable) => [variable.key, variable]),
+  );
+  const removedKeys = new Set<string>();
+
+  for (const variable of existing) {
+    if (desiredKeys.has(variable.key)) continue;
+    for (const value of variable.values.filter(
+      ({ context }) => context === PREVIEW_CONTEXT,
+    )) {
+      await deletePreviewValue({
+        accountId,
+        key: variable.key,
+        request,
+        siteId,
+        token,
+        value,
+      });
+      removedKeys.add(variable.key);
+    }
   }
 
-  for (const variable of variables) {
-    const update = await request(
-      netlifyEnvUrl(accountId, siteId, variable.key),
-      {
+  for (const variable of desired) {
+    const current = existingByKey.get(variable.key);
+    if (!current) {
+      await assertResponse(
+        await request(netlifyEnvUrl(accountId, siteId), {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify([
+            {
+              key: variable.key,
+              scopes: DATABASE_SCOPES,
+              is_secret: true,
+              values: [{ context: PREVIEW_CONTEXT, value: variable.value }],
+            },
+          ]),
+        }),
+        `${variable.key} deploy-preview environment creation`,
+      );
+      continue;
+    }
+
+    const previewValues = current.values.filter(
+      ({ context }) => context === PREVIEW_CONTEXT,
+    );
+    for (const value of previewValues.slice(1)) {
+      await deletePreviewValue({
+        accountId,
+        key: variable.key,
+        request,
+        siteId,
+        token,
+        value,
+      });
+    }
+    await assertResponse(
+      await request(netlifyEnvUrl(accountId, siteId, variable.key), {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           context: PREVIEW_CONTEXT,
           value: variable.value,
         }),
-      },
+      }),
+      `${variable.key} deploy-preview environment update`,
     );
-    await update.arrayBuffer();
-    if (!update.ok) {
-      throw new Error(
-        `${variable.key}: deploy-preview environment update failed with HTTP ${update.status}.`,
-      );
-    }
   }
 
-  return variables.map(({ key }) => key);
+  return {
+    mirroredKeys: desired.map(({ key }) => key),
+    removedKeys: [...removedKeys],
+  };
 }
 
 async function main(): Promise<void> {
   const token = process.env.NETLIFY_AUTH_TOKEN?.trim();
   const accountId = process.env.NETLIFY_ACCOUNT_ID?.trim();
+  const databaseUrl = process.env.NETLIFY_PREVIEW_DATABASE_URL?.trim();
   const siteId = process.env.NETLIFY_SITE_ID?.trim();
+  const sourceTemplate = process.env.NETLIFY_SOURCE_TEMPLATE?.trim();
   if (!token) throw new Error("NETLIFY_AUTH_TOKEN is required.");
   if (!accountId) throw new Error("NETLIFY_ACCOUNT_ID is required.");
+  if (!databaseUrl)
+    throw new Error("NETLIFY_PREVIEW_DATABASE_URL is required.");
   if (!siteId) throw new Error("NETLIFY_SITE_ID is required.");
+  if (!sourceTemplate) throw new Error("NETLIFY_SOURCE_TEMPLATE is required.");
 
-  const keys = await mirrorProductionDatabaseVariables({
+  const result = await mirrorProductionDatabaseVariables({
     accountId,
+    databaseUrl,
     siteId,
+    sourceTemplate,
     token,
   });
   console.log(
-    `Mirrored ${keys.length} production database environment variable(s) into deploy-preview context: ${keys.join(", ")}`,
+    `Mirrored ${result.mirroredKeys.length} production database variable(s) into deploy-preview context: ${result.mirroredKeys.join(", ")}`,
   );
+  if (result.removedKeys.length > 0) {
+    console.log(
+      `Removed stale deploy-preview database override(s): ${result.removedKeys.join(", ")}`,
+    );
+  }
 }
 
 const isMainModule =
