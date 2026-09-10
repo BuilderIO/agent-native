@@ -65,7 +65,7 @@ export function ClipsInvestigateBugMock({
         <div className="clips-cell-mock-prompt">
           Watch{" "}
           <span className="clips-cell-mock-prompt-link">
-            clips.agent-native.com/share/U1f0uKYYKGF2
+            clips.example.com/api/agent-context.json?id=kL9wQ2t7
           </span>{" "}
           and fix the bugs I found in the dashboard.
         </div>
