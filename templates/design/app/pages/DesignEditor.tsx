@@ -737,6 +737,10 @@ import {
 } from "./design-editor/layout-operations";
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
+  hasMinimalInspectorSelection,
+  rightInspectorPanelClassName,
+} from "./design-editor/minimal-inspector";
+import {
   applyMotionAutoKeyframesForStyles,
   hydrateMotionDockTracks,
   type MotionTimelineQueryResult,
@@ -1457,8 +1461,6 @@ function DesignEditor() {
   // canvas primary while leaving the style panel available for the first edit.
   const minimalUiByDefault = embedded && !hostOwnsChrome;
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
-  const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] =
-    useState(minimalUiByDefault);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");
@@ -12167,19 +12169,9 @@ function DesignEditor() {
 
   // ── UI toggles, ungroup, reparent, cut, screen deletion ────────────────────
   const handleToggleMinimalUi = useCallback(() => {
-    const enteringMinimalUi = !minimalUi;
-    setMinimalUi(enteringMinimalUi);
+    setMinimalUi((current) => !current);
     setUiHidden(false);
-    setMinimalRightSidebarOpen(enteringMinimalUi);
-  }, [minimalUi]);
-
-  const handleToggleMinimalRightSidebar = useCallback(() => {
-    if (uiHidden) {
-      setUiHidden(false);
-      return;
-    }
-    setMinimalRightSidebarOpen((current) => !current);
-  }, [uiHidden]);
+  }, []);
 
   const handleToggleUi = useCallback(() => {
     setUiHidden((current) => !current);
@@ -19210,37 +19202,6 @@ function DesignEditor() {
     </Tooltip>
   );
 
-  const minimalRightSidebarToggle = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0 rounded-md"
-          aria-expanded={minimalRightSidebarOpen && !uiHidden}
-          aria-label={
-            minimalRightSidebarOpen && !uiHidden
-              ? "Hide design panel" /* i18n-ignore minimal UI chrome */
-              : "Show design panel" /* i18n-ignore minimal UI chrome */
-          }
-          data-design-minimal-toggle="right"
-          disabled={initialGenerationChromeLimited}
-          onClick={handleToggleMinimalRightSidebar}
-        >
-          <IconLayoutSidebar className="size-4 -scale-x-100" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {
-          minimalRightSidebarOpen && !uiHidden
-            ? "Hide design panel" /* i18n-ignore minimal UI chrome */
-            : "Show design panel" /* i18n-ignore minimal UI chrome */
-        }
-      </TooltipContent>
-    </Tooltip>
-  );
-
   // ── Zoom control, signed-out actions, node-rewrite control ─────────────────
   const renderZoomControl = (controlId: "toolbar" | "inspector") => (
     <DropdownMenu
@@ -19493,7 +19454,6 @@ function DesignEditor() {
         data-design-chrome-region="right-toolbar-actions"
         className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]"
       >
-        {minimalUi ? minimalRightSidebarToggle : null}
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <PresenceBar
@@ -19808,11 +19768,16 @@ function DesignEditor() {
       ? Math.max(leftSidebarWidth, 640)
       : Math.max(Math.min(leftSidebarWidth, 420), 220);
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
+  const minimalInspectorHasSelection = hasMinimalInspectorSelection({
+    selectedElement,
+    selectedLayerIds,
+    selectedScreenGeometry,
+  });
   const rightSidebarVisible =
     !hostOwnsChrome &&
     !uiHidden &&
     !initialGenerationChromeLimited &&
-    (!minimalUi || minimalRightSidebarOpen);
+    (!minimalUi || minimalInspectorHasSelection);
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
@@ -21222,7 +21187,7 @@ function DesignEditor() {
           <div
             ref={rightSidebarContentRef}
             data-design-chrome-region="right-panel"
-            className="absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
+            className={rightInspectorPanelClassName(minimalUi)}
             style={{ width: rightSidebarWidth }}
           >
             <div
@@ -21265,7 +21230,7 @@ function DesignEditor() {
                   ? renderResponsiveInteractBar(true)
                   : null}
               </div>
-              {!minimalRightSidebarOpen || uiHidden ? (
+              {!rightSidebarVisible || uiHidden ? (
                 <div
                   data-design-minimal-bar="right"
                   className="pointer-events-auto min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
@@ -21287,9 +21252,10 @@ function DesignEditor() {
       mode === "edit" ? (
         <Sheet
           open={
-            minimalUi ? isMobileViewport && minimalRightSidebarOpen : undefined
+            minimalUi
+              ? isMobileViewport && minimalInspectorHasSelection
+              : undefined
           }
-          onOpenChange={minimalUi ? setMinimalRightSidebarOpen : undefined}
         >
           {!minimalUi ? (
             <SheetTrigger asChild>

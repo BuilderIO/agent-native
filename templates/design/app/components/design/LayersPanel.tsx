@@ -314,8 +314,9 @@ let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
 let activeDropIntent: LayersPanelMoveIntent | null = null;
 
 // Every level is represented by a real flex child instead of arithmetic
-// padding. Keeping the hierarchy in the DOM makes the 16px indent and 8px
-// inter-indent gap inspectable and prevents node variants from drifting.
+// padding. Keeping the hierarchy in the DOM makes the icon-width indent and
+// baseline-unit inter-indent gap inspectable and prevents node variants from
+// drifting. The panel root overrides those tokens for Figma-like density.
 export function layerRowIndentCount(depth: number): number {
   return Math.max(1, depth + 1);
 }
@@ -1390,16 +1391,20 @@ function LayersPanelImpl(
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={400}>
       <aside
+        data-layers-panel
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[12px] text-foreground",
+          // Compact Figma-like density for the layers tree only — leave the
+          // editor-wide 32px/16px tokens alone for inspector controls.
+          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-row-height:24px] [--design-section-height:28px]",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[11px] font-normal text-foreground",
           className,
         )}
         aria-label={labels.title}
       >
         {screenRows.length > 0 ? (
-          <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] pb-2">
-            <div className="flex h-[var(--design-section-height)] items-center justify-between px-3">
-              <h2 className="truncate text-[12px] font-semibold text-foreground">
+          <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] pb-1">
+            <div className="flex h-[var(--design-section-height)] items-center justify-between px-2">
+              <h2 className="truncate text-[11px] font-semibold text-foreground">
                 {labels.screens}
               </h2>
               <div className="flex items-center gap-0.5 text-muted-foreground">
@@ -1412,11 +1417,11 @@ function LayersPanelImpl(
                 </IconTooltipButton>
               </div>
             </div>
-            <div className="px-2">
+            <div className="px-1.5">
               <button
                 type="button"
                 className={cn(
-                  "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[5px] px-[var(--design-baseline-unit)] text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[4px] px-[var(--design-baseline-unit)] text-left text-[11px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                   screenOverviewActive
                     ? "bg-[var(--design-editor-active-row-color)] text-foreground"
                     : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
@@ -1431,8 +1436,8 @@ function LayersPanelImpl(
                 </span>
               </button>
             </div>
-            <div className="mx-3 my-2 border-t border-[var(--design-editor-panel-divider-color)]" />
-            <div className="space-y-0.5 px-2">
+            <div className="mx-2 my-1 border-t border-[var(--design-editor-panel-divider-color)]" />
+            <div className="space-y-0 px-1.5">
               {screenRows.map((screen) => {
                 const isActive =
                   !screenOverviewActive && screen.id === activeScreenId;
@@ -1441,7 +1446,7 @@ function LayersPanelImpl(
                     key={screen.id}
                     type="button"
                     className={cn(
-                      "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[5px] px-[var(--design-baseline-unit)] text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                      "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[4px] px-[var(--design-baseline-unit)] text-left text-[11px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                       isActive
                         ? "bg-[var(--design-editor-active-row-color)] text-foreground"
                         : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
@@ -1466,9 +1471,9 @@ function LayersPanelImpl(
           </div>
         ) : null}
 
-        <div className="flex h-[var(--design-section-height)] shrink-0 items-center justify-between px-3">
+        <div className="flex h-[var(--design-section-height)] shrink-0 items-center justify-between px-2">
           <div className="min-w-0">
-            <h2 className="truncate text-[12px] font-semibold text-foreground">
+            <h2 className="truncate text-[11px] font-semibold text-foreground">
               {labels.title}
             </h2>
           </div>
@@ -1481,7 +1486,7 @@ function LayersPanelImpl(
             </IconTooltipButton>
             <button
               type="button"
-              className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+              className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
               aria-label={labels.collapse}
               disabled={!collapseTargetId}
               onClick={collapseSelectedLayer}
@@ -1492,9 +1497,9 @@ function LayersPanelImpl(
         </div>
 
         {shouldShowSearch ? (
-          <div className="shrink-0 p-2">
+          <div className="shrink-0 p-1.5">
             <div className="relative">
-              <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <IconSearch className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
               <Input
                 ref={searchInputRef}
                 value={searchQuery}
@@ -1505,7 +1510,7 @@ function LayersPanelImpl(
                   }
                 }}
                 placeholder={labels.searchPlaceholder}
-                className="h-7 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-7 text-[12px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                className="h-6 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-6 text-[11px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
               />
             </div>
           </div>
@@ -1513,14 +1518,14 @@ function LayersPanelImpl(
 
         <div
           ref={scrollContainerRef}
-          className="min-h-0 flex-1 overflow-auto overscroll-contain py-2"
+          className="min-h-0 flex-1 overflow-auto overscroll-contain py-1"
           onDragOver={handleRowsDragOver}
           onDrop={stopAutoScroll}
           onDragEnd={stopAutoScroll}
         >
           {visibleRows.length ? (
             <div
-              className="w-max min-w-full px-2"
+              className="w-max min-w-full px-1.5"
               role="tree"
               aria-label={labels.title}
             >
@@ -2206,15 +2211,15 @@ const LayerRow = memo(function LayerRow({
               activeDrop === "inside" ? "inside" : undefined
             }
             className={cn(
-              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pr-[var(--design-baseline-half)] text-[12px] bg-[var(--design-editor-panel-bg)]",
-              !isSelected && !isInSelectedSubtree && "rounded-[5px]",
-              isSelectionBlockStart && isSelectionBlockEnd && "rounded-[5px]",
+              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pr-[var(--design-baseline-half)] text-[11px] bg-[var(--design-editor-panel-bg)]",
+              !isSelected && !isInSelectedSubtree && "rounded-[4px]",
+              isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
               isSelectionBlockStart &&
                 !isSelectionBlockEnd &&
-                "rounded-t-[5px]",
+                "rounded-t-[4px]",
               !isSelectionBlockStart &&
                 isSelectionBlockEnd &&
-                "rounded-b-[5px]",
+                "rounded-b-[4px]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
@@ -2253,7 +2258,7 @@ const LayerRow = memo(function LayerRow({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    className="size-[var(--design-icon-size)] shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                     aria-label={isExpanded ? labels.collapse : labels.expand}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -2267,9 +2272,9 @@ const LayerRow = memo(function LayerRow({
                     }}
                   >
                     {isExpanded ? (
-                      <IconChevronDown className="size-4" />
+                      <IconChevronDown className="size-[var(--design-icon-size)]" />
                     ) : (
-                      <IconChevronRight className="size-4 rtl:-scale-x-100" />
+                      <IconChevronRight className="size-[var(--design-icon-size)] rtl:-scale-x-100" />
                     )}
                   </Button>
                 ) : undefined
@@ -2334,7 +2339,7 @@ const LayerRow = memo(function LayerRow({
                       onCancelRename(node.id);
                     }
                   }}
-                  className="h-6 min-w-0 flex-1 rounded-[4px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1.5 text-[12px] text-foreground outline-none"
+                  className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
                   aria-label={labels.rename}
                 />
               ) : (
@@ -2655,7 +2660,7 @@ function IconTooltipButton({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-6 rounded-sm p-0 text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
+            className="size-5 rounded-sm p-0 text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
             aria-label={label}
             disabled={disabled}
             onClick={onClick}
