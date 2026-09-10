@@ -1,16 +1,16 @@
+import {
+  getRequestContext,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const uploadFile = vi.hoisted(() => vi.fn());
-const runWithRequestContext = vi.hoisted(() =>
-  vi.fn((_context: unknown, callback: () => unknown) => callback()),
-);
 const uploadStore = vi.hoisted(() => ({
   get: vi.fn(),
   put: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({ uploadFile }));
-vi.mock("@agent-native/core/server", () => ({ runWithRequestContext }));
 vi.mock("./upload-store.js", () => ({
   getStoredUpload: uploadStore.get,
   putStoredUpload: uploadStore.put,
@@ -29,9 +29,15 @@ describe("storeMediaUpload", () => {
   });
 
   it("persists provider metadata and verifies it before returning a handle", async () => {
-    uploadFile.mockResolvedValue({
-      url: "https://files.example.com/report.pdf",
-      provider: "test-provider",
+    uploadFile.mockImplementation(async () => {
+      expect(getRequestContext()).toMatchObject({
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+      });
+      return {
+        url: "https://files.example.com/report.pdf",
+        provider: "test-provider",
+      };
     });
     uploadStore.get.mockResolvedValue({
       filename: "upload-1.pdf",
@@ -39,12 +45,16 @@ describe("storeMediaUpload", () => {
     });
     const { storeMediaUpload } = await import("./media-upload.js");
 
-    const result = await storeMediaUpload({
-      ownerEmail: "owner@example.com",
-      data: new Uint8Array([1, 2, 3]),
-      filename: "upload-1.pdf",
-      originalName: "report.pdf",
-    });
+    const result = await runWithRequestContext(
+      { userEmail: "request@example.com", orgId: "org-1" },
+      () =>
+        storeMediaUpload({
+          ownerEmail: "owner@example.com",
+          data: new Uint8Array([1, 2, 3]),
+          filename: "upload-1.pdf",
+          originalName: "report.pdf",
+        }),
+    );
 
     expect(uploadFile).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -53,10 +63,6 @@ describe("storeMediaUpload", () => {
         mimeType: "application/pdf",
         recordAsset: false,
       }),
-    );
-    expect(runWithRequestContext).toHaveBeenCalledWith(
-      { userEmail: "owner@example.com" },
-      expect.any(Function),
     );
     expect(uploadStore.put).toHaveBeenCalledWith(
       "owner@example.com",

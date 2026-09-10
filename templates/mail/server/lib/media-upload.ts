@@ -2,7 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { uploadFile } from "@agent-native/core/file-upload";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  getRequestContext,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 
 import { getStoredUpload, putStoredUpload } from "./upload-store.js";
 
@@ -76,7 +79,7 @@ export async function storeMediaUpload(input: {
 
   try {
     const uploaded = await runWithRequestContext(
-      { userEmail: input.ownerEmail },
+      { ...getRequestContext(), userEmail: input.ownerEmail },
       () =>
         uploadFile({
           data: input.data,
