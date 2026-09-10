@@ -971,6 +971,9 @@ jobs:
       - name: Test serverless function size baseline guard
         run: pnpm test:function-size-baseline
 
+      - name: Test AgentKit stream ownership guard
+        run: pnpm test:agentkit-stream-ownership
+
       # Source-backed guards import published-style package entrypoints, so
       # build the workspace packages they inspect before loading locale data.
       - name: Build packages for source-backed guards

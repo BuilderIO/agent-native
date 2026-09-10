@@ -2217,9 +2217,8 @@ export class AgentKitClient implements AgentKitController {
   private reportIntegrity(report: AgentStreamIntegrityReport): void {
     try {
       this.onIntegrityReport?.(report);
-    } catch {
-      // A counter must never affect the stream it counts.
-    }
+      // coercion-ok: a counter must never affect the stream it counts.
+    } catch {}
   }
 
   private patch(patch: Partial<AgentKitSnapshot>): void {
