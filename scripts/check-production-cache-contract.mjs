@@ -193,14 +193,21 @@ function splitCacheStatus(value, delimiter) {
 export function cacheStatusHasHit(value) {
   return splitCacheStatus(value ?? "", ",").some((member) => {
     const segments = splitCacheStatus(member, ";");
-    const parameters = segments
-      .slice(1)
-      .map((segment) => segment.trim().toLowerCase());
+    const parameters = new Map();
+    for (const segment of segments.slice(1)) {
+      const parameter = segment.trim().toLowerCase();
+      const separator = parameter.indexOf("=");
+      const name = separator === -1 ? parameter : parameter.slice(0, separator);
+      const parameterValue =
+        separator === -1 ? "" : parameter.slice(separator + 1);
+      parameters.set(name, parameterValue);
+    }
+    const hit = parameters.get("hit");
     return (
-      parameters.includes("hit") ||
-      parameters.includes("hit=?1") ||
-      (parameters.includes("fwd=stale") &&
-        parameters.includes("fwd-status=304"))
+      hit === "" ||
+      hit === "?1" ||
+      (parameters.get("fwd") === "stale" &&
+        parameters.get("fwd-status") === "304")
     );
   });
 }
