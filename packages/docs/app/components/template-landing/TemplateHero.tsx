@@ -43,6 +43,11 @@ export function TemplateHero({
   const headerPadding = mediaOverlapsHeader
     ? "pb-10 sm:pb-14 lg:pb-0"
     : "pb-10 sm:pb-14 lg:pb-20";
+  // The overlap variant removes the header's bottom padding, so the media has
+  // to carry the gap above itself instead.
+  const mediaPadding = mediaOverlapsHeader
+    ? "pt-3 pb-3 sm:pt-4 sm:pb-4 lg:pt-10 lg:pb-5"
+    : "py-3 sm:py-4 lg:py-5";
 
   const descriptionBlock = (
     <div
@@ -77,7 +82,7 @@ export function TemplateHero({
           className={`relative grid gap-3 px-6 pt-12 sm:gap-4 sm:px-10 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pt-24 ${headerPadding} ${headerClassName}`}
         >
           {eyebrow ? (
-            <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-start-1 lg:row-start-1">
+            <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-span-2 lg:col-start-1 lg:row-start-1">
               {eyebrow}
             </div>
           ) : null}
@@ -109,7 +114,7 @@ export function TemplateHero({
           {belowTitle ? null : descriptionBlock}
         </div>
 
-        <div className="relative py-3 sm:py-4 lg:py-5">{media}</div>
+        <div className={`relative ${mediaPadding}`}>{media}</div>
       </div>
     </section>
   );

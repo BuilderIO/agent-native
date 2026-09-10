@@ -198,7 +198,9 @@ export type { DesignSourceCapabilities };
 
 export interface LocalhostDesignRoute {
   id: string;
+  connectionId?: string;
   path: string;
+  url?: string;
   title: string;
   sourceFile?: string;
   sourceKind?: "react-router" | "html" | "manual";

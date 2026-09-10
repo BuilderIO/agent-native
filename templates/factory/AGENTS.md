@@ -14,6 +14,7 @@ and graph versions.
 
 ## Core rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Keep app state in SQL via Drizzle, scope reads/writes by org and member, and
   use actions as the UI, agent, CLI, MCP, and A2A surface.
 - A missing callback, partial thread, unreadable provider response, or missed

@@ -114,6 +114,7 @@ import { cn } from "@/lib/utils";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
+import { isRecordingExpired } from "../../server/lib/recording-page-access";
 import {
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
@@ -166,7 +167,7 @@ type SharePageLoaderData = {
   accessRequestToken?: string;
 };
 
-type SharePanel = "transcript" | "agent";
+type SharePanel = "comments" | "transcript" | "agent";
 
 type PendingAccountAction =
   | { intent: "comment"; atMs: number }
@@ -269,11 +270,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 
   if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
 
-  if (rec.expiresAt) {
-    const expires = new Date(rec.expiresAt).getTime();
-    if (Number.isFinite(expires) && expires < Date.now()) {
-      return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
-    }
+  if (isRecordingExpired(rec.expiresAt)) {
+    return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
   }
 
   if (rec.visibility !== "public" && !tokenGrantsAgentAccess) {
@@ -465,6 +463,7 @@ export default function ShareRoute() {
   // page while everything refetches. Start where the server started and adopt
   // the stored password after mount.
   const [password, setPassword] = useState<string | null>(null);
+  const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
     if (!shareId) return;
@@ -476,6 +475,7 @@ export default function ShareRoute() {
       // coercion-ok: the fallback is visible to the viewer, not swallowed.
     } catch {}
   }, [shareId]);
+  useEffect(() => setHasHydrated(true), []);
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(startMs);
   const [commentOpen, setCommentOpen] = useState(false);
@@ -515,6 +515,15 @@ export default function ShareRoute() {
   const [panel, setPanel] = useState<SharePanel>("transcript");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
+  const selectCommentsPanel = useCallback(() => {
+    setPanel("comments");
+    requestAnimationFrame(() => {
+      commentsSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, []);
   const [downloading, setDownloading] = useState(false);
   const [accessRequestSent, setAccessRequestSent] = useState(false);
   const [accessRequestError, setAccessRequestError] = useState<string | null>(
@@ -796,6 +805,7 @@ export default function ShareRoute() {
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
+  const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
     : false;
@@ -810,7 +820,7 @@ export default function ShareRoute() {
     ownerEmail.charAt(0).toUpperCase() ||
     loaderData.recording?.ownerInitial ||
     "C";
-  const recordedOn = formatRecordedOn(recording?.createdAt);
+  const recordedOn = formatRecordedOn(recording?.createdAt, !hasHydrated);
   const visibilityLabel = recording
     ? t(`shareUi.visibility.${recording.visibility}.label`)
     : "";
@@ -1411,104 +1421,110 @@ export default function ShareRoute() {
       </header>
 
       <div className="flex w-full min-w-0 flex-none flex-col overflow-visible lg:col-start-1 lg:row-start-2 lg:min-h-0 lg:flex-1 lg:overflow-y-hidden">
-        <main className="overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-          <div className="mx-auto flex w-full flex-col gap-5 pb-10 sm:px-4 lg:pt-4">
-            <div className="relative aspect-video w-full">
-              <VideoPlayer
-                ref={playerRef}
-                onVideoElementChange={setTrackedVideoEl}
-                recordingId={recording.id}
-                videoUrl={recording.videoUrl}
-                mediaVersion={
-                  recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
-                }
-                videoFormat={recording.videoFormat}
-                embedProvider={isLoomEmbedBacked ? "loom" : null}
-                durationMs={recording.durationMs}
-                startMs={resolveStartMs(startMs, recording.durationMs)}
-                persistPlaybackPosition={Boolean(session)}
-                editsJson={recording.editsJson}
-                thumbnailUrl={recording.thumbnailUrl}
-                role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
-                defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
-                comments={comments}
-                chapters={chapters}
-                reactions={reactions}
-                transcriptSegments={transcriptSegments}
-                cta={firstCta}
-                onCtaClick={() => tracking.reportCtaClick()}
-                onTimeUpdate={(ms) => setCurrentMs(ms)}
-                onCommentClick={
-                  viewerCanUseFullscreenInteractions
-                    ? () => {
-                        requestAnimationFrame(() =>
-                          commentsSectionRef.current?.scrollIntoView({
-                            behavior: "smooth",
-                            block: "start",
-                          }),
-                        );
-                      }
-                    : undefined
-                }
-                onFullscreenChange={setIsPlayerFullscreen}
-                enableComments={
-                  recording.enableComments && viewerCanUseFullscreenInteractions
-                }
-                onAddComment={
-                  viewerCanUseFullscreenInteractions
-                    ? () => {
-                        if (!session) {
-                          requireSignIn("comment");
-                          return;
-                        }
-                        setCommentAtMs(resolvePlaybackMs());
-                        setCommentOpen(true);
-                      }
-                    : undefined
-                }
-                enableReactions={
-                  recording.enableReactions &&
-                  viewerCanUseFullscreenInteractions
-                }
-                onReact={
-                  viewerCanUseFullscreenInteractions
-                    ? reactToRecording
-                    : undefined
-                }
-                className="h-full w-full rounded-none sm:rounded-xl"
-              />
-              {commentOpen && viewerCanComment
-                ? (() => {
-                    const composer = (
-                      <TimestampedCommentBar
-                        recordingId={recording.id}
-                        atMs={commentAtMs}
-                        draft={commentDraft}
-                        onDraftChange={setCommentDraft}
-                        onClose={() => setCommentOpen(false)}
-                        onAdded={() => {
-                          void dataQ.refetch();
-                          if (resumedAccountActionRef.current === "comment") {
-                            resumedAccountActionRef.current = null;
-                            trackEvent("share_account_action_completed", {
-                              surface: "public_share",
-                              recording_id: recording.id,
-                              intent: "comment",
-                            });
+        <main className="overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+          {/* Match the authenticated viewer's YouTube-like desktop measure so
+            the discussion stays close to the video on wide displays. */}
+          <div className="mx-auto flex w-full flex-col gap-5 pb-10 sm:px-4 lg:h-full lg:min-h-0 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))] lg:pt-4">
+            <div className="flex w-full shrink-0 justify-center">
+              <div className="relative aspect-video w-full">
+                <VideoPlayer
+                  ref={playerRef}
+                  onVideoElementChange={setTrackedVideoEl}
+                  recordingId={recording.id}
+                  videoUrl={recording.videoUrl}
+                  mediaVersion={
+                    recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
+                  }
+                  videoFormat={recording.videoFormat}
+                  embedProvider={isLoomEmbedBacked ? "loom" : null}
+                  durationMs={recording.durationMs}
+                  startMs={resolveStartMs(startMs, recording.durationMs)}
+                  persistPlaybackPosition={Boolean(session)}
+                  editsJson={recording.editsJson}
+                  thumbnailUrl={recording.thumbnailUrl}
+                  role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
+                  defaultSpeed={
+                    parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
+                  }
+                  comments={comments}
+                  chapters={chapters}
+                  reactions={reactions}
+                  transcriptSegments={transcriptSegments}
+                  cta={firstCta}
+                  onCtaClick={() => tracking.reportCtaClick()}
+                  onTimeUpdate={(ms) => setCurrentMs(ms)}
+                  onCommentClick={
+                    viewerCanUseFullscreenInteractions
+                      ? selectCommentsPanel
+                      : undefined
+                  }
+                  onFullscreenChange={setIsPlayerFullscreen}
+                  enableComments={
+                    recording.enableComments &&
+                    viewerCanUseFullscreenInteractions
+                  }
+                  onAddComment={
+                    viewerCanUseFullscreenInteractions
+                      ? () => {
+                          if (!session) {
+                            requireSignIn("comment");
+                            return;
                           }
-                        }}
-                      />
-                    );
-                    // The Fullscreen API only paints the player's own element,
-                    // so portal the composer there instead of exiting
-                    // fullscreen when it's open.
-                    const fullscreenContainer =
-                      isPlayerFullscreen && playerRef.current?.container;
-                    return fullscreenContainer
-                      ? createPortal(composer, fullscreenContainer)
-                      : composer;
-                  })()
-                : null}
+                          const liveMs = resolvePlaybackMs();
+                          setCurrentMs(liveMs);
+                          if (!isPlayerFullscreen) {
+                            selectCommentsPanel();
+                            return;
+                          }
+                          setCommentAtMs(liveMs);
+                          setCommentOpen(true);
+                        }
+                      : undefined
+                  }
+                  enableReactions={
+                    recording.enableReactions &&
+                    viewerCanUseFullscreenInteractions
+                  }
+                  onReact={
+                    viewerCanUseFullscreenInteractions
+                      ? reactToRecording
+                      : undefined
+                  }
+                  className="h-full w-full rounded-none sm:rounded-xl"
+                />
+                {commentOpen && viewerCanComment
+                  ? (() => {
+                      const composer = (
+                        <TimestampedCommentBar
+                          recordingId={recording.id}
+                          atMs={commentAtMs}
+                          draft={commentDraft}
+                          onDraftChange={setCommentDraft}
+                          onClose={() => setCommentOpen(false)}
+                          onAdded={() => {
+                            void dataQ.refetch();
+                            if (resumedAccountActionRef.current === "comment") {
+                              resumedAccountActionRef.current = null;
+                              trackEvent("share_account_action_completed", {
+                                surface: "public_share",
+                                recording_id: recording.id,
+                                intent: "comment",
+                              });
+                            }
+                          }}
+                        />
+                      );
+                      // The Fullscreen API only paints the player's own element,
+                      // so portal the composer there instead of exiting
+                      // fullscreen when it's open.
+                      const fullscreenContainer =
+                        isPlayerFullscreen && playerRef.current?.container;
+                      return fullscreenContainer
+                        ? createPortal(composer, fullscreenContainer)
+                        : composer;
+                    })()
+                  : null}
+              </div>
             </div>
 
             <section className="flex shrink-0 flex-col gap-3 px-4 pt-1 sm:px-0">
@@ -1554,6 +1570,7 @@ export default function ShareRoute() {
                   <RecordingViewsBadge
                     recordingId={recording.id}
                     viewCount={viewCount}
+                    agentViewCount={agentViewCount}
                     reactionCount={reactions.length}
                     canViewDetails={viewerCanEdit}
                     className="shrink-0 border-0 shadow-none"
@@ -1619,11 +1636,42 @@ export default function ShareRoute() {
                 </div>
               ) : null}
             </section>
+          </div>
+        </main>
+      </div>
 
-            {recording.enableComments ? (
+      <Tabs
+        value={panel}
+        onValueChange={(value) => setPanel(value as SharePanel)}
+        className="contents"
+      >
+        <RecordingSidePanel
+          className="lg:col-start-2 lg:row-start-2"
+          tabs={
+            <ViewerTabsList>
+              {recording.enableComments ? (
+                <ViewerTabsTrigger value="comments">
+                  {t("sharePage.comments")}
+                </ViewerTabsTrigger>
+              ) : null}
+              <ViewerTabsTrigger value="transcript">
+                {t("sharePage.transcript")}
+              </ViewerTabsTrigger>
+              <ViewerTabsTrigger value="agent">
+                {t("sharePage.agent")}
+              </ViewerTabsTrigger>
+            </ViewerTabsList>
+          }
+        >
+          {recording.enableComments ? (
+            <TabsContent
+              forceMount
+              value="comments"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+            >
               <section
                 ref={commentsSectionRef}
-                className="scroll-mt-14 flex min-h-0 flex-1 flex-col px-1 pb-5 pt-4"
+                className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"
               >
                 <h2 className="mb-3 shrink-0 text-sm font-semibold">
                   {t("sharePage.comments")}
@@ -1655,29 +1703,8 @@ export default function ShareRoute() {
                   presentation="inline"
                 />
               </section>
-            ) : null}
-          </div>
-        </main>
-      </div>
-
-      <Tabs
-        value={panel}
-        onValueChange={(value) => setPanel(value as SharePanel)}
-        className="contents"
-      >
-        <RecordingSidePanel
-          className="lg:col-start-2 lg:row-start-2"
-          tabs={
-            <ViewerTabsList>
-              <ViewerTabsTrigger value="transcript">
-                {t("sharePage.transcript")}
-              </ViewerTabsTrigger>
-              <ViewerTabsTrigger value="agent">
-                {t("sharePage.agent")}
-              </ViewerTabsTrigger>
-            </ViewerTabsList>
-          }
-        >
+            </TabsContent>
+          ) : null}
           <TabsContent
             value="agent"
             className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto"
@@ -1720,6 +1747,7 @@ export default function ShareRoute() {
               segments={transcriptSegments}
               fullText={transcriptFullText}
               durationMs={recording.durationMs}
+              editsJson={recording.editsJson}
               currentMs={playbackMs}
               onSeek={(ms) => playerRef.current?.seek(ms)}
               status={transcriptStatus}
@@ -1806,13 +1834,17 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function formatRecordedOn(value: string | null | undefined): string {
+function formatRecordedOn(
+  value: string | null | undefined,
+  stable = false,
+): string {
   if (!value) return "";
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
-    date,
-  );
+  return new Intl.DateTimeFormat(stable ? "en-US" : undefined, {
+    dateStyle: "medium",
+    ...(stable ? { timeZone: "UTC" } : {}),
+  }).format(date);
 }
 
 function PublicAgentEmptyState({

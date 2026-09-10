@@ -436,20 +436,19 @@ const ptBR = {
   },
   homepage: {
     hero: {
-      title: "O framework para apps agentic.",
-      bodyLine1:
-        "Um framework TypeScript de código aberto para apps com uma UI e um agente.",
-      bodyLine2: "Defina cada Action uma vez e chame-a de qualquer lugar.",
+      title: "O framework para aplicativos agentic",
+      bodyLine1: "Crie agentes autônomos com interfaces intuitivas.",
+      bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
       tryAnApp: "Experimentar um app",
     },
     install: {
       copyCommand: "Copiar comando de instalação",
     },
     actions: {
-      title: "Chame uma Action de qualquer lugar.",
-      bodyLine1: "Defina uma capacidade com defineAction().",
+      title: "Uma Action alimenta cada superfície",
+      bodyLine1: "Defina uma capacidade uma vez com defineAction().",
       bodyLine2:
-        "Sua UI React, seu agente, clientes HTTP e integrações usam o mesmo código.",
+        "Seu agente, sua UI React, clientes HTTP e integrações usam o mesmo código.",
       diagramAlt:
         "Uma Action alimenta UI, MCP, chat do agente, A2A, HTTP API e CLI",
     },
@@ -544,7 +543,7 @@ const ptBR = {
         "Descreva em linguagem simples o que você quer criar e o agente fará isso por você.",
       stepThreeTitle: "Publique",
       stepThreeBody:
-        "Quando estiver pronto, publique seu aplicativo com um clique no Builder.",
+        "Quando estiver pronto, publique seu agente e sua UI com um clique no Builder.",
     },
   },
   templatesPage: {
@@ -569,6 +568,7 @@ const ptBR = {
     tryCommunityDemo: "Experimentar demo",
     customizeDescription: "Use este app como ponto de partida.",
     customizeOnline: "Online",
+    customizeOnlineBadge: "Entrar na lista de espera",
     customizeLocally: "Local",
     communityNew: "Novo",
     communityComingSoon: "Em breve",
@@ -626,6 +626,18 @@ const ptBR = {
     popoverTitle: "Criar no navegador",
     popoverBody:
       "Gere rapidamente apps agent-native na nuvem com a Builder.io.",
+    waitlistBody:
+      "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
+    emailLabel: "Email",
+    emailPlaceholder: "voce@empresa.com",
+    joinWaitlist: "Entrar na lista de espera",
+    joining: "Entrando…",
+    joined:
+      "Você está na lista de espera. Enviaremos um email quando o acesso para criar online abrir.",
+    invalidEmail: "Insira um endereço de email válido.",
+    submitError: "Não foi possível entrar na lista de espera. Tente novamente.",
+    waitlistUnavailable:
+      "As inscrições na lista de espera ainda não estão disponíveis neste ambiente. Tente o site de documentação hospedado.",
     launchBuilder: "Abrir o Builder",
   },
   templateCard: {
@@ -903,6 +915,56 @@ const ptBR = {
     },
     clips: {
       s001: "Captura de tela do modelo Clips",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "Gravações de tela que seu agente de IA pode ver e ouvir",
+      heroDescription:
+        "Clips é um gravador de tela gratuito e de código aberto para compartilhar bugs, feedback e tutoriais com agentes de IA.",
+      heroCta: "Gravar um clipe",
+      useCasesHeading: "O que você pode fazer com o Clips?",
+      useCasesBody:
+        "Comece com um clipe que você gravou ou que alguém compartilhou com você. Dê ao seu agente de IA o contexto e diga o que você precisa.",
+      useCase1Title: "Agir sobre feedback gravado",
+      useCase1Body:
+        "Dê ao seu agente de IA feedback gravado para transformar em um plano ou ajudar a implementar as mudanças solicitadas.",
+      useCase2Title: "Investigar um bug relatado",
+      useCase2Body:
+        "Compartilhe uma gravação de bug com seu agente de IA para investigar o que deu errado e definir os próximos passos.",
+      useCase3Title: "Criar a partir de um briefing gravado",
+      useCase3Body:
+        "Use um briefing gravado para orientar seu agente de IA na criação de uma apresentação, design, conteúdo ou mudança no app.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para gravar, transcrever e compartilhar",
+      feature1Title: "Gravações legíveis por agentes",
+      feature1Body:
+        "Compartilhe a transcrição e as imagens com marca de tempo de um clipe com seu agente de IA por meio de um único link legível por agentes.",
+      feature2Title: "Transcrições automáticas",
+      feature2Body:
+        "Obtenha transcrições de gravações, reuniões e ditados. Clique em qualquer linha da transcrição para voltar àquele momento.",
+      feature3Title: "Logs de depuração do navegador",
+      feature3Body:
+        "Capture erros de console e requisições que falharam junto com sua gravação com a extensão do Clips para Chrome.",
+      feature4Title: "Agente de IA integrado",
+      feature4Body:
+        "Pergunte ao agente de IA integrado sobre um clipe ou sobre toda a sua biblioteca, e deixe que ele edite as transcrições no chat.",
+      feature5Title: "Biblioteca de gravações pesquisável",
+      feature5Body:
+        "Encontre clipes pesquisando suas transcrições. Organize suas gravações com pastas, tags e espaços de equipe.",
+      feature6Title: "Ditado push-to-talk",
+      feature6Body:
+        "Mantenha Fn pressionado no app de desktop para ditar em outros aplicativos. Reveja transcrições e o texto revisado no seu histórico.",
+      teammatesLine:
+        "Seus colegas de equipe podem assistir à mesma gravação no player.",
+      teammatesLinkLabel: "Ler o guia de compartilhamento com agentes",
+      seeInActionHeading: "Veja o Clips em ação",
+      seeInActionBody:
+        "Veja o Clips em uso, desde a gravação de um fluxo de trabalho no navegador até mostrar a um agente de IA como realizar uma tarefa.",
+      watchClipLabel: "Ver o clipe",
+      finalCtaHeading: "Ponha seu próximo clipe para trabalhar",
+      finalCtaBody:
+        "Grave uma explicação ou leve um clipe compartilhado para o seu agente de IA.",
+      finalCtaButton: "Abrir o Clips",
       s002: "Gravação de tela",
       s003: "Logs de depuração do navegador",
       s004: "Ditar",
@@ -965,26 +1027,25 @@ const ptBR = {
       s058: "Gratuito e de código aberto",
       s059: "Comece agora",
       s060: "Escolha o que capturar e comece a gravar no Clips.",
-      s061: "Ver mais aplicativos",
       s062: "Ver todos os modelos",
       faq: {
-        question1: "O Clips é gratuito?",
-        answer1: "Sim. O Clips é gratuito e de código aberto.",
-        question2: "A IA pode ler uma gravação de tela?",
+        question1: "O Clips é gratuito e de código aberto?",
+        answer1:
+          "Sim. O Clips é um software gratuito e de código aberto. Você pode usar o app ou personalizar e hospedar sua própria versão.",
+        question2:
+          "Posso compartilhar gravações com Claude, ChatGPT ou Cursor?",
         answer2:
-          "Sim. Cada clipe inclui uma transcrição, um resumo e quadros com marcação de tempo que um agente pode ler diretamente.",
-        question3: "Qual é a diferença entre Clips e Loom?",
+          "O Clips fornece um link legível por agentes com uma transcrição e imagens com marca de tempo. Seu agente precisa conseguir abrir o conteúdo do link e ler imagens para usar os dois. Alguns modos de chat conseguem ler a transcrição, mas exigem que você envie uma imagem separadamente.",
+        question3: "Preciso da extensão do Chrome para gravar minha tela?",
         answer3:
-          "Clips é de código aberto, você é dono dos dados e todo link compartilhado pode ser lido por agentes de IA, não apenas por pessoas.",
-        question4: "Uma gravação de tela pode capturar erros do console?",
+          "Não. Você pode gravar no app web do Clips. Use a extensão do Chrome quando também quiser mensagens de console e diagnósticos de rede da aba que está demonstrando.",
+        question4:
+          "Agentes de IA conseguem assistir às minhas gravações de tela?",
         answer4:
-          "Sim. Clips captura erros do console do navegador e solicitações de rede com falha junto com a gravação. Eles ficam anexados ao mesmo link compartilhado da transcrição e dos quadros. Um agente pode depurar a partir de um clipe, não apenas assisti-lo.",
-        question5: "O Clips funciona com Claude, ChatGPT ou Cursor?",
+          "Com o Clips, agentes de IA compatíveis conseguem entender sua gravação por meio de uma transcrição e imagens com marca de tempo. Eles usam o texto e as imagens em vez de reproduzir o vídeo, então você pode fazer perguntas sobre o que aconteceu ou dar ao seu agente de IA uma tarefa baseada na gravação.",
+        question5: "Quem pode acessar uma gravação compartilhada?",
         answer5:
-          "Sim! Não é necessário plugin nem chave de API. Cole um link compartilhado do Clips em qualquer agente para que ele leia diretamente a transcrição, o resumo e os quadros.",
-        question6: "Onde ficam minhas gravações?",
-        answer6:
-          "Onde quer que você faça o deploy. O Clips hospedado por você mantém seus vídeos, transcrições e análises na sua própria infraestrutura.",
+          "As gravações usam links públicos por padrão, a menos que sua organização altere essa configuração. Qualquer pessoa com o link pode acessá-las. Há opções de acesso privado e organizacional disponíveis, e clipes privados podem ser compartilhados com agentes por meio de links temporários sem tornar a gravação pública.",
       },
       quickStart: {
         recordingMode: "Modo de gravação",
@@ -1109,7 +1170,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006: "O estúdio de prototipagem de código aberto AI HTML",
-      s007: "Gere protótipos Alpine/Tailwind interativos a partir de um prompt, compare variantes, refine com controles de ajuste e exporte arquivos reais de sua propriedade.",
+      s007: "Crie designs e protótipos interativos. Refine com ferramentas familiares ou faça edições de conversação. Exporte para qualquer lugar.",
       s008: "Crie algo",
       s009: "Como funciona",
       s010: "Tudo que você precisa",
@@ -1163,6 +1224,7 @@ const ptBR = {
       s058: "Comece com o modelo e comece a gerar protótipos interativos com um agente que edita a fonte.",
       s059: "Leia os documentos",
       s060: "Ver todos os modelos",
+      s061: "100% grátis, código aberto e personalizável.",
     },
     dispatch: {
       faq: {
@@ -2055,7 +2117,6 @@ const ptBR = {
     usingYourAgent: "Usar seu Agent",
     agentResources: "Recursos do Agente",
     integrations: "Integrações",
-    buildApps: "Criar apps",
     advancedRuntime: "Avançado: estender o runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeiros passos",
@@ -2116,6 +2177,9 @@ const ptBR = {
     databaseProviders: "Provedores de banco de dados",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "Internacionalização",
     localFileMode: "Modo de arquivos locais",
@@ -2193,7 +2257,6 @@ const ptBR = {
     syncingTemplateChanges: "Sincronizar alterações de templates",
     writingAgentInstructions: "Escrever instruções de Agent",
     embeddingSdk: "SDK de incorporação",
-    frames: "Frames",
     agentNativeCodeUi: "UI de código Agent-Native",
     harnessAgents: "Agentes com harness",
     adapters: "Adaptadores",

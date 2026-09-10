@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("editable recording title", () => {
-  it("uses the title itself as the rename affordance", () => {
+  it("shows an explicit rename affordance on the title", () => {
     const source = readFileSync(
       new URL("./editable-recording-title.tsx", import.meta.url),
       "utf8",
@@ -11,6 +11,6 @@ describe("editable recording title", () => {
 
     expect(source).toContain('aria-label={t("editableTitle.editLabel")}');
     expect(source).toContain("cursor-text");
-    expect(source).not.toContain("IconEdit");
+    expect(source).toContain("IconEdit");
   });
 });

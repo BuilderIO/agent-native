@@ -73,6 +73,35 @@ const messages: AgentChatTranslation = {
     "Criando ou reutilizando sua conta do Builder.io. Isso geralmente leva alguns segundos.",
   "onboarding.builderConnectionDescription":
     "Conclua a conexão com um clique na nova janela.",
+  "onboarding.capability.llm.keySummary":
+    "Conecte um provedor de IA ou modelo local",
+  "onboarding.capability.fileStorage.keySummary":
+    "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.capability.voiceInput.label": "Entrada de voz",
+  "onboarding.capability.voiceInput.keySummary":
+    "Reconhecimento de voz do navegador ou conversão de fala em texto",
+  "onboarding.capability.voiceInput.why":
+    "A entrada de voz transforma solicitações faladas em texto; digitar sempre funciona.",
+  "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Créditos Builder ou chave de provedor de imagens",
+  "onboarding.capability.assetsImageGeneration.why":
+    "A geração de imagens é o fluxo principal para criar assets alinhados à marca.",
+  "onboarding.capability.assetsVideoGeneration.label": "Geração de vídeo",
+  "onboarding.capability.assetsVideoGeneration.keySummary":
+    "Chave de API do Gemini",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "A geração de vídeo é opcional; o fluxo principal do Assets é a geração de imagens.",
+  "onboarding.capability.clipsObjectStorage.label": "Armazenamento de objetos",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Vídeos gravados precisam de armazenamento de objetos durável antes de serem reproduzidos ou compartilhados.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Chave de provedor de conversão de fala em texto",
+  "onboarding.capability.about": "Sobre {{label}}",
+  "onboarding.capability.why": "Por que {{label}} é necessário",
+  "onboarding.openAiKeySettings": "Abrir configurações de chaves de IA",
   "aboutAgentNative.title": "Sobre o Agent-Native",
   "aboutAgentNative.version": "Versão",
   "aboutAgentNative.environment": "Ambiente",
@@ -205,6 +234,23 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "O fluxo anterior do agente terminou durante a recuperação. Continue ou tente novamente para se reconectar à execução.",
   "recovery.reconnectBuilder": "Reconectar o Builder.io",
+  "secrets.addCustomKeyNamed": 'Adicionar "{{name}}" como chave personalizada',
+  "secrets.customKey": "Chave personalizada",
+  "secrets.customKeyHint": "Adicione qualquer chave pelo nome",
+  "secrets.fromEnvironment": "Fornecido pelo ambiente de implantação.",
+  "secrets.managedInVault":
+    "Gerenciado no Vault do espaço de trabalho. Todos os apps deste espaço de trabalho usam este valor.",
+  "secrets.openVault": "Abrir Vault",
+  "secrets.overridesVault":
+    "Esta chave pessoal substitui o valor do Vault do espaço de trabalho. Remova-a para usar a chave do Vault.",
+  "secrets.overridesWorkspace":
+    "Esta chave pessoal substitui o valor do espaço de trabalho. Remova-a para usar a chave compartilhada.",
+  "secrets.setForWorkspace": "Definido para todos neste espaço de trabalho.",
+  "secrets.sourceEnvironment": "Ambiente",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Espaço de trabalho",
+  "secrets.statusUnavailable": "Indisponível",
+  "secrets.usePersonalKey": "Usar uma chave pessoal",
   "selection.attached": "{{formattedCount}} caracteres da seleção anexados",
   "selection.clear": "Limpar contexto da seleção",
   "setup.addOwnKeys": "Adicionar suas próprias chaves",

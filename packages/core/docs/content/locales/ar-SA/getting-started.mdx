@@ -7,13 +7,17 @@ description: "أنشئ وكيلاً بواجهة مستخدم للمحادثة �
 
 <GettingStartedPaths />
 
+Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء وكلاء مستقلين بواجهات
+استخدام بديهية. تعرّف كل قدرة مرة واحدة كـ [إجراء](/docs/actions-overview) — دالة
+مكتوبة الأنواع يستخدمها الوكيل كأداة وتستدعيها واجهة المستخدم من الكود.
+
 في هذا الدليل، ستنشئ وكيلاً بواجهة مستخدم للمحادثة وتستدعي إجراء `hello`
 المضمّن فيه من الوكيل وواجهة المستخدم.
 
 ## المتطلبات الأساسية
 
-- [Node.js](https://nodejs.org) 22 أو أحدث
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 أو أحدث
+- [pnpm](https://pnpm.io) مثبت ومتاح في `PATH`
 - اتصال LLM للوكيل: Builder.io، أو مفتاح API من Anthropic أو OpenAI، أو نموذج
   Ollama محلي
 
@@ -22,7 +26,7 @@ description: "أنشئ وكيلاً بواجهة مستخدم للمحادثة �
 في دليل جديد، ابدأ من قالب Chat:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -39,8 +43,8 @@ pnpm install
 pnpm dev
 ```
 
-تُفتح واجهة المستخدم في المتصفح على `http://localhost:8080`. إذا لم تُفتح
-تلقائيًا، فانتقل إلى هذا العنوان في متصفحك.
+تُفتح واجهة المستخدم تلقائيًا. إذا لم تُفتح، فاستخدم العنوان المحلي الذي يطبعه
+`pnpm dev`؛ يزداد رقم المنفذ إذا كان تطبيق آخر يستخدم 8080.
 
 <Callout tone="info">
 
@@ -71,7 +75,7 @@ Hello, Alex!
 
 ## فحص الإجراء
 
-افتح `actions/hello.ts`:
+في دليل `my-app` المحلي، افتح `actions/hello.ts` في محرر الشفرة:
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -101,7 +105,8 @@ export default defineAction({
 
 ## استدعاء الإجراء من React
 
-أضف مسارًا في `app/routes/hello.tsx`:
+يتضمن القالب `actions/hello.ts`، لكنه لا يتضمن صفحة له. أنشئ
+`app/routes/hello.tsx`:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -134,7 +139,7 @@ export default function HelloRoute() {
 <Callout tone="warning">
 
 أعد تشغيل خادم التطوير كي يكتشف المسار الجديد، ثم افتح
-`http://localhost:8080/hello`.
+`http://localhost:<port>/hello`.
 
 </Callout>
 
@@ -192,5 +197,9 @@ return { message: `Welcome, ${name}.` };
 
 عرّف إجراءات للقراءة والكتابة والموافقات، ثم استدعها من واجهة المستخدم والوكلاء
 والعملاء الخارجيين.
+
+### [نشر تطبيق](/docs/deploy-an-app)
+
+انتقل من التطوير المحلي إلى قاعدة بيانات دائمة ومصادقة إنتاجية وهدف نشر مدعوم.
 
 </Cards>

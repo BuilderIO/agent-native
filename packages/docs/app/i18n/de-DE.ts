@@ -438,20 +438,20 @@ const deDE = {
   },
   homepage: {
     hero: {
-      title: "Das Framework für agentische Apps.",
+      title: "Das Framework für agentische Anwendungen",
       bodyLine1:
-        "Ein Open-Source-TypeScript-Framework für Apps mit einer UI und einem Agenten.",
-      bodyLine2: "Definiere jede Action einmal und rufe sie überall auf.",
+        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
+      bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
       tryAnApp: "App ausprobieren",
     },
     install: {
       copyCommand: "Installationsbefehl kopieren",
     },
     actions: {
-      title: "Eine Action von überall aufrufen.",
-      bodyLine1: "Definiere eine Fähigkeit mit defineAction().",
+      title: "Eine Action treibt jede Oberfläche an",
+      bodyLine1: "Definiere eine Fähigkeit einmal mit defineAction().",
       bodyLine2:
-        "Deine React-UI, dein Agent, HTTP-Clients und Integrationen verwenden denselben Code.",
+        "Dein Agent, deine React-UI, HTTP-Clients und Integrationen verwenden denselben Code.",
       diagramAlt:
         "Eine Action treibt UI, MCP, Agent-Chat, A2A, HTTP API und CLI an",
     },
@@ -546,7 +546,7 @@ const deDE = {
         "Beschreiben Sie in klarer Sprache, was Sie bauen möchten, und der Agent erstellt es für Sie.",
       stepThreeTitle: "Bereitstellen",
       stepThreeBody:
-        "Wenn Sie bereit sind, stellen Sie Ihre App mit einem Klick in Builder bereit.",
+        "Wenn Sie bereit sind, stellen Sie Ihren Agenten und seine UI mit einem Klick in Builder bereit.",
     },
   },
   templatesPage: {
@@ -572,6 +572,7 @@ const deDE = {
     tryCommunityDemo: "Demo testen",
     customizeDescription: "Nutze diese App als Ausgangspunkt.",
     customizeOnline: "Online",
+    customizeOnlineBadge: "Warteliste beitreten",
     customizeLocally: "Lokal",
     communityNew: "Neu",
     communityComingSoon: "Demnächst",
@@ -629,6 +630,19 @@ const deDE = {
     popoverTitle: "Im Browser entwickeln",
     popoverBody:
       "Generiere schnell agent-native Apps in der Cloud mit Builder.io.",
+    waitlistBody:
+      "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
+    emailLabel: "E-Mail",
+    emailPlaceholder: "du@firma.com",
+    joinWaitlist: "Warteliste beitreten",
+    joining: "Beitreten…",
+    joined:
+      "Du stehst auf der Warteliste. Wir mailen dir, sobald der Online-Build-Zugang verfügbar ist.",
+    invalidEmail: "Gib eine gültige E-Mail-Adresse ein.",
+    submitError:
+      "Beitritt zur Warteliste fehlgeschlagen. Bitte versuche es erneut.",
+    waitlistUnavailable:
+      "Wartelisten-Anmeldungen sind in dieser Umgebung noch nicht verfügbar. Bitte nutze stattdessen die gehostete Dokumentationsseite.",
     launchBuilder: "Builder starten",
   },
   templateCard: {
@@ -906,6 +920,56 @@ const deDE = {
     },
     clips: {
       s001: "Screenshot der Vorlage Clips",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "Bildschirmaufnahmen, die dein KI-Agent sehen und hören kann",
+      heroDescription:
+        "Clips ist ein kostenloser Open-Source-Bildschirmrecorder zum Teilen von Fehlern, Feedback und Anleitungen mit KI-Agenten.",
+      heroCta: "Clip aufnehmen",
+      useCasesHeading: "Was kannst du mit Clips machen?",
+      useCasesBody:
+        "Starte mit einem selbst aufgenommenen Clip oder einem, der mit dir geteilt wurde. Gib deinem KI-Agenten den Kontext und sag ihm, was du brauchst.",
+      useCase1Title: "Auf aufgezeichnetes Feedback reagieren",
+      useCase1Body:
+        "Gib deinem KI-Agenten aufgezeichnetes Feedback, damit er es in einen Plan verwandelt oder bei der Umsetzung der gewünschten Änderungen hilft.",
+      useCase2Title: "Einen gemeldeten Fehler untersuchen",
+      useCase2Body:
+        "Teile eine Bug-Aufnahme mit deinem KI-Agenten, damit er untersucht, was schiefgelaufen ist, und die nächsten Schritte erarbeitet.",
+      useCase3Title: "Aus einem aufgezeichneten Briefing erstellen",
+      useCase3Body:
+        "Nutze ein aufgezeichnetes Briefing, um deinen KI-Agenten bei der Erstellung einer Präsentation, eines Designs, eines Inhalts oder einer App-Änderung anzuleiten.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Aufnehmen, Transkribieren und Teilen brauchst",
+      feature1Title: "Für Agenten lesbare Aufnahmen",
+      feature1Body:
+        "Teile das Transkript und die zeitgestempelten Bilder eines Clips über einen einzigen, für Agenten lesbaren Link mit deinem KI-Agenten.",
+      feature2Title: "Automatische Transkripte",
+      feature2Body:
+        "Erhalte Transkripte von Aufnahmen, Meetings und Diktaten. Klicke auf eine beliebige Transkriptzeile, um zu diesem Moment zu springen.",
+      feature3Title: "Browser-Debug-Logs",
+      feature3Body:
+        "Erfasse Konsolenfehler und fehlgeschlagene Anfragen zusammen mit deiner Aufnahme mit der Clips-Chrome-Erweiterung.",
+      feature4Title: "Integrierter KI-Agent",
+      feature4Body:
+        "Frag den integrierten KI-Agenten zu einem Clip oder deiner gesamten Bibliothek und lass ihn Transkripte im Chat bearbeiten.",
+      feature5Title: "Durchsuchbare Aufnahmebibliothek",
+      feature5Body:
+        "Finde Clips, indem du ihre Transkripte durchsuchst. Organisiere deine Aufnahmen mit Ordnern, Tags und Team-Bereichen.",
+      feature6Title: "Push-to-Talk-Diktat",
+      feature6Body:
+        "Halte Fn in der Desktop-App gedrückt, um in andere Apps zu diktieren. Sieh dir Transkripte und bereinigten Text in deinem Verlauf noch einmal an.",
+      teammatesLine:
+        "Deine Teammitglieder können sich dieselbe Aufnahme im Player ansehen.",
+      teammatesLinkLabel: "Leitfaden zum Teilen mit Agenten lesen",
+      seeInActionHeading: "Clips in Aktion sehen",
+      seeInActionBody:
+        "Sieh dir Clips im Einsatz an – von der Aufnahme eines Browser-Workflows bis dazu, einem KI-Agenten eine Aufgabe zu zeigen.",
+      watchClipLabel: "Clip ansehen",
+      finalCtaHeading: "Setze deinen nächsten Clip ein",
+      finalCtaBody:
+        "Nimm eine Erklärung auf oder bring einen geteilten Clip zu deinem KI-Agenten.",
+      finalCtaButton: "Clips öffnen",
       s002: "Bildschirmaufzeichnung",
       s003: "Browser-Debug-Protokolle",
       s004: "Diktieren",
@@ -968,26 +1032,24 @@ const deDE = {
       s058: "Kostenlos und Open Source",
       s059: "Jetzt starten",
       s060: "Wählen Sie aus, was Sie aufnehmen möchten, und starten Sie dann die Aufnahme in Clips.",
-      s061: "Weitere Apps ansehen",
       s062: "Alle Vorlagen anzeigen",
       faq: {
-        question1: "Ist Clips kostenlos?",
-        answer1: "Ja. Clips ist kostenlos und Open Source.",
-        question2: "Kann eine KI eine Bildschirmaufnahme lesen?",
+        question1: "Ist Clips kostenlos und Open Source?",
+        answer1:
+          "Ja. Clips ist kostenlose Open-Source-Software. Du kannst die App nutzen oder deine eigene Version anpassen und selbst hosten.",
+        question2: "Kann ich Aufnahmen mit Claude, ChatGPT oder Cursor teilen?",
         answer2:
-          "Ja. Jeder Clip enthält ein Transkript, eine Zusammenfassung und zeitgestempelte Bilder, die ein Agent direkt lesen kann.",
-        question3: "Wie unterscheidet sich Clips von Loom?",
+          "Clips stellt einen für Agenten lesbaren Link mit Transkript und zeitgestempelten Bildern bereit. Dein Agent muss den verlinkten Inhalt öffnen und Bilder lesen können, um beides zu nutzen. Manche Chat-Modi können das Transkript lesen, benötigen aber ein separat hochgeladenes Bild.",
+        question3:
+          "Brauche ich die Chrome-Erweiterung, um meinen Bildschirm aufzunehmen?",
         answer3:
-          "Clips ist Open Source, du besitzt deine Daten und jeder geteilte Link ist für KI-Agenten lesbar, nicht nur für Menschen.",
-        question4: "Kann eine Bildschirmaufnahme Konsolenfehler erfassen?",
+          "Nein. Du kannst in der Clips-Web-App aufnehmen. Nutze die Chrome-Erweiterung, wenn du zusätzlich Konsolenmeldungen und Netzwerkdiagnosen aus dem gezeigten Tab möchtest.",
+        question4: "Können KI-Agenten meine Bildschirmaufnahmen ansehen?",
         answer4:
-          "Ja. Clips erfasst Browser-Konsolenfehler und fehlgeschlagene Netzwerkanfragen zusammen mit der Aufnahme. Sie werden an denselben geteilten Link wie Transkript und Bilder angehängt. Ein Agent kann anhand eines Clips debuggen, statt ihn nur anzusehen.",
-        question5: "Funktioniert Clips mit Claude, ChatGPT oder Cursor?",
+          "Mit Clips können kompatible KI-Agenten deine Aufnahme über ein Transkript und zeitgestempelte Bilder verstehen. Sie nutzen den Text und die Bilder statt das Video abzuspielen, sodass du Fragen zum Geschehenen stellen oder deinem KI-Agenten eine Aufgabe auf Basis der Aufnahme geben kannst.",
+        question5: "Wer kann auf eine geteilte Aufnahme zugreifen?",
         answer5:
-          "Ja! Kein Plugin und kein API-Schlüssel erforderlich. Füge einen geteilten Clips-Link in einen beliebigen Agenten ein, damit er Transkript, Zusammenfassung und Bilder direkt lesen kann.",
-        question6: "Wo werden meine Aufnahmen gespeichert?",
-        answer6:
-          "Dort, wo du sie bereitstellst. Selbst gehostetes Clips speichert deine Videos, Transkripte und Analysen in deiner eigenen Infrastruktur.",
+          "Aufnahmen verwenden standardmäßig öffentliche Links, sofern deine Organisation diese Einstellung nicht ändert. Jeder mit dem Link kann darauf zugreifen. Optionen für privaten und organisationsweiten Zugriff sind verfügbar, und private Clips können über temporäre Links mit Agenten geteilt werden, ohne die Aufnahme öffentlich zu machen.",
       },
       quickStart: {
         recordingMode: "Aufnahmemodus",
@@ -1112,7 +1174,7 @@ const deDE = {
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
       s006: "Das Open-Source-Prototyping-Studio AI HTML",
-      s007: "Generieren Sie interaktive Alpine/Tailwind-Prototypen aus einer Eingabeaufforderung, vergleichen Sie Varianten, verfeinern Sie sie mit optimierten Steuerelementen und exportieren Sie echte Dateien, die Sie besitzen.",
+      s007: "Erstellen Sie interaktive Designs und Prototypen. Verfeinern Sie sie mit gewohnten Werkzeugen oder nehmen Sie Konversationsbearbeitungen vor. Exportieren Sie überall hin.",
       s008: "Etwas gestalten",
       s009: "Wie es funktioniert",
       s010: "Alles was Sie brauchen",
@@ -1166,6 +1228,7 @@ const deDE = {
       s058: "Starten Sie mit der Vorlage und beginnen Sie mit der Erstellung interaktiver Prototypen mit einem Agenten, der die Quelle bearbeitet.",
       s059: "Lesen Sie die Dokumente",
       s060: "Alle Vorlagen anzeigen",
+      s061: "100 % kostenlos, Open Source und anpassbar.",
     },
     dispatch: {
       faq: {
@@ -2062,7 +2125,6 @@ const deDE = {
     usingYourAgent: "Deinen Agent verwenden",
     agentResources: "Agent-Ressourcen",
     integrations: "Integrationen",
-    buildApps: "Apps bauen",
     advancedRuntime: "Fortgeschritten: Runtime erweitern",
     templatesSection: "Apps",
     gettingStarted: "Erste Schritte",
@@ -2123,6 +2185,9 @@ const deDE = {
     databaseProviders: "Datenbankanbieter",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "Internationalisierung",
     localFileMode: "Lokaler Dateimodus",
@@ -2200,7 +2265,6 @@ const deDE = {
     syncingTemplateChanges: "Template-Änderungen synchronisieren",
     writingAgentInstructions: "Agent-Anweisungen schreiben",
     embeddingSdk: "Einbettungs-SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native-Code-UI",
     harnessAgents: "Harness-Agents",
     adapters: "Adapter",

@@ -48,6 +48,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
 import { chunks } from "./_batch-utils.js";
 import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
@@ -73,6 +74,28 @@ type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
 type DbClient = ReturnType<typeof getDb>;
+
+async function sourceManagedPropertyIdsForDatabase(
+  db: DbClient,
+  databaseId: string,
+) {
+  const fields = await db
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceFields.sourceId,
+      ),
+    )
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+  return contentDatabaseSourceManagedPropertyIds(fields);
+}
 
 export function nanoid(size = 12): string {
   const chars =
@@ -220,12 +243,13 @@ export function parseDatabaseViewConfig(
   value: string | null | undefined,
 ): ContentDatabaseViewConfig {
   if (!value) return defaultDatabaseViewConfig();
+  let parsed: Partial<ContentDatabaseViewConfig>;
   try {
-    const parsed = JSON.parse(value) as Partial<ContentDatabaseViewConfig>;
-    return normalizeDatabaseViewConfig(parsed);
+    parsed = JSON.parse(value) as Partial<ContentDatabaseViewConfig>;
   } catch {
     return defaultDatabaseViewConfig();
   }
+  return normalizeDatabaseViewConfig(parsed);
 }
 
 export function serializeDatabaseViewConfig(
@@ -321,10 +345,17 @@ function defaultDatabaseView(
     endDatePropertyId: values.endDatePropertyId ?? null,
     hiddenPropertyIds: values.hiddenPropertyIds ?? [],
     propertyOrderIds: values.propertyOrderIds ?? [],
+    tableColumnOrderIds: values.tableColumnOrderIds ?? [],
     collapsedGroupIds: values.collapsedGroupIds ?? [],
     hideEmptyGroups: values.hideEmptyGroups === true,
     calculations: values.calculations ?? {},
     wrapCells: values.wrapCells === true,
+    columnWrapOverrides: normalizeColumnWrapOverrides(
+      values.columnWrapOverrides,
+    ),
+    frozenThroughColumnId: normalizeFrozenThroughColumnId(
+      values.frozenThroughColumnId,
+    ),
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(values.formQuestions),
@@ -374,10 +405,15 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
         : null,
     hiddenPropertyIds: normalizeStringList(view.hiddenPropertyIds),
     propertyOrderIds: normalizeStringList(view.propertyOrderIds),
+    tableColumnOrderIds: normalizeStringList(view.tableColumnOrderIds),
     collapsedGroupIds: normalizeStringList(view.collapsedGroupIds),
     hideEmptyGroups: view.hideEmptyGroups === true,
     calculations: normalizeCalculations(view.calculations),
     wrapCells: view.wrapCells === true,
+    columnWrapOverrides: normalizeColumnWrapOverrides(view.columnWrapOverrides),
+    frozenThroughColumnId: normalizeFrozenThroughColumnId(
+      view.frozenThroughColumnId,
+    ),
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(view.formQuestions),
@@ -433,6 +469,31 @@ function normalizeCalculations(value: unknown) {
       typeof entry[0] === "string" && isDatabaseColumnCalculation(entry[1]),
   );
   return Object.fromEntries(entries);
+}
+
+function normalizeColumnWrapOverrides(value: unknown) {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Database column wrap overrides must be a boolean map.");
+  }
+  const entries = Object.entries(value);
+  if (
+    entries.some(
+      ([columnId, wrap]) => columnId.length === 0 || typeof wrap !== "boolean",
+    )
+  ) {
+    throw new Error("Database column wrap overrides must be a boolean map.");
+  }
+  return Object.fromEntries(entries) as Record<string, boolean>;
+}
+
+function normalizeFrozenThroughColumnId(value: unknown) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new Error(
+    "Database frozen-through column must be a non-empty column ID or null.",
+  );
 }
 
 function isDatabaseColumnCalculation(
@@ -585,6 +646,10 @@ export async function listPropertiesForDatabase(
     .orderBy(asc(schema.documentPropertyDefinitions.position));
 
   if (definitions.length === 0) return [];
+  const sourceManagedPropertyIds = await sourceManagedPropertyIdsForDatabase(
+    db,
+    databaseId,
+  );
 
   const values = valueDocument
     ? await db
@@ -686,7 +751,8 @@ export async function listPropertiesForDatabase(
       editable:
         includeContainerDerivedValues &&
         !definition.systemRole &&
-        !isComputedPropertyType(type),
+        !isComputedPropertyType(type) &&
+        !sourceManagedPropertyIds.has(definition.id),
       ...(valueDocument && isBlocksPropertyType(type)
         ? {
             blocksField: blocksFieldIdentityById.get(
@@ -778,6 +844,10 @@ export async function listPropertiesForDatabaseDocuments(
     for (const document of valueDocuments) result.set(document.id, []);
     return result;
   }
+  const sourceManagedPropertyIds = await sourceManagedPropertyIdsForDatabase(
+    db,
+    databaseId,
+  );
 
   const documentIds = valueDocuments.map((document) => document.id);
   const propertyIds = definitions.map((definition) => definition.id);
@@ -898,7 +968,8 @@ export async function listPropertiesForDatabaseDocuments(
         value,
         editable:
           !definition.systemRole &&
-          !isComputedPropertyType(propertyDefinition.type),
+          !isComputedPropertyType(propertyDefinition.type) &&
+          !sourceManagedPropertyIds.has(definition.id),
         ...(isBlocksPropertyType(propertyDefinition.type)
           ? {
               blocksField: blocksFieldIdentityById.get(

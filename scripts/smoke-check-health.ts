@@ -1,4 +1,5 @@
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
 /**
@@ -8,7 +9,7 @@ import { pathToFileURL } from "node:url";
  * database health or 500'd on Better Auth's jwks route — a status-only
  * `curl --fail` never saw either.
  *
- * Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes]
+ * Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes] [--preview] [--allow-missing-health]
  * Exit: 0 all checks passed, 1 a check failed (reason printed), 2 bad args.
  */
 
@@ -22,10 +23,6 @@ type CheckResult = { ok: true } | { ok: false; reason: string };
 function argumentValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   return index === -1 ? undefined : process.argv[index + 1];
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchWithTimeout(url: string): Promise<Response> {
@@ -73,6 +70,8 @@ async function checkHealth(
   baseUrl: string,
   canonicalHost: string | undefined,
   probedHost: string,
+  allowPreview: boolean,
+  allowMissingHealth: boolean,
 ): Promise<CheckResult> {
   const { response, error } = await fetchWithRetry(
     `${baseUrl}/_agent-native/health?strict=1&schema=1`,
@@ -82,6 +81,37 @@ async function checkHealth(
       ok: false,
       reason: `health network error: ${errorMessage(error)}`,
     };
+
+  if (response.status === 404 && allowPreview && allowMissingHealth) {
+    const ping = await fetchWithRetry(`${baseUrl}/_agent-native/ping`);
+    if (!ping.response) {
+      return {
+        ok: false,
+        reason: `health route is missing and ping failed: ${errorMessage(ping.error)}`,
+      };
+    }
+    const pingText = await ping.response.text();
+    let pingBody: any;
+    try {
+      pingBody = JSON.parse(pingText);
+    } catch {
+      pingBody = undefined;
+    }
+    if (
+      ping.response.status >= 200 &&
+      ping.response.status < 300 &&
+      pingBody?.message === "pong"
+    ) {
+      console.warn(
+        "WARN (health): shared health route is unavailable; template ping route passed.",
+      );
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      reason: `health route is missing and ping returned HTTP ${ping.response.status}`,
+    };
+  }
 
   const text = await response.text();
   let body: any;
@@ -105,9 +135,21 @@ async function checkHealth(
     }
     return { ok: false, reason: "health returned a non-JSON body" };
   }
-  if (body.ready !== true)
+  const previewDatabaseGap =
+    allowPreview &&
+    response.status === 503 &&
+    body.ok === true &&
+    body.ready === false &&
+    body.db === false &&
+    body.database?.configured === false;
+  if (previewDatabaseGap) {
+    console.warn(
+      "WARN (health): preview runtime has no database variables; readiness is checked again when deployed with its site environment.",
+    );
+  }
+  if (body.ready !== true && !previewDatabaseGap)
     return { ok: false, reason: `health reports ready=${body.ready}` };
-  if (body.db !== true)
+  if (body.db !== true && !previewDatabaseGap)
     return { ok: false, reason: `health reports db=${body.db}` };
 
   // `identityMismatch` is only ever true when the database was recorded for
@@ -150,17 +192,22 @@ async function checkHealth(
       reason: `schema check failed, missing tables: ${missing}`,
     };
   }
-  if (
-    canonicalHost &&
-    canonicalHost === probedHost &&
-    body.auth?.hostMismatch === true
-  ) {
-    return {
-      ok: false,
-      reason: `base URL host (${body.auth.baseUrlHost}) does not match canonical host (${canonicalHost})`,
-    };
+  if (canonicalHost && body.auth?.hostMismatch === true) {
+    if (allowPreview && canonicalHost !== probedHost) {
+      console.warn(
+        `WARN (health): preview alias host ${probedHost} differs from canonical host ${canonicalHost}.`,
+      );
+    } else {
+      return {
+        ok: false,
+        reason: `base URL host (${body.auth.baseUrlHost}) does not match canonical host (${canonicalHost})`,
+      };
+    }
   }
-  if (response.status < 200 || response.status >= 300) {
+  if (
+    !previewDatabaseGap &&
+    (response.status < 200 || response.status >= 300)
+  ) {
     return {
       ok: false,
       reason: `health returned HTTP ${response.status} after retries`,
@@ -209,7 +256,7 @@ async function main(): Promise<number> {
   const rawUrl = argumentValue("--url");
   if (!rawUrl) {
     console.error(
-      "Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes]",
+      "Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes] [--preview] [--allow-missing-health]",
     );
     return 2;
   }
@@ -225,10 +272,22 @@ async function main(): Promise<number> {
   }
   const canonicalHost = argumentValue("--canonical-host")?.toLowerCase();
   const authRoutes = process.argv.includes("--auth-routes");
+  const preview = process.argv.includes("--preview");
+  const allowMissingHealth = process.argv.includes("--allow-missing-health");
 
   const checks: Array<[string, () => Promise<CheckResult>]> = [
     ["/", () => checkRoot(baseUrl)],
-    ["health", () => checkHealth(baseUrl, canonicalHost, probedHost)],
+    [
+      "health",
+      () =>
+        checkHealth(
+          baseUrl,
+          canonicalHost,
+          probedHost,
+          preview,
+          allowMissingHealth,
+        ),
+    ],
   ];
   if (authRoutes) checks.push(["jwks", () => checkAuthRoutes(baseUrl)]);
 

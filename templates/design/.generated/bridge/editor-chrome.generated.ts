@@ -2866,6 +2866,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         style: element.getAttribute("style") ?? ""
       };
     }
+    function claimContentAsSource(el) {
+      if (!el) return;
+      var children = el.childNodes;
+      for (var i = 0; i < children.length; i += 1) {
+        recordSourceSubtree(children[i]);
+      }
+    }
     function recordSourceSubtree(root) {
       if (root.nodeType === 1 && root.hasAttribute("data-agent-native-edit-overlay")) {
         return;
@@ -6109,6 +6116,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       setActiveDragCancel(cancelSpacingDrag);
     }
     function postTextContentChange(el, value, html, originalValue, originalHtml) {
+      claimContentAsSource(el);
       window.parent.postMessage(
         {
           type: "text-content-change",
@@ -10024,14 +10032,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             if (!isEditorTypingTarget(activeNow)) {
               try {
                 activeTextEditEl.focus();
-                var refocusRange = document.createRange();
-                refocusRange.selectNodeContents(activeTextEditEl);
-                refocusRange.collapse(false);
-                var refocusSelection = window.getSelection();
-                if (refocusSelection) {
-                  refocusSelection.removeAllRanges();
-                  refocusSelection.addRange(refocusRange);
-                }
+                collapseSelectionIntoContents(activeTextEditEl);
               } catch (_err) {
               }
               e.stopPropagation();
@@ -10194,6 +10195,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    function collapseSelectionIntoContents(el, toStart) {
+      var selection = window.getSelection ? window.getSelection() : null;
+      if (!selection || !el.isConnected) return false;
+      var range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(toStart === true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return true;
+    }
     function placeTextCaretFromPoint(target, clientX, clientY) {
       try {
         var range = null;
@@ -10215,15 +10226,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         selection.removeAllRanges();
         selection.addRange(range);
       } catch (err) {
-        try {
-          var fallbackRange = document.createRange();
-          fallbackRange.selectNodeContents(target);
-          fallbackRange.collapse(false);
-          var fallbackSelection = window.getSelection();
-          fallbackSelection.removeAllRanges();
-          fallbackSelection.addRange(fallbackRange);
-        } catch (_err) {
-        }
+        collapseSelectionIntoContents(target);
       }
     }
     function isRejectedRawTextEditTarget(el) {
@@ -10362,6 +10365,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         postTextEditingState(target, false);
         if (!commit) {
           target.innerHTML = originalHtml;
+          claimContentAsSource(target);
           refreshOverlays();
           return;
         }
@@ -10465,15 +10469,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.addEventListener("blur", onWindowBlur, true);
       target.focus();
       if (programmaticTextEdit) {
-        try {
-          var progRange = document.createRange();
-          progRange.selectNodeContents(target);
-          progRange.collapse(false);
-          var progSel = window.getSelection();
-          progSel.removeAllRanges();
-          progSel.addRange(progRange);
-        } catch {
-        }
+        collapseSelectionIntoContents(target);
       } else {
         placeTextCaretFromPoint(target, e.clientX, e.clientY);
       }
@@ -10488,15 +10484,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (activeTextEditEl && activeTextEditEl === textTarget) {
         if (document.activeElement !== textTarget || !document.hasFocus()) {
           textTarget.focus();
-          try {
-            var refocusRange = document.createRange();
-            refocusRange.selectNodeContents(textTarget);
-            refocusRange.collapse(false);
-            var refocusSelection = window.getSelection();
-            refocusSelection.removeAllRanges();
-            refocusSelection.addRange(refocusRange);
-          } catch {
-          }
+          collapseSelectionIntoContents(textTarget);
           postTextEditingState(textTarget, true);
         }
         return;
@@ -10752,18 +10740,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!bufferedActive || bufferedActive !== activeTextEditEl && !activeTextEditEl.contains(bufferedActive)) {
           try {
             activeTextEditEl.focus();
-            var bufferedRange = document.createRange();
-            bufferedRange.selectNodeContents(activeTextEditEl);
-            bufferedRange.collapse(false);
-            var bufferedSelection = window.getSelection();
-            if (bufferedSelection) {
-              bufferedSelection.removeAllRanges();
-              bufferedSelection.addRange(bufferedRange);
-            }
           } catch (_err) {
           }
         }
+        var positionedAtStart = collapseSelectionIntoContents(
+          activeTextEditEl,
+          true
+        );
         insertPlainTextAtSelection(bufferedText);
+        if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
         return;
       }
       if (e.data.type === "set-editor-chrome-scale") {
@@ -11387,6 +11372,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         } else {
           textTarget.textContent = typeof e.data.value === "string" ? e.data.value : "";
         }
+        claimContentAsSource(textTarget);
         refreshOverlays();
         return;
       }

@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core";
 import {
   DIAGNOSTIC_SNIPPET_CLOSE,
   DIAGNOSTIC_SNIPPET_OPEN,
@@ -10,6 +11,71 @@ import {
 } from "./slide-content-patch.js";
 
 describe("applySlideContentEdits", () => {
+  it("replaces a selected object's inner content without rewriting its wrapper", async () => {
+    const result = await applySlideContentEdits(
+      '<div class="fmd-slide"><div data-slide-object-id="title" style="color:red"><span>Old</span><p>Keep</p></div></div>',
+      [{ objectId: "title", replace: "New", expectedMatches: 1 }],
+    );
+
+    expect(result.content).toBe(
+      '<div class="fmd-slide"><div data-slide-object-id="title" style="color:red">New</div></div>',
+    );
+    expect(result.applied).toEqual(["replace:object"]);
+  });
+
+  it("requires a unique object id for selected-object edits", async () => {
+    await expect(
+      applySlideContentEdits('<div data-slide-object-id="title">One</div>', [
+        { objectId: "missing", replace: "New" },
+      ]),
+    ).rejects.toThrow('objectId "missing" found no matching slide object');
+
+    await expect(
+      applySlideContentEdits(
+        '<div data-slide-object-id="title">One</div><p data-slide-object-id="title">Two</p>',
+        [{ objectId: "title", replace: "New" }],
+      ),
+    ).rejects.toThrow('objectId "title" matched 2 slide objects');
+  });
+
+  it("replaces an empty non-void selected element", async () => {
+    const result = await applySlideContentEdits(
+      '<div data-slide-object-id="title"></div>',
+      [{ objectId: "title", replace: "New" }],
+    );
+
+    expect(result.content).toBe('<div data-slide-object-id="title">New</div>');
+  });
+
+  it("does not read object ids from another attribute's quoted value", async () => {
+    await expect(
+      applySlideContentEdits(
+        '<div title="data-slide-object-id=title" data-slide-object-id="other">Keep</div>',
+        [{ objectId: "title", replace: "New" }],
+      ),
+    ).rejects.toThrow('objectId "title" found no matching slide object');
+  });
+
+  it("rejects selected void elements without editable inner content", async () => {
+    await expect(
+      applySlideContentEdits(
+        '<img data-slide-object-id="image" src="hero.png">',
+        [{ objectId: "image", replace: "New" }],
+      ),
+    ).rejects.toThrow(
+      'objectId "image" targets <img>, which has no editable text content',
+    );
+  });
+
+  it("treats self-closing ordinary elements as non-void", async () => {
+    const result = await applySlideContentEdits(
+      '<div data-slide-object-id="title"/><span>Keep</span></div>',
+      [{ objectId: "title", replace: "New" }],
+    );
+
+    expect(result.content).toBe('<div data-slide-object-id="title"/>New</div>');
+  });
+
   it("applies several exact edits in order without regenerating untouched source", async () => {
     const result = await applySlideContentEdits(
       '<section data-id="hero"><h1>Old</h1><p>Keep\nthis</p></section>',
@@ -184,5 +250,66 @@ describe("applySlideContentEdits", () => {
 
     expect(result.content).toBe("<div>One</div>");
     expect(result.applied).toEqual(["replace:0"]);
+  });
+});
+
+describe("SlideContentEditError transport contract", () => {
+  // Regression for a light-mode restyle that failed twice against beta on
+  // 2026-09-09: the agent's `find` strings did not match the slide, and the
+  // real reason ("replace expected 1 match(es), found 0") was flattened to
+  // "Internal server error" by the action route. It then retried the identical
+  // arguments and gave up. These failures are caller-correctable, so the route
+  // has to be able to recognise them.
+  it("marks an unmatched find as a caller-correctable contract error", async () => {
+    const slide = '<div style="background: #0a0a0a; color: #faf9f5;">Hi</div>';
+
+    const error = await applySlideContentEdits(slide, [
+      {
+        op: "replace",
+        find: "background: #ffffff; color: #000000;",
+        replace: "background: #faf9f5; color: #0a0a0a;",
+        expectedMatches: 1,
+      },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    expect(isActionContractError(error)).toBe(true);
+    expect((error as SlideContentEditError).message).toContain(
+      "replace expected 1 match(es), found 0",
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_content_edit_failed",
+      statusCode: 400,
+    });
+  });
+
+  it("keeps every edit-op failure recognisable, not just replace", async () => {
+    for (const edit of [
+      { op: "insert-after" as const, marker: "nope", content: "x" },
+      {
+        op: "replace-between" as const,
+        start: "nope",
+        end: "also-nope",
+        content: "x",
+      },
+    ]) {
+      const error = await applySlideContentEdits("<div>Hi</div>", [edit]).catch(
+        (caught: unknown) => caught,
+      );
+      expect(isActionContractError(error)).toBe(true);
+    }
+  });
+
+  it("keeps formatter failures out of the caller-correctable contract", async () => {
+    const error = await applySlideContentEdits(
+      "<div><span></div>",
+      [],
+      true,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(SlideContentEditError);
+    expect(isActionContractError(error)).toBe(false);
+    expect((error as Error).message).toContain("Unexpected closing tag");
   });
 });

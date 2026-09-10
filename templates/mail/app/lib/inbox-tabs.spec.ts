@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
+  labelTabHref,
+  resolveDefaultMailHref,
   resolvePinnedLabels,
 } from "./inbox-tabs";
 
@@ -148,6 +150,65 @@ describe("resolvePinnedLabels", () => {
       resolvePinnedLabels(["archive", "important", "drafts"], true),
     ).toEqual(["archive", "important", "drafts"]);
     expect(resolvePinnedLabels(["archive"], true)).toEqual(["archive"]);
+  });
+});
+
+describe("resolveDefaultMailHref", () => {
+  it("selects Important by default on fresh install", () => {
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: undefined,
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox?label=important");
+  });
+
+  it("selects the first top label by default when labels are pinned", () => {
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: ["important", "work"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox?label=important");
+
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: ["work", "important"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/all?label=work");
+
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: ["starred", "important"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/starred");
+  });
+
+  it("falls back to /inbox when combineInbox is enabled or tabs unpinned", () => {
+    expect(
+      resolveDefaultMailHref({
+        combineInbox: true,
+        pinnedLabels: ["important"],
+      }),
+    ).toBe("/inbox");
+
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: [],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox");
+  });
+
+  it("selects the first saved filter if no pinned labels exist", () => {
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: [],
+        savedFilters: [{ id: "urgent-filter" }],
+      }),
+    ).toBe("/inbox?filter=urgent-filter");
   });
 });
 

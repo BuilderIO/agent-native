@@ -7,12 +7,14 @@ description: "创建一个带聊天 UI 的智能体，并从智能体和 UI 调�
 
 <GettingStartedPaths />
 
+Agent-Native 是一个开源 TypeScript 框架，用于构建配备直观 UI 的自主型智能体。你只需将每项能力定义一次，作为一个[动作](/docs/actions-overview)——一种由智能体用作工具、由 UI 从代码中调用的类型化函数。
+
 本指南中，你将创建一个带聊天 UI 的智能体，并从智能体和 UI 调用其中自带的 `hello` 动作。
 
 ## 前提条件
 
-- [Node.js](https://nodejs.org) 22 或更高版本
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 或更高版本
+- [pnpm](https://pnpm.io) 已安装并可通过 `PATH` 运行
 - 供智能体使用的 LLM 连接：Builder.io、Anthropic 或 OpenAI API 密钥，或本地 Ollama 模型
 
 ## 创建智能体
@@ -20,7 +22,7 @@ description: "创建一个带聊天 UI 的智能体，并从智能体和 UI 调�
 在一个新目录中，从 Chat 模板开始：
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -35,7 +37,7 @@ pnpm install
 pnpm dev
 ```
 
-浏览器 UI 将在 `http://localhost:8080` 打开。如果没有自动打开，请在浏览器中访问该 URL。
+浏览器 UI 会自动打开。如果没有打开，请使用 `pnpm dev` 输出的本地 URL；如果 8080 已被占用，端口号会递增。
 
 <Callout tone="info">
 
@@ -61,7 +63,7 @@ Hello, Alex!
 
 ## 查看动作
 
-打开 `actions/hello.ts`：
+在本地 `my-app` 目录中，用代码编辑器打开 `actions/hello.ts`：
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -90,7 +92,8 @@ export default defineAction({
 
 ## 从 React 调用动作
 
-在 `app/routes/hello.tsx` 中添加路由：
+模板包含 `actions/hello.ts`，但没有对应页面。创建
+`app/routes/hello.tsx`：
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -122,7 +125,7 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-重启开发服务器，让它发现新路由，然后打开 `http://localhost:8080/hello`。
+重启开发服务器，让它发现新路由，然后打开 `http://localhost:<port>/hello`。
 
 </Callout>
 
@@ -170,5 +173,9 @@ return { message: `Welcome, ${name}.` };
 ### [动作](/docs/actions-overview)
 
 定义用于读取、写入和审批的动作，然后从 UI、智能体和外部客户端调用它们。
+
+### [部署应用](/docs/deploy-an-app)
+
+从本地开发转向持久数据库、生产身份验证和受支持的部署目标。
 
 </Cards>

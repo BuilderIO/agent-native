@@ -1,21 +1,36 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  databaseConversionRequest,
   databaseMembershipDatabaseTitle,
   documentEditorBreadcrumbItems,
   documentEditorBreadcrumbNavigationItems,
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
+  documentEditorShowsInlineComments,
+  documentEditorLoadState,
+  documentTitleWidthChanged,
+  documentTypeChooserInitiallyEligible,
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
+  isDocumentLoadUnavailableError,
   metadataUpdatesWithPendingTitle,
+  pendingCommentTargetMatches,
+  pageEditorSessionKey,
   positionAnchoredCommentCard,
+  positionUnanchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
-  shouldAwaitAuthoritativeDocument,
+  refreshUnchangedTitleSaveWatermark,
+  resizeDocumentTitleTextarea,
+  shouldShowNewDocumentTypeChooser,
+  subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
   updateAdditionalBlockContents,
+  updateDocumentLoadFailureState,
+  utilityPanelAfterCommentFocusDismissal,
   visualEditorInstanceKey,
 } from "./DocumentEditor";
 import {
@@ -24,6 +39,65 @@ import {
 } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("dismisses mobile comment focus without closing Info", () => {
+    expect(utilityPanelAfterCommentFocusDismissal("comments")).toBeNull();
+    expect(utilityPanelAfterCommentFocusDismissal("info")).toBe("info");
+    expect(utilityPanelAfterCommentFocusDismissal(null)).toBeNull();
+  });
+
+  it("keeps the selected inline conversation visible after its last thread resolves", () => {
+    expect(
+      documentEditorShowsInlineComments({
+        showIndicators: true,
+        hasUtilityRailSpace: true,
+        commentsHistoryDrawerOpen: false,
+        utilityPanel: "comments",
+        hasOpenCommentThreads: false,
+        hasSelectedCommentThread: true,
+        hasPendingComment: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps history activation in browse mode instead of replacing the desktop list", () => {
+    expect(
+      documentEditorShowsInlineComments({
+        showIndicators: true,
+        hasUtilityRailSpace: true,
+        commentsHistoryDrawerOpen: true,
+        utilityPanel: "comments",
+        hasOpenCommentThreads: true,
+        hasSelectedCommentThread: true,
+        hasPendingComment: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a pending comment target when its exact rendered text disappears or changes", () => {
+    expect(
+      pendingCommentTargetMatches(
+        [{ textContent: "exact " }, { textContent: "selection" }],
+        "exact selection",
+      ),
+    ).toBe(true);
+    expect(
+      pendingCommentTargetMatches(
+        [{ textContent: "edited selection" }],
+        "exact selection",
+      ),
+    ).toBe(false);
+    expect(pendingCommentTargetMatches([], "exact selection")).toBe(false);
+  });
+
+  it("keeps an unanchored compact comment card visible at the viewport edge", () => {
+    expect(
+      positionUnanchoredCommentCard({
+        containerRect: { top: -240, width: 390 },
+        boundaryRect: { top: 0 },
+      }),
+    ).toEqual({ left: 16, top: 256, width: 320, placement: "below" });
+  });
+
   it("ignores delayed additional-field cleanup from the previous document", () => {
     const current = { sharedProperty: "document B live value" };
     expect(
@@ -191,25 +265,458 @@ describe("document editor layout", () => {
     );
   });
 
-  it("waits for the first authoritative document fetch, then stays mounted", () => {
+  it("keeps a seeded document behind the skeleton while its fetch is pending", () => {
     expect(
-      shouldAwaitAuthoritativeDocument({
-        isFetching: true,
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationPending: false,
         isFetchedAfterMount: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldAwaitAuthoritativeDocument({
-        isFetching: false,
-        isFetchedAfterMount: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAwaitAuthoritativeDocument({
         isFetching: true,
-        isFetchedAfterMount: true,
+        isError: false,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: null,
       }),
-    ).toBe(false);
+    ).toEqual({ view: "skeleton", admittedDocumentId: null });
+  });
+
+  it("does not treat an external cache write as success while the first fetch is pending", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: true,
+        isError: false,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: null,
+      }),
+    ).toEqual({ view: "skeleton", admittedDocumentId: null });
+  });
+
+  it("latches a first-fetch failure across an immediate replacement fetch", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let attempt = 0;
+    const observer = new QueryObserver(queryClient, {
+      queryKey: ["document", "document-a"],
+      queryFn: async () => {
+        attempt += 1;
+        if (attempt === 1) {
+          throw Object.assign(new Error("timed out"), { timedOut: true });
+        }
+        return await new Promise<never>(() => {});
+      },
+    });
+    const initial = observer.getCurrentResult();
+    let failure = updateDocumentLoadFailureState({
+      previous: null,
+      documentId: "document-a",
+      admitted: false,
+      dataUpdatedAt: initial.dataUpdatedAt,
+      errorUpdateCount: initial.errorUpdateCount,
+      errorUpdatedAt: initial.errorUpdatedAt,
+      isError: initial.isError,
+      authoritativeSuccess: {
+        queryIdentity: "document-a",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
+    });
+    const unsubscribe = observer.subscribe(() => {});
+
+    await vi.waitFor(() =>
+      expect(observer.getCurrentResult().isError).toBe(true),
+    );
+    void queryClient.invalidateQueries({
+      queryKey: ["document", "document-a"],
+      exact: true,
+    });
+    await vi.waitFor(() => {
+      const result = observer.getCurrentResult();
+      expect(result.isFetching).toBe(true);
+      expect(result.isError).toBe(false);
+    });
+
+    const replacement = observer.getCurrentResult();
+    failure = updateDocumentLoadFailureState({
+      previous: failure,
+      documentId: "document-a",
+      admitted: false,
+      dataUpdatedAt: replacement.dataUpdatedAt,
+      errorUpdateCount: replacement.errorUpdateCount,
+      errorUpdatedAt: replacement.errorUpdatedAt,
+      isError: replacement.isError,
+      authoritativeSuccess: {
+        queryIdentity: "document-a",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
+    });
+    expect(failure.failed).toBe(true);
+    expect(
+      updateDocumentLoadFailureState({
+        previous: null,
+        documentId: "document-a",
+        admitted: false,
+        dataUpdatedAt: replacement.dataUpdatedAt,
+        errorUpdateCount: replacement.errorUpdateCount,
+        errorUpdatedAt: replacement.errorUpdatedAt,
+        isError: replacement.isError,
+        authoritativeSuccess: {
+          queryIdentity: "document-a",
+          generation: 0,
+          errorUpdateCount: 0,
+        },
+      }).failed,
+    ).toBe(true);
+
+    unsubscribe();
+    await queryClient.cancelQueries({
+      queryKey: ["document", "document-a"],
+      exact: true,
+    });
+  });
+
+  it("clears a latched load failure only after an authoritative fetch succeeds", () => {
+    const failed = {
+      documentId: "document-a",
+      queryIdentity: "document-a",
+      baselineErrorUpdateCount: 1,
+      baselineAuthoritativeSuccessGeneration: 0,
+      failed: true,
+    };
+    expect(
+      updateDocumentLoadFailureState({
+        previous: failed,
+        documentId: "document-a",
+        admitted: false,
+        dataUpdatedAt: 200,
+        errorUpdateCount: 1,
+        errorUpdatedAt: 100,
+        isError: false,
+        authoritativeSuccess: {
+          queryIdentity: "document-a",
+          generation: 0,
+          errorUpdateCount: 0,
+        },
+      }),
+    ).toBe(failed);
+
+    expect(
+      updateDocumentLoadFailureState({
+        previous: failed,
+        documentId: "document-a",
+        admitted: false,
+        dataUpdatedAt: 300,
+        errorUpdateCount: 1,
+        errorUpdatedAt: 100,
+        isError: false,
+        authoritativeSuccess: {
+          queryIdentity: "document-a",
+          generation: 1,
+          errorUpdateCount: 1,
+        },
+      }),
+    ).toEqual({
+      ...failed,
+      baselineAuthoritativeSuccessGeneration: 1,
+      failed: false,
+    });
+  });
+
+  it("resets the load-failure baseline when the document query context changes", () => {
+    expect(
+      updateDocumentLoadFailureState({
+        previous: {
+          documentId: "document-a",
+          queryIdentity: "context-a",
+          baselineErrorUpdateCount: 2,
+          baselineAuthoritativeSuccessGeneration: 3,
+          failed: true,
+        },
+        documentId: "document-a",
+        admitted: false,
+        dataUpdatedAt: 0,
+        errorUpdateCount: 0,
+        errorUpdatedAt: 0,
+        isError: false,
+        authoritativeSuccess: {
+          queryIdentity: "context-b",
+          generation: 0,
+          errorUpdateCount: 0,
+        },
+      }),
+    ).toEqual({
+      documentId: "document-a",
+      queryIdentity: "context-b",
+      baselineErrorUpdateCount: 0,
+      baselineAuthoritativeSuccessGeneration: 0,
+      failed: false,
+    });
+  });
+
+  it("distinguishes authoritative fetch success from manual cache writes", async () => {
+    const queryClient = new QueryClient();
+    const queryKey = ["action", "get-document", { id: "document-a" }];
+    const successes: number[] = [];
+    const unsubscribe = subscribeToAuthoritativeQuerySuccess(
+      queryClient,
+      queryKey,
+      (errorUpdateCount) => successes.push(errorUpdateCount),
+    );
+
+    await expect(
+      queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          throw new Error("unavailable");
+        },
+      }),
+    ).rejects.toThrow("unavailable");
+    expect(successes).toEqual([]);
+
+    queryClient.setQueryData(queryKey, { id: "document-a", title: "cached" });
+    expect(successes).toEqual([]);
+
+    await queryClient.fetchQuery({
+      queryKey,
+      queryFn: async () => ({ id: "document-a", title: "fetched" }),
+    });
+    expect(successes).toEqual([1]);
+    unsubscribe();
+  });
+
+  it("does not admit settled cache-shaped data over a latched failure", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: false,
+        hasLoadFailure: true,
+        isManualRetrying: false,
+        error: null,
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
+  it("shows unavailable when an admitted document refetch settles with 404", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: "document-a",
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: { status: 404 },
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+  });
+
+  it("waits for manual Retry to finish before admitting its success", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: false,
+        hasLoadFailure: false,
+        isManualRetrying: true,
+        error: null,
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
+  it("shows a retryable error when a seeded document's first fetch times out", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: true,
+        isManualRetrying: false,
+        error: { timedOut: true },
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
+  it("shows unavailable when the first fetch rejects access to a seeded document", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: true,
+        isManualRetrying: false,
+        error: { status: 403 },
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+  });
+
+  it("keeps an optimistic new document mounted through its initial error", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationPending: true,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: true,
+        isManualRetrying: false,
+        error: { status: 404 },
+      }),
+    ).toEqual({ view: "editor", admittedDocumentId: "document-a" });
+  });
+
+  it("keeps an admitted optimistic document mounted while its create response refetches", () => {
+    const optimistic = documentEditorLoadState({
+      documentId: "document-a",
+      admittedDocumentId: null,
+      hasDocument: true,
+      isDocumentCreationPending: true,
+      isFetchedAfterMount: false,
+      isFetching: true,
+      isError: false,
+      hasLoadFailure: false,
+      isManualRetrying: false,
+      error: null,
+    });
+    expect(optimistic).toEqual({
+      view: "editor",
+      admittedDocumentId: "document-a",
+    });
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: optimistic.admittedDocumentId,
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: true,
+        isError: false,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: null,
+      }),
+    ).toEqual({ view: "editor", admittedDocumentId: "document-a" });
+  });
+
+  it("keeps the editor mounted after success when a background fetch fails", () => {
+    const success = documentEditorLoadState({
+      documentId: "document-a",
+      admittedDocumentId: null,
+      hasDocument: true,
+      isDocumentCreationPending: false,
+      isFetchedAfterMount: true,
+      isFetching: false,
+      isError: false,
+      hasLoadFailure: false,
+      isManualRetrying: false,
+      error: null,
+    });
+    expect(success).toEqual({
+      view: "editor",
+      admittedDocumentId: "document-a",
+    });
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: success.admittedDocumentId,
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: true,
+        isError: true,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: { timedOut: true },
+      }),
+    ).toEqual({ view: "editor", admittedDocumentId: "document-a" });
+  });
+
+  it("resets admitted readiness when the active document changes", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-b",
+        admittedDocumentId: "document-a",
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: false,
+        isFetching: true,
+        isError: false,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: null,
+      }),
+    ).toEqual({ view: "skeleton", admittedDocumentId: null });
+  });
+
+  it("keeps document load failures retryable unless access is unavailable", () => {
+    expect(isDocumentLoadUnavailableError({ timedOut: true })).toBe(false);
+    expect(isDocumentLoadUnavailableError(new TypeError("Network error"))).toBe(
+      false,
+    );
+    expect(isDocumentLoadUnavailableError({ status: 500 })).toBe(false);
+    expect(isDocumentLoadUnavailableError({ status: 401 })).toBe(false);
+    expect(isDocumentLoadUnavailableError({ status: 403 })).toBe(true);
+    expect(isDocumentLoadUnavailableError({ status: 404 })).toBe(true);
+
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("queryKey: documentQueryKey(documentId, {");
+    expect(source).toContain("await documentQuery.refetch()");
+    expect(source).toContain("retrying={manualRetryDocumentId === documentId}");
+  });
+
+  it("resizes the title to its content and reacts only to width changes", () => {
+    const textarea = {
+      scrollHeight: 72,
+      style: { height: "36px" },
+    };
+
+    resizeDocumentTitleTextarea(textarea as HTMLTextAreaElement);
+
+    expect(textarea.style.height).toBe("72px");
+    expect(documentTitleWidthChanged(640, 640)).toBe(false);
+    expect(documentTitleWidthChanged(640, 639.75)).toBe(false);
+    expect(documentTitleWidthChanged(640, 420)).toBe(true);
+    expect(documentTitleWidthChanged(420, 640)).toBe(true);
+
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("new ResizeObserver((entries) =>");
+    expect(source).toContain("observer?.observe(textarea)");
   });
 
   it("serializes overlapping document saves without dropping the fuller snapshot", async () => {
@@ -255,6 +762,37 @@ describe("document editor layout", () => {
 
     await expect(first).rejects.toThrow("network interrupted");
     await expect(second).resolves.toBe("latest");
+  });
+
+  it("keeps the first title edit writable after canonical creation advances the optimistic timestamp", () => {
+    const canonicalUpdatedAt = "2026-09-09T04:13:24.458Z";
+    const lastSaved = refreshUnchangedTitleSaveWatermark({
+      serverTitle: "",
+      serverUpdatedAt: canonicalUpdatedAt,
+      lastSaved: { title: "", updatedAt: "2026-09-09T04:13:24.400Z" },
+    });
+    expect(lastSaved).toEqual({ title: "", updatedAt: canonicalUpdatedAt });
+    expect(
+      metadataUpdatesWithPendingTitle({}, "Personal recovery", lastSaved.title),
+    ).toEqual({ title: "Personal recovery" });
+  });
+
+  it("does not confirm an optimistic or externally changed title as the saved baseline", () => {
+    const lastSaved = { title: "", updatedAt: "2026-09-09T04:13:24.400Z" };
+    expect(
+      refreshUnchangedTitleSaveWatermark({
+        serverTitle: "Unsaved local title",
+        serverUpdatedAt: "2026-09-09T04:13:24.458Z",
+        lastSaved,
+      }),
+    ).toBe(lastSaved);
+    expect(
+      refreshUnchangedTitleSaveWatermark({
+        serverTitle: "",
+        serverUpdatedAt: "2026-09-09T04:13:24.300Z",
+        lastSaved,
+      }),
+    ).toBe(lastSaved);
   });
 
   it("advances the content CAS base across metadata-only row updates", () => {
@@ -347,18 +885,33 @@ describe("document editor layout", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
   });
 
-  it("offers page or database after an optimistic blank page opens", () => {
+  it("keeps page or database available after the user types a title", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
     );
 
-    expect(source).toContain("const showNewDocumentTypeChooser =");
-    expect(source).toContain("!document.database?.systemRole");
-    expect(source).toContain("isEffectivelyEmptyDocumentContent(localContent)");
+    expect(
+      shouldShowNewDocumentTypeChooser({
+        canEdit: true,
+        isLocalFileDocument: false,
+        isDatabasePage: false,
+        initiallyEligible: true,
+        newDocumentTypeChosen: false,
+        description: null,
+        content: "",
+      }),
+    ).toBe(true);
+    expect(databaseConversionRequest("new-page", "Typed first")).toEqual({
+      documentId: "new-page",
+      title: "Typed first",
+    });
+    expect(source).toContain(
+      "const showNewDocumentTypeChooser = shouldShowNewDocumentTypeChooser({",
+    );
     expect(source).toContain("const handleChoosePage = useCallback");
     expect(source).toContain(
-      "await createDatabase.mutateAsync({ documentId })",
+      "databaseConversionRequest(documentId, localTitleRef.current)",
     );
     expect(source).toContain("isDatabaseChoicePending(");
     expect(source).toContain("document,\n    createDatabase.isPending");
@@ -370,6 +923,49 @@ describe("document editor layout", () => {
     expect(source.indexOf("if (showNewDocumentTypeChooser)")).toBeLessThan(
       source.indexOf("const primaryEditor ="),
     );
+  });
+
+  it("does not reopen the type chooser for an existing titled empty page", () => {
+    const initiallyEligible = documentTypeChooserInitiallyEligible({
+      creationPending: false,
+      title: "Existing titled page",
+      description: "",
+      content: "",
+    });
+
+    expect(initiallyEligible).toBe(false);
+    expect(
+      shouldShowNewDocumentTypeChooser({
+        canEdit: true,
+        isLocalFileDocument: false,
+        isDatabasePage: false,
+        initiallyEligible,
+        newDocumentTypeChosen: false,
+        description: "",
+        content: "",
+      }),
+    ).toBe(false);
+  });
+
+  it("retains initial chooser eligibility while a new page title is typed", () => {
+    const initiallyEligible = documentTypeChooserInitiallyEligible({
+      creationPending: true,
+      title: "",
+      description: "",
+      content: "",
+    });
+
+    expect(
+      shouldShowNewDocumentTypeChooser({
+        canEdit: true,
+        isLocalFileDocument: false,
+        isDatabasePage: false,
+        initiallyEligible,
+        newDocumentTypeChosen: false,
+        description: "",
+        content: "",
+      }),
+    ).toBe(true);
   });
 
   it("gives database pages a wider database surface", () => {
@@ -425,9 +1021,8 @@ describe("document editor layout", () => {
     expect(source).toContain("databaseId,");
     expect(source).toContain("databaseDocumentId,");
     expect(source).toContain("isFetchedAfterMount");
-    expect(source).toContain("isFetching");
     expect(source).toContain("queriedDocument?.id === documentId");
-    expect(source).toContain("shouldAwaitAuthoritativeDocument");
+    expect(source).toContain("documentEditorLoadState");
     expect(source).toContain("return <DocumentEditorSkeleton />");
   });
 
@@ -456,13 +1051,17 @@ describe("document editor layout", () => {
     expect(source).toContain("showInlineComments");
   });
 
-  it("moves page metadata to Info and omits the body below full-page databases", () => {
+  it("keeps metadata in Info while reusing canonical properties inline in previews", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
     );
     const infoPanel = readFileSync(
       new URL("./DocumentInfoPanel.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+    const properties = readFileSync(
+      new URL("./DocumentProperties.tsx", import.meta.url),
       { encoding: "utf8" },
     );
 
@@ -473,6 +1072,21 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
+    expect(source).toContain("ref={setUtilityPanelSheetContainer}");
+    expect(source).toContain("utilityPanelSheetContainer,");
+    expect(infoPanel).toContain("popoverContainer={popoverContainer}");
+    expect(properties).toMatch(
+      /<PropertyValuePopover[\s\S]*?container=\{popoverContainer\}/,
+    );
+    expect(properties).toMatch(
+      /<PropertyManagementPopover[\s\S]*?popoverContainer=\{popoverContainer\}/,
+    );
+    expect(properties).toMatch(
+      /<HiddenPropertiesMenu[\s\S]*?popoverContainer=\{popoverContainer\}/,
+    );
+    expect(properties).toMatch(
+      /<AddProperty[\s\S]*?popoverContainer=\{popoverContainer\}/,
+    );
     expect(infoPanel).toContain(
       "databaseId={databaseId ?? document.databaseMembership.databaseId}",
     );
@@ -483,7 +1097,24 @@ describe("document editor layout", () => {
       /<DocumentBlockFields[\s\S]*?databaseId=\{[\s\S]*?databaseId \?\?[\s\S]*?document\.databaseMembership\.databaseId[\s\S]*?databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
     );
     expect(source).not.toContain("<DescriptionField");
-    expect(source).not.toContain("<DocumentProperties");
+    expect(source).toContain("<DocumentProperties");
+    expect(source).toContain('host === "preview" &&');
+  });
+
+  it("keys editor sessions by page and explicit membership context", () => {
+    expect(
+      pageEditorSessionKey({
+        documentId: "page",
+        databaseId: "database-a",
+        databaseDocumentId: "membership-a",
+      }),
+    ).not.toBe(
+      pageEditorSessionKey({
+        documentId: "page",
+        databaseId: "database-b",
+        databaseDocumentId: "membership-b",
+      }),
+    );
   });
 
   it("keeps the document toolbar in normal layout flow", () => {
@@ -555,9 +1186,57 @@ describe("document editor layout", () => {
     expect(source).toContain("handleBackgroundSaveError");
     expect(source).toContain("const canEditRef = useRef(canEdit)");
     expect(source).toContain(
-      "if (!options.allowQueuedSave && !canEditRef.current) return document",
+      "if (!options.allowQueuedSave && !canEditRef.current)",
+    );
+    expect(source).toContain(
+      'throw new Error(t("editor.pageSaveBeforeNavigationFailed"))',
     );
     expect(source).toContain("if (!canEditRef.current) return");
+  });
+
+  it("exports a fail-closed route-neutral page session barrier", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("export function PageEditorSurface");
+    expect(source).toContain("document.canEdit === true");
+    expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
+    expect(source).toContain("flushDocumentPropertyWrites(documentId)");
+    expect(source).toContain(
+      "await editorPersistenceControllerRef.current?.flushLatest()",
+    );
+    expect(
+      source.indexOf("while (pendingPersistenceRef.current.size > 0)"),
+    ).toBeLessThan(
+      source.indexOf(
+        "await editorPersistenceControllerRef.current?.flushLatest()",
+      ),
+    );
+    expect(source).toContain(
+      "result.content === lastSavedContentRef.current.content",
+    );
+    expect(source).toContain("if (!primaryResult.value.contentPersisted)");
+    expect(source).toContain("pendingPersistenceRef.current.size > 0");
+    expect(source).toContain("onSessionChangeRef");
+    expect(source).toContain("documentLayoutRef.current?.querySelector");
+  });
+
+  it("routes global Escape handling to the nearest nested page editor", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("const pathOwner = path.find(");
+    expect(source).toContain(
+      'activeElement.closest<HTMLElement>("[data-page-editor-owner]")',
+    );
+    expect(source).toContain(
+      "eventOwner?.dataset.pageEditorOwner === pageEditorOwner",
+    );
+    expect(source).not.toContain("path.includes(editorRoot)");
   });
 
   it("renders viewers from SQL while retaining scoped presence", () => {
@@ -660,8 +1339,13 @@ describe("document editor layout", () => {
 
     expect(activationStart).toBeGreaterThan(-1);
     expect(activation).toContain("setSelectedThreadId(threadId)");
+    expect(activation).toContain(
+      "setCommentsBrowseOpen(preserveBrowseContext)",
+    );
     expect(activation).toContain('setUtilityPanel("comments")');
-    expect(source).toContain("onActivateThread={activateCommentThread}");
+    expect(source).toContain(
+      'activateCommentThread(threadId, presentation === "history")',
+    );
     expect(source).not.toContain("? setSelectedThreadId\n");
   });
 
@@ -689,10 +1373,14 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("data-[state=closed]:duration-[260ms]");
     expect(source).toContain("data-[state=open]:ease-[var(--ease-drawer)]");
-    expect(source).not.toContain("{showUtilityPanelSheet ? (");
     expect(source).toContain(
-      "renderUtilityPanelContent(lastUtilityPanel, true)",
+      'target.closest("[data-radix-popper-content-wrapper]")',
     );
+    expect(source).toContain(
+      "utilityPanelSheetContainer?.contains(nestedPopper)",
+    );
+    expect(source).not.toContain("{showUtilityPanelSheet ? (");
+    expect(source).toContain("utilityPanelSheetContainer,");
     expect(source).toContain("showDesktopCommentsHistory");
     expect(source).toContain("data-comments-history-rail");
     expect(source).toContain("commentsHistoryRailMounted");

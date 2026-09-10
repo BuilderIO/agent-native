@@ -7,12 +7,14 @@ description: "Crie um agente com uma UI de chat e chame a mesma ação pelo agen
 
 <GettingStartedPaths />
 
+Agent-Native é um framework TypeScript de código aberto para criar agentes autônomos com interfaces intuitivas. Você define cada capacidade uma vez como uma [ação](/docs/actions-overview) — uma função tipada que o agente usa como ferramenta e a UI chama pelo código.
+
 Neste guia, você criará um agente com uma UI de chat e chamará a ação `hello` incluída pelo agente e pela UI.
 
 ## Pré-requisitos
 
-- [Node.js](https://nodejs.org) 22 ou posterior
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 ou posterior
+- [pnpm](https://pnpm.io) instalado e disponível no seu `PATH`
 - Uma conexão com LLM para o agente: Builder.io, uma chave de API Anthropic ou OpenAI, ou um modelo Ollama local
 
 ## Crie um agente
@@ -20,7 +22,7 @@ Neste guia, você criará um agente com uma UI de chat e chamará a ação `hell
 Em um novo diretório, comece pelo modelo de Chat:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -35,7 +37,7 @@ Inicie o servidor de desenvolvimento:
 pnpm dev
 ```
 
-A UI do navegador abre em `http://localhost:8080`. Se não abrir automaticamente, acesse esse URL no navegador.
+A UI abre automaticamente. Se isso não acontecer, use a URL local exibida por `pnpm dev`; a porta aumenta quando outro app já usa 8080.
 
 <Callout tone="info">
 
@@ -61,7 +63,7 @@ Hello, Alex!
 
 ## Inspecione a ação
 
-Abra `actions/hello.ts`:
+No diretório local `my-app`, abra `actions/hello.ts` no editor de código:
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -90,7 +92,8 @@ Leia [Definindo ações](/docs/actions-defining) para a API completa.
 
 ## Chame a ação pelo React
 
-Adicione uma rota em `app/routes/hello.tsx`:
+O modelo inclui `actions/hello.ts`, mas não uma página para ela. Crie
+`app/routes/hello.tsx`:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -122,7 +125,7 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-Reinicie o servidor de desenvolvimento para que ele descubra a nova rota e abra `http://localhost:8080/hello`.
+Reinicie o servidor de desenvolvimento para que ele descubra a nova rota e abra `http://localhost:<port>/hello`.
 
 </Callout>
 
@@ -170,5 +173,9 @@ Aprenda como ações, dados SQL, contexto da aplicação, acesso e sincronizaç�
 ### [Ações](/docs/actions-overview)
 
 Defina ações para leituras, gravações e aprovações, depois chame-as pela UI, por agentes e por clientes externos.
+
+### [Fazer deploy de um app](/docs/deploy-an-app)
+
+Passe do desenvolvimento local para um banco persistente, autenticação de produção e um destino de deploy compatível.
 
 </Cards>

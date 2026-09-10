@@ -34,6 +34,9 @@ import {
 type Share = Awaited<
   ReturnType<TransactionalEmailRepository["listDirectShares"]>
 >[number];
+/** Fixtures are notified shares unless a case sets `notifiedAt` itself. */
+type ShareFixture = Omit<Share, "notifiedAt"> &
+  Partial<Pick<Share, "notifiedAt">>;
 type Recording = NonNullable<
   Awaited<ReturnType<TransactionalEmailRepository["getRecording"]>>
 >;
@@ -63,9 +66,16 @@ beforeEach(async () => {
   await createTables();
 });
 
-function recording(id: string, ownerEmail = "sender@example.com"): Recording {
+function recording(
+  id: string,
+  ownerEmail = "sender@example.com",
+  meetingId: string | null = null,
+  meetingVisibility: string | null = null,
+): Recording {
   return {
     id,
+    meetingId,
+    meetingVisibility,
     organizationId: "org-1",
     ownerEmail,
     title: `Clip ${id}`,
@@ -78,8 +88,8 @@ function recording(id: string, ownerEmail = "sender@example.com"): Recording {
   };
 }
 
-function createRepository(state: {
-  shares: Share[];
+function createRepository(unresolved: {
+  shares: ShareFixture[];
   recordings: Map<string, Recording>;
   owners?: Set<string>;
   viewed?: Set<string>;
@@ -91,6 +101,17 @@ function createRepository(state: {
   monthlyAudience?: Map<string, string[]>;
   recaps?: Map<string, MonthlyRecap>;
 }): TransactionalEmailRepository {
+  const state = {
+    ...unresolved,
+    // Cases push onto their fixture array after building the repository, so
+    // resolve on read rather than snapshotting.
+    get shares(): Share[] {
+      return unresolved.shares.map((share) => ({
+        notifiedAt: share.createdAt,
+        ...share,
+      }));
+    },
+  };
   const agentViewsFor = (ownerEmail: string) =>
     (state.agentViews ?? [])
       .filter(
@@ -261,6 +282,7 @@ function createRepository(state: {
       return state.shares.some(
         (share) =>
           share.id === shareId &&
+          share.notifiedAt !== null &&
           share.recordingId === recordingId &&
           share.recipient.trim().toLowerCase() === recipient,
       );
@@ -396,7 +418,7 @@ describe("transactional email worker", () => {
     const clock = await setup();
     clock.setNow("2026-08-01T01:00:00.000Z");
     const recipient = "creator@example.com";
-    const shares: Share[] = ["1", "2"].map((suffix, index) => ({
+    const shares: ShareFixture[] = ["1", "2"].map((suffix, index) => ({
       id: `share-${suffix}`,
       recordingId: `recording-${suffix}`,
       recipient,
@@ -421,7 +443,7 @@ describe("transactional email worker", () => {
   it("enqueues reminders at exactly 48 hours and suppresses reserved recipients", async () => {
     const clock = await setup();
     clock.setNow("2026-08-03T00:00:00.000Z");
-    const shares: Share[] = [
+    const shares: ShareFixture[] = [
       {
         id: "boundary",
         recordingId: "recording-1",
@@ -446,7 +468,7 @@ describe("transactional email worker", () => {
       {
         id: "qa",
         recordingId: "recording-4",
-        recipient: "runner+qa-lane@subdomain.test",
+        recipient: "runner+autoz-lane@subdomain.test",
         createdBy: "sender@example.com",
         createdAt: "2026-08-01T00:00:00.000Z",
       },
@@ -467,10 +489,79 @@ describe("transactional email worker", () => {
     expect(await clock.store.readJob("unviewed-reminder:qa")).toBeNull();
   });
 
+  it("never reminds a participant who was granted access without being emailed", async () => {
+    const clock = await setup();
+    clock.setNow("2026-08-03T00:00:00.000Z");
+    const send = vi.fn().mockResolvedValue(undefined);
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [
+          {
+            id: "meeting-grant",
+            recordingId: "recording-1",
+            recipient: "attendee@example.com",
+            createdBy: "sender@example.com",
+            createdAt: "2026-08-01T00:00:00.000Z",
+            notifiedAt: null,
+          },
+        ],
+        recordings: new Map([["recording-1", recording("recording-1")]]),
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(
+      await clock.store.readJob("unviewed-reminder:meeting-grant"),
+    ).toBeNull();
+  });
+
+  it("drops a reminder queued before the grant was recognised as unnotified", async () => {
+    const clock = await setup();
+    clock.setNow("2026-08-03T00:00:00.000Z");
+    const send = vi.fn().mockResolvedValue(undefined);
+    await clock.store.enqueue("unviewed-reminder:legacy-grant", {
+      type: "unviewed-reminder",
+      recipient: "attendee@example.com",
+      recordingIds: ["recording-1"],
+      shareId: "legacy-grant",
+      requestedBy: "sender@example.com",
+    });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [
+          {
+            id: "legacy-grant",
+            recordingId: "recording-1",
+            recipient: "attendee@example.com",
+            createdBy: "sender@example.com",
+            createdAt: "2026-08-01T00:00:00.000Z",
+            notifiedAt: null,
+          },
+        ],
+        recordings: new Map([["recording-1", recording("recording-1")]]),
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(
+      await clock.store.readJob("unviewed-reminder:legacy-grant"),
+    ).toMatchObject({ state: "cancelled" });
+  });
+
   it("resolves the reminder originator profile and organization logo", async () => {
     const clock = await setup();
     clock.setNow("2026-08-03T00:00:00.000Z");
-    const share: Share = {
+    const share: ShareFixture = {
       id: "branded-reminder",
       recordingId: "recording-1",
       recipient: "person@example.com",
@@ -498,6 +589,8 @@ describe("transactional email worker", () => {
       kind: "unviewed-reminder",
       to: "person@example.com",
       recordingId: "recording-1",
+      meetingId: null,
+      meetingIsPublic: false,
       title: "Clip recording-1",
       senderEmail: "sender@example.com",
       senderName: "Alex Rivera",
@@ -511,7 +604,7 @@ describe("transactional email worker", () => {
   it("skips malformed share recipients without wedging the due cursor", async () => {
     const clock = await setup();
     clock.setNow("2026-08-03T00:00:01.000Z");
-    const shares: Share[] = [
+    const shares: ShareFixture[] = [
       {
         id: "share-malformed",
         recordingId: "recording-malformed",
@@ -555,7 +648,7 @@ describe("transactional email worker", () => {
     async (reason) => {
       const clock = await setup();
       const recipient = "person@example.com";
-      const share: Share = {
+      const share: ShareFixture = {
         id: `share-${reason}`,
         recordingId: "recording-1",
         recipient,
@@ -607,7 +700,7 @@ describe("transactional email worker", () => {
   it("preserves enabledAt as a no-backfill boundary", async () => {
     const clock = await setup("2026-08-02T00:00:00.000Z");
     clock.setNow("2026-08-04T00:00:00.000Z");
-    const shares: Share[] = [
+    const shares: ShareFixture[] = [
       {
         id: "before-enabled",
         recordingId: "recording-1",
@@ -1140,16 +1233,19 @@ describe("transactional email worker", () => {
   it("finds the second distinct Clip after more than 100 duplicate shares", async () => {
     const clock = await setup();
     clock.setNow("2026-08-01T01:00:00.000Z");
-    const duplicates: Share[] = Array.from({ length: 125 }, (_, index) => ({
-      id: `duplicate-${String(index).padStart(3, "0")}`,
-      recordingId: "recording-1",
-      recipient: "person@example.com",
-      createdBy: "first-sender@example.com",
-      createdAt: new Date(
-        Date.parse("2026-08-01T00:01:00.000Z") + index,
-      ).toISOString(),
-    }));
-    const second: Share = {
+    const duplicates: ShareFixture[] = Array.from(
+      { length: 125 },
+      (_, index) => ({
+        id: `duplicate-${String(index).padStart(3, "0")}`,
+        recordingId: "recording-1",
+        recipient: "person@example.com",
+        createdBy: "first-sender@example.com",
+        createdAt: new Date(
+          Date.parse("2026-08-01T00:01:00.000Z") + index,
+        ).toISOString(),
+      }),
+    );
+    const second: ShareFixture = {
       id: "second-distinct",
       recordingId: "recording-2",
       recipient: "person@example.com",
@@ -1178,7 +1274,7 @@ describe("transactional email worker", () => {
 
   it("discovers shares as they age while timely share pages keep arriving", async () => {
     const clock = await setup();
-    const shares: Share[] = ["a", "b"].map((suffix, index) => ({
+    const shares: ShareFixture[] = ["a", "b"].map((suffix, index) => ({
       id: `early-${suffix}`,
       recordingId: `recording-early-${suffix}`,
       recipient: `early-${suffix}@example.com`,
@@ -1385,7 +1481,7 @@ describe("transactional email worker", () => {
   it("durably advances past a full direct-share batch and wraps safely", async () => {
     const clock = await setup();
     clock.setNow("2026-08-03T00:00:00.000Z");
-    const shares: Share[] = Array.from({ length: 101 }, (_, index) => {
+    const shares: ShareFixture[] = Array.from({ length: 101 }, (_, index) => {
       const suffix = String(index + 1).padStart(3, "0");
       return {
         id: `share-${suffix}`,

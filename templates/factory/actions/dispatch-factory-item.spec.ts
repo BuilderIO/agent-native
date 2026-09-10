@@ -11,6 +11,9 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
   requireWorkspaceMember: vi.fn(),
   workspaceMemberIdentityFromContext: vi.fn(),
 }));
+vi.mock("../server/lib/factory-repository-scope.js", () => ({
+  resolveFactoryRepository: vi.fn(),
+}));
 vi.mock("../server/triage/audit.js", () => ({
   recordFactoryAudit: vi.fn(),
   recordFactoryAuditIfChanged: vi.fn(),
@@ -35,6 +38,8 @@ vi.mock("../server/triage/slack-client.js", () => ({
 import { getDb } from "../server/db/index.js";
 import { stableId } from "../server/triage/ids.js";
 import {
+  dispatchRepositoryConflictReason,
+  dispatchRepositoryForItem,
   hasFeedbackCluster,
   isStartedTriageRunStatus,
   ownerOwnedAreaValuesForItem,
@@ -53,6 +58,7 @@ describe("dispatch-factory-item schema guidance", () => {
       action as {
         schema: {
           shape: {
+            alreadyClaimed: { description?: string };
             clearBug: { description?: string };
             productUxImplications: { description?: string };
           };
@@ -60,12 +66,38 @@ describe("dispatch-factory-item schema guidance", () => {
       }
     ).schema.shape;
     expect(shape.clearBug.description).toMatch(/visual\/UI defects/i);
+    expect(shape.clearBug.description).toMatch(/omitted when alreadyClaimed/i);
+    expect(shape.alreadyClaimed.description).toMatch(
+      /already started keep their status/i,
+    );
+    expect(shape.alreadyClaimed.description).toMatch(
+      /clearBug may be omitted/i,
+    );
     expect(shape.productUxImplications.description).toMatch(
       /Leave false for concrete reproducible bugs/i,
     );
     expect(shape.productUxImplications.description).toMatch(
       /do not set true just because the report mentions UI or UX/i,
     );
+  });
+
+  it("accepts alreadyClaimed without clearBug", () => {
+    const parsed = (
+      action as {
+        schema: {
+          parse: (value: unknown) => {
+            alreadyClaimed: boolean;
+            clearBug: boolean;
+          };
+        };
+      }
+    ).schema.parse({
+      itemId: "item-1",
+      alreadyClaimed: true,
+      reason: "Parent already has robot_face.",
+    });
+    expect(parsed.alreadyClaimed).toBe(true);
+    expect(parsed.clearBug).toBe(false);
   });
 });
 
@@ -147,6 +179,46 @@ describe("dispatch-factory-item Slack handoff", () => {
     expect(isStartedTriageRunStatus("failed")).toBe(false);
     expect(isStartedTriageRunStatus("reconciliation_required")).toBe(true);
     expect(hasFeedbackCluster({})).toBe(false);
+  });
+
+  it("refuses to tag a repository the factory is not configured for", () => {
+    expect(
+      dispatchRepositoryConflictReason(
+        "BuilderIO/other-repo",
+        "BuilderIO/agent-native",
+      ),
+    ).toMatch(/belongs to BuilderIO\/other-repo/);
+    expect(
+      dispatchRepositoryConflictReason(
+        "https://github.com/BuilderIO/agent-native",
+        "BuilderIO/agent-native",
+      ),
+    ).toBeNull();
+  });
+
+  it("takes the repository from a GitHub issue and falls back to the factory's", () => {
+    expect(
+      dispatchRepositoryForItem(
+        { source: "github_issue", repository: "BuilderIO/other-repo" },
+        "BuilderIO/agent-native",
+      ),
+    ).toBe("BuilderIO/other-repo");
+    expect(
+      dispatchRepositoryForItem(
+        {
+          source: "github_issue",
+          repository: null,
+          externalId: "BuilderIO/other-repo#88",
+        },
+        "BuilderIO/agent-native",
+      ),
+    ).toBe("BuilderIO/other-repo");
+    expect(
+      dispatchRepositoryForItem(
+        { source: "sentry", repository: null, externalId: "sentry-1" },
+        "BuilderIO/agent-native",
+      ),
+    ).toBe("BuilderIO/agent-native");
   });
 
   it("includes related item metadata in owner-area detection inputs", () => {

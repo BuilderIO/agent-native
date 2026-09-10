@@ -68,6 +68,32 @@ const messages: AgentChatTranslation = {
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
+  "onboarding.capability.llm.keySummary": "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
+  "onboarding.capability.fileStorage.keySummary": "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
+  "onboarding.capability.voiceInput.keySummary":
+    "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
+  "onboarding.capability.voiceInput.why":
+    "वॉइस इनपुट बोले गए अनुरोधों को टेक्स्ट में बदलता है; टाइप करना हमेशा उपलब्ध है।",
+  "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder क्रेडिट या इमेज प्रदाता की कुंजी",
+  "onboarding.capability.assetsImageGeneration.why":
+    "इमेज जनरेशन ब्रांडेड एसेट बनाने का मुख्य वर्कफ़्लो है।",
+  "onboarding.capability.assetsVideoGeneration.label": "वीडियो जनरेशन",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API कुंजी",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "वीडियो जनरेशन वैकल्पिक है; Assets का मुख्य वर्कफ़्लो इमेज जनरेशन है।",
+  "onboarding.capability.clipsObjectStorage.label": "ऑब्जेक्ट स्टोरेज",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.capability.clipsObjectStorage.why":
+    "रिकॉर्ड किए गए वीडियो को चलाने या साझा करने से पहले टिकाऊ ऑब्जेक्ट स्टोरेज की आवश्यकता होती है।",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "स्पीच-टू-टेक्स्ट प्रदाता की कुंजी",
+  "onboarding.capability.about": "{{label}} के बारे में",
+  "onboarding.capability.why": "{{label}} क्यों आवश्यक है",
+  "onboarding.openAiKeySettings": "AI कुंजी सेटिंग खोलें",
   "aboutAgentNative.title": "Agent-Native के बारे में",
   "aboutAgentNative.version": "संस्करण",
   "aboutAgentNative.environment": "पर्यावरण",
@@ -501,6 +527,23 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "पिछला एजेंट स्ट्रीम रन की रिकवरी के दौरान समाप्त हो गया। रन से दोबारा जुड़ने के लिए जारी रखें या फिर प्रयास करें।",
   "recovery.reconnectBuilder": "Builder.io को दोबारा कनेक्ट करें",
+  "secrets.addCustomKeyNamed": '"{{name}}" को कस्टम कुंजी के रूप में जोड़ें',
+  "secrets.customKey": "कस्टम कुंजी",
+  "secrets.customKeyHint": "नाम से कोई भी कुंजी जोड़ें",
+  "secrets.fromEnvironment": "डिप्लॉयमेंट एनवायरनमेंट द्वारा प्रदान किया गया।",
+  "secrets.managedInVault":
+    "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",
+  "secrets.openVault": "Vault खोलें",
+  "secrets.overridesVault":
+    "यह पर्सनल कुंजी वर्कस्पेस के Vault वैल्यू को ओवरराइड करती है। Vault कुंजी उपयोग करने के लिए इसे हटाएं।",
+  "secrets.overridesWorkspace":
+    "यह पर्सनल कुंजी वर्कस्पेस वैल्यू को ओवरराइड करती है। शेयर की गई कुंजी उपयोग करने के लिए इसे हटाएं।",
+  "secrets.setForWorkspace": "इस वर्कस्पेस में सभी के लिए सेट है।",
+  "secrets.sourceEnvironment": "एनवायरनमेंट",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "वर्कस्पेस",
+  "secrets.statusUnavailable": "अनुपलब्ध",
+  "secrets.usePersonalKey": "इसके बजाय पर्सनल कुंजी का उपयोग करें",
   "selection.attached": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",

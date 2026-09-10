@@ -53,7 +53,6 @@ import type {
   SubmitContentDatabaseFormResponse,
   SuggestSourceJoinKeyResponse,
   UpdateContentDatabasePersonalViewRequest,
-  UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
 import type { Query, QueryClient } from "@tanstack/react-query";
@@ -188,15 +187,37 @@ export function contentDatabaseQueryFilter(documentId: string) {
   };
 }
 
-export function contentDatabaseConstrainedQueryFilter(documentId: string) {
+export function contentDatabaseConstrainedQueryFilter(documentId?: string) {
   return {
-    queryKey: ["action", "get-content-database"],
+    queryKey: ["action"],
     predicate: (query: Query) => {
-      if (!isContentDatabaseQueryForDocument(query.queryKey, documentId)) {
+      const params = query.queryKey[2] as
+        | { documentId?: unknown; tableQuery?: unknown }
+        | undefined;
+      if (documentId !== undefined && params?.documentId !== documentId) {
         return false;
       }
-      const params = query.queryKey[2] as { tableQuery?: unknown };
-      return params.tableQuery !== undefined;
+      return (
+        query.queryKey[1] === "query-content-database-items" ||
+        (query.queryKey[1] === "get-content-database" &&
+          params?.tableQuery !== undefined)
+      );
+    },
+  };
+}
+
+export function contentDatabaseItemsContainingDocumentFilter(
+  documentId: string,
+) {
+  return {
+    queryKey: contentDatabaseItemsPageQueryKey,
+    predicate: (query: Query) => {
+      const data = query.state.data as
+        | ContentDatabaseItemsPageResponse
+        | undefined;
+      return (
+        data?.items.some((item) => item.document.id === documentId) === true
+      );
     },
   };
 }
@@ -292,19 +313,23 @@ export function applyOptimisticBuilderWriteMode(
   };
 }
 
-export function applyDocumentPropertyValueToDatabaseResponse(
-  current: ContentDatabaseResponse | undefined,
+export function applyDocumentPropertyValueToDatabaseResponse<
+  T extends ContentDatabaseResponse | ContentDatabaseItemsPageResponse,
+>(
+  current: T | undefined,
   patch: {
     documentId: string;
     propertyId: string;
     value: ContentDatabaseResponse["properties"][number]["value"];
   },
-): ContentDatabaseResponse | undefined {
+): T | undefined {
   if (!current) return current;
-  const databaseProperty = current.properties.find(
-    (property) => property.definition.id === patch.propertyId,
-  );
-  if (!databaseProperty) return current;
+  const databaseProperty =
+    "properties" in current
+      ? current.properties.find(
+          (property) => property.definition.id === patch.propertyId,
+        )
+      : undefined;
 
   let changed = false;
   const items = current.items.map((item) => {
@@ -323,6 +348,8 @@ export function applyDocumentPropertyValueToDatabaseResponse(
       return { ...item, properties };
     }
 
+    if (!databaseProperty) return item;
+
     changed = true;
     return {
       ...item,
@@ -335,7 +362,7 @@ export function applyDocumentPropertyValueToDatabaseResponse(
     };
   });
 
-  return changed ? { ...current, items } : current;
+  return changed ? ({ ...current, items } as T) : current;
 }
 
 export function applyDocumentPropertiesToDatabaseResponse(
@@ -753,6 +780,25 @@ export function useCreateContentDatabase(
   );
 }
 
+export function contentDatabaseCreationRequest(args: {
+  newDocumentId: string;
+  parentId?: string | null;
+  spaceId: string | undefined;
+  title: string;
+}): CreateDatabaseRequest {
+  const parentId = args.parentId ?? null;
+  if (!args.spaceId) {
+    throw new Error("Choose a Content space before creating a database");
+  }
+  return {
+    newDocumentId: args.newDocumentId,
+    idempotencyKey: args.newDocumentId,
+    parentId,
+    spaceId: args.spaceId,
+    title: args.title,
+  };
+}
+
 export function useCreateInlineContentDatabase(hostDocumentId: string | null) {
   const queryClient = useQueryClient();
   return useActionMutation<
@@ -872,6 +918,9 @@ export function useAddDatabaseItem(documentId: string) {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(documentId),
+      );
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
@@ -1025,26 +1074,122 @@ export function useMoveDatabaseItem(documentId: string) {
   );
 }
 
+export type ContentDatabaseViewSaveResponse =
+  | ContentDatabaseResponse
+  | {
+      receipt: {
+        revisions: {
+          schemaAfter: string;
+          configurationAfter: string;
+        };
+      };
+      value: ContentDatabaseResponse["database"]["viewConfig"];
+    };
+
+export type ContentDatabaseViewSaveRequest =
+  | {
+      operation: "replace";
+      target: {
+        spaceId: string;
+        databaseId: string;
+        databaseDocumentId: string;
+      };
+      expectedSchemaRevision: string;
+      expectedConfigurationRevision: string;
+      idempotencyKey: string;
+      viewConfig: ContentDatabaseResponse["database"]["viewConfig"];
+    }
+  | {
+      databaseId: string;
+      viewConfig: ContentDatabaseResponse["database"]["viewConfig"];
+    };
+
 export function useUpdateContentDatabaseView(documentId: string) {
   const queryClient = useQueryClient();
+  const mutationSequences =
+    contentDatabaseViewMutationSequencesFor(queryClient);
   return useActionMutation<
-    ContentDatabaseResponse,
-    UpdateContentDatabaseViewRequest
+    ContentDatabaseViewSaveResponse,
+    ContentDatabaseViewSaveRequest
   >("update-content-database-view", {
     skipActionQueryInvalidation: true,
-    onSuccess: (data) => {
+    scope: { id: `content-database-view:${documentId}` },
+    onMutate: async () => {
+      const sequence = (mutationSequences.get(documentId) ?? 0) + 1;
+      mutationSequences.set(documentId, sequence);
+      await queryClient.cancelQueries(contentDatabaseQueryFilter(documentId));
+      return { sequence };
+    },
+    onSuccess: (data, variables, context) => {
+      if (
+        (context as { sequence?: number } | undefined)?.sequence !==
+        mutationSequences.get(documentId)
+      ) {
+        return;
+      }
+      if (!("receipt" in data)) {
+        writeContentDatabaseResponseToCache(queryClient, documentId, data);
+        queryClient.setQueryData(
+          contentDatabaseByIdQueryKey(data.database.id),
+          data,
+        );
+        return;
+      }
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(documentId),
         (current) =>
           current
             ? {
                 ...current,
-                database: data.database,
+                configurationRevision:
+                  data.receipt.revisions.configurationAfter,
+                mutationContract: current.mutationContract
+                  ? {
+                      ...current.mutationContract,
+                      schemaRevision: data.receipt.revisions.schemaAfter,
+                    }
+                  : current.mutationContract,
+                database: {
+                  ...current.database,
+                  viewConfig: data.value,
+                },
               }
             : current,
       );
     },
+    onSettled: (_data, _error, variables, context) => {
+      if (
+        (context as { sequence?: number } | undefined)?.sequence !==
+        mutationSequences.get(documentId)
+      ) {
+        return;
+      }
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(documentId),
+      );
+      const databaseId =
+        "target" in variables
+          ? variables.target.databaseId
+          : variables.databaseId;
+      void queryClient.invalidateQueries({
+        queryKey: contentDatabaseByIdQueryKey(databaseId),
+      });
+    },
   });
+}
+
+const contentDatabaseViewMutationSequences = new WeakMap<
+  object,
+  Map<string, number>
+>();
+
+function contentDatabaseViewMutationSequencesFor(queryClient: object) {
+  let sequences = contentDatabaseViewMutationSequences.get(queryClient);
+  if (!sequences) {
+    sequences = new Map();
+    contentDatabaseViewMutationSequences.set(queryClient, sequences);
+  }
+  return sequences;
 }
 
 export function useContentDatabasePersonalView(databaseId: string | null) {

@@ -56,6 +56,7 @@ import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
+import { timeRangeDays } from "./pivot";
 import type { SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
@@ -137,6 +138,7 @@ export function SqlChartCard({
   filters,
 }: SqlChartCardProps) {
   const t = useT();
+  const timeRange = timeRangeDays(filters?.timeRange);
   const queryClient = useQueryClient();
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
@@ -162,11 +164,11 @@ export function SqlChartCard({
     () =>
       [
         "sql-chart",
-        panel.id,
+        dashboardId || panel.id,
         serializePanelSql(resolvedSql ?? panel.sql),
         panel.source,
       ] as const,
-    [panel.id, panel.source, panel.sql, resolvedSql],
+    [dashboardId, panel.id, panel.source, panel.sql, resolvedSql],
   );
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
@@ -299,7 +301,7 @@ export function SqlChartCard({
         }
       },
       {
-        rootMargin: "320px 0px",
+        rootMargin: "64px 0px",
         threshold: 0.01,
       },
     );
@@ -446,7 +448,9 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData
+            timeRange={timeRange}
             reportScreenshot={reportScreenshot}
+            dashboardId={dashboardId}
             extensionContext={extensionContext}
           />
         )}
@@ -549,7 +553,9 @@ export function SqlChartCard({
                   panel={panel}
                   resolvedSql={resolvedSql}
                   loadData
+                  timeRange={timeRange}
                   reportScreenshot={reportScreenshot}
+                  dashboardId={dashboardId}
                   extensionContext={extensionContext}
                 />
               </ChartFillHeight>
@@ -735,7 +741,9 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
+            timeRange={timeRange}
             reportScreenshot={reportScreenshot}
+            dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
             extensionContext={extensionContext}
@@ -754,7 +762,9 @@ export function SqlChartCard({
                 panel={panel}
                 resolvedSql={resolvedSql}
                 loadData
+                timeRange={timeRange}
                 reportScreenshot={reportScreenshot}
+                dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>

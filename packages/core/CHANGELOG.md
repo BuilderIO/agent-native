@@ -51,6 +51,93 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.178.0
+
+### Minor Changes
+
+- 8acd379: Add user-controlled experiments to shared settings, search, and action surfaces.
+- 46391ca: Store the rendered HTML/text body of every transactional email send alongside the existing send-log record, and show it in the Dispatch send log detail dialog so an org admin can see exactly what was sent, not just the redacted provider request. Magic links, password-reset/verification links, JWT-shaped tokens, and OTP/verification codes are redacted from the body before it is persisted, since `email_log` is org-admin readable. The list query never returns bodies (fetched lazily per row via a new `get-email-log-body` action once a row is opened), and the sandboxed HTML preview now carries a restrictive CSP so a body can't load remote tracking images/styles.
+
+### Patch Changes
+
+- e8b291e: Use the shared mouse-reactive wave animation as the branded auth background across all templates.
+- 632665b: Allow apps to register custom BCP-47 locales with catalog metadata and English framework fallback.
+- b21d29c: Clarify first-run capability requirements, make the Builder services popover a bulleted list, and let users skip manual key setup.
+- 92297ec: Show the Builder reconnect path when an OAuth-backed gateway request returns a bare 403.
+- e57a58a: Let app history restores prepare pending edits and apply the committed result before chat reports success.
+- 0a64d41: Remove unused `p-limit` dependency and dead unexported `usePausingInterval` hook.
+- 09ec5c0: Keep docs links on client-side navigation without intercepting non-app same-origin paths.
+- 094cc5b: Set a fast interaction-feedback standard across generated Agent-Native app instructions and shared frontend guidance.
+- b6bd189: Suppress telemetry for `+autoz` QA identities across the shared tracking paths.
+- 840cb6c: Add recipient, sender, and template inclusion and exclusion filters to the transactional email send log action and Dispatch controls.
+- 8fafe18: Keep the email verification resend countdown visible and current until it expires.
+- 804113d: Enforce the package's Node.js 22.22.0 minimum in the CLI before scaffolding.
+- d7408c3: Fix trigger error caching and webhook retries, fail closed on unreadable turn budgets, verify process run failure terminal status, optimize extension list queries, and validate Google service account token_uri against SSRF.
+- 4822dad: Keep workspace app discovery and A2A calls working on protected Vercel previews.
+- 554c771: Keep share dialogs readable while additive migrations are pending, and let
+  ordinary iframe pages load cross-origin subresources. Improve new-project setup
+  and Slack identity recovery guidance. Keep Cloudflare Workers builds below the
+  static-header rule limit, allow local Ollama endpoints on local non-production
+  servers, surface provider-setting errors, keep one PGlite client across dev
+  reload realms, permit the optional terminal build in fresh scaffolds, and
+  clarify standalone deployment.
+- 4822dad: Keep standalone usage metrics visible when token usage has no configured app identity.
+- 4822dad: Preserve Vite assets for colliding workspace app ids and reconcile deployed app registry records.
+- 5c1b5e0: Fix the default social/OG image's advertised MIME type to match the actual asset (JPEG, not PNG) via a new `AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE` export, and add the guard's documented opt-out pragma to the fixed brand-palette color literals in the OG image generators.
+- d26705c: Use Google’s canonical identity scopes for browser sign-in.
+- 74c9585: Restore organization scope for legacy connect tokens that predate the JWT org claim.
+- Release all public npm packages with a patch version bump.
+- 999dc70: Keep application-owned job YAML when updating an existing automation. Status, enable/disable, and schedule writes patch named keys instead of rebuilding the markdown from known fields.
+- 6e02aa4: Reject failed or incomplete provider-save responses, display the confirmed saved model, keep fallback provider/model pairs consistent, and keep provider controls reachable in narrow viewports.
+- 8f0c972: Record when a share notification was actually emailed (`notified_at` on share
+  tables) so follow-up email can tell a deliberate share from a silent access
+  grant.
+- e57a58a: Keep Cloudflare SSR builds compatible with current Yjs editor imports.
+- bc67356: Fix a crash on the auth/signup page (`NotFoundError: removeChild`) caused by the ocean background's dynamically-loaded renderer chunk sharing tuning/color modules with the auth entry chunk, which made the browser re-import and re-execute the entry chunk's hydration a second time. The shared values now live in their own module, and hydration is guarded to run only once as a backstop.
+- 9b801b6: Preserve organization scope when HTTP actions authenticate with an MCP token.
+- dffb4b8: Refresh page-local WebMCP clients when an in-app browser reconnect replaces the model context.
+- de384ae: Preserve complete structured MCP action results for clients without inline apps, so mutation receipts remain available when display text is shortened.
+- 4822dad: Restore Dispatch access for all authenticated organization members.
+- d1d8495: Preserve mounted app routes across settings navigation and surface failed Builder connection authorization immediately.
+- e89b114: Keep Google and email authentication as the only visible sign-in choices while optionally bootstrapping a Dispatch session and local cross-app session after sign-in. The handoff uses a short-lived, one-time server-side handle and preserves existing local accounts and cookies.
+- de384ae: Include core actions in the agent tool catalog when an app supplies a static action registry, so audit history remains discoverable while respecting disabled framework tool groups.
+- 6b397ca: Create Builder projects from the `agent-native-starter` template by default while preserving the deprecated repository-backed project helpers.
+- be49675: Ignore malformed runtime database URL aliases and fall back to a usable database URL.
+- d3386d0: WebMCP no longer excludes an action just because it declares `needsApproval`. The action stays discoverable, and a call is refused with an `approval_required` error telling the caller to ask the user to confirm in chat only when that call's actual arguments trip the predicate.
+- Updated dependencies [e8b291e]
+- Updated dependencies [4915b82]
+- Updated dependencies
+- Updated dependencies [3bde94f]
+  - @agent-native/toolkit@0.19.6
+  - @agent-native/recap-cli@0.5.28
+
+## 0.177.1
+
+### Patch Changes
+
+- 48a4eca: Add a durable audit trail for every transactional email send attempt. The shared `sendEmail()` transport now records the outbound request payload (with auth links and message bodies redacted) and the raw provider response/status for both successes and failures, so Dispatch can show exactly what was sent, to whom, and why a send failed. The `list-email-log` action gained filters for recipient, sender, status, provider, and date range with stable pagination, and a new searchable "Send log" section was added to `/admin/transactional-email`. Magic-link sign-in emails are now tagged with a `core.magic-link` template id so they show up alongside other auth emails in the catalog and send log.
+- 48a4eca: Record request payload, response status, and response body on every email send log entry, and support filtering the send log by recipient, sender, status, provider, and time range.
+- 5c0e4c7: Fix duplicate clear ("x") icons in the Settings and Agent page search bars by hiding the browser's native WebKit search-cancel button on inputs that render their own custom clear button.
+- Release all public npm packages with a patch version bump.
+- 7a24645: Let multi-organization users choose which organization an MCP OAuth connection is authorized for.
+- 050fad2: Keep mobile OAuth session cookies on the callback response and detect completed magic-link sessions in the auth page.
+- a6fb3c6: Remove the "Sign in with Agent-Native" browser login option and automatic SSO handoff from auth pages.
+- d891beb: Add server-backed search to the organization member list and hide role editing
+  from admins to match the owner-only role policy.
+
+  Show an error with a retry action when members cannot be loaded, instead of
+  presenting failed searches as empty results.
+
+  Keep a debounced member search on its first page when pagination is used while
+  the new query is pending.
+
+- c050912: Search fields that draw their own clear button no longer also show WebKit's native cancel widget, so only one clear control renders.
+- e5e6962: Request Builder OAuth scopes covering agent execution, browser connections, assets, projects, and design systems; use OAuth-first authorization (with legacy private-key fallback) across the Builder browser, design-system, asset-deletion, and Fusion APIs; and surface actionable reconnect errors instead of generic failures when a Builder grant needs re-authorizing.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/recap-cli@0.5.27
+  - @agent-native/toolkit@0.19.5
+
 ## 0.177.0
 
 ### Minor Changes
@@ -2314,17 +2401,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - Updated dependencies [0b57293]
   - @agent-native/recap-cli@0.5.5
   - @agent-native/toolkit@0.16.5
-
-## 0.161.23
-
-### Patch Changes
-
-- 112547e: Resolve Agent-Native model selections through request, org/user defaults, and the global catalog before sending a concrete model to the Builder gateway.
-
-## 0.161.22
-
-### Patch Changes
-
-- 8a7ba01: Restore formatter compliance in core schema sanitization code.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

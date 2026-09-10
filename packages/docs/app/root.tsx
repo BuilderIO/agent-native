@@ -2,6 +2,7 @@ import { AgentNativeWebMcpActionRegistration } from "@agent-native/core/client/h
 import {
   AgentNativeRouteWarmup,
   defineClientAction,
+  isClientRouteUrl,
 } from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
@@ -19,6 +20,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  type MouseEvent,
 } from "react";
 import {
   Links,
@@ -29,13 +31,13 @@ import {
   Link,
   isRouteErrorResponse,
   useMatches,
+  useHref,
   useNavigate,
   useRouteError,
   useLocation,
   type LoaderFunctionArgs,
 } from "react-router";
 
-import { getGithubStarCount } from "../lib/github-star-count";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -132,15 +134,11 @@ async function initialMessagesForLocale(locale: DocsLocale) {
 export async function loader({ request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
   const locale = resolveLayoutLocale(requestUrl.pathname);
-  const [messages, starCount] = await Promise.all([
-    initialMessagesForLocale(locale),
-    getGithubStarCount(),
-  ]);
   return {
     locale,
     preference: { locale },
-    messages,
-    starCount,
+    messages: await initialMessagesForLocale(locale),
+    starCount: null,
   };
 }
 
@@ -260,6 +258,61 @@ export const meta = () => [
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
   const { starCount } = useRootLocaleData();
+  const routerRootHref = useHref("/");
+  const navigate = useNavigate();
+
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const link = target.closest<HTMLAnchorElement>("a[href]");
+    if (
+      !link ||
+      link.dataset.discover ||
+      (link.target && link.target !== "_self") ||
+      link.hasAttribute("download")
+    ) {
+      return;
+    }
+
+    const url = new URL(link.href, window.location.href);
+    if (
+      url.origin !== window.location.origin ||
+      (url.pathname === window.location.pathname &&
+        url.search === window.location.search)
+    ) {
+      return;
+    }
+    if (!isClientRouteUrl(url)) return;
+
+    const routerRootPath = new URL(
+      routerRootHref,
+      window.location.href,
+    ).pathname.replace(/\/+$/, "");
+    let pathname = url.pathname;
+    if (routerRootPath) {
+      if (url.pathname === routerRootPath) {
+        pathname = "/";
+      } else if (url.pathname.startsWith(`${routerRootPath}/`)) {
+        pathname = url.pathname.slice(routerRootPath.length);
+      } else {
+        return;
+      }
+    }
+
+    event.preventDefault();
+    void navigate(`${pathname}${url.search}${url.hash}`);
+  };
 
   return (
     // core's `.agent-sidebar-shell` sits between <body> and this chrome and
@@ -267,7 +320,10 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
     // the background on <body> never shows and every route inherited a color
     // from a token system the brand palette knows nothing about. Painting --bg
     // here is what actually decides the page color, on every route.
-    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
+    <div
+      className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]"
+      onClick={handleClick}
+    >
       <ScrollManager />
       <SnackbarProvider>
         <SiteHeader starCount={starCount} />

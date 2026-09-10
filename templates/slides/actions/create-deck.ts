@@ -123,7 +123,7 @@ export default defineAction({
     "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live; the new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides.",
+    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, use a light neutral canvas with ink text and one or two restrained accents; never default to a black canvas with white text.",
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(

@@ -437,20 +437,19 @@ const jaJP = {
   },
   homepage: {
     hero: {
-      title: "agentic アプリのためのフレームワーク。",
-      bodyLine1:
-        "UI とエージェントを備えたアプリのためのオープンソース TypeScript フレームワークです。",
-      bodyLine2: "各 Action を一度定義すれば、どこからでも呼び出せます。",
+      title: "agentic アプリケーションのための framework",
+      bodyLine1: "直感的な UI を備えた自律型エージェントを構築できます。",
+      bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
       tryAnApp: "アプリを試す",
     },
     install: {
       copyCommand: "インストールコマンドをコピー",
     },
     actions: {
-      title: "どこからでも 1 つの Action を呼び出せます。",
-      bodyLine1: "defineAction() で機能を定義します。",
+      title: "1 つの Action があらゆる面を動かす",
+      bodyLine1: "defineAction() で機能を一度だけ定義します。",
       bodyLine2:
-        "React UI、エージェント、HTTP クライアント、連携先がすべて同じコードを呼び出します。",
+        "エージェント、React UI、HTTP クライアント、連携先がすべて同じコードを呼び出します。",
       diagramAlt:
         "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
     },
@@ -545,7 +544,7 @@ const jaJP = {
         "作りたいものを自然な言葉で説明すると、エージェントが作成します。",
       stepThreeTitle: "デプロイ",
       stepThreeBody:
-        "準備ができたら、Builderでアプリをワンクリックでデプロイします。",
+        "準備ができたら、Builderでエージェントとその UI をワンクリックでデプロイします。",
     },
   },
   templatesPage: {
@@ -570,6 +569,7 @@ const jaJP = {
     tryCommunityDemo: "デモを試す",
     customizeDescription: "このアプリを出発点として使えます。",
     customizeOnline: "オンライン",
+    customizeOnlineBadge: "ウェイトリストに登録",
     customizeLocally: "ローカル",
     communityNew: "新着",
     communityComingSoon: "近日公開",
@@ -627,6 +627,18 @@ const jaJP = {
     popoverTitle: "ブラウザで構築",
     popoverBody:
       "Builder.io を使って、クラウドで agent-native アプリをすばやく生成できます。",
+    waitlistBody:
+      "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
+    emailLabel: "メール",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "待機リストに参加",
+    joining: "参加中…",
+    joined:
+      "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
+    invalidEmail: "有効なメールアドレスを入力してください。",
+    submitError: "待機リストに参加できませんでした。もう一度お試しください。",
+    waitlistUnavailable:
+      "この環境ではまだ待機リストに登録できません。代わりにホストされたドキュメントサイトをお試しください。",
     launchBuilder: "Builderを起動",
   },
   templateCard: {
@@ -888,6 +900,55 @@ const jaJP = {
     },
     clips: {
       s001: "Clips テンプレートのスクリーンショット",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "AIエージェントが見て、聞ける画面録画",
+      heroDescription:
+        "Clipsは無料でオープンソースの画面録画ツールです。バグ、フィードバック、手順の説明をAIエージェントと共有できます。",
+      heroCta: "クリップを録画",
+      useCasesHeading: "Clipsでできること",
+      useCasesBody:
+        "自分で録画したクリップや共有されたクリップから始めましょう。AIエージェントにコンテキストを渡し、必要なことを伝えてください。",
+      useCase1Title: "録画されたフィードバックに対応する",
+      useCase1Body:
+        "録画したフィードバックをAIエージェントに渡し、プランにまとめてもらうか、依頼した変更の実装を手伝ってもらいましょう。",
+      useCase2Title: "報告されたバグを調査する",
+      useCase2Body:
+        "バグの録画をAIエージェントと共有し、何が問題だったのかを調査して次のステップを考えてもらいましょう。",
+      useCase3Title: "録画された指示から作成する",
+      useCase3Body:
+        "録画したブリーフを使って、プレゼンテーション、デザイン、コンテンツ、アプリの変更を作成するようAIエージェントに指示しましょう。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "録画、文字起こし、共有に必要なすべて",
+      feature1Title: "エージェントが読める録画",
+      feature1Body:
+        "1つのエージェント読み取り可能なリンクを通じて、クリップの文字起こしとタイムスタンプ付き画像をAIエージェントと共有します。",
+      feature2Title: "自動文字起こし",
+      feature2Body:
+        "録画、ミーティング、口述の文字起こしを取得します。文字起こしの行をクリックすると、その瞬間に移動して再生できます。",
+      feature3Title: "ブラウザのデバッグログ",
+      feature3Body:
+        "Clips Chrome拡張機能で、録画と一緒にコンソールエラーや失敗したリクエストをキャプチャします。",
+      feature4Title: "内蔵AIエージェント",
+      feature4Body:
+        "内蔵のAIエージェントに1つのクリップやライブラリ全体について質問し、チャットで文字起こしを編集させることもできます。",
+      feature5Title: "検索可能な録画ライブラリ",
+      feature5Body:
+        "文字起こしを検索してクリップを見つけましょう。フォルダ、タグ、チームスペースで録画を整理できます。",
+      feature6Title: "プッシュトゥトーク方式の口述入力",
+      feature6Body:
+        "デスクトップアプリでFnキーを押しながら、他のアプリに口述入力できます。文字起こしと整形済みのテキストは履歴で確認できます。",
+      teammatesLine:
+        "チームメンバーもプレーヤーで同じ録画を見ることができます。",
+      teammatesLinkLabel: "エージェント共有ガイドを読む",
+      seeInActionHeading: "Clipsの活用例を見る",
+      seeInActionBody:
+        "ブラウザのワークフローを録画する様子から、AIエージェントにタスクの手順を示す様子まで、Clipsの使用例をご覧ください。",
+      watchClipLabel: "クリップを見る",
+      finalCtaHeading: "次のクリップを役立てましょう",
+      finalCtaBody:
+        "説明を録画するか、共有されたクリップをAIエージェントに渡しましょう。",
+      finalCtaButton: "Clipsを開く",
       s002: "画面録画",
       s003: "ブラウザのデバッグログ",
       s004: "口述する",
@@ -950,26 +1011,23 @@ const jaJP = {
       s058: "無料＆オープンソース",
       s059: "今すぐ始める",
       s060: "キャプチャする内容を選択して、Clips で録画を開始します。",
-      s061: "その他のアプリを見る",
       s062: "すべてのテンプレートを表示",
       faq: {
-        question1: "Clips は無料ですか？",
-        answer1: "はい。Clips は無料のオープンソースです。",
-        question2: "AI は画面録画を読み取れますか？",
+        question1: "Clipsは無料でオープンソースですか?",
+        answer1:
+          "はい。Clipsは無料のオープンソースソフトウェアです。アプリをそのまま使うことも、カスタマイズして自分でホストすることもできます。",
+        question2: "Claude、ChatGPT、Cursorと録画を共有できますか?",
         answer2:
-          "はい。すべてのクリップにはトランスクリプト、要約、タイムスタンプ付きフレームが含まれており、エージェントが直接読み取れます。",
-        question3: "Clips は Loom とどう違いますか？",
+          "Clipsはエージェントが読み取れるリンクを提供し、文字起こしとタイムスタンプ付きの画像が含まれます。両方を利用するには、エージェントがリンク先のコンテンツを開き、画像を読み取れる必要があります。一部のチャットモードは文字起こしは読めますが、画像は別途アップロードする必要があります。",
+        question3: "画面を録画するのにChrome拡張機能は必要ですか?",
         answer3:
-          "Clips はオープンソースで、データはあなたが所有します。共有リンクは人だけでなく AI エージェントも読み取れます。",
-        question4: "画面録画でコンソールエラーを取得できますか？",
+          "いいえ。Clipsのウェブアプリで録画できます。録画するタブのコンソールメッセージやネットワーク診断情報も必要な場合は、Chrome拡張機能を使ってください。",
+        question4: "AIエージェントは私の画面録画を見ることができますか?",
         answer4:
-          "はい。Clips は録画と一緒にブラウザーのコンソールエラーと失敗したネットワークリクエストを取得します。トランスクリプトやフレームと同じ共有リンクに添付されるため、エージェントはクリップを視聴するだけでなく、そこからデバッグできます。",
-        question5: "Clips は Claude、ChatGPT、Cursor で使えますか？",
+          "Clipsでは、対応するAIエージェントが文字起こしとタイムスタンプ付き画像を通じて録画を理解できます。動画を再生するのではなくテキストと画像を使用するため、何が起きたかを質問したり、録画に基づいたタスクをAIエージェントに依頼したりできます。",
+        question5: "共有された録画には誰がアクセスできますか?",
         answer5:
-          "はい。プラグインも API キーも必要ありません。Clips の共有リンクを任意のエージェントに貼り付けるだけで、トランスクリプト、要約、フレームを直接読み取れます。",
-        question6: "録画データはどこに保存されますか？",
-        answer6:
-          "デプロイ先に保存されます。セルフホストの Clips なら、動画、トランスクリプト、分析データを自分のインフラストラクチャで管理できます。",
+          "組織が設定を変更しない限り、録画はデフォルトで公開リンクを使用します。リンクを知っている人は誰でもアクセスできます。プライベートおよび組織限定のアクセスオプションも用意されており、プライベートなクリップは録画を公開せずに、一時的なリンクを通じてエージェントと共有できます。",
       },
       quickStart: {
         recordingMode: "録画モード",
@@ -1076,7 +1134,7 @@ const jaJP = {
       s004: "絞り込む",
       s005: "すべてのテンプレート",
       s006: "オープンソースの AI HTML プロトタイピング スタジオ",
-      s007: "プロンプトからインタラクティブな Alpine/Tailwind プロトタイプを生成し、バリアントを比較し、コントロールを微調整して調整し、所有する実際のファイルをエクスポートします。",
+      s007: "インタラクティブなデザインとプロトタイプを作成できます。使い慣れたツールで調整するか、会話の編集で仕上げられます。どこへでもエクスポートできます。",
       s008: "何かをデザインする",
       s009: "仕組み",
       s010: "必要なものすべて",
@@ -1130,6 +1188,7 @@ const jaJP = {
       s058: "テンプレートから始め、ソースを編集するエージェントを使用して対話型プロトタイプの生成を開始します。",
       s059: "ドキュメントを読む",
       s060: "すべてのテンプレートを表示",
+      s061: "100% 無料、オープンソース、カスタマイズ可能。",
       faq: {
         question1:
           "AI はモックアップではなく、実際のコードでデザインを生成できますか？",
@@ -2055,7 +2114,6 @@ const jaJP = {
     usingYourAgent: "Agent を使う",
     agentResources: "エージェント リソース",
     integrations: "連携",
-    buildApps: "アプリを構築",
     advancedRuntime: "高度: ランタイムを拡張",
     templatesSection: "アプリ",
     gettingStarted: "はじめに",
@@ -2116,6 +2174,9 @@ const jaJP = {
     databaseProviders: "データベースプロバイダー",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "国際化",
     localFileMode: "ローカルファイルモード",
@@ -2193,7 +2254,6 @@ const jaJP = {
     syncingTemplateChanges: "テンプレート変更の同期",
     writingAgentInstructions: "Agent 指示を書く",
     embeddingSdk: "埋め込み SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native コード UI",
     harnessAgents: "Harness エージェント",
     adapters: "アダプター",

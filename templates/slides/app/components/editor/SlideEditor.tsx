@@ -194,8 +194,10 @@ import {
   findSmartBlock,
   isInlineTextElement,
   isRichTextBlock,
+  isSmartGroup,
   isSlideTextEditingTarget,
   shouldStampBuilderId,
+  shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
@@ -323,7 +325,7 @@ function stampBuilderIds(container: HTMLElement) {
       return;
     }
     ensureBuilderId(element);
-    if (isRichTextBlock(element)) {
+    if (isRichTextBlock(element) && !isSmartGroup(element)) {
       for (const descendant of Array.from(
         element.querySelectorAll<HTMLElement>("[data-slide-text-block]"),
       )) {
@@ -437,11 +439,12 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
       return null;
     }
     // Rich text is one layer: its blocks are structure, not rows of their own.
-    const children = isRichTextBlock(element)
-      ? []
-      : sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
+    // Smart groups are layout containers, so their text leaves stay visible.
+    const children = shouldTraverseSlideLayerChildren(element)
+      ? sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
           .map((child, childIndex) => visit(child as HTMLElement, childIndex))
-          .filter((child): child is SlidesLayerNode => child !== null);
+          .filter((child): child is SlidesLayerNode => child !== null)
+      : [];
     return {
       id: ensureBuilderId(element),
       label: layerLabel(element, index),
@@ -953,7 +956,8 @@ function SamePresenceAvatar({ user }: { user: CollabUser }) {
     <Tooltip>
       <TooltipTrigger asChild>
         <div
-          className="-ml-1.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-white ring-2 ring-popover first:ml-0"
+          // guard:allow-raw-color -- white initials preserve contrast on arbitrary collaborator colors
+          className="-ml-1.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-white ring-1 ring-popover first:ml-0"
           style={{
             backgroundColor: avatarUrl ? undefined : user.color,
             fontSize: 9,
@@ -998,7 +1002,7 @@ function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
           <SamePresenceAvatar key={u.email} user={u} />
         ))}
         {overflow > 0 && (
-          <span className="-ml-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[9px] font-medium leading-none text-muted-foreground ring-2 ring-popover">
+          <span className="-ml-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[9px] font-medium leading-none text-muted-foreground ring-1 ring-popover">
             +{overflow}
           </span>
         )}
@@ -1762,7 +1766,7 @@ export default function SlideEditor({
         `Available content area inside the slide's padding: ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px.`,
         `Natural rendered content: ${overflowInfo.contentWidth}x${overflowInfo.contentHeight}px inside a ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px content area.`,
         ``,
-        `Please use \`view-screen\` to read the current slide HTML, then make one bounded \`update-slide --fullContent\` repair so its rendered content fits within ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
+        `Please use \`view-screen\` to confirm the overflow, then call \`get-deck\` with slideId \`${slide.id}\` to read the complete current HTML and contentHash. Make one bounded \`update-slide --fullContent\` repair with that contentHash as \`baseContentHash\` so its rendered content fits within ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
         `1. Tighten copy — shorten headings/body, drop low-value bullets, replace prose with terse phrases.`,
         `2. Reduce vertical density — fewer stacked cards, smaller gaps, smaller body font (don't go below 16px), shorter labels.`,
         `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px) if the layout is genuinely tight.`,
@@ -4488,7 +4492,8 @@ export default function SlideEditor({
       if (dragSized) box.style.height = `${geometry.height}px`;
       box.style.fontSize = "24px";
       box.style.color = getSlideTextBoxDefaultColor(target, positioningLayer);
-      box.style.fontFamily = "'Poppins', sans-serif";
+      box.style.fontFamily =
+        designSystem?.typography.bodyFont ?? "Inter, sans-serif";
       box.style.lineHeight = "1.3";
       if (text !== ZERO_WIDTH_SPACE) {
         box.style.whiteSpace = "pre-wrap";
@@ -4501,7 +4506,7 @@ export default function SlideEditor({
       enterInlineEdit(box);
       return box;
     },
-    [enterInlineEdit],
+    [designSystem?.typography.bodyFont, enterInlineEdit],
   );
 
   const pastePlainTextAsTextBox = useCallback(

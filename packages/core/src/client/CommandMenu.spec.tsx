@@ -118,6 +118,34 @@ describe("CommandMenu docs group", () => {
     );
   });
 
+  it("filters command items nested in fragments", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Actions">
+            <>
+              <CommandMenu.Item onSelect={() => undefined}>
+                Open comments
+              </CommandMenu.Item>
+              <CommandMenu.Item onSelect={() => undefined}>
+                Open transcript
+              </CommandMenu.Item>
+            </>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    search("transcript");
+
+    expect(document.body.textContent).not.toContain("Open comments");
+    expect(document.body.textContent).toContain("Open transcript");
+  });
+
   it("offers the shared About Agent-Native surface and matches version searches", () => {
     act(() => {
       root.render(
@@ -274,7 +302,7 @@ describe("CommandMenu docs group", () => {
     expect(input).toBeTruthy();
     expect(list).toBeTruthy();
     expect(dialog?.className).toContain("top-[15vh]");
-    expect(dialog?.className).toContain("!z-50");
+    expect(dialog?.className).toContain("z-[280]");
     expect(dialog?.className).toContain("!max-h-none");
     expect(dialog?.className).toContain("!translate-y-0");
     expect(dialog?.className).toContain("bg-popover");
@@ -282,8 +310,9 @@ describe("CommandMenu docs group", () => {
     expect(dialog?.style.transition).toBe("none");
     expect(dialog?.style.maxWidth).toBe("");
     expect(dialog?.style.backgroundColor).toBe("");
-    expect(overlay?.className).toContain("z-50");
-    expect(overlay?.className).toContain("bg-black/50");
+    expect(overlay?.className).toContain("z-[270]");
+    expect(overlay?.style.zIndex).toBe("");
+    expect(overlay?.style.backgroundColor).toBe("rgb(0 0 0 / 0.5)");
     expect(overlay?.style.backdropFilter).toBe("none");
     expect(overlay?.style.transition).toBe("none");
     expect(document.activeElement).toBe(input);
@@ -386,7 +415,7 @@ describe("CommandMenu docs group", () => {
     expect(document.body.textContent).toContain("open");
   });
 
-  it("does not open from native select controls when contenteditable is allowed", () => {
+  it("claims Cmd+K from native controls without opening", () => {
     function ShortcutHarness() {
       const [open, setOpen] = React.useState(false);
       useCommandMenuShortcut(() => setOpen(true), {
@@ -408,17 +437,18 @@ describe("CommandMenu docs group", () => {
 
     const select = document.querySelector("select");
     expect(select).toBeTruthy();
+    const event = new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
     act(() => {
-      select!.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "k",
-          metaKey: true,
-          bubbles: true,
-        }),
-      );
+      select!.dispatchEvent(event);
     });
 
     expect(document.body.textContent).toContain("closed");
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("opens from contenteditable before editor handlers stop propagation", () => {

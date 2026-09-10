@@ -624,7 +624,7 @@ describe("browser analytics pageviews", () => {
     setTrackingIdentity(
       {
         id: "auth-user-qa",
-        email: "signup+qa-test-bot-run-1@example.com",
+        email: "signup+autoz-run-1@example.com",
       },
       "org_qa",
     );
@@ -912,6 +912,7 @@ describe("browser analytics pageviews", () => {
       expect.objectContaining({
         dsn: "https://public@example/4511270423822336",
         environment: "beta",
+        release: "agent-native-client@development",
       }),
     );
     expect(sentryMock.setTag).toHaveBeenCalledWith("runtime", "browser");

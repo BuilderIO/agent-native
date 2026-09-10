@@ -12,6 +12,7 @@ import {
   HeaderActionsProvider,
   usePersistentSidebarCollapsed,
 } from "@agent-native/toolkit/app-shell";
+import type { Document } from "@shared/api";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
@@ -19,16 +20,25 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useLocation, useNavigation } from "react-router";
+import { toast } from "sonner";
 
 import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
+import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
+import {
+  applyRegisteredDocumentHistoryRestore,
+  prepareRegisteredDocumentHistoryRestore,
+} from "@/lib/document-history-restore-controller";
 
 import { Header } from "./Header";
+import { SidebarTriggerContext } from "./sidebar-trigger";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const SIDEBAR_COLLAPSED_KEY = "content.sidebar.collapsed";
@@ -83,6 +93,7 @@ export function Layout({ children }: LayoutProps) {
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
   const t = useT();
+  const creativeContextEnabled = useCreativeContextExperiment();
   const currentDocumentId = documentPageIdFromPathname(location.pathname);
   const pendingDocumentId = pendingPathname
     ? documentPageIdFromPathname(pendingPathname)
@@ -100,7 +111,8 @@ export function Layout({ children }: LayoutProps) {
     [activeDocumentId],
   );
   const documentChatHistory = useMemo<
-    AssistantChatHistoryConfig | undefined
+    | AssistantChatHistoryConfig<unknown, AssistantChatHistoryVersion, Document>
+    | undefined
   >(() => {
     if (!documentScope) return undefined;
     const documentId = documentScope.id;
@@ -120,13 +132,36 @@ export function Layout({ children }: LayoutProps) {
       },
       restore: {
         action: "restore-document-version",
-        args: (version: AssistantChatHistoryVersion) => ({
+        args: async (version: AssistantChatHistoryVersion) => ({
           documentId,
           versionId: version.id,
+          expectedUpdatedAt: await prepareRegisteredDocumentHistoryRestore(
+            documentId,
+            t("editor.historySaveBeforeRestoreFailed"),
+          ),
         }),
+        onRestored: async (restored) => {
+          if (restored.id !== documentId) {
+            toast.error(t("editor.historyRestoreAppliedRefreshFailed"));
+            return;
+          }
+          try {
+            const applied = await applyRegisteredDocumentHistoryRestore(
+              documentId,
+              restored,
+            );
+            if (applied) return;
+          } catch (error) {
+            console.warn(
+              "Could not apply the committed chat history restore",
+              error,
+            );
+          }
+          toast.error(t("editor.historyRestoreAppliedRefreshFailed"));
+        },
       },
     };
-  }, [documentScope]);
+  }, [documentScope, t]);
   const isCompactLayout = useIsCompactLayout();
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     usePersistentSidebarCollapsed({
@@ -134,6 +169,7 @@ export function Layout({ children }: LayoutProps) {
       defaultCollapsed: false,
     });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 
   const handleSidebarResize = useCallback((width: number) => {
@@ -176,14 +212,19 @@ export function Layout({ children }: LayoutProps) {
   }, [location.key]);
 
   const mobileSidebarTrigger = isCompactLayout ? (
-    <button
+    <Button
+      ref={sidebarTriggerRef}
       type="button"
+      variant="ghost"
+      size="icon"
       aria-label={t("navigation.openSidebar")}
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      aria-expanded={mobileSidebarOpen}
+      aria-haspopup="dialog"
+      className="size-10 shrink-0 rounded-lg text-muted-foreground"
       onClick={() => setMobileSidebarOpen(true)}
     >
       <IconMenu2 size={18} />
-    </button>
+    </Button>
   ) : null;
   const contentSidebarWidth = isCompactLayout
     ? 0
@@ -201,7 +242,16 @@ export function Layout({ children }: LayoutProps) {
                 side="left"
                 showClose={false}
                 className="w-[85vw] max-w-80 p-0"
+                onCloseAutoFocus={(event) => {
+                  if (sidebarTriggerRef.current) {
+                    event.preventDefault();
+                    sidebarTriggerRef.current.focus();
+                  }
+                }}
               >
+                <SheetTitle className="sr-only">
+                  {t("navigation.openSidebar")}
+                </SheetTitle>
                 <DocumentSidebar
                   activeDocumentId={activeDocumentId}
                   collapsed={false}
@@ -210,7 +260,7 @@ export function Layout({ children }: LayoutProps) {
                 />
               </SheetContent>
             </Sheet>
-            {showHeader ? null : (
+            {showHeader || documentPageIdFromPathname(chromePathname) ? null : (
               <button
                 type="button"
                 aria-label={t("navigation.openSidebar")}
@@ -228,6 +278,8 @@ export function Layout({ children }: LayoutProps) {
               collapsed={sidebarCollapsed}
               onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
               width={sidebarWidth}
+              minWidth={MIN_SIDEBAR_WIDTH}
+              maxWidth={MAX_SIDEBAR_WIDTH}
               onResize={handleSidebarResize}
             />
           </div>
@@ -245,7 +297,9 @@ export function Layout({ children }: LayoutProps) {
           scope={documentScope}
           chatHistory={documentChatHistory}
           browserTabId={getBrowserTabId()}
-          composerSlot={<CreativeContextComposerChip />}
+          composerSlot={
+            creativeContextEnabled ? <CreativeContextComposerChip /> : undefined
+          }
         >
           <main
             className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
@@ -261,11 +315,13 @@ export function Layout({ children }: LayoutProps) {
             <InvitationBanner
               className={`${showHeader ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
             />
-            {showPendingDocumentSkeleton ? (
-              <DocumentEditorSkeleton />
-            ) : (
-              children
-            )}
+            <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
+              {showPendingDocumentSkeleton ? (
+                <DocumentEditorSkeleton />
+              ) : (
+                children
+              )}
+            </SidebarTriggerContext.Provider>
           </main>
         </AgentSidebar>
       </div>

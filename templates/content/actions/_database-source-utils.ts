@@ -30,7 +30,6 @@ import type {
   ContentDatabaseSourceRow,
   ContentDatabaseSourceSyncState,
   ContentDatabaseSourceType,
-  ContentDatabaseSourceWriteOwner,
   BuilderCmsModelFieldSummary,
   DocumentProperty,
   DocumentPropertyOptions,
@@ -54,6 +53,10 @@ import {
   type DocumentPropertyOptionColor,
 } from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
+import {
+  parseContentDatabaseSourceFieldReadOnly,
+  parseContentDatabaseSourceWriteOwner,
+} from "../shared/source-field-policy.js";
 import {
   bulkChunkSizeForColumnCount,
   chunks,
@@ -470,12 +473,6 @@ export function normalizeSourceSyncState(
     : "linked";
 }
 
-function normalizeWriteOwner(
-  value: string | null | undefined,
-): ContentDatabaseSourceWriteOwner {
-  return value === "source" || value === "derived" ? value : "local";
-}
-
 function normalizeSourceType(
   value: string | null | undefined,
 ): ContentDatabaseSourceType {
@@ -596,8 +593,8 @@ export function serializeSourceField(
       row.mappingType === "title" || row.mappingType === "system"
         ? row.mappingType
         : "property",
-    writeOwner: normalizeWriteOwner(row.writeOwner),
-    readOnly: row.readOnly === 1,
+    writeOwner: parseContentDatabaseSourceWriteOwner(row.writeOwner),
+    readOnly: parseContentDatabaseSourceFieldReadOnly(row.readOnly),
     provenance: row.provenance,
     freshness: normalizeSourceFreshness(row.freshness),
     lastSyncedAt: row.lastSyncedAt,

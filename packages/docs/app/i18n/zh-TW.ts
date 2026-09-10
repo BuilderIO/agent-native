@@ -429,20 +429,19 @@ const messages = {
   },
   homepage: {
     hero: {
-      title: "面向 agentic 應用的框架。",
-      bodyLine1:
-        "一個面向具備 UI 和 agent 的應用程式的開放原始碼 TypeScript framework。",
-      bodyLine2: "只需定義一次每個 Action，即可從任何地方呼叫。",
+      title: "面向 agentic 應用的框架",
+      bodyLine1: "建置配備直覺式 UI 的自主型 agent。",
+      bodyLine2: "使用你自己的 LLM，隨處部署。",
       tryAnApp: "試用應用程式",
     },
     install: {
       copyCommand: "複製安裝指令",
     },
     actions: {
-      title: "從任何地方呼叫一個 Action。",
-      bodyLine1: "使用 defineAction() 定義一項能力。",
+      title: "一個 Action 驅動所有能力面",
+      bodyLine1: "使用 defineAction() 一次定義一項能力。",
       bodyLine2:
-        "你的 React UI、agent、HTTP 用戶端和整合功能都會呼叫同一份程式碼。",
+        "你的 agent、React UI、HTTP 用戶端和整合功能都會呼叫同一份程式碼。",
       diagramAlt: "一個 Action 驅動 UI、MCP、Agent 對話、A2A、HTTP API 和 CLI",
     },
     builtIn: {
@@ -534,7 +533,7 @@ const messages = {
       stepTwoTitle: "開始輸入提示",
       stepTwoBody: "用自然語言描述您想建立的內容，代理會為您建立。",
       stepThreeTitle: "部署",
-      stepThreeBody: "準備好後，在 Builder 中一鍵部署您的應用程式。",
+      stepThreeBody: "準備好後，在 Builder 中一鍵部署您的 agent 及其 UI。",
     },
   },
   templatesPage: {
@@ -558,6 +557,7 @@ const messages = {
     tryCommunityDemo: "體驗示範",
     customizeDescription: "以這個應用程式為起點。",
     customizeOnline: "線上",
+    customizeOnlineBadge: "加入等候名單",
     customizeLocally: "本機",
     communityNew: "新應用程式",
     communityComingSoon: "即將推出",
@@ -609,6 +609,16 @@ const messages = {
     buildOnline: "線上建置",
     popoverTitle: "在瀏覽器中建置",
     popoverBody: "使用 Builder.io 在雲端快速產生 agent-native 應用程式。",
+    waitlistBody:
+      "Builder.io 可以在雲端啟動並自訂 agent-native app — 包含 actions、auth、SQL 狀態與 agent chat。加入等候名單以取得早期存取權。",
+    emailLabel: "電子郵件",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "加入等候名單",
+    joining: "正在加入…",
+    joined: "你已在等候名單中。線上建置存取開放時，我們會寄信通知你。",
+    invalidEmail: "請輸入有效的電子郵件地址。",
+    submitError: "無法加入等候名單。請再試一次。",
+    waitlistUnavailable: "此環境目前無法加入等候名單。請改用託管的文件網站。",
     launchBuilder: "啟動 Builder",
   },
   templateCard: {
@@ -866,6 +876,53 @@ const messages = {
     },
     clips: {
       s001: "Clips 範本螢幕截圖",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "讓 AI 代理看得懂、聽得懂的螢幕錄製",
+      heroDescription:
+        "Clips 是一款免費開源的螢幕錄製工具,方便你與 AI 代理分享錯誤、意見回饋與操作示範。",
+      heroCta: "錄製一段 Clip",
+      useCasesHeading: "用 Clips 能做什麼?",
+      useCasesBody:
+        "從一段你自己錄的 Clip,或別人分享給你的 Clip 開始。把背景資訊交給你的 AI 代理,告訴它你需要什麼。",
+      useCase1Title: "根據錄製的意見回饋採取行動",
+      useCase1Body:
+        "把錄製的意見回饋交給你的 AI 代理,請它整理成計畫或協助實作所需的變更。",
+      useCase2Title: "調查一個回報的錯誤",
+      useCase2Body:
+        "把錯誤錄製內容分享給你的 AI 代理,請它調查出了什麼問題並規劃下一步。",
+      useCase3Title: "根據錄製的需求說明進行創作",
+      useCase3Body:
+        "用錄製的需求說明來引導你的 AI 代理製作簡報、設計稿、內容或應用程式變更。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "錄製、轉錄、分享,一次到位",
+      feature1Title: "AI 代理可讀取的錄製內容",
+      feature1Body:
+        "透過一個代理可讀取的連結,把 Clip 的逐字稿與帶時間戳記的圖片分享給你的 AI 代理。",
+      feature2Title: "自動轉錄",
+      feature2Body:
+        "取得錄製、會議與口述內容的逐字稿。點選逐字稿的任一行即可跳回該時刻播放。",
+      feature3Title: "瀏覽器偵錯記錄",
+      feature3Body:
+        "使用 Clips 的 Chrome 擴充功能,在錄製的同時擷取控制台錯誤與失敗的請求。",
+      feature4Title: "內建 AI 代理",
+      feature4Body:
+        "向內建 AI 代理詢問某段 Clip 或整個資料庫的問題,並讓它在聊天中編輯逐字稿。",
+      feature5Title: "可搜尋的錄製資料庫",
+      feature5Body:
+        "透過搜尋逐字稿來尋找 Clip。用資料夾、標籤與團隊空間整理你的錄製內容。",
+      feature6Title: "按鍵口述輸入",
+      feature6Body:
+        "在桌面應用程式中按住 Fn 鍵,即可向其他應用程式口述輸入。在歷史記錄中可以回顧逐字稿與整理後的文字。",
+      teammatesLine: "你的團隊成員可以在播放器中觀看同一段錄製內容。",
+      teammatesLinkLabel: "閱讀代理分享指南",
+      seeInActionHeading: "看看 Clips 的實際運用",
+      seeInActionBody:
+        "看看 Clips 的實際使用情境,從錄製瀏覽器操作流程,到向 AI 代理示範如何完成一項工作。",
+      watchClipLabel: "觀看這段 Clip",
+      finalCtaHeading: "讓你的下一段 Clip 發揮作用",
+      finalCtaBody: "錄製一段說明,或把一段分享的 Clip 交給你的 AI 代理。",
+      finalCtaButton: "開啟 Clips",
       s002: "螢幕錄製",
       s003: "瀏覽器偵錯記錄",
       s004: "口授",
@@ -928,26 +985,23 @@ const messages = {
       s058: "免費和開放原始碼",
       s059: "立即開始",
       s060: "選擇要擷取的內容，然後在 Clips 中開始錄製。",
-      s061: "查看更多應用程式",
       s062: "檢視所有範本",
       faq: {
-        question1: "Clips 免費嗎？",
-        answer1: "是的。Clips 免費且開源。",
-        question2: "AI 能讀取螢幕錄影嗎？",
+        question1: "Clips 是免費開源的嗎?",
+        answer1:
+          "是的。Clips 是免費的開源軟體。你可以直接使用這個應用程式,也可以自行客製並自架你自己的版本。",
+        question2: "我可以把錄製內容分享給 Claude、ChatGPT 或 Cursor 嗎?",
         answer2:
-          "可以。每個剪輯都包含轉錄文字、摘要和帶時間戳記的畫面，代理可以直接讀取這些內容。",
-        question3: "Clips 與 Loom 有什麼不同？",
+          "Clips 會提供一個 AI 代理可讀取的連結,其中包含逐字稿與帶時間戳記的圖片。你的代理需要能夠開啟連結內容並讀取圖片,才能同時運用這兩者。部分聊天模式可以讀取逐字稿,但需要你另外上傳圖片。",
+        question3: "錄製螢幕需要用到 Chrome 擴充功能嗎?",
         answer3:
-          "Clips 開源，資料歸你所有；每個分享連結不只人能讀取，AI 代理也能讀取。",
-        question4: "螢幕錄影能擷取主控台錯誤嗎？",
+          "不需要。你可以直接在 Clips 網頁應用程式中錄製。如果還想取得所示範分頁的控制台訊息與網路診斷資訊,再使用 Chrome 擴充功能即可。",
+        question4: "AI 代理可以觀看我的螢幕錄製內容嗎?",
         answer4:
-          "可以。Clips 會在錄影時同時擷取瀏覽器主控台錯誤和失敗的網路要求。它們會與轉錄文字和畫面一起附加到同一個分享連結中。代理可以根據剪輯進行除錯，而不只是觀看。",
-        question5: "Clips 支援 Claude、ChatGPT 或 Cursor 嗎？",
+          "在 Clips 中,相容的 AI 代理可以透過逐字稿與帶時間戳記的圖片來理解你的錄製內容。它們使用的是文字和圖片,而不是播放影片,因此你可以針對發生的事情提問,或讓 AI 代理根據錄製內容執行工作。",
+        question5: "誰可以存取一段分享的錄製內容?",
         answer5:
-          "支援！不需要外掛或 API 金鑰。將 Clips 分享連結貼到任何代理中，它就能直接讀取轉錄文字、摘要和畫面。",
-        question6: "我的錄影儲存在哪裡？",
-        answer6:
-          "儲存在你的部署位置。自行託管的 Clips 會將影片、轉錄文字和分析資料保存在你自己的基礎設施中。",
+          "除非你的組織變更設定,否則錄製內容預設使用公開連結,任何取得連結的人都能存取。系統也提供私人與組織內存取選項,私人 Clip 可以透過臨時連結分享給代理,而不需要將錄製內容公開。",
       },
       quickStart: {
         recordingMode: "錄製模式",
@@ -1053,7 +1107,7 @@ const messages = {
       s004: "精煉",
       s005: "所有範本",
       s006: "開放原始碼 AI HTML 原型工作室",
-      s007: "根據提示生成互動式 Alpine/Tailwind 原型，比較變體，使用調整控制項進行最佳化，並匯出您擁有的真實檔案。",
+      s007: "建立互動式設計與原型。使用熟悉的工具進行調整，或進行對話編輯。可匯出至任何地方。",
       s008: "設計點什麼",
       s009: "它是如何運作的",
       s010: "你需要的一切",
@@ -1107,6 +1161,7 @@ const messages = {
       s058: "從範本開始並使用編輯來源的代理生成互動式原型。",
       s059: "閱讀檔案",
       s060: "檢視所有範本",
+      s061: "100% 免費、開放原始碼且可自訂。",
       faq: {
         question1: "AI 能產生真正的程式碼設計，而不只是模型圖嗎？",
         answer1:
@@ -2009,7 +2064,6 @@ const messages = {
     usingYourAgent: "使用你的 Agent",
     agentResources: "代理資源",
     integrations: "整合",
-    buildApps: "建置應用",
     advancedRuntime: "進階：擴充功能執行時",
     templatesSection: "應用程式",
     gettingStarted: "入門",
@@ -2070,6 +2124,9 @@ const messages = {
     databaseProviders: "資料庫提供者",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "國際化",
     localFileMode: "本機檔案模式",
@@ -2147,7 +2204,6 @@ const messages = {
     syncingTemplateChanges: "同步範本變更",
     writingAgentInstructions: "編寫 Agent 指令",
     embeddingSdk: "嵌入 SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native 程式碼 UI",
     harnessAgents: "Harness 代理",
     adapters: "轉接器",

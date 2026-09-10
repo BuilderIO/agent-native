@@ -178,4 +178,15 @@ describe("record route lifecycle shell", () => {
     expect(source).not.toContain("importLoomHref=");
     expect(source).not.toContain("autoOpenUpload=");
   });
+
+  it("keeps the browser route free of server-only app-state imports", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+
+    expect(source).not.toContain('from "@agent-native/core/application-state"');
+    expect(source).toContain("async function writeAppState");
+    expect(source).toContain("/_agent-native/application-state/");
+  });
 });

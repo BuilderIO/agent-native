@@ -8,12 +8,51 @@ import {
   cronForDaily,
   cronForInterval,
   defaultAutomationConfig,
+  inferAutomationSource,
   parseAuthorIdsField,
   parseScheduleFromCron,
+  readFactoryAutomationConfig,
   replaceUserPrompt,
+  templateIdForSeedName,
 } from "./factory-automation-config.js";
 
 describe("factory-automation-config", () => {
+  it("infers GitHub for PR babysit copies even when YAML source is missing or Slack", () => {
+    const withoutSource = `---
+template: pr-babysit
+repository: acme/widgets
+---
+Babysit pull requests.
+`;
+    expect(inferAutomationSource("factory-pr-babysit-2", withoutSource)).toBe(
+      "github",
+    );
+    expect(
+      readFactoryAutomationConfig(
+        withoutSource,
+        "factories/factorytester/factory-pr-babysit-2",
+      ).source,
+    ).toBe("github");
+    expect(
+      inferAutomationSource(
+        "factory-pr-babysit-2",
+        `---
+source: slack
+template: pr-babysit
+---
+Babysit pull requests.
+`,
+      ),
+    ).toBe("github");
+    expect(templateIdForSeedName("factory-pr-babysit-2")).toBe("pr-babysit");
+  });
+
+  it("infers custom jobs from factory-<source>- leaf prefixes", () => {
+    expect(inferAutomationSource("factory-github-my-repo")).toBe("github");
+    expect(inferAutomationSource("factory-slack-my-alerts")).toBe("slack");
+    expect(inferAutomationSource("factory-sentry-prod")).toBe("sentry");
+  });
+
   it("rejects include mode with no author ids", () => {
     expect(() => assertAuthorFilter("slack", "include", [])).toThrow(
       /at least one author id/,
@@ -62,6 +101,7 @@ describe("factory-automation-config", () => {
     const guardrails = buildGuardrailsText("support-triage", config);
     expect(guardrails).toContain("dispatch-factory-item");
     expect(guardrails).toContain("reaction");
+    expect(guardrails).toContain("omit it on skips");
     expect(guardrails).not.toContain("limit 20");
     expect(guardrails).not.toContain("👀");
 

@@ -19,7 +19,6 @@ import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   isReconcileLeadClient,
-  dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
   usePresence,
@@ -30,6 +29,7 @@ import {
   type OtherPresence,
 } from "@agent-native/core/client/collab";
 import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { useExperiment } from "@agent-native/core/client/experiments";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
@@ -67,6 +67,7 @@ import {
 } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
+  PresenceBar,
   RemoteSelectionRings,
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
@@ -104,6 +105,7 @@ import {
   DESIGN_CAPABILITY_NAMES,
   hasCapability,
 } from "@shared/design-source-capabilities";
+import { DESIGN_TWEAKS } from "@shared/experiments";
 import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
@@ -145,8 +147,6 @@ import {
   IconArchive,
   IconPhoto,
   IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
   IconCheck,
   IconDownload,
   IconClipboard,
@@ -225,8 +225,6 @@ import {
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
-import type { DesignCollaborator } from "@/components/design/editor/DesignCollaborators";
-import { DesignCollaboratorsMenu } from "@/components/design/editor/DesignCollaborators";
 import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
@@ -1459,8 +1457,20 @@ function DesignEditor() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
   const [uiHidden, setUiHidden] = useState(false);
-  const [minimalUi, setMinimalUi] = useState(false);
-  const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] = useState(false);
+  // Embedded Design surfaces have less room than a full browser, so keep the
+  // canvas primary while leaving the style panel available for the first edit.
+  const minimalUiByDefault = embedded && !hostOwnsChrome;
+  const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
+  const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] =
+    useState(minimalUiByDefault);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileViewport(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener("change", update);
+    return () => mediaQuery.removeEventListener("change", update);
+  }, []);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -2897,6 +2907,7 @@ function DesignEditor() {
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const tweaksEnabled = useExperiment(DESIGN_TWEAKS.key);
   const canCommentDesign =
     isSignedIn &&
     (designAccessRole === "owner" ||
@@ -3655,23 +3666,23 @@ function DesignEditor() {
 
   const handleTweakPromptOpenChange = useCallback(
     (open: boolean) => {
-      if (open && !canEditDesign) return;
+      if (open && (!canEditDesign || !tweaksEnabled)) return;
       setShowTweakPrompt(open);
       if (!open) {
         tweakPromptAnchorRef.current = null;
       }
     },
-    [canEditDesign],
+    [canEditDesign, tweaksEnabled],
   );
 
   const handleRequestTweaks = useCallback(
     (anchor: HTMLElement) => {
-      if (!canEditDesign) return;
+      if (!canEditDesign || !tweaksEnabled) return;
       tweakPromptAnchorRef.current = anchor;
       setActiveInspectorTab("tweaks");
       setShowTweakPrompt(true);
     },
-    [canEditDesign],
+    [canEditDesign, tweaksEnabled],
   );
 
   const persistPromptDesignSystem = useCallback(
@@ -5281,7 +5292,7 @@ function DesignEditor() {
   );
 
   // Collaborative editing for the active file
-  const { ydoc, awareness, isSynced, activeUsers, agentActive } =
+  const { ydoc, awareness, isSynced, activeUsers, agentPresent, agentActive } =
     useCollaborativeDoc({
       docId:
         isSignedIn && canEditDesign && viewMode === "single"
@@ -6250,29 +6261,6 @@ function DesignEditor() {
     [followingEmail, stopFollowing],
   );
 
-  const designCollaborators = useMemo<DesignCollaborator[]>(() => {
-    const currentEmail = currentUser?.email.trim().toLowerCase() ?? null;
-    const humans = dedupeCollabUsersByEmail([
-      ...(currentUser ? [currentUser] : []),
-      ...activeUsers,
-    ]).filter((user) => user.email.trim().toLowerCase() !== "agent@system");
-    const otherHumans = humans.filter(
-      (user) => user.email.trim().toLowerCase() !== currentEmail,
-    );
-    const collaborators = otherHumans.map((user) => ({ user }));
-
-    if (!currentUser) return collaborators;
-
-    return [
-      {
-        user: currentUser,
-        image: session?.image,
-        isCurrent: true,
-      },
-      ...collaborators,
-    ];
-  }, [activeUsers, currentUser, session?.image]);
-
   // Resolve the content to render: prefer collab content only after the
   // per-file reconcile state has reset for the current active file. Otherwise a
   // file switch can render one frame with the previous file's Yjs text.
@@ -6981,6 +6969,13 @@ function DesignEditor() {
 
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const designReviewPanelEnabled = useFeatureFlag(DESIGN_REVIEW_PANEL.key);
+
+  useEffect(() => {
+    if (!tweaksEnabled && activeInspectorTab === "tweaks") {
+      setActiveInspectorTab("design");
+    }
+    if (!tweaksEnabled) setShowTweakPrompt(false);
+  }, [activeInspectorTab, tweaksEnabled]);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
   // `fusionUrl` written by the "Make it real" migration; falls back to the
@@ -12195,10 +12190,11 @@ function DesignEditor() {
 
   // ── UI toggles, ungroup, reparent, cut, screen deletion ────────────────────
   const handleToggleMinimalUi = useCallback(() => {
-    setMinimalUi((current) => !current);
+    const enteringMinimalUi = !minimalUi;
+    setMinimalUi(enteringMinimalUi);
     setUiHidden(false);
-    setMinimalRightSidebarOpen(false);
-  }, []);
+    setMinimalRightSidebarOpen(enteringMinimalUi);
+  }, [minimalUi]);
 
   const handleToggleMinimalRightSidebar = useCallback(() => {
     if (uiHidden) {
@@ -19256,11 +19252,7 @@ function DesignEditor() {
           disabled={initialGenerationChromeLimited}
           onClick={handleToggleMinimalRightSidebar}
         >
-          {minimalRightSidebarOpen && !uiHidden ? (
-            <IconChevronRight className="size-4" />
-          ) : (
-            <IconChevronLeft className="size-4" />
-          )}
+          <IconLayoutSidebar className="size-4 -scale-x-100" />
         </Button>
       </TooltipTrigger>
       <TooltipContent>
@@ -19528,11 +19520,19 @@ function DesignEditor() {
         {minimalUi ? minimalRightSidebarToggle : null}
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
-            <DesignCollaboratorsMenu
-              collaborators={designCollaborators}
+            <PresenceBar
+              activeUsers={[
+                ...(currentUser ? [currentUser] : []),
+                ...(activeUsers ?? []),
+              ]}
+              agentPresent={agentPresent}
+              agentActive={agentActive}
+              currentUserEmail={currentUser?.email}
+              showCurrentUser
               followingEmail={followingEmail}
-              label={t("designEditor.collaborators")}
               onAvatarClick={handleAvatarClick}
+              disableAgentClick
+              className="shrink-0"
             />
           )}
         </div>
@@ -19806,6 +19806,27 @@ function DesignEditor() {
     </div>
   );
 
+  const renderResponsiveInteractBar = (floating: boolean) => (
+    <ResponsiveInteractBar
+      deviceName={interactDeviceName}
+      width={interactDeviceSize.width}
+      height={interactDeviceSize.height}
+      zoom={interactZoom}
+      onDeviceChange={handleInteractDeviceChange}
+      onWidthChange={handleInteractWidthChange}
+      onHeightChange={handleInteractHeightChange}
+      onZoomChange={setInteractZoom}
+      onModeChange={handleModeChange}
+      canAnnotate={canEditDesign}
+      onClose={handleExitResponsiveInteract}
+      className={
+        floating
+          ? "pointer-events-auto w-full max-w-[680px] rounded-lg border shadow-xl"
+          : undefined
+      }
+    />
+  );
+
   const leftContentWidth =
     activeLeftPanel === "code"
       ? Math.max(leftSidebarWidth, 640)
@@ -19866,6 +19887,7 @@ function DesignEditor() {
       : undefined,
     activeTab: activeInspectorTab,
     onActiveTabChange: setActiveInspectorTab,
+    tweaksEnabled,
     tweaks,
     tweakValues: tweakSelections,
     activeContent,
@@ -20568,24 +20590,14 @@ function DesignEditor() {
                 onRetry={handleRetryGeneration}
               />
             ) : viewMode === "overview" || activeFile ? (
-              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                 {/* Interact's device chrome sits inside the canvas column so
                     the workspace rails stay put — Interact is a different view
                     of the same editor, not a chrome-free takeover. */}
-                {responsiveInteractActive ? (
-                  <ResponsiveInteractBar
-                    deviceName={interactDeviceName}
-                    width={interactDeviceSize.width}
-                    height={interactDeviceSize.height}
-                    zoom={interactZoom}
-                    onDeviceChange={handleInteractDeviceChange}
-                    onWidthChange={handleInteractWidthChange}
-                    onHeightChange={handleInteractHeightChange}
-                    onZoomChange={setInteractZoom}
-                    onModeChange={handleModeChange}
-                    canAnnotate={canEditDesign}
-                    onClose={handleExitResponsiveInteract}
-                  />
+                {responsiveInteractActive && !minimalUi ? (
+                  <div className="shrink-0">
+                    {renderResponsiveInteractBar(false)}
+                  </div>
                 ) : null}
                 {/* §6.4 / BP-DEEP v2 — breakpoint targeting no longer
                     renders any bar over or above the canvas (the earlier
@@ -21266,23 +21278,34 @@ function DesignEditor() {
             data-design-minimal-ui
             className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
           >
-            <div
-              data-design-minimal-bar="left"
-              className="pointer-events-auto absolute left-3 top-3 flex h-10 min-w-0 max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
-            >
-              <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
-              <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
-              {minimalUiToggle}
-            </div>
-
-            {!minimalRightSidebarOpen || uiHidden ? (
+            <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3">
               <div
-                data-design-minimal-bar="right"
-                className="pointer-events-auto absolute right-3 top-3 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
+                data-design-minimal-bar="left"
+                className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
               >
-                {rightSidebarActions}
+                <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
+                <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
+                {minimalUiToggle}
               </div>
-            ) : null}
+              <div
+                data-design-minimal-bar="interact"
+                className="pointer-events-none flex min-w-0 justify-center"
+              >
+                {responsiveInteractActive
+                  ? renderResponsiveInteractBar(true)
+                  : null}
+              </div>
+              {!minimalRightSidebarOpen || uiHidden ? (
+                <div
+                  data-design-minimal-bar="right"
+                  className="pointer-events-auto min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
+                >
+                  {rightSidebarActions}
+                </div>
+              ) : (
+                <div aria-hidden="true" />
+              )}
+            </div>
           </div>
         ) : null}
       </div>
@@ -21290,21 +21313,27 @@ function DesignEditor() {
       {/* ── Render: mobile inspector sheet ── */}
       {!hostOwnsChrome &&
       !uiHidden &&
-      !minimalUi &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="fixed right-3 top-14 z-[75] size-9 rounded-full shadow-lg md:hidden"
-              aria-label={t("editPanel.properties")}
-            >
-              <IconAdjustmentsHorizontal className="size-4" />
-            </Button>
-          </SheetTrigger>
+        <Sheet
+          open={
+            minimalUi ? isMobileViewport && minimalRightSidebarOpen : undefined
+          }
+          onOpenChange={minimalUi ? setMinimalRightSidebarOpen : undefined}
+        >
+          {!minimalUi ? (
+            <SheetTrigger asChild>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="fixed right-3 top-14 z-[75] size-9 rounded-full shadow-lg md:hidden"
+                aria-label={t("editPanel.properties")}
+              >
+                <IconAdjustmentsHorizontal className="size-4" />
+              </Button>
+            </SheetTrigger>
+          ) : null}
           <SheetContent
             side="right"
             className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
@@ -21512,7 +21541,7 @@ function DesignEditor() {
         }}
       />
       <PromptPopover
-        open={showTweakPrompt}
+        open={showTweakPrompt && tweaksEnabled}
         onOpenChange={handleTweakPromptOpenChange}
         title={t("designEditor.tweaksPromptTitle")}
         placeholder={t("designEditor.tweaksPlaceholder")}

@@ -1,5 +1,21 @@
 # @agent-native/toolkit
 
+## 0.19.6
+
+### Patch Changes
+
+- e8b291e: Use the shared mouse-reactive wave animation as the branded auth background across all templates.
+- 4915b82: Style Tiptap collaboration carets and labels so remote presence indicators stay compact and non-disruptive.
+- Release all public npm packages with a patch version bump.
+- 3bde94f: Reduce avatar border and presence-ring weight across shared app surfaces.
+
+## 0.19.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 58d9dc3: Allow callers to keep the AI presence avatar display-only.
+
 ## 0.19.4
 
 ### Patch Changes

@@ -24,6 +24,7 @@ import { toast } from "sonner";
 
 import { CreateFactoryAutomationView } from "@/components/factory/CreateFactoryAutomationView";
 import {
+  automationEditorConfigKey,
   canSaveFactoryAutomation,
   dispatchIntegrationsHref,
   emptyAutomationForm,
@@ -32,8 +33,11 @@ import {
   formAuthorFilter,
   formatDailyTime,
   isDestinationReady,
+  mergeListedAutomationDraft,
+  omitNullDestination,
   parseDailyTime,
   persistAuthorFilter,
+  type AutomationAuthorFilter,
   type AutomationAuthorMode,
   type AutomationSource,
   type FactoryAutomationConnections,
@@ -138,6 +142,7 @@ type FactoryAutomation = {
   sentryEnvironment?: string | null;
   authorMode?: AutomationAuthorMode;
   authorIds?: string[];
+  authorFilter?: AutomationAuthorFilter;
   scheduleMode?: FactoryAutomationFormState["scheduleMode"];
   intervalMinutes?: FactoryAutomationFormState["intervalMinutes"];
   dailyHour?: number;
@@ -894,6 +899,8 @@ function AutomationsView({
   const [searchParams, setSearchParams] = useSearchParams();
   const [draft, setDraft] = useState<FactoryAutomation | null>(null);
   const [queuedRuns, setQueuedRuns] = useState<Record<string, string>>({});
+  const syncedConfigKeyRef = useRef<string | null>(null);
+  const draftRef = useRef<FactoryAutomation | null>(null);
   const queryClient = useQueryClient();
   useEffect(() => {
     setQueuedRuns({});
@@ -927,10 +934,16 @@ function AutomationsView({
   } = useChatModels({ storageKey: null });
   const response = automationsQuery.data;
   const automations = response ?? [];
+  const selectedFromList = selectedId
+    ? (automations.find((automation) => automation.id === selectedId) ?? null)
+    : null;
   const selected =
-    automations.find((automation) => automation.id === selectedId) ??
-    automations[0] ??
-    null;
+    selectedFromList ?? (selectedId ? null : (automations[0] ?? null));
+  // The list has loaded and does not contain the requested id: deleted, or from
+  // another factory. Distinct from the still-loading case, where `response` is
+  // undefined and the editor must keep waiting.
+  const automationMissing =
+    Boolean(selectedId) && !selectedFromList && response !== undefined;
   const modelOptions = useMemo(() => {
     const configuredGroups = availableModels.filter(
       (group) => group.configured,
@@ -972,11 +985,17 @@ function AutomationsView({
   }
 
   const selectAutomation = useCallback(
-    (id: string) => {
-      const nextAutomation = automations.find(
-        (automation) => automation.id === id,
-      );
-      if (nextAutomation) setDraft(draftForAutomation(nextAutomation));
+    (id: string, listed: FactoryAutomation[] = automations) => {
+      const nextAutomation = listed.find((automation) => automation.id === id);
+      if (!nextAutomation) {
+        // Writing the id while the list still lacks the row is what the
+        // missing-automation empty state then reports as "gone".
+        return false;
+      }
+      const nextDraft = draftForAutomation(nextAutomation);
+      syncedConfigKeyRef.current = automationEditorConfigKey(nextDraft);
+      draftRef.current = nextDraft;
+      setDraft(nextDraft);
       setSearchParams(
         (current) => {
           const next = new URLSearchParams(current);
@@ -986,40 +1005,38 @@ function AutomationsView({
         },
         { replace: true },
       );
+      return true;
     },
     [automations, setSearchParams],
   );
 
   useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
     if (!selected) {
+      // Only drop the draft once the list has spoken. While it is still loading
+      // an unresolved id is unknown, not missing.
+      if (selectedId && !automationMissing) return;
+      syncedConfigKeyRef.current = null;
+      draftRef.current = null;
       setDraft((current) => (current === null ? current : null));
       return;
     }
-    if (selected.id !== selectedId) {
+    if (!selectedId) {
       selectAutomation(selected.id);
       return;
     }
-    const nextDraft = draftForAutomation(selected);
-    setDraft((current) => {
-      if (
-        current &&
-        current.id === nextDraft.id &&
-        current.name === nextDraft.name &&
-        current.displayName === nextDraft.displayName &&
-        current.prompt === nextDraft.prompt &&
-        current.body === nextDraft.body &&
-        current.model === nextDraft.model &&
-        current.schedule === nextDraft.schedule &&
-        current.enabled === nextDraft.enabled &&
-        current.inboxLimit === nextDraft.inboxLimit &&
-        current.workLimit === nextDraft.workLimit &&
-        current.updatedAt === nextDraft.updatedAt
-      ) {
-        return current;
-      }
-      return nextDraft;
-    });
-  }, [selectAutomation, selected, selectedId]);
+    const merged = mergeListedAutomationDraft(
+      draftRef.current,
+      draftForAutomation(selected),
+      syncedConfigKeyRef.current,
+    );
+    syncedConfigKeyRef.current = merged.syncedKey;
+    draftRef.current = merged.draft;
+    setDraft(merged.draft);
+  }, [automationMissing, selectAutomation, selected, selectedId]);
 
   useEffect(() => {
     if (Object.keys(queuedRuns).length === 0 || !response) return;
@@ -1058,12 +1075,12 @@ function AutomationsView({
         model: draft.model ?? "",
         enabled: draft.enabled,
         slackWorkspace: draft.slackWorkspace,
-        slackChannelId: draft.slackChannelId ?? "",
-        slackChannelName: draft.slackChannelName ?? "",
-        repository: draft.repository ?? "",
-        sentryOrgSlug: draft.sentryOrgSlug ?? "",
-        sentryProjectSlug: draft.sentryProjectSlug ?? "",
-        sentryEnvironment: draft.sentryEnvironment ?? "",
+        slackChannelId: omitNullDestination(draft.slackChannelId),
+        slackChannelName: omitNullDestination(draft.slackChannelName),
+        repository: omitNullDestination(draft.repository),
+        sentryOrgSlug: omitNullDestination(draft.sentryOrgSlug),
+        sentryProjectSlug: omitNullDestination(draft.sentryProjectSlug),
+        sentryEnvironment: omitNullDestination(draft.sentryEnvironment),
         authorMode: draft.authorMode,
         authorIds: draft.authorIds ?? [],
         scheduleMode: draft.scheduleMode,
@@ -1074,6 +1091,10 @@ function AutomationsView({
         inboxLimit: draft.inboxLimit,
         workLimit: draft.workLimit,
       });
+      // Save normalizes author ids, limits, and the timezone, so the refetched
+      // row is authoritative. Clearing the key makes the next sync adopt it
+      // instead of treating the draft as still-unsaved forever.
+      syncedConfigKeyRef.current = null;
       await automationsQuery.refetch();
       toast.success(t("factoryRoute.automationSaved"));
     } catch (error) {
@@ -1085,8 +1106,21 @@ function AutomationsView({
     }
   }
 
+  function draftHasUnsavedEdits(current: FactoryAutomation) {
+    return (
+      syncedConfigKeyRef.current === null ||
+      automationEditorConfigKey(current) !== syncedConfigKeyRef.current
+    );
+  }
+
   async function runAutomation() {
     if (!draft) return;
+    if (draftHasUnsavedEdits(draft)) {
+      // A run reads the saved resource, so running now would execute a
+      // different config than the one on screen.
+      toast.error(t("factoryRoute.automationRunNeedsSave"));
+      return;
+    }
     try {
       const result = await runMutation.mutateAsync({
         factoryId,
@@ -1123,8 +1157,22 @@ function AutomationsView({
           factoryId={factoryId}
           onCancel={() => setCreateOpen(false)}
           onCreated={(automationId) => {
-            void automationsQuery.refetch();
-            selectAutomation(automationId);
+            void automationsQuery
+              .refetch()
+              .then((result) => {
+                const listed = result.data;
+                if (
+                  result.error ||
+                  !listed?.some((automation) => automation.id === automationId)
+                ) {
+                  toast.error(t("factoryRoute.automationCreateRefreshFailed"));
+                  return;
+                }
+                selectAutomation(automationId, listed);
+              })
+              .catch(() => {
+                toast.error(t("factoryRoute.automationCreateRefreshFailed"));
+              });
           }}
         />
       </div>
@@ -1276,7 +1324,11 @@ function AutomationsView({
               </div>
             ) : null}
           </div>
-          {!draft ? (
+          {automationMissing ? (
+            <p className="text-sm text-muted-foreground">
+              {t("factoryRoute.automationNotFound")}
+            </p>
+          ) : !draft ? (
             <p className="text-sm text-muted-foreground">
               {t("factoryRoute.selectAutomation")}
             </p>
@@ -1304,6 +1356,7 @@ function AutomationsView({
                     sentryEnvironment: next.sentryEnvironment,
                     authorMode: authors.authorMode,
                     authorIds: authors.authorIds,
+                    authorFilter: next.authorFilter,
                     scheduleMode: next.scheduleMode,
                     intervalMinutes: next.intervalMinutes,
                     dailyHour: parseDailyTime(next.dailyTime).dailyHour,
@@ -1427,7 +1480,9 @@ function automationToForm(
     sentryOrgSlug: automation.sentryOrgSlug ?? "",
     sentryProjectSlug: automation.sentryProjectSlug ?? "",
     sentryEnvironment: automation.sentryEnvironment ?? "",
-    authorFilter: formAuthorFilter(automation.authorMode, automation.authorIds),
+    authorFilter:
+      automation.authorFilter ??
+      formAuthorFilter(automation.authorMode, automation.authorIds),
     authorIds: automation.authorIds ?? [],
     scheduleMode: automation.scheduleMode ?? "interval",
     intervalMinutes: automation.intervalMinutes ?? 5,

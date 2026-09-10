@@ -1,3 +1,31 @@
+## 0.1.33
+
+### Patch Changes
+
+- Updated dependencies [0b57293]
+- Updated dependencies [0b57293]
+- Updated dependencies [0b57293]
+- Updated dependencies [0b57293]
+- Updated dependencies [f97dad9]
+- Updated dependencies [0b57293]
+- Updated dependencies [0b57293]
+- Updated dependencies [0b57293]
+- Updated dependencies [bcd4c14]
+- Updated dependencies [0b57293]
+- Updated dependencies [0b57293]
+- Updated dependencies [0b57293]
+- Updated dependencies [16cbc53]
+- Updated dependencies [0b57293]
+- Updated dependencies [0b57293]
+  - @agent-native/core@0.162.0
+
+## 0.1.32
+
+### Patch Changes
+
+- Updated dependencies [112547e]
+  - @agent-native/core@0.161.23
+
 ## 0.1.31
 
 ### Patch Changes

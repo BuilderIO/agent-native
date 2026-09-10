@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MutableRefObject,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   chooseFallbackAudioInput,
@@ -13,6 +6,7 @@ import {
   isSelectableAudioInputDevice,
   normalizedMediaDeviceId,
 } from "../../../shared/media-device-selection";
+import { getAudioStreamWithFallback } from "../lib/media-capture-constraints";
 import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
@@ -24,15 +18,6 @@ const MIC_KEY = "clips:last-mic-id";
 const CAM_LABEL_KEY = "clips:last-camera-label";
 const MIC_LABEL_KEY = "clips:last-mic-label";
 
-function rawMicConstraints(deviceId?: string): MediaTrackConstraints {
-  return {
-    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false,
-  };
-}
-
 function concreteMediaDeviceId(value: string | null | undefined): string {
   const id = normalizedMediaDeviceId(value);
   return id && !isPseudoMediaDeviceId(id) ? id : "";
@@ -43,12 +28,28 @@ function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
 }
 
 interface Props {
-  // Mirrors whether the on-screen camera bubble owns the camera grant. While
-  // it does, this page must never probe getUserMedia itself.
-  bubbleActiveRef: MutableRefObject<boolean>;
+  microphoneEnabled: boolean;
   popoverVisible: boolean;
   setCameraError: (message: string | null) => void;
   setRecError: (message: string | null) => void;
+}
+
+export async function refreshMicrophoneAccess(
+  selectedMicId: string,
+  selectedMicLabel: string,
+): Promise<{ deviceId: string; label: string }> {
+  const stream = await getAudioStreamWithFallback(
+    selectedMicId,
+    selectedMicLabel,
+    false,
+  );
+  const track = stream.getAudioTracks()[0] ?? null;
+  const result = {
+    deviceId: concreteMediaDeviceId(track?.getSettings().deviceId),
+    label: track?.label ?? "",
+  };
+  stream.getTracks().forEach((candidate) => candidate.stop());
+  return result;
 }
 
 export interface MediaDevicesState {
@@ -69,7 +70,7 @@ export interface MediaDevicesState {
 }
 
 export function useMediaDevices({
-  bubbleActiveRef,
+  microphoneEnabled,
   popoverVisible,
   setCameraError,
   setRecError,
@@ -107,8 +108,8 @@ export function useMediaDevices({
 
   // ---- device enumeration -------------------------------------------------
   // WebKit only returns full device labels after getUserMedia() has granted
-  // access once. Enumerating itself is safe; the unlock helper below is careful
-  // to never touch the OS default input just to populate labels.
+  // access once. Enumerating itself is safe; the unlock helper below only
+  // acquires audio while the visible microphone control is enabled.
   const loadDevices = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -155,6 +156,18 @@ export function useMediaDevices({
     };
   }, [loadDevices]);
 
+  const refreshSelectedMicrophone = useCallback(async () => {
+    const activeMic = await refreshMicrophoneAccess(selectedMicId, micLabel);
+    if (
+      selectedMicId &&
+      activeMic.deviceId &&
+      activeMic.deviceId !== selectedMicId
+    ) {
+      setMicId("");
+      setMicLabel("");
+    }
+  }, [micLabel, selectedMicId]);
+
   const unlockDeviceLabels = useCallback(async () => {
     // Audio-only probe to unlock mic labels. We INTENTIONALLY skip video —
     // the on-screen camera bubble window owns the camera, and probing
@@ -163,26 +176,18 @@ export function useMediaDevices({
     // WebViews in the same process). Camera-label text is low-value
     // anyway; most machines have one.
     //
-    // Do not probe `audio: true` or WebKit's pseudo `default` device here.
-    // On macOS that opens the system default input, which can shove
-    // Bluetooth headphones into hands-free mode just from opening the Clips
-    // popover. If the user has picked a concrete mic, use that exact device;
-    // otherwise leave labels locked until a real user action needs access.
+    // The meter already needs an input while this control is visible. Reuse the
+    // recorder's fallback chain so a disconnected saved device cannot leave
+    // both the meter and the device list stranded until the user changes a
+    // selection. This may use the system default only after an exact saved
+    // device fails, or when the user has explicitly left the picker on Default.
     try {
-      if (!selectedMicId) {
-        await loadDevices();
-        return;
-      }
-      const s = await navigator.mediaDevices.getUserMedia({
-        audio: rawMicConstraints(selectedMicId),
-        video: false,
-      });
-      s.getTracks().forEach((t) => t.stop());
+      await refreshSelectedMicrophone();
     } catch {
       // permission denied — labels stay empty until the user grants
     }
     await loadDevices();
-  }, [loadDevices, selectedMicId]);
+  }, [loadDevices, refreshSelectedMicrophone]);
 
   const requestDeviceAccess = useCallback(
     async (kind: "camera" | "mic") => {
@@ -190,15 +195,15 @@ export function useMediaDevices({
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error("Device selection is not available in this WebView.");
         }
-        const stream = await navigator.mediaDevices.getUserMedia(
-          kind === "camera"
-            ? { video: true, audio: false }
-            : {
-                audio: rawMicConstraints(selectedMicId || undefined),
-                video: false,
-              },
-        );
-        stream.getTracks().forEach((track) => track.stop());
+        if (kind === "camera") {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+          stream.getTracks().forEach((track) => track.stop());
+        } else {
+          await refreshSelectedMicrophone();
+        }
         await loadDevices();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -221,20 +226,35 @@ export function useMediaDevices({
         await loadDevices();
       }
     },
-    [bubbleActiveRef, loadDevices, selectedMicId, setCameraError, setRecError],
+    [loadDevices, refreshSelectedMicrophone, setCameraError, setRecError],
   );
 
-  // Defer device-label unlocking until the popover is first shown. Even the
+  // Defer device-label unlocking until each visible popover session. Even the
   // selected-device probe can trigger a macOS permission dialog, so keep it
-  // attached to visible UI instead of firing on hidden webview mount.
+  // attached to visible UI instead of firing on hidden WebView mount.
   const deviceLabelsUnlocked = useRef(false);
   useEffect(() => {
     void loadDevices();
-    if (popoverVisible && !deviceLabelsUnlocked.current) {
+    if (!popoverVisible || !microphoneEnabled) {
+      deviceLabelsUnlocked.current = false;
+      return;
+    }
+    if (!deviceLabelsUnlocked.current) {
       deviceLabelsUnlocked.current = true;
       void unlockDeviceLabels();
     }
-  }, [loadDevices, unlockDeviceLabels, popoverVisible]);
+  }, [loadDevices, microphoneEnabled, popoverVisible, unlockDeviceLabels]);
+
+  // WebKit does not consistently emit `devicechange` inside a reused Tauri
+  // popover WebView. Keep the visible picker current without polling while the
+  // recorder UI is hidden.
+  useEffect(() => {
+    if (!popoverVisible) return;
+    const interval = window.setInterval(() => {
+      void loadDevices();
+    }, 2_000);
+    return () => window.clearInterval(interval);
+  }, [loadDevices, popoverVisible]);
 
   useEffect(() => {
     if (!micId || !isPseudoMediaDeviceId(micId) || mics.length === 0) return;

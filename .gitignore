@@ -7,7 +7,7 @@ docs/superpowers
 
 # Local bridge and data artifacts
 /bridge/
-/data/
+**/data/
 
 .idea/
 
@@ -36,9 +36,6 @@ node-compile-cache/
 
 # Application state data files (ephemeral, may contain secrets)
 **/application-state/*.json
-
-# Local PGlite databases (never commit)
-**/data/pglite/
 
 # React Router generated types
 .react-router/

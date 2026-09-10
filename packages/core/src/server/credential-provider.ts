@@ -37,6 +37,7 @@ import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
 } from "./builder-oauth.js";
+import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
   getRequestContext,
   getRequestUserEmail,
@@ -184,6 +185,61 @@ export function assertCredentialStoreReadable(result: {
  */
 export function readDeployCredentialEnv(key: string): string | undefined {
   return process.env[key] || undefined;
+}
+
+function configuredOrigin(
+  value: string | undefined,
+  assumeHttps = false,
+): string | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  const candidate =
+    assumeHttps && !/^[a-z][a-z\d+.-]*:\/\//i.test(raw)
+      ? `https://${raw}`
+      : raw;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.origin;
+  } catch {
+    // coercion-ok: malformed optional target metadata cannot prove trust, so
+    // fail closed without sending the deployment bypass secret.
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the Vercel Deployment Protection header for one trusted deployment
+ * target. The secret is never returned or logged, and arbitrary A2A targets do
+ * not receive it just because this deployment has the credential configured.
+ * These callers are server-to-server, so a browser bypass cookie is not useful.
+ */
+export function resolveVercelDeploymentProtectionHeaders(
+  targetUrl: string,
+): Record<string, string> {
+  const secret = readDeployCredentialEnv("VERCEL_AUTOMATION_BYPASS_SECRET");
+  if (!secret?.trim()) return {};
+
+  const targetOrigin = configuredOrigin(targetUrl);
+  if (!targetOrigin) return {};
+
+  const config = getAppConfig();
+  const isProduction = resolveDeployEnvironment() === "production";
+  const trustedOrigins = [
+    configuredOrigin(process.env.VERCEL_URL, true),
+    configuredOrigin(process.env.VERCEL_BRANCH_URL, true),
+    configuredOrigin(config.workspace.gatewayUrl),
+    configuredOrigin(config.workspace.orgDirectoryUrl),
+    ...(isProduction
+      ? [
+          configuredOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL, true),
+          configuredOrigin(config.app.url),
+        ]
+      : []),
+  ].filter((origin): origin is string => origin !== undefined);
+
+  if (!trustedOrigins.includes(targetOrigin)) return {};
+  return { "x-vercel-protection-bypass": secret.trim() };
 }
 
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
@@ -1968,9 +2024,22 @@ export async function resolveSecretPair(
  * unknown (`lookupFailed: true` — the store or the org membership behind it
  * could not be read).
  */
+export type ResolvedSecretSource = "user" | "org" | "workspace" | "env";
+
+export interface ResolvedSecretDetail {
+  value: string | null;
+  lookupFailed: boolean;
+  cause?: unknown;
+  /** Which store answered. Absent when nothing did. */
+  source?: ResolvedSecretSource;
+  /** The `app_secrets` scope id that answered, so callers can read its metadata. */
+  scopeId?: string;
+}
+
 export async function resolveSecretDetailed(
   key: string,
-): Promise<{ value: string | null; lookupFailed: boolean; cause?: unknown }> {
+  options: { skipUserScope?: boolean } = {},
+): Promise<ResolvedSecretDetail> {
   const traceLookup = shouldTraceCredentialResolve();
   const email = getRequestUserEmail();
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
@@ -1981,23 +2050,30 @@ export async function resolveSecretDetailed(
       const { readAppSecret } = await import("../secrets/storage.js");
 
       // Per-user override first.
-      const userSecret = await readAppSecret({
-        key,
-        scope: "user",
-        scopeId: email,
-      });
+      const userSecret = options.skipUserScope
+        ? null
+        : await readAppSecret({
+            key,
+            scope: "user",
+            scopeId: email,
+          });
       if (userSecret?.value) {
         if (traceLookup) {
           console.log(
             `[resolve-secret] key=${key} email=${email} scope=user hit=true`,
           );
         }
-        return { value: userSecret.value, lookupFailed: false };
+        return {
+          value: userSecret.value,
+          lookupFailed: false,
+          source: "user",
+          scopeId: email,
+        };
       }
 
       // The beta suite writes one user-scoped credential and must never turn a
       // rejected or missing test key into a charge against a shared scope.
-      if (syntheticTraffic) return NOT_FOUND;
+      if (syntheticTraffic) return { value: null, lookupFailed: false };
 
       // Mirrors resolveScopedBuilderCredential: a transient org_members read
       // failure makes getOrgContext report no org, which would otherwise hide
@@ -2035,7 +2111,12 @@ export async function resolveSecretDetailed(
               `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
             );
           }
-          return { value: orgSecret.value, lookupFailed: false };
+          return {
+            value: orgSecret.value,
+            lookupFailed: false,
+            source: "org",
+            scopeId: orgId,
+          };
         }
 
         // Registered secrets historically used "workspace" scope for
@@ -2048,7 +2129,12 @@ export async function resolveSecretDetailed(
               `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
             );
           }
-          return { value: workspaceSecret.value, lookupFailed: false };
+          return {
+            value: workspaceSecret.value,
+            lookupFailed: false,
+            source: "workspace",
+            scopeId: orgId,
+          };
         }
       }
 
@@ -2068,7 +2154,12 @@ export async function resolveSecretDetailed(
             `[resolve-secret] key=${key} email=${email} orgId=${orgId ?? "(none)"} scope=workspace-solo hit=true`,
           );
         }
-        return { value: soloWorkspaceSecret.value, lookupFailed: false };
+        return {
+          value: soloWorkspaceSecret.value,
+          lookupFailed: false,
+          source: "workspace",
+          scopeId: `solo:${email}`,
+        };
       }
 
       // Dispatch's workspace vault is stored under the organization that
@@ -2102,7 +2193,12 @@ export async function resolveSecretDetailed(
                 `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=org-vault hit=true`,
               );
             }
-            return { value: vaultOrgSecret.value, lookupFailed: false };
+            return {
+              value: vaultOrgSecret.value,
+              lookupFailed: false,
+              source: "org",
+              scopeId: vaultOrgId,
+            };
           }
           const vaultWorkspaceSecret = unwrap(vaultWorkspaceRead);
           if (vaultWorkspaceSecret?.value) {
@@ -2111,7 +2207,12 @@ export async function resolveSecretDetailed(
                 `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=workspace-vault hit=true`,
               );
             }
-            return { value: vaultWorkspaceSecret.value, lookupFailed: false };
+            return {
+              value: vaultWorkspaceSecret.value,
+              lookupFailed: false,
+              source: "workspace",
+              scopeId: vaultOrgId,
+            };
           }
         }
       }
@@ -2146,6 +2247,7 @@ export async function resolveSecretDetailed(
       value: envFallback,
       lookupFailed,
       cause,
+      ...(envFallback ? { source: "env" as const } : {}),
     };
   }
   // Unauthenticated / local-dev / CLI / background context: env fallback
@@ -2156,7 +2258,11 @@ export async function resolveSecretDetailed(
       `[resolve-secret] key=${key} email=(none) scope=env-anonymous hit=${!!value}`,
     );
   }
-  return { value, lookupFailed: false };
+  return {
+    value,
+    lookupFailed: false,
+    ...(value ? { source: "env" as const } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

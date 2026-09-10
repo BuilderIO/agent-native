@@ -33,6 +33,7 @@ import {
   triageItemAuthorId,
 } from "../server/triage/metadata.js";
 import { babysitLeavesReviewWindow } from "../server/triage/pr-babysit.js";
+import { slackFeedbackLeavesReviewWindow } from "../server/triage/slack-review-window.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
@@ -79,24 +80,20 @@ export default defineAction({
     const fetchLimit =
       context?.caller === "automation" &&
       calling &&
-      calling.config.source === "github"
+      (calling.config.source === "github" || calling.config.source === "slack")
         ? Math.min(100, Math.max(effectiveLimit * 10, effectiveLimit))
         : effectiveLimit;
     const parsedCursor = cursor ? decodeInboxCursor(cursor) : null;
     const updatedAfterBound = parseUpdatedAfter(updatedAfter);
     const db = getDb();
-    const reviewStatuses =
-      source === "github"
-        ? ["pr_observed"]
-        : source === "slack"
-          ? ["received", "automation_started", "evidence_ready"]
-          : ["received"];
-    const filterGithubReviewPage =
+    const reviewStatuses = source === "github" ? ["pr_observed"] : ["received"];
+    const filterReviewPage =
       (context?.caller === "automation" &&
         calling &&
-        calling.config.source === "github") ||
-      (needsReview && source === "github");
-    const maxScanPages = filterGithubReviewPage ? 10 : 1;
+        (calling.config.source === "github" ||
+          calling.config.source === "slack")) ||
+      (needsReview && (source === "github" || source === "slack"));
+    const maxScanPages = filterReviewPage ? 10 : 1;
     const eligible: Array<(typeof triageItems)["$inferSelect"]> = [];
     let scanCursor = parsedCursor;
     let lastExamined: (typeof triageItems)["$inferSelect"] | undefined;
@@ -138,6 +135,9 @@ export default defineAction({
       if (batch.length === 0) break;
       for (const item of batch) {
         lastExamined = item;
+        // Kept even though poll-github-sources now filters at ingest: rows
+        // stored before that change still carry excluded authors, and this is
+        // the only thing keeping them out of an automation's work list.
         if (
           context?.caller === "automation" &&
           calling &&
@@ -159,6 +159,19 @@ export default defineAction({
               "prBabysitState",
             ),
           )
+        ) {
+          continue;
+        }
+        if (
+          needsReview &&
+          source === "slack" &&
+          slackFeedbackLeavesReviewWindow({
+            status: item.status,
+            slackReactionName: metadataString(
+              parseTriageMetadata(item.metadataJson),
+              "slackReactionName",
+            ),
+          })
         ) {
           continue;
         }

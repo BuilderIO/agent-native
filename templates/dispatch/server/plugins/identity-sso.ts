@@ -30,12 +30,23 @@ import {
   CROSS_APP_ORG_FEDERATION_SCOPE,
   getOrgContext,
   getOrgDomain,
+  getRequiredAuthProviderForOrg,
   invalidateMemberOrgCaches,
+  isGoogleSignInRequiredForEmail,
+  setActiveOrgId,
 } from "@agent-native/core/org";
 import {
   getH3App,
   getSession,
   hasGoogleAuthIdentity,
+  addSession,
+  createBetterAuthSessionForEmail,
+  ensureIdentityUser,
+  clearIdentitySsoBootstrapBindingCookie,
+  getIdentitySsoBootstrapBindingCookie,
+  setIdentityGoogleAuthCookie,
+  setFrameworkSessionCookie,
+  setBetterAuthSessionCookie,
 } from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
 import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
@@ -47,22 +58,33 @@ import {
 } from "../../shared/feature-flags.js";
 import {
   IDENTITY_AUTHORIZATION_CODE_TTL_MS,
+  IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH,
+  IDENTITY_SSO_BOOTSTRAP_PATH,
+  IDENTITY_SSO_BOOTSTRAP_SCOPE,
   IDENTITY_SCOPE,
   IDENTITY_SSO_TOKEN_PATH,
   IDENTITY_TOKEN_TTL,
   buildIdentityClaims,
   buildRedirectLocation,
+  consumeIdentityBootstrapHandle,
+  consumeIdentityBootstrapActivation,
   consumeIdentityAuthorizationCode,
+  createIdentityBootstrapActivation,
+  createIdentityBootstrapHandle,
   createIdentityAuthorizationCode,
   DEFAULT_ALLOWED_ORIGINS,
   isValidSsoState,
   normalizeIdentityAuthority,
+  releaseIdentityBootstrapHandle,
+  releaseIdentityBootstrapActivation,
   resolveIdentitySsoApp,
   getIdentitySsoAppRegistry,
 } from "../lib/identity-sso.js";
 
 const AVAILABILITY_PATH = "/_agent-native/identity/availability";
 const AUTHORIZE_PATH = "/_agent-native/identity/authorize";
+const BOOTSTRAP_CONTINUE_PATH = `${IDENTITY_SSO_BOOTSTRAP_PATH}/continue`;
+const BOOTSTRAP_ACTIVATE_PATH = IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH;
 export const ORGANIZATION_FEDERATION_PATH =
   "/_agent-native/identity/organization";
 const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
@@ -99,6 +121,17 @@ function redirect(location: string): Response {
   });
 }
 
+function redirectWithStagedCookies(event: H3Event, location: string): Response {
+  const headers = new Headers({
+    Location: location,
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+  });
+  const staged = (event as any).res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response("", { status: 302, headers });
+}
+
 function resolveAuthority(): string | null {
   return normalizeIdentityAuthority(
     process.env.APP_URL || process.env.BETTER_AUTH_URL,
@@ -109,6 +142,70 @@ function bodyString(body: unknown, key: string): string | null {
   if (!body || typeof body !== "object") return null;
   const value = (body as Record<string, unknown>)[key];
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function bridgeOrigin(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !(
+          url.protocol === "http:" &&
+          ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname)
+        ))
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch (error) {
+    void error;
+    return null;
+  }
+}
+
+function inlineBridgeJson(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function identitySsoBridgeHtml(
+  sourceOrigin: string,
+  completeField: "redirect_uri" | "return_url",
+): Response {
+  const sourceOriginLiteral = inlineBridgeJson(sourceOrigin);
+  const completeFieldLiteral = inlineBridgeJson(completeField);
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><title>Continuing sign-in</title></head><body><script>(()=>{const o=${sourceOriginLiteral},field=${completeFieldLiteral},fail=()=>{document.body.textContent="Could not finish sign-in. Please return and try again."};window.parent.postMessage({type:"agent-native-identity-bridge-ready"},o);window.addEventListener("message",async e=>{if(e.source!==window.parent||e.origin!==o||e.data?.type!=="agent-native-identity-bridge-binding"||typeof e.data.binding!=="string")return;try{const r=await fetch(window.location.pathname+window.location.search,{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:JSON.stringify({binding:e.data.binding})}),v=await r.json();if(!r.ok||typeof v[field]!=="string")throw new Error();window.parent.postMessage({type:"agent-native-identity-bridge-complete",[field]:v[field]},o)}catch{fail()}})})();</script></body></html>`,
+    {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors ${sourceOrigin}`,
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+      },
+    },
+  );
+}
+
+function jsonResponseWithStagedCookies(
+  event: H3Event,
+  body: unknown,
+  status: number,
+): Response {
+  const headers = new Headers({
+    "Cache-Control": "private, no-store",
+    "Content-Type": "application/json",
+    "Referrer-Policy": "no-referrer",
+  });
+  const staged = (event as any).res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 async function resolveOrgDomain(
@@ -371,10 +468,18 @@ export async function isBrowserIdentitySsoEnabledForSession(
   session: Awaited<ReturnType<typeof getSession>>,
 ): Promise<boolean> {
   if (!session?.email) return false;
+  return isBrowserIdentitySsoEnabledForEmail(session.email, session.orgId);
+}
+
+export async function isBrowserIdentitySsoEnabledForEmail(
+  email: string,
+  orgId?: string,
+): Promise<boolean> {
+  if (!email.trim()) return false;
   return isFeatureFlagEnabled(BROWSER_IDENTITY_SSO_FLAG, {
-    userEmail: session.email,
-    userKey: session.email,
-    orgId: session.orgId,
+    userEmail: email,
+    userKey: email,
+    ...(orgId ? { orgId } : {}),
   }).catch(() => false); // coercion-ok: unreadable rollout state must fail closed.
 }
 
@@ -1003,6 +1108,401 @@ export const availabilityHandler = defineEventHandler(
   },
 );
 
+async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
+  email: string;
+  name?: string;
+  orgId?: string;
+  authProvider?: "google";
+  browserBindingHash: string;
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  codeChallenge: string;
+  authority: string;
+} | null> {
+  const token = bearerToken(event);
+  if (!token) return null;
+  const authority = resolveAuthority();
+  if (!authority) return null;
+
+  for (const registration of getIdentitySsoAppRegistry()) {
+    if (!registration.federationSecret) continue;
+    const verified = await verifyA2AToken(token, event, {
+      routePrefix: "_agent-native",
+      includeClaims: true,
+      globalSecretOnly: true,
+      verificationSecret: registration.federationSecret,
+    });
+    const claims = verified.claims;
+    const appId = typeof claims?.app_id === "string" ? claims.app_id : "";
+    const clientId =
+      typeof claims?.client_id === "string" ? claims.client_id : "";
+    const redirectUri =
+      typeof claims?.redirect_uri === "string" ? claims.redirect_uri : "";
+    const state = typeof claims?.state === "string" ? claims.state : "";
+    const codeChallenge =
+      typeof claims?.code_challenge === "string" ? claims.code_challenge : "";
+    const browserBindingHash =
+      typeof claims?.browser_binding_hash === "string" &&
+      /^[A-Za-z0-9_-]{43}$/.test(claims.browser_binding_hash)
+        ? claims.browser_binding_hash
+        : "";
+    const orgId =
+      typeof claims?.org_id === "string" &&
+      /^[A-Za-z0-9_-]{1,128}$/.test(claims.org_id)
+        ? claims.org_id
+        : undefined;
+    const authProvider =
+      claims?.identity_auth_provider === "google" ? "google" : undefined;
+    const issuer =
+      typeof claims?.iss === "string"
+        ? normalizeIdentityAuthority(claims.iss)
+        : null;
+    const resolved = resolveIdentitySsoApp(appId, clientId, redirectUri);
+    if (
+      !verified.email ||
+      claims?.email_verified !== true ||
+      claims?.scope !== IDENTITY_SSO_BOOTSTRAP_SCOPE ||
+      appId !== registration.appId ||
+      clientId !== registration.clientId ||
+      !resolved ||
+      !isValidSsoState(state) ||
+      !isValidSsoState(codeChallenge) ||
+      !browserBindingHash ||
+      issuer !== registration.origin ||
+      resolved.origin !== registration.origin ||
+      !registration.federationSecret
+    ) {
+      continue;
+    }
+    const email = verified.email.trim().toLowerCase();
+    if (!email.includes("@")) continue;
+    const name =
+      typeof claims?.name === "string" && claims.name.trim()
+        ? claims.name.trim().slice(0, 200)
+        : undefined;
+    return {
+      email,
+      ...(name ? { name } : {}),
+      ...(orgId ? { orgId } : {}),
+      ...(authProvider ? { authProvider } : {}),
+      appId,
+      clientId,
+      redirectUri,
+      state,
+      codeChallenge,
+      browserBindingHash,
+      authority,
+    };
+  }
+  return null;
+}
+
+async function redeemIdentityBootstrapContinuation(
+  handle: string,
+  binding: string,
+): Promise<string | null> {
+  const bootstrap = await consumeIdentityBootstrapHandle(handle, binding);
+  if (!bootstrap) return null;
+  try {
+    const code = await createIdentityAuthorizationCode({
+      state: bootstrap.state,
+      appId: bootstrap.appId,
+      clientId: bootstrap.clientId,
+      redirectUri: bootstrap.redirectUri,
+      authority: bootstrap.authority,
+      codeChallenge: bootstrap.codeChallenge,
+      email: bootstrap.email,
+      name: bootstrap.name,
+      bootstrapHandle: handle,
+      bootstrapAuthProvider: bootstrap.authProvider,
+    });
+    return buildRedirectLocation(bootstrap.redirectUri, code, bootstrap.state);
+  } catch (error) {
+    void error;
+    await releaseIdentityBootstrapHandle(handle).catch(() => {});
+    throw error;
+  }
+}
+
+export const bootstrapHandler = defineEventHandler(
+  async (event: H3Event): Promise<Response> => {
+    const method = getMethod(event);
+    let url: URL;
+    try {
+      url = new URL(getRequestUrl(event), "http://an.invalid");
+    } catch {
+      return new Response("Invalid sign-in request", { status: 400 });
+    }
+    const bridge = url.searchParams.get("bridge") === "1";
+    const sourceOrigin = bridgeOrigin(url.searchParams.get("source_origin"));
+
+    if (method === "POST" && bridge) {
+      if (!sourceOrigin)
+        return new Response("Invalid sign-in request", { status: 400 });
+      if (!(await canAttemptBrowserIdentitySso())) {
+        return jsonResponse({ error: "feature_disabled" }, 404);
+      }
+      const body = await readBody(event).catch((error) => {
+        void error;
+        return null;
+      });
+      let location: string | null;
+      try {
+        location = await redeemIdentityBootstrapContinuation(
+          url.searchParams.get("handle") ?? "",
+          bodyString(body, "binding") ?? "",
+        );
+      } catch (error) {
+        void error;
+        return jsonResponse({ error: "identity_unavailable" }, 503);
+      }
+      if (!location)
+        return jsonResponse({ error: "invalid_sign_in_request" }, 400);
+      return jsonResponse({ redirect_uri: location }, 200);
+    }
+
+    if (method === "POST") {
+      if (!(await canAttemptBrowserIdentitySso())) {
+        return jsonResponse({ error: "feature_disabled" }, 404);
+      }
+      const verified = await verifyIdentityBootstrapRequest(event);
+      if (!verified) return jsonResponse({ error: "Unauthorized" }, 401);
+      if (
+        !(await isBrowserIdentitySsoEnabledForEmail(
+          verified.email,
+          verified.orgId,
+        ))
+      ) {
+        return jsonResponse({ error: "feature_disabled" }, 404);
+      }
+      try {
+        const handle = await createIdentityBootstrapHandle({
+          state: verified.state,
+          appId: verified.appId,
+          clientId: verified.clientId,
+          redirectUri: verified.redirectUri,
+          authority: verified.authority,
+          codeChallenge: verified.codeChallenge,
+          email: verified.email,
+          name: verified.name,
+          orgId: verified.orgId,
+          authProvider: verified.authProvider,
+          browserBindingHash: verified.browserBindingHash,
+        });
+        return jsonResponse(
+          {
+            continue_url: `${verified.authority}${BOOTSTRAP_CONTINUE_PATH}?handle=${encodeURIComponent(handle)}`,
+          },
+          200,
+        );
+      } catch (error) {
+        void error;
+        return jsonResponse({ error: "identity_unavailable" }, 503);
+      }
+    }
+
+    if (method === "HEAD") {
+      return new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    if (method === "GET") {
+      if (bridge) {
+        if (!sourceOrigin) {
+          return new Response("Invalid sign-in request", { status: 400 });
+        }
+        return identitySsoBridgeHtml(sourceOrigin, "redirect_uri");
+      }
+      const handle = url.searchParams.get("handle") ?? "";
+      let location: string | null;
+      try {
+        location = await redeemIdentityBootstrapContinuation(
+          handle,
+          getIdentitySsoBootstrapBindingCookie(event) ?? "",
+        );
+      } catch (error) {
+        void error;
+        return new Response("Could not finish sign-in", { status: 503 });
+      }
+      if (!location)
+        return new Response("Invalid sign-in request", { status: 400 });
+      return redirectWithStagedCookies(event, location);
+    }
+
+    return jsonResponse({ error: "Method not allowed" }, 405);
+  },
+);
+
+function resolveBootstrapReturnUrl(
+  bootstrap: {
+    appId: string;
+    clientId: string;
+    redirectUri: string;
+  },
+  rawReturn: string,
+): string | null {
+  const registration = resolveIdentitySsoApp(
+    bootstrap.appId,
+    bootstrap.clientId,
+    bootstrap.redirectUri,
+  );
+  if (!registration) return null;
+  try {
+    const returnUrl = new URL(rawReturn || "/", registration.origin);
+    if (
+      returnUrl.origin !== registration.origin ||
+      returnUrl.username ||
+      returnUrl.password
+    ) {
+      return null;
+    }
+    return returnUrl.toString();
+    // coercion-ok: malformed return URLs are an explicit absent result.
+  } catch {
+    return null;
+  }
+}
+
+export const bootstrapActivationHandler = defineEventHandler(
+  async (event: H3Event): Promise<Response> => {
+    const method = getMethod(event);
+    let url: URL;
+    try {
+      url = new URL(getRequestUrl(event), "http://an.invalid");
+    } catch {
+      return new Response("Invalid sign-in request", { status: 400 });
+    }
+    const bridge = url.searchParams.get("bridge") === "1";
+    const sourceOrigin = bridgeOrigin(url.searchParams.get("source_origin"));
+    if (method === "HEAD") {
+      return new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    if (method !== "GET" && !(method === "POST" && bridge)) {
+      return jsonResponse({ error: "Method not allowed" }, 405);
+    }
+    if (!(await canAttemptBrowserIdentitySso())) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const activation = url.searchParams.get("activation") ?? "";
+    const rawReturn = url.searchParams.get("return") ?? "/";
+    if (bridge && !sourceOrigin) {
+      return new Response("Invalid sign-in request", { status: 400 });
+    }
+    if (method === "GET" && bridge) {
+      return identitySsoBridgeHtml(sourceOrigin!, "return_url");
+    }
+    const body =
+      method === "POST"
+        ? await readBody(event).catch((error) => {
+            void error;
+            return null;
+          })
+        : null;
+    const browserBinding =
+      bodyString(body, "binding") ??
+      (method === "GET"
+        ? (getIdentitySsoBootstrapBindingCookie(event) ?? "")
+        : "");
+
+    let bootstrap: Awaited<
+      ReturnType<typeof consumeIdentityBootstrapActivation>
+    >;
+    try {
+      bootstrap = await consumeIdentityBootstrapActivation(
+        activation,
+        browserBinding,
+      );
+    } catch (error) {
+      void error;
+      return new Response("Could not verify sign-in", { status: 503 });
+    }
+    if (!bootstrap)
+      return new Response("Invalid sign-in request", { status: 400 });
+    if (
+      !(await isBrowserIdentitySsoEnabledForEmail(
+        bootstrap.email,
+        bootstrap.orgId,
+      ))
+    ) {
+      await releaseIdentityBootstrapActivation(activation).catch(() => {});
+      clearIdentitySsoBootstrapBindingCookie(event);
+      return new Response("Not found", { status: 404 });
+    }
+    const returnUrl = resolveBootstrapReturnUrl(bootstrap, rawReturn);
+    if (!returnUrl) {
+      await releaseIdentityBootstrapActivation(activation).catch(() => {});
+      return new Response("Invalid sign-in request", { status: 400 });
+    }
+
+    try {
+      // Bootstrap has no Dispatch browser request context to prove the auth
+      // provider. Match the normal identity assertion policy before minting
+      // either Dispatch session when the target organization requires Google.
+      const requiredAuthProvider = bootstrap.orgId
+        ? await getRequiredAuthProviderForOrg(bootstrap.orgId)
+        : (await isGoogleSignInRequiredForEmail(bootstrap.email))
+          ? "google"
+          : null;
+      if (
+        requiredAuthProvider === "google" &&
+        bootstrap.authProvider !== "google"
+      ) {
+        await releaseIdentityBootstrapActivation(activation).catch(() => {});
+        clearIdentitySsoBootstrapBindingCookie(event);
+        return jsonResponse(
+          { error: "This organization requires Google sign-in." },
+          403,
+        );
+      }
+      const identityUser = await ensureIdentityUser(
+        bootstrap.email,
+        bootstrap.name,
+      );
+      if (bootstrap.orgId) {
+        await setActiveOrgId(
+          bootstrap.email,
+          bootstrap.orgId,
+          "cross-app bootstrap organization context",
+        );
+      }
+      const betterAuthSession = await createBetterAuthSessionForEmail(
+        bootstrap.email,
+      );
+      if (!betterAuthSession || betterAuthSession.userId !== identityUser.id) {
+        throw new Error("Could not create the local auth session.");
+      }
+      await setBetterAuthSessionCookie(event, betterAuthSession.token);
+      const sessionToken = randomBytes(32).toString("hex");
+      await addSession(sessionToken, bootstrap.email);
+      setFrameworkSessionCookie(event, sessionToken);
+      if (bootstrap.authProvider === "google") {
+        setIdentityGoogleAuthCookie(event, bootstrap.email);
+      }
+      clearIdentitySsoBootstrapBindingCookie(event);
+      if (bridge) {
+        return jsonResponseWithStagedCookies(
+          event,
+          { return_url: returnUrl },
+          200,
+        );
+      }
+      return redirectWithStagedCookies(event, returnUrl);
+    } catch (error) {
+      void error;
+      await releaseIdentityBootstrapActivation(activation).catch(() => {});
+      return new Response("Could not finish sign-in", { status: 503 });
+    }
+  },
+);
+
 export const authorizeHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
     const method = getMethod(event);
@@ -1257,9 +1757,13 @@ export const tokenHandler = defineEventHandler(
       orgName: identity.orgName,
       orgRole: identity.orgRole,
     });
-    const identityAuthProvider = (await hasGoogleAuthIdentity(identity.email))
-      ? "google"
-      : undefined;
+    const identityAuthProvider = identity.bootstrapHandleHash
+      ? identity.bootstrapAuthProvider === "google"
+        ? "google"
+        : undefined
+      : (await hasGoogleAuthIdentity(identity.email))
+        ? "google"
+        : undefined;
     let assertion: string;
     try {
       assertion = await signA2AToken(
@@ -1292,6 +1796,21 @@ export const tokenHandler = defineEventHandler(
       return jsonResponse({ error: "sign_failed" }, 500);
     }
 
+    let bootstrapActivation: string | null = null;
+    if (identity.bootstrapHandleHash) {
+      try {
+        bootstrapActivation = await createIdentityBootstrapActivation(
+          identity.bootstrapHandleHash,
+        );
+      } catch (error) {
+        void error;
+        return jsonResponse({ error: "identity_unavailable" }, 503);
+      }
+      if (!bootstrapActivation) {
+        return jsonResponse({ error: "identity_unavailable" }, 503);
+      }
+    }
+
     // This response is server-to-server. It is never redirected through the
     // browser and is intentionally not rendered or logged.
     return jsonResponse(
@@ -1299,6 +1818,9 @@ export const tokenHandler = defineEventHandler(
         assertion,
         token_type: "identity-assertion",
         expires_in: Math.floor(IDENTITY_AUTHORIZATION_CODE_TTL_MS / 1_000),
+        ...(bootstrapActivation
+          ? { bootstrap_activation: bootstrapActivation }
+          : {}),
       },
       200,
     );
@@ -1308,6 +1830,9 @@ export const tokenHandler = defineEventHandler(
 /** Mount the authority and token endpoints. */
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(AVAILABILITY_PATH, availabilityHandler);
+  getH3App(nitroApp).use(BOOTSTRAP_CONTINUE_PATH, bootstrapHandler);
+  getH3App(nitroApp).use(BOOTSTRAP_ACTIVATE_PATH, bootstrapActivationHandler);
+  getH3App(nitroApp).use(IDENTITY_SSO_BOOTSTRAP_PATH, bootstrapHandler);
   getH3App(nitroApp).use(AUTHORIZE_PATH, authorizeHandler);
   getH3App(nitroApp).use(
     ORGANIZATION_FEDERATION_PATH,

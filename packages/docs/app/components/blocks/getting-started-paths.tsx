@@ -3,8 +3,8 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link, useLocation } from "react-router";
 
-import { BuilderLaunchLink } from "../BuilderWaitlistPopover";
-import { sitePathForLocale, type DocsLocale } from "../docs-locale";
+import { BuilderLaunchAction } from "../BuilderWaitlistPopover";
+import { sitePathForLocale } from "../docs-locale";
 import {
   gettingStartedPathsMdx,
   gettingStartedPathsSchema,
@@ -29,7 +29,7 @@ function choosePath(option: "build_local" | "build_cloud") {
   });
 }
 
-function pathForTab(tab: GettingStartedTab, locale: DocsLocale) {
+function pathForTab(tab: GettingStartedTab, locale: unknown) {
   const docsPath = sitePathForLocale("/docs", locale);
   return tab === "cloud" ? `${docsPath}?tab=cloud` : docsPath;
 }
@@ -123,7 +123,8 @@ export function GettingStartedCloudContent() {
             </h2>
             <p>{step.body}</p>
             {step.number === 1 ? (
-              <BuilderLaunchLink
+              <BuilderLaunchAction
+                location="getting_started"
                 className="getting-started-cloud-cta"
                 onClick={() => choosePath("build_cloud")}
               />

@@ -38,6 +38,7 @@ import {
 } from "./better-auth-instance.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
+import { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
@@ -745,6 +746,7 @@ export async function createOAuthSession(
     hasProductionSession: boolean;
     desktop?: boolean;
     mobile?: boolean;
+    authProvider?: "google" | null;
     trackSignup?: {
       authProvider: string;
       authUserId?: string;
@@ -787,6 +789,9 @@ export async function createOAuthSession(
     sessionToken = crypto.randomBytes(32).toString("hex");
     await addSession(sessionToken, email);
     setFrameworkSessionCookie(event, sessionToken);
+    if (opts.authProvider !== null) {
+      setIdentityGoogleAuthCookie(event, email);
+    }
     if (shouldTrackSignup && opts.trackSignup) {
       const attribution =
         opts.trackSignup.attribution ??
@@ -874,8 +879,15 @@ export function oauthCallbackResponse(
       opts.returnUrl,
       opts.sessionToken,
     );
-    return htmlResponse(
+    const headers = new Headers({
+      "Content-Type": "text/html; charset=utf-8",
+    });
+    for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+      headers.append("set-cookie", cookie);
+    }
+    return new Response(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href=${JSON.stringify(webFallback)}},1500)</script></body></html>`,
+      { status: 200, headers },
     );
   }
 

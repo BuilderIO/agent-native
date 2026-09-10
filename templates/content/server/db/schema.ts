@@ -88,15 +88,41 @@ export const contentSpaceCatalogItems = table(
   ],
 );
 
-export const documentVersions = table("document_versions", {
-  id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
-  documentId: text("document_id").notNull(),
-  title: text("title").notNull(),
-  content: text("content").notNull(),
-  chatContext: text("chat_context"),
-  createdAt: text("created_at").notNull().default(now()),
-});
+export const documentVersions = table(
+  "document_versions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    documentId: text("document_id").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    chatContext: text("chat_context"),
+    actorEmail: text("actor_email"),
+    actorKind: text("actor_kind"),
+    origin: text("origin"),
+    groupKind: text("group_kind"),
+    groupId: text("group_id"),
+    operation: text("operation"),
+    checkpointKind: text("checkpoint_kind"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at"),
+  },
+  (version) => [
+    index("document_versions_owner_document_created_idx").on(
+      version.ownerEmail,
+      version.documentId,
+      version.createdAt,
+      version.id,
+    ),
+    index("document_versions_owner_document_group_idx").on(
+      version.ownerEmail,
+      version.documentId,
+      version.groupId,
+      version.createdAt,
+      version.id,
+    ),
+  ],
+);
 
 export const documentPreviewDrafts = table(
   "document_preview_drafts",
@@ -144,6 +170,8 @@ export const documentComments = table("document_comments", {
   mentionsJson: text("mentions_json"),
   authorEmail: text("author_email").notNull(),
   authorName: text("author_name"),
+  submissionSource: text("submission_source"),
+  submissionRunId: text("submission_run_id"),
   resolved: integer("resolved").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -262,6 +290,7 @@ export const contentDatabases = table(
       database.spaceId,
       database.systemRole,
     ),
+    index("content_databases_document_idx").on(database.documentId),
   ],
 );
 
@@ -536,6 +565,29 @@ export const contentDatabaseRowMutationReceipts = table(
     ),
     index("content_database_row_mutation_receipts_document_idx").on(
       receipt.documentId,
+    ),
+  ],
+);
+
+export const contentDatabaseSetupReceipts = table(
+  "content_database_setup_receipts",
+  {
+    id: text("id").primaryKey(),
+    actorEmail: text("actor_email").notNull(),
+    operation: text("operation").notNull(),
+    scopeId: text("scope_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    databaseId: text("database_id"),
+    resultJson: text("result_json"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (receipt) => [
+    uniqueIndex("content_database_setup_receipts_actor_operation_key").on(
+      receipt.actorEmail,
+      receipt.operation,
+      receipt.scopeId,
+      receipt.idempotencyKey,
     ),
   ],
 );

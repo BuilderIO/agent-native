@@ -20,9 +20,20 @@ How to export designs and generate handoff documentation for developers converti
   **This is not importable into Figma as editable vectors** — Figma cannot
   parse `foreignObject` content, so it stays an opaque embedded HTML blob.
   Use `export-design-as-figma-svg` (below) when the destination is Figma.
-- **PNG**: there is no PNG export action. Point the user to the editor's
-  download menu (Download PNG) — PNG export is a client-side rasterization of
-  the live canvas and is not exposed as an agent action.
+- **PNG**: `export-png` renders one stored HTML screen in headless Chromium and
+  uploads the PNG through the configured file provider. Pass `fileId`, or
+  `designId` plus `filename`, to select the screen. It returns a durable `url`
+  and suggested `filename`; `width` defaults to 1440px and `height` only sets
+  the responsive viewport because the export includes the screen's full page.
+
+  ```bash
+  pnpm action export-png --designId <designId> --fileId <fileId>
+  ```
+
+  If Chromium or file storage is unavailable, the action returns an explicit
+  failure instead of pretending that a downloadable image exists. The editor's
+  Download PNG remains the faithful client-side path for localhost/fusion
+  screens that are not stored HTML.
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise
   the `deployPreview` capability (fusion tier) and Builder.io to be connected;

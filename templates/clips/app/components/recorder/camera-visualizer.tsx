@@ -14,7 +14,6 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   createBackgroundBlurStream,
   DEFAULT_BLUR_PX,
@@ -35,7 +34,6 @@ export interface CameraVisualizerProps {
   /** Background blur radius (px) reflected live in the test preview. */
   blurRadius?: number;
   size?: CameraBubbleSize;
-  onSizeChange?: (size: CameraBubbleSize) => void;
   onStatusChange?: (
     status: CameraTestStatus,
     detail?: { error?: string | null },
@@ -48,12 +46,6 @@ const CAMERA_BUBBLE_SIZE_PX: Record<CameraBubbleSize, number> = {
   md: 200,
   lg: 320,
 };
-
-const CAMERA_SIZE_OPTIONS: Array<{ value: CameraBubbleSize; label: string }> = [
-  { value: "sm", label: "S" },
-  { value: "md", label: "M" },
-  { value: "lg", label: "L" },
-];
 
 const CAMERA_FRAME_TIMEOUT_MS = 5_000;
 
@@ -190,7 +182,6 @@ export function CameraVisualizer({
   blur = false,
   blurRadius = DEFAULT_BLUR_PX,
   size = "md",
-  onSizeChange,
   onStatusChange,
   onPreviewChange,
 }: CameraVisualizerProps) {
@@ -527,30 +518,6 @@ export function CameraVisualizer({
           )}
           <span className="truncate">{statusLabel}</span>
         </div>
-        <ToggleGroup
-          type="single"
-          value={size}
-          onValueChange={(value) => {
-            if (value) onSizeChange?.(value as CameraBubbleSize);
-          }}
-          variant="outline"
-          aria-label={t("cameraVisualizer.bubble")}
-          className="grid shrink-0 grid-cols-3 gap-0.5 rounded-md bg-muted p-0.5"
-        >
-          {CAMERA_SIZE_OPTIONS.map((option) => (
-            <ToggleGroupItem
-              key={option.value}
-              value={option.value}
-              disabled={disabled}
-              aria-label={t("cameraVisualizer.setBubbleSize", {
-                size: option.label,
-              })}
-              className="h-6 min-w-6 rounded border-0 px-1.5 text-[11px] text-muted-foreground shadow-none data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
-            >
-              {option.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
         <Button
           type="button"
           variant={live ? "outline" : "secondary"}

@@ -3771,6 +3771,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  // These children are what the host now persists: unclaimed, a node the
+  // browser created while typing stays invisible to morphChildren, which
+  // imports the saved copy beside it and never sweeps the original.
+  function claimContentAsSource(el: Element | null): void {
+    if (!el) return;
+    var children = el.childNodes;
+    for (var i = 0; i < children.length; i += 1) {
+      recordSourceSubtree(children[i]!);
+    }
+  }
+
   function recordSourceSubtree(root: Node): void {
     if (
       root.nodeType === 1 &&
@@ -8489,6 +8500,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function postTextContentChange(el, value, html, originalValue, originalHtml) {
+    claimContentAsSource(el);
     (window.parent as Window).postMessage(
       {
         type: "text-content-change",
@@ -14427,14 +14439,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           if (!isEditorTypingTarget(activeNow)) {
             try {
               activeTextEditEl.focus();
-              var refocusRange = document.createRange();
-              refocusRange.selectNodeContents(activeTextEditEl);
-              refocusRange.collapse(false);
-              var refocusSelection = window.getSelection();
-              if (refocusSelection) {
-                refocusSelection.removeAllRanges();
-                refocusSelection.addRange(refocusRange);
-              }
+              collapseSelectionIntoContents(activeTextEditEl);
             } catch (_err) {
               /* focus/selection APIs unavailable — key is still swallowed */
             }
@@ -14673,6 +14678,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     true,
   );
 
+  // Reports whether the caret actually moved: addRange throws on a detached
+  // node, and a caller that assumes success then inserts text at whatever the
+  // stale selection still points at.
+  function collapseSelectionIntoContents(
+    el: Element,
+    toStart?: boolean,
+  ): boolean {
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || !el.isConnected) return false;
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(toStart === true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
   function placeTextCaretFromPoint(target, clientX, clientY) {
     try {
       var range = null;
@@ -14694,14 +14716,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selection.removeAllRanges();
       selection.addRange(range);
     } catch (err) {
-      try {
-        var fallbackRange = document.createRange();
-        fallbackRange.selectNodeContents(target);
-        fallbackRange.collapse(false);
-        var fallbackSelection = window.getSelection();
-        fallbackSelection.removeAllRanges();
-        fallbackSelection.addRange(fallbackRange);
-      } catch (_err) {}
+      collapseSelectionIntoContents(target);
     }
   }
 
@@ -14942,6 +14957,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       postTextEditingState(target, false);
       if (!commit) {
         target.innerHTML = originalHtml;
+        claimContentAsSource(target);
         refreshOverlays();
         return;
       }
@@ -15106,16 +15122,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // The synthesized point sits at the (0×0) node's edge and resolves to the
       // parent element, so caretRangeFromPoint would drop the caret OUTSIDE the
       // editable node. Collapse to the end of the target's own contents instead.
-      try {
-        var progRange = document.createRange();
-        progRange.selectNodeContents(target);
-        progRange.collapse(false);
-        var progSel = window.getSelection();
-        progSel.removeAllRanges();
-        progSel.addRange(progRange);
-      } catch {
-        /* selection APIs unavailable — focus() alone still enables typing */
-      }
+      collapseSelectionIntoContents(target);
     } else {
       placeTextCaretFromPoint(target, e.clientX, e.clientY);
     }
@@ -15145,14 +15152,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (activeTextEditEl && activeTextEditEl === textTarget) {
       if (document.activeElement !== textTarget || !document.hasFocus()) {
         textTarget.focus();
-        try {
-          var refocusRange = document.createRange();
-          refocusRange.selectNodeContents(textTarget);
-          refocusRange.collapse(false);
-          var refocusSelection = window.getSelection();
-          refocusSelection.removeAllRanges();
-          refocusSelection.addRange(refocusRange);
-        } catch {}
+        collapseSelectionIntoContents(textTarget);
         postTextEditingState(textTarget, true);
       }
       return;
@@ -15488,9 +15488,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // T25: replay keystrokes the HOST buffered during the creation→activation
     // race window (DesignCanvas suppresses host shortcuts and stashes
     // printable keys while its begin-text-edit is pending, then flushes them
-    // here once the session reports active). Inserted at the caret through
-    // the same execCommand path paste uses, so the session's own input
-    // listener updates chrome/state naturally.
+    // here once the session reports active). Goes through the same execCommand
+    // path paste uses, so the session's own input listener updates
+    // chrome/state naturally.
     if (e.data.type === "text-edit-insert-text") {
       var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
       if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
@@ -15503,17 +15503,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         try {
           activeTextEditEl.focus();
-          var bufferedRange = document.createRange();
-          bufferedRange.selectNodeContents(activeTextEditEl);
-          bufferedRange.collapse(false);
-          var bufferedSelection = window.getSelection();
-          if (bufferedSelection) {
-            bufferedSelection.removeAllRanges();
-            bufferedSelection.addRange(bufferedRange);
-          }
         } catch (_err) {}
       }
+      // Every buffered key predates this session, so it belongs ahead of
+      // whatever landed natively while the flush was in flight; inserting at
+      // the live caret splices the prefix into a half-typed word.
+      var positionedAtStart = collapseSelectionIntoContents(
+        activeTextEditEl,
+        true,
+      );
       insertPlainTextAtSelection(bufferedText);
+      if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
       return;
     }
     if (e.data.type === "set-editor-chrome-scale") {
@@ -16371,6 +16371,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         textTarget.textContent =
           typeof e.data.value === "string" ? e.data.value : "";
       }
+      claimContentAsSource(textTarget);
       refreshOverlays();
       return;
     }

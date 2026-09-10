@@ -7,12 +7,17 @@ description: "チャットUIを備えたエージェントを作成し、エー�
 
 <GettingStartedPaths />
 
+Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築するための
+オープンソースTypeScriptフレームワークです。各機能を一度だけ
+[アクション](/docs/actions-overview)として定義します。アクションは、エージェントが
+ツールとして使用し、UIがコードから呼び出す型付き関数です。
+
 このガイドでは、チャットUIを備えたエージェントを作成し、付属の`hello`アクションをエージェントとUIから呼び出します。
 
 ## 前提条件
 
-- [Node.js](https://nodejs.org) 22以降
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22以降
+- [pnpm](https://pnpm.io)がインストールされ、`PATH`から実行できること
 - エージェント用のLLM接続: Builder.io、AnthropicまたはOpenAIのAPIキー、またはローカルのOllamaモデル
 
 ## エージェントを作成する
@@ -20,7 +25,7 @@ description: "チャットUIを備えたエージェントを作成し、エー�
 新しいディレクトリでChatテンプレートから始めます。
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -37,7 +42,7 @@ pnpm install
 pnpm dev
 ```
 
-ブラウザUIは`http://localhost:8080`で開きます。自動で開かない場合は、ブラウザでそのURLにアクセスしてください。
+ブラウザUIは自動で開きます。開かない場合は`pnpm dev`が表示するローカルURLを使ってください。8080が使用中ならポート番号が増えます。
 
 <Callout tone="info">
 
@@ -63,7 +68,7 @@ Hello, Alex!
 
 ## アクションを確認する
 
-`actions/hello.ts`を開きます。
+ローカルの `my-app` ディレクトリで、コードエディターから `actions/hello.ts` を開きます。
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -92,7 +97,8 @@ export default defineAction({
 
 ## Reactからアクションを呼び出す
 
-`app/routes/hello.tsx`にルートを追加します。
+テンプレートには`actions/hello.ts`が含まれますが、そのページはありません。
+`app/routes/hello.tsx`を作成します。
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -124,7 +130,7 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-新しいルートを検出できるように開発サーバーを再起動してから、`http://localhost:8080/hello`を開いてください。
+新しいルートを検出できるように開発サーバーを再起動してから、`http://localhost:<port>/hello`を開いてください。
 
 </Callout>
 
@@ -172,5 +178,9 @@ UIとエージェントがアクション、データ、コンテキストを共
 ### [アクション](/docs/actions-overview)
 
 読み取り、書き込み、承認のアクションを定義し、UI、エージェント、外部クライアントから呼び出します。
+
+### [アプリをデプロイ](/docs/deploy-an-app)
+
+ローカル開発から、永続データベース、本番認証、対応するデプロイ先へ進みます。
 
 </Cards>

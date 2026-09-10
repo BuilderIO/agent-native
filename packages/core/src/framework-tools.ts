@@ -23,6 +23,7 @@ export const FRAMEWORK_TOOL_GROUPS = [
   "review",
   "history",
   "featureFlags",
+  "experiments",
   "localization",
   "audit",
   "contextXray",
@@ -76,6 +77,8 @@ export interface FrameworkToolsOption {
   history?: boolean;
   /** `get-feature-flags`, `list-feature-flags`, `set-feature-flag`. */
   featureFlags?: boolean;
+  /** `get-experiments`, `set-experiment`. */
+  experiments?: boolean;
   /** `get-localization-preference`, `set-localization-preference`. */
   localization?: boolean;
   /** `list-audit-events`, `get-audit-event`, `export-audit-events`. */
@@ -261,6 +264,9 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-feature-flags": "featureFlags",
   "set-feature-flag": "featureFlags",
 
+  "get-experiments": "experiments",
+  "set-experiment": "experiments",
+
   "list-recurring-jobs": "automation",
   "manage-recurring-job": "automation",
   "run-automation-now": "automation",
@@ -305,6 +311,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-transactional-emails": "emailCatalog",
   "render-transactional-email-preview": "emailCatalog",
   "list-email-log": "emailCatalog",
+  "get-email-log-body": "emailCatalog",
   "list-email-activity": "emailCatalog",
   "list-email-engagement": "emailCatalog",
 

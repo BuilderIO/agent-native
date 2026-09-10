@@ -436,20 +436,19 @@ const enUS = {
   },
   homepage: {
     hero: {
-      title: "The framework for agent-native apps.",
-      bodyLine1:
-        "An open-source TypeScript framework for apps with a UI and an agent.",
-      bodyLine2: "Define each action once and call it from anywhere.",
+      title: "The agentic application framework",
+      bodyLine1: "Build autonomous agents with intuitive UIs.",
+      bodyLine2: "Bring your own LLM. Deploy anywhere.",
       tryAnApp: "Try an app",
     },
     install: {
       copyCommand: "Copy install command",
     },
     actions: {
-      title: "Call one action from anywhere.",
-      bodyLine1: "Define a capability with defineAction().",
+      title: "One Action powers every surface",
+      bodyLine1: "Define a capability once with defineAction().",
       bodyLine2:
-        "Your React UI, agent, HTTP clients, and integrations all call the same code.",
+        "Your agent, React UI, HTTP clients, and integrations all call the same code.",
       diagramAlt:
         "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
     },
@@ -545,7 +544,7 @@ const enUS = {
         "Describe what you want to build in plain language and the agent will create it for you.",
       stepThreeTitle: "Deploy",
       stepThreeBody:
-        "When you're ready, deploy your app with one click in Builder.",
+        "When you're ready, deploy your agent and its UI with one click in Builder.",
     },
   },
   templatesPage: {
@@ -570,6 +569,7 @@ const enUS = {
     tryCommunityDemo: "Try demo",
     customizeDescription: "Use this app as a starting point.",
     customizeOnline: "Online",
+    customizeOnlineBadge: "Join waitlist",
     customizeLocally: "Local",
     communityNew: "New",
     communityComingSoon: "Coming soon",
@@ -625,6 +625,18 @@ const enUS = {
     popoverTitle: "Build in the browser",
     popoverBody:
       "Rapidly generate agent-native apps in the cloud with Builder.io.",
+    waitlistBody:
+      "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
+    emailLabel: "Email",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "Join waitlist",
+    joining: "Joining…",
+    joined:
+      "You're on the waitlist. We'll email you when build-online access opens.",
+    invalidEmail: "Enter a valid email address.",
+    submitError: "Couldn't join the waitlist. Please try again.",
+    waitlistUnavailable:
+      "Waitlist signups aren't available in this environment yet. Please try the hosted docs site instead.",
     launchBuilder: "Launch Builder",
   },
   templateCard: {
@@ -897,6 +909,56 @@ const enUS = {
     },
     clips: {
       s001: "Clips app screenshot",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "Screen recordings your AI agent can see and hear",
+      heroDescription:
+        "Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents.",
+      heroCta: "Record a clip",
+      useCasesHeading: "What can you do with Clips?",
+      useCasesBody:
+        "Start with a clip you recorded or one someone shared with you. Give your AI agent the context and tell it what you need.",
+      useCase1Title: "Act on recorded feedback",
+      useCase1Body:
+        "Give your AI agent recorded feedback to turn into a plan or help implement the requested changes.",
+      useCase2Title: "Investigate a reported bug",
+      useCase2Body:
+        "Share a bug recording with your AI agent to investigate what went wrong and work out the next steps.",
+      useCase3Title: "Create from a recorded brief",
+      useCase3Body:
+        "Use a recorded brief to guide your AI agent in creating a presentation, design, content, or app change.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading:
+        "Everything you need to record, transcribe, and share",
+      feature1Title: "Agent-readable recordings",
+      feature1Body:
+        "Share a clip's transcript and timestamped images with your AI agent through one agent-readable link.",
+      feature2Title: "Automatic transcripts",
+      feature2Body:
+        "Get transcripts of recordings, meetings, and dictations. Click any transcript line to replay that moment.",
+      feature3Title: "Browser debug logs",
+      feature3Body:
+        "Capture console errors and failed requests alongside your recording with the Clips Chrome extension.",
+      feature4Title: "Built-in AI agent",
+      feature4Body:
+        "Ask the built-in AI agent about one clip or your whole library, and have it edit transcripts in chat.",
+      feature5Title: "Searchable recording library",
+      feature5Body:
+        "Find clips by searching their transcripts. Organize your recordings with folders, tags, and team spaces.",
+      feature6Title: "Push-to-talk dictation",
+      feature6Body:
+        "Hold Fn in the desktop app to dictate into other apps. Revisit transcripts and cleaned-up text in your history.",
+      teammatesLine:
+        "Your teammates can watch the same recording in the player.",
+      teammatesLinkLabel: "Read the agent-sharing guide",
+      seeInActionHeading: "See Clips in action",
+      seeInActionBody:
+        "Watch Clips in use, from recording a browser workflow to showing an AI agent how to perform a task.",
+      watchClipLabel: "Watch the clip",
+      finalCtaHeading: "Put your next clip to work",
+      finalCtaBody:
+        "Record an explanation or bring a shared clip to your AI agent.",
+      finalCtaButton: "Open Clips",
       s002: "Screen Record",
       s003: "Browser Debug Logs",
       s004: "Dictate",
@@ -959,26 +1021,23 @@ const enUS = {
       s058: "Free & open source",
       s059: "Need to see more first?",
       s060: "Choose what to capture, then start recording in Clips.",
-      s061: "View more apps",
       s062: "View all apps",
       faq: {
-        question1: "Is Clips free?",
-        answer1: "Yes. Clips is free and open source.",
-        question2: "Can AI read a screen recording?",
+        question1: "Is Clips free and open source?",
+        answer1:
+          "Yes. Clips is free and open-source software. You can use the app or customize and self-host your own version.",
+        question2: "Can I share recordings with Claude, ChatGPT, or Cursor?",
         answer2:
-          "Yes. Every clip ships with a transcript, summary, and timestamped frames an agent can read directly.",
-        question3: "How is Clips different from Loom?",
+          "Clips provides an agent-readable link with a transcript and timestamped images. Your agent needs to be able to open the linked content and read images to use both. Some chat modes can read the transcript but need you to upload an image separately.",
+        question3: "Do I need the Chrome extension to record my screen?",
         answer3:
-          "Clips is open source, you own the data, and every share link is readable by AI agents, not just people.",
-        question4: "Can a screen recording capture console errors?",
+          "No. You can record in the Clips web app. Use the Chrome extension when you also want console messages and network diagnostics from the tab you're demonstrating.",
+        question4: "Can AI agents watch my screen recordings?",
         answer4:
-          "Yes. Clips captures browser console errors and failed network requests alongside the recording. They attach themselves to the same share link as the transcript and frames. An agent can debug from a clip, not just watch it.",
-        question5: "Does Clips work with Claude, ChatGPT, or Cursor?",
+          "With Clips, compatible AI agents can understand your recording through a transcript and timestamped images. They use the text and images rather than playing the video, so you can ask questions about what happened or give your AI agent a task based on the recording.",
+        question5: "Who can access a shared recording?",
         answer5:
-          "Yes! No plugin or API key required. Paste a Clips share link into any agent and it can read the transcript, summary, and frames directly.",
-        question6: "Where do my recordings live?",
-        answer6:
-          "Wherever you deploy them. Self-hosted Clips keeps your video, transcripts, and analytics in your own infrastructure.",
+          "Recordings use public links by default unless your organization changes that setting. Anyone with the link can access them. Private and organization access options are available, and private clips can be shared with agents through temporary links without making the recording public.",
       },
       quickStart: {
         recordingMode: "Recording mode",
@@ -1101,7 +1160,7 @@ const enUS = {
       s004: "Refine",
       s005: "All Apps",
       s006: "Open-Source Figma alternative",
-      s007: "Generate interactive Alpine/Tailwind prototypes from a prompt, compare variants, refine with tweak controls, and export real files you own.",
+      s007: "Create interactive designs and prototypes. Refine with familiar tools or make conversational edits. Export anywhere.",
       s008: "Design Something",
       s009: "How it works",
       s010: "Everything you need",
@@ -1155,6 +1214,7 @@ const enUS = {
       s058: "Start from the app and begin generating interactive prototypes with an agent that edits the source.",
       s059: "Read the docs",
       s060: "View all apps",
+      s061: "100% free, open-source, and customizable.",
     },
     dispatch: {
       faq: {
@@ -2042,7 +2102,6 @@ const enUS = {
     usingYourAgent: "Using Your Agent",
     agentResources: "Agent Resources",
     integrations: "Integrations",
-    buildApps: "Build Apps",
     advancedRuntime: "Advanced: Extend the Runtime",
     templatesSection: "Apps",
     gettingStarted: "Getting Started",
@@ -2103,6 +2162,9 @@ const enUS = {
     databaseProviders: "Database providers",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "Internationalization",
     localFileMode: "Local File Mode",
@@ -2176,11 +2238,12 @@ const enUS = {
     notifications: "Notifications",
     automationConnectors: "Workflow Connectors",
     workspaceConnections: "Workspace Connections",
-    creatingTemplates: "Creating Apps",
+    // i18n-copy-ignore: existing locale translations already name templates;
+    // this fixes the English nav label to match the page.
+    creatingTemplates: "Creating Templates",
     syncingTemplateChanges: "Syncing Template Changes",
     writingAgentInstructions: "Writing Agent Instructions",
     embeddingSdk: "Embedding SDK",
-    frames: "Frames",
     docsComponents: "Docs Components",
     agentNativeCodeUi: "Agent-Native Code UI",
     harnessAgents: "Harness Agents",

@@ -173,6 +173,8 @@ jobs:
 
   deploy:
     name: ${{ matrix.site }} production prebuilt deploy
+    permissions:
+      contents: read
     needs: [resolve-source, discover-sites, beta-e2e]
     # Spelled out per dependency rather than with `needs.*.result`: the two
     # source jobs must still have succeeded exactly as before, while the
@@ -188,7 +190,6 @@ jobs:
       cancel-in-progress: false
     strategy:
       fail-fast: false
-      max-parallel: 3
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:

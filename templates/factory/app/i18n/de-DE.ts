@@ -105,15 +105,10 @@ const messages = {
     empty: "Noch keine Beobachtungen.",
     risk: "Risiko",
     status: "Status",
-    author: "Autor",
     coverage: "Abdeckung",
     reason: "Grund",
     evidence: "Nachweis",
-    evidenceDescription:
-      "Der Quellthread oder Bericht, aus dem dieses Element stammt.",
     actionsTaken: "Protokoll",
-    actionsTakenDescription:
-      "Shadow-Entscheidungen, Governance und bereits gestartete Arbeit für dieses Element.",
     threadTruncated: "Dieser Slack-Thread ist unvollständig.",
     threadUnavailable: "Dieser Slack-Thread konnte nicht geladen werden.",
     noEvidence: "Für dieses Element ist kein Quellnachweis gespeichert.",
@@ -131,8 +126,6 @@ const messages = {
     noteLabel: "Feedback-Notiz",
     submitFeedback: "Feedback speichern",
     feedbackTitle: "Feedback speichern",
-    feedbackDescription:
-      "Markiere, ob die Shadow-Entscheidung richtig war. Das wird zur Überprüfung gespeichert und startet keinen Lauf.",
     feedbackError: "Feedback konnte nicht gespeichert werden.",
     noDecisions: "Noch keine Entscheidungen aufgezeichnet.",
     rulesTitle: "Triage-Regeln",
@@ -398,6 +391,8 @@ const messages = {
       "Diesen Job im Automatisierungen-Tab speichern.",
     automationCreated: "Automatisierung erstellt",
     automationCreateFailed: "Automatisierung konnte nicht erstellt werden.",
+    automationCreateRefreshFailed:
+      "Erstellt, aber die Liste wurde nicht aktualisiert. Bleib hier oder öffne Automatisierungen erneut.",
     automationSource: "Quelle",
     automationSourceDescription: "Wählen Sie, wo dieser Job liest.",
     automationSourceSlackHint: "Kanalnachrichten und Threads.",
@@ -484,6 +479,7 @@ const messages = {
     automationEvent: "Ereignis",
     automationTimezone: "Zeitzone",
     selectAutomation: "Wähle eine Automatisierung zum Bearbeiten.",
+    automationNotFound: "Diese Automatisierung existiert nicht mehr.",
     automationModel: "Modell",
     automationDisplayName: "Anzeigename",
     automationDisplayNamePlaceholder: "Zum Beispiel Slack-Feedback",
@@ -502,6 +498,8 @@ const messages = {
     automationSaveFailed:
       "Die Automatisierung konnte nicht gespeichert werden.",
     automationRunFailed: "Die Automatisierung konnte nicht ausgeführt werden.",
+    automationRunNeedsSave:
+      "Speichere deine Änderungen, bevor du diese Automatisierung ausführst.",
     automationRunning: "Wird ausgeführt",
     runNow: "Jetzt ausführen",
     automationHealthTitle: "Scheduler-Status",

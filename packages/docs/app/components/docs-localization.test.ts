@@ -159,6 +159,37 @@ describe("localized docs fallback", () => {
     },
   );
 
+  it("redirects the retired Frames page to Agent Surfaces", async () => {
+    let response: Response | undefined;
+    try {
+      await defaultDocLoader(loaderArgs({ slug: "frames" }));
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(301);
+    expect(response?.headers.get("Location")).toBe("/docs/agent-surfaces/");
+  });
+
+  it("preserves the locale when redirecting the retired Frames page", async () => {
+    let response: Response | undefined;
+    try {
+      await localizedDocLoader(
+        loaderArgs(
+          { locale: "fr-FR", slug: "frames" },
+          "https://docs.test/fr-FR/docs/frames",
+        ),
+      );
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(301);
+    expect(response?.headers.get("Location")).toBe(
+      "/fr-fr/docs/agent-surfaces/",
+    );
+  });
+
   it.each([
     "/fr-FR/docs/workspace",
     "/docs/fr-FR/workspace",
@@ -257,19 +288,13 @@ describe("localized docs fallback", () => {
     });
   });
 
-  it("includes the GitHub star count in the SSR root data", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ stargazers_count: 4647 }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      ),
-    );
+  it("does not fetch GitHub while rendering the SSR root data", async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
 
     const data = await rootLoader(loaderArgs({}, "https://docs.test/apps"));
 
-    expect(data.starCount).toBe(4647);
+    expect(data.starCount).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

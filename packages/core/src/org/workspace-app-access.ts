@@ -1,6 +1,10 @@
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
+import {
+  isHostedWorkspaceRuntime,
+  resolveVercelDeploymentProtectionHeaders,
+} from "../server/credential-provider.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { getOrgA2ASecret, getOrgDomain } from "./context.js";
 import { isMissingOrganizationTableError } from "./membership.js";
@@ -13,8 +17,26 @@ export interface WorkspaceAppAccessContext {
   orgId?: string | null;
 }
 
+interface WorkspaceOrgMember {
+  role: string;
+  identityAuthority: string;
+  identityId: string;
+}
+
 function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+export function isStandaloneDispatchRuntime(): boolean {
+  const app = getAppConfig().app;
+  const isDispatch = [
+    app.id,
+    app.legacyId,
+    app.template,
+    app.slug,
+    app.packageName,
+  ].some((value) => value?.trim().toLowerCase() === "dispatch");
+  return isDispatch && !isHostedWorkspaceRuntime();
 }
 
 function configuredWorkspaceDirectory(): string | null {
@@ -100,11 +122,18 @@ async function hostedWorkspaceAppAccess(
     WORKSPACE_APP_ACCESS_TIMEOUT_MS,
   );
   try {
+    const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
+      url.toString(),
+    );
     const response = await fetch(url, {
       headers: {
         accept: "application/json",
         Authorization: `Bearer ${token}`,
+        ...protectionHeaders,
       },
+      ...(protectionHeaders["x-vercel-protection-bypass"]
+        ? { redirect: "manual" as const }
+        : {}),
       signal: controller.signal,
     });
     if (!response.ok) return false;
@@ -121,6 +150,89 @@ async function hostedWorkspaceAppAccess(
   }
 }
 
+async function loadWorkspaceOrgMember(
+  db: DbExec,
+  orgId: string,
+  email: string,
+): Promise<WorkspaceOrgMember | null> {
+  let memberResult;
+  try {
+    memberResult = await db.execute({
+      sql: `SELECT m.role,
+                   o.identity_authority AS "identityAuthority",
+                   o.identity_id AS "identityId"
+            FROM org_members m
+            LEFT JOIN organizations o ON o.id = m.org_id
+            WHERE m.org_id = ? AND LOWER(m.email) = ?
+              AND m.federation_removal_pending_at IS NULL
+            LIMIT 1`,
+      args: [orgId, email],
+    });
+  } catch (error) {
+    if (!isMissingOrganizationTableError(error)) throw error;
+    if (!isStandaloneDispatchRuntime()) throw error;
+    memberResult = await db.execute({
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
+      args: [orgId, email],
+    });
+  }
+
+  const row = memberResult.rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    role: String(row.role ?? ""),
+    identityAuthority: String(
+      row.identityAuthority ?? row.identity_authority ?? "",
+    ).trim(),
+    identityId: String(row.identityId ?? row.identity_id ?? "").trim(),
+  };
+}
+
+async function isActiveWorkspaceOrgMember(
+  member: WorkspaceOrgMember,
+  orgId: string,
+  email: string,
+): Promise<boolean> {
+  if (!member.identityAuthority && !member.identityId) return true;
+  const { validateFederatedOrganizationMembershipForCurrentRequest } =
+    await import("./federation.js");
+  const membership =
+    await validateFederatedOrganizationMembershipForCurrentRequest({
+      orgId,
+      email,
+    });
+  return membership.active;
+}
+
+async function isDispatchWorkspaceAppAccessAllowed(
+  context: WorkspaceAppAccessContext,
+  email: string,
+): Promise<boolean> {
+  const orgId = context.orgId?.trim() || null;
+  if (!orgId) return true;
+
+  try {
+    const member = await loadWorkspaceOrgMember(getDbExec(), orgId, email);
+    // Standalone Dispatch hosts can carry an org id before enabling the org
+    // schema. Preserve their authenticated-only access until that schema exists.
+    return Boolean(
+      member && (await isActiveWorkspaceOrgMember(member, orgId, email)),
+    );
+  } catch (error) {
+    if (
+      isMissingOrganizationTableError(error) &&
+      isStandaloneDispatchRuntime()
+    ) {
+      return true;
+    }
+    console.error("[workspace-app-access] Dispatch access check failed", error);
+    return false;
+  }
+}
+
 /**
  * Enforce the workspace-app ACL before a hosted app's authenticated API
  * surface is reached. The app shell remains cacheable and anonymous; this
@@ -132,8 +244,11 @@ export async function isWorkspaceAppAccessAllowed(
 ): Promise<boolean> {
   const normalizedAppId = appId.trim();
   const email = normalizedEmail(context.email);
-  if (!normalizedAppId || normalizedAppId === "dispatch" || !email) {
+  if (!normalizedAppId || !email) {
     return true;
+  }
+  if (normalizedAppId.toLowerCase() === "dispatch") {
+    return isDispatchWorkspaceAppAccessAllowed(context, email);
   }
 
   const hostedAccess = await hostedWorkspaceAppAccess(
@@ -169,52 +284,11 @@ export async function isWorkspaceAppAccessAllowed(
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
     if (!sameOrg || !orgId) return false;
 
-    let memberResult;
-    try {
-      memberResult = await db.execute({
-        sql: `SELECT m.role,
-                     o.identity_authority AS "identityAuthority",
-                     o.identity_id AS "identityId"
-              FROM org_members m
-              LEFT JOIN organizations o ON o.id = m.org_id
-              WHERE m.org_id = ? AND LOWER(m.email) = ?
-                AND m.federation_removal_pending_at IS NULL
-              LIMIT 1`,
-        args: [orgId, email],
-      });
-    } catch (error) {
-      if (!isMissingOrganizationTableError(error)) throw error;
-      memberResult = await db.execute({
-        sql: `SELECT role FROM org_members
-              WHERE org_id = ? AND LOWER(email) = ?
-                AND federation_removal_pending_at IS NULL
-              LIMIT 1`,
-        args: [orgId, email],
-      });
+    const member = await loadWorkspaceOrgMember(db, orgId, email);
+    if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
+      return false;
     }
-    if (memberResult.rows.length === 0) return false;
-    const linked =
-      String(
-        memberResult.rows[0]?.identityAuthority ??
-          memberResult.rows[0]?.identity_authority ??
-          "",
-      ).trim() ||
-      String(
-        memberResult.rows[0]?.identityId ??
-          memberResult.rows[0]?.identity_id ??
-          "",
-      ).trim();
-    if (linked) {
-      const { validateFederatedOrganizationMembershipForCurrentRequest } =
-        await import("./federation.js");
-      const membership =
-        await validateFederatedOrganizationMembershipForCurrentRequest({
-          orgId,
-          email,
-        });
-      if (!membership.active) return false;
-    }
-    const memberRole = String(memberResult.rows[0]?.role ?? "");
+    const memberRole = member.role;
     if (memberRole === "owner" || memberRole === "admin") return true;
 
     if (app.visibility === "org") return true;

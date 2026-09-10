@@ -75,6 +75,35 @@ const messages: AgentChatTranslation = {
     "Dein Builder.io-Konto wird erstellt oder wiederverwendet. Das dauert normalerweise ein paar Sekunden.",
   "onboarding.builderConnectionDescription":
     "Schließe die Verbindung mit einem Klick im neuen Fenster ab.",
+  "onboarding.capability.llm.keySummary":
+    "Verbinde einen KI-Anbieter oder ein lokales Modell",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder-Speicher oder S3-kompatibler Bucket",
+  "onboarding.capability.voiceInput.label": "Spracheingabe",
+  "onboarding.capability.voiceInput.keySummary":
+    "Browser-Spracherkennung oder Sprache-zu-Text",
+  "onboarding.capability.voiceInput.why":
+    "Spracheingabe wandelt gesprochene Anfragen in Text um; Tippen funktioniert weiterhin.",
+  "onboarding.capability.assetsImageGeneration.label": "Bilderzeugung",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder-Credits oder Schlüssel eines Bildanbieters",
+  "onboarding.capability.assetsImageGeneration.why":
+    "Bilderzeugung ist der Kernworkflow für markengerechte Assets.",
+  "onboarding.capability.assetsVideoGeneration.label": "Videogenerierung",
+  "onboarding.capability.assetsVideoGeneration.keySummary":
+    "Gemini-API-Schlüssel",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "Videogenerierung ist optional; der Kernworkflow von Assets ist die Bilderzeugung.",
+  "onboarding.capability.clipsObjectStorage.label": "Objektspeicher",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder-Speicher oder S3-kompatibler Bucket",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Aufgenommene Videos benötigen dauerhaften Objektspeicher, bevor sie abgespielt oder geteilt werden können.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Schlüssel eines Sprache-zu-Text-Anbieters",
+  "onboarding.capability.about": "Über {{label}}",
+  "onboarding.capability.why": "Warum {{label}} benötigt wird",
+  "onboarding.openAiKeySettings": "KI-Schlüsseleinstellungen öffnen",
   "aboutAgentNative.title": "Über Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Umgebung",
@@ -207,6 +236,26 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "Der vorherige Agentenstream endete während der Wiederherstellung. Fahre fort oder versuche es erneut, um die Verbindung zum Lauf wiederherzustellen.",
   "recovery.reconnectBuilder": "Builder.io erneut verbinden",
+  "secrets.addCustomKeyNamed":
+    "„{{name}}“ als benutzerdefinierten Schlüssel hinzufügen",
+  "secrets.customKey": "Benutzerdefinierter Schlüssel",
+  "secrets.customKeyHint": "Beliebigen Schlüssel nach Namen hinzufügen",
+  "secrets.fromEnvironment":
+    "Wird von der Bereitstellungsumgebung bereitgestellt.",
+  "secrets.managedInVault":
+    "Wird im Vault des Arbeitsbereichs verwaltet. Jede App in diesem Arbeitsbereich verwendet diesen Wert.",
+  "secrets.openVault": "Vault öffnen",
+  "secrets.overridesVault":
+    "Dieser persönliche Schlüssel überschreibt den Vault-Wert des Arbeitsbereichs. Entferne ihn, um den Vault-Schlüssel zu verwenden.",
+  "secrets.overridesWorkspace":
+    "Dieser persönliche Schlüssel überschreibt den Wert des Arbeitsbereichs. Entferne ihn, um den gemeinsamen Schlüssel zu verwenden.",
+  "secrets.setForWorkspace": "Für alle in diesem Arbeitsbereich festgelegt.",
+  "secrets.sourceEnvironment": "Umgebung",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Arbeitsbereich",
+  "secrets.statusUnavailable": "Nicht verfügbar",
+  "secrets.usePersonalKey":
+    "Stattdessen einen persönlichen Schlüssel verwenden",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
   "setup.addOwnKeys": "Eigene Schlüssel hinzufügen",

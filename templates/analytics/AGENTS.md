@@ -49,6 +49,7 @@ certified ones); label figures "Unverified" when no live query ran.
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - A sibling app sends natural-language or shaped input over A2A, never SQL; this
   app owns schema, source selection, and tools. Prefer natural-language
   delegation; shaped reads are stable contracts.
@@ -57,9 +58,8 @@ certified ones); label figures "Unverified" when no live query ran.
   delegations with the built-in source and query catalog; sibling agents should
   send a natural-language question, never SQL.
 - Delegation: choose defaults; label partial.
-- Data integrity first. Never invent numbers, dimensions, filters, or source
-  semantics; present only retrieved values with source, window, filters,
-  row-count/sample-size, join method, and caveats.
+- Never invent data or source semantics; include source, window, filters, sample
+  size, join method, and caveats.
 - Use actions for data and sharing; don't bypass ownable-resource access checks
   with raw SQL.
 - Provider actions are bounded shortcuts, not limits. For broad or

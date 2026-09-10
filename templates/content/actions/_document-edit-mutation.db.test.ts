@@ -73,7 +73,7 @@ describe("revisioned document edit mutation", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, DOCUMENT_ID));
     expect(document).toMatchObject({ content: "omega beta", bodyRevision: 1 });
-    expect(await db.select().from(schema.documentVersions)).toHaveLength(1);
+    expect(await db.select().from(schema.documentVersions)).toHaveLength(2);
     expect(await db.select().from(schema.documentEditReceipts)).toHaveLength(1);
   });
 
@@ -97,7 +97,7 @@ describe("revisioned document edit mutation", () => {
       ]),
     ).toEqual(new Set(["applied", "replayed"]));
     expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
-      1,
+      2,
     );
     expect(
       await getDb().select().from(schema.documentEditReceipts),
@@ -235,7 +235,7 @@ describe("revisioned document edit mutation", () => {
     ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
 
     expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
-      1,
+      2,
     );
     expect(
       await getDb().select().from(schema.documentEditReceipts),

@@ -975,6 +975,23 @@ describe("merge-crm-records", () => {
     expect(await mergeCrmRecords.needsApproval(args, ownerCtx)).toBe(false);
   });
 
+  it("is approval-gated for a WebMCP caller, not treated as human", async () => {
+    // A WebMCP call is a browser-side agent driving the page's tools, not a
+    // human directly at the keyboard. Regression for a gap where the caller
+    // classification helper left "webmcp" out of the agent list, so this
+    // destructive merge would have run immediately, unapproved.
+    const args = {
+      survivorRecordId: "rec_a",
+      duplicateRecordId: "rec_b",
+    };
+    expect(
+      await mergeCrmRecords.needsApproval(args, {
+        caller: "webmcp" as const,
+        userEmail: OWNER,
+      }),
+    ).toBe(true);
+  });
+
   it("refuses a cross-object-type merge and a self merge", async () => {
     const account = await createRecord({
       displayName: "An Account",
