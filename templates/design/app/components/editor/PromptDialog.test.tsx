@@ -30,6 +30,14 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       options ? `${key}:${JSON.stringify(options)}` : key,
 }));
 
+const mockActiveOrg = vi.hoisted(() => ({
+  current: { orgId: "org-a" } as { orgId: string } | undefined,
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({ data: mockActiveOrg.current }),
+}));
+
 vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: ComposerStubProps) => (
     <div
@@ -107,6 +115,7 @@ beforeEach(() => {
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
+  mockActiveOrg.current = { orgId: "org-a" };
 });
 
 afterEach(async () => {
@@ -146,7 +155,9 @@ describe("PromptPopover draft isolation", () => {
     const composer = container!.querySelector(
       '[data-testid="prompt-composer"]',
     );
-    expect(composer?.getAttribute("data-draft-scope")).toBe("Tweak design");
+    expect(composer?.getAttribute("data-draft-scope")).toBe(
+      "Tweak design:org-a",
+    );
   });
 
   it("prefers an explicit draftScope over the title default", async () => {
@@ -158,7 +169,40 @@ describe("PromptPopover draft isolation", () => {
       '[data-testid="prompt-composer"]',
     );
     expect(composer?.getAttribute("data-draft-scope")).toBe(
-      "design:abc123:generate",
+      "design:abc123:generate:org-a",
+    );
+  });
+
+  it("changes the draft key when the active account switches, so a draft never leaks across accounts", async () => {
+    mockActiveOrg.current = { orgId: "org-a" };
+    await renderPopover({ title: "New design" });
+    const composerBefore = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composerBefore?.getAttribute("data-draft-scope")).toBe(
+      "New design:org-a",
+    );
+
+    // Switching accounts (org.orgId changes) happens client-side with no
+    // reload, so this must re-derive to a different key rather than keep
+    // reading/writing the previous account's localStorage entry.
+    mockActiveOrg.current = { orgId: "org-b" };
+    await act(async () => {
+      root!.render(
+        <PromptPopover
+          open
+          onOpenChange={() => {}}
+          title="New design"
+          onSubmit={() => {}}
+        />,
+      );
+    });
+
+    const composerAfter = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composerAfter?.getAttribute("data-draft-scope")).toBe(
+      "New design:org-b",
     );
   });
 });

@@ -3423,14 +3423,21 @@ export function TiptapComposer({
   }, [extractComposerPayload, syncComposerRuntimeState]);
 
   const clearEditorAfterSubmit = useCallback(() => {
-    const ed = editor;
-    if (!isComposerEditorUsable(ed)) return;
-    ed.commands.clearContent();
+    // A caller may close/unmount the host popover as soon as submit starts
+    // (before awaiting the round trip), which destroys this editor instance
+    // while the submit promise is still in flight. The persisted draft has
+    // no dependency on the live editor, so it must be cleared unconditionally
+    // here — gating it behind `isComposerEditorUsable` left the old prompt
+    // stuck in localStorage forever, ready to resurface on the next mount.
     cancelScheduledDraftPersist();
-    setEditorHasText(false);
-    setSlotReferences([]);
-    resetComposerRuntimeState();
     clearComposerDraft(draftKey);
+    const ed = editor;
+    if (isComposerEditorUsable(ed)) {
+      ed.commands.clearContent();
+      setEditorHasText(false);
+      setSlotReferences([]);
+      resetComposerRuntimeState();
+    }
     closePopover();
   }, [
     cancelScheduledDraftPersist,
