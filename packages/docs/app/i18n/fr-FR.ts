@@ -2186,6 +2186,7 @@ const frFR = {
     dropInAgent: "Agent intégrable",
     componentApi: "API de composants",
     nativeChatUi: "UI de chat native",
+    agentkit: "AgentKit",
     generativeUi: "Interface générative",
     realTimeCollaboration: "Collaboration temps réel",
     agentResourcesOverview: "Vue d'ensemble des ressources de l'agent",

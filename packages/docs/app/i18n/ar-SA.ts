@@ -2155,6 +2155,7 @@ const arSA = {
     dropInAgent: "وكيل جاهز للإضافة",
     componentApi: "واجهة Component API",
     nativeChatUi: "واجهة دردشة أصلية",
+    agentkit: "AgentKit",
     generativeUi: "واجهة توليدية",
     realTimeCollaboration: "تعاون فوري",
     agentResourcesOverview: "نظرة عامة على موارد الوكيل",

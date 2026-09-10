@@ -2184,6 +2184,7 @@ const esES = {
     dropInAgent: "Agent embebible",
     componentApi: "API de componentes",
     nativeChatUi: "UI de chat nativa",
+    agentkit: "AgentKit",
     generativeUi: "Interfaz generativa",
     realTimeCollaboration: "Colaboración en tiempo real",
     agentResourcesOverview: "Descripción general de los recursos del agente",

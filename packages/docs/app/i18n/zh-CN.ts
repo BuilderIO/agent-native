@@ -2127,6 +2127,7 @@ const zhCN = {
     dropInAgent: "嵌入式 Agent",
     componentApi: "组件 API",
     nativeChatUi: "原生聊天 UI",
+    agentkit: "AgentKit",
     generativeUi: "生成式 UI",
     realTimeCollaboration: "实时协作",
     agentResourcesOverview: "代理资源概览",

@@ -2128,6 +2128,7 @@ const messages = {
     dropInAgent: "嵌入式 Agent",
     componentApi: "元件 API",
     nativeChatUi: "原生聊天 UI",
+    agentkit: "AgentKit",
     generativeUi: "生成式 UI",
     realTimeCollaboration: "即時協作",
     agentResourcesOverview: "代理資源概覽",
