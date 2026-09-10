@@ -78,7 +78,10 @@ const AGENT_ROWS = [
  * Clips' own dark palette (templates/clips/app/global.css:50-84) as the HSL
  * triplets the shadcn utilities read, so `bg-popover`, `border-border`, and
  * friends resolve to the app's colours instead of whichever theme the docs
- * page is in. Apply to an ancestor of the artwork.
+ * page is in. Apply to an ancestor of the artwork. Pair with
+ * `CLIPS_APP_PALETTE_LIGHT` under an `html.light` selector on the same
+ * ancestor so the artwork follows the docs site's theme toggle instead of
+ * staying pinned dark.
  *
  * Two deliberate departures from the app: `--background` and
  * `--sidebar-background` are darker here (5% / 8% against the app's 10% / 14%)
@@ -91,11 +94,22 @@ export const CLIPS_APP_PALETTE =
   "--background: 0 0% 5%; --foreground: 0 0% 90%; --card: 0 0% 14%; --card-foreground: 0 0% 90%; --popover: 0 0% 15%; --popover-foreground: 0 0% 90%; --primary: 0 0% 75%; --primary-foreground: 0 0% 10%; --muted: 0 0% 16%; --muted-foreground: 0 0% 60%; --accent: 0 0% 18%; --accent-foreground: 0 0% 90%; --border: 0 0% 24%; --input: 0 0% 24%; --sidebar-background: 0 0% 8%; --sidebar-foreground: 0 0% 60%; --player-control: 0 0% 0%; --player-control-foreground: 0 0% 100%;";
 
 /**
+ * The app's actual `:root` (light) values (templates/clips/app/global.css:
+ * 10-46), unmodified — a light section doesn't need the near-black tuning
+ * `CLIPS_APP_PALETTE` carries for blending into a dark one.
+ */
+export const CLIPS_APP_PALETTE_LIGHT =
+  "--background: 0 0% 100%; --foreground: 0 0% 10%; --card: 0 0% 100%; --card-foreground: 0 0% 10%; --popover: 0 0% 100%; --popover-foreground: 0 0% 10%; --primary: 0 0% 15%; --primary-foreground: 0 0% 100%; --muted: 0 0% 95%; --muted-foreground: 0 0% 45%; --accent: 0 0% 95%; --accent-foreground: 0 0% 15%; --border: 0 0% 90%; --input: 0 0% 90%; --sidebar-background: 0 0% 97%; --sidebar-foreground: 0 0% 45%; --player-control: 0 0% 0%; --player-control-foreground: 0 0% 100%;";
+
+/**
  * `.dark .clips-share-trigger` sets the same override in the real app, which
- * is what makes the share controls read as solid white on dark.
+ * is what makes the share controls read as solid white on dark. The app never
+ * applies that override in light mode, where the trigger just uses the base
+ * (dark) `--primary`, so the `html.light` line below undoes it rather than
+ * mirroring a rule that doesn't exist on the light side.
  */
 export const CLIPS_SHARE_UI_CSS =
-  ".clips-share-ui-trigger { --primary: 0 0% 100%; }";
+  ".clips-share-ui-trigger { --primary: 0 0% 100%; }\nhtml.light .clips-share-ui-trigger { --primary: 0 0% 15%; }";
 
 export function ClipsShareControl({ className = "" }: { className?: string }) {
   return (

@@ -248,7 +248,7 @@ export default function ClipsTemplate() {
               return (
                 <div
                   key={useCase.id}
-                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[#0a0a0a] first:border-t-0 ${
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
                     useCase.id === "investigate-bug"
                       ? "lg:grid-cols-[1.25fr_1fr]"
                       : "lg:grid-cols-[1fr_1.25fr]"

@@ -38,10 +38,11 @@
  *   (share-dialog.tsx:223-241, 455-481, 827-871).
  *
  * Two things make those real classes work outside the Clips app. The scope
- * pins Clips' own dark palette (templates/clips/app/global.css:50-84) as HSL
+ * pins Clips' own palette (templates/clips/app/global.css:10-84) as HSL
  * triplets, so `bg-background`, `bg-sidebar`, `border-border`, and friends
- * resolve to the app's colours rather than the docs theme. And the page is
- * laid out at a fixed desktop width, then scaled to the card by generated
+ * resolve to the app's colours rather than the docs theme's, switching
+ * between the app's own dark and light values under `html.light` so the
+ * artwork still tracks the docs site's theme toggle. And the page is laid out at a fixed desktop width, then scaled to the card by generated
  * `@container` steps — the real desktop layout has to survive at card size,
  * since below `lg` the product moves the transcript panel under the player.
  *
@@ -72,6 +73,7 @@ import {
 
 import {
   CLIPS_APP_PALETTE,
+  CLIPS_APP_PALETTE_LIGHT,
   CLIPS_SHARE_UI_CSS,
   ClipsShareControl,
   ClipsShareMenu,
@@ -113,10 +115,11 @@ const ILLUSTRATION_TEXT_PX = 18;
 const SCALE = ILLUSTRATION_TEXT_PX / UI_TEXT_PX;
 const MOBILE_SCALE = 0.9;
 
-// Matches the pinned row background on the landing page
-// (app/routes/templates.clips.tsx), so the crop dissolves into the section
-// rather than ending on a visible edge.
-const FADE_COLOR = "#0a0a0a";
+// The section background this crop sits on (app/routes/templates.clips.tsx),
+// so the crop dissolves into it rather than ending on a visible edge. A CSS
+// variable rather than a literal because that section now follows the docs
+// site's light/dark toggle instead of staying pinned dark.
+const FADE_COLOR = "var(--b-bg-page)";
 
 const CLIPS_PAGE_MOCK_CSS = [
   ".clips-page-mock { width: 100%; }",
@@ -124,6 +127,7 @@ const CLIPS_PAGE_MOCK_CSS = [
   // The app palette and the share-control override live in ClipsShareUi,
   // which holds the single copy shared with the bare variant.
   ".clips-page-mock-page { " + CLIPS_APP_PALETTE + " }",
+  "html.light .clips-page-mock-page { " + CLIPS_APP_PALETTE_LIGHT + " }",
   CLIPS_SHARE_UI_CSS,
 
   // The recording page is held back so the open share menu reads as the

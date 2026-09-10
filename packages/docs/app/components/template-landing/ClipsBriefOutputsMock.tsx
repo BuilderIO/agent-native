@@ -32,7 +32,7 @@ import {
   IconPresentation,
 } from "@tabler/icons-react";
 
-import { CLIPS_APP_PALETTE } from "./ClipsShareUi";
+import { CLIPS_APP_PALETTE, CLIPS_APP_PALETTE_LIGHT } from "./ClipsShareUi";
 
 // Grid slot plus the ray endpoint that belongs to it, as percentages of the
 // diagram box. The endpoints sit a little inside each card so the line stops
@@ -71,6 +71,7 @@ const OUTPUTS = [
 const CLIPS_BRIEF_MOCK_CSS = [
   ".clips-brief-mock { width: 100%; }",
   `.clips-brief-mock-frame { ${CLIPS_APP_PALETTE} }`,
+  `html.light .clips-brief-mock-frame { ${CLIPS_APP_PALETTE_LIGHT} }`,
   ".clips-brief-mock-frame { display: flex; justify-content: center; width: 100%; padding: 16px 0; }",
   ".clips-brief-mock-diagram { position: relative; width: 100%; max-width: 560px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: '. n .' 'w clip e' '. s .'; align-items: center; justify-items: center; gap: 40px 24px; }",
   ".clips-brief-mock-rays { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }",
