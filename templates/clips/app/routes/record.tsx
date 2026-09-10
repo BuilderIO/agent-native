@@ -115,6 +115,10 @@ import {
   parseBugReportContext,
   type BugReportContext,
 } from "@shared/bug-report";
+import {
+  parseClipIntakeParams,
+  type ClipIntakeParams,
+} from "@shared/clip-intake";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
@@ -223,9 +227,17 @@ function openUrlFromUserGesture(url: string): void {
   }
 }
 
-function bugReportDonePath(recordingId: string, context: BugReportContext) {
+function bugReportDonePath(
+  recordingId: string,
+  context: BugReportContext,
+  intake: ClipIntakeParams | null,
+) {
   const params = new URLSearchParams({ recordingId });
   if (context.returnUrl) params.set("returnUrl", context.returnUrl);
+  if (intake) {
+    params.set("clip_intake_id", intake.intakeId);
+    params.set("clip_intake", intake.token);
+  }
   return `/bug-report/done?${params.toString()}`;
 }
 
@@ -920,9 +932,6 @@ export default function RecordRoute() {
     const params = new URLSearchParams(location.search);
     return params.get("folderId") || null;
   }, [location.search]);
-  const storageConfigured: boolean | null = storageQuery.isLoading
-    ? null
-    : !!storageQuery.data?.configured;
   const initialRecorderOptions = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const mode = params.get("mode");
@@ -949,6 +958,19 @@ export default function RecordRoute() {
     () => parseBugReportContext(new URLSearchParams(location.search)),
     [location.search],
   );
+  const clipIntake = useMemo(
+    () => parseClipIntakeParams(new URLSearchParams(location.search)),
+    [location.search],
+  );
+  const clipIntakeRef = useRef<ClipIntakeParams | null>(null);
+  useEffect(() => {
+    clipIntakeRef.current = clipIntake;
+  }, [clipIntake]);
+  const storageConfigured: boolean | null = clipIntake
+    ? true
+    : storageQuery.isLoading
+      ? null
+      : !!storageQuery.data?.configured;
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -1022,6 +1044,7 @@ export default function RecordRoute() {
   // that upload, so doCancel() can trash it directly — createdId otherwise
   // only lives in uploadFile's own closure and never reaches pendingRef.
   const fileUploadRecordingIdRef = useRef<string | null>(null);
+  const fileUploadAbortUrlRef = useRef<string | null>(null);
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
@@ -1263,24 +1286,39 @@ export default function RecordRoute() {
         const reportTitle = reportContext
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
+        const intake = clipIntakeRef.current;
+        const recordingPayload = {
+          title: reportTitle ?? captureTitle.title,
+          titleSource: reportTitle ? "context" : captureTitle.titleSource,
+          sourceAppName: captureTitle.sourceAppName,
+          sourceWindowTitle: captureTitle.sourceWindowTitle,
+          hasCamera: opts.mode !== "screen",
+          hasAudio: wantsMic,
+          visibility: reportContext ? "org" : undefined,
+          spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+          folderId: folderIdFromUrl ?? undefined,
+          mimeType: pickMimeType() || undefined,
+          requestStreaming: canUseTimeslicedRecorderChunks(pickMimeType()),
+        };
         const res = await fetch(
-          agentNativePath("/_agent-native/actions/create-recording"),
+          agentNativePath(
+            intake
+              ? "/_agent-native/actions/create-intake-recording"
+              : "/_agent-native/actions/create-recording",
+          ),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title: reportTitle ?? captureTitle.title,
-              titleSource: reportTitle ? "context" : captureTitle.titleSource,
-              sourceAppName: captureTitle.sourceAppName,
-              sourceWindowTitle: captureTitle.sourceWindowTitle,
-              hasCamera: opts.mode !== "screen",
-              hasAudio: wantsMic,
-              visibility: reportContext ? "org" : undefined,
-              spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
-              folderId: folderIdFromUrl ?? undefined,
-              mimeType: pickMimeType() || undefined,
-              requestStreaming: canUseTimeslicedRecorderChunks(pickMimeType()),
-            }),
+            body: JSON.stringify(
+              intake
+                ? {
+                    ...recordingPayload,
+                    intakeId: intake.intakeId,
+                    intakeToken: intake.token,
+                    bugReport: reportContext ?? undefined,
+                  }
+                : recordingPayload,
+            ),
           },
         );
         if (!res.ok) {
@@ -1313,11 +1351,18 @@ export default function RecordRoute() {
         // Cancelled mid-POST: pendingRef is still null, so trash directly.
         if (isStale()) {
           await liveTranscription.stopAndWait().catch(() => "");
-          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: info.id }),
-          }).catch(() => {});
+          if (intake) {
+            fetch(`${appBasePath()}${info.abortUrl}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            }).catch(() => {});
+          } else {
+            fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: info.id }),
+            }).catch(() => {});
+          }
           await engine.cancel().catch(() => {});
           return;
         }
@@ -1334,7 +1379,7 @@ export default function RecordRoute() {
           abortUrl,
           uploadMode: info.uploadMode,
         });
-        await saveBugReportContextRef.current(info.id);
+        if (!intake) await saveBugReportContextRef.current(info.id);
 
         setPreviewStream(ps);
         setCameraStream(cs);
@@ -1354,11 +1399,19 @@ export default function RecordRoute() {
         // record attempts.
         const orphan = pendingRef.current;
         if (orphan?.id) {
-          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: orphan.id }),
-          }).catch(() => {});
+          const intake = clipIntakeRef.current;
+          if (intake) {
+            fetch(orphan.abortUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            }).catch(() => {});
+          } else {
+            fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: orphan.id }),
+            }).catch(() => {});
+          }
         }
         // Release any tracks the engine grabbed before failing.
         try {
@@ -1584,28 +1637,43 @@ export default function RecordRoute() {
         const reportTitle = reportContext
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
+        const intake = clipIntakeRef.current;
+        const recordingPayload = {
+          title:
+            reportTitle ??
+            (file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle()),
+          titleSource: reportTitle ? "context" : "upload",
+          hasCamera: false,
+          hasAudio: true,
+          width: meta.width,
+          height: meta.height,
+          visibility: reportContext ? "org" : undefined,
+          spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+          folderId: folderIdFromUrl ?? undefined,
+          mimeType: uploadMimeType,
+          requestStreaming: true,
+        };
 
         const res = await fetch(
-          agentNativePath("/_agent-native/actions/create-recording"),
+          agentNativePath(
+            intake
+              ? "/_agent-native/actions/create-intake-recording"
+              : "/_agent-native/actions/create-recording",
+          ),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             signal: abort.signal,
-            body: JSON.stringify({
-              title:
-                reportTitle ??
-                (file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle()),
-              titleSource: reportTitle ? "context" : "upload",
-              hasCamera: false,
-              hasAudio: true,
-              width: meta.width,
-              height: meta.height,
-              visibility: reportContext ? "org" : undefined,
-              spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
-              folderId: folderIdFromUrl ?? undefined,
-              mimeType: uploadMimeType,
-              requestStreaming: true,
-            }),
+            body: JSON.stringify(
+              intake
+                ? {
+                    ...recordingPayload,
+                    intakeId: intake.intakeId,
+                    intakeToken: intake.token,
+                    bugReport: reportContext ?? undefined,
+                  }
+                : recordingPayload,
+            ),
           },
         );
         if (!res.ok) {
@@ -1644,16 +1712,21 @@ export default function RecordRoute() {
         }
         createdId = info.id;
         fileUploadRecordingIdRef.current = createdId;
-        await saveBugReportContextRef.current(info.id);
+        fileUploadAbortUrlRef.current = info.abortUrl
+          ? `${appBasePath()}${info.abortUrl}`
+          : null;
+        if (!intake) await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
-        void uploadVideoBlobThumbnail(createdId, uploadBlob, {
-          signal: abort.signal,
-        }).catch((err) => {
-          console.warn("[recorder] local-file thumbnail upload skipped", {
-            recordingId: createdId,
-            error: err instanceof Error ? err.message : String(err),
+        if (!intake) {
+          void uploadVideoBlobThumbnail(createdId, uploadBlob, {
+            signal: abort.signal,
+          }).catch((err) => {
+            console.warn("[recorder] local-file thumbnail upload skipped", {
+              recordingId: createdId,
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
-        });
+        }
         if (isStale()) throw makeAbortError("Upload cancelled");
         const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
 
@@ -1855,7 +1928,11 @@ export default function RecordRoute() {
           completeUploadToast(t("recordRoute.videoUploaded"));
         }
         if (reportContext && createdId) {
-          const path = bugReportDonePath(createdId, reportContext);
+          const path = bugReportDonePath(
+            createdId,
+            reportContext,
+            clipIntakeRef.current,
+          );
           await writeAppState(`navigate:${getBrowserTabId()}`, {
             view: "bug-report-done",
             recordingId: createdId,
@@ -1886,11 +1963,15 @@ export default function RecordRoute() {
         const preserveBufferedChunks =
           isStoredButUnservableFinalizeError(message);
         if (createdId && !serverRejectedTooLarge && !preserveBufferedChunks) {
-          fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reason: message }),
-          }).catch(() => {});
+          fetch(
+            fileUploadAbortUrlRef.current ??
+              `${appBasePath()}/api/uploads/${createdId}/abort`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reason: message }),
+            },
+          ).catch(() => {});
         }
         if (aborted || isStale()) return;
         setError(message);
@@ -1914,6 +1995,7 @@ export default function RecordRoute() {
         }
         if (fileUploadRecordingIdRef.current === createdId) {
           fileUploadRecordingIdRef.current = null;
+          fileUploadAbortUrlRef.current = null;
         }
         setCompressionProgress(null);
         setUploadProgress(null);
@@ -2086,7 +2168,11 @@ export default function RecordRoute() {
       }
 
       if (reportContext) {
-        const path = bugReportDonePath(recordingId, reportContext);
+        const path = bugReportDonePath(
+          recordingId,
+          reportContext,
+          clipIntakeRef.current,
+        );
         await writeAppState(`navigate:${getBrowserTabId()}`, {
           view: "bug-report-done",
           recordingId,
@@ -2310,13 +2396,16 @@ export default function RecordRoute() {
     countdownAudioCueRef.current?.cleanup();
     countdownAudioCueRef.current = null;
     const uploadRecordingId = fileUploadRecordingIdRef.current;
+    const uploadAbortUrl = fileUploadAbortUrlRef.current;
     if (fileUploadAbortRef.current) {
       fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
       fileUploadAbortRef.current = null;
     }
     fileUploadRecordingIdRef.current = null;
+    fileUploadAbortUrlRef.current = null;
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
+    const pendingAbortUrl = pendingRef.current?.abortUrl;
     engineRef.current = null;
     pendingRef.current = null;
     liveTranscription.stop();
@@ -2342,11 +2431,18 @@ export default function RecordRoute() {
       // atomically instead: `skipIfReady` makes the trash a conditional
       // no-op if the row is already "ready" by the time the UPDATE runs, so a
       // fully saved video is never silently discarded.
-      fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: pendingId, skipIfReady: true }),
-      }).catch(() => {});
+      if (pendingAbortUrl && clipIntakeRef.current) {
+        fetch(pendingAbortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }).catch(() => {});
+      } else {
+        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+        }).catch(() => {});
+      }
     }
     if (uploadRecordingId) {
       // A local file import (as opposed to a live recording) never
@@ -2354,11 +2450,18 @@ export default function RecordRoute() {
       // closure. Without this, discarding mid-upload aborts the transfer
       // but leaves the row merely marked "failed" instead of trashed, which
       // contradicts the confirmation dialog's "permanently deleted" copy.
-      fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
-      }).catch(() => {});
+      if (uploadAbortUrl) {
+        fetch(uploadAbortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }).catch(() => {});
+      } else {
+        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
+        }).catch(() => {});
+      }
     }
     setCameraStream(null);
     setPreviewStream(null);

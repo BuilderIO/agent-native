@@ -1,0 +1,130 @@
+---
+title: "Clips anonymous intake"
+description: "Collect one private Clips recording from an unsigned visitor with a short-lived signed intake URL."
+search: "Clips anonymous intake bug report signed upload token no login"
+---
+
+# Anonymous Clips intake
+
+Anonymous intake lets a customer submit one private Clips recording without signing in to Clips. The product that creates the intake URL still needs an authenticated Clips session or an authenticated backend action caller.
+
+The intake URL is a narrow upload capability. It is not a share link, a library session, or an agent access token.
+
+## Capability boundaries
+
+| Capability | Allows | Does not allow | Lifetime |
+| --- | --- | --- | --- |
+| Intake URL | Create one private recording, upload its chunks, finalize it, or abort it | List recordings, read media, open the library, or use normal agent APIs | One hour by default. Four hours maximum |
+| Agent context link | Read the completed recording through the normal scoped Clips agent surface | Read any other recording or act as the recording owner | Seven days for bug-report completions |
+| Clips session | Mint intake URLs and use the normal authenticated Clips UI | Nothing is added to the anonymous visitor's browser | Controlled by normal Clips auth |
+
+The intake token is signed with the existing scoped-token mechanism. The token is never stored in SQL. The database stores only the intake id, owner and organization binding, recording id, status, and expiry.
+
+## End-to-end flow
+
+1. Your authenticated product backend calls `create-recording-intake-link`.
+2. Clips returns a short-lived `/bug-report` URL.
+3. Your product opens that URL in an iframe or popup.
+4. The unsigned visitor fills in the report and records the screen.
+5. Clips creates one private recording and sends the media through its existing chunk and finalize pipeline.
+6. The completion page mints a separate read-only agent context link and posts the result to the host window.
+
+The browser never receives the Clips workspace session. A failed, expired, or already-used intake URL cannot be retried to create another recording.
+
+## Mint an intake URL
+
+`create-recording-intake-link` is a UI and HTTP action. It is not exposed as an agent tool because minting a bearer upload capability is an explicit integration operation.
+
+Call it from an authenticated same-origin browser or from an authenticated backend caller:
+
+```ts
+const response = await fetch(
+  "https://clips.example.com/_agent-native/actions/create-recording-intake-link",
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ ttlSeconds: 3600 }),
+  },
+);
+
+if (!response.ok) throw new Error("Could not create the Clips intake URL");
+
+const { result } = await response.json();
+// result.url is safe to give to the unsigned visitor.
+```
+
+`ttlSeconds` is optional. It must be between 60 seconds and four hours. The default is one hour. The response also includes `intakeId`, `expiresAt`, and `ttlSeconds`.
+
+Do not mint this URL in an anonymous browser. Do not put a long-lived Clips session or a service credential into the customer-facing page.
+
+## Embed the intake page
+
+Pass the returned URL directly to an iframe. The URL already contains the signed `clip_intake_id` and `clip_intake` query parameters.
+
+```tsx
+<iframe
+  src={result.url}
+  allow="display-capture; camera; microphone"
+  title="Report a problem"
+  style={{ width: 420, height: 560, border: 0 }}
+/>
+```
+
+The recorder opens a top-level popup when the visitor starts capture. Browser media permissions and screen capture require a user gesture in a top-level browsing context. If popups are blocked, the page falls back to navigating the current window.
+
+## Receive the completed recording
+
+The done page posts `agent-native.clips.bug-report.submitted` to the opener and the embedding parent. Validate both the Clips origin and the message source before using the payload.
+
+```ts
+const clipsOrigin = "https://clips.example.com";
+let recorderWindow: Window | null = null;
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== clipsOrigin) return;
+  if (recorderWindow && event.source !== recorderWindow) return;
+  if (event.data?.type !== "agent-native.clips.bug-report.submitted") return;
+
+  if (event.data.agentAccessStatus === "ready") {
+    const agentContextUrl = event.data.agentContextUrl;
+    const expiresAt = event.data.agentAccessExpiresAt;
+    // Send the scoped URL to the support agent or backend here.
+    console.log(agentContextUrl, expiresAt);
+  }
+});
+```
+
+The payload includes `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt`, and `agentAccessStatus`. Treat `agentAccessStatus: "unavailable"` or an expired URL as an access failure. Do not replace it with an empty recording result.
+
+The returned `agentContextUrl` uses the normal read-only `clip-agent-context` capability. It can expose recording metadata, transcript segments, recommended frames, frame URLs, and any browser diagnostics that the host separately saves for that recording. It does not expose the visitor's Clips session or the rest of the workspace.
+
+## Self-hosting requirements
+
+Anonymous intake uses the same storage and database prerequisites as an authenticated recording:
+
+- A persistent `DATABASE_URL`.
+- A configured Builder.io or S3-compatible video storage provider.
+- The normal production auth and scoped-token configuration from [Deployment](/docs/deployment).
+- A public `BETTER_AUTH_URL`, such as `https://clips.example.com`, when the intake URL is minted outside a browser request.
+
+The intake action creates the recording with private visibility regardless of the organization's default recording visibility. The normal Clips access checks still protect the recording after intake completes.
+
+## Security checklist
+
+- Use HTTPS for the Clips app and the host product.
+- Treat the intake URL as a bearer credential. Keep it out of logs, analytics events, referrer data, screenshots, and support tickets.
+- Use the shortest useful TTL. One hour is the default.
+- Validate `event.origin` and `event.source` in the completion listener.
+- Store the resulting `agentContextUrl` only where the support agent or backend needs it. It is also a bearer credential.
+- Never expose `/api/uploads/:recordingId/chunk` or `/api/uploads/:recordingId/abort` directly to anonymous users. Intake traffic goes through the signed `/api/clip-intake` transport, which checks the intake id, token, recording binding, owner binding, status, and expiry on every request.
+
+## Troubleshooting
+
+**The recorder opens a sign-in page.** Make sure the intake URL includes both `clip_intake_id` and `clip_intake`. The `/record` route is public for the intake handoff, while normal recording creation remains session protected.
+
+**The recording says the intake URL is unavailable.** The URL may have expired or already created a recording. Mint a new intake URL. Each intake URL is intentionally one-use.
+
+**The completion has no agent link.** The recording may still be waiting for storage verification, or the read-only link action may have failed. Retry link creation with the same intake URL before it expires. Treat repeated failure as an operational error.
+
+**The page has no storage setup control.** Anonymous visitors cannot configure a Clips storage provider. Configure storage before minting intake URLs.

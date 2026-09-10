@@ -8,6 +8,7 @@ import {
   createBugReportSubmissionMessage,
   type BugReportAgentLink,
 } from "@shared/bug-report";
+import { parseClipIntakeParams } from "@shared/clip-intake";
 import {
   IconArrowLeft,
   IconCheck,
@@ -43,6 +44,7 @@ export default function BugReportDoneRoute() {
   );
   const recordingId = params.get("recordingId")?.trim() || null;
   const returnUrl = params.get("returnUrl")?.trim() || null;
+  const intake = useMemo(() => parseClipIntakeParams(params), [params]);
 
   const recordingUrl = recordingId
     ? absoluteAppUrl(`/r/${encodeURIComponent(recordingId)}`)
@@ -57,11 +59,18 @@ export default function BugReportDoneRoute() {
       let agentLink: BugReportAgentLink | null = null;
       try {
         agentLink = (await callAction(
-          "create-recording-agent-link" as any,
-          {
-            recordingId,
-            ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
-          } as any,
+          intake ? "create-intake-agent-link" : "create-recording-agent-link",
+          intake
+            ? {
+                intakeId: intake.intakeId,
+                intakeToken: intake.token,
+                recordingId,
+                ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
+              }
+            : {
+                recordingId,
+                ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
+              },
         )) as BugReportAgentLink;
       } catch {
         agentLink = null;
@@ -88,7 +97,7 @@ export default function BugReportDoneRoute() {
     return () => {
       cancelled = true;
     };
-  }, [embedUrl, recordingId, recordingUrl, returnUrl]);
+  }, [embedUrl, intake, recordingId, recordingUrl, returnUrl]);
 
   const copyRecordingUrl = async () => {
     if (!recordingUrl) return;
