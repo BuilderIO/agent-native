@@ -891,6 +891,25 @@ describe("Realtime voice startup and transcript ordering", () => {
     expect(sent).toHaveLength(2);
   });
 
+  it("drops queued work after a failed GPT-Live completed response", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceResponseCoordinator((event) =>
+      sent.push(event),
+    );
+
+    coordinator.request();
+    coordinator.handleEvent({ type: "response.created" });
+    coordinator.request();
+    coordinator.handleEvent({
+      type: "response.completed",
+      response: { status: "failed" },
+    });
+
+    expect(sent).toHaveLength(1);
+    coordinator.request();
+    expect(sent).toHaveLength(2);
+  });
+
   it("ignores unrelated realtime errors", () => {
     const coordinator = createRealtimeVoiceResponseCoordinator(vi.fn());
 

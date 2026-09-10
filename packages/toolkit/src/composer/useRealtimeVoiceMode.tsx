@@ -2092,13 +2092,17 @@ function useRealtimeVoiceModeController(
         transition("speaking");
       } else if (event.type === "session.closed") {
         transcriptSequencer.flush();
-      } else if (responseEvent.type === "response.done") {
+      } else if (
+        responseEvent.type === "response.done" ||
+        responseEvent.type === "response.completed" ||
+        responseEvent.type === "response.failed"
+      ) {
         const response = responseEvent.response;
         const status =
           response && typeof response === "object"
             ? (response as { status?: unknown }).status
             : undefined;
-        if (status === "failed") {
+        if (responseEvent.type === "response.failed" || status === "failed") {
           transportGenerationRef.current += 1;
           handledCallsRef.current.clear();
           responseCoordinator.reset();
@@ -2108,15 +2112,6 @@ function useRealtimeVoiceModeController(
           transition("listening");
           return;
         }
-      } else if (responseEvent.type === "response.failed") {
-        transportGenerationRef.current += 1;
-        handledCallsRef.current.clear();
-        responseCoordinator.reset();
-        toolManifestCoordinator.reset();
-        lastUserTextRef.current = "";
-        lastAssistantTextRef.current = "";
-        transition("listening");
-        return;
       } else if (event.type === "error") {
         const detail = event.error;
         const message =
