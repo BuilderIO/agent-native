@@ -248,6 +248,7 @@ const messages: AgentChatTranslation = {
   "recovery.reconnectBuilder": "Builder.io erneut verbinden",
   "secrets.addCustomKeyNamed":
     "„{{name}}“ als benutzerdefinierten Schlüssel hinzufügen",
+  "secrets.chooseKey": "Schlüssel auswählen",
   "secrets.customKey": "Benutzerdefinierter Schlüssel",
   "secrets.customKeyHint": "Beliebigen Schlüssel nach Namen hinzufügen",
   "secrets.emptyHint":
@@ -260,6 +261,8 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "Wird im Vault des Arbeitsbereichs verwaltet. Jede App in diesem Arbeitsbereich verwendet diesen Wert.",
   "secrets.openVault": "Vault öffnen",
+  "secrets.newKey": "Neu",
+  "secrets.noKeysFound": "Keine Schlüssel gefunden.",
   "secrets.overridesVault":
     "Dieser persönliche Schlüssel überschreibt den Vault-Wert des Arbeitsbereichs. Entferne ihn, um den Vault-Schlüssel zu verwenden.",
   "secrets.overridesWorkspace":
@@ -269,6 +272,8 @@ const messages: AgentChatTranslation = {
   "secrets.sourceVault": "Vault",
   "secrets.sourceWorkspace": "Arbeitsbereich",
   "secrets.statusUnavailable": "Nicht verfügbar",
+  "secrets.required": "Erforderlich",
+  "secrets.searchKeys": "Schlüssel suchen...",
   "secrets.usePersonalKey":
     "Stattdessen einen persönlichen Schlüssel verwenden",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",

@@ -61,13 +61,14 @@ export function NewKeyMenu({
   options,
   onPick,
   onCustom,
-  label = "New",
+  label,
   triggerClassName,
 }: NewKeyMenuProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const normalized = normalizeKeyName(query);
+  const triggerLabel = label ?? t("secrets.newKey");
 
   return (
     <Popover
@@ -87,7 +88,7 @@ export function NewKeyMenu({
           )}
         >
           <IconPlus size={11} />
-          {label}
+          {triggerLabel}
         </ToolkitButtonBase>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-0">
@@ -98,11 +99,14 @@ export function NewKeyMenu({
             value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
           }
         >
-          <CommandInput placeholder="Search keys..." onValueChange={setQuery} />
+          <CommandInput
+            placeholder={t("secrets.searchKeys")}
+            onValueChange={setQuery}
+          />
           {options.length > 0 && (
             <CommandList>
-              <CommandEmpty>No keys found.</CommandEmpty>
-              <CommandGroup heading="Choose a key">
+              <CommandEmpty>{t("secrets.noKeysFound")}</CommandEmpty>
+              <CommandGroup heading={t("secrets.chooseKey")}>
                 {options.map((option) => {
                   const provider = providerLogoForKey(option.key);
                   return (
@@ -128,7 +132,7 @@ export function NewKeyMenu({
                       </span>
                       {option.required ? (
                         <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                          Required
+                          {t("secrets.required")}
                         </span>
                       ) : option.hint ? (
                         <span className="shrink-0 truncate text-[9px] text-muted-foreground">

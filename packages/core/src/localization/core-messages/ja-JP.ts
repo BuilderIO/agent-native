@@ -550,6 +550,7 @@ const messages: AgentChatTranslation = {
     "前回のエージェントストリームは実行の復元中に終了しました。続行するか再試行して、実行に再接続してください。",
   "recovery.reconnectBuilder": "Builder.io に再接続",
   "secrets.addCustomKeyNamed": "「{{name}}」をカスタムキーとして追加",
+  "secrets.chooseKey": "キーを選択",
   "secrets.customKey": "カスタムキー",
   "secrets.customKeyHint": "名前を指定して任意のキーを追加",
   "secrets.emptyHint": "自分のアカウントを使用するにはキーを追加してください。",
@@ -560,6 +561,8 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "ワークスペースの Vault で管理されています。このワークスペース内のすべてのアプリがこの値を使用します。",
   "secrets.openVault": "Vault を開く",
+  "secrets.newKey": "新規",
+  "secrets.noKeysFound": "キーが見つかりません。",
   "secrets.overridesVault":
     "この個人用キーは、ワークスペースの Vault の値を上書きします。Vault のキーを使用するには削除してください。",
   "secrets.overridesWorkspace":
@@ -569,6 +572,8 @@ const messages: AgentChatTranslation = {
   "secrets.sourceVault": "Vault",
   "secrets.sourceWorkspace": "ワークスペース",
   "secrets.statusUnavailable": "利用できません",
+  "secrets.required": "必須",
+  "secrets.searchKeys": "キーを検索...",
   "secrets.usePersonalKey": "代わりに個人用キーを使用",
   "selection.attached": "選択範囲の {{formattedCount}} 文字を添付しました",
   "selection.attached_other":

@@ -157,6 +157,11 @@ const messages = {
       "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
     overridesWorkspace:
       "This personal key overrides the workspace value. Remove it to use the shared key.",
+    newKey: "New",
+    searchKeys: "Search keys...",
+    noKeysFound: "No keys found.",
+    chooseKey: "Choose a key",
+    required: "Required",
     customKey: "Custom key",
     customKeyHint: "Add any key by name",
     addCustomKeyNamed: "Add “{{name}}” as a custom key",

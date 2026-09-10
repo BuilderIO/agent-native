@@ -248,6 +248,7 @@ const messages: AgentChatTranslation = {
     "Le flux précédent de l’agent s’est terminé pendant la récupération. Continuez ou réessayez pour vous reconnecter à l’exécution.",
   "recovery.reconnectBuilder": "Reconnecter Builder.io",
   "secrets.addCustomKeyNamed": 'Ajouter "{{name}}" comme clé personnalisée',
+  "secrets.chooseKey": "Choisir une clé",
   "secrets.customKey": "Clé personnalisée",
   "secrets.customKeyHint": "Ajoutez n'importe quelle clé par son nom",
   "secrets.emptyHint": "Ajoutez une clé pour utiliser vos propres comptes.",
@@ -258,6 +259,8 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "Géré dans le Vault de l'espace de travail. Chaque application de cet espace de travail utilise cette valeur.",
   "secrets.openVault": "Ouvrir Vault",
+  "secrets.newKey": "Nouveau",
+  "secrets.noKeysFound": "Aucune clé trouvée.",
   "secrets.overridesVault":
     "Cette clé personnelle remplace la valeur du Vault de l'espace de travail. Supprimez-la pour utiliser la clé du Vault.",
   "secrets.overridesWorkspace":
@@ -268,6 +271,8 @@ const messages: AgentChatTranslation = {
   "secrets.sourceVault": "Vault",
   "secrets.sourceWorkspace": "Espace de travail",
   "secrets.statusUnavailable": "Indisponible",
+  "secrets.required": "Obligatoire",
+  "secrets.searchKeys": "Rechercher des clés...",
   "secrets.usePersonalKey": "Utiliser une clé personnelle à la place",
   "selection.attached": "{{formattedCount}} caractères de la sélection joints",
   "selection.clear": "Effacer le contexte de la sélection",

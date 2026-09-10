@@ -517,6 +517,7 @@ const messages: AgentChatTranslation = {
     "上一次智能体流在恢复运行时结束。请继续或重试以重新连接该运行。",
   "recovery.reconnectBuilder": "重新连接 Builder.io",
   "secrets.addCustomKeyNamed": "添加“{{name}}”作为自定义密钥",
+  "secrets.chooseKey": "选择密钥",
   "secrets.customKey": "自定义密钥",
   "secrets.customKeyHint": "按名称添加任意密钥",
   "secrets.emptyHint": "添加密钥以使用您自己的账户。",
@@ -526,6 +527,8 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "在工作区 Vault 中管理。此工作区中的每个应用都使用此值。",
   "secrets.openVault": "打开 Vault",
+  "secrets.newKey": "新建",
+  "secrets.noKeysFound": "未找到密钥。",
   "secrets.overridesVault":
     "此个人密钥会覆盖工作区 Vault 的值。移除它即可使用 Vault 密钥。",
   "secrets.overridesWorkspace":
@@ -535,6 +538,8 @@ const messages: AgentChatTranslation = {
   "secrets.sourceVault": "Vault",
   "secrets.sourceWorkspace": "工作区",
   "secrets.statusUnavailable": "不可用",
+  "secrets.required": "必填",
+  "secrets.searchKeys": "搜索密钥...",
   "secrets.usePersonalKey": "改用个人密钥",
   "selection.attached": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.attached_other": "已附加选中内容的 {{formattedCount}} 个字符",

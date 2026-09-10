@@ -543,6 +543,7 @@ const messages = {
     "The previous agent stream ended while the run was recovering. Continue or retry to reconnect to the run.",
   "recovery.reconnectBuilder": "Reconnect Builder.io",
   "secrets.addCustomKeyNamed": "Add “{{name}}” as a custom key",
+  "secrets.chooseKey": "Choose a key",
   "secrets.customKey": "Custom key",
   "secrets.customKeyHint": "Add any key by name",
   "secrets.emptyHint": "Add a key to use your own accounts.",
@@ -552,6 +553,8 @@ const messages = {
   "secrets.managedInVault":
     "Managed in the workspace Vault. Every app in this workspace uses this value.",
   "secrets.openVault": "Open Vault",
+  "secrets.newKey": "New",
+  "secrets.noKeysFound": "No keys found.",
   "secrets.overridesVault":
     "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
   "secrets.overridesWorkspace":
@@ -561,6 +564,8 @@ const messages = {
   "secrets.sourceVault": "Vault",
   "secrets.sourceWorkspace": "Workspace",
   "secrets.statusUnavailable": "Unavailable",
+  "secrets.required": "Required",
+  "secrets.searchKeys": "Search keys...",
   "secrets.usePersonalKey": "Use a personal key instead",
   "selection.attached": "{{formattedCount}} characters of selection attached",
   "selection.attached_one":
