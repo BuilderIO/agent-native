@@ -515,6 +515,12 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /steps\.beta_first_publish_wait\.outcome == 'failure'/,
     );
+    assert.match(reusableSource, /id: deploy_wait/);
+    assert.match(
+      reusableSource,
+      /Netlify beta deploy \$\{process\.env\.DEPLOY_ID\} was superseded by unrelated published deploy/,
+    );
+    assert.match(reusableSource, /steps\.deploy_wait\.outcome == 'failure'/);
     assert.match(reusableSource, /TARGET: \$\{\{ inputs\.target \}\}/);
     assert.match(reusableSource, /PUBLISH_STARTED_AT/);
     assert.match(reusableSource, /DEPLOY_MESSAGE/);

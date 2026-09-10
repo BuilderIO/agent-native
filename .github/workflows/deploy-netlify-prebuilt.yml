@@ -1140,6 +1140,7 @@ jobs:
           echo "Uploaded prebuilt ${DEPLOY_MODE} deploy: $deploy_url"
 
       - name: Wait for the Netlify deploy to publish
+        id: deploy_wait
         if: >-
           inputs.deploy &&
           (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
@@ -1199,10 +1200,9 @@ jobs:
                   site.published_deploy?.id &&
                   site.published_deploy.id !== process.env.PREVIOUS_DEPLOY_ID
                 ) {
-                  console.log(
-                    `Netlify beta deploy ${process.env.DEPLOY_ID} was superseded by published deploy ${site.published_deploy.id}.`,
+                  throw new Error(
+                    `Netlify beta deploy ${process.env.DEPLOY_ID} was superseded by unrelated published deploy ${site.published_deploy.id}.`,
                   );
-                  return;
                 }
                 console.log("Deploy is ready; waiting for Netlify to publish it.");
               } else {
@@ -1650,6 +1650,7 @@ jobs:
           (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != '')) &&
           (steps.beta_post_freshness.outputs.current == 'false' ||
           steps.beta_post_freshness.outcome == 'failure' ||
+          steps.deploy_wait.outcome == 'failure' ||
           steps.beta_first_publish_wait.outcome == 'failure' ||
           (steps.beta_first_publish.outcome == 'failure' &&
           steps.beta_first_publish.outputs.deploy_id == '' &&

@@ -1089,6 +1089,11 @@ if (
   !reusableBetaFreshness.includes(
     "steps.beta_first_publish_wait.outcome == 'failure'",
   ) ||
+  !reusableBetaFreshness.includes("id: deploy_wait") ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta deploy ${process.env.DEPLOY_ID} was superseded by unrelated published deploy",
+  ) ||
+  !reusableBetaFreshness.includes("steps.deploy_wait.outcome == 'failure'") ||
   !reusableBetaFreshness.includes("Revert stale beta deploy") ||
   !reusableBetaFreshness.includes(
     "/sites/${siteId}/deploys/${previousId}/restore",
