@@ -5536,6 +5536,8 @@ const AssistantChatInner = forwardRef<
                   });
                   continue;
                 } catch {
+                  // coercion-ok: recompression is best-effort; the final size check
+                  // rejects the original when it still does not fit.
                   // Could not recompress — keep the original and let the
                   // final size estimate decide whether it still fits.
                 }
