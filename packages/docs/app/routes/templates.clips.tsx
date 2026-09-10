@@ -231,10 +231,14 @@ export default function ClipsTemplate() {
               const mediaBlock = (
                 <div
                   key="media"
-                  className="order-2 flex items-center justify-center bg-[var(--b-bg-raised)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                  className={`order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)] ${
+                    useCase.id === "act-on-feedback"
+                      ? ""
+                      : "bg-[var(--b-bg-raised)]"
+                  }`}
                 >
                   {useCase.id === "act-on-feedback" ? (
-                    <ClipsActOnFeedbackMock className="max-w-[420px]" />
+                    <ClipsActOnFeedbackMock className="w-full max-w-[520px]" />
                   ) : (
                     <ImgPlaceholder
                       aspectRatio="4 / 3"
