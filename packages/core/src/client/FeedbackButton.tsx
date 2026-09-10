@@ -53,7 +53,7 @@ const FEEDBACK_COPY: Record<
   }
 > = {
   "en-US": {
-    label: "Feedback",
+    label: "Send feedback",
     placeholder: "What's working, what's broken, or what would you change?",
     submit: "Send feedback",
     submitting: "Sending...",
@@ -374,19 +374,23 @@ function clientHostname(): string | undefined {
 }
 
 function isFirstPartyHostname(hostname: string | null | undefined): boolean {
-  const normalized = hostname?.trim().toLowerCase();
+  const normalized = hostname?.trim().toLowerCase().split(":")[0];
   return (
     normalized === FIRST_PARTY_HOSTNAME ||
-    normalized?.endsWith(`.${FIRST_PARTY_HOSTNAME}`) === true
+    normalized?.endsWith(`.${FIRST_PARTY_HOSTNAME}`) === true ||
+    normalized?.endsWith(".netlify.app") === true ||
+    normalized?.endsWith(".builder.io") === true
   );
 }
 
 function isLocalDevHostname(hostname: string | null | undefined): boolean {
-  const normalized = hostname?.trim().toLowerCase();
+  const normalized = hostname?.trim().toLowerCase().split(":")[0];
   return (
     normalized === "localhost" ||
     normalized === "127.0.0.1" ||
-    normalized === "[::1]"
+    normalized === "[::1]" ||
+    normalized === "0.0.0.0" ||
+    normalized?.endsWith(".local") === true
   );
 }
 

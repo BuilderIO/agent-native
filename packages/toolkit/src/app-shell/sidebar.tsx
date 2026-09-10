@@ -676,6 +676,13 @@ export const AppSidebarFooter = forwardRef<
       </Tooltip>
     ) : null;
 
+    const resolvedFeedback =
+      feedback !== undefined ? (
+        feedback
+      ) : (
+        <AppSidebarFeedbackButton collapsed={collapsed} />
+      );
+
     return (
       <div
         ref={ref}
@@ -687,7 +694,7 @@ export const AppSidebarFooter = forwardRef<
         )}
         {...props}
       >
-        {feedback}
+        {resolvedFeedback}
         <div
           data-sidebar-footer-utilities
           className={cn(

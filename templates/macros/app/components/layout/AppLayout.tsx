@@ -230,12 +230,12 @@ function SidebarContent({
           size="icon"
           className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
           onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
+          aria-label={t("root.search")}
         >
           <IconSearch className="size-4" />
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+      <TooltipContent side="right">{t("root.search")}</TooltipContent>
     </Tooltip>
   );
 

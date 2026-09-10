@@ -8,6 +8,7 @@ import { Link } from "react-router";
 
 import { AgentNativeIcon } from "../components/icons/AgentNativeIcon.js";
 import { EnvironmentBadge } from "../EnvironmentBadge.js";
+import { FeedbackButton } from "../FeedbackButton.js";
 
 function RouterSidebarLink({
   to,
@@ -62,6 +63,13 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
     const resolvedLinkComponent: AppSidebarLinkComponent =
       linkComponent ?? RouterSidebarLink;
 
+    const resolvedFeedback =
+      props.feedback !== undefined ? (
+        props.feedback
+      ) : (
+        <FeedbackButton variant={props.collapsed ? "icon" : "sidebar"} />
+      );
+
     return (
       <ToolkitAppSidebar
         ref={ref}
@@ -69,6 +77,7 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
         badge={resolvedBadge}
         linkComponent={resolvedLinkComponent}
         {...props}
+        feedback={resolvedFeedback}
       />
     );
   },
