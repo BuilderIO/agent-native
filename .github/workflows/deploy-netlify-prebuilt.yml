@@ -1724,9 +1724,8 @@ jobs:
             }
             if (publishedDeployId && publishedDeployId !== previousId) {
               console.log(
-                `Netlify beta deploy ${deployId} was already superseded by published deploy ${publishedDeployId}; skipping stale cleanup.`,
+                `Netlify beta deploy ${deployId} was superseded by published deploy ${publishedDeployId}; keeping the beta queue occupied until the stale deploy is non-publishable.`,
               );
-              return;
             }
 
             const deployResponse = await request(`${api}/deploys/${deployId}`);

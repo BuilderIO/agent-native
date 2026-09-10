@@ -1107,7 +1107,9 @@ if (
   ) ||
   !reusableBetaFreshness.includes("PREVIOUS_DEPLOY_ID") ||
   !reusableBetaFreshness.includes("const publishedDeployId") ||
-  !reusableBetaFreshness.includes("skipping stale cleanup") ||
+  !reusableBetaFreshness.includes(
+    "keeping the beta queue occupied until the stale deploy is non-publishable",
+  ) ||
   !reusableBetaFreshness.includes(
     "steps.previous.outputs.published_deploy_id != ''",
   ) ||
