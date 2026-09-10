@@ -1562,7 +1562,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   );
                   const tabIndex = visibleIndex >= 0 ? visibleIndex : idx;
                   const count = getTopBarCount(tab.id);
-                  const isDragging = dragPinnedId === tab.pinnedId;
                   const canDrag = !!tab.pinnedId;
                   const showLeft =
                     dropIndicator?.tabIndex === tabIndex &&
@@ -2198,9 +2197,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       showCollapsedSidebar ? "space-y-1" : "space-y-1.5",
                     )}
                   >
-                    <FeedbackButton
-                      variant={showCollapsedSidebar ? "icon" : "sidebar"}
-                      side="right"
+                    <SidebarFooterActions
+                      feedback={feedbackButton}
+                      search={searchButton}
+                      collapse={collapseButton}
+                      collapsed={showCollapsedSidebar}
                     />
                     <div data-sidebar-footer-utilities>
                       <OrgSwitcher
@@ -2229,7 +2230,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         </TooltipContent>
                       </Tooltip>
                       <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
-                      {collapseButton}
                     </div>
                   </div>
                 </>
@@ -2643,7 +2643,11 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
 
           <div className="shrink-0 border-t border-border p-2 space-y-1.5">
-            <FeedbackButton variant="sidebar" side="right" />
+            <SidebarFooterActions
+              feedback={feedbackButton}
+              search={searchButton}
+              collapse={collapseButton}
+            />
             <div
               data-sidebar-footer-utilities
               className="flex items-center gap-0.5"
@@ -2676,7 +2680,7 @@ function StandardLayout({ children }: AppLayoutProps) {
       <main
         className={cn(
           "min-h-0 flex-1 overflow-hidden transition-[padding] duration-200 ease-out",
-          sidebarOpen && "ps-[260px]",
+          !isMobile && sidebarOpen && "ps-[260px]",
         )}
       >
         {children}

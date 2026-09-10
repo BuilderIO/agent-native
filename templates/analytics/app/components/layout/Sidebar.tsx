@@ -140,7 +140,6 @@ import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
-  TooltipProvider,
 } from "@/components/ui/tooltip";
 import {
   useDashboardViews,
@@ -2350,7 +2349,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             })}
           </nav>
           <div className="shrink-0 border-t border-border p-2 space-y-1">
-            <FeedbackButton variant="icon" side="right" />
+            <SidebarFooterActions
+              feedback={footerFeedback}
+              search={footerSearch}
+              collapse={footerCollapse}
+              collapsed
+            />
             <div
               data-sidebar-footer-utilities
               className="flex flex-col items-center gap-1"
@@ -2360,7 +2364,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
               />
               <DevDatabaseLink />
-              {footerCollapse}
             </div>
           </div>
         </>
@@ -2719,14 +2722,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </nav>
 
               <div className="mt-2 shrink-0 space-y-1.5 border-t border-border p-2">
-                <FeedbackButton variant="sidebar" side="right" />
+                <SidebarFooterActions
+                  feedback={footerFeedback}
+                  search={footerSearch}
+                  collapse={footerCollapse}
+                />
                 <div
                   data-sidebar-footer-utilities
                   className="flex items-center gap-0.5"
                 >
                   <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
                   <DevDatabaseLink />
-                  {footerCollapse}
                 </div>
               </div>
             </div>

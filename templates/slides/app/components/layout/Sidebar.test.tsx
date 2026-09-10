@@ -38,7 +38,7 @@ vi.mock(import("@agent-native/core/client/ui"), async (importOriginal) => {
     AgentNativeIcon: ({
       size = 24,
       ...props
-    }: React.SVGProps<SVGSVGElement> & { size?: number }) => (
+    }: React.SVGProps<SVGSVGElement> & { size?: number | string }) => (
       <svg data-agent-native-icon width={size} height={size} {...props} />
     ),
     FeedbackButton: () => null,

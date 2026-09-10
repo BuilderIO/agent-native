@@ -10,11 +10,9 @@ import {
   isValidElement,
   useCallback,
   useContext,
-  useId,
   useMemo,
   useState,
   type ComponentType,
-  type ElementRef,
   type HTMLAttributes,
   type MouseEvent,
   type ReactNode,
@@ -32,10 +30,7 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
-import {
-  usePersistentSidebarCollapsed,
-  type PersistentSidebarCollapsedState,
-} from "./use-persistent-sidebar-collapsed.js";
+import { usePersistentSidebarCollapsed } from "./use-persistent-sidebar-collapsed.js";
 
 // ---------------------------------------------------------------------------
 // Context

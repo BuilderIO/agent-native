@@ -2359,7 +2359,12 @@ export function DocumentSidebar({
           {renderCollapsedNewButton()}
         </div>
         <div className="mt-auto shrink-0 w-full p-2 border-t border-border space-y-1">
-          <FeedbackButton variant="icon" side="right" />
+          <SidebarFooterActions
+            feedback={feedbackButton}
+            search={searchButton}
+            collapse={collapseButton}
+            collapsed
+          />
           <div
             data-sidebar-footer-utilities
             className="flex flex-col items-center gap-1"
@@ -2380,7 +2385,6 @@ export function DocumentSidebar({
                 {t("navigation.settings")}
               </TooltipContent>
             </Tooltip>
-            {collapseButton}
           </div>
         </div>
       </div>
@@ -2534,7 +2538,11 @@ export function DocumentSidebar({
       </div>
 
       <div className="shrink-0 border-t border-border p-2 space-y-1.5">
-        <FeedbackButton variant="sidebar" side="right" />
+        <SidebarFooterActions
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
         <div
           data-sidebar-footer-utilities
           className="flex items-center gap-0.5"
@@ -2554,7 +2562,6 @@ export function DocumentSidebar({
               {t("navigation.settings")}
             </TooltipContent>
           </Tooltip>
-          {collapseButton}
         </div>
       </div>
 

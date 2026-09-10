@@ -38,10 +38,6 @@ const baseNavItems = [
   { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
 ];
 
-const bottomNavItems = [
-  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
-];
-
 const auditNavItem = {
   icon: IconClipboardList,
   labelKey: "navigation.auditLog",

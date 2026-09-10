@@ -11,9 +11,10 @@ import {
 } from "@agent-native/core/client/ui";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import {
-  IconFlame,
   IconChartBar,
+  IconFlame,
   IconLoader2,
+  IconSearch,
   IconSettings,
 } from "@tabler/icons-react";
 import {
@@ -23,8 +24,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   Tooltip,
@@ -36,15 +38,6 @@ import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 import { Header } from "./Header";
-
-const navItems = [
-  { icon: IconFlame, labelKey: "navigation.entry", href: "/home" },
-  { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
-];
-
-const bottomNavItems = [
-  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
-];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -228,6 +221,24 @@ function SidebarContent({
 
   const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          onClick={openCommandMenu}
+          aria-label={t("sidebar.search")}
+        >
+          <IconSearch className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+    </Tooltip>
+  );
+
   return (
     <AppSidebar
       collapsed={collapsed}
@@ -239,7 +250,12 @@ function SidebarContent({
       secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
-      footerExtras={<DevDatabaseLink />}
+      footerExtras={
+        <>
+          {searchButton}
+          <DevDatabaseLink />
+        </>
+      }
     />
   );
 }

@@ -25,8 +25,6 @@ import {
   IconCheck,
   IconEye,
   IconEyeOff,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
   IconSearch,
   IconAlertTriangle,
 } from "@tabler/icons-react";
@@ -724,33 +722,6 @@ export function Sidebar({
     onClose();
   }
 
-  const collapseButton = onCollapsedChange ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 text-muted-foreground"
-          onClick={() => onCollapsedChange(!collapsed)}
-          aria-label={
-            collapsed
-              ? t("sidebar.expandSidebar")
-              : t("sidebar.collapseSidebar")
-          }
-        >
-          {collapsed ? (
-            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-          ) : (
-            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
-      </TooltipContent>
-    </Tooltip>
-  ) : null;
   const searchButton = (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -803,7 +774,12 @@ export function Sidebar({
         secondaryItems={secondaryItems}
         feedback={feedbackButton}
         orgSwitcher={orgSwitcher}
-        footerExtras={<DevDatabaseLink />}
+        footerExtras={
+          <>
+            {searchButton}
+            <DevDatabaseLink />
+          </>
+        }
         className={cn(
           "calendar-app-sidebar",
           // Match calendar's lg mobile breakpoint (shared sidebar defaults to md).

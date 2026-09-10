@@ -1228,7 +1228,12 @@ export function NavContent({
         collapsed ? "space-y-1" : "space-y-1.5",
       )}
     >
-      <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
+      <SidebarFooterActions
+        feedback={feedbackButton}
+        search={searchButton}
+        collapse={collapseButton}
+        collapsed={collapsed}
+      />
       <div
         data-sidebar-footer-utilities
         className={cn(
@@ -1246,7 +1251,6 @@ export function NavContent({
             collapsed ? "!size-9 !p-0 [&>svg]:!size-4" : "min-w-0 flex-1",
           )}
         />
-        {collapseButton}
       </div>
     </div>
   );

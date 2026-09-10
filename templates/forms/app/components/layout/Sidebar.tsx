@@ -36,7 +36,6 @@ import {
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import { useCreateForm } from "@/hooks/use-forms";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { cn } from "@/lib/utils";
 
 const SIDEBAR_COLLAPSE_KEY = "forms.sidebar.collapsed";
 

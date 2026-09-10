@@ -27,36 +27,6 @@ import { toast } from "sonner";
 
 import { APP_TITLE } from "@/lib/app-config";
 
-const navItems = [
-  {
-    icon: IconMessageCircle,
-    labelKey: "navigation.chat",
-    href: "/chat",
-    view: "chat",
-  },
-  {
-    icon: IconGitPullRequest,
-    labelKey: "navigation.triage",
-    href: "/factory",
-    view: "factory",
-  },
-  {
-    icon: IconHierarchy2,
-    labelKey: "navigation.agents",
-    href: "/agents",
-    view: "agents",
-  },
-];
-
-const bottomNavItems = [
-  {
-    icon: IconSettings,
-    labelKey: "navigation.settings",
-    href: "/settings",
-    view: "settings",
-  },
-];
-
 const CHAT_STORAGE_KEY = "chat";
 const CHAT_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${CHAT_STORAGE_KEY}`;
 
