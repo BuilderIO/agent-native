@@ -2,8 +2,9 @@ import { decodeHTML } from "entities";
 
 import {
   isActiveXmlAttributeValue,
+  isNonStaticExportElement,
   isStaticXmlAttributeName,
-  NON_STATIC_EXPORT_ELEMENT_NAME_RE,
+  VOID_NON_STATIC_EXPORT_ELEMENT_RE,
 } from "../../shared/xml-export-attributes.js";
 
 export interface DesignExportFile {
@@ -187,8 +188,19 @@ function unquotedAttributeValue(valueSuffix: string): string {
   return raw;
 }
 
+/**
+ * The DOM hands the client sanitizer decoded attribute values; this tokenizer
+ * sees raw source text, where `javascript&#58;` and `javascript&colon;` both
+ * look inert. The XML consumer decodes them back to `javascript:`, so decode
+ * once here too, or the scheme check reads a different string than the
+ * consumer will. One pass matches the parser: `&amp;#58;` really is text.
+ */
 function isStaticXmlAttributeValue(name: string, valueSuffix: string): boolean {
-  return !isActiveXmlAttributeValue(name, unquotedAttributeValue(valueSuffix));
+  const raw = unquotedAttributeValue(valueSuffix);
+  return (
+    !isActiveXmlAttributeValue(name, raw) &&
+    !isActiveXmlAttributeValue(name, decodeHTML(raw))
+  );
 }
 
 /**
@@ -328,10 +340,13 @@ function normalizeStartTagsForXml(html: string): string {
     if (
       openingTagName &&
       (editorChromeElement ||
-        NON_STATIC_EXPORT_ELEMENT_NAME_RE.test(openingTagName))
+        isNonStaticExportElement(openingTagName, {
+          hasHttpEquiv: /\shttp-equiv\s*=/i.test(tag),
+        }))
     ) {
       const isVoid =
-        /^(?:embed|base)$/i.test(openingTagName) || /\/\s*>$/.test(tag);
+        VOID_NON_STATIC_EXPORT_ELEMENT_RE.test(openingTagName) ||
+        /\/\s*>$/.test(tag);
       if (isVoid) {
         cursor = end + 1;
         continue;

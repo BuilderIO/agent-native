@@ -110,12 +110,86 @@ export function collectUsedFontSpecs(doc: Document): string[] {
   return Array.from(specs);
 }
 
-function collectPreviewFontFaceCss(doc: Document): {
+// CSSOM rule type constants; `CSSRule` is not a global outside the browser.
+const FONT_FACE_RULE = 5;
+const IMPORT_RULE = 3;
+
+interface FontFaceHarvest {
   rules: string[];
   unreadable: string[];
-} {
-  const rules: string[] = [];
-  const unreadable: string[] = [];
+}
+
+/**
+ * Walk a rule list for `@font-face`, following `@import` and grouping rules
+ * (`@media`, `@supports`, `@layer`). A design that pulls its fonts in with
+ * `@import url('https://fonts.googleapis.com/...')` inside a `<style>` block
+ * is common, and those faces hang off `CSSImportRule.styleSheet` rather than
+ * the top level - collecting only top-level rules mirrored an empty stylesheet
+ * and let the raster export fall back to the wrong metrics with nothing
+ * reported.
+ */
+function harvestFontFaceRules(
+  rules: readonly CSSRule[],
+  baseUrl: string,
+  harvest: FontFaceHarvest,
+  seen: Set<object>,
+): void {
+  for (const rule of rules) {
+    if (rule.type === FONT_FACE_RULE) {
+      harvest.rules.push(absolutizeCssUrls(rule.cssText, baseUrl));
+      continue;
+    }
+    if (rule.type === IMPORT_RULE) {
+      const importRule = rule as CSSImportRule;
+      let importedBase = baseUrl;
+      try {
+        importedBase = importRule.href
+          ? new URL(importRule.href, baseUrl).href
+          : baseUrl;
+      } catch {
+        importedBase = baseUrl;
+      }
+      // Reading `.styleSheet` is itself a cross-origin access and can throw,
+      // so it has to sit inside the same guard as `.cssRules`. Distinguish
+      // "already walked" from "could not read": collapsing them would drop a
+      // whole imported sheet with nothing reported.
+      let imported: CSSStyleSheet | null = null;
+      let nestedRules: CSSRule[] | null = null;
+      let alreadyWalked = false;
+      try {
+        imported = importRule.styleSheet;
+        if (imported && seen.has(imported)) {
+          alreadyWalked = true;
+        } else if (imported) {
+          seen.add(imported);
+          nestedRules = Array.from(imported.cssRules ?? []);
+        }
+      } catch {
+        nestedRules = null;
+      }
+      if (nestedRules) {
+        harvestFontFaceRules(
+          nestedRules,
+          imported?.href ?? importedBase,
+          harvest,
+          seen,
+        );
+      } else if (!alreadyWalked) {
+        harvest.unreadable.push(imported?.href ?? importedBase);
+      }
+      continue;
+    }
+    const nested = (rule as CSSGroupingRule).cssRules;
+    if (!nested) continue;
+    if (seen.has(rule)) continue;
+    seen.add(rule);
+    harvestFontFaceRules(Array.from(nested), baseUrl, harvest, seen);
+  }
+}
+
+function collectPreviewFontFaceCss(doc: Document): FontFaceHarvest {
+  const harvest: FontFaceHarvest = { rules: [], unreadable: [] };
+  const seen = new Set<object>();
   for (const sheet of Array.from(doc.styleSheets)) {
     const base = sheet.href ?? doc.baseURI;
     let cssRules: CSSRule[];
@@ -125,15 +199,13 @@ function collectPreviewFontFaceCss(doc: Document): {
       // Cross-origin stylesheet (Google Fonts is the common case). Its text is
       // still fetchable, so record it for the network pass rather than losing
       // the faces silently.
-      if (sheet.href) unreadable.push(sheet.href);
+      if (sheet.href) harvest.unreadable.push(sheet.href);
       continue;
     }
-    for (const rule of cssRules) {
-      if (rule.type !== CSSRule.FONT_FACE_RULE) continue;
-      rules.push(absolutizeCssUrls(rule.cssText, base));
-    }
+    seen.add(sheet);
+    harvestFontFaceRules(cssRules, base, harvest, seen);
   }
-  return { rules, unreadable };
+  return harvest;
 }
 
 async function fetchFontFaceRules(

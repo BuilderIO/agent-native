@@ -164,3 +164,152 @@ describe("mirrorPreviewWebFonts", () => {
     }
   });
 });
+
+/**
+ * `@import url('https://fonts.googleapis.com/...')` inside a <style> block is
+ * a normal way for a generated design to pull webfonts, and those faces hang
+ * off CSSImportRule.styleSheet rather than the top-level rule list.
+ */
+describe("mirrorPreviewWebFonts nested stylesheets", () => {
+  const FONT_FACE_RULE = 5;
+  const IMPORT_RULE = 3;
+  const MEDIA_RULE = 4;
+
+  function previewWithSheets(sheets: unknown[]): Document {
+    const preview = document.implementation.createHTMLDocument("preview");
+    Object.defineProperty(preview, "styleSheets", { value: sheets });
+    return preview;
+  }
+
+  it("follows a readable @import to the faces inside it", async () => {
+    const imported = {
+      href: "https://cdn.example.com/nested/fonts.css",
+      cssRules: [
+        {
+          type: FONT_FACE_RULE,
+          cssText: `@font-face { font-family: "Imported"; src: url(i.woff2); }`,
+        },
+      ],
+    };
+    const preview = previewWithSheets([
+      {
+        href: null,
+        cssRules: [
+          { type: IMPORT_RULE, href: "nested/fonts.css", styleSheet: imported },
+        ],
+      },
+    ]);
+
+    const target = document.implementation.createHTMLDocument("editor");
+    const mirrored = await mirrorPreviewWebFonts(preview, target);
+
+    expect(mirrored.faceCount).toBe(1);
+    expect(mirrored.unreadableStylesheets).toEqual([]);
+    expect(
+      target.head.querySelector("style[data-agent-native-export-fontface]")
+        ?.textContent,
+    ).toContain("https://cdn.example.com/nested/i.woff2");
+  });
+
+  it("reports a cross-origin @import instead of mirroring an empty sheet", async () => {
+    const href = "https://fonts.googleapis.com/css2?family=Neuron";
+    const preview = previewWithSheets([
+      {
+        href: null,
+        cssRules: [
+          {
+            type: IMPORT_RULE,
+            href,
+            get styleSheet(): never {
+              throw new DOMException("cross-origin", "SecurityError");
+            },
+          },
+        ],
+      },
+    ]);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (() =>
+      Promise.reject(new Error("offline"))) as unknown as typeof fetch;
+    try {
+      const target = document.implementation.createHTMLDocument("editor");
+      const mirrored = await mirrorPreviewWebFonts(preview, target);
+      expect(mirrored.faceCount).toBe(0);
+      expect(mirrored.unreadableStylesheets).toEqual([href]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("finds faces nested in a grouping rule", async () => {
+    const preview = previewWithSheets([
+      {
+        href: "https://cdn.example.com/a.css",
+        cssRules: [
+          {
+            type: MEDIA_RULE,
+            cssRules: [
+              {
+                type: FONT_FACE_RULE,
+                cssText: `@font-face { font-family: "Grouped"; src: url(g.woff2); }`,
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const target = document.implementation.createHTMLDocument("editor");
+    expect((await mirrorPreviewWebFonts(preview, target)).faceCount).toBe(1);
+  });
+
+  it("terminates on a self-referencing @import", async () => {
+    const sheet: Record<string, unknown> = {
+      href: "https://cdn.example.com/loop.css",
+    };
+    sheet.cssRules = [
+      { type: IMPORT_RULE, href: "loop.css", styleSheet: sheet },
+      {
+        type: FONT_FACE_RULE,
+        cssText: `@font-face { font-family: "Loop"; src: url(l.woff2); }`,
+      },
+    ];
+    const preview = previewWithSheets([sheet]);
+
+    const target = document.implementation.createHTMLDocument("editor");
+    expect((await mirrorPreviewWebFonts(preview, target)).faceCount).toBe(1);
+  });
+
+  it("reports an imported sheet whose rules cannot be read", async () => {
+    const href = "https://cdn.example.com/opaque.css";
+    const preview = previewWithSheets([
+      {
+        href: null,
+        cssRules: [
+          {
+            type: IMPORT_RULE,
+            href,
+            styleSheet: {
+              href,
+              get cssRules(): never {
+                throw new DOMException("cross-origin", "SecurityError");
+              },
+            },
+          },
+        ],
+      },
+    ]);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (() =>
+      Promise.reject(new Error("offline"))) as unknown as typeof fetch;
+    try {
+      const target = document.implementation.createHTMLDocument("editor");
+      const mirrored = await mirrorPreviewWebFonts(preview, target);
+      expect(mirrored.faceCount).toBe(0);
+      expect(mirrored.unreadableStylesheets).toEqual([href]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

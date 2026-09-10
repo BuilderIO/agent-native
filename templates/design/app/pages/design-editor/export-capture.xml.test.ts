@@ -124,6 +124,28 @@ describe("exported SVG is well-formed XML", () => {
     expect(content.querySelector("p")?.textContent).toBe("ok");
   });
 
+  /**
+   * Regression: the scope walk once used `scope instanceof Element` to decide
+   * whether to sanitize the root itself. The clone comes from the preview
+   * iframe's realm, where that check is false, so the root kept its own
+   * directives and the export was unparsable at line 2. happy-dom shares
+   * constructors across documents and cannot reproduce the realm mismatch, so
+   * this pins the behaviour; the mechanism is pinned by not using `instanceof`.
+   */
+  it("sanitizes the root element's own attributes", () => {
+    const root = document.createElement("html");
+    root.setAttribute(":class", "{ dark: isDark }");
+    root.setAttribute("x-data", "{ isDark: true }");
+    root.setAttribute("lang", "en");
+    root.innerHTML = "<body><p>hi</p></body>";
+
+    stripNonStaticXmlAttributes(root);
+
+    expect(root.hasAttribute(":class")).toBe(false);
+    expect(root.hasAttribute("x-data")).toBe(false);
+    expect(root.getAttribute("lang")).toBe("en");
+  });
+
   it("produces a document an XML parser accepts", () => {
     const root = document.createElement("div");
     root.innerHTML = `<section x-data="{ open: false }">

@@ -119,6 +119,8 @@ export function resolveRasterExportScale(args: {
  * block behind a `<template>`, so skipping that fragment let `:class` reach
  * the file and made the whole SVG unparsable at the first list or conditional.
  */
+const ELEMENT_NODE = 1;
+
 function collectStaticExportScopes(root: ParentNode): ParentNode[] {
   const scopes: ParentNode[] = [root];
   for (let index = 0; index < scopes.length; index += 1) {
@@ -147,8 +149,14 @@ export function stripNonStaticXmlAttributes(root: Element): void {
       .forEach((element) => element.remove());
   }
   for (const scope of collectStaticExportScopes(root)) {
+    // The clone is built by the preview iframe's realm, so `instanceof
+    // Element` is false here for the `<html>` root and would skip its own
+    // attributes while sanitizing every descendant. A dark-mode root such as
+    // `<html :class="{ dark: isDark }">` is ordinary Alpine, and leaving that
+    // one attribute behind produces exactly the unparsable file this function
+    // exists to prevent. Compare nodeType, which carries no realm identity.
     const elements = [
-      ...(scope instanceof Element ? [scope] : []),
+      ...(scope.nodeType === ELEMENT_NODE ? [scope as Element] : []),
       ...Array.from(scope.querySelectorAll("*")),
     ];
     for (const element of elements) {

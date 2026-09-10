@@ -80,5 +80,26 @@ export function isActiveXmlAttributeValue(
 export const NON_STATIC_EXPORT_ELEMENT_SELECTOR =
   "script,iframe,object,embed,base,meta[http-equiv],foreignObject,animate,set";
 
-export const NON_STATIC_EXPORT_ELEMENT_NAME_RE =
+const ALWAYS_NON_STATIC_ELEMENT_RE =
   /^(?:script|iframe|object|embed|base|foreignObject|animate|set)$/i;
+
+/**
+ * Mirrors NON_STATIC_EXPORT_ELEMENT_SELECTOR for callers that only have a tag
+ * name and cannot run a CSS selector. `<meta>` is conditional: a plain
+ * `<meta charset>` is inert and worth keeping, while `http-equiv` carries
+ * refresh and CSP directives that must not survive into an exported file.
+ */
+export function isNonStaticExportElement(
+  tagName: string,
+  options?: { hasHttpEquiv?: boolean },
+): boolean {
+  if (ALWAYS_NON_STATIC_ELEMENT_RE.test(tagName)) return true;
+  return /^meta$/i.test(tagName) && options?.hasHttpEquiv === true;
+}
+
+/**
+ * Removable elements with no end tag. A tokenizer that looks for `</meta>`
+ * finds nothing and swallows the rest of the document, so this list has to
+ * stay in step with `isNonStaticExportElement`.
+ */
+export const VOID_NON_STATIC_EXPORT_ELEMENT_RE = /^(?:embed|base|meta)$/i;
