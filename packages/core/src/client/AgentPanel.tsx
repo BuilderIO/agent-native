@@ -1688,7 +1688,9 @@ function AgentPanelInner({
               })()}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem
-                onSelect={() => {
+                onSelect={(event) => {
+                  event.preventDefault();
+                  closeHeaderMenuForOverlay();
                   // Let the menu finish restoring focus before mounting the
                   // history popover; otherwise Radix dismisses the new overlay.
                   setTimeout(() => toggleHistory(), 0);
