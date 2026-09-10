@@ -151,7 +151,9 @@ describe("responsive Interact wiring", () => {
   it("resets chrome mode when same-design navigation changes embed mode", () => {
     expect(source).toContain("setMinimalUi(minimalUiByDefault);");
     expect(source).toContain("setMinimalRightSidebarOpen(minimalUiByDefault);");
-    expect(source).toContain("}, [minimalUiByDefault]);");
+    expect(source).toContain(
+      "}, [minimalUiByDefault, embedChromeRequested, hostOwnsChrome]);",
+    );
   });
 
   it("pushes editing safety live in addition to baking it", () => {

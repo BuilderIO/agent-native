@@ -1473,7 +1473,7 @@ function DesignEditor() {
   useEffect(() => {
     setMinimalUi(minimalUiByDefault);
     setMinimalRightSidebarOpen(minimalUiByDefault);
-  }, [minimalUiByDefault]);
+  }, [minimalUiByDefault, embedChromeRequested, hostOwnsChrome]);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");
