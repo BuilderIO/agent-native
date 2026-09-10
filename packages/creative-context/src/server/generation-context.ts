@@ -582,7 +582,7 @@ export async function recordGenerationCreativeContext(
     ? await assertGenerationArtifactAccess(
         input,
         artifactAccessTarget,
-        "editor",
+        "record",
       )
     : undefined;
   return recordGenerationCreativeContextLocal(input, {
@@ -627,11 +627,7 @@ export async function getGenerationCreativeContext(
     }
   }
   const artifactAccess = artifactAccessTarget
-    ? await assertGenerationArtifactAccess(
-        input,
-        artifactAccessTarget,
-        "viewer",
-      )
+    ? await assertGenerationArtifactAccess(input, artifactAccessTarget, "read")
     : undefined;
   return getGenerationCreativeContextLocal(input, {
     artifactAccess,

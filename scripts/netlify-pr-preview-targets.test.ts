@@ -58,3 +58,28 @@ test("previews the docs site for app changes but skips prose and hidden template
   assert.deepEqual(previewSitesForChangedPaths(["templates/crm/app.tsx"]), []);
   assert.deepEqual(previewSitesForChangedPaths(["docs/netlify.md"]), []);
 });
+
+test("keeps hidden templates out of the shared preview fanout", () => {
+  assert.deepEqual(
+    previewSitesForChangedPaths([
+      "packages/core/src/index.ts",
+      "templates/crm/app.tsx",
+      "templates/macros/app.tsx",
+    ]),
+    [
+      "analytics",
+      "assets",
+      "calendar",
+      "clips",
+      "content",
+      "design",
+      "dispatch",
+      "forms",
+      "mail",
+      "plan",
+      "slides",
+      "starter",
+      "fw",
+    ],
+  );
+});
