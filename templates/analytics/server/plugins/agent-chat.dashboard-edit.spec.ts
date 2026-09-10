@@ -295,6 +295,7 @@ describe("realDataFinalGuard dashboard edits", () => {
       "Create an automation to clone the Revenue dashboard template every morning",
       "Create an automation using the Revenue dashboard template every morning",
       "Create an automation for the Revenue dashboard using a template",
+      "Use the existing dashboard template for an automation",
     ]) {
       const result = realDataFinalGuard(
         guardContext({
@@ -392,6 +393,9 @@ describe("realDataFinalGuard dashboard edits", () => {
       "Schedule the Revenue dashboard refresh via cron",
       "Refresh the Revenue dashboard via cron every morning",
       "Run the Revenue dashboard refresh on a cron schedule",
+      "Schedule a dashboard refresh",
+      "Schedule a dashboard refresh every morning",
+      "Schedule the dashboard to refresh daily",
     ]) {
       const result = realDataFinalGuard(
         guardContext({
@@ -460,26 +464,30 @@ describe("realDataFinalGuard dashboard edits", () => {
   });
 
   it("does not retry compound automation actions as a dashboard build", () => {
-    const result = realDataFinalGuard(
-      guardContext({
-        userText:
-          "Create an automation to refresh and update the Revenue dashboard",
-        draftText: 'Created automation "revenue-refresh".',
-        toolResults: [
-          {
-            name: "manage-automations",
-            isError: false,
-            content: JSON.stringify({
-              created: true,
-              name: "revenue-refresh",
-              triggerType: "schedule",
-            }),
-          },
-        ],
-      }),
-    );
+    for (const userText of [
+      "Create an automation to refresh and update the Revenue dashboard",
+      "Create a workflow to update, refresh, and rename the Revenue dashboard",
+    ]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: 'Created automation "revenue-refresh".',
+          toolResults: [
+            {
+              name: "manage-automations",
+              isError: false,
+              content: JSON.stringify({
+                created: true,
+                name: "revenue-refresh",
+                triggerType: "schedule",
+              }),
+            },
+          ],
+        }),
+      );
 
-    expect(result).toBeNull();
+      expect(result).toBeNull();
+    }
   });
 
   it("keeps recovery for a named dashboard", () => {

@@ -1213,6 +1213,29 @@ describe("incomplete evidence detection", () => {
         "Run the Revenue dashboard refresh on a cron schedule",
       ),
     ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest("Schedule a dashboard refresh"),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule a dashboard refresh every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule the dashboard to refresh daily",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps cron refresh-rate questions as analytics requests", () => {
+    for (const request of [
+      "What is the dashboard refresh rate via cron?",
+      "Show the dashboard refresh rate via cron for the past week.",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
   });
 
   it("keeps schedule dimensions as analytics requests", () => {
@@ -1242,17 +1265,24 @@ describe("incomplete evidence detection", () => {
   });
 
   it("does not treat a dashboard template input as dashboard construction", () => {
-    expect(
-      looksLikeDashboardConstructionRequest(
-        "Use a dashboard template to create an automation",
-      ),
-    ).toBe(false);
+    for (const request of [
+      "Use a dashboard template to create an automation",
+      "Use the dashboard template for an automation",
+      "Use the existing dashboard template for an automation",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    }
   });
 
   it("masks compound actions inside an automation", () => {
     expect(
       looksLikeDashboardConstructionRequest(
         "Create an automation to refresh and update the Revenue dashboard",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a workflow to update, refresh, and rename the Revenue dashboard",
       ),
     ).toBe(false);
   });

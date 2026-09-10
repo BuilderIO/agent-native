@@ -191,6 +191,9 @@ const DASHBOARD_AUTOMATION_SUBJECT_TERMS =
 const DASHBOARD_AUTOMATION_NESTED_ACTION_TERMS =
   /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:and|then)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b)*(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
 
+const DASHBOARD_AUTOMATION_NESTED_ACTION_LIST_TERMS =
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then)\b|,)[^.!?;\n])*?(?:,\s*(?:and|then)?|\b(?:and|then)\b)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|use)\b)+(?:(?!\b(?:and|or|then)\b|,)[^.!?;\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
+
 const DASHBOARD_AUTOMATION_NESTED_TEMPLATE_TERMS =
   /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\b)(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b/gi;
 
@@ -201,7 +204,13 @@ const DASHBOARD_TEMPLATE_CONSTRUCTION_TERMS =
   /\b(?:use|build|create|make|clone|copy|duplicate|adapt|replicate)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:as a template|template)\b(?!\s+automation\b)/i;
 
 const DASHBOARD_TEMPLATE_AUTOMATION_INPUT_TERMS =
-  /\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:create|build|make|set up|setup|schedule)\b\s+(?:(?:a|an|the)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b/i;
+  /\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:create|build|make|set up|setup|schedule)\b\s+(?:(?:a|an|the)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b|\bfor\s+(?:(?:a|an|the)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b|\bto\s+automate\b)/i;
+
+const DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_TERMS =
+  /(?:^|[.!?;,\n]|\b(?:and|then|please|to)\b)\s*(?:schedule|scheduled)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\b/i;
+
+const DASHBOARD_REFRESH_RATE_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b[^.!?;,\n]*?\brefresh\s+rate\b/i;
 
 export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = stripInjectedAnalyticsGuardContext(text);
@@ -210,6 +219,7 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
   // Do not let an action inside an automation request masquerade as the
   // top-level dashboard artifact ("create an automation to refresh ...").
   const constructionRequestText = lower
+    .replace(DASHBOARD_AUTOMATION_NESTED_ACTION_LIST_TERMS, " automation ")
     .replace(DASHBOARD_AUTOMATION_NESTED_ACTION_TERMS, " automation ")
     .replace(DASHBOARD_AUTOMATION_NESTED_TEMPLATE_TERMS, " automation ");
   const hasDashboardConstructionObject = [
@@ -225,6 +235,12 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
     }
     return DASHBOARD_AUTOMATION_SUBJECT_TERMS.test(match);
   });
+  if (
+    DASHBOARD_REFRESH_RATE_QUERY_TERMS.test(lower) &&
+    !hasDashboardConstructionObject
+  ) {
+    return false;
+  }
   const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(
     constructionRequestText,
   );
@@ -380,9 +396,13 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
       lower,
     );
   const hasCronSchedulingTarget =
-    /\b(?:schedule|scheduled|set up|setup|run|trigger|refresh)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:(?:via|using|with)\s+cron(?:\s+job)?|on\s+(?:a\s+)?cron(?:\s+(?:schedule|job))?)\b/.test(
+    /(?:^|[.!?;,\n]|\b(?:and|then|please|to)\b)\s*(?:schedule|scheduled|set up|setup|run|trigger|refresh)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:(?:via|using|with)\s+cron(?:\s+job)?|on\s+(?:a\s+)?cron(?:\s+(?:schedule|job))?)\b/.test(
       lower,
     );
+  const hasTemplateAutomationInput =
+    DASHBOARD_TEMPLATE_AUTOMATION_INPUT_TERMS.test(lower);
+  const hasScheduledDashboardRefresh =
+    DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_TERMS.test(lower);
   const hasDashboardAutomationTarget =
     DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower);
 
@@ -390,6 +410,8 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
     hasExplicitAutomationTarget ||
     hasScheduledAutomationTarget ||
     hasCronSchedulingTarget ||
+    hasTemplateAutomationInput ||
+    hasScheduledDashboardRefresh ||
     hasDashboardAutomationTarget ||
     (hasWorkflowArtifact && hasCreationIntent) ||
     (hasCreationIntent &&
@@ -483,6 +505,8 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   // Checking what's available, what a metric means, or what schema exists
   // should be answered from the dictionary and schema tools, not a data fetch.
   if (METADATA_ONLY_TERMS.test(lower)) return false;
+
+  if (DASHBOARD_REFRESH_RATE_QUERY_TERMS.test(lower)) return true;
 
   if (ANALYTICS_RESULT_TERMS.test(lower)) return true;
   if (
