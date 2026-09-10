@@ -62,6 +62,23 @@ export function validateReusableWorkflowConcurrency(
   return [];
 }
 
+export function validateReusableWorkflowPermissions(
+  workflow: Record<string, unknown>,
+): string[] {
+  const permissions = asRecord(workflow.permissions);
+  if (
+    permissions?.contents !== "read" ||
+    Object.keys(permissions ?? {}).some(
+      (permission) => permission !== "contents",
+    )
+  ) {
+    return [
+      `${reusablePath} must not require write permissions that its callers do not all grant`,
+    ];
+  }
+  return [];
+}
+
 export function validateProductionPurgeCondition(ifValue: unknown): string[] {
   const normalized =
     typeof ifValue === "string" ? ifValue.trim().replace(/\s+/g, " ") : "";
@@ -326,6 +343,7 @@ try {
 
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
+issues.push(...validateReusableWorkflowPermissions(reusableDocument ?? {}));
 issues.push(
   ...validateNetlifyPrPreviewWorkflow(
     parsedWorkflows.get(pullRequestPath) ?? {},

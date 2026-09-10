@@ -16,6 +16,7 @@ import {
   validateNetlifyPrPreviewWorkflow,
   validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
+  validateReusableWorkflowPermissions,
   validateProductionSiteConcurrency,
 } from "./guard-netlify-prebuilt-workflow.ts";
 import { resolveNetlifyMigrationUrl } from "./netlify-migration-url.ts";
@@ -100,6 +101,22 @@ describe("Netlify PR preview workflow guard", () => {
     assert.match(
       reusableSource,
       /supplies static files; arbitrary PR Functions never reach Netlify\./,
+    );
+  });
+});
+
+describe("Reusable workflow permission guard", () => {
+  it("keeps shared deploy permissions compatible with every caller", () => {
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(validateReusableWorkflowPermissions(reusable), []);
+    assert.match(
+      validateReusableWorkflowPermissions({
+        ...reusable,
+        permissions: { contents: "read", "pull-requests": "write" },
+      }).join("\n"),
+      /must not require write permissions/,
     );
   });
 });
