@@ -9,7 +9,6 @@ import { ClipsActOnFeedbackMock } from "../components/template-landing/ClipsActO
 import { ClipsBriefOutputsMock } from "../components/template-landing/ClipsBriefOutputsMock";
 import { ClipsInvestigateBugMock } from "../components/template-landing/ClipsInvestigateBugMock";
 import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
-import { ClipsShareMenuMock } from "../components/template-landing/ClipsShareMenuMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
@@ -51,18 +50,11 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "clips")!;
 
-// Which side carries the text is data rather than row parity: the two
-// act-on-feedback variants sit next to each other so they can be compared, and
-// deriving the side from the index would have flipped every row below them.
+// Which side carries the text is data rather than row parity, since it no
+// longer alternates strictly by index.
 const USE_CASES = [
   {
     id: "act-on-feedback",
-    titleKey: "useCase1Title",
-    bodyKey: "useCase1Body",
-    textLeft: true,
-  },
-  {
-    id: "act-on-feedback-bare",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
     textLeft: true,
@@ -247,8 +239,6 @@ export default function ClipsTemplate() {
                     <ClipsInvestigateBugMock className="w-full" />
                   ) : useCase.id === "act-on-feedback" ? (
                     <ClipsActOnFeedbackMock className="w-full" />
-                  ) : useCase.id === "act-on-feedback-bare" ? (
-                    <ClipsShareMenuMock className="w-full" />
                   ) : (
                     <ClipsBriefOutputsMock className="w-full" />
                   )}
