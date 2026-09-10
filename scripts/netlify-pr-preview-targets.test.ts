@@ -14,18 +14,72 @@ test("selects the app sites touched by a PR", () => {
   );
 });
 
-test("expands shared runtime changes to every buildable site", () => {
+test("expands shared runtime changes to every docs app site", () => {
   const sites = previewSitesForChangedPaths(["packages/core/src/index.ts"]);
 
-  assert.ok(sites.includes("slides"));
-  assert.ok(sites.includes("design"));
-  assert.ok(!sites.includes("workspace"));
+  assert.deepEqual(sites, [
+    "analytics",
+    "assets",
+    "calendar",
+    "clips",
+    "content",
+    "design",
+    "dispatch",
+    "forms",
+    "mail",
+    "plan",
+    "slides",
+    "starter",
+    "fw",
+  ]);
 });
 
-test("maps docs changes to the docs site and skips prose-only changes", () => {
+test("previews the docs site for app changes but skips prose and hidden templates", () => {
   assert.deepEqual(
-    previewSitesForChangedPaths(["packages/docs/content/guide.md"]),
+    previewSitesForChangedPaths(["packages/docs/app/routes/apps.tsx"]),
     ["fw"],
   );
+  assert.deepEqual(
+    previewSitesForChangedPaths(["packages/core/docs/content/guide.md"]),
+    ["fw"],
+  );
+  assert.deepEqual(
+    previewSitesForChangedPaths(["packages/docs/changelog/release.md"]),
+    [],
+  );
+  assert.deepEqual(
+    previewSitesForChangedPaths(["templates/brain/app.tsx"]),
+    [],
+  );
+  assert.deepEqual(
+    previewSitesForChangedPaths(["templates/macros/app.tsx"]),
+    [],
+  );
+  assert.deepEqual(previewSitesForChangedPaths(["templates/crm/app.tsx"]), []);
   assert.deepEqual(previewSitesForChangedPaths(["docs/netlify.md"]), []);
+});
+
+test("keeps hidden templates out of the shared preview fanout", () => {
+  assert.deepEqual(
+    previewSitesForChangedPaths([
+      "packages/core/src/index.ts",
+      "templates/crm/app.tsx",
+      "templates/macros/app.tsx",
+    ]),
+    [
+      "analytics",
+      "assets",
+      "calendar",
+      "clips",
+      "content",
+      "design",
+      "dispatch",
+      "forms",
+      "mail",
+      "plan",
+      "slides",
+      "starter",
+      "fw",
+    ],
+  );
 });
