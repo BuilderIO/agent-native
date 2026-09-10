@@ -23,6 +23,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
@@ -128,6 +129,11 @@ function AssetsCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchPath = location.pathname.startsWith("/templates")
+    ? "/templates"
+    : "/library";
   return (
     <CommandMenu
       open={open}
@@ -136,7 +142,18 @@ function AssetsCommandMenu({
       changelogKey="assets"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        <CommandMenu.Item onSelect={() => {}}>
+        {location.pathname === "/home" ? (
+          <CommandMenu.Item onSelect={() => navigate("/library")}>
+            {t("navigation.library")}
+          </CommandMenu.Item>
+        ) : null}
+        {location.pathname.startsWith("/library") ||
+        location.pathname.startsWith("/templates") ? (
+          <CommandMenu.Item onSelect={() => navigate("/home")}>
+            {t("navigation.create")}
+          </CommandMenu.Item>
+        ) : null}
+        <CommandMenu.Item onSelect={() => navigate(searchPath)}>
           {t("root.commandSearch")}
         </CommandMenu.Item>
       </CommandMenu.Group>
