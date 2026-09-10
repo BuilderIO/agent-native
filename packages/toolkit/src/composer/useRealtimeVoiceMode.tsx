@@ -1549,6 +1549,7 @@ function useRealtimeVoiceModeController(
   const lastAssistantTextRef = useRef("");
   const transcriptThreadIdRef = useRef<string | undefined>(undefined);
   const liveCloseDrainTimerRef = useRef<number | null>(null);
+  const liveCloseDrainFinishRef = useRef<(() => void) | null>(null);
   const transcriptSequenceRef = useRef(0);
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
@@ -1866,6 +1867,7 @@ function useRealtimeVoiceModeController(
       window.clearTimeout(liveCloseDrainTimerRef.current);
       liveCloseDrainTimerRef.current = null;
     }
+    liveCloseDrainFinishRef.current = null;
     connectionGateRef.current?.cancel();
     connectionGateRef.current = null;
     transportGenerationRef.current += 1;
@@ -1945,13 +1947,13 @@ function useRealtimeVoiceModeController(
           output: errorMessage(toolError),
         };
       }
-      if (result.capability) capabilityRef.current = result.capability;
       if (
         transportGeneration !== transportGenerationRef.current ||
         channelRef.current !== transportChannel
       ) {
         return;
       }
+      if (result.capability) capabilityRef.current = result.capability;
       toolManifestCoordinator.enqueue(result);
     },
     [browserTabId, toolManifestCoordinator, transition],
@@ -1993,7 +1995,15 @@ function useRealtimeVoiceModeController(
   );
 
   const handleServerEvent = useCallback(
-    (event: RealtimeServerEvent) => {
+    (event: RealtimeServerEvent, draining = false) => {
+      if (draining) {
+        transcriptSequencer.handle(event);
+        if (event.type === "session.closed") {
+          transcriptSequencer.flush();
+          liveCloseDrainFinishRef.current?.();
+        }
+        return;
+      }
       responseCoordinator.handleEvent(event);
       transcriptSequencer.handle(event);
       greetingStarter.handleEvent(event);
@@ -2252,9 +2262,12 @@ function useRealtimeVoiceModeController(
       channelRef.current = channel;
       channel.onopen = connectionGate.markTransportReady;
       channel.onmessage = (messageEvent) => {
-        if (!isCurrentAttempt() || stateRef.current === "ending") return;
+        if (!isCurrentAttempt()) return;
         try {
-          handleServerEvent(JSON.parse(String(messageEvent.data)));
+          handleServerEvent(
+            JSON.parse(String(messageEvent.data)),
+            stateRef.current === "ending",
+          );
         } catch {
           // Ignore malformed provider events without ending a healthy call.
         }
@@ -2359,14 +2372,9 @@ function useRealtimeVoiceModeController(
     const protocol = protocolRef.current;
     transition("ending");
     transcriptSequencer.flush();
-    if (protocol === "live") {
-      sendDataChannelEvent(channelRef.current, {
-        type: "session.close",
-        event_id: "realtime_voice_session_close",
-      });
-    }
     const finish = () => {
       liveCloseDrainTimerRef.current = null;
+      liveCloseDrainFinishRef.current = null;
       cleanupTransport();
       setError(null);
       sessionIdRef.current = undefined;
@@ -2392,6 +2400,12 @@ function useRealtimeVoiceModeController(
       transition("idle");
     };
     if (protocol === "live") {
+      transportGenerationRef.current += 1;
+      liveCloseDrainFinishRef.current = finish;
+      sendDataChannelEvent(channelRef.current, {
+        type: "session.close",
+        event_id: "realtime_voice_session_close",
+      });
       liveCloseDrainTimerRef.current = window.setTimeout(
         finish,
         REALTIME_VOICE_LIVE_CLOSE_DRAIN_TIMEOUT_MS,
