@@ -829,7 +829,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
   });
 
-  it("smoke-tests app health while keeping static docs on a shell-only probe", () => {
+  it("keeps strict health smoke for non-preview apps and probes preview shells", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
@@ -841,17 +841,27 @@ describe("production Netlify site concurrency guard", () => {
     const docsSmoke = steps.find(
       (step) => step.name === "Smoke-test the static docs deploy",
     );
+    const previewSmoke = steps.find(
+      (step) => step.name === "Smoke-test the uploaded PR preview",
+    );
 
     assert(appSmoke);
     assert.equal(
       appSmoke.if,
-      "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+      "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
     );
     // The smoke step asserts the health BODY (ready, db, schema,
     // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.
     assert.match(String(appSmoke.run), /scripts\/smoke-check-health\.ts/);
     assert.match(String(appSmoke.run), /--auth-routes/);
     assert.match(String(appSmoke.run), /--canonical-host/);
+
+    assert(previewSmoke);
+    assert.equal(
+      previewSmoke.if,
+      "inputs.target == 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+    );
+    assert.match(String(previewSmoke.run), /curl --fail/);
 
     assert(docsSmoke);
     assert.equal(

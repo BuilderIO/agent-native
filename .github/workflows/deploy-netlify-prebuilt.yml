@@ -926,14 +926,15 @@ jobs:
           PREVIEW_ALIAS: ${{ inputs.preview_alias }}
           PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
           PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
 
-          deploy_message="GitHub Actions prebuilt deploy ${GITHUB_SHA}"
+          deploy_message="GitHub Actions prebuilt deploy ${SOURCE_REF:-$GITHUB_SHA}"
           if [[ "$TARGET" == "preview" ]]; then
-            deploy_message="GitHub Actions PR preview #${PULL_REQUEST_NUMBER} ${SOURCE_TEMPLATE} ${GITHUB_SHA}"
+            deploy_message="GitHub Actions PR preview #${PULL_REQUEST_NUMBER} ${SOURCE_TEMPLATE} ${SOURCE_REF}"
           fi
           deploy_args=(
             --site "$NETLIFY_SITE_ID"
@@ -1039,7 +1040,8 @@ jobs:
 
       - name: Smoke-test the uploaded deploy
         if: >-
-          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.target != 'preview' && inputs.deploy &&
+          steps.beta_freshness.outputs.current != 'false' &&
           inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
@@ -1059,6 +1061,19 @@ jobs:
             node --experimental-strip-types scripts/smoke-check-health.ts \
               --url "$url" --auth-routes
           fi
+
+      - name: Smoke-test the uploaded PR preview
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          steps.beta_freshness.outputs.current != 'false' && inputs.smoke &&
+          steps.target.outputs.source_template != '@agent-native/docs'
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --max-time 60 \
+            "${DEPLOY_URL%/}/" >/dev/null
+          echo "PR preview smoke check passed: ${DEPLOY_URL%/}/"
 
       - name: Comment the PR preview URL
         if: >-
