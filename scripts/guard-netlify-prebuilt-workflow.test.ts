@@ -1229,6 +1229,11 @@ describe("production Netlify site concurrency guard", () => {
     const previewSmoke = steps.find(
       (step) => step.name === "Smoke-test the uploaded PR preview",
     );
+    const previewDatabaseMirror = steps.find(
+      (step) =>
+        step.name ===
+        "Mirror production database variables into the PR preview context",
+    );
 
     assert(appSmoke);
     assert.equal(
@@ -1251,6 +1256,25 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(previewSmoke.run), /--auth-routes/);
     assert.match(String(previewSmoke.run), /--preview/);
     assert.match(String(previewSmoke.run), /--allow-missing-health/);
+
+    assert(previewDatabaseMirror);
+    assert.equal(
+      previewDatabaseMirror.if,
+      "inputs.target == 'preview' && inputs.deploy && inputs.migration_only != true && steps.target.outputs.source_template != '@agent-native/docs'",
+    );
+    assert.match(
+      String(previewDatabaseMirror.run),
+      /sync-netlify-preview-database\.ts/,
+    );
+    assert.equal(previewDatabaseMirror.env?.NETLIFY_ACCOUNT_ID, "builder-io");
+    assert(
+      steps.findIndex((step) => step === previewDatabaseMirror) <
+        steps.findIndex((step) => step.id === "deploy"),
+    );
+    assert.doesNotMatch(
+      readFileSync("scripts/smoke-check-health.ts", "utf8"),
+      /previewDatabaseGap/,
+    );
 
     assert(docsSmoke);
     assert.equal(

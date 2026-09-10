@@ -1080,6 +1080,23 @@ jobs:
               );
             }
 
+      - name: Mirror production database variables into the PR preview context
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.migration_only != true &&
+          steps.target.outputs.source_template != '@agent-native/docs'
+        env:
+          NETLIFY_ACCOUNT_ID: builder-io
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          # Copy only the canonical site's PostgreSQL values. PR previews use
+          # the production database intentionally; other provider credentials
+          # remain managed by the Netlify site instead of entering the runner.
+          node --experimental-strip-types scripts/sync-netlify-preview-database.ts
+
       - name: Upload the prebuilt deploy
         id: deploy
         if: >-

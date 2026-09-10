@@ -13,10 +13,12 @@ PR revision without deployment credentials. The upload job checks out only the
 trusted base revision, builds its trusted Functions, and receives the PR's
 static artifact. PR-controlled Functions are never deployed.
 
-Preview deploys do not create an isolated database. A preview may have the
-canonical site's runtime configuration, or may only be able to pass its static
-and route checks when those variables are unavailable. Treat every preview as
-non-isolated and unsafe to write. The workflow below also cleans up branch
+Preview deploys do not create an isolated database. Before each GitHub Actions
+upload, the workflow copies the canonical site's production PostgreSQL values
+into the `deploy-preview` context, and the deployed preview smoke check requires
+the database and schema to be healthy. Treat every preview as non-isolated and
+unsafe to write. Only database variables are copied; other provider credentials
+remain managed by the Netlify site. The workflow below also cleans up branch
 resources left by the former isolation flow.
 
 ## How it works
