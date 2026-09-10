@@ -20,6 +20,10 @@
  * arriving fully formed. The prompt above it is unanimated — it's the given,
  * not the reveal.
  *
+ * The composer's label is an empty span, not "Ask a follow-up" placeholder
+ * text: this box isn't a real input, and filling it with copy that reads like
+ * one invites someone to click and type into it.
+ *
  * i18n-raw-literal-disable-file -- this is artwork, not UI copy. The wrapper is
  * a `role="img"` with a localized `aria-label` and the entire frame inside it
  * is `aria-hidden`, so no assistive tech ever reads these strings; they are
@@ -130,9 +134,7 @@ export function ClipsInvestigateBugMock({
         </div>
         <div className="clips-cell-mock-composer">
           <IconPaperclip size={16} />
-          <span className="clips-cell-mock-composer-label">
-            Ask a follow-up
-          </span>
+          <span className="clips-cell-mock-composer-label" />
           <span className="clips-cell-mock-composer-send">
             <IconArrowUp size={15} />
           </span>
