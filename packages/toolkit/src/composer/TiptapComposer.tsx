@@ -3570,12 +3570,16 @@ export function TiptapComposer({
       }
 
       if (onSubmit) {
+        if (submitInFlightRef.current) return;
+        submitInFlightRef.current = true;
         try {
           await onSubmit(text, references, attachments, { intent });
         } catch {
           // Hosts own their submit errors. Keep the draft and attachments
           // available for recovery when a host rejects the submission.
           return;
+        } finally {
+          submitInFlightRef.current = false;
         }
         if (!isCurrentDraftScope()) return;
         // Clear any pending attachments now that the host has them.

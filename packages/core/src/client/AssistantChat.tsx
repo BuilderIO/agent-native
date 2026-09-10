@@ -5510,7 +5510,6 @@ const AssistantChatInner = forwardRef<
         ) {
           // Re-compress image attachments more aggressively.
           const recompressed: typeof allAttachments = [];
-          let stillOver = false;
           for (const att of allAttachments) {
             if (
               att.type === "image" &&
@@ -5537,11 +5536,9 @@ const AssistantChatInner = forwardRef<
                   });
                   continue;
                 } catch {
-                  // Could not recompress — keep original and flag overflow
-                  stillOver = true;
+                  // Could not recompress — keep the original and let the
+                  // final size estimate decide whether it still fits.
                 }
-              } else {
-                stillOver = true;
               }
             }
             recompressed.push(att);
@@ -5550,9 +5547,8 @@ const AssistantChatInner = forwardRef<
           const recompressedPayloadStrings =
             getAttachmentBodyStrings(recompressed);
           if (
-            stillOver ||
             estimateAttachmentBodyBytes(recompressedPayloadStrings) >
-              MAX_ESTIMATED_BODY_BYTES
+            MAX_ESTIMATED_BODY_BYTES
           ) {
             // Find the largest attachment and reject it.
             let largestIdx = -1;
