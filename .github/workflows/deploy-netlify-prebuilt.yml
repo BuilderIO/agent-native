@@ -118,7 +118,8 @@ concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
   # manager, and promotion jobs. Release migrations use a separate queue.
   # Beta uploads share one per-site queue. Keep an accepted publisher alive and
-  # coalesce only pending beta children; production lanes are also non-canceling.
+  # coalesce only pending beta children; manual validation must not evict a
+  # pending automatic publish, and production lanes are also non-canceling.
   group: >-
     ${{ inputs.caller == 'release-migration'
         && inputs.target == 'production'
@@ -140,7 +141,8 @@ jobs:
   deploy:
     name: ${{ inputs.target }} ${{ inputs.site }} prebuilt deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Reserve time for stale beta cleanup after the 30-minute publish wait.
+    timeout-minutes: 100
     steps:
       - name: Validate the source revision
         id: source

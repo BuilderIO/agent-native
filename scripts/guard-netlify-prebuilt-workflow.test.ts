@@ -209,9 +209,17 @@ describe("production Netlify site concurrency guard", () => {
     );
     const betaConcurrency = beta.concurrency as Workflow;
     assert.equal(betaConcurrency["cancel-in-progress"], false);
-    assert.equal(
-      betaConcurrency.group,
-      "deploy-agent-native-beta-sites-prebuilt",
+    assert.match(
+      String(betaConcurrency.group),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String(betaConcurrency.group),
+      /format\('deploy-agent-native-beta-manual-\{0\}', github\.run_id\)/,
+    );
+    assert.match(
+      String(betaConcurrency.group),
+      /'deploy-agent-native-beta-sites-prebuilt'/,
     );
     assert.equal((beta.permissions as Workflow).contents, "write");
     assert.equal(
@@ -350,6 +358,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       String((reusable.concurrency as Workflow).group),
       /inputs\.caller == 'release-migration'/,
+    );
+    assert.equal(
+      ((reusable.jobs as Workflow).deploy as Workflow)["timeout-minutes"],
+      100,
     );
     assert.match(
       reusableSource,

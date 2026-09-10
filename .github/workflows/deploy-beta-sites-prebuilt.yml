@@ -24,10 +24,15 @@ permissions:
   contents: write
   actions: read
 
-# Beta is a moving mirror of main. Keep one accepted publisher running and
-# coalesce any pending automatic or manual run to the newest main commit.
+# Beta is a moving mirror of main. Keep one accepted automatic publisher running
+# and coalesce pending automatic runs. Manual runs use isolated validation so an
+# invalid input cannot evict a valid pending publish; child queues still serialize
+# each site.
 concurrency:
-  group: deploy-agent-native-beta-sites-prebuilt
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch'
+        && format('deploy-agent-native-beta-manual-{0}', github.run_id)
+        || 'deploy-agent-native-beta-sites-prebuilt' }}
   cancel-in-progress: false
 
 jobs:

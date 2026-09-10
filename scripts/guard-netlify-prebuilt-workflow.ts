@@ -215,13 +215,31 @@ if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
 const betaWorkflowConcurrency = asRecord(
   parsedWorkflows.get(betaPath)?.concurrency,
 );
+const betaWorkflowConcurrencyGroup = String(
+  betaWorkflowConcurrency?.group ?? "",
+);
 if (
-  betaWorkflowConcurrency?.group !==
-    "deploy-agent-native-beta-sites-prebuilt" ||
+  !betaWorkflowConcurrencyGroup.includes(
+    "github.event_name == 'workflow_dispatch'",
+  ) ||
+  !betaWorkflowConcurrencyGroup.includes(
+    "format('deploy-agent-native-beta-manual-{0}', github.run_id)",
+  ) ||
+  !betaWorkflowConcurrencyGroup.includes(
+    "'deploy-agent-native-beta-sites-prebuilt'",
+  ) ||
   betaWorkflowConcurrency?.["cancel-in-progress"] !== false
 ) {
   issues.push(
-    `${betaPath} must coalesce pending automatic and manual publishes without canceling an accepted publisher`,
+    `${betaPath} must isolate manual validation from the automatic beta publisher queue`,
+  );
+}
+const reusableDeployJobConfig = asRecord(
+  asRecord(reusableDocument?.jobs)?.deploy,
+);
+if (reusableDeployJobConfig?.["timeout-minutes"] !== 100) {
+  issues.push(
+    `${reusablePath} must reserve cleanup time after the Netlify publish wait`,
   );
 }
 const reusableConcurrencyGroup = String(
