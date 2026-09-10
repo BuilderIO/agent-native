@@ -1251,8 +1251,20 @@ describe("incomplete evidence detection", () => {
       "Create a scheduled refresh of the Revenue dashboard",
       "Configure a scheduled refresh for the Revenue dashboard",
       "Update the Revenue dashboard on a cron schedule",
+      "Create a dashboard refresh job",
+      "Create a dashboard refresh schedule",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    }
+  });
+
+  it("classifies dashboard refresh jobs and schedules as automation requests", () => {
+    for (const request of [
+      "Create a dashboard refresh job",
+      "Create a dashboard refresh schedule",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
     }
   });
 
@@ -1261,6 +1273,7 @@ describe("incomplete evidence detection", () => {
       "What is the dashboard refresh rate via cron?",
       "Show the dashboard refresh rate via cron for the past week.",
       "What is the refresh rate of the dashboard?",
+      "Show the refresh rate of the dashboard",
       "How often does the Revenue dashboard refresh?",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
@@ -1281,6 +1294,16 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("keeps dashboard automation analytics questions as data requests", () => {
+    for (const request of [
+      "Show me the dashboard automation conversion rate",
+      "How many dashboard automation runs failed?",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
   it("keeps report framing as analytics intent around workflow terms", () => {
     expect(
       looksLikeAnalyticsDataRequest(
@@ -1298,6 +1321,8 @@ describe("incomplete evidence detection", () => {
     for (const request of [
       "Create a report showing the dashboard refresh rate",
       "Create a report of the dashboard refresh rate for the past week.",
+      "Create a report of the refresh rate of the dashboard",
+      "Create a chart showing the refresh rate of the dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
@@ -1308,6 +1333,14 @@ describe("incomplete evidence detection", () => {
     expect(
       looksLikeDashboardConstructionRequest(
         "Create a report showing the dashboard refresh rate, then build a Sales dashboard",
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves a later dashboard build after a sentence-boundary refresh-rate question", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "What is the refresh rate of the dashboard? Then build a Sales dashboard",
       ),
     ).toBe(true);
   });
