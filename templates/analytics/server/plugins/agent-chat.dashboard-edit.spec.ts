@@ -488,6 +488,19 @@ describe("realDataFinalGuard dashboard edits", () => {
     );
   });
 
+  it("still requires a source query for a refresh-rate report beside a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a report showing the dashboard refresh rate, then build a Sales dashboard",
+        draftText:
+          "The dashboard refresh rate is 92 percent and the Sales dashboard is ready.",
+      }),
+    );
+
+    expect(result?.retryMessage).toContain("real source query");
+  });
+
   it("keeps recovery for an automation dashboard using a template", () => {
     const result = realDataFinalGuard(
       guardContext({

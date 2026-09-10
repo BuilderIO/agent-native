@@ -1122,6 +1122,7 @@ describe("incomplete evidence detection", () => {
     for (const request of [
       "Create an automation to refresh the Revenue dashboard, build a Sales dashboard",
       "Create an automation to refresh the Revenue dashboard and build a Sales dashboard",
+      "Create an automation to refresh Revenue dashboard plus build Sales dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
     }
@@ -1192,6 +1193,11 @@ describe("incomplete evidence detection", () => {
     expect(
       looksLikeDashboardConstructionRequest(
         "Create an automation for the Revenue dashboard using a template",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation to build a dashboard with a scheduled refresh",
       ),
     ).toBe(false);
   });
@@ -1351,6 +1357,7 @@ describe("incomplete evidence detection", () => {
       "What is the run count for dashboard automations?",
       "How many dashboard automation job counts are there?",
       "What is the number of dashboard automations?",
+      "How many dashboard automations are scheduled?",
       "Create a report showing the number of dashboard automations",
       "Build a chart of dashboard automation executions",
       "Build a chart of dashboard automation conversion rates",
@@ -1388,11 +1395,11 @@ describe("incomplete evidence detection", () => {
   });
 
   it("preserves a following dashboard build after a refresh-rate report", () => {
-    expect(
-      looksLikeDashboardConstructionRequest(
-        "Create a report showing the dashboard refresh rate, then build a Sales dashboard",
-      ),
-    ).toBe(true);
+    const request =
+      "Create a report showing the dashboard refresh rate, then build a Sales dashboard";
+
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
   });
 
   it("preserves a later dashboard build after a sentence-boundary refresh-rate question", () => {
