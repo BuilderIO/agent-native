@@ -381,6 +381,15 @@ function isFirstPartyHostname(hostname: string | null | undefined): boolean {
   );
 }
 
+function isLocalDevHostname(hostname: string | null | undefined): boolean {
+  const normalized = hostname?.trim().toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "[::1]"
+  );
+}
+
 function isLegacyFeedbackPageUrl(
   value: string,
   hostname: string | null | undefined,
@@ -408,7 +417,11 @@ export function resolveFeedbackUrl(
     return parseTarget(normalized) ? normalized : null;
   }
   if (url !== undefined) return null;
-  return isFirstPartyHostname(hostname) ? FIRST_PARTY_FEEDBACK_URL : null;
+  // Local template/dev hosts are first-party too — otherwise the sidebar
+  // feedback row vanishes on 127.0.0.1 even though every app wires it.
+  return isFirstPartyHostname(hostname) || isLocalDevHostname(hostname)
+    ? FIRST_PARTY_FEEDBACK_URL
+    : null;
 }
 
 export function FeedbackButton(props: FeedbackButtonProps) {
