@@ -73,7 +73,7 @@ const CLIPS_BRIEF_MOCK_CSS = [
   `.clips-brief-mock-frame { ${CLIPS_APP_PALETTE} }`,
   `html.light .clips-brief-mock-frame { ${CLIPS_APP_PALETTE_LIGHT} }`,
   ".clips-brief-mock-frame { display: flex; justify-content: center; width: 100%; padding: 16px 0; }",
-  ".clips-brief-mock-diagram { position: relative; width: 100%; max-width: 680px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: '. n .' 'w clip e' '. s .'; align-items: center; justify-items: center; gap: 48px 28px; }",
+  ".clips-brief-mock-diagram { position: relative; width: 100%; max-width: 680px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: '. n .' 'w clip e' '. s .'; align-items: center; justify-items: center; gap: 28px; }",
   ".clips-brief-mock-rays { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }",
   // `--border` is a light grey in both themes, near-invisible on light mode's
   // pale page background even though it reads fine against dark mode's near-
