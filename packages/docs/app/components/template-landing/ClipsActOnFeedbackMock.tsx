@@ -141,15 +141,21 @@ const CLIPS_PAGE_MOCK_CSS = [
   `.clips-page-mock-crop { height: ${Math.round(DESIGN_HEIGHT * SCALE)}px; }`,
   `.clips-page-mock-page { position: absolute; top: 0; right: 0; width: ${DESIGN_WIDTH}px; height: ${DESIGN_HEIGHT}px; transform-origin: top right; transform: scale(${SCALE}); }`,
 
-  // Short on purpose: the fade only has to dissolve the cut edge, so it has to
-  // clear the player before the video itself goes dark. At this magnification
-  // only a sliver of the player is in frame, so the ramp is tighter than it
-  // would need to be on a wider crop.
-  `.clips-page-mock-fade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, ${FADE_COLOR} 0%, ${FADE_COLOR} 2%, transparent 12%); }`,
+  // Wide enough that the cut edge reads as a dissolve rather than a visible
+  // seam: a short ramp left a hard line where the fade ended and the app's
+  // own (unfaded) background took over.
+  `.clips-page-mock-fade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, ${FADE_COLOR} 0%, ${FADE_COLOR} 4%, transparent 30%); }`,
 
   `@media (max-width: 768px) { .clips-page-mock-crop { height: ${Math.round(
     DESIGN_HEIGHT * MOBILE_SCALE,
   )}px; } .clips-page-mock-page { transform: scale(${MOBILE_SCALE}); } }`,
+
+  // The popover's shadow has to separate it from a near-black page in dark
+  // mode, so it is heavier than `shadow-md` and fully opaque. That same
+  // opaque black reads as a smudge in light mode, where the page behind it is
+  // pale, so it is cut down to a faint contact shadow instead.
+  ".clips-page-mock-menu-shadow { box-shadow: 1px 1px 70px 0 rgba(0, 0, 0, 1); }",
+  "html.light .clips-page-mock-menu-shadow { box-shadow: 1px 1px 70px 0 rgba(0, 0, 0, 0.1); }",
 ].join("\n");
 
 function IconBtn({ children }: { children: React.ReactNode }) {
@@ -385,10 +391,10 @@ export function ClipsActOnFeedbackMock({
           {/* ShareRecordingPopover, open on the Agents tab. `align="end"` puts
               its right edge on the panel's. The width is art direction rather
               than product truth: the real popover is `w-[360px]`, which at this
-              magnification crowded the crop, so it is pulled in. The shadow is
-              likewise heavier than `shadow-md` because it has to separate the
-              menu from a near-black page. */}
-          <ClipsShareMenu className="absolute end-4 top-[46px] z-20 shadow-[1px_1px_70px_0_rgba(0,0,0,1)]" />
+              magnification crowded the crop, so it is pulled in. The shadow
+              itself is themed above, since dark and light need different
+              weights to read as elevation rather than a smudge. */}
+          <ClipsShareMenu className="clips-page-mock-menu-shadow absolute end-4 top-[46px] z-20" />
 
           {/* The share control triggers that menu, so it stays clear of the
               shadow the menu casts and out of the receded layer. It has to be
