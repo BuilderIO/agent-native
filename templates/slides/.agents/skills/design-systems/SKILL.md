@@ -113,6 +113,14 @@ promoted to default so future deck creation doesn't silently drop to "no
 design system". Deletion does not remove an upstream Builder-indexed design
 system.
 
+The Design Systems page renders every row `list-design-systems` returns —
+including rows written before `data` validation existed, whose `colors` or
+`typography` sections may be empty or missing. `parseDesignSystemListData` in
+`app/pages/DesignSystems.tsx` fills gaps with the same defaults
+`useDeckDesignSystem` applies rather than hiding the row, so a legacy or
+malformed design system always keeps a visible card and a working Delete
+control.
+
 ## Applying to Slides
 
 Before creating or extending a system, read the `creative-context` skill and

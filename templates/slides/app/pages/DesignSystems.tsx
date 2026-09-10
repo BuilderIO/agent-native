@@ -26,11 +26,26 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { mergeDesignSystemData } from "@/hooks/use-deck-design-system";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 
 import type { DesignSystemData } from "../../shared/api";
-import { missingDesignSystemDataFields } from "../../shared/design-system-validation";
+
+// DesignSystemCard reads colors.* / typography.* unconditionally, down to
+// nested fields like typography.headingFont. Rows written before
+// create/update validation existed can have `colors: {}`, which used to make
+// this page hide the row entirely — the card, its Delete menu item, and the
+// only UI path to remove it all disappeared with no error. Filling gaps with
+// the same defaults `useDeckDesignSystem` applies keeps the card (and its
+// delete affordance) visible instead.
+export function parseDesignSystemListData(dataStr: string): DesignSystemData {
+  try {
+    return mergeDesignSystemData(JSON.parse(dataStr));
+  } catch {
+    return mergeDesignSystemData(undefined);
+  }
+}
 
 export default function DesignSystems() {
   const t = useT();
@@ -143,21 +158,6 @@ export default function DesignSystems() {
     });
   };
 
-  const parseDesignData = (dataStr: string): DesignSystemData | null => {
-    try {
-      const parsed = JSON.parse(dataStr) as DesignSystemData;
-      // DesignSystemCard reads colors.* / typography.* unconditionally, down
-      // to nested fields like typography.headingFont. Rows written before
-      // create/update validation existed can have `colors: {}` and still
-      // pass a truthy check, so reuse the same nested-field validator the
-      // actions use rather than only checking the top-level objects exist.
-      if (missingDesignSystemDataFields(parsed).length > 0) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  };
-
   useSetPageTitle(t("header.designSystems"));
 
   useSetHeaderActions(
@@ -254,8 +254,7 @@ export default function DesignSystems() {
 
               {/* Design system cards */}
               {designSystems.map((ds) => {
-                const parsed = parseDesignData(ds.data);
-                if (!parsed) return null;
+                const parsed = parseDesignSystemListData(ds.data);
                 return (
                   <DesignSystemCard
                     key={ds.id}
