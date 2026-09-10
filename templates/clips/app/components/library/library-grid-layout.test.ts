@@ -87,9 +87,8 @@ describe("selected library actions layout", () => {
     expect(recordingRouteSource).not.toContain(
       'from "@/components/ui/breadcrumb"',
     );
-    expect(layoutSource).toContain(
-      '"flex h-14 shrink-0 items-center border-b border-border"',
-    );
+    expect(layoutSource).toContain("<AppSidebarHeader");
+    expect(layoutSource).toContain("<AppSidebarFooter");
     expect(layoutSource).toContain("primaryNavItems.map");
     expect(layoutSource).toContain("lifecycleNavItems.map");
     expect(layoutSource).toContain(
