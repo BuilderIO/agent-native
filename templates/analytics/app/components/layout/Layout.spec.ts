@@ -34,14 +34,12 @@ describe("Analytics layout sidebar route policy", () => {
       'className="flex min-h-0 flex-1 flex-col overflow-hidden py-2"',
     );
     expect(source).toContain(
-      'className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium"',
+      'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
     );
-    expect(source).toContain('className="flex min-w-0 flex-col gap-1 pb-1"');
+    expect(source).toContain("<AppSidebarHeader");
+    expect(source).toContain("<AppSidebarFooter");
     expect(source).toContain(
-      'className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium"',
-    );
-    expect(source).toContain(
-      'className="flex h-12 shrink-0 items-center border-b border-border px-4"',
+      'className="mt-3 shrink-0 min-w-0 space-y-0.5 border-t border-border/70 px-2 pt-3"',
     );
     expect(source).not.toContain(
       'className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2"',
@@ -89,13 +87,10 @@ describe("Analytics layout sidebar route policy", () => {
     );
 
     expect(source).toContain(
-      'className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto px-1 py-2"',
+      'className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3"',
     );
     expect(source).toContain(
-      '"flex h-9 w-9 items-center justify-center rounded-md transition-colors"',
-    );
-    expect(source).toContain(
-      'className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium"',
+      'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
     );
   });
 });
