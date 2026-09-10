@@ -43,6 +43,7 @@ import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import {
   assertCanDraft,
   assertCanUseAssets,
+  draftProvenanceAccess,
   draftScopeForLibrary,
 } from "../server/lib/library-access.js";
 import {
@@ -900,12 +901,7 @@ export default defineAction({
         ...creativeContextProvenance,
         elementProvenance: elementProvenanceFor(runId),
       },
-      {
-        artifactAccess: {
-          resourceType: "asset-library",
-          resourceId: args.libraryId,
-        },
-      },
+      { artifactAccess: draftProvenanceAccess(args.libraryId) },
     );
 
     await upsertVariantSlot({
@@ -1074,12 +1070,7 @@ export default defineAction({
           ...creativeContextProvenance,
           elementProvenance: elementProvenanceFor(asset.id),
         },
-        {
-          artifactAccess: {
-            resourceType: "asset-library",
-            resourceId: args.libraryId,
-          },
-        },
+        { artifactAccess: draftProvenanceAccess(args.libraryId) },
       );
       if (session) {
         const itemCreatedAt = nowIso();
