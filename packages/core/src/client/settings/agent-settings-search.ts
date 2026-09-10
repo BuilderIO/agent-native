@@ -76,6 +76,7 @@ export const AGENT_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
 export const INTEGRATION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
   "integrations",
   "email",
+  "browser",
 ];
 
 export const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [

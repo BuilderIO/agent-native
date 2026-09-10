@@ -179,6 +179,43 @@ describe("IntegrationsPanel MCP connection errors", () => {
     expect(container.querySelector(".animate-pulse")).toBeNull();
   });
 
+  it("keeps connected integrations searchable", async () => {
+    integrationMocks.useIntegrationStatus.mockReturnValue({
+      statuses: [
+        {
+          platform: "slack",
+          label: "Slack",
+          enabled: true,
+          configured: true,
+        },
+      ],
+      loading: false,
+      refetch: vi.fn(),
+    });
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search integrations"]',
+    );
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(search, "Slack");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector(
+        'button[aria-label="Manage Slack (agent in channels)"]',
+      ),
+    ).not.toBeNull();
+  });
+
   it.each([
     ["Claude Cowork", "codex"],
     ["Claude Code", "claude-code"],

@@ -15,6 +15,7 @@ import {
   IconLoader2,
   IconRefresh,
   IconMail,
+  IconBrowser,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -57,7 +58,11 @@ import {
 } from "../resources/use-mcp-servers.js";
 import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { SettingsCrossLinkHint } from "../settings/SettingsCrossLinkHint.js";
-import { SettingsSurfaceProvider } from "../settings/SettingsSection.js";
+import {
+  SettingsSection,
+  SettingsSurfaceProvider,
+} from "../settings/SettingsSection.js";
+import type { BuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import {
   BuilderConnectCard,
   BuilderConnectionMenu,
@@ -676,6 +681,80 @@ function McpServerRows({
         );
       })}
     </>
+  );
+}
+
+function BrowserAutomationSection({
+  builderFlow,
+}: {
+  builderFlow: BuilderConnectFlow;
+}) {
+  const connected = builderFlow.configured;
+  return (
+    <SettingsSurfaceProvider surface="page">
+      <SettingsSection
+        id="browser"
+        icon={<IconBrowser size={14} />}
+        title="Browser Automation"
+        subtitle="Let agents control a real browser for web tasks."
+        flat
+        connected={connected}
+      >
+        {connected ? (
+          <div className="rounded-md border border-border bg-accent/30 px-3.5 py-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-foreground">
+                Builder.io
+              </div>
+              <span className="flex items-center gap-1 text-xs text-green-500">
+                <IconCircleCheck size={14} />
+                Connected
+              </span>
+            </div>
+            {builderFlow.orgName && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {builderFlow.orgName}
+              </p>
+            )}
+            {builderFlow.credentialSource !== "env" && (
+              <div className="mt-2.5 flex items-center justify-end">
+                <BuilderConnectionMenu
+                  flow={builderFlow}
+                  credentialSource={builderFlow.credentialSource}
+                  trackingSource="browser_settings"
+                  trackingFlow="browser_automation"
+                />
+              </div>
+            )}
+          </div>
+        ) : (
+          <BuilderConnectPopover
+            flow={builderFlow}
+            onConnect={(provisionAccount) =>
+              builderFlow.start({
+                trackingSource: "browser_settings",
+                trackingFlow: "browser_automation",
+                provisionAccount,
+              })
+            }
+          >
+            <button
+              type="button"
+              disabled={builderFlow.connecting}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
+            >
+              {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+              {builderFlow.connecting && (
+                <IconLoader2 size={14} className="animate-spin" />
+              )}
+            </button>
+          </BuilderConnectPopover>
+        )}
+        {builderFlow.error && (
+          <p className="mt-2 text-xs text-destructive">{builderFlow.error}</p>
+        )}
+      </SettingsSection>
+    </SettingsSurfaceProvider>
   );
 }
 
@@ -1376,13 +1455,31 @@ export function IntegrationsPanel() {
           const availableItemsWithBuilder = builderConnected
             ? availableItems
             : [builderItem, ...availableItems];
-          const hasConnected =
-            mcp.servers.length > 0 || connectedItems.length > 0;
+          const matchingMcpServers = normalizedQuery
+            ? mcp.servers.filter((server) =>
+                `${server.name} ${server.scope} ${server.status.state}`
+                  .toLowerCase()
+                  .includes(normalizedQuery),
+              )
+            : mcp.servers;
+          const matchingConnectedItems = normalizedQuery
+            ? connectedItems.filter((item) =>
+                `${item.name} ${item.description ?? ""} ${item.status ?? ""}`
+                  .toLowerCase()
+                  .includes(normalizedQuery),
+              )
+            : connectedItems;
+          const hasConnectedMatches =
+            matchingMcpServers.length > 0 || matchingConnectedItems.length > 0;
 
           return (
             <>
               {viewModel.error && (
                 <p className="text-xs text-destructive">{viewModel.error}</p>
+              )}
+
+              {viewModel.connectFlow && (
+                <BrowserAutomationSection builderFlow={viewModel.connectFlow} />
               )}
 
               {mcp.deleteError && (
@@ -1391,14 +1488,14 @@ export function IntegrationsPanel() {
                 </p>
               )}
 
-              {!normalizedQuery && hasConnected && (
+              {hasConnectedMatches && (
                 <section className="space-y-3">
                   <h2 className="border-b border-border/60 pb-2 text-sm font-semibold text-foreground">
                     Connected
                   </h2>
-                  {mcp.servers.length > 0 && (
+                  {matchingMcpServers.length > 0 && (
                     <McpServerRows
-                      servers={mcp.servers}
+                      servers={matchingMcpServers}
                       role={mcp.serversQuery.data?.role}
                       deleteTarget={mcp.deleteTarget}
                       deletePending={mcp.deleteServer.isPending}
@@ -1412,8 +1509,11 @@ export function IntegrationsPanel() {
                       }
                     />
                   )}
-                  {connectedItems.length > 0 && (
-                    <IntegrationGrid variant="rows" items={connectedItems} />
+                  {matchingConnectedItems.length > 0 && (
+                    <IntegrationGrid
+                      variant="rows"
+                      items={matchingConnectedItems}
+                    />
                   )}
                 </section>
               )}
@@ -1470,7 +1570,8 @@ export function IntegrationsPanel() {
                 </div>
               ) : (
                 normalizedQuery &&
-                !externalHostMatches && (
+                !externalHostMatches &&
+                !hasConnectedMatches && (
                   <div className="rounded-xl border border-dashed border-border p-8 text-center">
                     <p className="text-sm font-medium text-foreground">
                       No integrations found
