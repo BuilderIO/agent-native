@@ -120,6 +120,10 @@ import {
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
+import {
+  CommentDraftProvider,
+  CommentHistoryScrollContainer,
+} from "./comment-drafts";
 import { observeCommentLane } from "./comment-lane";
 import {
   CommentsSidebar,
@@ -512,13 +516,66 @@ export function DocumentEditor({
   }
 
   return (
-    <DocumentEditorBody
-      documentId={documentId}
-      document={document}
-      databaseId={databaseId}
-      databaseDocumentId={databaseDocumentId}
-    />
+    <DocumentCommentDraftProvider documentId={documentId}>
+      <DocumentEditorBody
+        documentId={documentId}
+        document={document}
+        databaseId={databaseId}
+        databaseDocumentId={databaseDocumentId}
+      />
+    </DocumentCommentDraftProvider>
   );
+}
+
+function DocumentCommentDraftProvider({
+  documentId,
+  children,
+}: {
+  documentId: string;
+  children: import("react").ReactNode;
+}) {
+  const { session } = useSession();
+  return (
+    <CommentDraftProvider
+      documentId={documentId}
+      currentUserEmail={session?.email}
+    >
+      {children}
+    </CommentDraftProvider>
+  );
+}
+
+export function pendingCommentTargetMatches(
+  marked: Iterable<Pick<Element, "textContent">>,
+  quotedText: string,
+) {
+  const elements = [...marked];
+  return (
+    elements.length > 0 &&
+    elements.map((element) => element.textContent ?? "").join("") === quotedText
+  );
+}
+
+export function positionUnanchoredCommentCard({
+  containerRect,
+  boundaryRect,
+  preferredWidth = 320,
+  edge = 16,
+}: {
+  containerRect: Pick<DOMRect, "top" | "width">;
+  boundaryRect: Pick<DOMRect, "top">;
+  preferredWidth?: number;
+  edge?: number;
+}) {
+  return {
+    left: edge,
+    top: boundaryRect.top - containerRect.top + edge,
+    width: Math.max(
+      0,
+      Math.min(preferredWidth, containerRect.width - edge * 2),
+    ),
+    placement: "below" as const,
+  };
 }
 
 export function documentEditorLoadState({
@@ -3039,7 +3096,47 @@ function DocumentEditorBody({
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
-  const replyDrafts = useCommentReplyDrafts(documentId);
+  const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
+  const [pendingCommentTargetValid, setPendingCommentTargetValid] =
+    useState(true);
+  useLayoutEffect(() => {
+    if (!pendingComment) {
+      setPendingCommentTargetValid(true);
+      return;
+    }
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      setPendingCommentTargetValid(false);
+      return;
+    }
+
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const marked = scrollContainer.querySelectorAll(
+          ".comment-highlight--pending",
+        );
+        setPendingCommentTargetValid(
+          pendingCommentTargetMatches(marked, pendingComment.quotedText),
+        );
+      });
+    };
+    setPendingCommentTargetValid(false);
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(scrollContainer, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [pendingComment]);
   const [focusSuggestionId, setFocusSuggestionId] = useState<string | null>(
     null,
   );
@@ -3057,7 +3154,8 @@ function DocumentEditorBody({
     placement: "above" | "below";
   } | null>(null);
   const [commentLaneOffset, setCommentLaneOffset] = useState(0);
-  const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 800);
+  const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
+  const hasInlineCommentSpace = useElementMinWidth(documentLayoutRef, 1088);
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
   const showDesktopCommentsHistory =
@@ -3069,20 +3167,21 @@ function DocumentEditorBody({
     draftSuggestions.length > 0;
   const showInlineComments =
     showCommentIndicators &&
-    hasUtilityRailSpace &&
+    hasInlineCommentSpace &&
     !showCommentsHistoryDrawer &&
     utilityPanel !== "info" &&
     (hasOpenCommentThreads || hasOpenSuggestions || !!pendingComment);
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
+    !showCommentsHistoryDrawer &&
     utilityPanel === "comments" &&
-    !hasUtilityRailSpace &&
+    !hasInlineCommentSpace &&
     (!!pendingComment || !!selectedThreadId);
   const showUtilityPanelSheet =
     (showCommentsHistoryDrawer && !showDesktopCommentsHistory) ||
     (utilityPanel === "comments" &&
-      !hasUtilityRailSpace &&
+      !hasInlineCommentSpace &&
       !!selectedSuggestionId) ||
     (utilityPanel === "info" && !showDesktopInfoPanel);
   const hasFocusedCommentReply =
@@ -3133,11 +3232,11 @@ function DocumentEditorBody({
   const dismissCommentFocus = useCallback(() => {
     replyDrafts.setOpenReply(null);
     clearCommentFocus();
-    if (!hasUtilityRailSpace) {
+    if (!hasInlineCommentSpace) {
       setCommentsBrowseOpen(false);
       setUtilityPanel(null);
     }
-  }, [clearCommentFocus, hasUtilityRailSpace, replyDrafts.setOpenReply]);
+  }, [clearCommentFocus, hasInlineCommentSpace, replyDrafts.setOpenReply]);
 
   const handleEditorEscape = useCallback(() => {
     dismissCommentFocus();
@@ -3308,7 +3407,12 @@ function DocumentEditorBody({
               : ".comment-highlight--pending",
         ) as HTMLElement | null;
         if (!marked) {
-          setAnchoredCommentPosition(null);
+          setAnchoredCommentPosition(
+            positionUnanchoredCommentCard({
+              containerRect: scrollContent.getBoundingClientRect(),
+              boundaryRect: scrollContainer.getBoundingClientRect(),
+            }),
+          );
           return;
         }
         const paragraph = marked.closest(
@@ -3478,22 +3582,23 @@ function DocumentEditorBody({
 
   const renderCommentsSidebar = (
     visibleThreadId?: string | null,
-    alignToAnchors = hasUtilityRailSpace,
+    alignToAnchors = hasInlineCommentSpace,
     presentation: "inline" | "history" = "inline",
   ) => (
     <CommentsSidebar
-      compact={!hasUtilityRailSpace}
+      compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
       documentId={documentId}
       threads={threads ?? []}
       isLoading={commentsLoading}
       pendingComment={pendingComment}
+      pendingTargetValid={pendingCommentTargetValid}
       onPendingChange={changePendingComment}
       onPendingDone={(id, threadId) => {
         if (!completePendingComment(id)) return;
         if (threadId) {
           setSelectedThreadId(threadId);
-        } else if (!hasUtilityRailSpace) {
+        } else if (!hasInlineCommentSpace) {
           setUtilityPanel(null);
         }
       }}
@@ -3711,7 +3816,7 @@ function DocumentEditorBody({
           }
           if (
             target?.closest(
-              "[data-comments-sidebar], [data-comments-history], [data-document-utility-panel]",
+              "[data-comments-sidebar], [data-comments-history], [data-comment-menu], [data-document-utility-panel]",
             )
           ) {
             return;
@@ -3928,14 +4033,15 @@ function DocumentEditorBody({
             <div
               className={cn(
                 "relative flex min-h-full w-full min-w-0",
-                showDesktopRightRail ? "justify-center" : "flex-col",
+                showDesktopInfoPanel ? "justify-center" : "flex-col",
               )}
               data-document-scroll-content
             >
               <div
                 className={cn(
                   "min-w-0",
-                  showDesktopRightRail ? "flex-1" : "w-full",
+                  showDesktopInfoPanel ? "flex-1" : "w-full",
+                  showInlineComments && !isDatabasePage && "pr-80",
                 )}
               >
                 <div
@@ -4311,7 +4417,7 @@ function DocumentEditorBody({
                 showInlineComments ? (
                   <aside
                     ref={commentLaneRef}
-                    className="relative w-80 shrink-0"
+                    className="absolute right-0 top-0 w-80"
                     aria-label={t("comments.title")}
                     data-comments-flow-lane
                   >
@@ -4377,11 +4483,11 @@ function DocumentEditorBody({
             }
           }}
         >
-          <div className="h-full w-80 overflow-x-hidden overflow-y-auto">
+          <CommentHistoryScrollContainer className="h-full w-80 overflow-x-hidden overflow-y-auto">
             {commentsHistoryRailMounted
               ? renderUtilityPanelContent("comments")
               : null}
-          </div>
+          </CommentHistoryScrollContainer>
         </aside>
 
         <Sheet
@@ -4400,7 +4506,7 @@ function DocumentEditorBody({
               if (hasFocusedCommentReply) event.preventDefault();
             }}
             onCloseAutoFocus={(event) => {
-              if (hasUtilityRailSpace && hasFocusedCommentReply) {
+              if (hasInlineCommentSpace && hasFocusedCommentReply) {
                 event.preventDefault();
               }
             }}
@@ -4414,11 +4520,19 @@ function DocumentEditorBody({
                   : t("comments.title")}
               </SheetTitle>
             </SheetHeader>
-            <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-              {showUtilityPanelSheet
-                ? renderUtilityPanelContent(lastUtilityPanel, true)
-                : null}
-            </div>
+            {lastUtilityPanel === "comments" ? (
+              <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                {showUtilityPanelSheet
+                  ? renderUtilityPanelContent(lastUtilityPanel, true)
+                  : null}
+              </CommentHistoryScrollContainer>
+            ) : (
+              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                {showUtilityPanelSheet
+                  ? renderUtilityPanelContent(lastUtilityPanel, true)
+                  : null}
+              </div>
+            )}
           </SheetContent>
         </Sheet>
       </div>

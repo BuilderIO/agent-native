@@ -649,6 +649,13 @@ const messages = {
     untitledDatabase: "無標題資料庫",
   },
   comments: {
+    selectTextToComment: "選取文字以新增留言",
+    commentActions: "留言操作",
+    checkSaved: "檢查已儲存的留言",
+    edit: "編輯",
+    save: "儲存",
+    saving: "正在儲存…",
+    saveUnconfirmed: "無法確認是否已儲存。請先檢查此留言串，再重試。",
     filter: "篩選",
     add: "新增評論...",
     title: "評論",

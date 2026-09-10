@@ -5,7 +5,21 @@ import { URL as NodeURL } from "node:url";
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { act, useEffect, useState } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot as createReactRoot, type Root } from "react-dom/client";
+
+import { CommentDraftProvider } from "./comment-drafts";
+
+function createRoot(container: Parameters<typeof createReactRoot>[0]) {
+  const root = createReactRoot(container);
+  const render = root.render.bind(root);
+  root.render = (children) =>
+    render(
+      <CommentDraftProvider documentId="test-page">
+        {children}
+      </CommentDraftProvider>,
+    );
+  return root;
+}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -26,9 +40,13 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useFormatters: () => ({
+    formatDate: (date: Date | string) => new Date(date).toISOString(),
+  }),
   useT: () => (key: string) => key,
 }));
 vi.mock("@/hooks/use-comments", () => ({
+  useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
   useResolveComment: () => ({ mutate: vi.fn() }),
 }));

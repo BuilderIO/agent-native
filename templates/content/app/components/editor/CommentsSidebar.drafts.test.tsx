@@ -2,7 +2,21 @@
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { act, useState, type ComponentProps, type ReactNode } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot as createReactRoot } from "react-dom/client";
+
+import { CommentDraftProvider } from "./comment-drafts";
+
+function createRoot(container: Parameters<typeof createReactRoot>[0]) {
+  const root = createReactRoot(container);
+  const render = root.render.bind(root);
+  root.render = (children) =>
+    render(
+      <CommentDraftProvider documentId="test-page">
+        {children}
+      </CommentDraftProvider>,
+    );
+  return root;
+}
 import { expect, it, vi } from "vitest";
 
 import {
@@ -13,6 +27,39 @@ import {
 import type { DraftSuggestion } from "./suggestions/draft-session";
 
 const { replyMutate } = vi.hoisted(() => ({ replyMutate: vi.fn() }));
+
+it("remembers status across pages and remounts without sharing accounts or persisting reveals", async () => {
+  const container = document.createElement("div");
+  let root = createRoot(container);
+  let controller!: ReturnType<typeof useCommentReplyDrafts>;
+  function Harness({ page, user }: { page: string; user: string }) {
+    controller = useCommentReplyDrafts(page, user);
+    return null;
+  }
+  const first = "status-first@example.test";
+  const second = "status-second@example.test";
+  try {
+    await act(async () => root.render(<Harness page="one" user={first} />));
+    expect(controller.historyFilters.status).toBe("open");
+    await act(async () => controller.setHistoryFilters({ status: "resolved" }));
+    await act(async () => root.render(<Harness page="two" user={first} />));
+    expect(controller.historyFilters.status).toBe("resolved");
+    await act(async () => controller.revealHistory(null, "link"));
+    expect(controller.historyFilters.status).toBe("all");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<Harness page="three" user={first} />));
+    expect(controller.historyFilters.status).toBe("resolved");
+    await act(async () => root.render(<Harness page="three" user={second} />));
+    expect(controller.historyFilters.status).toBe("open");
+    await act(async () => root.render(<Harness page="three" user={first} />));
+    expect(controller.historyFilters.status).toBe("resolved");
+  } finally {
+    await act(async () => root.unmount());
+    for (const user of [first, second])
+      localStorage.removeItem(`content-review-status:${JSON.stringify(user)}`);
+  }
+});
 
 function suggestionFixture(
   input: Pick<
@@ -53,6 +100,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useFormatters: () => ({
+    formatDate: (date: Date | string) => new Date(date).toISOString(),
+  }),
   useT: () => (key: string) =>
     ({
       "comments.suggestionAdd": "Add",
@@ -134,6 +184,7 @@ vi.mock("@agent-native/core/client/review", () => ({
   useSetReviewThreadMuted: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@/hooks/use-comments", () => ({
+  useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
   useResolveComment: () => ({ mutate: vi.fn() }),
 }));
@@ -404,7 +455,7 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     );
   }
   const filters = {
-    status: "pending" as const,
+    status: "open" as const,
     kind: "suggestions" as const,
     author: "reviewer@example.test",
   };
@@ -437,14 +488,14 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
       root.render(<Harness documentId="two" layout="sheet" />),
     );
     expect(controller.historyFilters).toEqual({
-      status: "all",
+      status: "open",
       kind: "all",
       author: null,
     });
     await act(async () =>
       root.render(<Harness documentId="one" layout="rail" />),
     );
-    expect(controller.historyFilters.status).toBe("all");
+    expect(controller.historyFilters.status).toBe("open");
   } finally {
     await act(async () => root.unmount());
   }
@@ -1162,7 +1213,10 @@ it("keeps replies and mentions across composer remounts and isolates documents a
     await act(async () => {
       drafts.clear("ordinary-thread");
     });
-    expect(drafts.get("ordinary-thread")).toEqual({ text: "", mentions: [] });
+    expect(drafts.get("ordinary-thread")).toMatchObject({
+      text: "",
+      mentions: [],
+    });
     expect(drafts.get("suggestion-thread").text).toBe(
       "Unsent suggestion reply",
     );
@@ -1362,6 +1416,7 @@ it("keeps decided suggestion history readable and replies only to pending thread
   }
   try {
     await act(async () => root.render(<Harness />));
+    await act(async () => drafts.setHistoryFilters({ status: "all" }));
     expect(container.textContent).toContain(
       "existing reply accepted-suggestion",
     );

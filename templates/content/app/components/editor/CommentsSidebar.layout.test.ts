@@ -30,6 +30,30 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("keeps the selected history comment visible through status changes", () => {
+    const source = readFileSync(
+      "app/components/editor/CommentsSidebar.tsx",
+      "utf8",
+    );
+    const history = source.slice(
+      source.indexOf("const historyThreads ="),
+      source.indexOf("const pendingFocus ="),
+    );
+    expect(
+      history.indexOf('if (historyKind === "suggestions") return [];'),
+    ).toBeLessThan(
+      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
+    );
+    expect(
+      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
+    ).toBeLessThan(
+      history.indexOf('if (historyStatus === "open" && thread.resolved)'),
+    );
+    expect(history).toContain("threads, selectedThreadId]");
+    expect(source).toContain(
+      'presentation !== "history" && selectedThreadId === thread.threadId',
+    );
+  });
   it("keeps stale suggestions discoverable in the pending filter", () => {
     const source = readFileSync(
       "app/components/editor/CommentsSidebar.tsx",
@@ -38,7 +62,7 @@ describe("comments sidebar layout", () => {
     expect(source).toContain(
       'suggestion.status === "pending" || suggestion.status === "stale"',
     );
-    expect(source).toMatch(/historyStatus === "pending"\) &&\s+!unresolved/);
+    expect(source).toMatch(/historyStatus === "open" &&\s+!unresolved/);
   });
   it("restricts link-driven selection and history reveal to a fresh explicit URL intent", () => {
     const source = readFileSync(
@@ -73,9 +97,7 @@ describe("comments sidebar layout", () => {
       "utf8",
     );
     expect(source).toContain("replyDrafts.revealHistory(");
-    expect(source).toContain(
-      "if (key) setHistoryFilters(defaultHistoryFilters)",
-    );
+    expect(source).toContain("setRevealedStatus({ documentId, accountKey })");
     expect(source).toContain("Number(right.id === activeConflictId)");
   });
   it("lays out mixed suggestion and comment identities in one collision flow", () => {
@@ -300,7 +322,9 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain('aria-label={t("comments.askAi")}');
-    expect(source).toContain('aria-label={t("comments.resolve")}');
+    expect(source).toContain(
+      'resolved ? "comments.reopen" : "comments.resolve"',
+    );
     expect(source).toContain('aria-label={t("comments.submit")}');
     expect(source).toContain('aria-label={t("comments.reopen")}');
     expect(source).toContain("group-focus-within/thread:opacity-100");
@@ -422,9 +446,7 @@ describe("comments sidebar layout", () => {
     expect(source).toContain('t("comments.statusFilter")');
     expect(source).toContain('t("comments.authorFilter")');
     expect(source).toContain("event.preventDefault()");
-    expect(source).toContain(
-      '"pending",\n                    "accepted",\n                    "rejected"',
-    );
+    expect(source).toContain('["open", "resolved", "all"] as const');
     expect(source).toContain("historySuggestions.map((suggestion)");
     expect(source).toContain(
       "renderSuggestionCard(thread.suggestion, marginTop)",
@@ -483,9 +505,9 @@ describe("comments sidebar layout", () => {
     );
     expect(source).toContain('className="pointer-events-none absolute z-30"');
     expect(source).toContain("data-comments-anchored-popover");
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 800)");
+    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
     expect(source).toContain(
-      'utilityPanel === "comments" &&\n      !hasUtilityRailSpace &&\n      !!selectedSuggestionId',
+      'utilityPanel === "comments" &&\n      !hasInlineCommentSpace &&\n      !!selectedSuggestionId',
     );
     expect(source).toContain('window.addEventListener("resize", update)');
     expect(source).toContain(
@@ -528,7 +550,8 @@ describe("comments sidebar layout", () => {
     );
     const failure = submit.slice(submit.indexOf("catch (error)"));
 
-    expect(submit).toContain("pendingSubmitting) return;");
+    expect(submit).toContain("pendingSubmitting");
+    expect(submit).toContain("ambiguousCreate()");
     expect(submit).toContain("const id = pendingComment.id;");
     expect(submit).toMatch(
       /onPendingChange\(id, \(\) => \(\{ submitting: true \}\)\)[\s\S]*?const result = await createComment\.mutateAsync\([\s\S]*?onPendingDone\(id, result\.threadId\);[\s\S]*?catch \(error\)/,

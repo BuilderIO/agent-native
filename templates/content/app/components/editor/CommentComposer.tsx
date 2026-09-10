@@ -27,6 +27,7 @@ interface CommentComposerProps {
   onBlur?: () => void;
   members: MentionMember[];
   placeholder?: string;
+  ariaLabel?: string;
   autoFocus?: boolean;
   disabled?: boolean;
   rows?: number;
@@ -52,6 +53,7 @@ export const CommentComposer = forwardRef<
     onBlur,
     members,
     placeholder,
+    ariaLabel,
     autoFocus,
     disabled = false,
     rows = 2,
@@ -71,7 +73,9 @@ export const CommentComposer = forwardRef<
   };
 
   useEffect(() => {
-    if (autoFocus) setTimeout(() => innerRef.current?.focus(), 50);
+    if (!autoFocus) return;
+    const timer = setTimeout(() => innerRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
   }, [autoFocus]);
 
   const filtered =
@@ -192,6 +196,7 @@ export const CommentComposer = forwardRef<
           onBlur?.();
         }}
         placeholder={placeholder}
+        aria-label={ariaLabel}
         className={`[field-sizing:content] max-h-48 ${
           className ??
           "w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"

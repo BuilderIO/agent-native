@@ -20,6 +20,8 @@ import {
   isSuggestionConflictActionError,
   metadataUpdatesWithPendingTitle,
   positionAnchoredCommentCard,
+  pendingCommentTargetMatches,
+  positionUnanchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
   suggestionPresentation,
   suggestionAmendmentTargetIsResolved,
@@ -37,6 +39,63 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("keeps inline comments outside the independent reading column", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toContain('"mx-auto max-w-5xl"');
+    expect(source).toContain('showDesktopInfoPanel ? "flex-1" : "w-full"');
+    expect(source).toContain('className="absolute right-0 top-0 w-80"');
+    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
+    expect(source).toContain("useElementMinWidth(documentLayoutRef, 1088)");
+    expect(source).toContain(
+      'showInlineComments && !isDatabasePage && "pr-80"',
+    );
+    expect(source).toContain(
+      "observeCommentLane(container, lane, setCommentLaneOffset)",
+    );
+  });
+  it("blocks a changed pending selection without dropping its recovery position", () => {
+    expect(
+      pendingCommentTargetMatches(
+        [{ textContent: "Exact " }, { textContent: "selection" }],
+        "Exact selection",
+      ),
+    ).toBe(true);
+    expect(pendingCommentTargetMatches([], "Exact selection")).toBe(false);
+    expect(
+      pendingCommentTargetMatches(
+        [{ textContent: "Different selection" }],
+        "Exact selection",
+      ),
+    ).toBe(false);
+    expect(
+      positionUnanchoredCommentCard({
+        containerRect: { top: -100, width: 280 },
+        boundaryRect: { top: 0 },
+      }),
+    ).toEqual({ left: 16, top: 116, width: 248, placement: "below" });
+  });
+  it("hides suggestion decorations with comments without losing resolved anchor metadata", () => {
+    const source = readFileSync(
+      new URL("./VisualEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf("const specs = suggestions");
+    const effect = source.slice(
+      start,
+      source.indexOf("const position = resolveAnchorPoint", start),
+    );
+    expect(effect).toContain("new Set(specs.map((spec) => spec.suggestionId))");
+    expect(effect).toContain(
+      "const visibleSpecs = showCommentIndicators ? specs : []",
+    );
+    expect(effect).toContain("specs: visibleSpecs");
+    expect(effect).toContain(
+      "suggestionsSignature,\n    showCommentIndicators,",
+    );
+  });
   it("blocks every document metadata mutation while suggesting", () => {
     expect(documentCanonicalMutationsEnabled(true, false)).toBe(true);
     expect(documentCanonicalMutationsEnabled(false, false)).toBe(false);

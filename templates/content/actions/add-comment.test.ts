@@ -5,11 +5,15 @@ type CommentRow = {
   documentId: string;
   threadId: string;
   parentId: string | null;
+  resolved?: number;
+  [key: string]: unknown;
 };
 
 const state = vi.hoisted(() => ({
   rows: [] as CommentRow[],
   inserted: [] as Record<string, unknown>[],
+  locked: [] as string[],
+  afterRootLock: undefined as (() => void) | undefined,
 }));
 const mockAssertAccess = vi.hoisted(() =>
   vi.fn(async () => ({
@@ -21,7 +25,7 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
-  getRequestRunContext: () => ({ caller: "mcp" }),
+  getRequestRunContext: () => ({ runId: "run-1" }),
   getRequestUserEmail: () => "author@example.com",
   getRequestUserName: () => "Authenticated Profile Name",
 }));
@@ -48,28 +52,45 @@ vi.mock("../server/db/index.js", () => {
       id: column("id"),
       documentId: column("documentId"),
       threadId: column("threadId"),
+      authorEmail: column("authorEmail"),
     },
   };
   const db = {
+    transaction: async (callback: (tx: any) => Promise<unknown>) =>
+      callback(db),
     select: () => ({
       from: () => ({
         where: (condition: unknown) => ({
-          limit: async () =>
-            state.rows
-              .filter((row) => matches(row, condition))
-              .map((row) => ({ threadId: row.threadId })),
+          limit: () => {
+            const result = state.rows.filter((row) => matches(row, condition));
+            return Object.assign(Promise.resolve(result), {
+              for: async () => {
+                state.locked.push(...result.map((row) => row.id));
+                state.afterRootLock?.();
+                return result;
+              },
+            });
+          },
         }),
       }),
     }),
     insert: () => ({
-      values: async (value: Record<string, unknown>) => {
-        state.inserted.push(value);
-      },
+      values: (value: Record<string, unknown>) => ({
+        onConflictDoNothing: () => ({
+          returning: async () => {
+            if (state.rows.some((row) => row.id === value.id)) return [];
+            state.inserted.push(value);
+            state.rows.push(value as CommentRow);
+            return [{ id: value.id }];
+          },
+        }),
+      }),
     }),
   };
   return { getDb: () => db, schema };
 });
 
+import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 import action from "./add-comment";
 
 const run = (args: Record<string, unknown>) => (action as any).run(args);
@@ -77,6 +98,8 @@ const run = (args: Record<string, unknown>) => (action as any).run(args);
 beforeEach(() => {
   vi.clearAllMocks();
   state.inserted = [];
+  state.locked = [];
+  state.afterRootLock = undefined;
   state.rows = [
     { id: "root-1", documentId: "doc-1", threadId: "root-1", parentId: null },
     { id: "root-2", documentId: "doc-2", threadId: "root-2", parentId: null },
@@ -128,4 +151,94 @@ describe("add-comment reply boundary", () => {
       expect(state.inserted).toHaveLength(0);
     },
   );
+});
+
+describe("comment submission receipts", () => {
+  const clientOperationId = "11111111-1111-4111-8111-111111111111";
+  const input = { documentId: "doc-1", content: "Comment", clientOperationId };
+  it("uses the client UUID as the receipt and inserts a retried submission once", async () => {
+    expect(await run(input)).toMatchObject({
+      id: clientOperationId,
+      threadId: clientOperationId,
+    });
+    expect(await run(input)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+      notified: null,
+    });
+    expect(state.inserted).toHaveLength(1);
+    expect(notifyDocumentComment).toHaveBeenCalledTimes(1);
+    expect(mockAssertAccess).toHaveBeenCalledTimes(2);
+  });
+  it("recovers the same receipt after notification fails after insertion", async () => {
+    vi.mocked(notifyDocumentComment).mockRejectedValueOnce(
+      new Error("Notification failed"),
+    );
+    await expect(run(input)).rejects.toThrow("Notification failed");
+    expect(await run(input)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+    });
+    expect(state.inserted).toHaveLength(1);
+    expect(notifyDocumentComment).toHaveBeenCalledTimes(1);
+  });
+  it.each(["documentId", "authorEmail", "content"])(
+    "rejects receipt reuse with another %s",
+    async (field) => {
+      await run(input);
+      state.rows.find((row) => row.id === clientOperationId)![field] =
+        "different";
+      await expect(run(input)).rejects.toThrow(
+        "conflicts with another submission",
+      );
+      expect(state.inserted).toHaveLength(1);
+    },
+  );
+  it("inserts identical content with different operation receipts separately", async () => {
+    await run(input);
+    await run({
+      ...input,
+      clientOperationId: "22222222-2222-4222-8222-222222222222",
+    });
+    expect(state.inserted).toHaveLength(2);
+  });
+  it("rejects a reply to a resolved root even if its parent reply is stale", async () => {
+    state.rows[0].resolved = 1;
+    state.rows.push({
+      id: "reply-1",
+      documentId: "doc-1",
+      threadId: "root-1",
+      parentId: "root-1",
+      resolved: 0,
+    });
+    await expect(
+      run({ ...input, threadId: "root-1", parentId: "reply-1" }),
+    ).rejects.toThrow("Reopen the thread");
+    expect(state.inserted).toHaveLength(0);
+    expect(state.locked).toEqual(["root-1"]);
+  });
+  it("rechecks a receipt committed while waiting for a subsequently resolved root", async () => {
+    const reply = { ...input, threadId: "root-1", parentId: "root-1" };
+    await run(reply);
+    const saved = state.rows.pop()!;
+    state.afterRootLock = () => {
+      state.rows.push(saved);
+      state.rows[0].resolved = 1;
+    };
+    expect(await run(reply)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+    });
+    expect(state.inserted).toHaveLength(1);
+  });
+  it("reconciles an already-saved reply after its thread is resolved", async () => {
+    const reply = { ...input, threadId: "root-1", parentId: "root-1" };
+    await run(reply);
+    state.rows[0].resolved = 1;
+    expect(await run(reply)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+    });
+    expect(state.inserted).toHaveLength(1);
+  });
 });

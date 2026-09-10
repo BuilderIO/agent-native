@@ -3517,10 +3517,14 @@ export function VisualEditor({
       onSuggestionAnchorsChange?.(
         Array.from(new Set(specs.map((spec) => spec.suggestionId))),
       );
-      const selection = pendingNativeSuggestionSelection(editor.view, specs);
+      const visibleSpecs = showCommentIndicators ? specs : [];
+      const selection = pendingNativeSuggestionSelection(
+        editor.view,
+        visibleSpecs,
+      );
       setSuggestionHighlights(
         editor.view,
-        { specs, activeId: activeSuggestionId ?? null },
+        { specs: visibleSpecs, activeId: activeSuggestionId ?? null },
         selection.status === "mapped" ? selection.selection : undefined,
       );
     };
@@ -3538,6 +3542,7 @@ export function VisualEditor({
     onSuggestionAnchorsChange,
     suggestions,
     suggestionsSignature,
+    showCommentIndicators,
   ]);
 
   useEffect(() => {

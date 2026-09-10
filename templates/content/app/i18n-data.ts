@@ -3391,6 +3391,14 @@ const enUS = {
     untitledDatabase: "Untitled database",
   },
   comments: {
+    selectTextToComment: "Select text to add a comment",
+    commentActions: "Comment actions",
+    checkSaved: "Check saved comment",
+    edit: "Edit",
+    save: "Save",
+    saving: "Saving…",
+    saveUnconfirmed:
+      "Could not confirm saving. Check this thread before trying again.",
     filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
@@ -9793,6 +9801,13 @@ const reviewDiscussionMessagesByLocale = {
 
 const commentMessagesByLocale = {
   "zh-CN": {
+    selectTextToComment: "选择文本以添加评论",
+    commentActions: "评论操作",
+    checkSaved: "检查已保存的评论",
+    edit: "编辑",
+    save: "保存",
+    saving: "正在保存…",
+    saveUnconfirmed: "无法确认是否已保存。请先检查此评论线程，然后再重试。",
     filter: "筛选",
     hideIndicators: "隐藏评论和高亮",
     showIndicators: "显示评论和高亮",
@@ -9816,6 +9831,13 @@ const commentMessagesByLocale = {
     noFilteredComments: "没有匹配的评论。",
   },
   "zh-TW": {
+    selectTextToComment: "選取文字以新增留言",
+    commentActions: "留言操作",
+    checkSaved: "檢查已儲存的留言",
+    edit: "編輯",
+    save: "儲存",
+    saving: "正在儲存…",
+    saveUnconfirmed: "無法確認是否已儲存。請先檢查此留言串，再重試。",
     filter: "篩選",
     hideIndicators: "隱藏留言和醒目提示",
     showIndicators: "顯示留言和醒目提示",
@@ -9839,6 +9861,14 @@ const commentMessagesByLocale = {
     noFilteredComments: "沒有相符的留言。",
   },
   "es-ES": {
+    selectTextToComment: "Selecciona texto para añadir un comentario",
+    commentActions: "Acciones del comentario",
+    checkSaved: "Comprobar comentario guardado",
+    edit: "Editar",
+    save: "Guardar",
+    saving: "Guardando…",
+    saveUnconfirmed:
+      "No se pudo confirmar el guardado. Comprueba este hilo antes de volver a intentarlo.",
     filter: "Filtro",
     hideIndicators: "Ocultar comentarios y resaltados",
     showIndicators: "Mostrar comentarios y resaltados",
@@ -9862,6 +9892,14 @@ const commentMessagesByLocale = {
     noFilteredComments: "No hay comentarios coincidentes.",
   },
   "fr-FR": {
+    selectTextToComment: "Sélectionnez du texte pour ajouter un commentaire",
+    commentActions: "Actions du commentaire",
+    checkSaved: "Vérifier le commentaire enregistré",
+    edit: "Modifier",
+    save: "Enregistrer",
+    saving: "Enregistrement…",
+    saveUnconfirmed:
+      "Impossible de confirmer l’enregistrement. Vérifiez ce fil avant de réessayer.",
     filter: "Filtrer",
     hideIndicators: "Masquer les commentaires et surlignages",
     showIndicators: "Afficher les commentaires et surlignages",
@@ -9885,6 +9923,14 @@ const commentMessagesByLocale = {
     noFilteredComments: "Aucun commentaire correspondant.",
   },
   "de-DE": {
+    selectTextToComment: "Text auswählen, um einen Kommentar hinzuzufügen",
+    commentActions: "Kommentaraktionen",
+    checkSaved: "Gespeicherten Kommentar prüfen",
+    edit: "Bearbeiten",
+    save: "Speichern",
+    saving: "Wird gespeichert…",
+    saveUnconfirmed:
+      "Das Speichern konnte nicht bestätigt werden. Prüfe diesen Thread, bevor du es erneut versuchst.",
     filter: "Filter",
     hideIndicators: "Kommentare und Hervorhebungen ausblenden",
     showIndicators: "Kommentare und Hervorhebungen anzeigen",
@@ -9908,6 +9954,14 @@ const commentMessagesByLocale = {
     noFilteredComments: "Keine passenden Kommentare.",
   },
   "ja-JP": {
+    selectTextToComment: "コメントを追加するテキストを選択",
+    commentActions: "コメント操作",
+    checkSaved: "保存したコメントを確認",
+    edit: "編集",
+    save: "保存",
+    saving: "保存中…",
+    saveUnconfirmed:
+      "保存を確認できませんでした。再試行する前にこのスレッドを確認してください。",
     filter: "フィルター",
     hideIndicators: "コメントとハイライトを非表示",
     showIndicators: "コメントとハイライトを表示",
@@ -9931,6 +9985,14 @@ const commentMessagesByLocale = {
     noFilteredComments: "一致するコメントはありません。",
   },
   "ko-KR": {
+    selectTextToComment: "댓글을 추가할 텍스트 선택",
+    commentActions: "댓글 작업",
+    checkSaved: "저장된 댓글 확인",
+    edit: "수정",
+    save: "저장",
+    saving: "저장 중…",
+    saveUnconfirmed:
+      "저장 여부를 확인하지 못했습니다. 다시 시도하기 전에 이 스레드를 확인하세요.",
     filter: "필터",
     hideIndicators: "댓글과 강조 표시 숨기기",
     showIndicators: "댓글과 강조 표시 보기",
@@ -9954,6 +10016,14 @@ const commentMessagesByLocale = {
     noFilteredComments: "일치하는 댓글이 없습니다.",
   },
   "pt-BR": {
+    selectTextToComment: "Selecione um texto para adicionar um comentário",
+    commentActions: "Ações do comentário",
+    checkSaved: "Verificar comentário salvo",
+    edit: "Editar",
+    save: "Salvar",
+    saving: "Salvando…",
+    saveUnconfirmed:
+      "Não foi possível confirmar o salvamento. Verifique esta conversa antes de tentar novamente.",
     filter: "Filtro",
     hideIndicators: "Ocultar comentários e destaques",
     showIndicators: "Mostrar comentários e destaques",
@@ -9977,6 +10047,14 @@ const commentMessagesByLocale = {
     noFilteredComments: "Nenhum comentário correspondente.",
   },
   "hi-IN": {
+    selectTextToComment: "टिप्पणी जोड़ने के लिए टेक्स्ट चुनें",
+    commentActions: "टिप्पणी की कार्रवाइयाँ",
+    checkSaved: "सहेजी गई टिप्पणी जाँचें",
+    edit: "संपादित करें",
+    save: "सहेजें",
+    saving: "सहेजा जा रहा है…",
+    saveUnconfirmed:
+      "सहेजने की पुष्टि नहीं हो सकी। दोबारा कोशिश करने से पहले इस थ्रेड को जाँचें।",
     filter: "फ़िल्टर",
     hideIndicators: "टिप्पणियाँ और हाइलाइट छिपाएँ",
     showIndicators: "टिप्पणियाँ और हाइलाइट दिखाएँ",
@@ -10000,6 +10078,14 @@ const commentMessagesByLocale = {
     noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
   },
   "ar-SA": {
+    selectTextToComment: "حدد نصًا لإضافة تعليق",
+    commentActions: "إجراءات التعليق",
+    checkSaved: "التحقق من التعليق المحفوظ",
+    edit: "تعديل",
+    save: "حفظ",
+    saving: "جارٍ الحفظ…",
+    saveUnconfirmed:
+      "تعذر تأكيد الحفظ. تحقق من سلسلة التعليقات هذه قبل المحاولة مرة أخرى.",
     filter: "تصفية",
     hideIndicators: "إخفاء التعليقات والتمييزات",
     showIndicators: "إظهار التعليقات والتمييزات",
