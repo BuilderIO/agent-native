@@ -587,6 +587,75 @@ describe("McpIntegrationDialog", () => {
     ).toBe("org");
   });
 
+  it("never offers a personal connection for an org-only integration", () => {
+    const builder = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "builder-cms",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    expect(builder.organizationScopeOnly).toBe(true);
+
+    // A brand-new account with no workspace is the reported case: the old code
+    // sent scope=user here and the server answered with a personal-scope error.
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="builder-cms"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[builder]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    expect(personal).toBeUndefined();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "cannot be connected to just your account",
+    );
+    expect(document.body.textContent).toContain("Join a workspace first.");
+  });
+
+  it("starts the workspace connection directly for an org-only integration", () => {
+    const builder = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "builder-cms",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="builder-cms"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[builder]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
+    const url = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    expect(
+      new URL(url, "https://clips.example.com").searchParams.get("scope"),
+    ).toBe("org");
+  });
+
   it("shows a disabled workspace option to a member", () => {
     const context7 = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "context7",

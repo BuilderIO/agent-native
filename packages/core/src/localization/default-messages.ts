@@ -1270,8 +1270,11 @@ const messages = {
     connectForMe: "Connect for me",
     setUpForWorkspace: "Set up for workspace",
     workspaceAdminRequired: "Workspace owner or admin required.",
+    workspaceJoinRequired: "Join a workspace first.",
     personalOnlyDescription:
       "Only personal connections are supported for this integration.",
+    workspaceOnlyDescription:
+      "This integration connects once for the whole workspace, so it cannot be connected to just your account. A workspace owner or admin can set it up.",
     loadingScopeMetadata: "Loading connection scope…",
     retry: "Retry",
     retrying: "Retrying…",

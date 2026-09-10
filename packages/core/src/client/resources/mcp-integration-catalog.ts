@@ -52,6 +52,12 @@ export interface DefaultMcpIntegration {
    * semantics are verified.
    */
   supportsOrganizationScope?: boolean;
+  /**
+   * The server refuses personal connections, so the workspace connection is the
+   * only one that can succeed. Builder Publish is org-only because its OAuth
+   * grant is shared with Content database sources rather than held by one user.
+   */
+  organizationScopeOnly?: boolean;
   docsUrl?: string;
   setupNoteKey?: string;
   apiFallback?: {
@@ -812,6 +818,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     logoUrl: mcpIntegrationLogo("builder-cms"),
     docsUrl: "https://www.builder.io/c/docs/mcp-builder-server/",
     setupNoteKey: "mcpIntegrations.catalog.builder.setupNote",
+    organizationScopeOnly: true,
     keywords: [
       "Builder",
       "content",
@@ -1019,6 +1026,26 @@ export function supportsMcpIntegrationOrganizationScope(
     integration.supportsOrganizationScope === true &&
     integration.managedOAuth !== true
   );
+}
+
+/**
+ * Mirrors the server's org-only rule in `resolveMcpOAuthScope`. Offering a
+ * personal connection the server will reject is what produced the misleading
+ * scope error users hit on Builder.io.
+ */
+export function requiresMcpIntegrationOrganizationScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return (
+    integration.organizationScopeOnly === true &&
+    supportsMcpIntegrationOrganizationScope(integration)
+  );
+}
+
+export function allowsMcpIntegrationPersonalScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return !requiresMcpIntegrationOrganizationScope(integration);
 }
 
 export function shouldOfferMcpIntegrationOrganizationScope(

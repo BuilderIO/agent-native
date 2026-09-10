@@ -21,6 +21,7 @@ import { IntegrationConnectionChoice } from "../integrations/IntegrationConnecti
 import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
 import { cn } from "../utils.js";
 import {
+  allowsMcpIntegrationPersonalScope,
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   filterMcpIntegrations,
@@ -29,6 +30,7 @@ import {
   isMcpIntegrationUrl,
   isCustomMcpIntegrationEnabled,
   navigateToMcpOAuthStart,
+  requiresMcpIntegrationOrganizationScope,
   resolveMcpIntegrationScope,
   shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
@@ -103,7 +105,9 @@ function resolveIntegrationScope(
   canCreateOrgMcp: boolean,
 ): McpServerScope {
   return resolveMcpIntegrationScope(
-    defaultScope,
+    integration && requiresMcpIntegrationOrganizationScope(integration)
+      ? "org"
+      : defaultScope,
     hasOrg,
     canCreateOrgMcp,
     !integration ||
@@ -399,7 +403,25 @@ export function McpIntegrationDialog({
     });
   };
 
+  // Org-only integrations have no personal connection to fall back to, so they
+  // must never reach the user-scoped paths below. When the workspace connection
+  // is available we start it directly; otherwise the choice screen is the only
+  // surface that can explain why nothing here is actionable yet.
+  const routeOrganizationOnlyIntegration = (
+    integration: DefaultMcpIntegration,
+  ): boolean => {
+    if (!requiresMcpIntegrationOrganizationScope(integration)) return false;
+    if (hasOrg && canCreateOrgMcp) {
+      connectWorkspace(integration);
+      return true;
+    }
+    setSelected(integration);
+    setMode("choice");
+    return true;
+  };
+
   const quickConnect = (integration: DefaultMcpIntegration) => {
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
@@ -433,6 +455,7 @@ export function McpIntegrationDialog({
 
   const selectCatalogConnection = (integration: DefaultMcpIntegration) => {
     if (!mcpServersQuery.isSuccess) return;
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
@@ -494,6 +517,7 @@ export function McpIntegrationDialog({
     const attemptKey = `connect:${connectIntegrationId}`;
     if (quickConnectAttemptedRef.current === attemptKey) return;
     quickConnectAttemptedRef.current = attemptKey;
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
@@ -602,6 +626,11 @@ export function McpIntegrationDialog({
 
   const renderScopeSelector = () => {
     if (selected?.managedOAuth) return null;
+    // Org-only integrations have exactly one valid scope, so there is nothing
+    // to choose and no personal option that would survive the server check.
+    if (selected && requiresMcpIntegrationOrganizationScope(selected)) {
+      return null;
+    }
     const canSelectScope = selected
       ? shouldOfferMcpIntegrationOrganizationScope(
           selected,
@@ -699,18 +728,28 @@ export function McpIntegrationDialog({
                   imageClassName="size-full p-1"
                 />
               }
+              showPersonalOption={allowsMcpIntegrationPersonalScope(selected)}
               showWorkspaceOption={supportsMcpIntegrationOrganizationScope(
                 selected,
               )}
               workspaceOptionDisabled={!canCreateOrgMcp}
               workspaceOptionDisabledReason={
                 !canCreateOrgMcp
-                  ? t("mcpIntegrations.workspaceAdminRequired")
+                  ? t(
+                      hasOrg
+                        ? "mcpIntegrations.workspaceAdminRequired"
+                        : "mcpIntegrations.workspaceJoinRequired",
+                    )
                   : undefined
               }
               personalOnlyReason={
                 !supportsMcpIntegrationOrganizationScope(selected)
                   ? t("mcpIntegrations.personalOnlyDescription")
+                  : undefined
+              }
+              workspaceOnlyReason={
+                requiresMcpIntegrationOrganizationScope(selected)
+                  ? t("mcpIntegrations.workspaceOnlyDescription")
                   : undefined
               }
               busy={busy}
