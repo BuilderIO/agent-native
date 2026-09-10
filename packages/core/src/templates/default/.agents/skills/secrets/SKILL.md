@@ -411,6 +411,13 @@ Dispatch workspaces have a vault access policy for workspace app credentials:
 Use `get-vault-access-settings` before deciding whether to create grants, and
 use `set-vault-access-settings` only when the user asks to change the policy.
 
+Vault keys land in the shared `app_secrets` store at `org` scope, so an app's
+Settings → Integrations → Keys section reports them as `Set · Vault` through
+`resolveSecretDetailed` (`source`/`scopeId`) instead of the registered-scope
+row alone. Runtime precedence is personal (`user`) row → shared `org` row →
+legacy `workspace` row → designated vault org → deploy env. Never add a second
+place to enter a key that the Vault already provides; label the source instead.
+
 ### Key Files (ad-hoc)
 
 | File                                           | Purpose                                     |
