@@ -168,14 +168,18 @@ export function HistoryPanel({
               ) : (
                 <>
                   <p className="truncate text-sm font-medium">
-                    {selectedVersion
-                      ? versionTitle(selectedVersion)
-                      : "Snapshot unavailable" /* i18n-ignore */}
+                    {
+                      selectedVersion
+                        ? versionTitle(selectedVersion)
+                        : "Snapshot unavailable" /* i18n-ignore */
+                    }
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {selectedVersion
-                      ? `${new Date(selectedVersion.createdAt ?? "").toLocaleString()} · ${fileCountLabel(selectedVersion.fileCount)}`
-                      : "Snapshot unavailable" /* i18n-ignore */}
+                    {
+                      selectedVersion
+                        ? `${new Date(selectedVersion.createdAt ?? "").toLocaleString()} · ${fileCountLabel(selectedVersion.fileCount)}`
+                        : "Snapshot unavailable" /* i18n-ignore */
+                    }
                   </p>
                 </>
               )}
