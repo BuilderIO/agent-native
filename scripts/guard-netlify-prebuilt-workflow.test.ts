@@ -436,7 +436,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.equal(
       ((reusable.jobs as Workflow).deploy as Workflow)["timeout-minutes"],
-      100,
+      150,
     );
     assert.match(
       reusableSource,
@@ -619,6 +619,16 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /Refusing to delete staged beta draft \$\{draftId\} because Netlify published it\./,
     );
+    assert.match(reusableSource, /cancellationDeadline/);
+    assert.match(
+      reusableSource,
+      /staged beta draft \$\{draftId\} cancellation status/,
+    );
+    assert.match(
+      reusableSource,
+      /Canceled and deleted staged beta draft \$\{draftId\}\./,
+    );
+    assert.match(reusableSource, /did not become terminal after cancellation/);
     assert.match(
       reusableSource,
       /DEPLOY_URL: \$\{\{ steps\.beta_first_publish\.outputs\.deploy_url \|\| steps\.beta_first_publish_reconcile\.outputs\.deploy_url \|\| \(steps\.previous\.outputs\.published_deploy_id != '' && steps\.deploy\.outputs\.deploy_url\) \}\}/,

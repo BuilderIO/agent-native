@@ -363,7 +363,7 @@ if (
 const reusableDeployJobConfig = asRecord(
   asRecord(reusableDocument?.jobs)?.deploy,
 );
-if (reusableDeployJobConfig?.["timeout-minutes"] !== 100) {
+if (reusableDeployJobConfig?.["timeout-minutes"] !== 150) {
   issues.push(
     `${reusablePath} must reserve cleanup time after the Netlify publish wait`,
   );
@@ -1043,6 +1043,16 @@ if (
   ) ||
   !reusableBetaFreshness.includes(
     "Refusing to delete staged beta draft ${draftId} because Netlify published it.",
+  ) ||
+  !reusableBetaFreshness.includes("cancellationDeadline") ||
+  !reusableBetaFreshness.includes(
+    "staged beta draft ${draftId} cancellation status",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Canceled and deleted staged beta draft ${draftId}.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "did not become terminal after cancellation",
   ) ||
   !reusableBetaFreshness.includes(
     "DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.beta_first_publish_reconcile.outputs.deploy_url || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_url) }}",

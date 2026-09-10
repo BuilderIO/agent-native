@@ -191,7 +191,7 @@ jobs:
     name: ${{ inputs.target }} ${{ inputs.site }} prebuilt deploy
     runs-on: ubuntu-latest
     # Reserve time for stale beta cleanup after the 30-minute publish wait.
-    timeout-minutes: 100
+    timeout-minutes: 150
     steps:
       - name: Validate the source revision
         id: source
@@ -1573,6 +1573,7 @@ jobs:
               ...options,
               headers: { ...headers, ...(options.headers || {}) },
             });
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             const readJson = async (response, label) => {
               const text = await response.text();
               const body = text ? JSON.parse(text) : null;
@@ -1600,8 +1601,34 @@ jobs:
               if (!cancellation.ok) {
                 throw new Error(`Netlify could not delete or cancel staged beta draft ${draftId}.`);
               }
-              console.log(`Canceled staged beta draft ${draftId} after deletion was rejected.`);
-              return;
+              const cancellationDeadline = Date.now() + 5 * 60 * 1000;
+              while (Date.now() < cancellationDeadline) {
+                const current = await request(`${api}/deploys/${draftId}`);
+                if (current.status === 404) {
+                  console.log(`Staged beta draft ${draftId} was removed after cancellation.`);
+                  return;
+                }
+                const deploy = await readJson(
+                  current,
+                  `Netlify staged beta draft ${draftId} cancellation status`,
+                );
+                if (["error", "canceled", "rejected"].includes(deploy.state)) {
+                  const retryDeletion = await request(`${api}/deploys/${draftId}`, { method: "DELETE" });
+                  if (retryDeletion.status === 404) return;
+                  if (!retryDeletion.ok) {
+                    throw new Error(`Netlify canceled staged beta draft ${draftId} but rejected its final deletion.`);
+                  }
+                  await readJson(retryDeletion, `Netlify staged beta draft ${draftId} retry deletion`);
+                  const verification = await request(`${api}/deploys/${draftId}`);
+                  if (verification.status !== 404) {
+                    throw new Error(`Netlify staged beta draft ${draftId} still exists after cancellation and deletion.`);
+                  }
+                  console.log(`Canceled and deleted staged beta draft ${draftId}.`);
+                  return;
+                }
+                await sleep(10_000);
+              }
+              throw new Error(`Netlify staged beta draft ${draftId} did not become terminal after cancellation.`);
             }
             await readJson(deletion, `Netlify staged beta draft ${draftId} deletion`);
             const verification = await request(`${api}/deploys/${draftId}`);
