@@ -180,15 +180,27 @@ const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
 
 const DASHBOARD_CONSTRUCTION_OBJECT_TERMS =
-  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:dashboard|extension|panel|widget)\b/i;
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\b/i;
+
+const DASHBOARD_AUTOMATION_COMPOUND_TERMS =
+  /\b(?:dashboard|extension|panel|widget)\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron job)\b/i;
 
 export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = stripInjectedAnalyticsGuardContext(text);
   const lower = requestText.toLowerCase();
   if (!lower) return false;
+  if (DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower)) return false;
+  const dashboardConstructionObjectMatch = lower.match(
+    DASHBOARD_CONSTRUCTION_OBJECT_TERMS,
+  );
+  const hasDashboardConstructionObject =
+    dashboardConstructionObjectMatch !== null &&
+    !/\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron job)\b/.test(
+      dashboardConstructionObjectMatch[0],
+    );
   if (
     looksLikeWorkflowOrAutomationRequest(lower) &&
-    !DASHBOARD_CONSTRUCTION_OBJECT_TERMS.test(lower)
+    !hasDashboardConstructionObject
   ) {
     return false;
   }
