@@ -23,6 +23,7 @@ const docsAppSites = new Set([
   "slides",
   "starter",
 ]);
+const docsSite = "fw";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -46,6 +47,11 @@ function buildableSites(repoRoot = REPO_ROOT): string[] {
       return true;
     })
     .sort();
+}
+
+function withDocsSite(sites: string[], repoRoot: string): string[] {
+  resolveNetlifyPrebuiltTarget("preview", docsSite, repoRoot);
+  return [...sites, docsSite];
 }
 
 const sharedBuildPaths = [
@@ -82,24 +88,26 @@ export function previewSitesForChangedPaths(
       continue;
     }
     if (
-      rootBuildFiles.has(file) ||
-      sharedBuildPaths.some((prefix) => file.startsWith(prefix))
-    ) {
-      allSites = true;
-      continue;
-    }
-    if (
       file === "packages/docs/CHANGELOG.md" ||
       file === "packages/docs/README.md" ||
       file.startsWith("packages/docs/changelog/")
     ) {
       continue;
     }
-    if (file.startsWith("packages/docs/")) {
+    if (
+      file.startsWith("packages/docs/") ||
+      file.startsWith("packages/core/docs/")
+    ) {
       docsSiteChanged = true;
       continue;
     }
-
+    if (
+      rootBuildFiles.has(file) ||
+      sharedBuildPaths.some((prefix) => file.startsWith(prefix))
+    ) {
+      allSites = true;
+      continue;
+    }
     const template = file.match(/^templates\/([^/]+)(?:\/|$)/)?.[1];
     if (template) {
       const site = template === "chat" ? "starter" : template;
@@ -113,10 +121,9 @@ export function previewSitesForChangedPaths(
   const appSites = allSites
     ? sites
     : sites.filter((site) => selected.has(site));
-  if (!docsSiteChanged) return appSites;
-
-  resolveNetlifyPrebuiltTarget("preview", "fw", repoRoot);
-  return [...appSites, "fw"];
+  return allSites || docsSiteChanged
+    ? withDocsSite(appSites, repoRoot)
+    : appSites;
 }
 
 function argumentValue(name: string): string | undefined {

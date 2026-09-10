@@ -30,12 +30,17 @@ test("expands shared runtime changes to every docs app site", () => {
     "plan",
     "slides",
     "starter",
+    "fw",
   ]);
 });
 
 test("previews the docs site for app changes but skips prose and hidden templates", () => {
   assert.deepEqual(
     previewSitesForChangedPaths(["packages/docs/app/routes/apps.tsx"]),
+    ["fw"],
+  );
+  assert.deepEqual(
+    previewSitesForChangedPaths(["packages/core/docs/content/guide.md"]),
     ["fw"],
   );
   assert.deepEqual(
