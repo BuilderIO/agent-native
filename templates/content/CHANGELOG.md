@@ -11,6 +11,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Sidebar Search opens the command picker, icon controls have accessible names, and the sidebar can be resized with the keyboard.
 - First title edits no longer hit a stale-version conflict, open databases recover after agent Trash and restore actions, and database settings preserve keyboard focus when closing or returning to Add property. Source-managed database fields stay read-only in tables, page property editors, and agent actions, while local fields remain editable. Property editors stay inside mobile Info so edits can be saved without closing the panel.
 - Remote collaborator cursors in the document editor now stay compact above the text instead of expanding into full-width color bars.
 

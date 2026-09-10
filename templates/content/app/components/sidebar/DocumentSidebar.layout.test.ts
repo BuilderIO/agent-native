@@ -62,7 +62,7 @@ describe("document sidebar layout", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
     expect(sidebar).toContain(
-      "agent-layout-left-drawer flex h-full w-12 flex-col",
+      "agent-layout-left-drawer flex h-full w-14 flex-col",
     );
     expect(sidebar).toContain(
       "agent-layout-left-drawer relative flex h-full min-h-0 flex-col",
@@ -74,17 +74,12 @@ describe("document sidebar layout", () => {
   it("keeps collapsed footer actions and settings at the bottom of the rail", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const collapsedBranchStart = sidebar.indexOf("if (collapsed)");
-    const expandedBranchStart = sidebar.indexOf(
-      "\n  return (",
-      collapsedBranchStart,
-    );
-    const collapsedBranch = sidebar.slice(
-      collapsedBranchStart,
-      expandedBranchStart,
-    );
+    const collapsedReturn = sidebar.indexOf("return (", collapsedBranchStart);
+    const expandedReturn = sidebar.indexOf("\n  return (", collapsedReturn + 1);
+    const collapsedBranch = sidebar.slice(collapsedBranchStart, expandedReturn);
 
-    expect(collapsedBranch).toContain('className="mt-auto"');
-    expect(collapsedBranch.indexOf("<SidebarFooterActions")).toBeLessThan(
+    expect(collapsedBranch).toContain('className="mt-auto shrink-0 w-full"');
+    expect(collapsedBranch.indexOf("<AppSidebarFooter")).toBeLessThan(
       collapsedBranch.indexOf('to="/settings"'),
     );
   });
@@ -164,11 +159,11 @@ describe("document sidebar layout", () => {
     );
   });
 
-  it("opens the shared search picker without keeping a hidden sidebar query", () => {
+  it("does not keep a hidden sidebar search query field", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
-    expect(sidebar).toContain("onClick={openCommandMenu}");
     expect(sidebar).not.toContain("setSearchQuery");
+    expect(sidebar).not.toContain('placeholder={t("sidebar.search")}');
   });
 
   it("reveals child destinations without concurrent rollback conflicts", () => {
@@ -340,11 +335,10 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       'import { OrgSwitcher } from "@agent-native/core/client/org";',
     );
-    expect(sidebar).toContain("<OrgSwitcher reserveSpace />");
+    expect(sidebar).toContain("reserveSpace");
+    expect(sidebar).toContain("<OrgSwitcher");
     expect(sidebar).not.toContain("<ExtensionsSidebarSection />");
-    expect(sidebar.indexOf("<OrgSwitcher reserveSpace />")).toBeLessThan(
-      sidebar.indexOf("{/* Footer */}"),
-    );
+    expect(sidebar).toContain("<AppSidebarFooter");
     expect(sidebar).toContain('t("sidebar.addWorkspace")');
     expect(sidebar).toContain("<WorkspaceSourceMenu");
     expect(sidebar).toContain("onCreated={handleWorkspaceCreated}");

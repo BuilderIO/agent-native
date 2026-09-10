@@ -5,6 +5,7 @@ import {
   type BugReportContext,
   type BugReportSeverity,
 } from "@shared/bug-report";
+import type { ClipIntakeParams } from "@shared/clip-intake";
 import { IconBug, IconShieldCheck } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils";
 interface BugReportFormProps {
   className?: string;
   initialContext?: BugReportContext | null;
+  intake?: ClipIntakeParams | null;
   onRecorderOpened?: (recorderWindow: Window | null) => void;
   onRecordingStarted?: () => void;
 }
@@ -45,6 +47,7 @@ function openRecorder(url: string): Window | null {
 export function BugReportForm({
   className,
   initialContext,
+  intake,
   onRecorderOpened,
   onRecordingStarted,
 }: BugReportFormProps) {
@@ -91,6 +94,10 @@ export function BugReportForm({
     params.set("intent", "bug-report");
     params.set("mode", "screen");
     params.set("surface", "browser");
+    if (intake) {
+      params.set("clip_intake_id", intake.intakeId);
+      params.set("clip_intake", intake.token);
+    }
     const recorderWindow = openRecorder(
       `${appBasePath()}/record?${params.toString()}`,
     );
