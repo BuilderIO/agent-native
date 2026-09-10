@@ -1,8 +1,7 @@
-name: Pilot prebuilt Netlify deploy
+name: Deploy Netlify prebuilt artifacts from GitHub Actions
 
-# Additive pilot lane for moving the build off Netlify while keeping Netlify as
-# the deploy/CDN layer. Existing Netlify site builds remain enabled during the
-# pilot; the automatic beta caller and manual production caller prove this path.
+# GitHub Actions owns builds for the canonical beta, production, and PR preview
+# sites. Netlify only receives the resulting prebuilt artifact and serves it.
 #
 # Safe rollout:
 #   1. deploy=false + build_context=deploy-preview validates the GitHub runner.
@@ -101,6 +100,14 @@ on:
         required: false
         type: boolean
         default: false
+      pull_request_number:
+        required: false
+        type: number
+        default: 0
+      preview_alias:
+        required: false
+        type: string
+        default: ""
     secrets:
       NETLIFY_AUTH_TOKEN:
         required: true
@@ -113,6 +120,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
@@ -178,6 +187,15 @@ jobs:
               core.setOutput('source_ref', sourceSha);
               return;
             }
+            if (target === 'preview') {
+              const sourceSha = requested || context.sha;
+              if (!/^[0-9a-f]{40}$/i.test(sourceSha)) {
+                core.setFailed('Preview source_ref must be a full 40-character commit SHA.');
+                return;
+              }
+              core.setOutput('source_ref', sourceSha);
+              return;
+            }
             if (target === 'beta') {
               core.setOutput('source_ref', requested || 'beta');
               return;
@@ -207,6 +225,8 @@ jobs:
           DEPLOY: ${{ inputs.deploy }}
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
+          PREVIEW_ALIAS: ${{ inputs.preview_alias }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
           SITE: ${{ inputs.site }}
           TARGET: ${{ inputs.target }}
         run: |
@@ -229,6 +249,16 @@ jobs:
 
           if [[ "$TARGET" == "production" && "$BUILD_CONTEXT" != "production" ]]; then
             echo "::error::Production sites must use the production Netlify build context."
+            exit 1
+          fi
+
+          if [[ "$TARGET" == "preview" && "$DEPLOY" == "true" && ( "$BUILD_CONTEXT" != "deploy-preview" || "$DEPLOY_MODE" != "draft" ) ]]; then
+            echo "::error::PR previews must use build_context=deploy-preview and deploy_mode=draft."
+            exit 1
+          fi
+
+          if [[ "$TARGET" == "preview" && "$DEPLOY" == "true" && ( "$PULL_REQUEST_NUMBER" -le 0 || -z "$PREVIEW_ALIAS" ) ]]; then
+            echo "::error::PR previews require a pull request number and alias."
             exit 1
           fi
 
@@ -341,7 +371,7 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
-          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             # Starter's runtime database and auth secret are Netlify secrets.
             # The external prebuilt runner receives masked values, so use
             # build-only shapes and let the deployed Functions read the real
@@ -364,7 +394,7 @@ jobs:
           if [[ "$SOURCE_TEMPLATE" == "crm" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
@@ -893,19 +923,29 @@ jobs:
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PREVIEW_ALIAS: ${{ inputs.preview_alias }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
           PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
 
+          deploy_message="GitHub Actions prebuilt deploy ${GITHUB_SHA}"
+          if [[ "$TARGET" == "preview" ]]; then
+            deploy_message="GitHub Actions PR preview #${PULL_REQUEST_NUMBER} ${SOURCE_TEMPLATE} ${GITHUB_SHA}"
+          fi
           deploy_args=(
             --site "$NETLIFY_SITE_ID"
             --dir "$PUBLISH_DIRECTORY"
             --functions "$FUNCTIONS_DIRECTORY"
             --filter "$SOURCE_TEMPLATE"
             --no-build
-            --message "GitHub Actions prebuilt deploy ${GITHUB_SHA}"
+            --message "$deploy_message"
           )
+          if [[ "$TARGET" == "preview" ]]; then
+            deploy_args+=(--alias "$PREVIEW_ALIAS")
+          fi
           if [[ "$DEPLOY_MODE" == "production" ]]; then
             deploy_args+=(--prod)
           fi
@@ -1019,6 +1059,57 @@ jobs:
             node --experimental-strip-types scripts/smoke-check-health.ts \
               --url "$url" --auth-routes
           fi
+
+      - name: Comment the PR preview URL
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.pull_request_number > 0 && success()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          SITE_NAME: ${{ steps.target.outputs.site_name }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
+            const marker = `<!-- agent-native-netlify-preview:${process.env.SITE_NAME} -->`;
+            const deployUrl = process.env.DEPLOY_URL;
+            const sourceRef = process.env.SOURCE_REF;
+            if (!deployUrl || !sourceRef || !process.env.DEPLOY_ID) {
+              core.setFailed('PR preview upload did not return a complete deploy record.');
+              return;
+            }
+            const body = [
+              marker,
+              `**${process.env.SITE_NAME} preview:** [Open preview](${deployUrl})`,
+              '',
+              `Built by GitHub Actions from \`${sourceRef}\`; Netlify is serving the uploaded artifact.`,
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pullRequestNumber,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pullRequestNumber,
+                body,
+              });
+            }
 
       # The active managed client and its capability are observable only from
       # the live host, so this is a post-publish verification. If the declared

@@ -8,6 +8,7 @@ const crmNetlifyPath = "templates/crm/netlify.toml";
 const chatNetlifyPath = "templates/chat/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
+const pullRequestPath = ".github/workflows/deploy-netlify-pr-previews.yml";
 const docsProductionPath = ".github/workflows/deploy-docs-production.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
@@ -25,6 +26,7 @@ const crmNetlify = readFileSync(crmNetlifyPath, "utf8");
 const chatNetlify = readFileSync(chatNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
+const pullRequest = readFileSync(pullRequestPath, "utf8");
 const docsProduction = readFileSync(docsProductionPath, "utf8");
 const manageProduction = readFileSync(manageProductionPath, "utf8");
 const promote = readFileSync(promotePath, "utf8");
@@ -98,6 +100,65 @@ export function validateProductionSiteConcurrency(workflows: {
     }
   }
 
+  return issues;
+}
+
+export function validateNetlifyPrPreviewWorkflow(
+  workflow: Record<string, unknown>,
+  source: string,
+): string[] {
+  const issues: string[] = [];
+  const triggers = asRecord(workflow.on);
+  const jobs = asRecord(workflow.jobs);
+  const deploy = asRecord(jobs?.deploy);
+  const deployWith = asRecord(deploy?.with);
+
+  if (!asRecord(triggers?.pull_request)) {
+    issues.push(`${pullRequestPath} must be triggered by pull_request`);
+  }
+  if (triggers?.pull_request_target || source.includes("pull_request_target")) {
+    issues.push(
+      `${pullRequestPath} must not run untrusted code with pull_request_target`,
+    );
+  }
+  if (
+    !source.includes(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    )
+  ) {
+    issues.push(
+      `${pullRequestPath} must restrict deployment jobs to same-repository PRs`,
+    );
+  }
+  if (deploy?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
+    issues.push(
+      `${pullRequestPath} deploy job must call the reusable Netlify workflow`,
+    );
+  }
+  if (deployWith?.target !== "preview") {
+    issues.push(`${pullRequestPath} deploy job must pass target=preview`);
+  }
+  if (deployWith?.build_context !== "deploy-preview") {
+    issues.push(
+      `${pullRequestPath} deploy job must pass build_context=deploy-preview`,
+    );
+  }
+  if (deployWith?.deploy !== true || deployWith?.deploy_mode !== "draft") {
+    issues.push(
+      `${pullRequestPath} deploy job must upload draft prebuilt artifacts`,
+    );
+  }
+  if (
+    !source.includes("pull_request_number") ||
+    !source.includes("preview_alias")
+  ) {
+    issues.push(
+      `${pullRequestPath} must pass a PR number and stable preview alias`,
+    );
+  }
+  if (!asRecord(jobs?.cleanup)) {
+    issues.push(`${pullRequestPath} must define closed-PR preview cleanup`);
+  }
   return issues;
 }
 
@@ -185,6 +246,7 @@ try {
     [reusablePath, reusable],
     [productionPath, production],
     [betaPath, beta],
+    [pullRequestPath, pullRequest],
     [docsProductionPath, docsProduction],
     [manageProductionPath, manageProduction],
     [promotePath, promote],
@@ -206,6 +268,12 @@ try {
 
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
+issues.push(
+  ...validateNetlifyPrPreviewWorkflow(
+    parsedWorkflows.get(pullRequestPath) ?? {},
+    pullRequest,
+  ),
+);
 
 if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
   issues.push(`${reusablePath} beta deploys must queue every source SHA`);
@@ -309,14 +377,14 @@ const clipsBuild =
     : "";
 const hasProductionChatBuildOverride =
   clipsBuild.includes(
-    'if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]];',
+    'if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',
   ) &&
   chatNetlify.includes("agentNativePrebuiltBuild") &&
   chatNetlify.includes("agentNativePrebuiltDatabaseUrl") &&
   chatNetlify.includes("agentNativePrebuiltAuthSecret");
 if (!hasProductionChatBuildOverride) {
   issues.push(
-    `${reusablePath} and ${chatNetlifyPath} must provide a production Chat build-only override for masked Netlify secrets`,
+    `${reusablePath} and ${chatNetlifyPath} must provide production and PR preview Chat build-only overrides for masked Netlify secrets`,
   );
 }
 const hasClipsAndPlanBuildOverride = clipsBuild.includes(

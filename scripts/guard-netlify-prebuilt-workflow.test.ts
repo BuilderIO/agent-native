@@ -13,6 +13,7 @@ import {
   PRODUCTION_SITE_GROUP,
   validateGoogleCallbackVerificationWorkflow,
   validateNetlifyApiRateLimitHandling,
+  validateNetlifyPrPreviewWorkflow,
   validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
   validateProductionSiteConcurrency,
@@ -51,6 +52,11 @@ const nodeHeredocs = [
   ),
 ].map((match) => match[1]);
 
+const pullRequestPreviewSource = readFileSync(
+  ".github/workflows/deploy-netlify-pr-previews.yml",
+  "utf8",
+);
+
 describe("Google callback deploy verification guard", () => {
   it("requires direct probe execution and rolls back only definitive mismatches", () => {
     assert.deepEqual(
@@ -70,6 +76,18 @@ describe("Google callback deploy verification guard", () => {
           ),
       ).join("\n"),
       /directly with the supported Node loader|only definitive/,
+    );
+  });
+});
+
+describe("Netlify PR preview workflow guard", () => {
+  it("keeps preview builds on trusted pull requests and the prebuilt lane", () => {
+    assert.deepEqual(
+      validateNetlifyPrPreviewWorkflow(
+        readWorkflow(".github/workflows/deploy-netlify-pr-previews.yml"),
+        pullRequestPreviewSource,
+      ),
+      [],
     );
   });
 });
@@ -783,7 +801,7 @@ describe("production Netlify site concurrency guard", () => {
 
     assert.match(
       build,
-      /if \[\[ \"\$TARGET\" == \"production\" && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
+      /if \[\[ \( \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
     );
     assert.match(chatNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(chatNetlify, /agentNativePrebuiltAuthSecret/);

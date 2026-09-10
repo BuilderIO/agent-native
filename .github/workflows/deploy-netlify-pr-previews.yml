@@ -1,0 +1,111 @@
+name: Deploy Netlify PR previews from GitHub Actions
+
+# pull_request is intentional: fork code is never checked out in a job with
+# deployment credentials. Same-repository PRs build the changed app sites on
+# GitHub-hosted runners and upload aliases to the canonical Netlify projects.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: netlify-pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    name: Discover changed preview sites
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Build the changed app site matrix
+        id: targets
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/netlify-pr-preview-targets.ts \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+  deploy:
+    name: ${{ matrix.site }} PR preview
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: preview
+      site: ${{ matrix.site }}
+      build_context: deploy-preview
+      source_ref: ${{ github.event.pull_request.head.sha }}
+      deploy: true
+      deploy_mode: draft
+      smoke: true
+      caller: pr-${{ github.event.pull_request.number }}
+      pull_request_number: ${{ github.event.pull_request.number }}
+      preview_alias: pr-${{ github.event.pull_request.number }}
+    secrets: inherit
+
+  fork:
+    name: Fork preview policy
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Fork PR previews are skipped because deployment secrets are unavailable to untrusted code."
+
+  cleanup:
+    name: Remove closed PR previews
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-production-sites.json
+          sparse-checkout-cone-mode: false
+
+      - name: Install the pinned Netlify CLI
+        run: npm install --global netlify-cli@27.0.0 --ignore-scripts
+
+      - name: Delete the PR's prebuilt deploys
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          prefix="GitHub Actions PR preview #${PR_NUMBER} "
+          while IFS=$'\t' read -r site_name site_id; do
+            deploys="$(netlify api listSiteDeploys --data "{\"site_id\":\"$site_id\",\"per_page\":100}")"
+            while IFS= read -r deploy_id; do
+              [[ -z "$deploy_id" ]] && continue
+              echo "Deleting ${site_name} PR preview deploy ${deploy_id}."
+              netlify api deleteSiteDeploy --data "{\"site_id\":\"$site_id\",\"deploy_id\":\"$deploy_id\"}" >/dev/null
+            done < <(jq -r --arg prefix "$prefix" '.[] | select((.title // "") | startswith($prefix)) | .id' <<<"$deploys")
+          done < <(jq -r 'to_entries[] | select(.key != "workspace") | [.key, .value.siteId] | @tsv' scripts/netlify-production-sites.json)

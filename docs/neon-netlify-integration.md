@@ -1,17 +1,28 @@
-# Neon preview branches - disabled
+# GitHub Actions Netlify PR previews
 
-Preview deploys share the prod `DATABASE_URL` by default, so any server
+Same-repository pull requests get prebuilt Netlify previews from GitHub
+Actions for the app sites touched by the change. GitHub Actions builds the
+pull request revision, uploads the artifact to the canonical Netlify site with
+a PR alias, smoke-tests it, and comments the openable URL on the pull request.
+Netlify is only the artifact host and CDN for this flow.
+
+Fork pull requests skip the deployment lane because GitHub withholds
+deployment secrets from untrusted fork code.
+
 Preview deploys use the shared Netlify database configuration. The workflow
-below only cleans up branch resources left by the former isolation flow.
+below also cleans up branch resources left by the former isolation flow.
 
 ## How it works
 
 1. **PR opened/updated** - no Neon branch or Netlify database override is
-   created. Netlify's normal deploy-preview flow runs unchanged.
+   created. GitHub Actions builds the changed app sites and publishes PR
+   aliases.
 
-2. **Netlify auto-deploys** - the normal deploy-preview configuration is used.
+2. **Preview URL** - the workflow smoke-tests each uploaded deploy and adds a
+   per-app link to the pull request.
 
 3. **PR closed** - the workflow deletes any matching
+   `GitHub Actions PR preview #*` Netlify deploys, then deletes any matching
    `preview-schema-only/pr-*` or legacy `preview/pr-*` Neon branches and
    removes old branch-scoped `DATABASE_URL` env overrides.
 
