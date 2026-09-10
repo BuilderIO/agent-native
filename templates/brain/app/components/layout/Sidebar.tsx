@@ -5,30 +5,22 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AppSidebar,
+  AppSidebarNavItem,
+  FeedbackButton,
+  type AppSidebarItemDefinition,
+} from "@agent-native/core/client/ui";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
-import {
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-  IconSearch,
-} from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { navItems } from "@/lib/brain";
-import { cn } from "@/lib/utils";
 
 const primaryNavItems = navItems.filter(
   (item) => item.view !== "agent" && item.view !== "settings",
@@ -234,234 +226,81 @@ export function Sidebar({
   const navigate = useNavigate();
   const t = useT();
   const isAskRoute = location.pathname === "/home";
-  const ToggleIcon = collapsed
-    ? IconLayoutSidebarLeftExpand
-    : IconLayoutSidebarLeftCollapse;
-  const navClass = ({ isActive }: { isActive: boolean }) =>
-    cn(
-      "flex items-center text-sm transition-colors",
-      collapsed
-        ? "h-10 w-10 justify-center rounded-md"
-        : "h-9 gap-3 rounded-md px-3",
-      isActive
-        ? "bg-sidebar-accent text-sidebar-accent-foreground"
-        : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
-    );
-  const collapseButton = collapsible ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={() => onCollapsedChange?.(!collapsed)}
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={
-            collapsed
-              ? t("navigation.expandSidebar")
-              : t("navigation.collapseSidebar")
-          }
-        >
-          <ToggleIcon className="size-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">
-        {collapsed
-          ? t("navigation.expandSidebar")
-          : t("navigation.collapseSidebar")}
-      </TooltipContent>
-    </Tooltip>
-  ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label={t("navigation.search")}
-          className="flex size-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconSearch className="size-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("navigation.search")}</TooltipContent>
-    </Tooltip>
-  );
+
+  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map((item) => ({
+    to: item.href,
+    label: item.view === "agent" ? t("settings.agentTitle") : t(`navigation.${item.view}`),
+    icon: item.icon,
+    active: location.pathname.startsWith(item.href),
+  }));
+
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
       side="right"
-      className={collapsed ? "h-8 w-8" : "min-w-0"}
+      className={collapsed ? "!size-9 !p-0" : "w-full"}
+    />
+  );
+
+  const orgSwitcher = (
+    <OrgSwitcher
+      compact={collapsed}
+      className={
+        collapsed
+          ? "!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+          : "min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+      }
     />
   );
 
   return (
-    <aside
-      data-collapsed={collapsed ? "true" : "false"}
-      className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
-        collapsed ? "w-12" : "w-60",
-      )}
+    <AppSidebar
+      collapsed={collapsed}
+      collapsible={collapsible}
+      onCollapsedChange={onCollapsedChange}
+      brandName={t("navigation.brand")}
+      brandHref="/home"
+      secondaryItems={secondaryItems}
+      feedback={feedbackButton}
+      orgSwitcher={orgSwitcher}
+      footerExtras={<DevDatabaseLink />}
     >
-      <div
-        className={cn(
-          "flex h-14 shrink-0 items-center border-b border-sidebar-border",
-          collapsed ? "justify-center px-0" : "gap-3 px-4",
-        )}
-      >
-        <Link
-          to="/home"
-          onClick={(event) => {
-            if (
-              !collapsible ||
-              !onCollapsedChange ||
-              event.metaKey ||
-              event.ctrlKey ||
-              event.shiftKey ||
-              event.altKey ||
-              event.button !== 0
-            ) {
-              return;
-            }
-            event.preventDefault();
-            onCollapsedChange(!collapsed);
-          }}
-          className={cn(
-            "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            collapsed ? "size-8 justify-center" : "flex-1 gap-3",
-          )}
-          aria-label={
-            collapsible && onCollapsedChange
-              ? collapsed
-                ? t("navigation.expandSidebar")
-                : t("navigation.collapseSidebar")
-              : collapsed
-                ? t("navigation.brand")
-                : undefined
-          }
-        >
-          <AgentNativeIcon
-            aria-hidden="true"
-            className="h-3.5 w-6 shrink-0 text-sidebar-accent-foreground"
-          />
-          <div className={cn("min-w-0", collapsed && "sr-only")}>
-            <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
-              {t("navigation.brand")}
-            </p>
-          </div>
-        </Link>
-      </div>
-
-      <nav
-        className={cn(
-          "flex-1 overflow-y-auto",
-          collapsed ? "px-1 py-2" : "px-2 py-3",
-        )}
-      >
-        <div
-          className={cn(
-            "grid",
-            collapsed ? "justify-items-center gap-1" : "gap-1",
-          )}
-        >
-          {primaryNavItems.map((item) => {
-            const Icon = item.icon;
-            const label =
-              item.view === "agent"
-                ? t("settings.agentTitle")
-                : t(`navigation.${item.view}`);
-            const link = (
-              <NavLink
-                to={item.href}
-                end={item.href === "/home"}
-                onClick={(event) => {
-                  if (
-                    item.view === "ask" &&
-                    !isAskRoute &&
-                    !event.metaKey &&
-                    !event.ctrlKey &&
-                    !event.shiftKey &&
-                    !event.altKey
-                  ) {
-                    event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/home");
-                  }
-                }}
-                className={navClass}
-                aria-label={collapsed ? label : undefined}
-              >
-                <Icon className="size-4 shrink-0" />
-                <span className={collapsed ? "sr-only" : "truncate"}>
-                  {label}
-                </span>
-              </NavLink>
-            );
-            return (
-              <div key={item.href}>
-                {collapsed ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>{link}</TooltipTrigger>
-                    <TooltipContent side="right">{label}</TooltipContent>
-                  </Tooltip>
-                ) : (
-                  link
-                )}
-                {!collapsed && item.view === "ask" ? (
-                  <BrainChatsSection open={isAskRoute} />
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </nav>
-
-      <nav className="grid shrink-0 gap-1 px-2 py-1">
-        {bottomNavItems.map((item) => {
-          const Icon = item.icon;
-          const label =
-            item.view === "agent"
-              ? t("settings.agentTitle")
-              : t(`navigation.${item.view}`);
-          const link = (
-            <NavLink
+      {primaryNavItems.map((item) => {
+        const label =
+          item.view === "agent"
+            ? t("settings.agentTitle")
+            : t(`navigation.${item.view}`);
+        const isActive =
+          item.href === "/home"
+            ? isAskRoute
+            : location.pathname.startsWith(item.href);
+        return (
+          <div key={item.href}>
+            <AppSidebarNavItem
               to={item.href}
-              className={navClass}
-              aria-label={collapsed ? label : undefined}
-            >
-              <Icon className="size-4 shrink-0" />
-              <span className={collapsed ? "sr-only" : "truncate"}>
-                {label}
-              </span>
-            </NavLink>
-          );
-          return collapsed ? (
-            <Tooltip key={item.href}>
-              <TooltipTrigger asChild>{link}</TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <div key={item.href}>{link}</div>
-          );
-        })}
-      </nav>
-
-      <div className="mt-auto shrink-0">
-        {!collapsed ? (
-          <div className="px-3 py-2 empty:hidden">
-            <OrgSwitcher />
+              label={label}
+              icon={item.icon}
+              active={isActive}
+              onClick={(event) => {
+                if (
+                  item.view === "ask" &&
+                  !isAskRoute &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.shiftKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault();
+                  navigateWithAgentChatViewTransition(navigate, "/home");
+                }
+              }}
+            />
+            {!collapsed && item.view === "ask" ? (
+              <BrainChatsSection open={isAskRoute} />
+            ) : null}
           </div>
-        ) : null}
-
-        {!collapsed ? (
-          <div className="px-3 py-2 empty:hidden">
-            <DevDatabaseLink />
-          </div>
-        ) : null}
-        <SidebarFooterActions
-          collapsed={collapsed}
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
-      </div>
-    </aside>
+        );
+      })}
+    </AppSidebar>
   );
 }

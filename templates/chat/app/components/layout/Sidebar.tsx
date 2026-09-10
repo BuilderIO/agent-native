@@ -4,32 +4,26 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AppSidebar,
+  AppSidebarNavItem,
+  FeedbackButton,
+  type AppSidebarItemDefinition,
+} from "@agent-native/core/client/ui";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
   IconMessageCircle,
-  IconSearch,
   IconSettings,
 } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
-import { cn } from "@/lib/utils";
 
 const navItems = [
   {
@@ -275,245 +269,66 @@ export function Sidebar({
   const t = useT();
   const isChatRoute =
     location.pathname === "/home" || location.pathname.startsWith("/chat/");
-  const ToggleIcon = collapsed
-    ? IconLayoutSidebarLeftExpand
-    : IconLayoutSidebarLeftCollapse;
-  const navClass = ({ isActive }: { isActive: boolean }) =>
-    cn(
-      "flex items-center text-sm transition-colors",
-      collapsed
-        ? "relative h-10 w-full justify-center rounded-none px-0"
-        : "h-9 rounded-md gap-3 px-3",
-      isActive
-        ? collapsed
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "bg-sidebar-accent text-sidebar-accent-foreground"
-        : collapsed
-          ? "text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
-    );
-  const collapseButton = collapsible ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={() => onCollapsedChange?.(!collapsed)}
-          className={cn(
-            "flex shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            collapsed ? "size-8" : "size-7",
-          )}
-          aria-label={
-            collapsed
-              ? t("navigation.expandSidebar")
-              : t("navigation.collapseSidebar")
-          }
-        >
-          <ToggleIcon className="size-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">
-        {collapsed
-          ? t("navigation.expandSidebar")
-          : t("navigation.collapseSidebar")}
-      </TooltipContent>
-    </Tooltip>
-  ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label={t("root.commandSearch")}
-          className="flex size-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconSearch className="size-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
-    </Tooltip>
-  );
+
+  const secondaryItems: AppSidebarItemDefinition[] = [
+    {
+      to: "/settings",
+      label: t("navigation.settings"),
+      icon: IconSettings,
+      active: location.pathname.startsWith("/settings"),
+    },
+  ];
+
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
       side="right"
-      className={collapsed ? "h-8 w-8" : "min-w-0"}
+      className={collapsed ? "!size-9 !p-0" : "w-full"}
+    />
+  );
+
+  const orgSwitcher = (
+    <OrgSwitcher
+      compact={collapsed}
+      reserveSpace
+      className={
+        collapsed
+          ? "!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+          : "min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+      }
     />
   );
 
   return (
-    <aside
-      data-collapsed={collapsed ? "true" : "false"}
-      className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
-        collapsed ? "w-12" : "w-60",
-      )}
+    <AppSidebar
+      collapsed={collapsed}
+      collapsible={collapsible}
+      onCollapsedChange={onCollapsedChange}
+      brandName={APP_TITLE}
+      brandHref="/home"
+      secondaryItems={secondaryItems}
+      feedback={feedbackButton}
+      orgSwitcher={orgSwitcher}
     >
-      <div
-        className={cn(
-          "flex shrink-0 items-center border-b border-sidebar-border",
-          collapsed ? "h-12 justify-center px-0" : "h-14 px-3",
-        )}
-      >
-        <Link
-          to="/home"
-          onClick={(event) => {
-            if (
-              !collapsible ||
-              !onCollapsedChange ||
-              event.metaKey ||
-              event.ctrlKey ||
-              event.shiftKey ||
-              event.altKey ||
-              event.button !== 0
-            ) {
-              return;
-            }
+      <AppSidebarNavItem
+        to="/home"
+        label={t("navigation.chat")}
+        icon={IconMessageCircle}
+        active={isChatRoute}
+        onClick={(event) => {
+          if (
+            !isChatRoute &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.shiftKey &&
+            !event.altKey
+          ) {
             event.preventDefault();
-            onCollapsedChange(!collapsed);
-          }}
-          className={cn(
-            "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            collapsed ? "size-7 justify-center" : "flex-1 gap-3",
-          )}
-          aria-label={
-            collapsible && onCollapsedChange
-              ? collapsed
-                ? t("navigation.expandSidebar")
-                : t("navigation.collapseSidebar")
-              : collapsed
-                ? APP_TITLE
-                : undefined
+            navigateWithAgentChatViewTransition(navigate, "/home");
           }
-        >
-          <AgentNativeIcon
-            aria-hidden="true"
-            className="h-3.5 w-6 shrink-0 text-sidebar-accent-foreground"
-          />
-          <div className={cn("min-w-0", collapsed && "sr-only")}>
-            <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
-              {APP_TITLE}
-            </p>
-          </div>
-        </Link>
-      </div>
-
-      <nav
-        className={cn(
-          "flex-1 overflow-y-auto",
-          collapsed ? "px-0 py-2" : "px-2 py-3",
-        )}
-      >
-        <div className={cn("grid", collapsed ? "gap-0" : "gap-1")}>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive =
-              item.href === "/home"
-                ? isChatRoute
-                : location.pathname.startsWith(item.href);
-            const link = (
-              <Link
-                to={item.href}
-                onClick={(event) => {
-                  if (
-                    item.href === "/home" &&
-                    !isChatRoute &&
-                    !event.metaKey &&
-                    !event.ctrlKey &&
-                    !event.shiftKey &&
-                    !event.altKey
-                  ) {
-                    event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/home");
-                  }
-                }}
-                className={navClass({ isActive })}
-                aria-current={isActive ? "page" : undefined}
-                aria-label={collapsed ? t(item.labelKey) : undefined}
-              >
-                <Icon className="size-4 shrink-0" />
-                <span className={collapsed ? "sr-only" : "truncate"}>
-                  {t(item.labelKey)}
-                </span>
-              </Link>
-            );
-            return (
-              <div key={item.href}>
-                {collapsed ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>{link}</TooltipTrigger>
-                    <TooltipContent side="right">
-                      {t(item.labelKey)}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  link
-                )}
-                {!collapsed && item.view === "chat" ? (
-                  <ChatThreadsSection open={isChatRoute} />
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </nav>
-
-      <div className={cn("mt-auto shrink-0", collapsed && "py-2")}>
-        <nav
-          className={cn(
-            "grid",
-            collapsed ? "gap-0 px-1 py-1" : "gap-1 px-2 py-1",
-          )}
-        >
-          {bottomNavItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = location.pathname.startsWith(item.href);
-            const link = (
-              <Link
-                to={item.href}
-                className={navClass({ isActive })}
-                aria-current={isActive ? "page" : undefined}
-                aria-label={collapsed ? t(item.labelKey) : undefined}
-              >
-                <Icon className="size-4 shrink-0" />
-                <span className={collapsed ? "sr-only" : "truncate"}>
-                  {t(item.labelKey)}
-                </span>
-              </Link>
-            );
-            return collapsed ? (
-              <Tooltip key={item.href}>
-                <TooltipTrigger asChild>{link}</TooltipTrigger>
-                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
-              </Tooltip>
-            ) : (
-              <div key={item.href}>{link}</div>
-            );
-          })}
-        </nav>
-
-        <div
-          className={cn(
-            collapsed ? "px-1 py-1 empty:hidden" : "px-3 py-2 empty:hidden",
-          )}
-        >
-          <OrgSwitcher
-            reserveSpace
-            className={
-              collapsed
-                ? "h-8 justify-center px-0 [&>span]:sr-only [&>svg:last-child]:hidden"
-                : undefined
-            }
-          />
-        </div>
-
-        <SidebarFooterActions
-          collapsed={collapsed}
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
-      </div>
-    </aside>
+        }}
+      />
+      {!collapsed && <ChatThreadsSection open={isChatRoute} />}
+    </AppSidebar>
   );
 }

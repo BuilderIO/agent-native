@@ -3,8 +3,12 @@ import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AppSidebar,
+  AppSidebarNavItem,
+  FeedbackButton,
+  type AppSidebarItemDefinition,
+} from "@agent-native/core/client/ui";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconCalendar,
@@ -764,11 +768,30 @@ export function Sidebar({
       <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
+  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map((item) => ({
+    to: item.path,
+    label: t(item.labelKey),
+    icon: item.icon,
+    active: location.pathname.startsWith(item.path),
+    onClick: onClose,
+  }));
+
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
       side="right"
-      className={collapsed ? "h-8 w-8" : "min-w-0"}
+      className={collapsed ? "!size-9 !p-0" : "w-full"}
+    />
+  );
+
+  const orgSwitcher = (
+    <OrgSwitcher
+      compact={collapsed}
+      className={
+        collapsed
+          ? "!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+          : "min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+      }
     />
   );
 
@@ -782,129 +805,68 @@ export function Sidebar({
         />
       )}
 
-      <aside
-        data-open={open ? "true" : "false"}
-        data-collapsed={collapsed ? "true" : "false"}
+      <AppSidebar
+        collapsed={collapsed}
+        collapsible={Boolean(onCollapsedChange)}
+        onCollapsedChange={onCollapsedChange}
+        brandName={t("navigation.brand")}
+        brandHref="/home"
+        secondaryItems={secondaryItems}
+        feedback={feedbackButton}
+        orgSwitcher={orgSwitcher}
+        footerExtras={<DevDatabaseLink />}
         className={cn(
-          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full min-w-0 flex-col overflow-hidden bg-sidebar transition-[width,translate] duration-200 ease-out lg:static",
-          collapsed ? "w-12" : "w-56",
+          "calendar-app-sidebar",
+          open
+            ? "translate-x-0"
+            : "-translate-x-full rtl:translate-x-full lg:translate-x-0",
         )}
       >
-        {/* Logo */}
-        <div
-          className={cn(
-            "flex h-12 shrink-0 items-center justify-between gap-2.5",
-            collapsed ? "px-1" : "px-4",
-          )}
-        >
-          <Link
-            to="/home"
-            onClick={(event) => {
-              onClose();
-              if (
-                !onCollapsedChange ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey ||
-                event.button !== 0
-              ) {
-                return;
-              }
-              event.preventDefault();
-              onCollapsedChange(!collapsed);
-            }}
-            className={cn(
-              "flex items-center gap-2 rounded text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              collapsed ? "size-8 justify-center" : "flex-1",
-            )}
-            aria-label={
-              onCollapsedChange
-                ? collapsed
-                  ? t("sidebar.expandSidebar")
-                  : t("sidebar.collapseSidebar")
-                : collapsed
-                  ? t("navigation.brand")
-                  : undefined
-            }
-            data-sidebar-brand-toggle
-          >
-            <AgentNativeIcon
-              aria-hidden="true"
-              className="h-3.5 w-6 shrink-0 text-foreground"
+        {collapsed ? (
+          navItems.map((item) => {
+            const isActive =
+              item.path === "/"
+                ? location.pathname === "/"
+                : location.pathname.startsWith(item.path);
+            return (
+              <AppSidebarNavItem
+                key={item.path}
+                to={item.path}
+                label={t(item.labelKey)}
+                icon={item.icon}
+                active={isActive}
+                onClick={onClose}
+              />
+            );
+          })
+        ) : (
+          <>
+            {/* Mini calendar */}
+            <MiniCalendar
+              selectedDate={selectedDate}
+              onDateSelect={handleMiniCalendarDateSelect}
             />
-            {!collapsed && (
-              <span className="text-base font-semibold tracking-tight">
-                {t("navigation.brand")}
-              </span>
-            )}
-          </Link>
-        </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {collapsed ? (
-            <nav className="flex flex-col items-center gap-1 px-1 py-2">
+            {/* Nav */}
+            <div className="space-y-0.5">
               {navItems.map((item) => {
                 const isActive =
                   item.path === "/"
                     ? location.pathname === "/"
                     : location.pathname.startsWith(item.path);
+
                 return (
-                  <Tooltip key={item.path}>
-                    <TooltipTrigger asChild>
-                      <Link
-                        to={item.path}
-                        onClick={onClose}
-                        aria-label={t(item.labelKey)}
-                        className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground",
-                          isActive && "bg-primary/10 text-primary",
-                        )}
-                      >
-                        <item.icon className="h-4 w-4" />
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {t(item.labelKey)}
-                    </TooltipContent>
-                  </Tooltip>
+                  <AppSidebarNavItem
+                    key={item.path}
+                    to={item.path}
+                    label={t(item.labelKey)}
+                    icon={item.icon}
+                    active={isActive}
+                    onClick={onClose}
+                  />
                 );
               })}
-            </nav>
-          ) : (
-            <>
-              {/* Mini calendar */}
-              <MiniCalendar
-                selectedDate={selectedDate}
-                onDateSelect={handleMiniCalendarDateSelect}
-              />
-
-              {/* Nav */}
-              <nav className="space-y-0.5 p-2.5">
-                {navItems.map((item) => {
-                  const isActive =
-                    item.path === "/"
-                      ? location.pathname === "/"
-                      : location.pathname.startsWith(item.path);
-
-                  return (
-                    <Link
-                      key={item.path}
-                      to={item.path}
-                      onClick={onClose}
-                      className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                        isActive
-                          ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                      )}
-                    >
-                      <item.icon className="h-4 w-4" />
-                      {t(item.labelKey)}
-                    </Link>
-                  );
-                })}
-              </nav>
+            </div>
 
               {/* Google status / connect CTA */}
               {!googleStatus.isLoading &&
@@ -1183,66 +1145,7 @@ export function Sidebar({
               </div>
             </>
           )}
-        </div>
-
-        <nav
-          className={cn(
-            "shrink-0",
-            collapsed
-              ? "flex flex-col items-center gap-1 px-1 py-2"
-              : "space-y-0.5 px-2.5 pt-2.5",
-          )}
-        >
-          {bottomNavItems.map((item) => {
-            const isActive = location.pathname.startsWith(item.path);
-            const link = (
-              <Link
-                to={item.path}
-                onClick={onClose}
-                aria-label={collapsed ? t(item.labelKey) : undefined}
-                className={cn(
-                  "flex items-center rounded-lg font-medium transition-colors",
-                  collapsed
-                    ? "h-10 w-10 justify-center"
-                    : "gap-3 px-3 py-2 text-sm",
-                  isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {!collapsed && t(item.labelKey)}
-              </Link>
-            );
-            return collapsed ? (
-              <Tooltip key={item.path}>
-                <TooltipTrigger asChild>{link}</TooltipTrigger>
-                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
-              </Tooltip>
-            ) : (
-              <div key={item.path}>{link}</div>
-            );
-          })}
-        </nav>
-
-        {!collapsed ? (
-          <>
-            <div className="px-3 py-2 empty:hidden">
-              <OrgSwitcher />
-            </div>
-
-            <div className="px-3 py-2 empty:hidden">
-              <DevDatabaseLink />
-            </div>
-          </>
-        ) : null}
-        <SidebarFooterActions
-          collapsed={collapsed}
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
-      </aside>
+      </AppSidebar>
     </>
   );
 }

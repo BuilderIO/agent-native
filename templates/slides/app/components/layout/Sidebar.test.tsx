@@ -15,23 +15,32 @@ vi.mock("@agent-native/core", () => ({
       .filter((v) => typeof v === "string" && v.length > 0)
       .join(" "),
 }));
-vi.mock("@agent-native/core/client/api-path", () => ({
-  appPath: (path: string) => path,
-}));
+vi.mock(import("@agent-native/core/client/api-path"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    appPath: (path: string) => path,
+    agentNativePath: (path: string) => path,
+  };
+});
 
 vi.mock("@agent-native/core/client/db-admin", () => ({
   DevDatabaseLink: () => null,
 }));
 
-vi.mock("@agent-native/core/client/ui", () => ({
-  AgentNativeIcon: ({
-    size = 24,
-    ...props
-  }: React.SVGProps<SVGSVGElement> & { size?: number }) => (
-    <svg data-agent-native-icon width={size} height={size} {...props} />
-  ),
-  FeedbackButton: () => null,
-}));
+vi.mock(import("@agent-native/core/client/ui"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    AgentNativeIcon: ({
+      size = 24,
+      ...props
+    }: React.SVGProps<SVGSVGElement> & { size?: number }) => (
+      <svg data-agent-native-icon width={size} height={size} {...props} />
+    ),
+    FeedbackButton: () => null,
+  };
+});
 
 vi.mock("@agent-native/core/client/navigation", () => ({
   openCommandMenu: vi.fn(),
@@ -50,23 +59,27 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "sidebar.collapseSidebar": "Collapse sidebar",
     })[key] ?? key,
 }));
-vi.mock("@agent-native/toolkit/app-shell", () => ({
-  SidebarFooterActions: ({
-    feedback,
-    search,
-    collapse,
-  }: {
-    feedback?: ReactNode;
-    search?: ReactNode;
-    collapse?: ReactNode;
-  }) => (
-    <div>
-      {feedback}
-      {search}
-      {collapse}
-    </div>
-  ),
-}));
+vi.mock(import("@agent-native/toolkit/app-shell"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    SidebarFooterActions: ({
+      feedback,
+      search,
+      collapse,
+    }: {
+      feedback?: ReactNode;
+      search?: ReactNode;
+      collapse?: ReactNode;
+    }) => (
+      <div>
+        {feedback}
+        {search}
+        {collapse}
+      </div>
+    ),
+  };
+});
 vi.mock("@agent-native/core/client/org", () => ({
   OrgSwitcher: () => null,
 }));
@@ -82,12 +95,12 @@ function renderAt(path: string, ui: ReactNode) {
 }
 
 describe("<Sidebar collapsed>", () => {
-  it("renders the icon-only rail (w-12) with an Expand button", () => {
+  it("renders the icon-only rail (md:w-14) with an Expand button", () => {
     const onToggle = vi.fn();
     renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={onToggle} />);
 
     const aside = screen.getByRole("complementary");
-    expect(aside.className).toContain("w-12");
+    expect(aside.className).toContain("md:w-14");
 
     const expandBtn = screen.getAllByLabelText("Expand sidebar")[0];
     expect(expandBtn).toBeDefined();
@@ -103,7 +116,6 @@ describe("<Sidebar collapsed>", () => {
     expect(screen.queryByText("Decks")).toBeNull();
     expect(screen.queryByText("Design Systems")).toBeNull();
     expect(screen.queryByText("Settings")).toBeNull();
-    expect(screen.queryByText("Manage agent")).toBeNull();
 
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
@@ -119,7 +131,7 @@ describe("<Sidebar expanded>", () => {
     );
 
     const brandMark = container.querySelector(
-      'button[data-sidebar-brand-toggle] svg[aria-hidden="true"]',
+      'svg[data-agent-native-icon]',
     );
 
     expect(brandMark).not.toBeNull();
@@ -127,15 +139,14 @@ describe("<Sidebar expanded>", () => {
     expect(brandMark?.getAttribute("height")).toBe("24");
     expect(brandMark?.className).toContain("w-6");
     expect(brandMark?.className).toContain("h-3.5");
-    expect(brandMark?.className).toContain("text-sidebar-foreground");
   });
 
-  it("renders the full sidebar (w-56) with the Collapse button and labelled nav", () => {
+  it("renders the full sidebar (w-[260px]) with the Collapse button and labelled nav", () => {
     const onToggle = vi.fn();
     renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={onToggle} />);
 
     const aside = screen.getByRole("complementary");
-    expect(aside.className).toContain("w-56");
+    expect(aside.className).toContain("w-[260px]");
 
     expect(screen.getByText("Slides")).toBeDefined();
     expect(screen.getByText("Decks")).toBeDefined();
@@ -155,11 +166,11 @@ describe("<Sidebar expanded>", () => {
       <Sidebar collapsed={false} onToggleCollapsed={() => {}} />,
     );
 
-    const designSystems = screen.getByText("Design Systems").closest("a")!;
-    const decks = screen.getByText("Decks").closest("a")!;
+    const designSystems = screen.getByText("Design Systems").closest("div")!;
+    const decks = screen.getByText("Decks").closest("div")!;
 
-    expect(designSystems.classList.contains("bg-sidebar-accent")).toBe(true);
-    expect(decks.classList.contains("bg-sidebar-accent")).toBe(false);
+    expect(designSystems.classList.contains("bg-primary/10")).toBe(true);
+    expect(decks.classList.contains("bg-primary/10")).toBe(false);
   });
 });
 
@@ -182,7 +193,7 @@ describe("<Sidebar> without onToggleCollapsed (mobile drawer)", () => {
 describe("<Sidebar> accessibility", () => {
   it("gives icon-only controls aria-labels", () => {
     renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={() => {}} />);
-    expect(screen.getAllByLabelText("Expand sidebar")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Expand sidebar")).toHaveLength(1);
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
     expect(screen.getByLabelText("Settings")).toBeDefined();
@@ -190,6 +201,6 @@ describe("<Sidebar> accessibility", () => {
 
   it("labels the Collapse button in the expanded layout", () => {
     renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={() => {}} />);
-    expect(screen.getAllByLabelText("Collapse sidebar")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Collapse sidebar")).toHaveLength(1);
   });
 });

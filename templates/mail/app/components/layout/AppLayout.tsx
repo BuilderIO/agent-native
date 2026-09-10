@@ -11,7 +11,11 @@ import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import {
+  AgentNativeIcon,
+  EnvironmentBadge,
+  FeedbackButton,
+} from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   isInboxScopedAppLabel,
@@ -532,8 +536,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     (labelsLoading && labels.length === 0) || (settingsLoading && !settings);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPinned, setSidebarPinned] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("mail-sidebar-pinned") === "true";
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem("mail-sidebar-pinned");
+    return stored === null ? true : stored === "true";
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -1899,8 +1904,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             )}
             <div
               className={cn(
-                "flex flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl transition-[width] duration-200 ease-out",
-                showCollapsedSidebar ? "w-12" : "w-64",
+                "agent-layout-left-drawer flex flex-col overflow-hidden border-e border-border bg-sidebar transition-[width] duration-200 ease-out",
+                showCollapsedSidebar ? "w-14" : "w-[260px]",
                 sidebarPinned && !isMobile
                   ? "absolute start-0 top-12 bottom-0 z-10"
                   : "fixed start-0 top-0 bottom-0 z-40",
@@ -1908,56 +1913,70 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             >
               <div
                 className={cn(
-                  "flex h-12 shrink-0 items-center border-b border-border/20",
+                  "flex h-14 shrink-0 items-center border-b border-border",
                   showCollapsedSidebar
-                    ? "justify-center px-1"
-                    : "justify-between px-4",
+                    ? "flex-col justify-center gap-0.5 px-2"
+                    : "gap-2 px-4",
                 )}
               >
-                {showCollapsedSidebar ? null : (
-                  <>
-                    <span className="text-[13px] font-medium text-foreground">
+                <Link
+                  to="/inbox"
+                  aria-label={t("mail.appName")}
+                  className={cn(
+                    "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    showCollapsedSidebar ? "size-8 justify-center" : "shrink-0",
+                  )}
+                >
+                  <AgentNativeIcon
+                    aria-hidden="true"
+                    className="h-3.5 w-6 shrink-0 text-primary"
+                  />
+                  {!showCollapsedSidebar && (
+                    <span className="truncate text-sm font-semibold text-primary">
                       {t("mail.appName")}
                     </span>
-                    <div className="flex items-center gap-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (sidebarPinned) {
-                                setSidebarPinned(false);
-                                setSidebarOpen(!isMobile);
-                                return;
-                              }
-                              setSidebarPinned(true);
-                              setSidebarOpen(true);
-                            }}
-                            className={cn(
-                              "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                              sidebarPinned && "text-foreground bg-accent/50",
-                            )}
-                            aria-label={
-                              sidebarPinned
-                                ? t("mail.toolbar.unpinSidebar")
-                                : t("mail.toolbar.pinSidebar")
+                  )}
+                </Link>
+                <EnvironmentBadge placement="inline" />
+                {!showCollapsedSidebar && (
+                  <div className="ms-auto flex items-center gap-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (sidebarPinned) {
+                              setSidebarPinned(false);
+                              setSidebarOpen(!isMobile);
+                              return;
                             }
-                          >
-                            {sidebarPinned ? (
-                              <IconPinnedFilled className="h-4 w-4" />
-                            ) : (
-                              <IconPin className="h-4 w-4" />
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {sidebarPinned
-                            ? t("mail.toolbar.unpinSidebar")
-                            : t("mail.toolbar.pinSidebar")}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </>
+                            setSidebarPinned(true);
+                            setSidebarOpen(true);
+                          }}
+                          className={cn(
+                            "flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                            sidebarPinned && "text-foreground bg-accent/50",
+                          )}
+                          aria-label={
+                            sidebarPinned
+                              ? t("mail.toolbar.unpinSidebar")
+                              : t("mail.toolbar.pinSidebar")
+                          }
+                        >
+                          {sidebarPinned ? (
+                            <IconPinnedFilled className="h-4 w-4" />
+                          ) : (
+                            <IconPin className="h-4 w-4" />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {sidebarPinned
+                          ? t("mail.toolbar.unpinSidebar")
+                          : t("mail.toolbar.pinSidebar")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 )}
               </div>
               {showCollapsedSidebar ? (
@@ -2181,12 +2200,34 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     </div>
                   </div>
 
-                  <div className="shrink-0">
-                    <div className="px-3 py-2 empty:hidden">
-                      <OrgSwitcher />
-                    </div>
-
-                    <div className="flex items-center justify-end gap-1 px-2 py-2">
+                  <div
+                    className={cn(
+                      "shrink-0 border-t border-border p-2",
+                      showCollapsedSidebar ? "space-y-1" : "space-y-1.5",
+                    )}
+                  >
+                    <FeedbackButton
+                      variant={showCollapsedSidebar ? "icon" : "sidebar"}
+                      side="right"
+                      className={showCollapsedSidebar ? "!size-9 !p-0" : "w-full"}
+                    />
+                    <div
+                      data-sidebar-footer-utilities
+                      className={cn(
+                        showCollapsedSidebar
+                          ? "flex flex-col items-center gap-1"
+                          : "flex items-center gap-0.5",
+                      )}
+                    >
+                      <OrgSwitcher
+                        compact={showCollapsedSidebar}
+                        className={cn(
+                          "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
+                          showCollapsedSidebar
+                            ? "!size-9 !p-0 [&>svg]:!size-4"
+                            : "min-w-0 flex-1",
+                        )}
+                      />
                       <DevDatabaseLink />
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -2194,30 +2235,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             to="/settings"
                             onClick={closeSidebar}
                             aria-label={t("mail.toolbar.settings")}
-                            className={cn(
-                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                              location.pathname === "/settings" &&
-                                "bg-accent/60 text-foreground",
-                            )}
+                            className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
                           >
-                            <IconSettings className="h-4 w-4" />
+                            <IconSettings className="size-4" />
                           </Link>
                         </TooltipTrigger>
-                        <TooltipContent>
+                        <TooltipContent side="right">
                           {t("mail.toolbar.settings")}
                         </TooltipContent>
                       </Tooltip>
-                      <ThemeToggle className="h-8 w-8 shrink-0" />
+                      <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
+                      {collapseButton}
                     </div>
                   </div>
                 </>
               )}
-              <SidebarFooterActions
-                collapsed={showCollapsedSidebar}
-                feedback={feedbackButton}
-                search={searchButton}
-                collapse={collapseButton}
-              />
             </div>
           </>
         )}
@@ -2227,7 +2259,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             "flex min-h-0 flex-1 flex-col",
             !isMobile &&
               showSidebar &&
-              (showCollapsedSidebar ? "ps-12" : "ps-64"),
+              (showCollapsedSidebar ? "ps-14" : "ps-[260px]"),
           )}
         >
           <InvitationBanner />
@@ -2542,12 +2574,28 @@ function StandardLayout({ children }: AppLayoutProps) {
           aria-hidden={!sidebarOpen}
           inert={!sidebarOpen}
           className={cn(
-            "fixed start-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl transition-transform duration-200 ease-out motion-reduce:transition-none",
+            "fixed start-0 top-0 bottom-0 z-40 flex w-[260px] flex-col overflow-hidden border-e border-border bg-sidebar transition-transform duration-200 ease-out motion-reduce:transition-none",
             sidebarOpen
               ? "translate-x-0"
               : "pointer-events-none -translate-x-full rtl:translate-x-full",
           )}
         >
+          <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
+            <Link
+              to="/inbox"
+              onClick={() => setSidebarOpen(false)}
+              className="flex min-w-0 items-center gap-2 rounded text-start outline-none"
+            >
+              <AgentNativeIcon
+                aria-hidden="true"
+                className="h-3.5 w-6 shrink-0 text-primary"
+              />
+              <span className="truncate text-sm font-semibold text-primary">
+                {t("mail.appName")}
+              </span>
+            </Link>
+            <EnvironmentBadge placement="inline" />
+          </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <div className="space-y-0.5">
               {[
@@ -2612,39 +2660,34 @@ function StandardLayout({ children }: AppLayoutProps) {
             </div>
           </div>
 
-          <div className="shrink-0">
-            <div className="px-3 py-2 empty:hidden">
-              <OrgSwitcher />
-            </div>
-
-            <div className="flex items-center justify-end gap-1 px-2 py-2">
-              <DevDatabaseLink />
-              <div className="flex shrink-0 items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link
-                      to="/settings"
-                      onClick={() => setSidebarOpen(false)}
-                      aria-label={t("mail.toolbar.settings")}
-                      className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                        location.pathname === "/settings" &&
-                          "bg-accent/60 text-foreground",
-                      )}
-                    >
-                      <IconSettings className="h-4 w-4" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
-                </Tooltip>
-                <ThemeToggle className="h-8 w-8 shrink-0" />
-              </div>
-            </div>
-            <SidebarFooterActions
-              feedback={feedbackButton}
-              search={searchButton}
-              collapse={collapseButton}
+          <div className="shrink-0 border-t border-border p-2 space-y-1.5">
+            <FeedbackButton
+              variant="sidebar"
+              side="right"
+              className="w-full"
             />
+            <div data-sidebar-footer-utilities className="flex items-center gap-0.5">
+              <OrgSwitcher
+                className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
+              <DevDatabaseLink />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    to="/settings"
+                    onClick={() => setSidebarOpen(false)}
+                    aria-label={t("mail.toolbar.settings")}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
+                  >
+                    <IconSettings className="size-4" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  {t("mail.toolbar.settings")}
+                </TooltipContent>
+              </Tooltip>
+              <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
+            </div>
           </div>
         </div>
       </>

@@ -1,4 +1,4 @@
-import { AgentNativeIcon } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, EnvironmentBadge } from "@agent-native/core/client/ui";
 import {
   IconChartBar,
   IconChevronDown,
@@ -2277,16 +2277,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               ? t("sidebar.expandSidebar")
               : t("sidebar.collapseSidebar")
           }
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md bg-transparent text-primary hover:bg-accent/60 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {effectiveCollapsed ? (
-            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+            <IconLayoutSidebarLeftExpand className="size-4 rtl:-scale-x-100" />
           ) : (
-            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+            <IconLayoutSidebarLeftCollapse className="size-4 rtl:-scale-x-100" />
           )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">
+      <TooltipContent side="right">
         {effectiveCollapsed
           ? t("sidebar.expandSidebar")
           : t("sidebar.collapseSidebar")}
@@ -2305,7 +2305,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out"
       style={
-        mobile ? undefined : { width: effectiveCollapsed ? 48 : sidebarWidth }
+        mobile ? undefined : { width: effectiveCollapsed ? 56 : sidebarWidth }
       }
     >
       {!mobile && !effectiveCollapsed && (
@@ -2316,7 +2316,19 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       )}
       {effectiveCollapsed ? (
         <>
-          <nav className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto px-1 py-2">
+          <div className="flex h-14 shrink-0 flex-col items-center justify-center gap-0.5 border-b border-border px-2">
+            <Link
+              to="/home"
+              className="flex size-8 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <AgentNativeIcon
+                aria-hidden="true"
+                className="h-3.5 w-6 shrink-0 text-primary"
+              />
+            </Link>
+            <EnvironmentBadge placement="inline" />
+          </div>
+          <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -2327,13 +2339,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       onClick={item.onClick}
                       aria-label={item.label}
                       className={cn(
-                        "flex h-9 w-9 items-center justify-center rounded-md transition-colors",
-                        item.active
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                        "flex size-9 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary transition-colors",
+                        item.active &&
+                          "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
                       )}
                     >
-                      <Icon className="h-4 w-4" />
+                      <Icon className="size-4 text-primary" />
                     </Link>
                   </TooltipTrigger>
                   <TooltipContent side="right">{item.label}</TooltipContent>
@@ -2341,28 +2352,38 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               );
             })}
           </nav>
-          <SidebarFooterActions
-            collapsed
-            feedback={footerFeedback}
-            search={footerSearch}
-            collapse={footerCollapse}
-          />
+          <div className="shrink-0 border-t border-border p-2 space-y-1">
+            <FeedbackButton
+              variant="icon"
+              side="right"
+              className="!size-9 !p-0"
+            />
+            <div data-sidebar-footer-utilities className="flex flex-col items-center gap-1">
+              <OrgSwitcher
+                compact
+                className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
+              <DevDatabaseLink />
+              {footerCollapse}
+            </div>
+          </div>
         </>
       ) : (
         <>
-          <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
+          <div className="flex h-14 shrink-0 items-center border-b border-border gap-2 px-4">
             <Link
               to="/home"
-              className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
+              className="flex min-w-0 items-center gap-2 font-semibold"
             >
               <AgentNativeIcon
                 aria-hidden="true"
-                className="h-[17px] w-[30px] shrink-0 text-sidebar-foreground"
+                className="h-3.5 w-6 shrink-0 text-primary"
               />
-              <span className="text-lg font-bold tracking-tight">
+              <span className="truncate text-sm font-semibold text-primary">
                 {t("navigation.brand")}
               </span>
             </Link>
+            <EnvironmentBadge placement="inline" />
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
             <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium">
@@ -2696,17 +2717,19 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 })}
               </nav>
 
-              <div className="space-y-2 pt-2">
-                <OrgSwitcher />
-                <DevDatabaseLink />
-                <TooltipProvider delayDuration={200}>
-                  <SidebarFooterActions
-                    feedback={footerFeedback}
-                    search={footerSearch}
-                    collapse={footerCollapse}
-                    className="px-0 py-0"
+              <div className="shrink-0 border-t border-border p-2 space-y-1.5 mt-2">
+                <FeedbackButton
+                  variant="sidebar"
+                  side="right"
+                  className="w-full"
+                />
+                <div data-sidebar-footer-utilities className="flex items-center gap-0.5">
+                  <OrgSwitcher
+                    className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
                   />
-                </TooltipProvider>
+                  <DevDatabaseLink />
+                  {footerCollapse}
+                </div>
               </div>
             </div>
           </div>

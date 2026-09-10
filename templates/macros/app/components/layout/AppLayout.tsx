@@ -1,22 +1,22 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import {
+  AgentSidebar,
+} from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  HeaderActionsProvider,
-  SidebarFooterActions,
-} from "@agent-native/toolkit/app-shell";
+  AppSidebar,
+  FeedbackButton,
+  type AppSidebarItemDefinition,
+} from "@agent-native/core/client/ui";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import {
   IconFlame,
-  IconLoader2,
   IconChartBar,
+  IconLoader2,
   IconSettings,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-  IconSearch,
 } from "@tabler/icons-react";
 import {
   useIsFetching,
@@ -155,12 +155,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <div className="agent-layout-shell flex flex-1 overflow-hidden">
           {/* Desktop sidebar */}
-          <aside
-            className={cn(
-              "agent-layout-left-drawer hidden shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
-              desktopSidebarCollapsed ? "w-14" : "w-56",
-            )}
-          >
+          <div className="hidden md:flex h-full">
             <SidebarContent
               pathname={location.pathname}
               collapsed={desktopSidebarCollapsed}
@@ -168,11 +163,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 setDesktopSidebarCollapsed((collapsed) => !collapsed)
               }
             />
-          </aside>
+          </div>
 
           {/* Mobile sidebar sheet */}
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-            <SheetContent side="left" className="w-56 p-0">
+            <SheetContent side="left" className="w-[260px] p-0">
               <SheetTitle className="sr-only">
                 {t("sidebar.navigation")}
               </SheetTitle>
@@ -204,154 +199,63 @@ function SidebarContent({
   onToggleCollapsed?: () => void;
 }) {
   const t = useT();
-  const ToggleIcon = collapsed
-    ? IconLayoutSidebarLeftExpand
-    : IconLayoutSidebarLeftCollapse;
-  const collapseButton = onToggleCollapsed ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-          onClick={onToggleCollapsed}
-        >
-          <ToggleIcon className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">
-        {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-      </TooltipContent>
-    </Tooltip>
-  ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label={t("root.search")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("root.search")}</TooltipContent>
-    </Tooltip>
-  );
+
+  const items: AppSidebarItemDefinition[] = [
+    {
+      to: "/home",
+      label: t("navigation.entry"),
+      icon: IconFlame,
+      active: pathname === "/home" || pathname === "/entry",
+    },
+    {
+      to: "/analytics",
+      label: t("navigation.analytics"),
+      icon: IconChartBar,
+      active: pathname.startsWith("/analytics"),
+    },
+  ];
+
+  const secondaryItems: AppSidebarItemDefinition[] = [
+    {
+      to: "/settings",
+      label: t("navigation.settings"),
+      icon: IconSettings,
+      active: pathname.startsWith("/settings"),
+    },
+  ];
+
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
       side="right"
-      className={collapsed ? "size-8" : "min-w-0"}
+      className={collapsed ? "!size-9 !p-0" : "w-full"}
+    />
+  );
+
+  const orgSwitcher = (
+    <OrgSwitcher
+      compact={collapsed}
+      className={
+        collapsed
+          ? "!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+          : "min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+      }
     />
   );
 
   return (
-    <div className="flex h-full flex-col">
-      <div
-        className={cn(
-          "flex h-12 shrink-0 items-center border-b border-border",
-          collapsed ? "justify-center px-2" : "gap-2 px-4",
-        )}
-      >
-        {!collapsed && (
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <AgentNativeIcon
-              aria-hidden="true"
-              className="h-3.5 w-6 shrink-0 text-foreground"
-            />
-            <span className="font-logo truncate text-sm font-bold tracking-tight text-foreground">
-              {t("navigation.brand")}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const label = t(item.labelKey);
-          const isActive =
-            item.href === "/home"
-              ? pathname === "/home" || pathname === "/entry"
-              : pathname.startsWith(item.href);
-          const link = (
-            <Link
-              key={item.href}
-              to={item.href}
-              aria-label={collapsed ? label : undefined}
-              className={cn(
-                "flex h-9 items-center rounded-lg text-sm transition-colors",
-                collapsed ? "justify-center px-0" : "gap-3 px-3",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && label}
-            </Link>
-          );
-          return collapsed ? (
-            <Tooltip key={item.href}>
-              <TooltipTrigger asChild>{link}</TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
-            </Tooltip>
-          ) : (
-            link
-          );
-        })}
-      </nav>
-
-      <nav className="grid shrink-0 gap-1 px-2 py-1">
-        {bottomNavItems.map((item) => {
-          const Icon = item.icon;
-          const label = t(item.labelKey);
-          const isActive = pathname.startsWith(item.href);
-          const link = (
-            <Link
-              key={item.href}
-              to={item.href}
-              aria-label={collapsed ? label : undefined}
-              className={cn(
-                "flex h-9 items-center rounded-lg text-sm transition-colors",
-                collapsed ? "justify-center px-0" : "gap-3 px-3",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && label}
-            </Link>
-          );
-          return collapsed ? (
-            <Tooltip key={item.href}>
-              <TooltipTrigger asChild>{link}</TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
-            </Tooltip>
-          ) : (
-            link
-          );
-        })}
-      </nav>
-
-      {!collapsed && (
-        <>
-          <div className="space-y-2 px-3 py-2 empty:hidden">
-            <DevDatabaseLink />
-            <OrgSwitcher />
-          </div>
-        </>
-      )}
-      <SidebarFooterActions
-        collapsed={collapsed}
-        feedback={feedbackButton}
-        search={searchButton}
-        collapse={collapseButton}
-      />
-    </div>
+    <AppSidebar
+      collapsed={collapsed}
+      collapsible={Boolean(onToggleCollapsed)}
+      onCollapsedChange={onToggleCollapsed}
+      brandName={t("navigation.brand")}
+      brandHref="/home"
+      items={items}
+      secondaryItems={secondaryItems}
+      feedback={feedbackButton}
+      orgSwitcher={orgSwitcher}
+      footerExtras={<DevDatabaseLink />}
+    />
   );
 }
 

@@ -63,7 +63,11 @@ import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { RunsTray } from "@agent-native/core/client/progress";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
+import {
+  AgentNativeIcon,
+  EnvironmentBadge,
+  FeedbackButton,
+} from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
@@ -1221,31 +1225,46 @@ export function NavContent({
       </ul>
     </nav>
   );
-  const organizationPicker = (
+  const sidebarFooterActions = (
     <div
       className={cn(
-        "py-2 empty:hidden",
-        collapsed ? "flex justify-center px-1" : "px-3",
+        "shrink-0 border-t border-border p-2",
+        collapsed ? "space-y-1" : "space-y-1.5",
       )}
     >
-      <OrgSwitcher compact={collapsed} reserveSpace currentAppId="dispatch" />
+      <FeedbackButton
+        variant={collapsed ? "icon" : "sidebar"}
+        side="right"
+        className={collapsed ? "!size-9 !p-0" : "w-full"}
+      />
+      <div
+        data-sidebar-footer-utilities
+        className={cn(
+          collapsed
+            ? "flex flex-col items-center gap-1"
+            : "flex items-center gap-0.5",
+        )}
+      >
+        <OrgSwitcher
+          compact={collapsed}
+          reserveSpace
+          currentAppId="dispatch"
+          className={cn(
+            "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
+            collapsed ? "!size-9 !p-0 [&>svg]:!size-4" : "min-w-0 flex-1",
+          )}
+        />
+        {collapseButton}
+      </div>
     </div>
-  );
-  const sidebarFooterActions = (
-    <SidebarFooterActions
-      collapsed={collapsed}
-      feedback={feedbackButton}
-      search={searchButton}
-      collapse={collapseButton}
-    />
   );
 
   return (
     <>
       <div
         className={cn(
-          "flex h-12 shrink-0 items-center border-b border-sidebar-border",
-          collapsed ? "justify-center px-0" : "px-4",
+          "flex h-14 shrink-0 items-center border-b border-sidebar-border",
+          collapsed ? "flex-col justify-center gap-0.5 px-2" : "gap-2 px-4",
         )}
       >
         <Link
@@ -1253,28 +1272,26 @@ export function NavContent({
           aria-label={`${DISPATCH_SIDEBAR_LABEL} overview`}
           data-dispatch-logo
           className={cn(
-            "flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-            collapsed ? "justify-center" : "gap-2",
+            "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+            collapsed ? "size-8 justify-center" : "shrink-0",
           )}
         >
           <AgentNativeIcon
             aria-hidden="true"
-            className={cn(
-              "shrink-0 text-foreground",
-              collapsed ? "h-3.5 w-6" : "h-[17px] w-[30px]",
-            )}
+            className="h-3.5 w-6 shrink-0 text-foreground"
           />
           {!collapsed && (
             <div className="min-w-0 flex-1">
               <div
                 data-dispatch-sidebar-label
-                className="truncate text-lg font-bold tracking-tight text-foreground"
+                className="truncate text-sm font-semibold tracking-tight text-foreground"
               >
                 {DISPATCH_SIDEBAR_LABEL}
               </div>
             </div>
           )}
         </Link>
+        <EnvironmentBadge placement="inline" />
       </div>
 
       {chatFirstMode ? (
@@ -1319,7 +1336,6 @@ export function NavContent({
         data-dispatch-sidebar-footer={chatFirstMode ? "chat-first" : "standard"}
       >
         {bottomNavigation}
-        {organizationPicker}
         {sidebarFooterActions}
       </div>
     </>
@@ -2518,7 +2534,7 @@ export function Layout({
             data-collapsed={sidebarCollapsed ? "true" : "false"}
             className={cn(
               "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-              sidebarCollapsed ? "w-14" : "w-56",
+              sidebarCollapsed ? "w-14" : "w-[260px]",
             )}
           >
             <NavContent
