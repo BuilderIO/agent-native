@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { parse } from "yaml";
 
@@ -404,6 +404,18 @@ try {
     [manageProductionPath, manageProduction],
     [promotePath, promote],
   ] as const) {
+    const document = asRecord(parse(source));
+    if (!document) {
+      throw new Error(`${path} must contain a YAML mapping at the root`);
+    }
+    parsedWorkflows.set(path, document);
+  }
+  for (const fileName of readdirSync(".github/workflows")) {
+    if (!/\.ya?ml$/.test(fileName)) continue;
+    const path = `.github/workflows/${fileName}`;
+    if (parsedWorkflows.has(path)) continue;
+    const source = readFileSync(path, "utf8");
+    if (!source.includes(`uses: ./${reusablePath}`)) continue;
     const document = asRecord(parse(source));
     if (!document) {
       throw new Error(`${path} must contain a YAML mapping at the root`);
