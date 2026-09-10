@@ -5,6 +5,7 @@ import type { MouseEvent } from "react";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
+import { ClipsActOnFeedbackMock } from "../components/template-landing/ClipsActOnFeedbackMock";
 import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
@@ -212,6 +213,11 @@ export default function ClipsTemplate() {
                 key={useCase.id}
                 title={t(`templateLanding.clips.${useCase.titleKey}`)}
                 body={t(`templateLanding.clips.${useCase.bodyKey}`)}
+                media={
+                  useCase.id === "act-on-feedback" ? (
+                    <ClipsActOnFeedbackMock />
+                  ) : undefined
+                }
               />
             ))}
           </div>
