@@ -31,9 +31,44 @@ function queuedFetch(responses: Response[]) {
 }
 
 describe("production cache contract probe helpers", () => {
-  it("recognizes a cache hit without treating stored or vary-miss as a hit", () => {
+  it("recognizes hits and successful stale revalidation without false positives", () => {
     assert.equal(cacheStatusHasHit('"Netlify Durable"; hit; ttl=599'), true);
     assert.equal(cacheStatusHasHit('"Netlify Edge"; hit; ttl=599'), true);
+    assert.equal(cacheStatusHasHit('"Netlify Edge"; hit=?1'), true);
+    assert.equal(cacheStatusHasHit('"Netlify Edge"; hit=?0'), false);
+    assert.equal(cacheStatusHasHit("hit"), false);
+    assert.equal(cacheStatusHasHit('"Netlify Edge"; hit; hit=?0'), false);
+    assert.equal(
+      cacheStatusHasHit('"Netlify Edge"; fwd=stale; fwd=miss; fwd-status=304'),
+      false,
+    );
+    assert.equal(
+      cacheStatusHasHit(
+        '"Netlify Edge"; fwd=stale; fwd-status=304; fwd-status=200',
+      ),
+      false,
+    );
+    assert.equal(
+      cacheStatusHasHit('"Netlify Edge"; fwd=stale; fwd-status=304; stored'),
+      true,
+    );
+    assert.equal(cacheStatusHasHit('"Netlify Edge"; fwd=stale; stored'), false);
+    assert.equal(
+      cacheStatusHasHit(
+        '"Netlify Edge"; fwd=stale; fwd-status=200, "Netlify Origin"; fwd-status=304',
+      ),
+      false,
+    );
+    assert.equal(
+      cacheStatusHasHit('"Netlify Edge"; detail="fwd=stale; fwd-status=304"'),
+      false,
+    );
+    assert.equal(
+      cacheStatusHasHit(
+        '"Edge\\\\"; fwd=stale; fwd-status=200, "Netlify Origin"; fwd-status=304',
+      ),
+      false,
+    );
     assert.equal(
       cacheStatusHasHit('"Netlify Durable"; fwd=vary-miss; stored'),
       false,
@@ -47,6 +82,13 @@ describe("production cache contract probe helpers", () => {
       true,
     );
     assert.equal(contentTypeMatches("text/x-script", "text/x-script"), true);
+    assert.equal(
+      contentTypeMatches("text/plain; charset=UTF-8", [
+        "text/x-script",
+        "text/plain",
+      ]),
+      true,
+    );
     assert.equal(contentTypeMatches("text/htmlish", "text/html"), false);
     assert.equal(
       contentTypeMatches("application/json", "text/x-script"),
