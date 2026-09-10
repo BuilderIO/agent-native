@@ -86,6 +86,36 @@ describe("workspacifyApp core pinning", () => {
     }
   });
 
+  it("adds node-gyp to workspaces that install node-pty on Linux", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n  - apps/*\n",
+    );
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify(
+        { name: "mail", dependencies: { "node-pty": "^1.1.0" } },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    const workspaceYaml = fs.readFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "utf8",
+    );
+    expect(workspaceYaml).toContain('"node-pty@1.1.0":');
+    expect(workspaceYaml).toContain('node-gyp: "^12.4.0"');
+  });
+
   it("links inherited skills and removes template copies while preserving app skills", () => {
     const { root, appDir } = makeWorkspace(undefined);
     const workspaceSkillsDir = path.join(root, ".agents", "skills");

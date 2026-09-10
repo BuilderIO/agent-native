@@ -29,6 +29,7 @@ import {
 } from "./workspace-skill-policy.js";
 
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const NODE_PTY_BUILD_DEPENDENCY = "^12.4.0";
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
   "@react-router/fs-routes",
@@ -53,6 +54,33 @@ export interface WorkspacifyOptions {
   dispatchDependencyVersion?: string;
   /** Version range to use for the published @agent-native/toolkit package */
   toolkitDependencyVersion?: string;
+}
+
+/**
+ * node-pty ships no Linux prebuild, so its install script falls back to
+ * `node-gyp rebuild`. The dependency is missing from node-pty's manifest;
+ * attach it where pnpm runs that script so every workspace gets the same fix.
+ */
+export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
+  const workspacePath = path.join(workspaceRoot, "pnpm-workspace.yaml");
+  if (!fs.existsSync(workspacePath)) return;
+
+  const current = fs.readFileSync(workspacePath, "utf-8");
+  if (current.includes('"node-pty@1.1.0":')) return;
+
+  const extension = [
+    '  "node-pty@1.1.0":',
+    "    dependencies:",
+    `      node-gyp: "${NODE_PTY_BUILD_DEPENDENCY}"`,
+  ].join("\n");
+  const header = /^packageExtensions:\s*$/m.exec(current);
+  const updated = header
+    ? current.slice(0, header.index + header[0].length) +
+      `\n${extension}` +
+      current.slice(header.index + header[0].length)
+    : `${current.trimEnd()}${current.trim() ? "\n\n" : ""}packageExtensions:\n${extension}\n`;
+
+  if (updated !== current) fs.writeFileSync(workspacePath, updated);
 }
 
 export function workspacifyApp(opts: WorkspacifyOptions): void {
@@ -110,6 +138,11 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       // not fail only after a hosted Postgres database is configured.
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
+      const hasNodePty = [
+        pkg.dependencies,
+        pkg.devDependencies,
+        pkg.peerDependencies,
+      ].some((deps) => Boolean(deps?.["node-pty"]));
       // pnpm build-script approvals belong at the workspace root. Leaving the
       // template's per-app setting in place makes pnpm warn on every install.
       if (pkg.pnpm && typeof pkg.pnpm === "object") {
@@ -126,6 +159,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       pkg.devDependencies["@assistant-ui/store"] ??= ">=0.2.9 <0.2.14";
       pkg.devDependencies["@assistant-ui/tap"] ??= "^0.5.14";
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+      if (hasNodePty) ensureNodePtyBuildDependency(opts.workspaceRoot);
     } catch {
       // Non-fatal: leave package.json unchanged.
     }

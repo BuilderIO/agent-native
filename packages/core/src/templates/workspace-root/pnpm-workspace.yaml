@@ -60,6 +60,12 @@ overrides:
   "@tiptap/react": "3.28.0"
   "@tiptap/starter-kit": "3.28.0"
 
+packageExtensions:
+  # node-pty has no Linux prebuild and its install script invokes node-gyp.
+  "node-pty@1.1.0":
+    dependencies:
+      node-gyp: "^12.4.0"
+
 onlyBuiltDependencies:
   - "@swc/core"
   - canvas

@@ -15,7 +15,11 @@ import {
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
-import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
+import {
+  ensureNodePtyBuildDependency,
+  parseWorkspaceScope,
+  workspacifyApp,
+} from "./workspacify.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1985,6 +1989,7 @@ function postProcessStandalone(
   // catalog: references only resolve inside a pnpm workspace with a catalog
   // defined in pnpm-workspace.yaml — standalone scaffolds don't have one.
   const catalog = loadCatalog();
+  let hasNodePty = false;
   const pkgPath = path.join(targetDir, "package.json");
   if (fs.existsSync(pkgPath)) {
     try {
@@ -2015,6 +2020,11 @@ function postProcessStandalone(
       pkg.dependencies["@electric-sql/pglite"] ??= PGLITE_DEPENDENCY_VERSION;
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
+      hasNodePty = [
+        pkg.dependencies,
+        pkg.devDependencies,
+        pkg.peerDependencies,
+      ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {}
   }
@@ -2069,6 +2079,7 @@ function postProcessStandalone(
     if (updated !== existing) {
       fs.writeFileSync(wsPath, updated);
     }
+    if (hasNodePty) ensureNodePtyBuildDependency(targetDir);
   } catch {}
 
   fixStandaloneTsconfig(targetDir, templateName);
