@@ -527,6 +527,24 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "이전 에이전트 스트림이 실행 복구 중 종료되었습니다. 계속하거나 다시 시도하여 실행에 다시 연결하세요.",
   "recovery.reconnectBuilder": "Builder.io 다시 연결",
+  "secrets.addCustomKeyNamed": '사용자 지정 키로 "{{name}}" 추가',
+  "secrets.customKey": "사용자 지정 키",
+  "secrets.customKeyHint": "이름으로 아무 키나 추가",
+  "secrets.fromEnvironment": "배포 환경에서 제공됩니다.",
+  "secrets.managedInVault":
+    "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",
+  "secrets.openVault": "Vault 열기",
+  "secrets.overridesVault":
+    "이 개인 키는 워크스페이스 Vault 값을 재정의합니다. Vault 키를 사용하려면 제거하세요.",
+  "secrets.overridesWorkspace":
+    "이 개인 키는 워크스페이스 값을 재정의합니다. 공유 키를 사용하려면 제거하세요.",
+  "secrets.setForWorkspace":
+    "이 워크스페이스의 모든 사용자에게 설정되어 있습니다.",
+  "secrets.sourceEnvironment": "환경",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "워크스페이스",
+  "secrets.statusUnavailable": "사용할 수 없음",
+  "secrets.usePersonalKey": "대신 개인 키 사용",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
