@@ -116,7 +116,9 @@ function main(): void {
     .split("\n")
     .filter(Boolean);
   const matrix = {
-    include: previewSitesForChangedPaths(changedPaths),
+    include: previewSitesForChangedPaths(changedPaths).map((site) => ({
+      site,
+    })),
   };
   const outputPath = argumentValue("--github-output");
   if (outputPath) {
