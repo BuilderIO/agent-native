@@ -550,6 +550,7 @@ import { runIframeContextMenu } from "./design-editor/commands/iframe-context-me
 import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
 import { runLayerMarqueeSelectionChange } from "./design-editor/commands/layer-marquee-selection-change";
 import { runLayerMove } from "./design-editor/commands/layer-move";
+import { runSelectAll } from "./design-editor/commands/select-all";
 import { runLayerMoveToScreen } from "./design-editor/commands/layer-move-to-screen";
 import { runLayerRename } from "./design-editor/commands/layer-rename";
 import { runLayerSelectionChange } from "./design-editor/commands/layer-selection-change";
@@ -11251,6 +11252,7 @@ function DesignEditor() {
   const handleDeleteSelection = useCallback(
     () =>
       runDeleteSelection({
+        t,
         activeBreakpointUpperBoundPx,
         activeBreakpointWidthStateRef,
         activeCanvasSourceType,
@@ -13976,21 +13978,26 @@ function DesignEditor() {
   // editing one screen's layers. Overview-mode Cmd+A keeps its previous
   // "select all screens" behavior.
   const handleSelectAllFrames = useCallback(() => {
-    if (!overviewScreens.length) return;
-    if (viewModeRef.current === "single" && activeFile) {
-      const projection = buildCodeLayerProjection(getFreshActiveContent());
-      const tree = buildCodeLayerTree(projection);
-      const topLevelIds = tree.map((node) => node.id);
-      if (topLevelIds.length > 0) {
-        setSelectedLayerIdsState(topLevelIds);
-        const lastId = topLevelIds[topLevelIds.length - 1];
-        const lastNode = projection.nodes.find((n) => n.id === lastId);
-        if (lastNode) {
-          setSelectedElement(elementInfoFromCodeLayerNode(lastNode));
-        }
-      }
+    const projection = activeFile
+      ? buildCodeLayerProjection(getFreshActiveContent())
+      : null;
+    const decision = projection
+      ? runSelectAll({
+          tree: buildCodeLayerTree(projection),
+          selectedLayerIds: selectedLayerIdsState,
+          nonLayerIds: new Set(files.map((file) => file.id)),
+          fallback:
+            viewModeRef.current === "single" ? "top-level-layers" : "screens",
+        })
+      : ({ kind: "screens" } as const);
+    if (projection && decision.kind === "layers") {
+      setSelectedLayerIdsState(decision.layerIds);
+      const lastId = decision.layerIds[decision.layerIds.length - 1];
+      const lastNode = projection.nodes.find((n) => n.id === lastId);
+      if (lastNode) setSelectedElement(elementInfoFromCodeLayerNode(lastNode));
       return;
     }
+    if (!overviewScreens.length) return;
     setDrawMode(false);
     setPinMode(false);
     setMode("edit");
@@ -13999,7 +14006,13 @@ function DesignEditor() {
     setViewMode("overview");
     setOverviewSelectedScreenIds(overviewScreens.map((screen) => screen.id));
     setOverviewSelectAllRequest((request) => request + 1);
-  }, [activeFile, getFreshActiveContent, overviewScreens]);
+  }, [
+    activeFile,
+    files,
+    getFreshActiveContent,
+    overviewScreens,
+    selectedLayerIdsState,
+  ]);
 
   // Shared by the canvas context-menu Rename item — the single
   // currently-selected layer id eligible for the layers-panel inline rename,

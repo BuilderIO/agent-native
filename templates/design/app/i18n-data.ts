@@ -85,6 +85,7 @@ const enUS = {
   },
   editPanel: {
     colorInputLabel: "color",
+    repeatAffectsAll: "Affects all {{count}} copies",
     properties: "Properties",
     pageHelpTitle: "Click any element on the canvas",
     pageHelpDescription:
@@ -1134,6 +1135,7 @@ const enUS = {
       layerMoveRedirected:
         "Moved next to its original spot — the exact drop target isn't editable",
       duplicateElementFailed: "Could not duplicate that element",
+      repeatListNotEditable: "Couldn't update this repeated list",
       eyedropperUnsupported: "Eyedropper isn't supported in this browser",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
@@ -1806,6 +1808,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "颜色",
+      repeatAffectsAll: "影响全部 {{count}} 个副本",
       properties: "特性",
       pageHelpTitle: "单击画布上的任意元素",
       pageHelpDescription:
@@ -2243,6 +2246,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "color",
+      repeatAffectsAll: "Afecta a las {{count}} copias",
       properties: "Propiedades",
       pageHelpTitle: "Haga clic en cualquier elemento del lienzo.",
       pageHelpDescription:
@@ -2706,6 +2710,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "couleur",
+      repeatAffectsAll: "Affecte les {{count}} copies",
       properties: "Propriétés",
       pageHelpTitle: "Cliquez sur n'importe quel élément du canevas",
       pageHelpDescription:
@@ -3173,6 +3178,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "Farbe",
+      repeatAffectsAll: "Betrifft alle {{count}} Kopien",
       properties: "Eigenschaften",
       pageHelpTitle: "Klicken Sie auf ein beliebiges Element auf der Leinwand",
       pageHelpDescription:
@@ -3640,6 +3646,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "色",
+      repeatAffectsAll: "{{count}} 件すべてのコピーに適用されます",
       properties: "プロパティ",
       pageHelpTitle: "キャンバス上の任意の要素をクリックします",
       pageHelpDescription:
@@ -4102,6 +4109,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "색상",
+      repeatAffectsAll: "{{count}}개 사본 모두에 적용됩니다",
       properties: "속성",
       pageHelpTitle: "캔버스의 아무 요소나 클릭하세요.",
       pageHelpDescription:
@@ -4556,6 +4564,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "cor",
+      repeatAffectsAll: "Afeta todas as {{count}} cópias",
       properties: "Propriedades",
       pageHelpTitle: "Clique em qualquer elemento na tela",
       pageHelpDescription:
@@ -5018,6 +5027,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "रंग",
+      repeatAffectsAll: "सभी {{count}} प्रतियों पर लागू होता है",
       properties: "गुण",
       pageHelpTitle: "कैनवास पर किसी भी तत्व पर क्लिक करें",
       pageHelpDescription:
@@ -5468,6 +5478,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "لون",
+      repeatAffectsAll: "يؤثر على جميع النسخ ({{count}})",
       properties: "ملكيات",
       pageHelpTitle: "انقر فوق أي عنصر على اللوحة القماشية",
       pageHelpDescription:
@@ -10189,6 +10200,7 @@ const designCanvasFeatureOverrides = {
         layerMoveFailed: "无法移动该图层",
         layerMoveRedirected: "已移动到原位置附近——精确的放置目标不可编辑",
         duplicateElementFailed: "无法复制该元素",
+        repeatListNotEditable: "无法更新此重复列表",
         eyedropperUnsupported: "此浏览器不支持取色器",
       },
     },
@@ -10295,6 +10307,7 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "Se movió cerca de su lugar original — el destino exacto no es editable",
         duplicateElementFailed: "No se pudo duplicar ese elemento",
+        repeatListNotEditable: "No se pudo actualizar esta lista repetida",
         eyedropperUnsupported:
           "El cuentagotas no es compatible con este navegador",
       },
@@ -10404,6 +10417,7 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "Déplacé à proximité de son emplacement d’origine — la cible exacte n’est pas modifiable",
         duplicateElementFailed: "Impossible de dupliquer cet élément",
+        repeatListNotEditable: "Impossible de mettre à jour cette liste répétée",
         eyedropperUnsupported:
           "La pipette n'est pas prise en charge par ce navigateur",
       },
@@ -10513,6 +10527,7 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "In die Nähe der ursprünglichen Stelle verschoben — das genaue Ziel ist nicht bearbeitbar",
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
+        repeatListNotEditable: "Diese wiederholte Liste konnte nicht aktualisiert werden",
         eyedropperUnsupported:
           "Die Pipette wird von diesem Browser nicht unterstützt",
       },
@@ -10619,6 +10634,7 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "元の位置の近くに移動しました — 正確なドロップ先は編集できません",
         duplicateElementFailed: "その要素を複製できませんでした",
+        repeatListNotEditable: "この繰り返しリストを更新できませんでした",
         eyedropperUnsupported: "このブラウザではスポイトツールを使用できません",
       },
     },
@@ -10724,6 +10740,7 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "원래 위치 근처로 이동되었습니다 — 정확한 놓기 대상은 편집할 수 없습니다",
         duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
+        repeatListNotEditable: "이 반복 목록을 업데이트할 수 없습니다",
         eyedropperUnsupported: "이 브라우저에서는 스포이드를 지원하지 않습니다",
       },
     },
@@ -10830,6 +10847,7 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "Movido para perto do local original — o destino exato não é editável",
         duplicateElementFailed: "Não foi possível duplicar esse elemento",
+        repeatListNotEditable: "Não foi possível atualizar esta lista repetida",
         eyedropperUnsupported:
           "O conta-gotas não é compatível com este navegador",
       },
@@ -10936,6 +10954,7 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "मूल स्थान के पास ले जाया गया — सटीक ड्रॉप लक्ष्य संपादन योग्य नहीं है",
         duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
+        repeatListNotEditable: "यह दोहराई गई सूची अपडेट नहीं हो सकी",
         eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
       },
     },
@@ -11041,6 +11060,7 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "تم النقل بالقرب من الموضع الأصلي — الهدف الدقيق للإفلات غير قابل للتحرير",
         duplicateElementFailed: "تعذّر تكرار هذا العنصر",
+        repeatListNotEditable: "لم يتمكن من تحديث هذه القائمة المتكررة",
         eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
       },
     },

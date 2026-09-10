@@ -130,6 +130,7 @@ const messages = {
     genericError: "出了點問題",
   },
   editPanel: {
+    repeatAffectsAll: "影響全部 {{count}} 個副本",
     colorInputLabel: "顏色",
     properties: "特性",
     pageHelpTitle: "點選畫布上的任意元素",
@@ -1007,6 +1008,7 @@ const messages = {
       layerMoveFailed: "無法移動該圖層",
       layerMoveRedirected: "已移至原位置附近——精確的放置目標無法編輯",
       duplicateElementFailed: "無法複製該元素",
+      repeatListNotEditable: "無法更新此重複清單",
       eyedropperUnsupported: "此瀏覽器不支援取色器",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",

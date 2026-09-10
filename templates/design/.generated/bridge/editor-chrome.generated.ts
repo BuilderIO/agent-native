@@ -716,6 +716,18 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function selectorPart(el) {
       if (!el || !el.tagName) return "";
+      if (isTemplateCloneElement(el)) {
+        var cloneTag = el.tagName.toLowerCase();
+        var cloneParent = el.parentElement;
+        if (!cloneParent) return cloneTag;
+        var typeIndex = 0;
+        for (var at = 0; at < cloneParent.children.length; at += 1) {
+          var sibling = cloneParent.children[at];
+          if (sibling.tagName === el.tagName) typeIndex += 1;
+          if (sibling === el) break;
+        }
+        return cloneTag + ":nth-of-type(" + typeIndex + ")";
+      }
       var stableSelector = attributeSelector(el, "data-agent-native-node-id") || attributeSelector(el, "data-code-layer-id") || attributeSelector(el, "data-layer-id") || attributeSelector(el, "data-builder-id") || attributeSelector(el, "data-loc");
       if (stableSelector) return el.tagName.toLowerCase() + stableSelector;
       if (el.id) return "#" + escapeIdent(el.id);
@@ -725,7 +737,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         var sameTag = Array.prototype.filter.call(
           parent.children,
           function(child) {
-            return child.tagName === el.tagName;
+            if (child.tagName !== el.tagName) return false;
+            if (isOverlayElement(child)) return false;
+            if (child !== el && isTemplateCloneElement(child)) return false;
+            return true;
           }
         );
         if (sameTag.length > 1) {
@@ -1435,22 +1450,112 @@ export const editorChromeBridgeScript: string = `"use strict";
     function hasStableOwnSource(el) {
       return !!(el && !isDocumentRootElement(el) && getSourceId(el));
     }
+    var repeatBodyIdCache = /* @__PURE__ */ new WeakMap();
+    function repeatBodyIds(template) {
+      var cached = repeatBodyIdCache.get(template);
+      if (cached) return cached;
+      var ids = /* @__PURE__ */ new Set();
+      var body = template.content;
+      if (body) {
+        var all = body.querySelectorAll("*");
+        for (var i = 0; i < all.length; i += 1) {
+          var id = all[i].getAttribute("data-agent-native-node-id");
+          if (id) ids.add(id);
+        }
+      }
+      repeatBodyIdCache.set(template, ids);
+      return ids;
+    }
+    function repeatTemplateOwning(node) {
+      var parent = node.parentElement;
+      if (!parent) return null;
+      var ownId = node.getAttribute ? node.getAttribute("data-agent-native-node-id") : null;
+      var siblings = parent.children;
+      for (var i = 0; i < siblings.length; i += 1) {
+        var sib = siblings[i];
+        if (sib === node || !sib.tagName || sib.tagName.toLowerCase() !== "template" || !sib.hasAttribute("x-for")) {
+          continue;
+        }
+        if (!ownId || repeatBodyIds(sib).has(ownId)) return sib;
+      }
+      return null;
+    }
     function isTemplateCloneElement(el) {
       var node = el;
       while (node && !isDocumentRootElement(node)) {
+        if (repeatTemplateOwning(node)) return true;
         if (hasStableOwnSource(node)) return false;
         var parent = node.parentElement;
         if (!parent) return false;
-        var siblings = parent.children;
-        for (var i = 0; i < siblings.length; i += 1) {
-          var sib = siblings[i];
-          if (sib !== node && sib.tagName && sib.tagName.toLowerCase() === "template" && sib.hasAttribute("x-for")) {
-            return true;
-          }
-        }
         node = parent;
       }
       return false;
+    }
+    function hasOwnTextContent(el) {
+      var children = el.childNodes;
+      for (var i = 0; i < children.length; i += 1) {
+        var node = children[i];
+        if (node.nodeType === 3 && (node.nodeValue || "").trim()) return true;
+      }
+      return false;
+    }
+    function repeatRowRootOf(el) {
+      var node = el;
+      while (node && !isDocumentRootElement(node)) {
+        if (repeatTemplateOwning(node)) return node;
+        node = node.parentElement;
+      }
+      return null;
+    }
+    function repeatInstanceInfo(el) {
+      if (!isTemplateCloneElement(el) || !el.getAttribute) return null;
+      var sourceNodeId = el.getAttribute("data-agent-native-node-id") || "";
+      if (!sourceNodeId) return null;
+      var sourceSelector = '[data-agent-native-node-id="' + escapeAttribute(sourceNodeId) + '"]';
+      var instances = document.querySelectorAll(sourceSelector);
+      var instanceIndex = 0;
+      for (var i = 0; i < instances.length; i += 1) {
+        if (instances[i] === el) {
+          instanceIndex = i + 1;
+          break;
+        }
+      }
+      if (!instanceIndex) return null;
+      var row = repeatRowRootOf(el);
+      var template = row ? repeatTemplateOwning(row) : null;
+      var itemIndex = -1;
+      if (row && row.parentElement) {
+        var rowId = row.getAttribute("data-agent-native-node-id");
+        var seen = 0;
+        var siblings = row.parentElement.children;
+        for (var s = 0; s < siblings.length; s += 1) {
+          var sibling = siblings[s];
+          if (sibling.getAttribute("data-agent-native-node-id") !== rowId) {
+            continue;
+          }
+          if (!isTemplateCloneElement(sibling)) continue;
+          if (sibling === row) {
+            itemIndex = seen;
+            break;
+          }
+          seen += 1;
+        }
+      }
+      return {
+        sourceSelector,
+        instanceCount: instances.length,
+        instanceIndex,
+        xFor: template ? template.getAttribute("x-for") || "" : "",
+        itemIndex
+      };
+    }
+    function repeatStyleTargets(el) {
+      var info = repeatInstanceInfo(el);
+      if (!info || info.instanceCount < 2) return [el];
+      var matches = document.querySelectorAll(info.sourceSelector);
+      var targets = [];
+      for (var i = 0; i < matches.length; i += 1) targets.push(matches[i]);
+      return targets.length > 0 ? targets : [el];
     }
     function selectionTargetForHit(hit) {
       if (!hit || isDocumentRootElement(hit)) return hit;
@@ -1492,6 +1597,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function getSelector(el) {
       if (!el) return "";
+      if (isTemplateCloneElement(el)) return selectorPath(el);
       var stableOwnSelector = attributeSelector(el, "data-agent-native-node-id") || attributeSelector(el, "data-code-layer-id") || attributeSelector(el, "data-layer-id") || attributeSelector(el, "data-builder-id") || attributeSelector(el, "data-loc");
       if (stableOwnSelector) return stableOwnSelector;
       if (el.id) return "#" + escapeIdent(el.id);
@@ -1517,18 +1623,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !el.getAttribute || !el.tagName) return false;
       if (explicitComponentNameForElement(el)) return true;
       var tag = el.tagName.toLowerCase();
-      if (tag === "button" || tag === "input" || tag === "select" || tag === "textarea") {
-        return true;
-      }
-      var layerName = el.getAttribute("data-agent-native-layer-name") || "";
-      if (/component|card|button|control/i.test(layerName)) return true;
-      if (!el.classList) return false;
-      for (var i = 0; i < el.classList.length; i += 1) {
-        if (/component|card|button|control/i.test(el.classList.item(i) || "")) {
-          return true;
-        }
-      }
-      return false;
+      return tag === "button" || tag === "input" || tag === "select" || tag === "textarea";
     }
     function componentNameForElement(el) {
       var explicit = explicitComponentNameForElement(el);
@@ -1791,9 +1886,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     function chromeColorForElement(el) {
       return elementLooksLikeComponent(el) ? "var(--design-editor-component-color)" : "var(--design-editor-accent-color)";
     }
-    function chromeStrongColorForElement(el) {
-      return elementLooksLikeComponent(el) ? "var(--design-editor-component-strong-color)" : "var(--design-editor-accent-strong-color)";
-    }
     function chromeContrastColorForElement(el) {
       return elementLooksLikeComponent(el) ? "var(--design-editor-component-contrast-color)" : "var(--design-editor-accent-contrast-color)";
     }
@@ -1805,7 +1897,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parentAutoLayout = autoLayoutParentInfo(el);
       var parentStyles = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
-      var sourceBacked = hasStableOwnSource(el) || !!closestStableSourceElement(el);
+      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
       var pendingNodeId = "";
       if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
@@ -1871,6 +1963,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        repeat: repeatInstanceInfo(el) || void 0,
+        hasOwnText: hasOwnTextContent(el),
         pendingNodeId: pendingNodeId || void 0,
         selector: getSelector(el),
         classes: Array.from(el.classList),
@@ -2000,7 +2094,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function getLightElementInfo(el) {
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
-      var sourceBacked = hasStableOwnSource(el) || !!closestStableSourceElement(el);
+      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
       var parentStyles = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
@@ -2344,15 +2438,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       componentTagOverlay.style.borderWidth = 1 * line + "px";
       componentTagOverlay.style.left = rect.left + "px";
       componentTagOverlay.style.top = tagTop + "px";
-      selectionOverlay.style.outline = 2 * line + "px solid " + chromeStrongColorForElement(el);
-      selectionOverlay.style.outlineOffset = 2 * line + "px";
     }
     function clearComponentTag() {
       componentTagOverlay.style.display = "none";
       componentTagOverlay.removeAttribute("data-component-node-id");
       componentTagOverlay.removeAttribute("data-component-name");
-      selectionOverlay.style.outline = "";
-      selectionOverlay.style.outlineOffset = "";
     }
     function applyElementOverlayChrome(overlay, el) {
       var color = chromeColorForElement(el);
@@ -2414,6 +2504,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       refreshFrameNameLabels();
       hideParentAutoLayoutOverlay();
       clearComponentTag();
+      removeRepeatInstanceOverlays();
     }
     var selectedEl = null;
     var selectionChromeHidden = false;
@@ -2427,6 +2518,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var passiveSelectionEls = [];
     var passiveSelectionOverlays = [];
+    var repeatInstanceOverlays = [];
+    var repeatInstanceAnchor = null;
     var multiSelectionBoundsOverlay = null;
     var activeMarqueeSelection = null;
     var activeTextEditEl = null;
@@ -2549,6 +2642,48 @@ export const editorChromeBridgeScript: string = `"use strict";
         overlay.appendChild(handle);
       });
       scalePassiveSelectionOverlay(overlay);
+    }
+    function makeRepeatInstanceOverlay() {
+      var overlay = document.createElement("div");
+      overlay.setAttribute("data-agent-native-edit-overlay", "repeat-instance");
+      overlay.style.cssText = "position:fixed;pointer-events:none;z-index:99995;border:1px dashed color-mix(in srgb,var(--design-editor-accent-color) 70%,transparent);background:transparent;display:none;box-sizing:border-box;";
+      document.body.appendChild(overlay);
+      return overlay;
+    }
+    function removeRepeatInstanceOverlays() {
+      repeatInstanceOverlays.forEach(function(overlay) {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      });
+      repeatInstanceOverlays = [];
+      repeatInstanceAnchor = null;
+    }
+    function paintRepeatInstances(el) {
+      var info = el ? repeatInstanceInfo(el) : null;
+      if (!info || info.instanceCount < 2) {
+        if (repeatInstanceOverlays.length) removeRepeatInstanceOverlays();
+        return;
+      }
+      var siblings = [];
+      var matches = document.querySelectorAll(info.sourceSelector);
+      for (var i = 0; i < matches.length; i += 1) {
+        var instance = matches[i];
+        if (instance !== el && !isLayerInteractionBlocked(instance)) {
+          siblings.push(instance);
+        }
+      }
+      if (repeatInstanceAnchor !== el || repeatInstanceOverlays.length !== siblings.length) {
+        removeRepeatInstanceOverlays();
+        for (var made = 0; made < siblings.length; made += 1) {
+          repeatInstanceOverlays.push(makeRepeatInstanceOverlay());
+        }
+        repeatInstanceAnchor = el;
+      }
+      var line = chromeLineScale();
+      siblings.forEach(function(instance2, index) {
+        var overlay = repeatInstanceOverlays[index];
+        overlay.style.borderWidth = line + "px";
+        positionOverlay(overlay, instance2);
+      });
     }
     function makePassiveSelectionOverlay(style) {
       var overlay = document.createElement("div");
@@ -2689,6 +2824,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (root.nodeType === 1 && root.hasAttribute("data-agent-native-edit-overlay")) {
         return;
       }
+      if (root.nodeType === 1 && isTemplateCloneElement(root)) return;
       recordSourceOwnership(root);
       if (root.nodeType !== 1) return;
       var template = templateContentOf(root);
@@ -2705,6 +2841,18 @@ export const editorChromeBridgeScript: string = `"use strict";
     function templateContentOf(element) {
       if (element.nodeName !== "TEMPLATE") return null;
       return element.content ?? null;
+    }
+    function findSourceNodeForSelector(root, selector) {
+      var direct = root.querySelector(selector);
+      if (direct) return { node: direct, inTemplate: false };
+      var templates = root.querySelectorAll("template");
+      for (var i = 0; i < templates.length; i += 1) {
+        var content = templateContentOf(templates[i]);
+        if (!content) continue;
+        var nested = findSourceNodeForSelector(content, selector);
+        if (nested.node) return { node: nested.node, inTemplate: true };
+      }
+      return { node: null, inTemplate: false };
     }
     function scopedMorphContext(liveRoot, nextRoot) {
       var keyed = /* @__PURE__ */ new Map();
@@ -2872,6 +3020,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         style: next.getAttribute("style") ?? ""
       };
     }
+    function nextSourceAnchor(node) {
+      var probe = node;
+      while (probe && !isSourceOwned(probe)) probe = probe.nextSibling;
+      return probe;
+    }
     function morphChildren(live, next, context) {
       var cursor = live.firstChild;
       var nextChild = next.firstChild;
@@ -2909,7 +3062,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (reuse && reuse.nodeType === 1 && scopeDirectiveChanged(reuse, nextChild)) {
           var rebuilt = document.importNode(nextChild, true);
-          live.insertBefore(rebuilt, cursor);
+          live.insertBefore(rebuilt, nextSourceAnchor(cursor));
           if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
           recordSourceSubtree(rebuilt);
           cursor = rebuilt.nextSibling;
@@ -2917,7 +3070,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           continue;
         }
         if (reuse) {
-          if (reuse !== cursor) live.insertBefore(reuse, cursor);
+          var reuseAnchor = nextSourceAnchor(cursor);
+          if (reuse !== reuseAnchor) live.insertBefore(reuse, reuseAnchor);
           if (reuse.nodeType === 1) {
             morphElement(reuse, nextChild, context);
           } else if (reuse.nodeValue !== nextChild.nodeValue) {
@@ -2926,7 +3080,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           cursor = reuse.nextSibling;
         } else if (nextChild.nodeType === 1) {
           var shell = document.importNode(nextChild, false);
-          live.insertBefore(shell, cursor);
+          live.insertBefore(shell, nextSourceAnchor(cursor));
           recordSourceOwnership(shell);
           morphElement(shell, nextChild, context);
           cursor = shell.nextSibling;
@@ -3033,14 +3187,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         var matchedSelector = "";
         var fallbackCurrentMatch = null;
         var fallbackSelector = "";
+        var nextInTemplate = false;
         for (var matchIndex = 0; matchIndex < activeCandidates.length; matchIndex += 1) {
           try {
             var currentCandidate = document.querySelector(
               activeCandidates[matchIndex]
             );
-            var nextCandidate = nextDoc.querySelector(
+            var nextResolved = findSourceNodeForSelector(
+              nextDoc,
               activeCandidates[matchIndex]
             );
+            var nextCandidate = nextResolved.node;
             if (currentCandidate && !fallbackCurrentMatch) {
               fallbackCurrentMatch = currentCandidate;
               fallbackSelector = activeCandidates[matchIndex];
@@ -3048,6 +3205,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             if (currentCandidate && nextCandidate) {
               currentMatch = currentCandidate;
               nextMatch = nextCandidate;
+              nextInTemplate = nextResolved.inTemplate;
               matchedSelector = activeCandidates[matchIndex];
               break;
             }
@@ -3058,7 +3216,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           currentMatch = fallbackCurrentMatch;
           matchedSelector = fallbackSelector;
         }
-        if (currentMatch && currentMatch !== document.body && currentMatch !== document.documentElement && !isOverlayElement(currentMatch)) {
+        if (!nextInTemplate && currentMatch && currentMatch !== document.body && currentMatch !== document.documentElement && !isOverlayElement(currentMatch)) {
           if (nextMatch) {
             currentMatch.replaceWith(document.importNode(nextMatch, true));
           } else if (currentMatch !== document.body && currentMatch !== document.documentElement) {
@@ -3965,6 +4123,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         overlay.style.transform = "";
       }
       if (overlay === selectionOverlay) {
+        paintRepeatInstances(el);
         applySelectionChrome(el);
         applySelectionHandleHitGeometry(el);
         updateSpacingOverlay(el);
@@ -4178,6 +4337,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
     }
     function refreshOverlays() {
+      paintRepeatInstances(selectedEl);
       var textEditingEl = activeTextEditEl || document.querySelector(
         "[data-agent-native-text-editing]"
       );
@@ -11246,7 +11406,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (didPatchDom) el.setAttribute("class", nextClass.join(" "));
       }
       if (prop && typeof prop === "string") {
-        applyInlineStyleProperty(el, prop, val);
+        var styleTargets = repeatStyleTargets(el);
+        for (var st = 0; st < styleTargets.length; st += 1) {
+          applyInlineStyleProperty(styleTargets[st], prop, val);
+        }
         didPatchDom = true;
       }
       if (didPatchDom) {

@@ -514,6 +514,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function selectorPart(el: Element | null): string {
     if (!el || !el.tagName) return "";
+    // A clone's own position is the only thing that distinguishes it from its
+    // siblings, and it is a LIVE position: the source-equivalent count below
+    // deliberately skips clones, so it gives every row of a repeat the same
+    // answer.
+    if (isTemplateCloneElement(el)) {
+      var cloneTag = el.tagName.toLowerCase();
+      var cloneParent = el.parentElement;
+      if (!cloneParent) return cloneTag;
+      var typeIndex = 0;
+      for (var at = 0; at < cloneParent.children.length; at += 1) {
+        var sibling = cloneParent.children[at];
+        if (sibling.tagName === el.tagName) typeIndex += 1;
+        if (sibling === el) break;
+      }
+      return cloneTag + ":nth-of-type(" + typeIndex + ")";
+    }
     var stableSelector =
       attributeSelector(el, "data-agent-native-node-id") ||
       attributeSelector(el, "data-code-layer-id") ||
@@ -526,10 +542,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       el.tagName.toLowerCase() + (stableSelector || classSelectorSuffix(el, 2));
     var parent = el.parentElement;
     if (parent) {
+      // Count positions the way SOURCE does. Alpine's x-for clones and the
+      // editor's own overlays exist only in the live DOM, so counting them
+      // emits a position the stored document has no element at — and the
+      // resolver then either refuses or lands on a different sibling.
+      // Mirrors buildSourceEquivalentSelector in hit-test.bridge.ts.
       var sameTag = Array.prototype.filter.call(
         parent.children,
         function (child) {
-          return child.tagName === el.tagName;
+          if (child.tagName !== el.tagName) return false;
+          if (isOverlayElement(child)) return false;
+          if (child !== el && isTemplateCloneElement(child)) return false;
+          return true;
         },
       );
       if (sameTag.length > 1) {
@@ -1618,27 +1642,152 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // clones (e.g. a subtask `<li>` inside a per-task `<ul>` that is itself
   // x-for'd) are also caught, stopping at the first stable-id ancestor
   // (anything inside a stamped subtree has a real anchor and is fine).
+  // Template bodies are projected and stamped, so a clone carries the body's
+  // id. Keying cloneness on "has an id" made every clone read as real source.
+  var repeatBodyIdCache = new WeakMap<Element, Set<string>>();
+
+  function repeatBodyIds(template: Element): Set<string> {
+    var cached = repeatBodyIdCache.get(template);
+    if (cached) return cached;
+    var ids = new Set<string>();
+    var body = (template as Element & { content?: DocumentFragment }).content;
+    if (body) {
+      var all = body.querySelectorAll("*");
+      for (var i = 0; i < all.length; i += 1) {
+        var id = all[i].getAttribute("data-agent-native-node-id");
+        if (id) ids.add(id);
+      }
+    }
+    repeatBodyIdCache.set(template, ids);
+    return ids;
+  }
+
+  function repeatTemplateOwning(node: Element): Element | null {
+    var parent = node.parentElement;
+    if (!parent) return null;
+    var ownId = node.getAttribute
+      ? node.getAttribute("data-agent-native-node-id")
+      : null;
+    var siblings = parent.children;
+    for (var i = 0; i < siblings.length; i += 1) {
+      var sib = siblings[i];
+      if (
+        sib === node ||
+        !sib.tagName ||
+        sib.tagName.toLowerCase() !== "template" ||
+        !sib.hasAttribute("x-for")
+      ) {
+        continue;
+      }
+      if (!ownId || repeatBodyIds(sib).has(ownId)) return sib;
+    }
+    return null;
+  }
+
   function isTemplateCloneElement(el: Element | null): boolean {
     var node: Element | null = el;
     while (node && !isDocumentRootElement(node)) {
+      if (repeatTemplateOwning(node)) return true;
       if (hasStableOwnSource(node)) return false;
       var parent = node.parentElement;
       if (!parent) return false;
-      var siblings = parent.children;
-      for (var i = 0; i < siblings.length; i += 1) {
-        var sib = siblings[i];
-        if (
-          sib !== node &&
-          sib.tagName &&
-          sib.tagName.toLowerCase() === "template" &&
-          sib.hasAttribute("x-for")
-        ) {
-          return true;
-        }
-      }
       node = parent;
     }
     return false;
+  }
+
+  /**
+   * A repeat renders one source element N times, so an edit has exactly one
+   * place to land: the element in the template body that this row was stamped
+   * from. Alpine copies that body's id onto every clone, so the clone's own id
+   * already names the write target. querySelectorAll cannot see into
+   * `<template>.content`, so the match count is the rendered rows alone.
+   */
+  function hasOwnTextContent(el: Element): boolean {
+    var children = el.childNodes;
+    for (var i = 0; i < children.length; i += 1) {
+      var node = children[i]!;
+      if (node.nodeType === 3 && (node.nodeValue || "").trim()) return true;
+    }
+    return false;
+  }
+
+  /** The row Alpine stamped from the template body, for an element anywhere in it. */
+  function repeatRowRootOf(el: Element): Element | null {
+    var node: Element | null = el;
+    while (node && !isDocumentRootElement(node)) {
+      if (repeatTemplateOwning(node)) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function repeatInstanceInfo(el: Element): {
+    sourceSelector: string;
+    instanceCount: number;
+    instanceIndex: number;
+    xFor: string;
+    itemIndex: number;
+  } | null {
+    if (!isTemplateCloneElement(el) || !el.getAttribute) return null;
+    var sourceNodeId = el.getAttribute("data-agent-native-node-id") || "";
+    if (!sourceNodeId) return null;
+    var sourceSelector =
+      '[data-agent-native-node-id="' + escapeAttribute(sourceNodeId) + '"]';
+    var instances = document.querySelectorAll(sourceSelector);
+    var instanceIndex = 0;
+    for (var i = 0; i < instances.length; i += 1) {
+      if (instances[i] === el) {
+        instanceIndex = i + 1;
+        break;
+      }
+    }
+    if (!instanceIndex) return null;
+    var row = repeatRowRootOf(el);
+    var template = row ? repeatTemplateOwning(row) : null;
+    // Counted among siblings, not document-wide: a nested repeat renders the
+    // same row id under every outer instance, and the array index is a
+    // position within ONE of those lists.
+    var itemIndex = -1;
+    if (row && row.parentElement) {
+      var rowId = row.getAttribute("data-agent-native-node-id");
+      var seen = 0;
+      var siblings = row.parentElement.children;
+      for (var s = 0; s < siblings.length; s += 1) {
+        var sibling = siblings[s]!;
+        if (sibling.getAttribute("data-agent-native-node-id") !== rowId) {
+          continue;
+        }
+        if (!isTemplateCloneElement(sibling)) continue;
+        if (sibling === row) {
+          itemIndex = seen;
+          break;
+        }
+        seen += 1;
+      }
+    }
+    return {
+      sourceSelector: sourceSelector,
+      instanceCount: instances.length,
+      instanceIndex: instanceIndex,
+      xFor: template ? template.getAttribute("x-for") || "" : "",
+      itemIndex: itemIndex,
+    };
+  }
+
+  /**
+   * `el` plus every other row rendering the same source element. The persisted
+   * edit lands on the one element in the template body, so previewing it on
+   * only the row the selector resolved to shows a change the save will apply
+   * everywhere.
+   */
+  function repeatStyleTargets(el: Element): Element[] {
+    var info = repeatInstanceInfo(el);
+    if (!info || info.instanceCount < 2) return [el];
+    var matches = document.querySelectorAll(info.sourceSelector);
+    var targets: Element[] = [];
+    for (var i = 0; i < matches.length; i += 1) targets.push(matches[i]!);
+    return targets.length > 0 ? targets : [el];
   }
 
   function selectionTargetForHit(hit: Element | null): Element | null {
@@ -1693,6 +1842,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function getSelector(el: Element | null): string {
     if (!el) return "";
+    // Alpine copies the template body's stamped node id — and any authored
+    // `id` — onto every clone, so both address all of a repeat's rows at once
+    // and every resolver lands on the first one.
+    if (isTemplateCloneElement(el)) return selectorPath(el);
     var stableOwnSelector =
       attributeSelector(el, "data-agent-native-node-id") ||
       attributeSelector(el, "data-code-layer-id") ||
@@ -1724,27 +1877,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return raw && raw.trim ? raw.trim() : "";
   }
 
+  // Only the annotation. The class/layer-name guess this replaced painted
+  // shadcn's `bg-card` violet on canvas while the panel kept it blue, and
+  // `btn-group` the other way round — the same element, two colours.
   function elementLooksLikeComponent(el: Element | null): boolean {
     if (!el || !el.getAttribute || !el.tagName) return false;
     if (explicitComponentNameForElement(el)) return true;
     var tag = el.tagName.toLowerCase();
-    if (
+    return (
       tag === "button" ||
       tag === "input" ||
       tag === "select" ||
       tag === "textarea"
-    ) {
-      return true;
-    }
-    var layerName = el.getAttribute("data-agent-native-layer-name") || "";
-    if (/component|card|button|control/i.test(layerName)) return true;
-    if (!el.classList) return false;
-    for (var i = 0; i < el.classList.length; i += 1) {
-      if (/component|card|button|control/i.test(el.classList.item(i) || "")) {
-        return true;
-      }
-    }
-    return false;
+    );
   }
 
   function componentNameForElement(el: Element | null): string {
@@ -2071,12 +2216,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : "var(--design-editor-accent-color)";
   }
 
-  function chromeStrongColorForElement(el: Element | null): string {
-    return elementLooksLikeComponent(el)
-      ? "var(--design-editor-component-strong-color)"
-      : "var(--design-editor-accent-strong-color)";
-  }
-
   function chromeContrastColorForElement(el: Element | null): string {
     return elementLooksLikeComponent(el)
       ? "var(--design-editor-component-contrast-color)"
@@ -2087,6 +2226,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var cs = window.getComputedStyle(el);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var rect = el.getBoundingClientRect();
+    // A clone inherits nothing editable from its stamped ancestor: source
+    // holds one template body, not this row. Claiming source-backed handed
+    // the host a selector that resolves onto a DIFFERENT sibling.
     var componentName = componentNameForElement(el);
     var parentAutoLayout = autoLayoutParentInfo(el);
     var parentStyles = el.parentElement
@@ -2094,7 +2236,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : null;
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var sourceBacked =
-      hasStableOwnSource(el) || !!closestStableSourceElement(el);
+      hasStableOwnSource(el) ||
+      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
     // Id-on-demand (empty-node-id fix, bridge side): AI-generated screens
     // frequently ship with NO data-agent-native-node-id anywhere, which
@@ -2186,6 +2329,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      repeat: repeatInstanceInfo(el) || undefined,
+      hasOwnText: hasOwnTextContent(el),
       pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
@@ -2342,7 +2487,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var rect = el.getBoundingClientRect();
     var componentName = componentNameForElement(el);
     var sourceBacked =
-      hasStableOwnSource(el) || !!closestStableSourceElement(el);
+      hasStableOwnSource(el) ||
+      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
     var parentStyles = el.parentElement
       ? window.getComputedStyle(el.parentElement)
@@ -2842,18 +2988,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     componentTagOverlay.style.borderWidth = 1 * line + "px";
     componentTagOverlay.style.left = rect.left + "px";
     componentTagOverlay.style.top = tagTop + "px";
-    // Purple outline on the selection overlay distinguishes component roots.
-    selectionOverlay.style.outline =
-      2 * line + "px solid " + chromeStrongColorForElement(el);
-    selectionOverlay.style.outlineOffset = 2 * line + "px";
+    // applyElementOverlayChrome already paints this overlay's border the
+    // component colour, so a second stroke here double-strokes every
+    // component root.
   }
 
   function clearComponentTag(): void {
     componentTagOverlay.style.display = "none";
     componentTagOverlay.removeAttribute("data-component-node-id");
     componentTagOverlay.removeAttribute("data-component-name");
-    selectionOverlay.style.outline = "";
-    selectionOverlay.style.outlineOffset = "";
   }
 
   function applyElementOverlayChrome(
@@ -2940,6 +3083,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     refreshFrameNameLabels();
     hideParentAutoLayoutOverlay();
     clearComponentTag();
+    removeRepeatInstanceOverlays();
   }
 
   var selectedEl: Element | null = null;
@@ -2982,6 +3126,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var passiveSelectionEls: Element[] = [];
   var passiveSelectionOverlays: HTMLElement[] = [];
+  var repeatInstanceOverlays: HTMLElement[] = [];
+  var repeatInstanceAnchor: Element | null = null;
   // Figma draws ONE bounding box with handles around a multi-selection; the
   // per-element overlays above are the thin outlines inside it.
   var multiSelectionBoundsOverlay: HTMLElement | null = null;
@@ -3269,6 +3415,62 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     scalePassiveSelectionOverlay(overlay);
   }
 
+  function makeRepeatInstanceOverlay(): HTMLElement {
+    var overlay = document.createElement("div");
+    overlay.setAttribute("data-agent-native-edit-overlay", "repeat-instance");
+    overlay.style.cssText =
+      "position:fixed;pointer-events:none;z-index:99995;border:1px dashed color-mix(in srgb,var(--design-editor-accent-color) 70%,transparent);background:transparent;display:none;box-sizing:border-box;";
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  function removeRepeatInstanceOverlays(): void {
+    repeatInstanceOverlays.forEach(function (overlay) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    });
+    repeatInstanceOverlays = [];
+    repeatInstanceAnchor = null;
+  }
+
+  /**
+   * Every row of a repeat renders the one source element under the selection,
+   * so an edit reaches all of them. Outlining the others is the only thing
+   * that says so before the edit lands. Deliberately not the passive-selection
+   * overlay: that one also draws combined bounds, which reads as "these are
+   * selected together" rather than "these follow this one".
+   */
+  function paintRepeatInstances(el: Element | null): void {
+    var info = el ? repeatInstanceInfo(el) : null;
+    if (!info || info.instanceCount < 2) {
+      if (repeatInstanceOverlays.length) removeRepeatInstanceOverlays();
+      return;
+    }
+    var siblings: Element[] = [];
+    var matches = document.querySelectorAll(info.sourceSelector);
+    for (var i = 0; i < matches.length; i += 1) {
+      var instance = matches[i]!;
+      if (instance !== el && !isLayerInteractionBlocked(instance)) {
+        siblings.push(instance);
+      }
+    }
+    if (
+      repeatInstanceAnchor !== el ||
+      repeatInstanceOverlays.length !== siblings.length
+    ) {
+      removeRepeatInstanceOverlays();
+      for (var made = 0; made < siblings.length; made += 1) {
+        repeatInstanceOverlays.push(makeRepeatInstanceOverlay());
+      }
+      repeatInstanceAnchor = el;
+    }
+    var line = chromeLineScale();
+    siblings.forEach(function (instance, index) {
+      var overlay = repeatInstanceOverlays[index]!;
+      overlay.style.borderWidth = line + "px";
+      positionOverlay(overlay, instance);
+    });
+  }
+
   function makePassiveSelectionOverlay(style: "default" | "soft"): HTMLElement {
     var overlay = document.createElement("div");
     overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
@@ -3495,6 +3697,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return;
     }
+    // An x-for clone is not authored markup. Stamping one at init (when Alpine
+    // has already rendered) makes the morph read it as a stale source node and
+    // delete it the first time the source changes.
+    if (root.nodeType === 1 && isTemplateCloneElement(root as Element)) return;
     recordSourceOwnership(root);
     if (root.nodeType !== 1) return;
     var template = templateContentOf(root as Element);
@@ -3515,6 +3721,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function templateContentOf(element: Element): DocumentFragment | null {
     if (element.nodeName !== "TEMPLATE") return null;
     return (element as HTMLTemplateElement).content ?? null;
+  }
+
+  /**
+   * `querySelector` cannot see into a `<template>`: its content is an inert
+   * fragment outside the document tree. Reporting that miss as "absent" is
+   * what let the subtree path below delete live x-for clones whose only
+   * source counterpart lives inside the template.
+   */
+  function findSourceNodeForSelector(
+    root: Document | DocumentFragment | Element,
+    selector: string,
+  ): { node: Element | null; inTemplate: boolean } {
+    // An unparseable selector throws, and the caller's alias loop already
+    // treats that as "try the next candidate". Catching it here would report
+    // the same "absent" this function uses for a real miss.
+    var direct = root.querySelector(selector);
+    if (direct) return { node: direct, inTemplate: false };
+    var templates = root.querySelectorAll("template");
+    for (var i = 0; i < templates.length; i += 1) {
+      var content = templateContentOf(templates[i]!);
+      if (!content) continue;
+      var nested = findSourceNodeForSelector(content, selector);
+      if (nested.node) return { node: nested.node, inTemplate: true };
+    }
+    return { node: null, inTemplate: false };
   }
 
   function scopedMorphContext(
@@ -3754,6 +3985,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  /**
+   * Runtime output (x-for clones) sits between authored siblings but has no
+   * source counterpart, so it is never a valid insertion position: anchoring
+   * an authored node on a clone hoists it above the clones belonging to the
+   * template that precedes them — which is how the static sibling of a repeat
+   * ends up first in its list.
+   */
+  function nextSourceAnchor(node: Node | null): Node | null {
+    var probe = node;
+    while (probe && !isSourceOwned(probe)) probe = probe.nextSibling;
+    return probe;
+  }
+
   function morphChildren(
     live: Element | DocumentFragment,
     next: Element | DocumentFragment,
@@ -3827,7 +4071,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Anchor on `cursor`, not on `reuse`: a keyed candidate can live
         // anywhere in the document, so when this parent is itself newly
         // inserted the old node is not its child and insertBefore throws.
-        live.insertBefore(rebuilt, cursor);
+        live.insertBefore(rebuilt, nextSourceAnchor(cursor));
         if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
         recordSourceSubtree(rebuilt);
         cursor = rebuilt.nextSibling;
@@ -3835,7 +4079,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         continue;
       }
       if (reuse) {
-        if (reuse !== cursor) live.insertBefore(reuse, cursor);
+        var reuseAnchor = nextSourceAnchor(cursor);
+        if (reuse !== reuseAnchor) live.insertBefore(reuse, reuseAnchor);
         if (reuse.nodeType === 1) {
           morphElement(reuse as Element, nextChild as Element, context);
         } else if (reuse.nodeValue !== nextChild.nodeValue) {
@@ -3848,7 +4093,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // swept as stale right after. Wrapping a component in a new parent
         // (the Group action) has to move the existing child, not rebuild it.
         var shell = document.importNode(nextChild as Element, false) as Element;
-        live.insertBefore(shell, cursor);
+        live.insertBefore(shell, nextSourceAnchor(cursor));
         recordSourceOwnership(shell);
         morphElement(shell, nextChild as Element, context);
         // That reconcile can pull `cursor` itself into the shell, leaving the
@@ -4052,6 +4297,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var matchedSelector = "";
       var fallbackCurrentMatch = null;
       var fallbackSelector = "";
+      var nextInTemplate = false;
       for (
         var matchIndex = 0;
         matchIndex < activeCandidates.length;
@@ -4061,9 +4307,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           var currentCandidate = document.querySelector(
             activeCandidates[matchIndex],
           );
-          var nextCandidate = nextDoc.querySelector(
+          var nextResolved = findSourceNodeForSelector(
+            nextDoc,
             activeCandidates[matchIndex],
           );
+          var nextCandidate = nextResolved.node;
           if (currentCandidate && !fallbackCurrentMatch) {
             fallbackCurrentMatch = currentCandidate;
             fallbackSelector = activeCandidates[matchIndex];
@@ -4071,6 +4319,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           if (currentCandidate && nextCandidate) {
             currentMatch = currentCandidate;
             nextMatch = nextCandidate;
+            nextInTemplate = nextResolved.inTemplate;
             matchedSelector = activeCandidates[matchIndex];
             break;
           }
@@ -4083,7 +4332,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentMatch = fallbackCurrentMatch;
         matchedSelector = fallbackSelector;
       }
+      // A source node inside a template feeds every clone it renders, so
+      // rewriting the one clone this selector happens to hit would leave the
+      // rest stale and replace it with markup whose bindings have no data.
+      // The whole body has to re-render instead.
       if (
+        !nextInTemplate &&
         currentMatch &&
         currentMatch !== document.body &&
         currentMatch !== document.documentElement &&
@@ -5401,6 +5655,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       overlay.style.transform = "";
     }
     if (overlay === selectionOverlay) {
+      paintRepeatInstances(el);
       applySelectionChrome(el);
       // Re-clamp handle hit zones for THIS element's dimensions — the
       // clamped geometry is element-dependent, not just scale-dependent
@@ -5720,6 +5975,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function refreshOverlays(): void {
+    paintRepeatInstances(selectedEl);
     var textEditingEl =
       activeTextEditEl ||
       (document.querySelector(
@@ -16119,7 +16375,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (didPatchDom) el.setAttribute("class", nextClass.join(" "));
     }
     if (prop && typeof prop === "string") {
-      applyInlineStyleProperty(el, prop, val);
+      var styleTargets = repeatStyleTargets(el);
+      for (var st = 0; st < styleTargets.length; st += 1) {
+        applyInlineStyleProperty(styleTargets[st]!, prop, val);
+      }
       didPatchDom = true;
     }
     if (didPatchDom) {

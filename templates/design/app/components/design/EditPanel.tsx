@@ -73,6 +73,7 @@ import {
 } from "./edit-panel/document-colors";
 import { EffectsProperties } from "./edit-panel/effects-properties";
 import {
+  elementHasComponentAnnotation,
   elementIsComponentSelection,
   inspectorObjectTitle,
   isContainerElement,
@@ -1065,6 +1066,7 @@ function SelectionHeader({
   /** Data for the "Inspect code" popover. When omitted the button renders disabled. */
   inspectCode?: InspectCodeData;
 }) {
+  const t = useT();
   if (!element) return null;
 
   const title =
@@ -1073,6 +1075,10 @@ function SelectionHeader({
       : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
   const isComponentSelection = elementIsComponentSelection(element);
+  // One row of a repeat is one source element, so an edit here reaches every
+  // row. Without this the propagation is invisible until the canvas changes.
+  const repeatCount =
+    selectedCount > 1 ? 0 : (element.repeat?.instanceCount ?? 0);
 
   return (
     <div className="shrink-0 border-b border-border/90 px-2">
@@ -1090,6 +1096,11 @@ function SelectionHeader({
               )}
             />
             <span className="truncate">{title}</span>
+            {repeatCount > 1 ? (
+              <span className="shrink-0 rounded-sm bg-[var(--design-editor-panel-raised-bg)] px-1 text-[10px] text-muted-foreground">
+                {t("editPanel.repeatAffectsAll", { count: repeatCount })}
+              </span>
+            ) : null}
           </div>
         </InspectorGridCell>
         {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
@@ -1915,7 +1926,7 @@ export const EditPanel = memo(function EditPanel({
   const selectionAlreadyComponent =
     selectedCount === 1 &&
     (selectedElementAlreadyComponent ||
-      elementIsComponentSelection(selectedElement));
+      elementHasComponentAnnotation(selectedElement));
   const canCreateComponent = Boolean(
     onCreateComponent &&
     selectedElement &&

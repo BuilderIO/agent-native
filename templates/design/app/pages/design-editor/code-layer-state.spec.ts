@@ -39,6 +39,7 @@ function makeNode(overrides: Partial<CodeLayerNode> = {}): CodeLayerNode {
     tag: overrides.tag ?? "div",
     layerName: overrides.layerName ?? "Div",
     layerNameSource: overrides.layerNameSource ?? "tag",
+    paintsOwnText: overrides.paintsOwnText ?? false,
     selector,
     selectors: overrides.selectors ?? [selector],
     path: overrides.path ?? selector,
@@ -951,9 +952,14 @@ describe("codeLayerNodeLooksLikeComponent", () => {
     );
   });
 
-  it("still treats a real component class as a component", () => {
-    expect(codeLayerNodeLooksLikeComponent(node(["pricing-card"]))).toBe(true);
-    expect(codeLayerNodeLooksLikeComponent(node(["btn-primary"]))).toBe(true);
+  // The canvas copy of a class rule carried no utility guard, so the same
+  // element read violet there and blue here.
+  it("does not infer a component from any class name", () => {
+    expect(codeLayerNodeLooksLikeComponent(node(["pricing-card"]))).toBe(false);
+    expect(codeLayerNodeLooksLikeComponent(node(["btn-primary"]))).toBe(false);
+    expect(codeLayerNodeLooksLikeComponent(node(["product-card-wrapper"]))).toBe(
+      false,
+    );
   });
 
   it("still treats a form control tag as a component", () => {

@@ -133,6 +133,26 @@ export interface CommitVisualStylesArgs {
   ydoc: Y.Doc | null;
 }
 
+/**
+ * A selector different from the selection's own means the caller deliberately
+ * retargeted the write — a repeat's template body, or the child that paints
+ * the text. Resolving from the selection then sends it back to the element the
+ * caller ruled out, and a clone's positional selector resolves to nothing in
+ * source, so the write silently vanishes.
+ */
+export function styleWriteIsRetargeted(
+  selector: unknown,
+  selectedElement: ElementInfo | null | undefined,
+): boolean {
+  return (
+    typeof selector === "string" &&
+    selector.length > 0 &&
+    typeof selectedElement?.selector === "string" &&
+    selectedElement.selector.length > 0 &&
+    selector !== selectedElement.selector
+  );
+}
+
 export function runCommitVisualStyles(
   {
     activeBreakpointUpperBoundPx,
@@ -283,7 +303,9 @@ export function runCommitVisualStyles(
     baseContent === activeProjectionContent
       ? activeCodeLayerProjection
       : buildCodeLayerProjection(baseContent);
-  const targetInfo = options.elementInfo ?? selectedElement;
+  const targetInfo =
+    options.elementInfo ??
+    (styleWriteIsRetargeted(selector, selectedElement) ? null : selectedElement);
   const targetResolution = targetInfo
     ? resolveCodeLayerTargetFromElementInfo(projection, targetInfo)
     : resolveCodeLayerTargetFromBridge(projection, selector);

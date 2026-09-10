@@ -35,6 +35,14 @@ describe("design auth plugin", () => {
     );
   });
 
+  it("lets a session-less external agent reach the agent-context endpoint", () => {
+    expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicPaths: expect.arrayContaining(["/api/design-agent-context.json"]),
+      }),
+    );
+  });
+
   it("does not expose review comment mutations", () => {
     const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
 

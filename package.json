@@ -106,6 +106,7 @@
     "guard:plan-marketplace": "tsx scripts/sync-plan-marketplace.ts --check",
     "guard:plan-skills": "tsx scripts/sync-plan-skills.ts --check",
     "guard:no-error-string-returns": "node scripts/guard-no-error-string-returns.mjs",
+    "guard:agent-access-endpoints-public": "tsx scripts/guard-agent-access-endpoints-public.ts",
     "guard:no-action-twin-routes": "node scripts/guard-no-action-twin-routes.mjs",
     "guard:external-result-contract": "node scripts/guard-external-result-contract.mjs",
     "guard:provider-action-factories": "tsx scripts/guard-provider-action-factories.ts",

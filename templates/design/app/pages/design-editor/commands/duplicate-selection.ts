@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -110,6 +111,29 @@ export function runDuplicateSelection({
   // U19: duplicate is a discrete one-shot action — see the matching note
   // in handlePasteSelection.
   undoManagerRef.current?.stopCapturing();
+  // A repeat's rows are data: duplicating the markup adds a second authored
+  // row next to the template rather than another item.
+  if (activeFile && selectedElement?.repeat) {
+    const edit = runRepeatItemEdit({
+      content: getFreshActiveContent(),
+      target: selectedElement.repeat,
+      operation: { kind: "duplicate" },
+    });
+    if (edit.status === "written") {
+      applyLocalContentUpdate(edit.content, {
+        forcePreviewFullDocument: true,
+      });
+      return;
+    }
+    if (edit.status === "refused") {
+      trace("structure", "repeat-item-refused", {
+        operation: "duplicate",
+        reason: edit.reason,
+      });
+      toast.error(t("designEditor.toasts.repeatListNotEditable"));
+      return;
+    }
+  }
   const snapshots = getSelectedLayerSnapshots();
   if (snapshots.length > 0) {
     const selectedIds: string[] = [];
