@@ -121,6 +121,20 @@ describe("Netlify PR preview workflow guard", () => {
       /needs\.deploy\.result != 'cancelled'/,
     );
     assert.match(pullRequestPreviewSource, /No successful deploy record/);
+    assert.match(pullRequestPreviewSource, /auto_merge: false/);
+    assert.match(pullRequestPreviewSource, /required_contexts: \[\]/);
+    assert.match(pullRequestPreviewSource, /createDeploymentStatus/);
+    assert.doesNotMatch(
+      pullRequestPreviewSource,
+      /issues: write|pull-requests: write|createComment/,
+    );
+    const previewJobs = preview.jobs as Record<string, Workflow>;
+    assert.equal(previewJobs.comment, undefined);
+    assert.deepEqual(previewJobs.deployment?.permissions, {
+      actions: "read",
+      contents: "read",
+      deployments: "write",
+    });
     assert.match(reusableSource, /build_args\+=\(--offline\)/);
   });
 });

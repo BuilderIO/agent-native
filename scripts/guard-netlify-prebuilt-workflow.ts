@@ -193,8 +193,8 @@ export function validateNetlifyPrPreviewWorkflow(
   const discoverCheckoutWith = asRecord(discoverCheckout?.with);
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
-  const comment = asRecord(jobs?.comment);
-  const commentPermissions = asRecord(comment?.permissions);
+  const deployment = asRecord(jobs?.deployment);
+  const deploymentPermissions = asRecord(deployment?.permissions);
 
   if (!asRecord(triggers?.pull_request_target)) {
     issues.push(`${pullRequestPath} must be triggered by pull_request_target`);
@@ -255,19 +255,18 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   if (
-    comment?.["runs-on"] !== "ubuntu-latest" ||
-    !Array.isArray(comment.needs) ||
-    !comment.needs.includes("deploy") ||
-    commentPermissions?.actions !== "read" ||
-    commentPermissions?.contents !== "read" ||
-    commentPermissions.issues !== "write" ||
-    commentPermissions["pull-requests"] !== "write" ||
-    Object.keys(commentPermissions ?? {}).some(
+    !deployment ||
+    deployment["runs-on"] !== "ubuntu-latest" ||
+    !Array.isArray(deployment.needs) ||
+    !deployment.needs.includes("deploy") ||
+    deploymentPermissions?.actions !== "read" ||
+    deploymentPermissions?.contents !== "read" ||
+    deploymentPermissions?.deployments !== "write" ||
+    Object.keys(deploymentPermissions ?? {}).some(
       (permission) =>
-        !["actions", "contents", "issues", "pull-requests"].includes(
-          permission,
-        ),
+        !["actions", "contents", "deployments"].includes(permission),
     ) ||
+    asRecord(jobs?.comment) ||
     !source.includes("actions/download-artifact@") ||
     !source.includes("actions/github-script@") ||
     !source.includes("listJobsForWorkflowRun") ||
@@ -277,10 +276,22 @@ export function validateNetlifyPrPreviewWorkflow(
     !source.includes("created_at") ||
     !source.includes("needs.deploy.result != 'cancelled'") ||
     !source.includes("continue-on-error: true") ||
-    !source.includes("No successful deploy record")
+    !source.includes("No successful deploy record") ||
+    !source.includes("createDeployment") ||
+    !source.includes("createDeploymentStatus") ||
+    !source.includes("auto_merge: false") ||
+    !source.includes("required_contexts: []") ||
+    !source.includes("transient_environment: true") ||
+    !source.includes("environment_url: record.deployUrl") ||
+    !source.includes("log_url:") ||
+    !source.includes("pr-${context.issue.number}-${record.siteName}") ||
+    source.includes("issues: write") ||
+    source.includes("pull-requests: write") ||
+    source.includes("createComment") ||
+    source.includes("updateComment")
   ) {
     issues.push(
-      `${pullRequestPath} comment job must own PR comment permissions and consume the trusted deploy record`,
+      `${pullRequestPath} deployment job must own deployment permissions and publish the trusted deploy record`,
     );
   }
   if (deployWith?.target !== "preview") {
