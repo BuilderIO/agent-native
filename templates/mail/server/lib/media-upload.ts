@@ -5,7 +5,7 @@ import { uploadFile } from "@agent-native/core/file-upload";
 import {
   getRequestContext,
   runWithRequestContext,
-} from "@agent-native/core/server";
+} from "@agent-native/core/server/request-context";
 
 import { getStoredUpload, putStoredUpload } from "./upload-store.js";
 

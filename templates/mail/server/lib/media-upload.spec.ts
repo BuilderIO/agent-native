@@ -1,7 +1,7 @@
 import {
   getRequestContext,
   runWithRequestContext,
-} from "@agent-native/core/server";
+} from "@agent-native/core/server/request-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const uploadFile = vi.hoisted(() => vi.fn());
