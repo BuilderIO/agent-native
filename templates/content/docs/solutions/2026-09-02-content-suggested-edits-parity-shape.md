@@ -9,6 +9,14 @@ governingArtifactRevision: content-suggested-edits-shape-r5
 
 # Content Suggested Edits parity
 
+## September 10 landing decision
+
+Alice tested the integrated editor, accepted the current behavior, and explicitly authorized landing and merging this PR. She separately accepted the known saved code-block preview/anchor failure for this release and confirmed that its follow-up is already triaged in the vault. Do not reopen that repair as part of landing. This supersedes the September 9 no-merge instruction and H8's code-block merge gate, not the recorded failure or the broader product contract.
+
+Main through `c22cc69cfc` is integrated in `8dc7bf67ba`, preserving the approved review layout, comment drafts, suggestion isolation, and incoming history/recovery behavior. Content typecheck/build, core build, 251 focused editor tests, 119 markdown tests, and all 71 guards passed. Independent bounded integration review found no actionable semantic findings. Focused native smoke confirmed the document/comment layout, saved-version browsing, and disabled restore while suggesting; no document text or review decisions were changed. Alice then tested this local result and approved it.
+
+This is acceptance of the current document-markdown increment for merge, not full generic typed Revision or production acceptance. Actual-agent, representative source/local-file, deployed-role, motion, and screen-reader gaps remain explicitly unverified. The earlier local fixture-cleanup discrepancy remains recorded below. Merge, CI, and deployment results must be read back separately; no deployment is claimed by this decision.
+
 ## Current acceptance revision — September 8, r5
 
 This is the cumulative governing story, not a replacement checklist for the latest fix. Alice requested full same-task human QA, incorporation of every earlier repair into this original Shape, and continued repair/retest until the real story passes. The dated r3/r4 diagnosis and envelopes below are historical records, not current pause instructions or permission to ship. Current work is local implementation and verification on the existing branch; no push, merge, or deployment is implied.
