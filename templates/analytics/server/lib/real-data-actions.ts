@@ -289,11 +289,9 @@ export function stripInjectedAnalyticsGuardContext(text: string): string {
 
 function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
   const hasWorkflowArtifact =
-    /\b(github actions?|ya?ml|cron|scheduled job|recurring job|pnpm script)\b|\.(?:ya?ml)\b/.test(
-      lower,
-    );
+    /\b(github actions?|ya?ml|pnpm script)\b|\.(?:ya?ml)\b/.test(lower);
   const hasCreationIntent =
-    /\b(want|need|create|make|set up|setup|add|migrate|move|port|convert|turn|translate|recreate|build)\b/.test(
+    /\b(want|need|create|make|set up|setup|add|migrate|move|port|convert|turn|translate|recreate|build|schedule)\b/.test(
       lower,
     );
   const hasAutomationTarget =
@@ -301,12 +299,13 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
       lower,
     );
   const hasExplicitAutomationTarget =
-    /\b(recurring job|scheduled job|automation|automations|cron)\b/.test(lower);
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule)\s+(?:(?:a|an|the)\s+)?(?:new\s+)?(?:recurring job|scheduled job|automation|automations|cron(?:\s+job)?|workflow|workflows)\b/.test(
+      lower,
+    );
 
   return (
-    /\brecurring job\b/.test(lower) ||
+    hasExplicitAutomationTarget ||
     (hasWorkflowArtifact && hasCreationIntent) ||
-    (hasCreationIntent && hasExplicitAutomationTarget) ||
     (hasCreationIntent &&
       hasAutomationTarget &&
       /\bgithub actions?\b/.test(lower))

@@ -1054,6 +1054,19 @@ describe("incomplete evidence detection", () => {
     expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
   });
 
+  it("keeps automation terms in dashboard metrics from suppressing construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard showing automation conversion rate",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard for cron job success rates",
+      ),
+    ).toBe(true);
+  });
+
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
     expect(
       looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),
