@@ -263,6 +263,43 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(schemaGateStep?.run), /unresolved_pending_sha/);
     assert.match(String(schemaGateStep?.run), /required_source_sha/);
     assert.match(String(schemaGateStep?.run), /schema_files/);
+    assert.match(String(schemaGateStep?.run), /schema_files_between/);
+    assert.match(
+      String(schemaGateStep?.run),
+      /Ignoring obsolete beta migration marker/,
+    );
+    assert.match(
+      String(schemaGateStep?.run),
+      /if ! changed_files="\$\(git diff --name-only "\$1" "\$2"\)"/,
+    );
+    assert.match(
+      String(schemaGateStep?.run),
+      /pending_schema_files="\$\(schema_files_between "\$pending_base" "\$pending_sha"\)"/,
+    );
+    assert.match(String(schemaGateStep?.run), /\[\[ "\$status" -eq 0 \]\]/);
+    assert.match(
+      String(schemaGateStep?.run),
+      /is_ancestor "\$latest_migrated_sha" "\$pending_sha"/,
+    );
+    assert.doesNotMatch(
+      String(schemaGateStep?.run),
+      /packages\/core\/src\/db\/\|/,
+    );
+    const schemaPattern = String(schemaGateStep?.run).match(
+      /grep -E '([^']+)'/,
+    )?.[1];
+    assert(schemaPattern);
+    const classifiesAsSchemaDependent = new RegExp(schemaPattern).test.bind(
+      new RegExp(schemaPattern),
+    );
+    assert.equal(
+      classifiesAsSchemaDependent("packages/core/src/db/client.ts"),
+      false,
+    );
+    assert.equal(
+      classifiesAsSchemaDependent("packages/core/src/db/schema.ts"),
+      true,
+    );
     const schemaGateBlockStep = (schemaGate.steps as Array<Workflow>).find(
       (step) =>
         step.name ===
