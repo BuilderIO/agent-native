@@ -185,4 +185,44 @@ describe("mirrorProductionDatabaseVariables", () => {
       value: "postgresql://preview.example/db",
     });
   });
+
+  it("converges when another preview creates a missing key first", async () => {
+    const requests: Array<{ url: string; options?: RequestInit }> = [];
+    let firstCreate = true;
+    await mirrorProductionDatabaseVariables({
+      accountId: "builder-io",
+      databaseUrl: "postgresql://preview.example/db",
+      siteId: "site",
+      sourceTemplate: "assets",
+      token: "test-token",
+      request: async (url, options) => {
+        requests.push({ url, options });
+        if (options?.method === "POST" && firstCreate) {
+          firstCreate = false;
+          return new Response(null, { status: 409 });
+        }
+        if (options?.method === "POST")
+          return new Response(null, { status: 201 });
+        if (options?.method === "PATCH")
+          return new Response(null, { status: 200 });
+        if (requests.length === 1) return Response.json([]);
+        return Response.json([
+          {
+            key: "DATABASE_URL",
+            values: [{ context: "production", id: "database-production" }],
+          },
+        ]);
+      },
+    });
+
+    assert.equal(
+      requests.filter(({ options }) => options?.method === "POST").length,
+      4,
+    );
+    assert.equal(
+      requests.filter(({ options }) => options?.method === "PATCH").length,
+      1,
+    );
+    assert.equal(requests.filter(({ options }) => !options?.method).length, 2);
+  });
 });

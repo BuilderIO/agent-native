@@ -248,24 +248,49 @@ export async function mirrorProductionDatabaseVariables({
   }
 
   for (const variable of desired) {
-    const current = existingByKey.get(variable.key);
+    let current = existingByKey.get(variable.key);
     if (!current) {
-      await assertResponse(
-        await request(netlifyEnvUrl(accountId, siteId), {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify([
-            {
-              key: variable.key,
-              scopes: DATABASE_SCOPES,
-              is_secret: true,
-              values: [{ context: PREVIEW_CONTEXT, value: variable.value }],
-            },
-          ]),
-        }),
-        `${variable.key} deploy-preview environment creation`,
+      const createResponse = await request(netlifyEnvUrl(accountId, siteId), {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify([
+          {
+            key: variable.key,
+            scopes: DATABASE_SCOPES,
+            is_secret: true,
+            values: [{ context: PREVIEW_CONTEXT, value: variable.value }],
+          },
+        ]),
+      });
+      const createStatus = createResponse.status;
+      await createResponse.arrayBuffer();
+      if (createResponse.ok) continue;
+      if (createStatus !== 409) {
+        throw new Error(
+          `${variable.key} deploy-preview environment creation failed with HTTP ${createStatus}.`,
+        );
+      }
+
+      // Another PR can create the key after the metadata lookup. Re-read the
+      // metadata and update that key so concurrent previews converge.
+      const refreshedResponse = await request(
+        netlifyEnvUrl(accountId, siteId),
+        {
+          headers,
+        },
       );
-      continue;
+      const refreshed = parseNetlifyDatabaseVariables(
+        await readJson(
+          refreshedResponse,
+          "Netlify environment metadata refresh after concurrent creation",
+        ),
+      );
+      current = refreshed.find(({ key }) => key === variable.key);
+      if (!current) {
+        throw new Error(
+          `${variable.key}: concurrent environment creation returned HTTP 409 but the key is still missing.`,
+        );
+      }
     }
 
     const previewValues = current.values.filter(
