@@ -132,8 +132,8 @@ function AssetsCommandMenu({
   const location = useLocation();
   const navigate = useNavigate();
   const searchPath = location.pathname.startsWith("/templates")
-    ? "/templates"
-    : "/library";
+    ? "/templates?focus=search"
+    : "/library?tab=generated&focus=search";
   return (
     <CommandMenu
       open={open}
