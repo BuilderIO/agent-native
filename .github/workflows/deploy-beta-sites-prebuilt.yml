@@ -147,6 +147,19 @@ jobs:
           commit_for_tag() {
             git rev-parse "$1^{commit}" 2>/dev/null
           }
+          schema_files_between() {
+            local changed_files
+            if ! changed_files="$(git diff --name-only "$1" "$2")"; then
+              echo "::error::Unable to compare schema-dependent paths between $1 and $2." >&2
+              return 2
+            fi
+            printf '%s\n' "$changed_files" |
+              grep -Ev '\.(spec|test)\.[cm]?[jt]sx?$' |
+              grep -E '(^|/)server/db/.+\.ts$|^packages/core/src/db/(schema|migrations|drizzle-migrations|migration-runtime|ensure-additive-columns|widen-columns)\.ts$|^packages/core/src/(resources|extensions|data-programs)/.+\.ts$|(^|/)store\.ts$|(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(scripts/)?migrate-production\.ts|drizzle(\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$|\.sql$' || {
+                status=$?
+                [[ "$status" -eq 1 ]] || return "$status"
+              }
+          }
 
           if [[ -n "$migrated_source_sha" ]]; then
             marker_sha="$(commit_for_tag "agent-native-beta-migrated/$migrated_source_sha")" || {
@@ -192,6 +205,19 @@ jobs:
                 break
               done <<< "$migrated_tags"
               [[ "$resolved" == true ]] && continue
+              pending_base="$(git hash-object -t tree /dev/null)"
+              if [[ -n "$latest_migrated_sha" ]] && is_ancestor "$latest_migrated_sha" "$pending_sha"; then
+                pending_base="$latest_migrated_sha"
+              fi
+              set +e
+              pending_schema_files="$(schema_files_between "$pending_base" "$pending_sha")"
+              status=$?
+              set -e
+              [[ "$status" -eq 0 ]] || exit "$status"
+              if [[ -z "$pending_schema_files" ]]; then
+                echo "::warning::Ignoring obsolete beta migration marker $pending_tag; its range since the latest production migration has no schema-dependent changes."
+                continue
+              fi
               distance="$(git rev-list --count "$pending_sha..$source_sha")"
               if [[ -z "$unresolved_pending_distance" || "$distance" -lt "$unresolved_pending_distance" ]]; then
                 unresolved_pending_sha="$pending_sha"
@@ -219,16 +245,9 @@ jobs:
           else
             base_sha="$(git rev-parse "$source_sha^" 2>/dev/null || git hash-object -t tree /dev/null)"
           fi
-          changed_files="$(git diff --name-only "$base_sha" "$source_sha")"
           # ponytail: path-based schema gate; replace with production migration
           # status when GitHub Actions can access Netlify's masked secrets.
-          schema_files="$(
-            printf '%s\n' "$changed_files" |
-              grep -E '(^|/)(server/db/|packages/core/src/db/|packages/core/src/(resources|extensions|data-programs)/).+\.ts$|(^|/)store\.ts$|(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(scripts/)?migrate-production\.ts|drizzle(\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$|\.sql$' || {
-                status=$?
-                [[ "$status" -eq 1 ]] || exit "$status"
-              }
-          )"
+          schema_files="$(schema_files_between "$base_sha" "$source_sha")"
           if [[ -n "$unresolved_pending_sha" ]]; then
             echo "::error::Beta remains withheld for unconfirmed production migration at $unresolved_pending_sha."
             if [[ -n "$schema_files" ]]; then

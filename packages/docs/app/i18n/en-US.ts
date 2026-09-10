@@ -2102,7 +2102,6 @@ const enUS = {
     usingYourAgent: "Using Your Agent",
     agentResources: "Agent Resources",
     integrations: "Integrations",
-    buildApps: "Build Apps",
     advancedRuntime: "Advanced: Extend the Runtime",
     templatesSection: "Apps",
     gettingStarted: "Getting Started",
@@ -2239,11 +2238,12 @@ const enUS = {
     notifications: "Notifications",
     automationConnectors: "Workflow Connectors",
     workspaceConnections: "Workspace Connections",
-    creatingTemplates: "Creating Apps",
+    // i18n-copy-ignore: existing locale translations already name templates;
+    // this fixes the English nav label to match the page.
+    creatingTemplates: "Creating Templates",
     syncingTemplateChanges: "Syncing Template Changes",
     writingAgentInstructions: "Writing Agent Instructions",
     embeddingSdk: "Embedding SDK",
-    frames: "Frames",
     docsComponents: "Docs Components",
     agentNativeCodeUi: "Agent-Native Code UI",
     harnessAgents: "Harness Agents",

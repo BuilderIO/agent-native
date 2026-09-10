@@ -220,6 +220,7 @@ function AppContent() {
 function PrivateAppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
@@ -232,9 +233,17 @@ function PrivateAppContent() {
         changelogKey="calendar"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
-          </CommandMenu.Item>
+          {location.pathname === "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/booking-links")}>
+              {t("navigation.bookingLinks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/booking-links") ||
+          location.pathname.startsWith("/settings") ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.calendar")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[

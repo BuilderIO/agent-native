@@ -1060,6 +1060,13 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
   "z-ai/glm-5.2": "GLM 5.2",
+  "openai/gpt-6-astra": "GPT-6 Astra",
+  "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
+  "anthropic/claude-fable-5.1": "Fable 5.1",
+  "google/gemini-3.8-flash": "Gemini 3.8 Flash",
+  "qwen/qwen3.8-max-0902": "Qwen 3.8 Max",
+  "meta/muse-spark-1.3": "Muse Spark 1.3",
+  "inception/mercury-2.5": "Mercury 2.5",
 };
 
 const LOCAL_RUNTIME_ENGINES = new Set([

@@ -694,6 +694,10 @@ function mountActionRoutesInternal(
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
         const isSyntheticTraffic = readSyntheticTrafficHeader(event);
         const browserTabId = readBrowserTabIdHeader(event);
+        const requestWaitUntil =
+          typeof event.req?.waitUntil === "function"
+            ? event.req.waitUntil.bind(event.req)
+            : undefined;
 
         return runWithRequestContext(
           {
@@ -707,7 +711,16 @@ function mountActionRoutesInternal(
             timezone,
             browserSessionId,
             clientPlatform,
-            ...(browserTabId ? { run: { browserTabId } } : {}),
+            ...(browserTabId || requestWaitUntil
+              ? {
+                  run: {
+                    ...(browserTabId ? { browserTabId } : {}),
+                    ...(requestWaitUntil
+                      ? { waitUntil: requestWaitUntil }
+                      : {}),
+                  },
+                }
+              : {}),
             ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
             requestOrigin: getForwardedRequestOrigin(event),
             federationMembershipValidated:

@@ -13,6 +13,7 @@ import {
   PRODUCTION_SITE_GROUP,
   validateGoogleCallbackVerificationWorkflow,
   validateNetlifyApiRateLimitHandling,
+  validateNetlifyPrPreviewWorkflow,
   validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
   validateProductionSiteConcurrency,
@@ -51,6 +52,11 @@ const nodeHeredocs = [
   ),
 ].map((match) => match[1]);
 
+const pullRequestPreviewSource = readFileSync(
+  ".github/workflows/deploy-netlify-pr-previews.yml",
+  "utf8",
+);
+
 describe("Google callback deploy verification guard", () => {
   it("requires direct probe execution and rolls back only definitive mismatches", () => {
     assert.deepEqual(
@@ -70,6 +76,30 @@ describe("Google callback deploy verification guard", () => {
           ),
       ).join("\n"),
       /directly with the supported Node loader|only definitive/,
+    );
+  });
+});
+
+describe("Netlify PR preview workflow guard", () => {
+  it("keeps PR builds secret-free and uploads through the trusted prebuilt lane", () => {
+    assert.deepEqual(
+      validateNetlifyPrPreviewWorkflow(
+        readWorkflow(".github/workflows/deploy-netlify-pr-previews.yml"),
+        pullRequestPreviewSource,
+      ),
+      [],
+    );
+    const preview = readWorkflow(
+      ".github/workflows/deploy-netlify-pr-previews.yml",
+    );
+    const previewDeploy = (preview.jobs as Record<string, Workflow>).deploy;
+    assert.equal(
+      (previewDeploy.with as Workflow).checkout_ref,
+      "${{ github.event.pull_request.base.sha }}",
+    );
+    assert.match(
+      reusableSource,
+      /supplies static files; arbitrary PR Functions never reach Netlify\./,
     );
   });
 });
@@ -263,6 +293,43 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(schemaGateStep?.run), /unresolved_pending_sha/);
     assert.match(String(schemaGateStep?.run), /required_source_sha/);
     assert.match(String(schemaGateStep?.run), /schema_files/);
+    assert.match(String(schemaGateStep?.run), /schema_files_between/);
+    assert.match(
+      String(schemaGateStep?.run),
+      /Ignoring obsolete beta migration marker/,
+    );
+    assert.match(
+      String(schemaGateStep?.run),
+      /if ! changed_files="\$\(git diff --name-only "\$1" "\$2"\)"/,
+    );
+    assert.match(
+      String(schemaGateStep?.run),
+      /pending_schema_files="\$\(schema_files_between "\$pending_base" "\$pending_sha"\)"/,
+    );
+    assert.match(String(schemaGateStep?.run), /\[\[ "\$status" -eq 0 \]\]/);
+    assert.match(
+      String(schemaGateStep?.run),
+      /is_ancestor "\$latest_migrated_sha" "\$pending_sha"/,
+    );
+    assert.doesNotMatch(
+      String(schemaGateStep?.run),
+      /packages\/core\/src\/db\/\|/,
+    );
+    const schemaPattern = String(schemaGateStep?.run).match(
+      /grep -E '([^']+)'/,
+    )?.[1];
+    assert(schemaPattern);
+    const classifiesAsSchemaDependent = new RegExp(schemaPattern).test.bind(
+      new RegExp(schemaPattern),
+    );
+    assert.equal(
+      classifiesAsSchemaDependent("packages/core/src/db/client.ts"),
+      false,
+    );
+    assert.equal(
+      classifiesAsSchemaDependent("packages/core/src/db/schema.ts"),
+      true,
+    );
     const schemaGateBlockStep = (schemaGate.steps as Array<Workflow>).find(
       (step) =>
         step.name ===
@@ -783,7 +850,7 @@ describe("production Netlify site concurrency guard", () => {
 
     assert.match(
       build,
-      /if \[\[ \"\$TARGET\" == \"production\" && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
+      /if \[\[ \( \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
     );
     assert.match(chatNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(chatNetlify, /agentNativePrebuiltAuthSecret/);
@@ -806,9 +873,30 @@ describe("production Netlify site concurrency guard", () => {
     assert(artifact);
     assert.equal(
       artifact.if,
-      "inputs.migration_only != true && (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')",
+      "inputs.migration_only != true && inputs.artifact_download != true && (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')",
     );
     assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
+  });
+
+  it("checks the built docs cold-start budget before publishing", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const index = steps.findIndex(
+      (step) => step.name === "Verify docs cold-start budget",
+    );
+    assert(index >= 0);
+    assert.equal(
+      steps[index].if,
+      "inputs.migration_only != true && inputs.artifact_download != true && steps.target.outputs.source_template == '@agent-native/docs'",
+    );
+    assert.match(
+      String(steps[index].run),
+      /NODE_ENV=production NETLIFY=true timeout 180 node scripts\/ssr-boot-smoke\.mjs packages\/docs/,
+    );
+    assert(index < steps.findIndex((step) => step.id === "deploy"));
   });
 
   it("smoke-tests app health while keeping static docs on a shell-only probe", () => {
@@ -823,17 +911,31 @@ describe("production Netlify site concurrency guard", () => {
     const docsSmoke = steps.find(
       (step) => step.name === "Smoke-test the static docs deploy",
     );
+    const previewSmoke = steps.find(
+      (step) => step.name === "Smoke-test the uploaded PR preview",
+    );
 
     assert(appSmoke);
     assert.equal(
       appSmoke.if,
-      "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+      "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
     );
     // The smoke step asserts the health BODY (ready, db, schema,
     // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.
     assert.match(String(appSmoke.run), /scripts\/smoke-check-health\.ts/);
     assert.match(String(appSmoke.run), /--auth-routes/);
     assert.match(String(appSmoke.run), /--canonical-host/);
+
+    assert(previewSmoke);
+    assert.equal(
+      previewSmoke.if,
+      "inputs.target == 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+    );
+    assert.match(String(previewSmoke.run), /scripts\/smoke-check-health\.ts/);
+    assert.match(String(previewSmoke.run), /--canonical-host/);
+    assert.match(String(previewSmoke.run), /--auth-routes/);
+    assert.match(String(previewSmoke.run), /--preview/);
+    assert.match(String(previewSmoke.run), /--allow-missing-health/);
 
     assert(docsSmoke);
     assert.equal(
