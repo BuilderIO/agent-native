@@ -48,16 +48,16 @@ const OUTPUTS = [
   {
     label: "Presentation",
     icon: IconPresentation,
-    area: "e",
-    x: "92%",
-    y: "50%",
+    area: "s",
+    x: "50%",
+    y: "88%",
   },
   {
     label: "Design",
     icon: IconPalette,
-    area: "s",
-    x: "50%",
-    y: "88%",
+    area: "e",
+    x: "92%",
+    y: "50%",
   },
   {
     label: "Document",
