@@ -1245,12 +1245,23 @@ describe("incomplete evidence detection", () => {
         "Schedule a daily refresh of the dashboard",
       ),
     ).toBe(false);
+    for (const request of [
+      "Could you schedule a dashboard refresh every morning?",
+      "Can you schedule the Revenue dashboard to refresh daily?",
+      "Create a scheduled refresh of the Revenue dashboard",
+      "Configure a scheduled refresh for the Revenue dashboard",
+      "Update the Revenue dashboard on a cron schedule",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    }
   });
 
-  it("keeps cron refresh-rate questions as analytics requests", () => {
+  it("keeps refresh-rate questions as analytics requests", () => {
     for (const request of [
       "What is the dashboard refresh rate via cron?",
       "Show the dashboard refresh rate via cron for the past week.",
+      "What is the refresh rate of the dashboard?",
+      "How often does the Revenue dashboard refresh?",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
@@ -1291,6 +1302,14 @@ describe("incomplete evidence detection", () => {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
     }
+  });
+
+  it("preserves a following dashboard build after a refresh-rate report", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a report showing the dashboard refresh rate, then build a Sales dashboard",
+      ),
+    ).toBe(true);
   });
 
   it("does not treat a dashboard template input as dashboard construction", () => {

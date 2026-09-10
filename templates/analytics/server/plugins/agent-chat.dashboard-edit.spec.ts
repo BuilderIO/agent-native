@@ -425,6 +425,11 @@ describe("realDataFinalGuard dashboard edits", () => {
       "Schedule the dashboard to refresh daily",
       "Schedule a refresh of the Revenue dashboard every morning",
       "Schedule a daily refresh of the dashboard",
+      "Could you schedule a dashboard refresh every morning?",
+      "Can you schedule the Revenue dashboard to refresh daily?",
+      "Create a scheduled refresh of the Revenue dashboard",
+      "Configure a scheduled refresh for the Revenue dashboard",
+      "Update the Revenue dashboard on a cron schedule",
     ]) {
       const result = realDataFinalGuard(
         guardContext({
@@ -449,16 +454,36 @@ describe("realDataFinalGuard dashboard edits", () => {
   });
 
   it("does not steer report-framed refresh-rate queries into dashboard construction", () => {
+    for (const userText of [
+      "Create a report showing the dashboard refresh rate",
+      "What is the refresh rate of the dashboard?",
+      "How often does the Revenue dashboard refresh?",
+    ]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: "The dashboard refresh rate is 92 percent.",
+        }),
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.retryMessage).toContain("real source query");
+      expect(result?.retryMessage).not.toContain(
+        "dashboard construction/template-clone",
+      );
+    }
+  });
+
+  it("keeps dashboard recovery after a comma-then refresh-rate report", () => {
     const result = realDataFinalGuard(
       guardContext({
-        userText: "Create a report showing the dashboard refresh rate",
-        draftText: "The dashboard refresh rate is 92 percent.",
+        userText:
+          "Create a report showing the dashboard refresh rate, then build a Sales dashboard",
+        draftText: "The report is ready.",
       }),
     );
 
-    expect(result).not.toBeNull();
-    expect(result?.retryMessage).toContain("real source query");
-    expect(result?.retryMessage).not.toContain(
+    expect(result?.retryMessage).toContain(
       "dashboard construction/template-clone",
     );
   });
