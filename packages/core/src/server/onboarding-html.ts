@@ -1292,12 +1292,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.15;
+    opacity: 0.45;
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    [data-agent-native-starfield] { opacity: 0.15; }
+    [data-agent-native-starfield] { opacity: 0.45; }
   }
   .split {
     position: relative;
@@ -2312,7 +2312,7 @@ ${marketingStyles}
     max-width: none;
     max-height: none;
     filter: none;
-    opacity: 0.15;
+    opacity: 0.45;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
     position: fixed;
