@@ -13,6 +13,12 @@
  * on purpose: the surrounding rows sit directly on the section background, and
  * a drop shadow made this one card float out of that plane.
  *
+ * The agent's response fades and unblurs up into place the first time it
+ * scrolls into view (an IntersectionObserver toggles the class that plays the
+ * transition), so the card reads as the prompt resolving into an answer
+ * rather than arriving fully formed. The prompt above it is unanimated —
+ * it's the given, not the reveal.
+ *
  * i18n-raw-literal-disable-file -- this is artwork, not UI copy. The wrapper is
  * a `role="img"` with a localized `aria-label` and the entire frame inside it
  * is `aria-hidden`, so no assistive tech ever reads these strings; they are
@@ -23,6 +29,7 @@ import {
   IconChevronRight,
   IconPaperclip,
 } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
 
 const FIXED_ITEMS = [
   "Sidebar nav didn't collapse on mobile. I saw it clipped in your screenshot at 0:42.",
@@ -41,6 +48,16 @@ const CLIPS_CELL_MOCK_CSS = [
   ".clips-cell-mock-prompt-link { color: var(--cell-fg-muted); }",
 
   ".clips-cell-mock-response { display: flex; flex-direction: column; gap: 11px; }",
+
+  // Hidden by default and revealed by adding clips-cell-reveal-in once the
+  // card scrolls into view (see the IntersectionObserver in the component).
+  // The two fallbacks below keep it from ever being stuck invisible:
+  // scripting:none covers no-JS, and reduced-motion covers visitors who
+  // asked not to see things move — both just show the end state immediately.
+  ".clips-cell-mock-response { opacity: 0; filter: blur(8px); transform: translateY(16px); transition: opacity 0.7s cubic-bezier(0.5, 1, 0.89, 1), filter 0.7s cubic-bezier(0.5, 1, 0.89, 1), transform 0.7s cubic-bezier(0.5, 1, 0.89, 1); }",
+  ".clips-cell-mock-response.clips-cell-reveal-in { opacity: 1; filter: blur(0); transform: translateY(0); }",
+  "@media (scripting: none) { .clips-cell-mock-response { opacity: 1; filter: none; transform: none; } }",
+  "@media (prefers-reduced-motion: reduce) { .clips-cell-mock-response { opacity: 1; filter: none; transform: none; transition: none; } }",
   ".clips-cell-mock-searched { display: flex; align-items: center; gap: 2px; color: var(--cell-fg-subtle); font-size: 14px; }",
   ".clips-cell-mock-heading { color: var(--cell-fg); font-size: 15.5px; font-weight: 500; }",
   ".clips-cell-mock-list { display: flex; flex-direction: column; gap: 8px; padding: 0; margin: 0; list-style: none; }",
@@ -62,6 +79,25 @@ export function ClipsInvestigateBugMock({
   className?: string;
   label?: string;
 }) {
+  const responseRef = useRef<HTMLDivElement>(null);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    const node = responseRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setRevealed(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.4 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div
       className={`clips-cell-mock ${className}`}
@@ -77,7 +113,10 @@ export function ClipsInvestigateBugMock({
           </span>{" "}
           and fix the bugs I found in the dashboard.
         </div>
-        <div className="clips-cell-mock-response">
+        <div
+          ref={responseRef}
+          className={`clips-cell-mock-response ${revealed ? "clips-cell-reveal-in" : ""}`}
+        >
           <div className="clips-cell-mock-searched">
             Watched the recording <IconChevronRight size={14} />
           </div>
