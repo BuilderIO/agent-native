@@ -1016,10 +1016,21 @@ if (
   !firstBetaPublish.includes("id: beta_first_publish") ||
   !firstBetaPublish.includes("--prod") ||
   firstBetaPublish.includes("/restore") ||
+  !firstBetaPublish.includes(
+    "Wait for first beta production deploy to publish",
+  ) ||
+  !firstBetaPublish.includes("id: beta_first_publish_wait") ||
+  !firstBetaPublish.includes("Netlify first beta production deploy status") ||
+  !firstBetaPublish.includes(
+    "did not become ready and published within 30 minutes",
+  ) ||
   !firstBetaPublish.includes("main_sha,,}") ||
   !firstBetaPublish.includes("SOURCE_REF,,}") ||
   !reusableBetaFreshness.includes(
     "steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.deploy.outputs.deploy_url }}",
   ) ||
   !reusableBetaFreshness.includes(
     "First publishes are staged as drafts and only published after a current-main check",

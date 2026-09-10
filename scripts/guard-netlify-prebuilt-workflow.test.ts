@@ -538,6 +538,16 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(reusableSource, /id: beta_first_publish/);
     assert.match(reusableSource, /--prod/);
+    assert.match(
+      reusableSource,
+      /Wait for first beta production deploy to publish/,
+    );
+    assert.match(reusableSource, /id: beta_first_publish_wait/);
+    assert.match(reusableSource, /Netlify first beta production deploy status/);
+    assert.match(
+      reusableSource,
+      /did not become ready and published within 30 minutes/,
+    );
     assert.match(reusableSource, /main_sha,,\}" != "\$\{SOURCE_REF,,\}"/);
     assert.doesNotMatch(
       reusableSource.slice(
@@ -553,6 +563,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       reusableSource,
       /steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.deploy\.outputs\.deploy_id/,
+    );
+    assert.match(
+      reusableSource,
+      /DEPLOY_URL: \$\{\{ steps\.beta_first_publish\.outputs\.deploy_url \|\| steps\.deploy\.outputs\.deploy_url \}\}/,
     );
     assert.match(
       reusableSource,
@@ -633,11 +647,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 10);
+    assert.equal(nodeHeredocs.length, 11);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      10,
+      11,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),

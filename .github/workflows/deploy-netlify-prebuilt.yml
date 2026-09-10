@@ -1297,6 +1297,77 @@ jobs:
           echo "deploy_id=$deploy_id" >> "$GITHUB_OUTPUT"
           echo "Published first beta artifact as production deploy $deploy_id after the final freshness check."
 
+      - name: Wait for first beta production deploy to publish
+        id: beta_first_publish_wait
+        if: steps.beta_first_publish.outputs.deploy_id != ''
+        env:
+          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+            const fs = require("node:fs");
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const api = "https://api.netlify.com/api/v1";
+            const headers = {
+              Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            };
+            const request = (url) => requestNetlifyApi(url, { headers });
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            async function readJson(response, label) {
+              const text = await response.text();
+              const body = text ? JSON.parse(text) : null;
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+              }
+              return body;
+            }
+            const deployId = process.env.DEPLOY_ID;
+            const siteId = process.env.NETLIFY_SITE_ID;
+            const deadline = Date.now() + 30 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const deploy = await readJson(
+                await request(`${api}/deploys/${deployId}`),
+                "Netlify first beta production deploy status",
+              );
+              if (["error", "canceled", "rejected"].includes(deploy.state)) {
+                throw new Error(
+                  `Netlify first beta production deploy ${deployId} failed in state ${deploy.state}: ${deploy.error_message || "unknown error"}`,
+                );
+              }
+              if (deploy.state === "ready") {
+                const site = await readJson(
+                  await request(`${api}/sites/${siteId}`),
+                  "Netlify first beta published deploy lookup",
+                );
+                const publishedId = site.published_deploy?.id;
+                if (publishedId === deployId) {
+                  fs.appendFileSync(process.env.GITHUB_OUTPUT, `published_deploy_id=${deployId}\n`);
+                  console.log(`Netlify published first beta production deploy ${deployId}.`);
+                  return;
+                }
+                if (publishedId) {
+                  fs.appendFileSync(process.env.GITHUB_OUTPUT, `published_deploy_id=${publishedId}\n`);
+                  console.log(`Netlify first beta production deploy ${deployId} was superseded by published deploy ${publishedId}.`);
+                  return;
+                }
+                console.log("First beta production deploy is ready; waiting for Netlify to publish it.");
+              } else {
+                console.log(`Netlify first beta production deploy state: ${deploy.state || "unknown"}`);
+              }
+              await sleep(10_000);
+            }
+            throw new Error(
+              `Netlify first beta production deploy ${deployId} did not become ready and published within 30 minutes.`,
+            );
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Verify beta source is current after publish
         id: beta_post_freshness
         if: >-
@@ -1457,7 +1528,8 @@ jobs:
           inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
-          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}
+          DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.deploy.outputs.deploy_url }}
           HOST: ${{ steps.target.outputs.host }}
         run: |
           set -euo pipefail
