@@ -317,7 +317,7 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain(
-      "transition-[background-color,transform] duration-[260ms] ease-[var(--ease-drawer)]",
+      "transition-[background-color,transform,translate] duration-[260ms] ease-[var(--ease-drawer)]",
     );
     expect(source).not.toContain("allowEmphasisMotion");
     expect(source).toContain(
