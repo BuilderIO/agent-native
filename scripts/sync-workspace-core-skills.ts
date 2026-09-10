@@ -6,10 +6,12 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
+  readlinkSync,
   rmSync,
   statSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -662,13 +664,16 @@ function checkNoStaleTemplateSharedSkills() {
 function copySkill(skill, targetSkillDir) {
   if (
     existsSync(targetSkillDir) &&
-    lstatSync(targetSkillDir).isSymbolicLink()
+    lstatSync(targetSkillDir).isSymbolicLink() &&
+    !isAbsolute(readlinkSync(targetSkillDir))
   ) {
     return;
   }
   rmSync(targetSkillDir, { recursive: true, force: true });
   mkdirSync(dirname(targetSkillDir), { recursive: true });
-  cpSync(join(sourceDir, skill), targetSkillDir, { recursive: true });
+  cpSync(realpathSync(join(sourceDir, skill)), targetSkillDir, {
+    recursive: true,
+  });
 }
 
 function syncWorkspaceCoreSkills() {
