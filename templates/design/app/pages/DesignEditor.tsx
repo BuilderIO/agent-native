@@ -1460,6 +1460,10 @@ function DesignEditor() {
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
   const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] =
     useState(minimalUiByDefault);
+  useEffect(() => {
+    setMinimalUi(minimalUiByDefault);
+    setMinimalRightSidebarOpen(minimalUiByDefault);
+  }, [minimalUiByDefault]);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");

@@ -143,6 +143,12 @@ describe("responsive Interact wiring", () => {
     expect(source).toContain("isMobileViewport && minimalRightSidebarOpen");
   });
 
+  it("resets chrome mode when same-design navigation changes embed mode", () => {
+    expect(source).toContain("setMinimalUi(minimalUiByDefault);");
+    expect(source).toContain("setMinimalRightSidebarOpen(minimalUiByDefault);");
+    expect(source).toContain("}, [minimalUiByDefault]);");
+  });
+
   it("pushes editing safety live in addition to baking it", () => {
     // Editing safety stays BAKED into the gesture script (keyed on
     // interactMode). Un-baking it to keep the bridge key stable across
