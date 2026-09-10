@@ -220,6 +220,7 @@ describe("new deck generation flow", () => {
       "The target generation context must retain the source handle",
     );
     expect(referenceImportFlow).toContain("let generationFiles = uploaded;");
+    expect(referenceImportFlow).toContain("referenceFilePaths");
     expect(referenceImportFlow).not.toMatch(
       /generationFiles = uploaded\.filter\(\s*\(file\) => file !== documentReference,/,
     );
