@@ -117,6 +117,45 @@ describe("persistTextAttachmentsAsResources", () => {
     expect(content).toBe("id,name\n1,Alice");
   });
 
+  it("keeps the tail of a large EML available for read-attachment", async () => {
+    const content =
+      "From: sender@example.com\n\n" + "A".repeat(200_000) + "TAIL";
+
+    const stored = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "message.eml",
+          contentType: "message/rfc822",
+          text: content,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(stored.get(0)?.totalChars).toBe(content.length);
+    resourceListMock.mockResolvedValue([
+      { id: "resource-message", path: "attachments/thread-1/0-message.eml" },
+    ]);
+    resourceGetMock.mockResolvedValue({ content });
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      {
+        name: "message.eml",
+        threadId: "thread-1",
+        offset: String(content.length - 4),
+        limit: "4",
+      },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("TAIL");
+    expect(result.totalChars).toBe(content.length);
+  });
+
   it("skips attachments without text content", async () => {
     const result = await persistTextAttachmentsAsResources({
       attachments: [
