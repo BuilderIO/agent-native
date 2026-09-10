@@ -117,6 +117,33 @@ describe("workspacifyApp core pinning", () => {
     expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
   });
 
+  it("detects optional node-pty dependencies", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n  - apps/*\n",
+    );
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify(
+        { name: "mail", optionalDependencies: { "node-pty": "^1.0.0" } },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    expect(
+      fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8"),
+    ).toContain("node-pty@*:");
+  });
+
   it("merges existing packageExtensions YAML without duplicate keys", () => {
     const sources = [
       "packageExtensions:\n  'node-pty@*':\n    dependencies:\n      node-gyp: '^12.4.0'\n",

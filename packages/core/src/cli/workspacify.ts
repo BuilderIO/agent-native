@@ -176,6 +176,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
         pkg.dependencies,
         pkg.devDependencies,
         pkg.peerDependencies,
+        pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       // pnpm build-script approvals belong at the workspace root. Leaving the
       // template's per-app setting in place makes pnpm warn on every install.

@@ -2024,6 +2024,7 @@ function postProcessStandalone(
         pkg.dependencies,
         pkg.devDependencies,
         pkg.peerDependencies,
+        pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {}
