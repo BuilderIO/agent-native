@@ -540,6 +540,30 @@ describe("buildBuilderWaitlistFormPayload", () => {
     });
   });
 
+  it("preserves the design make-real waitlist use case", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design/abc",
+        source: "design_make_real_dialog",
+        useCase: "design_make_real_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_make_real_dialog",
+        useCase: "design_make_real_waitlist",
+      },
+      _meta: {
+        source: "design_make_real_dialog",
+        useCase: "design_make_real_waitlist",
+      },
+    });
+  });
+
   it("falls back to the default use case for unknown waitlist values", () => {
     const event = createMockEvent(
       "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",

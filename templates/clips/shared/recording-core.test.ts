@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   chunkUploadParallelism,
   chunkUploadQuery,
+  chunkUploadUrl,
   normalizeChunkUploadNumber,
 } from "./recording-core";
 
@@ -70,5 +71,22 @@ describe("recording upload URL helpers", () => {
     expect(params.get("hasCamera")).toBe("0");
     expect(params.get("attemptId")).toBeNull();
     expect(params.get("uploadGenerationId")).toBeNull();
+  });
+
+  it("preserves capability query parameters on intake upload URLs", () => {
+    const url = new URL(
+      chunkUploadUrl("/api/clip-intake?recordingId=rec-1&clip_intake=token", {
+        index: 0,
+        total: 1,
+        isFinal: true,
+        mimeType: "video/webm",
+      }),
+      "https://clips.example.com",
+    );
+
+    expect(url.searchParams.get("recordingId")).toBe("rec-1");
+    expect(url.searchParams.get("clip_intake")).toBe("token");
+    expect(url.searchParams.get("index")).toBe("0");
+    expect(url.searchParams.get("isFinal")).toBe("1");
   });
 });

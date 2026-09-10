@@ -64,7 +64,7 @@ describe("RecorderEngine upload generation fencing", () => {
             : input instanceof URL
               ? input.toString()
               : input.url;
-        if (url.endsWith("/reset-chunks")) {
+        if (url.endsWith("/reset-chunks") || url.includes("operation=reset")) {
           resetCount += 1;
           requests.push({
             url,
@@ -85,6 +85,8 @@ describe("RecorderEngine upload generation fencing", () => {
       mode: "screen",
       uploadUrl: "/api/uploads/rec-1/chunk",
       abortUrl: "/api/uploads/rec-1/abort",
+      resetUrl:
+        "/api/clip-intake?recordingId=rec-1&operation=reset&clip_intake_id=intake_1234567890123456&clip_intake=signed-token",
     });
     const internals = engine as unknown as {
       resetUploadedChunks: (compression: null) => Promise<"buffered">;
@@ -98,6 +100,7 @@ describe("RecorderEngine upload generation fencing", () => {
     await engine.cancel();
 
     expect(requests[0]?.body).toMatchObject({ useGenerationFence: true });
+    expect(requests[0]?.url).toContain("operation=reset");
     expect(requests[1]?.url).toContain("uploadGenerationId=generation-1");
     expect(requests[2]?.body).toMatchObject({
       useGenerationFence: true,
