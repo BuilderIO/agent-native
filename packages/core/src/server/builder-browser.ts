@@ -658,17 +658,38 @@ export function removeBuilderConnectStateCookie(
     .join(",");
 }
 
+export interface BuilderConnectCallbackStateResolution {
+  state: string | null;
+  /**
+   * Set when the cookie itself is why this attempt cannot resolve a state.
+   * Nothing else prunes it on failure, so an unusable cookie would make every
+   * later retry unresolvable too — and the restart the error message asks for
+   * is what appends the next state and keeps the trap armed.
+   */
+  resetStateCookie: boolean;
+}
+
 export function resolveBuilderConnectCallbackState(
   queryState: string | null,
   cookieState: string | null | undefined,
-): string | null {
+): BuilderConnectCallbackStateResolution {
   const cookieStates = parseBuilderConnectStateCookie(cookieState);
-  if (cookieState && !cookieStates) return null;
-  if (queryState !== null) {
-    if (cookieStates?.length && !cookieStates.includes(queryState)) return null;
-    return queryState;
+  if (cookieState && !cookieStates) {
+    return { state: null, resetStateCookie: true };
   }
-  return cookieStates?.length === 1 ? cookieStates[0] : null;
+  if (queryState !== null) {
+    // A callback that names a state the cookie does not hold belongs to
+    // another flow; the states in the cookie are still live for their own
+    // callbacks, so fail this attempt without touching them.
+    if (cookieStates?.length && !cookieStates.includes(queryState)) {
+      return { state: null, resetStateCookie: false };
+    }
+    return { state: queryState, resetStateCookie: false };
+  }
+  if (cookieStates?.length === 1) {
+    return { state: cookieStates[0], resetStateCookie: false };
+  }
+  return { state: null, resetStateCookie: (cookieStates?.length ?? 0) > 1 };
 }
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
