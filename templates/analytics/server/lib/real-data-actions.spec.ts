@@ -1266,6 +1266,8 @@ describe("incomplete evidence detection", () => {
       "Create a job to refresh the dashboard",
       "Set up a job for the dashboard",
       "Create a job that refreshes the dashboard",
+      "Create a dashboard scheduled refresh",
+      "Create a recurring dashboard refresh",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
     }
@@ -1295,6 +1297,9 @@ describe("incomplete evidence detection", () => {
       "How frequently does the dashboard refresh?",
       "What is the dashboard refresh interval?",
       "How often does the dashboard update?",
+      "What is the refresh frequency of the dashboard?",
+      "What is the update frequency of the dashboard?",
+      "How often is the dashboard refreshed?",
       "How often does the Revenue dashboard refresh?",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
@@ -1325,6 +1330,7 @@ describe("incomplete evidence detection", () => {
       "How many dashboard automations ran?",
       "What is the run count for dashboard automations?",
       "How many dashboard automation job counts are there?",
+      "What is the number of dashboard automations?",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
