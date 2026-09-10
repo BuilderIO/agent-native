@@ -474,6 +474,39 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(panels[2].sql).toBe("");
   });
 
+  it("repairs the malformed non-empty BigQuery wau query", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const malformedSql = FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+      "WHEN '{{timeRange}}' = '7d'",
+      "WHEN '{{timeRange}}' = '{{timeRange}}'",
+    );
+    const row = legacyRow({
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            source: "bigquery",
+            sql: malformedSql,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      FIRST_PARTY_BIGQUERY_WAU_SQL,
+    );
+  });
+
   it("repairs the deployed materialized one-day retention panel during startup", async () => {
     const retention = requiredFirstPartyPanel("one-day-retention-by-template");
     const row = legacyRow({
