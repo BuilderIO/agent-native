@@ -4,6 +4,15 @@
  * use-case card on the Clips landing page. Structure and copy are lifted
  * directly from the live components rather than invented:
  *
+ * - Header row: title on the left, Share button on the right, above the
+ *   player frame, mirroring `PageHeader` in
+ *   `templates/clips/app/routes/_app.r.$recordingId.tsx:2372-2387`.
+ * - Player frame: `aspect-video`, black background, `rounded-2xl`
+ *   (`_app.r.$recordingId.tsx:2412-2473`,
+ *   `templates/clips/app/components/player/video-player.tsx:1692-1762`).
+ * - Controls bar: play/pause, scrubber with marker dots, elapsed/total time,
+ *   speed, and fullscreen, recreating
+ *   `templates/clips/app/components/player/player-controls.tsx:132-328`.
  * - Trigger: `ClipsShareTrigger` / `PageHeaderPrimaryAction`
  *   (templates/clips/app/components/player/clips-share-trigger.tsx:10-37) —
  *   a solid button with `IconUserPlus` and the label "Share".
@@ -32,7 +41,8 @@
 import {
   IconBrandOpenai,
   IconLink,
-  IconMaximizeOff,
+  IconMaximize,
+  IconPlayerPlayFilled,
   IconUserPlus,
 } from "@tabler/icons-react";
 
@@ -81,17 +91,28 @@ const AGENT_ROWS = [
 const CLIPS_CELL_MOCK_CSS = [
   ".clips-cell-mock { position: relative; width: 100%; }",
   ".clips-cell-mock, .clips-cell-mock * { box-sizing: border-box; }",
-  ".clips-cell-mock-frame { position: relative; aspect-ratio: 16 / 11; border-radius: 14px; overflow: hidden; background: linear-gradient(135deg, #1c1c1c, #101010); border: 1px solid #262626; box-shadow: 0 28px 56px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
+  ".clips-cell-mock-inner { position: relative; }",
+
+  // Mirrors the real page's PageHeader row: breadcrumb/title on the left,
+  // Share button on the right, sitting above the player frame
+  // (_app.r.$recordingId.tsx:2372-2387).
+  ".clips-cell-mock-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 14px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
+  ".clips-cell-mock-title { font-size: 14px; font-weight: 600; color: #e6e6e6; }",
+
+  // Real player frame: aspect-video, black background, rounded-2xl
+  // (_app.r.$recordingId.tsx:2412-2473, video-player.tsx:1692-1762).
+  ".clips-cell-mock-frame { position: relative; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; background: linear-gradient(135deg, #1c1c1c, #101010); border: 1px solid #262626; box-shadow: 0 28px 56px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
   // Fades the player's left edge into the dark section background instead of
   // a hard card edge, matching the reference screenshot of the real page.
   ".clips-cell-mock-fade { position: absolute; inset: 0; background: linear-gradient(to right, #0a0a0a 0%, rgba(10, 10, 10, 0) 38%); pointer-events: none; }",
 
   // Real trigger: PageHeaderPrimaryAction, a solid size="sm" Button with
   // IconUserPlus + "Share" (clips-share-trigger.tsx:10-37).
-  ".clips-cell-mock-share-btn { position: absolute; top: 20px; right: 20px; display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 8px; background: #f5f5f5; color: #151515; font-size: 14px; font-weight: 600; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }",
+  ".clips-cell-mock-share-btn { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 8px; background: #f5f5f5; color: #151515; font-size: 14px; font-weight: 600; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }",
 
   // Real popover: PopoverContent className="w-[360px] ... p-0" (share-dialog.tsx:170-176).
-  ".clips-cell-mock-popover { position: absolute; top: 66px; right: 20px; width: 360px; border-radius: 10px; overflow: hidden; background: #1c1c1c; border: 1px solid #333333; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5); }",
+  // Positioned to drop down from the header's Share button, over the frame.
+  ".clips-cell-mock-popover { position: absolute; top: 48px; right: 0; width: 360px; border-radius: 10px; overflow: hidden; background: #1c1c1c; border: 1px solid #333333; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5); z-index: 1; }",
 
   // Real Tabs header: TabsList variant="line" h-8, "People" | "Agents" (share-dialog.tsx:320-345).
   ".clips-cell-mock-tabs { display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 12px; border-bottom: 1px solid #2c2c2c; }",
@@ -106,10 +127,17 @@ const CLIPS_CELL_MOCK_CSS = [
   ".clips-cell-mock-agent-divider { margin: 4px 6px; border-top: 1px solid #333333; }",
   ".clips-cell-mock-agent-icon { width: 16px; height: 16px; color: #999999; flex-shrink: 0; }",
 
-  ".clips-cell-mock-controls { position: absolute; left: 20px; bottom: 18px; right: 20px; display: flex; align-items: center; gap: 12px; color: rgba(255, 255, 255, 0.55); }",
-  ".clips-cell-mock-controls-track { flex: 1 1 auto; height: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }",
-  ".clips-cell-mock-controls-fill { width: 42%; height: 100%; background: rgba(255, 255, 255, 0.55); }",
-  ".clips-cell-mock-controls-speed { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }",
+  // Recreates player-controls.tsx's control bar: play/pause, scrubber with
+  // marker dots, elapsed/total time, speed, and fullscreen
+  // (player-controls.tsx:132-328).
+  ".clips-cell-mock-controls { position: absolute; left: 14px; bottom: 12px; right: 14px; display: flex; align-items: center; gap: 10px; color: rgba(255, 255, 255, 0.85); }",
+  ".clips-cell-mock-controls-icon { flex-shrink: 0; }",
+  ".clips-cell-mock-controls-track { position: relative; flex: 1 1 auto; height: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.22); overflow: visible; }",
+  ".clips-cell-mock-controls-fill { width: 42%; height: 100%; border-radius: 999px; background: rgba(255, 255, 255, 0.7); }",
+  ".clips-cell-mock-controls-marker { position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%; background: #ffffff; transform: translate(-50%, -50%); }",
+  ".clips-cell-mock-controls-time { flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }",
+  ".clips-cell-mock-controls-time-total { color: rgba(255, 255, 255, 0.5); }",
+  ".clips-cell-mock-controls-speed { flex-shrink: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }",
 ].join("\n");
 
 export function ClipsActOnFeedbackMock({
@@ -122,12 +150,43 @@ export function ClipsActOnFeedbackMock({
   return (
     <div className={`clips-cell-mock ${className}`} role="img" aria-label={label}>
       <style>{CLIPS_CELL_MOCK_CSS}</style>
-      <div className="clips-cell-mock-frame" aria-hidden="true">
-        <div className="clips-cell-mock-fade" />
+      <div className="clips-cell-mock-inner" aria-hidden="true">
+        <div className="clips-cell-mock-header">
+          <span className="clips-cell-mock-title">Fix cart bug on mobile</span>
+          <div className="clips-cell-mock-share-btn">
+            <IconUserPlus size={16} />
+            Share
+          </div>
+        </div>
 
-        <div className="clips-cell-mock-share-btn">
-          <IconUserPlus size={16} />
-          Share
+        <div className="clips-cell-mock-frame">
+          <div className="clips-cell-mock-fade" />
+
+          <div className="clips-cell-mock-controls">
+            <IconPlayerPlayFilled
+              className="clips-cell-mock-controls-icon"
+              size={16}
+            />
+            <div className="clips-cell-mock-controls-track">
+              <div className="clips-cell-mock-controls-fill" />
+              <span
+                className="clips-cell-mock-controls-marker"
+                style={{ left: "28%" }}
+              />
+              <span
+                className="clips-cell-mock-controls-marker"
+                style={{ left: "61%" }}
+              />
+            </div>
+            <span className="clips-cell-mock-controls-time">
+              1:24
+              <span className="clips-cell-mock-controls-time-total">
+                /4:52
+              </span>
+            </span>
+            <span className="clips-cell-mock-controls-speed">1.2x</span>
+            <IconMaximize className="clips-cell-mock-controls-icon" size={16} />
+          </div>
         </div>
 
         <div className="clips-cell-mock-popover">
@@ -150,14 +209,6 @@ export function ClipsActOnFeedbackMock({
               </div>
             ))}
           </div>
-        </div>
-
-        <div className="clips-cell-mock-controls">
-          <span className="clips-cell-mock-controls-speed">1.2x</span>
-          <div className="clips-cell-mock-controls-track">
-            <div className="clips-cell-mock-controls-fill" />
-          </div>
-          <IconMaximizeOff size={16} />
         </div>
       </div>
     </div>
