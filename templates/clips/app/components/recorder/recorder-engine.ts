@@ -624,7 +624,9 @@ export class RecorderEngine {
         `${appBasePath()}/api/uploads/${options.recordingId}/abort`,
       resetUrl:
         options.resetUrl ??
-        `${appBasePath()}/api/uploads/${options.recordingId}/reset-chunks`,
+        (options.uploadUrl
+          ? options.uploadUrl.replace(/\/chunk(?:\?.*)?$/, "/reset-chunks")
+          : `${appBasePath()}/api/uploads/${options.recordingId}/reset-chunks`),
       ...options,
     };
   }
@@ -1165,7 +1167,9 @@ export class RecorderEngine {
     this.opts.abortUrl = target.abortUrl;
     this.opts.resetUrl =
       target.resetUrl ??
-      `${appBasePath()}/api/uploads/${target.recordingId}/reset-chunks`;
+      (target.uploadUrl.endsWith("/chunk")
+        ? target.uploadUrl.slice(0, -"/chunk".length) + "/reset-chunks"
+        : `${appBasePath()}/api/uploads/${target.recordingId}/reset-chunks`);
     this.opts.uploadMode = target.uploadMode ?? "buffered";
     this.uploadGenerationId = null;
   }
