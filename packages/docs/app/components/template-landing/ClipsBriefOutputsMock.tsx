@@ -81,6 +81,16 @@ const CLIPS_BRIEF_MOCK_CSS = [
   // mode without pulling it as dark as body text.
   ".clips-brief-mock-rays line { stroke: hsl(var(--border)); }",
   "html.light .clips-brief-mock-rays line { stroke: hsl(var(--muted-foreground)); }",
+
+  // The dash array is 4-on/4-off, an 8px period, so animating dashoffset by
+  // exactly that loops with no visible seam. Each line runs from the clip
+  // (x1/y1, at 50% 50%) to its output (x2/y2), and stroke-dashoffset moves the
+  // pattern along that direction as it decreases, so counting down to 0 reads
+  // as the dashes travelling from the clip outward rather than draining back
+  // into it.
+  "@keyframes clips-brief-ray-flow { from { stroke-dashoffset: 8; } to { stroke-dashoffset: 0; } }",
+  ".clips-brief-mock-rays line { animation: clips-brief-ray-flow 2.4s linear infinite; }",
+  "@media (prefers-reduced-motion: reduce) { .clips-brief-mock-rays line { animation: none; } }",
 ].join("\n");
 
 function BriefClipCard() {
