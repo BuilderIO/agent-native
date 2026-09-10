@@ -329,9 +329,29 @@ For workspace-specific management screens, add local React Router pages and regi
   ]}
 />
 
+## App creation hand-off {#app-creation}
+
+"Build me an app for tracking customer onboarding" and the Apps page's **New app** button both start at `start-workspace-app-creation`, which branches on whether the workspace is running locally or in a hosted deployment. Dispatch itself never writes the new app's code either way: it hands the request to whichever coding agent is already running locally, or kicks off a real Builder Cloud Agent branch.
+
+### Local development
+
+`start-workspace-app-creation` records the new app's metadata, grants any vault secrets or resources you specified, and returns without touching the filesystem. Your prompt goes back with it, meant for the coding agent already running in your terminal, such as Claude Code, to act on. Dispatch's own chat model doesn't scaffold the app itself.
+
+`scaffold-workspace-app` is the one action that writes files directly, by shelling out to `agent-native add-app --template <name>`. It's local-only and limited to the fixed first-party template catalog (mail, calendar, content, slides, clips, brain, assets, analytics, forms, design), which is what a curated-template remix calls, not a free-text request. See [Create an app from a curated workspace template](#remix) below.
+
+### Hosted deployments
+
+Without a local coding agent to hand off to, `start-workspace-app-creation` resolves Builder API credentials, reuses or provisions a Builder project for the workspace (an org owner or admin sets this up once), reserves a pending app entry, and calls Builder's agent-run API to start a real Builder Cloud Agent branch. If credentials or project setup aren't in place, it returns an explicit unavailable result with the reason instead of failing silently.
+
+`get-app-creation-settings` / `set-app-creation-settings` manage exactly one thing: which Builder project new app-creation branches use. Default app visibility, private or org-wide, is a separate, unrelated setting.
+
+### How a pending app becomes a ready one
+
+Dispatch never polls the Builder job itself. `list-workspace-apps` merges two sources: the real deploy manifest of apps the workspace can already reach, and a pending-apps list written when creation started. An app drops off the pending list the moment its id shows up in the manifest, which happens once the Builder branch has merged and the workspace has redeployed with it. The Apps page re-polls that same action to move an app from pending to ready.
+
 ## Create an app from a curated workspace template {#remix}
 
-Curated workspace templates are reviewed sources for creating an independent private app: mail, calendar, analytics, slides, content, clips, brain, assets, forms, or design.
+Curated workspace templates are reviewed sources for creating an independent private app: mail, calendar, analytics, slides, content, clips, brain, assets, forms, or design. This is the same [app creation hand-off](#app-creation) above, applied to a fixed template instead of a free-text request.
 
 <Steps>
 
