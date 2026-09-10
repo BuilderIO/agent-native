@@ -848,6 +848,27 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
   });
 
+  it("checks the built docs cold-start budget before publishing", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const index = steps.findIndex(
+      (step) => step.name === "Verify docs cold-start budget",
+    );
+    assert(index >= 0);
+    assert.equal(
+      steps[index].if,
+      "inputs.migration_only != true && steps.target.outputs.source_template == '@agent-native/docs'",
+    );
+    assert.match(
+      String(steps[index].run),
+      /NODE_ENV=production NETLIFY=true timeout 180 node scripts\/ssr-boot-smoke\.mjs packages\/docs/,
+    );
+    assert(index < steps.findIndex((step) => step.id === "deploy"));
+  });
+
   it("smoke-tests app health while keeping static docs on a shell-only probe", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",

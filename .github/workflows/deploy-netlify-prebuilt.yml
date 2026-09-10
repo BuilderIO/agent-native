@@ -436,6 +436,10 @@ jobs:
           set -euo pipefail
           node scripts/check-function-size-baseline.mjs --site "$SITE" --dir "$FUNCTIONS_DIRECTORY"
 
+      - name: Verify docs cold-start budget
+        if: inputs.migration_only != true && steps.target.outputs.source_template == '@agent-native/docs'
+        run: NODE_ENV=production NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs packages/docs
+
       - name: Pause automatic Netlify builds for production cutover
         id: pause
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
