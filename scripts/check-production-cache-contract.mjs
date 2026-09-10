@@ -167,26 +167,40 @@ async function probe(host, fetchImpl = fetch) {
   ];
 }
 
-export function cacheStatusHasHit(value) {
-  const status = value ?? "";
-  const members = [];
-  let memberStart = 0;
+function splitCacheStatus(value, delimiter) {
+  const segments = [];
+  let segmentStart = 0;
   let inQuotes = false;
-  for (let index = 0; index < status.length; index += 1) {
-    if (status[index] === '"' && status[index - 1] !== "\\") {
-      inQuotes = !inQuotes;
-    } else if (status[index] === "," && !inQuotes) {
-      members.push(status.slice(memberStart, index));
-      memberStart = index + 1;
+  let backslashRun = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === "\\") {
+      backslashRun += 1;
+      continue;
     }
+    if (character === '"' && backslashRun % 2 === 0) {
+      inQuotes = !inQuotes;
+    } else if (character === delimiter && !inQuotes) {
+      segments.push(value.slice(segmentStart, index));
+      segmentStart = index + 1;
+    }
+    backslashRun = 0;
   }
-  members.push(status.slice(memberStart));
-  return members.some((member) => {
-    const hasHit = /(?:^|[;,]\s*)hit(?:\s*[,;]|\s*$)/i.test(member);
-    const hasSuccessfulStaleRevalidation =
-      /(?:^|[;,]\s*)fwd=stale(?:\s*[,;]|\s*$)/i.test(member) &&
-      /(?:^|[;,]\s*)fwd-status=304(?:\s*[,;]|\s*$)/i.test(member);
-    return hasHit || hasSuccessfulStaleRevalidation;
+  segments.push(value.slice(segmentStart));
+  return segments;
+}
+
+export function cacheStatusHasHit(value) {
+  return splitCacheStatus(value ?? "", ",").some((member) => {
+    const segments = splitCacheStatus(member, ";");
+    const parameters = segments
+      .slice(segments.length > 1 ? 1 : 0)
+      .map((segment) => segment.trim().toLowerCase());
+    return (
+      parameters.includes("hit") ||
+      (parameters.includes("fwd=stale") &&
+        parameters.includes("fwd-status=304"))
+    );
   });
 }
 
