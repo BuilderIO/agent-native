@@ -531,6 +531,7 @@ async function importPdfPagesWithFidelity(args: {
     ).load();
 
   let pages: { num: number; text: string }[];
+  let pageCount = 0;
   let fidelityPages: Awaited<ReturnType<typeof parsePdfFidelity>>;
   // Set when this PDF is one of ours but its deck source could not be used.
   // Carried into the result so the caller reports a rebuilt deck as rebuilt
@@ -574,6 +575,7 @@ async function importPdfPagesWithFidelity(args: {
       : undefined;
 
     const doc = await loadDocument();
+    pageCount = doc.numPages;
     // coercion-ok: undefined here means either canvasFactory was absent or
     // getImage() already failed and logged a warning above — text-only
     // fidelity is the intended degrade, not a swallowed failure.
@@ -582,6 +584,19 @@ async function importPdfPagesWithFidelity(args: {
     await pdf.destroy();
   }
 
+  if (!Number.isInteger(pageCount) || pageCount < 1) {
+    throw new Error("The PDF renderer returned an invalid page count.");
+  }
+  if (
+    pages.length !== pageCount ||
+    pages.some((page, index) => page.num !== index + 1)
+  ) {
+    const textByPage = new Map(pages.map((page) => [page.num, page.text]));
+    pages = Array.from({ length: pageCount }, (_, index) => ({
+      num: index + 1,
+      text: textByPage.get(index + 1) ?? "",
+    }));
+  }
   if (pages.length === 0) {
     throw new Error("The PDF renderer returned no importable pages.");
   }
