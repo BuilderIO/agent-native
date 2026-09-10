@@ -129,6 +129,13 @@ describe("createTiptapComposerExtensions", () => {
     expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe(
       "GPT-5.6 Luna",
     );
+    expect(compactComposerModelName("openai/gpt-6-astra")).toBe("GPT-6 Astra");
+    expect(compactComposerModelName("google/gemini-3.8-flash")).toBe(
+      "Gemini 3.8 Flash",
+    );
+    expect(compactComposerModelName("qwen/qwen3.8-max-0902")).toBe(
+      "Qwen 3.8 Max",
+    );
     expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet 5");
     expect(compactComposerModelName("codex-cli")).toBe("Codex");
     expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
