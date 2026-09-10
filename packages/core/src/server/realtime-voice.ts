@@ -51,6 +51,7 @@ export const REALTIME_VOICE_CAPABILITY_HEADER =
   "X-Agent-Native-Realtime-Capability";
 export const REALTIME_VOICE_PROTOCOL_HEADER =
   "X-Agent-Native-Realtime-Protocol";
+export const REALTIME_VOICE_MODEL_HEADER = "X-Agent-Native-Realtime-Model";
 
 const OPENAI_LIVE_SESSIONS_URL = "https://api.openai.com/v1/live/sessions";
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
@@ -830,6 +831,7 @@ function createSessionHandler(
           REALTIME_VOICE_PROTOCOL_HEADER,
           model === DEFAULT_MODEL ? "live" : "realtime",
         );
+        setResponseHeader(event, REALTIME_VOICE_MODEL_HEADER, model);
         return answerSdp;
       },
     );

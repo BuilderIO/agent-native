@@ -63,6 +63,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import {
   mountRealtimeVoiceRoutes,
   REALTIME_VOICE_CAPABILITY_HEADER,
+  REALTIME_VOICE_MODEL_HEADER,
   REALTIME_VOICE_PROTOCOL_HEADER,
   REALTIME_VOICE_MAX_SDP_BYTES,
   REALTIME_VOICE_MAX_SESSION_BYTES,
@@ -738,6 +739,7 @@ describe("realtime voice session route", () => {
 
     expect(event.responseHeaders).toMatchObject({
       [REALTIME_VOICE_PROTOCOL_HEADER]: "live",
+      [REALTIME_VOICE_MODEL_HEADER]: "gpt-live-1",
     });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://api.openai.com/v1/live/sessions");
@@ -783,6 +785,7 @@ describe("realtime voice session route", () => {
 
     expect(event.responseHeaders).toMatchObject({
       [REALTIME_VOICE_PROTOCOL_HEADER]: "realtime",
+      [REALTIME_VOICE_MODEL_HEADER]: "gpt-realtime-2.1",
     });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://api.openai.com/v1/realtime/calls");

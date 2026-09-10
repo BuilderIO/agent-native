@@ -312,6 +312,7 @@ describe("Realtime voice client transport", () => {
             "Content-Type": "application/sdp",
             "X-Agent-Native-Realtime-Capability": "capability-1",
             "X-Agent-Native-Realtime-Protocol": "live",
+            "X-Agent-Native-Realtime-Model": "gpt-live-1",
           },
         }),
     );
@@ -334,6 +335,7 @@ describe("Realtime voice client transport", () => {
       sdp: "answer-sdp",
       capability: "capability-1",
       protocol: "live",
+      model: "gpt-live-1",
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/_agent-native/realtime-voice/session",
@@ -1102,7 +1104,7 @@ describe("Realtime voice startup and transcript ordering", () => {
     ]);
   });
 
-  it("buffers GPT-Live transcript deltas until a response boundary", () => {
+  it("keeps overlapping GPT-Live transcript roles independent", () => {
     const published: Array<{ role: string; text: string }> = [];
     const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
       published.push(transcript);
@@ -1111,41 +1113,69 @@ describe("Realtime voice startup and transcript ordering", () => {
     sequencer.handle({
       type: "session.input_transcript.delta",
       delta: "Can you help ",
+      start_ms: 0,
+      end_ms: 400,
     });
     sequencer.handle({
       type: "session.input_transcript.delta",
       delta: "me?",
+      start_ms: 400,
+      end_ms: 500,
     });
     sequencer.handle({
       type: "session.output_transcript.delta",
       delta: "Absolutely.",
+      start_ms: 300,
+      end_ms: 900,
     });
-    expect(published).toEqual([{ role: "user", text: "Can you help me?" }]);
+    expect(published).toEqual([]);
 
     sequencer.handle({
       type: "response.event",
       event: { type: "response.completed" },
+    });
+    expect(published).toEqual([]);
+
+    sequencer.handle({
+      type: "session.input_transcript.delta",
+      delta: "Next question.",
+      start_ms: 2_000,
+      end_ms: 2_200,
+    });
+    sequencer.handle({
+      type: "session.output_transcript.delta",
+      delta: "Next answer.",
+      start_ms: 2_300,
+      end_ms: 2_500,
     });
     expect(published).toEqual([
       { role: "user", text: "Can you help me?" },
       { role: "assistant", text: "Absolutely." },
     ]);
 
-    sequencer.handle({
-      type: "session.input_transcript.delta",
-      delta: "Next question.",
-    });
-    sequencer.handle({
-      type: "session.output_transcript.delta",
-      delta: "Next answer.",
-    });
-    sequencer.handle({ type: "response.completed" });
+    sequencer.handle({ type: "session.closed" });
     expect(published).toEqual([
       { role: "user", text: "Can you help me?" },
       { role: "assistant", text: "Absolutely." },
       { role: "user", text: "Next question." },
       { role: "assistant", text: "Next answer." },
     ]);
+  });
+
+  it("discards unconfirmed GPT-Live transcript buffers on reset", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "session.output_transcript.delta",
+      delta: "Possibly incomplete.",
+    });
+    sequencer.reset();
+    sequencer.flush();
+
+    expect(published).toEqual([]);
   });
 });
 
