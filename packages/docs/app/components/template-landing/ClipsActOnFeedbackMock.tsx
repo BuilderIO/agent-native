@@ -264,11 +264,15 @@ export function ClipsActOnFeedbackMock({
                         <img
                           src="/clips/build-your-own.jpg"
                           alt=""
+                          loading="lazy"
+                          decoding="async"
                           className="theme-img-dark absolute inset-0 h-full w-full object-cover"
                         />
                         <img
                           src="/clips/meeting-report.jpg"
                           alt=""
+                          loading="lazy"
+                          decoding="async"
                           className="theme-img-light absolute inset-0 h-full w-full object-cover"
                         />
 
