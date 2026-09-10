@@ -79,14 +79,8 @@ const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
     "WHEN '{{timeRange}}' = '{{timeRange}}'",
   );
 
-function normalizeSql(sql: string): string {
-  return sql.replace(/\s+/g, " ").trim();
-}
-
 function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
-  return (
-    normalizeSql(sql) === normalizeSql(MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL)
-  );
+  return sql.trim() === MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL.trim();
 }
 
 export function repairFirstPartyBigQueryDashboardQueries(
