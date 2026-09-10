@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   implicitServiceOrgRole: vi.fn(),
   readAppState: vi.fn(),
+  resolveOrgIdForEmail: vi.fn(),
 }));
 
 const tables = vi.hoisted(() => ({
@@ -58,6 +59,8 @@ vi.mock("@agent-native/core/org", () => ({
     mocks.implicitServiceOrgRole(...args),
   organizations: { id: "organizations.id" },
   orgMembers: { orgId: "org_members.org_id", email: "org_members.email" },
+  resolveOrgIdForEmail: (...args: unknown[]) =>
+    mocks.resolveOrgIdForEmail(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({ getSession: vi.fn() }));
@@ -311,6 +314,23 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
     mocks.implicitServiceOrgRole.mockReturnValue(null);
     mocks.readAppState.mockResolvedValue(null);
     mocks.getUserSetting.mockResolvedValue(null);
+    // The legacy sources are only consulted when the framework resolver could
+    // not answer at all; a definite answer ends the search before them.
+    mocks.resolveOrgIdForEmail.mockRejectedValue(new Error("unavailable"));
+  });
+
+  it("honors a definite no-org answer instead of reviving a legacy workspace", async () => {
+    // `resolveOrgIdForEmail` returns null both for no membership and for an
+    // explicit Personal selection. Either way it has answered, and the
+    // caller-unscoped legacy sources must not reactivate org scope.
+    mocks.getRequestUserEmail.mockReturnValue("personal@example.test");
+    mocks.resolveOrgIdForEmail.mockResolvedValue(null);
+    mocks.readAppState.mockResolvedValue({ id: "org_legacy" });
+    const calls = stubSelects([{ id: "org_legacy" }]);
+
+    await expect(getActiveOrganizationId()).resolves.toBeNull();
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
   it("ignores a `current-workspace` key naming a deleted organization", async () => {

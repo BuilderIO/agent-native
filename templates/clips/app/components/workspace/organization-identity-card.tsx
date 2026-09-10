@@ -42,12 +42,17 @@ export function OrganizationIdentityCard() {
   // has nothing to read and its failure reads as a broken page. A failed org
   // lookup also leaves `orgInfo` undefined, so it must stay distinguishable
   // from a loaded `orgId: null` instead of silently hiding the section.
-  const hasActiveOrg = Boolean(orgInfo?.orgId);
+  const activeOrgId = orgInfo?.orgId ?? null;
+  const hasActiveOrg = Boolean(activeOrgId);
 
+  // Scope the request - and therefore the query key - to the active org.
+  // An unscoped key hands the next organization the previous one's cached
+  // branding while it refetches, which `BrandingEditor` would then seed its
+  // form with and save back under the new org's id.
   const { data, isPending, isError } =
     useActionQuery<OrganizationStateResponse>(
       "list-organization-state",
-      undefined,
+      activeOrgId ? { organizationId: activeOrgId } : undefined,
       { enabled: hasActiveOrg },
     );
 
@@ -112,7 +117,10 @@ export function OrganizationIdentityCard() {
   }
 
   return (
+    // Remount per organization: the editor seeds its form state from these
+    // props once, so a reused instance keeps the previous org's values.
     <BrandingEditor
+      key={organization.id}
       organizationId={organization.id}
       initialName={organization.name}
       initialBrandColor={organization.brandColor}

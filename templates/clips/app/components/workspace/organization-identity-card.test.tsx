@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   orgLoading: false,
   orgError: false,
   actionCalls: [] as string[],
+  actionParams: [] as unknown[],
   actionResult: {
     data: undefined as unknown,
     isPending: false,
@@ -17,10 +18,13 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useSession: () => ({ session: { email: "owner@example.com" } }),
   useActionQuery: (
     name: string,
-    _params?: unknown,
+    params?: unknown,
     options?: { enabled?: boolean },
   ) => {
-    if (options?.enabled !== false) state.actionCalls.push(name);
+    if (options?.enabled !== false) {
+      state.actionCalls.push(name);
+      state.actionParams.push(params);
+    }
     return state.actionResult;
   },
 }));
@@ -50,6 +54,7 @@ beforeEach(() => {
   state.orgLoading = false;
   state.orgError = false;
   state.actionCalls = [];
+  state.actionParams = [];
   state.actionResult = { data: undefined, isPending: false, isError: false };
 });
 
@@ -87,6 +92,18 @@ describe("OrganizationIdentityCard", () => {
 
     expect(markup).toContain("organizationSettings.brandingLoadFailed");
     expect(state.actionCalls).toEqual(["list-organization-state"]);
+  });
+
+  it("scopes the branding request to the active organization", () => {
+    // An unscoped query key lets the next organization render the previous
+    // one's cached branding while refetching, which the editor would seed its
+    // form from and save back under the new org's id.
+    state.org = { orgId: "org_2" };
+    state.actionResult = { data: undefined, isPending: true, isError: false };
+
+    renderToStaticMarkup(<OrganizationIdentityCard />);
+
+    expect(state.actionParams).toEqual([{ organizationId: "org_2" }]);
   });
 
   it("renders the editor for an admin of an active organization", () => {

@@ -237,17 +237,30 @@ export async function getActiveOrganizationId(
   const email = getRequestUserEmail();
 
   if (email) {
+    // `undefined` records that the framework could not answer, which is not
+    // the same as it answering "no org" — only a definite answer is allowed
+    // to end the search below.
+    let resolved: string | null | undefined;
     try {
       // Honors the user's `active-org-id` setting with a fall back to the
       // first membership — the same logic getOrgContext uses for HTTP paths.
       // Don't reach into org_members directly: an ORDER BY here picks the
       // wrong org when the user belongs to more than one.
       const { resolveOrgIdForEmail } = await import("@agent-native/core/org");
-      const orgId = await resolveOrgIdForEmail(email);
-      if (orgId) return orgId;
+      resolved = await resolveOrgIdForEmail(email);
     } catch {
-      // fall through
+      // coercion-ok: the framework helper is unavailable in this context, and
+      // leaving `resolved` undefined is the typed "could not answer" the check
+      // below keeps distinct from a definite null.
     }
+    if (resolved) return resolved;
+    // A definite null covers both no membership and an explicit Personal
+    // selection, and the legacy sources below cannot improve on either: they
+    // are not scoped to a caller, so they would either hand over an org this
+    // caller has no relationship with or reactivate scope the user opted out
+    // of. Migration v61 seeds `org_members` for every legacy workspace owner
+    // and member, so a real legacy user resolves here rather than below.
+    if (resolved === null) return null;
   }
 
   // Legacy fallback: old workspace UI's `current-workspace` app-state key, and
