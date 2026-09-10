@@ -502,8 +502,22 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       reusableSource,
+      /steps\.beta_first_publish_freshness\.outcome == 'failure'/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish_freshness\.outputs\.current == 'false'/,
+    );
+    assert.match(
+      reusableSource,
       /steps\.beta_first_publish_wait\.outcome == 'failure'/,
     );
+    assert.match(reusableSource, /TARGET: \$\{\{ inputs\.target \}\}/);
+    assert.match(reusableSource, /PUBLISH_STARTED_AT/);
+    assert.match(reusableSource, /DEPLOY_MESSAGE/);
+    assert.match(reusableSource, /first beta production deploy reconciliation/);
+    assert.match(reusableSource, /Could not parse Netlify CLI output/);
+    assert.match(reusableSource, /deploy\.commit_ref/);
     assert.match(reusableSource, /Fail after beta freshness verification/);
     assert.match(
       reusableSource,

@@ -1012,6 +1012,7 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           node --experimental-strip-types <<'NODE'
@@ -1267,6 +1268,9 @@ jobs:
             exit 1
           fi
           deploy_json="$RUNNER_TEMP/netlify-first-beta-production.json"
+          deploy_message="GitHub Actions first beta production deploy $SOURCE_REF"
+          publish_started_at="$(date -u +%s%3N)"
+          set +e
           netlify deploy \
             --site "$NETLIFY_SITE_ID" \
             --dir "$PUBLISH_DIRECTORY" \
@@ -1274,15 +1278,87 @@ jobs:
             --filter "$SOURCE_TEMPLATE" \
             --no-build \
             --prod \
-            --message "GitHub Actions first beta production deploy $SOURCE_REF" \
+            --message "$deploy_message" \
             --json | tee "$deploy_json"
-          deploy_details="$(node --input-type=module -e '
-            import { readFileSync } from "node:fs";
-            const result = JSON.parse(readFileSync(process.argv[1], "utf8"));
-            const deployUrl = result.deploy_url || result.url || "";
-            const deployId = result.deploy_id || result.id || "";
-            process.stdout.write(JSON.stringify({ deployId, deployUrl }));
-          ' "$deploy_json")"
+          netlify_exit="${PIPESTATUS[0]}"
+          set -e
+          if [[ "$netlify_exit" -ne 0 ]]; then
+            echo "::warning::Netlify CLI exited $netlify_exit after first beta publish; reconciling the accepted deploy before failing."
+          fi
+          deploy_details="$(
+            PUBLISH_STARTED_AT="$publish_started_at" \
+            DEPLOY_MESSAGE="$deploy_message" \
+            node --experimental-strip-types --input-type=module - "$deploy_json" <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { requestNetlifyApi } from "./scripts/netlify-api-request.ts";
+
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+          };
+          const deployJsonPath = process.argv[2];
+          const startedAt = Number(process.env.PUBLISH_STARTED_AT);
+          const sourceRef = process.env.SOURCE_REF.toLowerCase();
+          const message = process.env.DEPLOY_MESSAGE;
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const details = (deploy) => ({
+            deployId: deploy?.deploy_id || deploy?.id || "",
+            deployUrl: deploy?.deploy_url || deploy?.deploy_ssl_url || deploy?.ssl_url || deploy?.url || "",
+          });
+          const readJson = async (response, label) => {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          };
+
+          let result = {};
+          try {
+            result = JSON.parse(readFileSync(deployJsonPath, "utf8"));
+          } catch (error) {
+            console.error(`Could not parse Netlify CLI output; reconciling the site deploy list: ${error}`);
+          }
+          let selected = details(result);
+          if (selected.deployId && !selected.deployUrl) {
+            selected = { ...selected, ...details(await readJson(
+              await requestNetlifyApi(`${api}/deploys/${selected.deployId}`, { headers }),
+              `Netlify first beta production deploy ${selected.deployId} lookup`,
+            )) };
+          }
+
+          if (!selected.deployId || !selected.deployUrl) {
+            const deadline = Date.now() + 60_000;
+            while (Date.now() < deadline && (!selected.deployId || !selected.deployUrl)) {
+              const deploys = await readJson(
+                await requestNetlifyApi(`${api}/sites/${process.env.NETLIFY_SITE_ID}/deploys?per_page=100&production=true`, { headers }),
+                "Netlify first beta production deploy reconciliation",
+              );
+              if (!Array.isArray(deploys)) throw new Error("Netlify returned an invalid deploy list during first beta reconciliation.");
+              const candidates = deploys
+                .filter((deploy) => {
+                  const createdAt = Date.parse(deploy.created_at || "");
+                  const candidateSource = String(deploy.commit_ref || "").toLowerCase();
+                  const candidateMessage = String(deploy.title || deploy.message || "");
+                  return (
+                    deploy.context === "production" &&
+                    Number.isFinite(createdAt) &&
+                    createdAt >= startedAt - 30_000 &&
+                    (candidateSource === sourceRef || candidateMessage === message)
+                  );
+                })
+                .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+              if (candidates[0]) selected = details(candidates[0]);
+              if (!selected.deployId || !selected.deployUrl) await sleep(5_000);
+            }
+          }
+          if (!selected.deployId || !selected.deployUrl) {
+            throw new Error("Netlify accepted the first beta production upload but its deploy id or URL could not be reconciled.");
+          }
+          process.stdout.write(JSON.stringify(selected));
+          NODE
+          )"
           deploy_url="$(node --input-type=module -e 'process.stdout.write(JSON.parse(process.argv[1]).deployUrl)' "$deploy_details")"
           deploy_id="$(node --input-type=module -e 'process.stdout.write(JSON.parse(process.argv[1]).deployId)' "$deploy_details")"
           if [[ "$deploy_url" != https://* ]]; then
@@ -1633,7 +1709,12 @@ jobs:
           NODE
 
       - name: Fail after beta freshness verification
-        if: always() && steps.beta_post_freshness.outcome == 'failure'
+        if: >-
+          always() &&
+          (steps.beta_post_freshness.outcome == 'failure' ||
+          steps.beta_post_freshness.outputs.current == 'false' ||
+          steps.beta_first_publish_freshness.outcome == 'failure' ||
+          steps.beta_first_publish_freshness.outputs.current == 'false')
         run: |
           set -euo pipefail
           echo "::error::Beta source freshness could not be verified after publish."

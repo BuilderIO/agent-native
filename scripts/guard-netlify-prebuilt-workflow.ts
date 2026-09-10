@@ -1065,6 +1065,12 @@ if (
     "steps.beta_post_freshness.outcome == 'failure'",
   ) ||
   !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_freshness.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_freshness.outputs.current == 'false'",
+  ) ||
+  !reusableBetaFreshness.includes(
     "steps.beta_first_publish_wait.outcome == 'failure'",
   ) ||
   !reusableBetaFreshness.includes("Revert stale beta deploy") ||
@@ -1098,7 +1104,15 @@ if (
   !reusableBetaFreshness.includes("skipping stale cleanup") ||
   !reusableBetaFreshness.includes(
     "steps.previous.outputs.published_deploy_id != ''",
-  )
+  ) ||
+  !reusableBetaFreshness.includes("TARGET: ${{ inputs.target }}") ||
+  !reusableBetaFreshness.includes("PUBLISH_STARTED_AT") ||
+  !reusableBetaFreshness.includes("DEPLOY_MESSAGE") ||
+  !reusableBetaFreshness.includes(
+    "first beta production deploy reconciliation",
+  ) ||
+  !reusableBetaFreshness.includes("Could not parse Netlify CLI output") ||
+  !reusableBetaFreshness.includes("deploy.commit_ref")
 ) {
   issues.push(
     `${reusablePath} must reject stale beta sources before upload and revert accepted stale deploys`,
