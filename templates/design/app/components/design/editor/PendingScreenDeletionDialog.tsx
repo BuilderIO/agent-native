@@ -16,10 +16,12 @@ export function PendingScreenDeletionDialog({
   pendingScreenDeletion,
   onCancel,
   onConfirm,
+  confirming = false,
 }: {
   pendingScreenDeletion: { files: DesignFile[] } | null;
   onCancel: () => void;
   onConfirm: () => void;
+  confirming?: boolean;
 }) {
   const t = useT();
   return (
@@ -42,14 +44,20 @@ export function PendingScreenDeletionDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>
+          <AlertDialogCancel onClick={onCancel} disabled={confirming}>
             {t("designEditor.screenDeletion.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            onClick={onConfirm}
+            disabled={confirming}
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
           >
-            {t("designEditor.screenDeletion.confirm")}
+            {confirming
+              ? "Removing…" /* i18n-ignore */
+              : t("designEditor.screenDeletion.confirm")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

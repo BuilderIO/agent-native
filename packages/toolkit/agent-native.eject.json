@@ -96,7 +96,14 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app-shell"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["clsx", "react", "tailwind-merge"],
+      "dependencies": [
+        "@radix-ui/react-collapsible",
+        "@radix-ui/react-tooltip",
+        "@tabler/icons-react",
+        "clsx",
+        "react",
+        "tailwind-merge"
+      ],
       "verification": ["pnpm typecheck"]
     },
     {
