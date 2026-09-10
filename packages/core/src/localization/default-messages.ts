@@ -143,6 +143,23 @@ const messages = {
       "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
     scopeWorkspaceDescription:
       "Everyone in this workspace uses this key, including integration, webhook, scheduled job, automation, and agent-to-agent runs.",
+    sourceVault: "Vault",
+    sourceWorkspace: "Workspace",
+    sourceEnvironment: "Environment",
+    statusUnavailable: "Unavailable",
+    managedInVault:
+      "Managed in the workspace Vault. Every app in this workspace uses this value.",
+    openVault: "Open Vault",
+    setForWorkspace: "Set for everyone in this workspace.",
+    fromEnvironment: "Provided by the deployment environment.",
+    usePersonalKey: "Use a personal key instead",
+    overridesVault:
+      "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
+    overridesWorkspace:
+      "This personal key overrides the workspace value. Remove it to use the shared key.",
+    customKey: "Custom key",
+    customKeyHint: "Add any key by name",
+    addCustomKeyNamed: "Add “{{name}}” as a custom key",
   },
   agentResources: {
     openDocs: "Open {{section}} documentation",

@@ -493,6 +493,13 @@ describe("list-events inventory contract", () => {
     expect(result.items.map((item: any) => item.source)).toEqual(
       expect.arrayContaining(["google", "booking"]),
     );
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        id: "google-google-calendar:opaque-google-event-1",
+        calendarSourceKey: "google-calendar:opaque",
+        calendarReadOnly: true,
+      }),
+    );
   });
 
   it("reports a failed ICS source instead of treating it as empty success", async () => {
@@ -623,6 +630,8 @@ describe("list-events inventory contract", () => {
           googleEventId: "overlay-1",
           accountEmail: "healthy@example.com",
           overlayEmail: "person@example.com",
+          calendarPrimary: false,
+          calendarReadOnly: true,
           createdAt: "2026-06-12T10:13:39.746Z",
           updatedAt: "2026-06-12T10:13:39.746Z",
         },
@@ -661,6 +670,14 @@ describe("list-events inventory contract", () => {
     expect(result.sourceCoverage).toEqual([
       { source: "overlay", id: "person@example.com", status: "ok" },
     ]);
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        id: "overlay-person@example.com-overlay-1",
+        source: "overlay",
+        overlayEmail: "person@example.com",
+        calendarReadOnly: true,
+      }),
+    );
     expect(result.coverageComplete).toBe(false);
     expect(result.complete).toBe(false);
   });
