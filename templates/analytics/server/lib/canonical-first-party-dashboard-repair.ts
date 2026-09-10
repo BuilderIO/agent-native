@@ -73,8 +73,20 @@ SELECT date, template, visitors
 FROM wau
 ORDER BY date, template`;
 
+const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
+  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    "WHEN '{{timeRange}}' = '7d'",
+    "WHEN '{{timeRange}}' = '{{timeRange}}'",
+  );
+
+function normalizeSql(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim();
+}
+
 function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
-  return sql.includes("WHEN '{{timeRange}}' = '{{timeRange}}'");
+  return (
+    normalizeSql(sql) === normalizeSql(MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL)
+  );
 }
 
 export function repairFirstPartyBigQueryDashboardQueries(

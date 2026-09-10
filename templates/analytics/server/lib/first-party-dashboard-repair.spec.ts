@@ -507,6 +507,34 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     );
   });
 
+  it("preserves a customized malformed-looking BigQuery wau query", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const customizedSql = FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+      "WHEN '{{timeRange}}' = '7d'",
+      "WHEN '{{timeRange}}' = '{{timeRange}}'",
+    ).replace("ORDER BY date, template", "ORDER BY template, date");
+    const row = legacyRow({
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            source: "bigquery",
+            sql: customizedSql,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      false,
+    );
+
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
   it("repairs the deployed materialized one-day retention panel during startup", async () => {
     const retention = requiredFirstPartyPanel("one-day-retention-by-template");
     const row = legacyRow({
