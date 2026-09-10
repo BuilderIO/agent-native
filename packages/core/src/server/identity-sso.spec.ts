@@ -678,6 +678,45 @@ describe("additive JIT linking", () => {
     );
   });
 
+  it("leaves the row unverified when invitation reconciliation fails, so the next login retries", async () => {
+    acceptPendingInvitationsForEmailMock.mockRejectedValueOnce(
+      new Error("org database offline"),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "google",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"o".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    // Sign-in still succeeds; the caller owns the session.
+    expect(response.status).toBe(302);
+    expect(createOAuthSessionMock).toHaveBeenCalled();
+    // Recording verification here would make the dropped invitations permanent,
+    // because the next login would skip the reconciliation branch entirely.
+    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(
+      adapterUsers.find((user) => user.email === "alice@example.test")
+        ?.emailVerified,
+    ).not.toBe(true);
+  });
+
   it("leaves the row unverified when the authority proved no email control", async () => {
     const { loginEvent, state } = await startLogin();
     const response = await handleIdentitySso(

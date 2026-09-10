@@ -599,17 +599,28 @@ export async function ensureIdentityUser(
         "[identity-sso] cannot record authority-verified email: adapter has no updateUser",
       );
     } else {
-      await adapter.updateUser(existing.user.id, { emailVerified: true });
-      emailVerified = true;
-      // Better Auth's user-create hook skipped these when the row was created
-      // unverified, so nothing else reconciles them for a federated signup.
+      // Reconcile before recording verification, and leave the row unverified
+      // if it fails. Better Auth's user-create hook skipped these while the row
+      // was unverified and nothing else reconciles a federated signup, so this
+      // branch is the only thing that ever runs them - and it is reached only
+      // while the row is still unverified. Writing verification first would
+      // make a transient failure permanent: the next login would see a verified
+      // row, skip this branch, and the invitations would never be applied.
+      // Staying unverified is honest and retried on the next login; sign-in
+      // still succeeds either way, because the caller owns the session.
+      let reconciled = true;
       try {
         await acceptPendingInvitationsForEmail(email);
       } catch (error) {
+        reconciled = false;
         console.error(
-          "[identity-sso] failed to reconcile pending invitations after authority verification",
+          "[identity-sso] leaving the row unverified: failed to reconcile pending invitations",
           error,
         );
+      }
+      if (reconciled) {
+        await adapter.updateUser(existing.user.id, { emailVerified: true });
+        emailVerified = true;
       }
     }
   }
