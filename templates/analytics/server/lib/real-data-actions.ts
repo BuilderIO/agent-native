@@ -179,11 +179,19 @@ const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
 
+const DASHBOARD_CONSTRUCTION_OBJECT_TERMS =
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:dashboard|extension|panel|widget)\b/i;
+
 export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = stripInjectedAnalyticsGuardContext(text);
   const lower = requestText.toLowerCase();
   if (!lower) return false;
-  if (looksLikeWorkflowOrAutomationRequest(lower)) return false;
+  if (
+    looksLikeWorkflowOrAutomationRequest(lower) &&
+    !DASHBOARD_CONSTRUCTION_OBJECT_TERMS.test(lower)
+  ) {
+    return false;
+  }
   const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(lower);
   const targetsDashboard =
     DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(lower) ||
@@ -299,7 +307,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
       lower,
     );
   const hasExplicitAutomationTarget =
-    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule)\s+(?:(?:a|an|the)\s+)?(?:new\s+)?(?:recurring job|scheduled job|automation|automations|cron(?:\s+job)?|workflow|workflows)\b/.test(
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule)\s+(?:(?:a|an|the)\s+)?(?:(?!(?:dashboard|extension|panel|widget)\b)[\w-]+\s+){0,2}(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron\s+job)\b/.test(
       lower,
     );
 

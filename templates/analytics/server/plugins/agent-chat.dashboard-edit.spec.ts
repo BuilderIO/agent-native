@@ -66,6 +66,52 @@ describe("realDataFinalGuard dashboard edits", () => {
     expect(result).toBeNull();
   });
 
+  it("does not retry a qualified dashboard automation as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a daily automation for the Revenue dashboard and email it every morning",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("keeps dashboard recovery for compound dashboard and automation requests", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a dashboard for the sales team and schedule an automation to email it every morning",
+        draftText: 'Created automation "sales-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "sales-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
   it("accepts a dashboard edit that saved a mutation without a data query", () => {
     const result = realDataFinalGuard(
       guardContext({

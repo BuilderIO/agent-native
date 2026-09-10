@@ -1067,6 +1067,14 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("preserves dashboard construction in compound dashboard and automation requests", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard for the sales team and schedule an automation to email it every morning",
+      ),
+    ).toBe(true);
+  });
+
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
     expect(
       looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),
