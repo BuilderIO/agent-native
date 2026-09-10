@@ -39,6 +39,32 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
+const githubScript = (job: Record<string, unknown>): string => {
+  const step = (Array.isArray(job.steps) ? job.steps : [])
+    .map(asRecord)
+    .find((candidate) => {
+      const script = asRecord(candidate?.with)?.script;
+      return (
+        typeof script === "string" &&
+        script.includes("github.rest.repos.createDeployment")
+      );
+    });
+  return String(asRecord(step?.with)?.script ?? "");
+};
+
+const callOptions = (script: string, call: string): string => {
+  const start = script.indexOf(`github.rest.repos.${call}({`);
+  if (start < 0) return "";
+  const bodyStart = start + `github.rest.repos.${call}({`.length;
+  let depth = 1;
+  for (let index = bodyStart; index < script.length; index += 1) {
+    if (script[index] === "{") depth += 1;
+    if (script[index] === "}") depth -= 1;
+    if (depth === 0) return script.slice(bodyStart, index);
+  }
+  return "";
+};
+
 export function validateReusableWorkflowConcurrency(
   workflow: Record<string, unknown>,
 ): string[] {
@@ -195,6 +221,15 @@ export function validateNetlifyPrPreviewWorkflow(
   const deployWith = asRecord(deploy?.with);
   const deployment = asRecord(jobs?.deployment);
   const deploymentPermissions = asRecord(deployment?.permissions);
+  const deploymentScript = githubScript(deployment ?? {});
+  const createDeploymentOptions = callOptions(
+    deploymentScript,
+    "createDeployment",
+  );
+  const createDeploymentStatusOptions = callOptions(
+    deploymentScript,
+    "createDeploymentStatus",
+  );
 
   if (!asRecord(triggers?.pull_request_target)) {
     issues.push(`${pullRequestPath} must be triggered by pull_request_target`);
@@ -277,14 +312,22 @@ export function validateNetlifyPrPreviewWorkflow(
     !source.includes("needs.deploy.result != 'cancelled'") ||
     !source.includes("continue-on-error: true") ||
     !source.includes("No successful deploy record") ||
-    !source.includes("createDeployment") ||
-    !source.includes("createDeploymentStatus") ||
-    !source.includes("auto_merge: false") ||
-    !source.includes("required_contexts: []") ||
-    !source.includes("transient_environment: true") ||
-    !source.includes("environment_url: record.deployUrl") ||
-    !source.includes("log_url:") ||
-    !source.includes("pr-${context.issue.number}-${record.siteName}") ||
+    !createDeploymentOptions.includes("ref: process.env.SOURCE_REF") ||
+    !createDeploymentOptions.includes("environment,") ||
+    !createDeploymentOptions.includes("auto_merge: false") ||
+    !createDeploymentOptions.includes("required_contexts: []") ||
+    !createDeploymentOptions.includes("transient_environment: true") ||
+    !createDeploymentStatusOptions.includes(
+      "deployment_id: deployment.data.id",
+    ) ||
+    !createDeploymentStatusOptions.includes("state: 'success'") ||
+    !createDeploymentStatusOptions.includes(
+      "environment_url: record.deployUrl",
+    ) ||
+    !createDeploymentStatusOptions.includes("log_url:") ||
+    !deploymentScript.includes(
+      "const environment = `pr-${context.issue.number}-${record.siteName}`",
+    ) ||
     source.includes("issues: write") ||
     source.includes("pull-requests: write") ||
     source.includes("createComment") ||

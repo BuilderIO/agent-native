@@ -135,7 +135,36 @@ describe("Netlify PR preview workflow guard", () => {
       contents: "read",
       deployments: "write",
     });
+    const deploymentStep = (
+      previewJobs.deployment.steps as Array<Workflow>
+    ).find((step) =>
+      String((step.with as Workflow | undefined)?.script ?? "").includes(
+        "createDeploymentStatus",
+      ),
+    );
+    assert.match(
+      String((deploymentStep?.with as Workflow).script),
+      /createDeploymentStatus/,
+    );
     assert.match(reusableSource, /build_args\+=\(--offline\)/);
+  });
+
+  it("fails when deployment options are missing or calls are swapped", () => {
+    const mutate = (needle: string, replacement: string) => {
+      const source = pullRequestPreviewSource.replace(needle, replacement);
+      return validateNetlifyPrPreviewWorkflow(
+        parse(source) as Workflow,
+        source,
+      );
+    };
+    for (const [needle, replacement] of [
+      ["ref: process.env.SOURCE_REF", "ref: process.env.OTHER_REF"],
+      ["auto_merge: false", "auto_merge: true"],
+      ["state: 'success'", "state: 'failure'"],
+      ["createDeployment(", "createDeploymentStatus("],
+    ]) {
+      assert.notDeepEqual(mutate(needle, replacement), []);
+    }
   });
 });
 

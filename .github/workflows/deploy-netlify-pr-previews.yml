@@ -247,6 +247,9 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -288,3 +291,32 @@ jobs:
             echo "Deleting ${site_name} PR preview deploy ${deploy_id}."
             netlify api deleteSiteDeploy --data "{\"site_id\":\"$site_id\",\"deploy_id\":\"$deploy_id\"}" >/dev/null
           done < <(sort -u "$matching_deploys_file")
+
+      - name: Deactivate GitHub PR preview deployments
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { readFileSync } = require('node:fs');
+            const sites = JSON.parse(readFileSync('scripts/netlify-production-sites.json', 'utf8'));
+            for (const siteName of Object.keys(sites)) {
+              if (siteName === 'workspace') continue;
+              const environment = `pr-${process.env.PR_NUMBER}-${siteName}`;
+              const deployments = await github.paginate(github.rest.repos.listDeployments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                environment,
+                per_page: 100,
+              });
+              for (const deployment of deployments) {
+                await github.rest.repos.createDeploymentStatus({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  deployment_id: deployment.id,
+                  state: 'inactive',
+                });
+              }
+            }
