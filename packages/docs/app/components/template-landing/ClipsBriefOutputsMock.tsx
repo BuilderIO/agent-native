@@ -73,7 +73,7 @@ const CLIPS_BRIEF_MOCK_CSS = [
   `.clips-brief-mock-frame { ${CLIPS_APP_PALETTE} }`,
   `html.light .clips-brief-mock-frame { ${CLIPS_APP_PALETTE_LIGHT} }`,
   ".clips-brief-mock-frame { display: flex; justify-content: center; width: 100%; padding: 16px 0; }",
-  ".clips-brief-mock-diagram { position: relative; width: 100%; max-width: 560px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: '. n .' 'w clip e' '. s .'; align-items: center; justify-items: center; gap: 40px 24px; }",
+  ".clips-brief-mock-diagram { position: relative; width: 100%; max-width: 680px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: '. n .' 'w clip e' '. s .'; align-items: center; justify-items: center; gap: 48px 28px; }",
   ".clips-brief-mock-rays { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }",
   ".clips-brief-mock-rays line { stroke: hsl(var(--border)); }",
 ].join("\n");
@@ -81,7 +81,7 @@ const CLIPS_BRIEF_MOCK_CSS = [
 function BriefClipCard() {
   return (
     <div
-      className="relative w-[240px] select-none overflow-hidden rounded-lg border border-border bg-card text-card-foreground"
+      className="relative w-[280px] select-none overflow-hidden rounded-lg border border-border bg-card text-card-foreground"
       style={{ gridArea: "clip" }}
     >
       <div className="relative aspect-video bg-muted">
@@ -93,18 +93,18 @@ function BriefClipCard() {
           className="h-full w-full object-cover"
         />
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
-          <IconPlayerPlayFilled className="size-7" />
+          <IconPlayerPlayFilled className="size-8" />
         </div>
         <span className="absolute bottom-1.5 end-1.5 rounded bg-black/80 px-1.5 py-px text-[11px] tabular-nums text-white">
           2:14
         </span>
       </div>
       <div className="px-3 pt-2.5 pb-3">
-        <div className="truncate text-sm font-medium">
+        <div className="truncate text-base font-medium">
           Brief: new onboarding flow
         </div>
-        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="flex size-4 items-center justify-center rounded-full bg-accent text-[8px] font-bold text-accent-foreground">
+        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="flex size-5 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-accent-foreground">
             NO
           </span>
           <span>Nadia Okonkwo</span>
@@ -152,10 +152,10 @@ export function ClipsBriefOutputsMock({
             <div
               key={output.label}
               style={{ gridArea: output.area }}
-              className="relative flex w-max select-none items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-card-foreground transition-colors hover:bg-accent"
+              className="relative flex w-max select-none items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-3 text-card-foreground transition-colors hover:bg-accent"
             >
-              <output.icon className="size-[18px] shrink-0 text-muted-foreground" />
-              <span className="text-sm font-medium whitespace-nowrap">
+              <output.icon className="size-5 shrink-0 text-muted-foreground" />
+              <span className="text-base font-medium whitespace-nowrap">
                 {output.label}
               </span>
             </div>
