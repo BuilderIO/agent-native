@@ -11,7 +11,7 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -23,6 +23,11 @@ import { isRetiredCompatibilityTemplate } from "./template-standard/manifest.ts"
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
 const sourceDir = join(rootDir, ".agents", "skills");
+const allowedSourceRoots = [
+  realpathSync(sourceDir),
+  realpathSync(join(rootDir, "skills")),
+  realpathSync(join(rootDir, "templates", "content", ".agents", "skills")),
+];
 const targetDir = join(
   rootDir,
   "packages",
@@ -661,6 +666,26 @@ function checkNoStaleTemplateSharedSkills() {
   }
 }
 
+function isWithin(root, candidate) {
+  const pathFromRoot = relative(root, candidate);
+  return (
+    pathFromRoot === "" ||
+    (pathFromRoot !== ".." &&
+      !pathFromRoot.startsWith(`..${sep}`) &&
+      !isAbsolute(pathFromRoot))
+  );
+}
+
+function resolveSourceSkill(skill) {
+  const sourceSkillDir = realpathSync(join(sourceDir, skill));
+  if (!allowedSourceRoots.some((root) => isWithin(root, sourceSkillDir))) {
+    throw new Error(
+      `Refusing to copy ${skill}: resolved source is outside approved skill roots (${sourceSkillDir})`,
+    );
+  }
+  return sourceSkillDir;
+}
+
 function copySkill(skill, targetSkillDir) {
   if (
     existsSync(targetSkillDir) &&
@@ -671,7 +696,7 @@ function copySkill(skill, targetSkillDir) {
   }
   rmSync(targetSkillDir, { recursive: true, force: true });
   mkdirSync(dirname(targetSkillDir), { recursive: true });
-  cpSync(realpathSync(join(sourceDir, skill)), targetSkillDir, {
+  cpSync(resolveSourceSkill(skill), targetSkillDir, {
     recursive: true,
   });
 }
