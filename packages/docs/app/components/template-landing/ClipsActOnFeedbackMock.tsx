@@ -234,7 +234,7 @@ export function ClipsActOnFeedbackMock({
             {/* PageHeader. The share controls that belong in this row are
                 rendered after the popover instead, for the reason noted
                 there. */}
-            <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+            <div className="flex h-12 shrink-0 items-center gap-2 px-4">
               <nav className="min-w-0">
                 <ol className="flex flex-nowrap items-center gap-1.5 overflow-hidden text-sm text-muted-foreground">
                   <li className="block max-w-48 shrink-0 truncate">Library</li>
