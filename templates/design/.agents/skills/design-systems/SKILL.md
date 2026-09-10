@@ -190,9 +190,17 @@ pnpm action delete-design-system --id <id>
 Requires admin access or higher — the owner, or anyone holding an `admin`
 share role. That is the same `canManage` flag `list-design-systems` returns
 and the Design Systems page renders its Delete control from. Removes the
-system and its shares, and clears `designSystemId` on every linked design.
-Those designs keep the tokens already baked into their HTML, so a design can
-still look on-brand while no longer linked to a system.
+system and its shares, and clears `designSystemId` on every linked design and
+saved template the caller can edit — a design system's admin share does not
+grant write access to every design or template that happens to reference it,
+so ones the caller can't edit keep a dangling reference instead, reported
+back as `designsSkippedForAccess` / `templatesSkippedForAccess` (both
+`get-design-template` and `list-design-templates` already resolve a dangling
+`designSystemId` back to `null` rather than erroring). Those designs keep the
+tokens already baked into their HTML, so a design can still look on-brand
+while no longer linked to a system. If the deleted system was the owner's
+default, another of their design systems is promoted to default so future
+design creation doesn't silently drop to "no design system".
 
 ## Multi-Source Import Flow
 
