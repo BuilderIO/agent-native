@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/extensions";
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -64,7 +65,6 @@ import {
 import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
-import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery } from "@/lib/sql-query";
@@ -84,6 +84,21 @@ import type {
 } from "@/pages/adhoc/sql-dashboard/types";
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
+
+const MAX_CHART_POINTS = 400;
+
+export function limitChartRows(
+  rows: Record<string, unknown>[],
+  chartType: ChartType,
+): Record<string, unknown>[] {
+  if (
+    rows.length <= MAX_CHART_POINTS ||
+    !["line", "area", "bar", "pie", "heatmap"].includes(chartType)
+  ) {
+    return rows;
+  }
+  return rows.slice(-MAX_CHART_POINTS);
+}
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -1296,6 +1311,8 @@ interface SqlChartProps {
   reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
+  /** Keeps same-dashboard panels deduplicated without sharing across dashboards. */
+  dashboardId?: string;
   /** Dashboard/panel state sent to slot-backed extension boxes. */
   extensionContext?: Record<string, unknown> | null;
 }
@@ -1308,6 +1325,7 @@ export function SqlChart({
   reportScreenshot = false,
   onExportCsvChange,
   onCopyTableChange,
+  dashboardId,
   extensionContext,
 }: SqlChartProps) {
   const t = useT();
@@ -1326,7 +1344,7 @@ export function SqlChart({
     error: queryError,
     refetch,
   } = useSqlQuery(
-    ["sql-chart", panel.id, sql, panel.source],
+    ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
@@ -1366,6 +1384,10 @@ export function SqlChart({
         ? createDemoChartTrendRows(queryRows, yKeys, panel.id)
         : queryRows,
     [queryRows, yKeys, panel.id, shouldCreateDemoTrend],
+  );
+  const chartRows = useMemo(
+    () => limitChartRows(rows, panel.chartType),
+    [panel.chartType, rows],
   );
 
   // Section panels are pure layout — no query, no chart. Render a header with
@@ -1492,7 +1514,7 @@ export function SqlChart({
   if (chartType === "pie") {
     return withConfigWarning(
       <PieRenderer
-        rows={rows}
+        rows={chartRows}
         xKey={xKey}
         yKey={yKeys[0]}
         colors={colors}
@@ -1504,7 +1526,7 @@ export function SqlChart({
   if (chartType === "bar") {
     return withConfigWarning(
       <BarRenderer
-        rows={rows}
+        rows={chartRows}
         xKey={xKey}
         yKeys={yKeys}
         colors={colors}
@@ -1535,7 +1557,7 @@ export function SqlChart({
 
   return withConfigWarning(
     <TimeSeriesRenderer
-      rows={rows}
+      rows={chartRows}
       xKey={xKey}
       yKeys={yKeys}
       colors={colors}

@@ -734,7 +734,9 @@ function SqlDashboardPageContent({
     isPending: certificationPending,
   } = useActionMutation("certify-dashboard");
   const { data: dashboardRevisions } = useDashboardRevisions(
-    !reportScreenshot && dashboardId ? dashboardId : null,
+    !reportScreenshot && dashboardId && (dashboardActionsOpen || historyOpen)
+      ? dashboardId
+      : null,
   );
   const restoreDashboardRevision = useRestoreDashboardRevision(
     dashboardId ?? "",

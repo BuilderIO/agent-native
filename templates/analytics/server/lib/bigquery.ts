@@ -575,7 +575,9 @@ export async function runQuery(
   };
 
   setL1(cacheKey, result);
-  await setL2(cacheKey, cacheableSql, result);
+  // The response is already cached in-process. Persisting the shared cache is
+  // best-effort and must not extend every dashboard panel's critical path.
+  void setL2(cacheKey, cacheableSql, result);
 
   return result;
 }

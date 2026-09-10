@@ -47,7 +47,15 @@ vi.mock("@agent-native/core/client/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
-import { formatSqlChartError, SqlChart } from "./SqlChart";
+import { formatSqlChartError, limitChartRows, SqlChart } from "./SqlChart";
+
+describe("limitChartRows", () => {
+  it("keeps tables untouched and bounds chart point rendering", () => {
+    const rows = Array.from({ length: 401 }, (_, index) => ({ index }));
+    expect(limitChartRows(rows, "table")).toBe(rows);
+    expect(limitChartRows(rows, "line")).toEqual(rows.slice(-400));
+  });
+});
 
 describe("SqlChart refresh feedback", () => {
   let container: HTMLDivElement;
