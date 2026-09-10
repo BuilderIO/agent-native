@@ -179,6 +179,73 @@ describe("realDataFinalGuard dashboard edits", () => {
     expect(result).not.toBeNull();
   });
 
+  it("does not retry a named dashboard-targeting automation as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a daily lead summary automation for the Sales dashboard",
+        draftText: 'Created automation "sales-lead-summary".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "sales-lead-summary",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("keeps recovery for a qualified automation-themed dashboard", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create a workflow performance dashboard",
+        draftText: 'Created automation "workflow-health".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "workflow-health",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps recovery for template-based dashboard construction beside automation", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Use the existing dashboard as a template and update the dashboard automation",
+        draftText: 'Updated automation "dashboard-refresh".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              updated: true,
+              name: "dashboard-refresh",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
   it("keeps dashboard recovery for a named dashboard and automation request", () => {
     const result = realDataFinalGuard(
       guardContext({

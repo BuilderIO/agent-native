@@ -1105,6 +1105,42 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("does not treat dashboard-targeting automation names as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation for our dashboard",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a daily lead summary automation for the Sales dashboard",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a Revenue dashboard email automation",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps qualified automation subjects as dashboard construction", () => {
+    for (const request of [
+      "Create a workflow performance dashboard",
+      "Build an automation health dashboard",
+      "Create a cron job reliability dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    }
+  });
+
+  it("preserves template-based dashboard construction beside automation", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Use the existing dashboard as a template and update the dashboard automation",
+      ),
+    ).toBe(true);
+  });
+
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
     expect(
       looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),
