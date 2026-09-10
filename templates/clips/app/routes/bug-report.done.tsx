@@ -8,6 +8,7 @@ import {
   createBugReportSubmissionMessage,
   type BugReportAgentLink,
 } from "@shared/bug-report";
+import { parseClipIntakeParams } from "@shared/clip-intake";
 import {
   IconArrowLeft,
   IconCheck,
@@ -43,6 +44,7 @@ export default function BugReportDoneRoute() {
   );
   const recordingId = params.get("recordingId")?.trim() || null;
   const returnUrl = params.get("returnUrl")?.trim() || null;
+  const intake = useMemo(() => parseClipIntakeParams(params), [params]);
 
   const recordingUrl = recordingId
     ? absoluteAppUrl(`/r/${encodeURIComponent(recordingId)}`)
@@ -55,19 +57,19 @@ export default function BugReportDoneRoute() {
     let cancelled = false;
     void (async () => {
       let agentLink: BugReportAgentLink | null = null;
-      try {
-        agentLink = (await callAction(
-          "create-recording-agent-link" as any,
-          {
+      if (!intake) {
+        try {
+          agentLink = (await callAction("create-recording-agent-link", {
             recordingId,
             ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
-          } as any,
-        )) as BugReportAgentLink;
-      } catch {
-        agentLink = null;
+          })) as BugReportAgentLink;
+        } catch (error) {
+          // The completion message keeps access explicitly unavailable when
+          // the authenticated exchange cannot be completed.
+          console.warn("[bug-report] agent link unavailable:", error);
+        }
       }
       if (cancelled) return;
-
       const message = createBugReportSubmissionMessage({
         recordingId,
         recordingUrl,
@@ -88,7 +90,7 @@ export default function BugReportDoneRoute() {
     return () => {
       cancelled = true;
     };
-  }, [embedUrl, recordingId, recordingUrl, returnUrl]);
+  }, [embedUrl, intake, recordingId, recordingUrl, returnUrl]);
 
   const copyRecordingUrl = async () => {
     if (!recordingUrl) return;

@@ -3,6 +3,7 @@ import {
   isBugReportSubmissionMessage,
   parseBugReportContext,
 } from "@shared/bug-report";
+import { parseClipIntakeParams } from "@shared/clip-intake";
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useOutlet } from "react-router";
 
@@ -33,6 +34,10 @@ export default function BugReportRoute() {
     const params = new URLSearchParams(location.search);
     return parseBugReportContext(params, { allowLoose: true });
   }, [location.search]);
+  const intake = useMemo(
+    () => parseClipIntakeParams(new URLSearchParams(location.search)),
+    [location.search],
+  );
 
   const recorderWindowRef = useRef<Window | null>(null);
   const hostOrigin = originFor(
@@ -66,6 +71,7 @@ export default function BugReportRoute() {
         <section className="rounded-lg border bg-card p-4 shadow-sm sm:p-5">
           <BugReportForm
             initialContext={initialContext}
+            intake={intake}
             onRecorderOpened={(recorderWindow) => {
               recorderWindowRef.current = recorderWindow;
             }}
