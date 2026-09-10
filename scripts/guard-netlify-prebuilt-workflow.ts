@@ -862,6 +862,18 @@ if (
   !reusableBetaFreshness.includes(
     "Netlify beta site has no published deploy",
   ) ||
+  !reusableBetaFreshness.includes(
+    "Uploading the first beta deploy as a draft until its source is revalidated.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Verify first beta deploy source immediately before publish",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Publish first beta deploy after freshness verification",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "First publishes are staged as drafts and only published after a current-main check",
+  ) ||
   reusableBetaFreshness.includes("requested || 'beta'") ||
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",

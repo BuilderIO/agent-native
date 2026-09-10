@@ -448,6 +448,22 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(reusableSource, /process\.env\.CALLER\.trim\(\)/);
     assert.match(reusableSource, /Netlify beta site has no published deploy/);
+    assert.match(
+      reusableSource,
+      /Uploading the first beta deploy as a draft until its source is revalidated\./,
+    );
+    assert.match(
+      reusableSource,
+      /Verify first beta deploy source immediately before publish/,
+    );
+    assert.match(
+      reusableSource,
+      /Publish first beta deploy after freshness verification/,
+    );
+    assert.match(
+      reusableSource,
+      /First publishes are staged as drafts and only published after a current-main check/,
+    );
     assert.doesNotMatch(reusableSource, /requested \|\| 'beta'/);
     assert.match(
       reusableSource,
@@ -523,11 +539,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 10);
+    assert.equal(nodeHeredocs.length, 11);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      10,
+      11,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),

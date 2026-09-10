@@ -928,6 +928,8 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          TARGET: ${{ inputs.target }}
+          PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
         run: |
           set -euo pipefail
 
@@ -940,7 +942,11 @@ jobs:
             --message "GitHub Actions prebuilt deploy ${GITHUB_SHA}"
           )
           if [[ "$DEPLOY_MODE" == "production" ]]; then
-            deploy_args+=(--prod)
+            if [[ "$TARGET" == "beta" && -z "$PREVIOUS_DEPLOY_ID" ]]; then
+              echo "Uploading the first beta deploy as a draft until its source is revalidated."
+            else
+              deploy_args+=(--prod)
+            fi
           fi
 
           deploy_json="$RUNNER_TEMP/netlify-deploy.json"
@@ -976,6 +982,7 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
+          PUBLISH_AFTER_FRESHNESS: ${{ inputs.target == 'beta' && inputs.deploy_mode == 'production' && steps.previous.outputs.published_deploy_id == '' }}
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
@@ -1010,6 +1017,7 @@ jobs:
                 throw new Error(`Netlify deploy failed: ${deploy.error_message || "unknown error"}`);
               }
               if (deploy.state === "ready") {
+                if (process.env.PUBLISH_AFTER_FRESHNESS === "true") return;
                 if (process.env.DEPLOY_MODE !== "production") return;
                 const site = await readJson(
                   await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
@@ -1036,6 +1044,110 @@ jobs:
               await sleep(10_000);
             }
             throw new Error(`Netlify deploy ${process.env.DEPLOY_ID} did not become ready and published within 30 minutes.`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Verify first beta deploy source immediately before publish
+        id: beta_first_publish_freshness
+        if: >-
+          inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.previous.outputs.published_deploy_id == '' &&
+          steps.deploy.outputs.deploy_id != ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha.toLowerCase();
+            const current = /^[0-9a-f]{40}$/.test(sourceRef) && sourceRef === mainSha;
+            core.setOutput('current', String(current));
+            if (!current) {
+              core.warning(
+                `First beta deploy source ${sourceRef || 'unknown'} became stale before publish; main is now ${mainSha}.`,
+              );
+            }
+
+      - name: Publish first beta deploy after freshness verification
+        if: >-
+          inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.previous.outputs.published_deploy_id == '' &&
+          steps.beta_first_publish_freshness.outputs.current == 'true' &&
+          steps.deploy.outputs.deploy_id != ''
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "${main_sha,,}" != "${GITHUB_SHA,,}" ]]; then
+            echo "::error::First beta deploy became stale before publish; main is now $main_sha."
+            exit 1
+          fi
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+          const api = "https://api.netlify.com/api/v1";
+          const netlifyHeaders = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-beta-first-publish",
+          };
+          const request = (url, options = {}) => requestNetlifyApi(url, {
+            ...options,
+            headers: { ...netlifyHeaders, ...(options.headers || {}) },
+          });
+          async function readJson(response, label) {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          }
+          const siteId = process.env.NETLIFY_SITE_ID;
+          const deployId = process.env.DEPLOY_ID;
+          const site = await readJson(
+            await request(`${api}/sites/${siteId}`),
+            "Netlify first beta publish site lookup",
+          );
+          const publishedId = site.published_deploy?.id;
+          if (publishedId && publishedId !== deployId) {
+            console.log(`Netlify first beta deploy ${deployId} was superseded by published deploy ${publishedId}; skipping publish.`);
+            return;
+          }
+          await readJson(
+            await request(`${api}/sites/${siteId}/deploys/${deployId}/restore`, { method: "POST" }),
+            `Netlify first beta deploy ${deployId} publish`,
+          );
+          const deadline = Date.now() + 5 * 60 * 1000;
+          while (Date.now() < deadline) {
+            const current = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify first beta publish verification",
+            );
+            if (current.published_deploy?.id === deployId) {
+              console.log(`Published first beta deploy ${deployId} after the final freshness check.`);
+              return;
+            }
+            if (current.published_deploy?.id && current.published_deploy.id !== deployId) {
+              console.log(`Netlify first beta deploy ${deployId} was superseded by published deploy ${current.published_deploy.id}; skipping verification failure.`);
+              return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10_000));
+          }
+          throw new Error(`Netlify did not publish first beta deploy ${deployId} within five minutes.`);
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;
@@ -1120,7 +1232,11 @@ jobs:
             );
             const publishedDeployId = site.published_deploy?.id;
             if (publishedDeployId === deployId) {
-              if (!previousId) throw new Error("Cannot revert stale beta deploy without a previous published deploy.");
+              if (!previousId) {
+                throw new Error(
+                  `Cannot safely revert first beta deploy ${deployId}: no previous published deploy exists. First publishes are staged as drafts and only published after a current-main check; a live first publish here indicates an external race, so the queued latest-main beta run must replace it.`,
+                );
+              }
               const beforeRestore = await readJson(
                 await request(`${api}/sites/${siteId}`),
                 "Netlify beta freshness restore precondition",
