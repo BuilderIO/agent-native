@@ -8,7 +8,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildAnalyticsHandoff } from "./connect-analytics-dialog";
-import { RecordingViewsBadge, ViewerAvatar } from "./recording-views-badge";
+import {
+  AgentViewerAvatar,
+  RecordingViewsBadge,
+  ViewerAvatar,
+} from "./recording-views-badge";
 
 const queryMocks = vi.hoisted(() => ({
   calls: [] as string[],
@@ -61,6 +65,15 @@ vi.mock("@/components/ui/avatar", () => ({
     ...props
   }: React.HTMLAttributes<HTMLSpanElement>) => (
     <span {...props}>{children}</span>
+  ),
+}));
+
+vi.mock("@/components/agent-destination-logos", () => ({
+  ClaudeLogo: (props: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span data-agent-logo="claude" {...props} />
+  ),
+  CodexLogo: (props: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span data-agent-logo="codex" {...props} />
   ),
 }));
 
@@ -145,13 +158,40 @@ describe("RecordingViewsBadge", () => {
     expect(queryMocks.calls).toEqual(["list-viewers"]);
   });
 
-  it("splits viewers and insights into tabs without splitting human and agent lists", () => {
+  it("shows human and agent views as one total badge count", () => {
+    render(
+      <RecordingViewsBadge
+        recordingId="recording-1"
+        viewCount={2}
+        agentViewCount={1}
+        canViewDetails
+      />,
+    );
+
+    expect(container.textContent).toContain("recordingInsights.viewsCount");
+    expect(container.textContent).toContain("3");
+    expect(
+      container.querySelector('[aria-label*="agentViewsCount"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector("button")?.getAttribute("aria-label"),
+    ).toContain("recordingInsights.viewsCount");
+    expect(
+      container.querySelector("button")?.getAttribute("aria-label"),
+    ).not.toContain("recordingInsights.agentViewsCount");
+  });
+
+  it("shows the human and agent breakdown inside the Views tab", () => {
     const source = readFileSync(
       resolve(process.cwd(), "app/components/player/recording-views-badge.tsx"),
       "utf8",
     );
     const chartSource = readFileSync(
       resolve(process.cwd(), "app/components/player/insights-chart.tsx"),
+      "utf8",
+    );
+    const controlsSource = readFileSync(
+      resolve(process.cwd(), "app/components/player/viewer-controls.tsx"),
       "utf8",
     );
 
@@ -180,10 +220,16 @@ describe("RecordingViewsBadge", () => {
     expect(chartSource).toContain('indicatorClassName="bg-highlight"');
     expect(chartSource).not.toContain("dropOff");
     expect(source).not.toContain("<ResponsiveContainer");
+    expect(controlsSource).toContain(
+      "overflow-x-auto overflow-y-hidden rounded-none",
+    );
+    expect(source).toContain('<ViewerTabsList className="overflow-visible">');
     expect(source).not.toContain("onOpenInsights");
-    expect(source).not.toContain('t("recordingInsights.humanViews")');
-    expect(source).not.toContain("agentViewCount");
-    expect(source).not.toContain('t("recordingInsights.agentViews")');
+    expect(source).toContain("<ViewerSection");
+    expect(source).toContain("agentViewCount");
+    expect(source).not.toContain("<AgentViewCount");
+    expect(source).toContain("<ClaudeLogo");
+    expect(source).toContain("<CodexLogo");
   });
 
   it("parks the Analytics handoff outside the visible insights experience", () => {
@@ -269,5 +315,17 @@ describe("RecordingViewsBadge", () => {
     const image = container.querySelector("img");
     expect(image?.getAttribute("src")).toBe(queryMocks.avatarUrl);
     expect(image?.getAttribute("alt")).toBe("Viewer Name");
+  });
+
+  it("uses provider logos for identified agent viewers", () => {
+    render(<AgentViewerAvatar agentLabel="Claude" />);
+
+    expect(
+      container.querySelector('[data-agent-logo="claude"]'),
+    ).not.toBeNull();
+
+    render(<AgentViewerAvatar agentLabel="ChatGPT" />);
+
+    expect(container.querySelector('[data-agent-logo="codex"]')).not.toBeNull();
   });
 });

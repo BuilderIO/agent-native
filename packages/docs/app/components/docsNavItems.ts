@@ -192,6 +192,16 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "cloneable-saas",
       },
       {
+        id: "creating-templates",
+        labelKey: "creatingTemplates",
+        slug: "creating-templates",
+      },
+      {
+        id: "syncing-template-changes",
+        labelKey: "syncingTemplateChanges",
+        slug: "syncing-template-changes",
+      },
+      {
         id: "pure-agent-apps",
         labelKey: "pureAgentApps",
         slug: "pure-agent-apps",
@@ -789,6 +799,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "generative-ui",
       },
       {
+        id: "embedding-sdk",
+        labelKey: "embeddingSdk",
+        slug: "embedding-sdk",
+      },
+      {
         id: "real-time-collaboration",
         labelKey: "realTimeCollaboration",
         slug: "real-time-collaboration",
@@ -803,6 +818,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "agent-resources-overview",
         labelKey: "agentResourcesOverview",
         slug: "agent-resources",
+      },
+      {
+        id: "writing-agent-instructions",
+        labelKey: "writingAgentInstructions",
+        slug: "writing-agent-instructions",
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {
@@ -899,29 +919,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "workspaceConnections",
         slug: "workspace-connections",
       },
-    ],
-  },
-  {
-    id: "build-apps",
-    titleKey: "buildApps",
-    items: [
-      {
-        id: "creating-templates",
-        labelKey: "creatingTemplates",
-        slug: "creating-templates",
-      },
-      {
-        id: "syncing-template-changes",
-        labelKey: "syncingTemplateChanges",
-        slug: "syncing-template-changes",
-      },
-      {
-        id: "writing-agent-instructions",
-        labelKey: "writingAgentInstructions",
-        slug: "writing-agent-instructions",
-      },
-      { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
-      { id: "frames", labelKey: "frames", slug: "frames" },
     ],
   },
   {

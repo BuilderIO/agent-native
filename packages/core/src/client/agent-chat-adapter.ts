@@ -876,6 +876,23 @@ function isToolCallContentPart(
   );
 }
 
+function shouldPreserveApprovalInput(
+  part: Pick<
+    Extract<ContentPart, { type: "tool-call" }>,
+    "approval" | "result"
+  >,
+): boolean {
+  const result =
+    typeof part.result === "string" ? part.result.toLowerCase() : undefined;
+  return Boolean(
+    part.approval?.approvalKey &&
+    part.approval.dismissed !== true &&
+    (part.result === undefined ||
+      result?.includes("awaiting human approval") ||
+      result?.includes("waiting for your approval")),
+  );
+}
+
 function isSuccessOnlyToolResult(value: Record<string, unknown>): boolean {
   const keys = Object.keys(value);
   if (keys.length === 0) return true;
@@ -965,13 +982,18 @@ function contentToStructuredMessages(
         continue;
       }
       const toolCallId = nextToolCallId();
+      // A pending approval must replay the exact authorized arguments. Normal
+      // history may truncate large tool inputs, but doing that here changes the
+      // approval key and turns every approval into a fresh approval request.
+      const preserveApprovalInput = shouldPreserveApprovalInput(part);
       assistantParts.push({
         type: "tool-call",
         toolCallId,
         toolName: part.toolName,
-        args: truncate
-          ? truncateToolArgsForHistory(part.args ?? {}, part.toolName)
-          : (part.args ?? {}),
+        args:
+          truncate && !preserveApprovalInput
+            ? truncateToolArgsForHistory(part.args ?? {}, part.toolName)
+            : (part.args ?? {}),
       });
       if (part.result !== undefined) {
         const body = truncate
@@ -985,7 +1007,9 @@ function contentToStructuredMessages(
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
-          toolInput: JSON.stringify(part.args ?? {}),
+          ...(preserveApprovalInput
+            ? {}
+            : { toolInput: JSON.stringify(part.args ?? {}) }),
           // A settled-interrupted tool has a result whose outcome is UNKNOWN.
           // It is neither a success nor a failure, so it carries the marker the
           // server's write-interruption breaker matches on instead of claiming
@@ -1004,7 +1028,9 @@ function contentToStructuredMessages(
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
-          toolInput: JSON.stringify(part.args ?? {}),
+          ...(preserveApprovalInput
+            ? {}
+            : { toolInput: JSON.stringify(part.args ?? {}) }),
           content: INTERRUPTED_TOOL_RESULT,
         });
       }
@@ -1018,7 +1044,7 @@ function contentToStructuredMessages(
   return messages;
 }
 
-function assistantUiMessagesToStructuredHistory(
+export function assistantUiMessagesToStructuredHistory(
   messages: readonly {
     role: string;
     content: readonly any[];
@@ -1084,6 +1110,7 @@ function assistantUiMessagesToStructuredHistory(
           ...(part.outcome === "unknown"
             ? { outcome: "unknown" as const }
             : {}),
+          ...(part.approval?.approvalKey ? { approval: part.approval } : {}),
         });
       }
     }
@@ -1120,8 +1147,15 @@ function estimateHistoryMessageCost(message: {
     const argsCap = LARGE_INPUT_TOOL_NAMES.has(tool.toolName ?? "")
       ? MAX_HISTORY_LARGE_TOOL_ARGS_CHARS
       : MAX_HISTORY_TOOL_ARGS_CHARS;
-    const argsText = tool.argsText ?? stableJson(tool.args ?? {});
-    cost += Math.min(argsText.length, argsCap);
+    const preserveApprovalInput = shouldPreserveApprovalInput(
+      tool as Extract<ContentPart, { type: "tool-call" }>,
+    );
+    const argsText = preserveApprovalInput
+      ? stableJson(tool.args ?? {})
+      : (tool.argsText ?? stableJson(tool.args ?? {}));
+    cost += preserveApprovalInput
+      ? argsText.length
+      : Math.min(argsText.length, argsCap);
     if (tool.result !== undefined) {
       cost += Math.min(
         // Price the string the request actually carries. `stringifyValue(result)` is
@@ -1160,7 +1194,12 @@ function limitPriorMessagesForRequest<
     const wordCost = messageTextForHistory(message).length;
     if (kept.length > 0 && words + wordCost > MAX_HISTORY_WORD_CHARS) continue;
     const payloadCost = estimateHistoryMessageCost(message) - wordCost;
-    const affordsPayload = payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
+    const hasPendingApproval = message.content.some(
+      (part) =>
+        isToolCallContentPart(part) && shouldPreserveApprovalInput(part),
+    );
+    const affordsPayload =
+      hasPendingApproval || payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
     const content = affordsPayload
       ? message.content
       : message.content.filter((part) => part.type === "text");

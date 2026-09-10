@@ -54,6 +54,10 @@ import {
   HELP,
   LOCAL_FILES_REFERENCE_MD,
   REWIND_SKILL_MD,
+  TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD,
+  TURN_INTO_APP_OPENAI_YAML,
+  TURN_INTO_APP_SKILL_MD,
+  TURN_INTO_APP_SPREADSHEET_SOURCE_REFERENCE_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
   VISUALIZE_REPO_SKILL_MD,
@@ -436,6 +440,58 @@ export const BUILT_IN_APP_SKILLS = {
     }),
     skillMarkdown: CONTEXT_XRAY_SKILL_MD,
   },
+  "turn-into-app": {
+    skillName: "turn-into-app",
+    extraFiles: {
+      "turn-into-app": {
+        "references/fresh-project.md": TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD,
+        "references/spreadsheet-source.md":
+          TURN_INTO_APP_SPREADSHEET_SOURCE_REFERENCE_MD,
+        "agents/openai.yaml": TURN_INTO_APP_OPENAI_YAML,
+      },
+    },
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "turn-into-app",
+      displayName: "Turn Into App",
+      description:
+        "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
+      hosted: {
+        url: "https://dispatch.agent-native.com",
+        mcpUrl: "https://dispatch.agent-native.com/mcp",
+      },
+      mcp: { serverName: "agent-native-dispatch" },
+      auth: {
+        mode: "oauth",
+        setup:
+          "Authenticate the Dispatch MCP connector in the host app, then grant the connector access to the workspace apps it should be able to inspect or scaffold. Dispatch provisions or reuses the Builder project server-side through the Builder Projects API; no separate Builder CMS MCP or shared secret is required.",
+      },
+      surfaces: [
+        {
+          id: "workspace-app-creation",
+          action: "start-workspace-app-creation",
+          path: "/new-app",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/turn-into-app",
+          visibility: "both",
+          exportAs: "turn-into-app",
+        },
+      ],
+      hostAdapters: [
+        "codex-plugin",
+        "claude-marketplace",
+        "vercel-skills",
+        "plain-skill",
+        "claude-skill",
+        "chatgpt-mcp",
+        "generic-mcp",
+      ],
+    }),
+    skillMarkdown: TURN_INTO_APP_SKILL_MD,
+  },
 } satisfies Record<
   string,
   {
@@ -514,6 +570,10 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "context-window": "context-xray",
   "context-usage": "context-xray",
   "agent-native-context-xray": "context-xray",
+  "turn-into-app": "turn-into-app",
+  "turn-into-an-app": "turn-into-app",
+  "app-from-workflow": "turn-into-app",
+  "agent-native-turn-into-app": "turn-into-app",
 } satisfies Record<string, BuiltInAppSkillId>;
 
 const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
@@ -543,6 +603,11 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "plannotate",
   ],
   "context-xray": ["xray", "context-window", "context-usage"],
+  "turn-into-app": [
+    "turn-into-an-app",
+    "app-from-workflow",
+    "agent-native-turn-into-app",
+  ],
 } satisfies Record<BuiltInAppSkillId, string[]>;
 
 const CLIENT_LABELS: Record<ClientId, string> = {
@@ -2432,6 +2497,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     value: "context-xray",
     label: "context-xray",
     hint: BUILT_IN_APP_SKILLS["context-xray"].manifest.description,
+  },
+  {
+    value: "turn-into-app",
+    label: "turn-into-app",
+    hint: BUILT_IN_APP_SKILLS["turn-into-app"].manifest.description,
   },
 ];
 

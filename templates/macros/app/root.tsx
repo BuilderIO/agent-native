@@ -141,7 +141,9 @@ function MacrosCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
+  const isAnalytics = location.pathname.startsWith("/analytics");
   return (
     <CommandMenu
       open={open}
@@ -150,8 +152,10 @@ function MacrosCommandMenu({
       changelogKey="macros"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        <CommandMenu.Item onSelect={() => {}}>
-          {t("root.search")}
+        <CommandMenu.Item
+          onSelect={() => navigate(isAnalytics ? "/home" : "/analytics")}
+        >
+          {t(isAnalytics ? "navigation.entry" : "navigation.analytics")}
         </CommandMenu.Item>
         <CommandMenu.Item
           onSelect={() => navigate("/settings/agent")}

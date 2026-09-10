@@ -16,6 +16,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import {
+  prefetchSecrets,
   resolveSecretDetailed,
   type ResolvedSecretDetail,
 } from "../server/credential-provider.js";
@@ -96,25 +97,25 @@ function secretSource(
     : "workspace";
 }
 
+const NOT_RESOLVED: ResolvedSecretDetail = { value: null, lookupFailed: false };
+
 /**
- * The value the runtime would use for `key` on this request — the same
- * precedence as `resolveSecret`, so Settings never reports a Vault- or
- * env-provided key as "unset" and invites a duplicate.
+ * Run `fn` as the signed-in caller so `resolveSecret`'s precedence applies —
+ * then Settings never reports a Vault- or env-provided key as "unset" and
+ * invites a duplicate. Anonymous requests get nothing: the resolver's
+ * env fallback would otherwise leak deployment-key suffixes to the public.
  */
-async function resolveEffectiveSecret(
+async function asRequestUser<T>(
   event: H3Event,
-  key: string,
-  options?: { skipUserScope?: boolean },
-): Promise<ResolvedSecretDetail> {
-  // coercion-ok: unauthenticated/public secret resolution when session fails
-  const session = await getSession(event).catch(() => null);
-  const ctx = session?.email
-    // coercion-ok: fallback to unscoped context when org resolution fails
-    ? await getOrgContext(event).catch(() => null)
-    : null;
+  fn: () => Promise<T>,
+  anonymous: T,
+): Promise<T> {
+  const session = await getSession(event);
+  if (!session?.email) return anonymous;
+  const ctx = await getOrgContext(event);
   return runWithRequestContext(
-    { userEmail: session?.email, orgId: ctx?.orgId ?? undefined },
-    () => resolveSecretDetailed(key, options),
+    { userEmail: session.email, orgId: ctx?.orgId ?? undefined },
+    fn,
   );
 }
 
@@ -210,6 +211,25 @@ export function createListSecretsHandler() {
     }
 
     const secrets = listRequiredSecrets();
+    const apiKeys = secrets
+      .filter((secret) => secret.kind !== "oauth")
+      .map((secret) => secret.key);
+    // One batched read per scope primes the request cache, so resolving
+    // every registered key below costs a handful of queries, not N×scopes.
+    const resolved = await asRequestUser(
+      event,
+      async () => {
+        await prefetchSecrets(apiKeys);
+        return new Map(
+          await Promise.all(
+            apiKeys.map(
+              async (key) => [key, await resolveSecretDetailed(key)] as const,
+            ),
+          ),
+        );
+      },
+      new Map<string, ResolvedSecretDetail>(),
+    );
     const payload: SecretStatusPayload[] = [];
 
     for (const secret of secrets) {
@@ -244,9 +264,9 @@ export function createListSecretsHandler() {
       // deployment environment is "set" even though no registered-scope row
       // exists; reporting it as unset is what made people re-enter it.
       const { scopeId } = await resolveScopeId(event, secret.scope);
-      const resolved = await resolveEffectiveSecret(event, secret.key);
-      if (!resolved.value) {
-        if (resolved.lookupFailed) {
+      const effective = resolved.get(secret.key) ?? NOT_RESOLVED;
+      if (!effective.value) {
+        if (effective.lookupFailed) {
           base.status = "unknown";
           base.error = "Could not read the credential store";
         }
@@ -254,28 +274,35 @@ export function createListSecretsHandler() {
         continue;
       }
       base.status = "set";
-      if (!resolved.source || resolved.source === "env" || !resolved.scopeId) {
+      if (
+        !effective.source ||
+        effective.source === "env" ||
+        !effective.scopeId
+      ) {
         base.source = "env";
-        base.last4 = last4(resolved.value);
+        base.managedHere = false;
+        base.last4 = last4(effective.value);
         payload.push(base);
         continue;
       }
       const hit = {
         key: secret.key,
-        scope: resolved.source,
-        scopeId: resolved.scopeId,
+        scope: effective.source,
+        scopeId: effective.scopeId,
       };
       const meta = await readAppSecretMeta(hit);
-      base.last4 = meta?.last4 || last4(resolved.value);
+      base.last4 = meta?.last4 || last4(effective.value);
       base.updatedAt = meta?.updatedAt;
       base.source = secretSource(hit.scope, meta?.description);
       base.managedHere = hit.scope === secret.scope && hit.scopeId === scopeId;
       // A personal key hides the shared one; say so, so the fix is "remove
       // this" rather than "edit the Vault and wonder why nothing changed".
       if (base.managedHere && secret.scope === "user") {
-        const shared = await resolveEffectiveSecret(event, secret.key, {
-          skipUserScope: true,
-        });
+        const shared = await asRequestUser(
+          event,
+          () => resolveSecretDetailed(secret.key, { skipUserScope: true }),
+          NOT_RESOLVED,
+        );
         if (shared.value && shared.source && shared.source !== "env") {
           const sharedMeta = shared.scopeId
             ? await readAppSecretMeta({
@@ -520,7 +547,11 @@ export function createTestSecretHandler() {
     if (!value) {
       // Test what the runtime uses, which may be a Vault or env value rather
       // than a row saved from this UI.
-      const stored = await resolveEffectiveSecret(event, secret.key);
+      const stored = await asRequestUser(
+        event,
+        () => resolveSecretDetailed(secret.key),
+        NOT_RESOLVED,
+      );
       if (!stored.value) {
         setResponseStatus(event, 404);
         return { error: "No value stored" };

@@ -40,6 +40,8 @@ concurrency:
 jobs:
   migrate:
     name: Migrate docs production schema
+    permissions:
+      contents: read
     needs: pause-netlify-builds
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
@@ -56,6 +58,8 @@ jobs:
 
   deploy:
     name: docs production prebuilt deploy
+    permissions:
+      contents: read
     needs: [pause-netlify-builds, migrate]
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:

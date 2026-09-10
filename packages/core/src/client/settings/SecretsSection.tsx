@@ -11,11 +11,11 @@ import {
 } from "@agent-native/toolkit/ui/button";
 import {
   Command,
+  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@agent-native/toolkit/ui/command";
 import {
   IconCheck,
@@ -63,6 +63,15 @@ Button.displayName = "SecretsPrimitiveButton";
 
 /** Where a stored value's effective source is, as reported by the server. */
 type SecretSource = "personal" | "workspace" | "vault" | "env";
+
+/** `stripe secret` → `STRIPE_SECRET`, the shape ad-hoc key names must take. */
+function normalizeKeyName(input: string): string {
+  return input
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Z0-9_-]/g, "");
+}
 
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
   vault: "secrets.sourceVault",
@@ -253,7 +262,7 @@ function KeysHeader({
   const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const normalized = query.toUpperCase().replace(/[^A-Z0-9_-]/g, "");
+  const normalized = normalizeKeyName(query);
 
   return (
     <div className="flex items-center justify-between gap-3">
@@ -275,7 +284,7 @@ function KeysHeader({
             New
           </ToolkitButtonBase>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-60 p-0">
+        <PopoverContent align="end" className="w-72 p-0">
           <Command
             // cmdk's default scorer matches loose subsequences, so "logo"
             // also surfaces every "G-o-o-g-l-e ... " key.
@@ -287,61 +296,67 @@ function KeysHeader({
               placeholder="Search keys..."
               onValueChange={setQuery}
             />
-            <CommandList>
-              {availableSecrets.length > 0 && (
-                <>
-                  <CommandGroup heading="Choose a key">
-                    {availableSecrets.map((secret) => (
-                      <CommandItem
-                        key={secret.key}
-                        value={`${secret.label} ${secret.key}`}
-                        onSelect={() => {
-                          setOpen(false);
-                          onSecret?.(secret.key);
-                        }}
-                        className="flex items-center justify-between gap-3"
-                      >
-                        <span className="truncate">{secret.label}</span>
-                        {secret.required && (
-                          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                            Required
-                          </span>
-                        )}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                  <CommandSeparator />
-                </>
+            {availableSecrets.length > 0 && (
+              <CommandList>
+                <CommandEmpty>No keys found.</CommandEmpty>
+                <CommandGroup heading="Choose a key">
+                  {availableSecrets.map((secret) => (
+                    <CommandItem
+                      key={secret.key}
+                      value={`${secret.label} ${secret.key}`}
+                      onSelect={() => {
+                        setOpen(false);
+                        onSecret?.(secret.key);
+                      }}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <span className="truncate">{secret.label}</span>
+                      {secret.required && (
+                        <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                          Required
+                        </span>
+                      )}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            )}
+            {/* Outside the scrolling list and force-mounted: cmdk hides a
+                group whose items missed the previous search, so a filtered
+                item can't advertise itself. A footer stays visible and
+                keyboard-reachable no matter what was typed. */}
+            <CommandGroup
+              forceMount
+              className={cn(
+                availableSecrets.length > 0 && "border-t border-border",
               )}
-              <CommandGroup>
-                {/* `value` always contains the current search text, so this
-                    item stays visible (and selectable) no matter what's typed. */}
-                <CommandItem
-                  value={`custom key ${query}`}
-                  onSelect={() => {
-                    setOpen(false);
-                    onCustomKey(normalized || undefined);
-                  }}
-                  className="flex items-center justify-between gap-3"
-                >
-                  {normalized ? (
-                    <span className="truncate">
-                      {t("secrets.addCustomKeyNamed", { name: normalized })}
+            >
+              <CommandItem
+                forceMount
+                value="custom key"
+                onSelect={() => {
+                  setOpen(false);
+                  onCustomKey(normalized || undefined);
+                }}
+                className="flex items-center justify-between gap-3"
+              >
+                {normalized ? (
+                  <span className="break-all">
+                    {t("secrets.addCustomKeyNamed", { name: normalized })}
+                  </span>
+                ) : (
+                  <>
+                    <span className="flex items-center gap-1.5">
+                      <IconPlus size={14} />
+                      {t("secrets.customKey")}
                     </span>
-                  ) : (
-                    <>
-                      <span className="flex items-center gap-1.5">
-                        <IconPlus size={14} />
-                        {t("secrets.customKey")}
-                      </span>
-                      <span className="shrink-0 text-[9px] text-muted-foreground">
-                        {t("secrets.customKeyHint")}
-                      </span>
-                    </>
-                  )}
-                </CommandItem>
-              </CommandGroup>
-            </CommandList>
+                    <span className="shrink-0 text-[9px] text-muted-foreground">
+                      {t("secrets.customKeyHint")}
+                    </span>
+                  </>
+                )}
+              </CommandItem>
+            </CommandGroup>
           </Command>
         </PopoverContent>
       </Popover>
@@ -1003,6 +1018,11 @@ function AdHocKeysSection({
           showToast("err", "Failed to delete key");
           return;
         }
+        const body = (await res.json()) as { removed?: boolean };
+        if (!body.removed) {
+          showToast("err", "Failed to delete key");
+          return;
+        }
         showToast("ok", "Key deleted");
         setConfirmDeleteName(null);
         notifySecretsChanged();
@@ -1020,9 +1040,7 @@ function AdHocKeysSection({
         <div className="rounded-md border border-border px-2.5 py-2 bg-accent/30 space-y-1.5">
           <TextField
             value={formName}
-            onChange={(value) =>
-              setFormName(value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""))
-            }
+            onChange={(value) => setFormName(normalizeKeyName(value))}
             className="w-full text-[11px]"
             aria-label="Key name"
             placeholder="KEY_NAME"
@@ -1141,7 +1159,10 @@ function AdHocKeysSection({
                   </div>
                 </div>
                 <div className="shrink-0">
-                  {key.source === "vault" ? (
+                  {/* Org rows are written by the Vault or Builder Connect;
+                      the ad-hoc delete route never touches them. */}
+                  {key.scope === "org" ? (
+                    key.source === "vault" &&
                     vaultHref && (
                       <a
                         href={vaultHref}

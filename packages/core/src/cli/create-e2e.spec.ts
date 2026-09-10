@@ -292,9 +292,10 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     }
   });
 
-  it("includes the Postgres runtime for hosted SQL databases", async () => {
+  it("includes local and hosted SQL runtimes", async () => {
     await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
+    expect(pkg.dependencies?.["@electric-sql/pglite"]).toBeDefined();
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
 
