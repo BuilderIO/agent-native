@@ -13,6 +13,7 @@ import {
   builderCreditsFromCostCents,
   getUsageSummary,
   usageBillingForEngine,
+  usageOrgScope,
   type UsageBillingMode,
 } from "@agent-native/core/usage";
 
@@ -486,11 +487,13 @@ function withOrgUsageScope(
   scope: { where: string; args: unknown[] },
   orgId: string | null,
 ): { where: string; args: unknown[] } {
-  const orgClause = orgId?.trim() ? "org_id = ?" : "org_id IS NULL";
-  const orgArgs = orgId?.trim() ? [orgId.trim()] : [];
+  // A no-org viewer keeps the narrow `IS NULL` scope: `usageScope` degrades to
+  // an unfiltered owner scope when it has no member emails, so dropping the
+  // org predicate there would widen the read to the whole table.
+  const org = usageOrgScope(orgId);
   return {
-    where: `${scope.where} AND ${orgClause}`,
-    args: [...scope.args, ...orgArgs],
+    where: `${scope.where} AND ${org.where || "org_id IS NULL"}`,
+    args: [...scope.args, ...org.args],
   };
 }
 

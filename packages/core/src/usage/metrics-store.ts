@@ -1,6 +1,7 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import { ForbiddenError } from "../sharing/access.js";
+import { usageOrgScope } from "./org-scope.js";
 import {
   builderCreditsFromCostCents,
   usageBillingForEngine,
@@ -256,9 +257,7 @@ async function resolveScope(
   }
 
   const placeholders = selectedEmails.map(() => "?").join(", ");
-  const orgScope = orgId
-    ? { where: "org_id = ?", args: [orgId] }
-    : { where: "", args: [] };
+  const orgScope = usageOrgScope(orgId);
   return {
     ownerScope: {
       where: [orgScope.where, `LOWER(owner_email) IN (${placeholders})`]

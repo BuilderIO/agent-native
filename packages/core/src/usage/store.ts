@@ -17,6 +17,8 @@ import {
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 
+export { usageOrgScope, type UsageOrgScope } from "./org-scope.js";
+
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of
  * input; cache write (5m TTL) is ~125%. Pricing is best-effort — keep

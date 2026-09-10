@@ -41,6 +41,12 @@ vi.mock("@agent-native/core/usage", () => ({
     shortLabel: "Cost",
     source: "estimated-provider-cost",
   }),
+  usageOrgScope: (orgId: string | null | undefined) => {
+    const trimmed = orgId?.trim();
+    return trimmed
+      ? { where: "(org_id = ? OR org_id IS NULL)", args: [trimmed] }
+      : { where: "", args: [] };
+  },
 }));
 
 vi.mock("./app-creation-store.js", () => ({
@@ -452,11 +458,18 @@ describe("listDispatchUsageMetrics", () => {
         ),
       ),
     ).toBe(false);
+    // The org predicate must admit unattributed rows. `org_id` is filled from
+    // the request context, so recurring jobs, automations, and every row
+    // written before that column existed are NULL — an equality-only filter
+    // reported real workspace spend as zero usage.
     expect(
       mocks.execute.mock.calls.some(([query]) => {
         const sql = String((query as { sql?: string }).sql);
         const args = (query as { args?: unknown[] }).args ?? [];
-        return sql.includes("org_id = ?") && args.includes("org-a");
+        return (
+          sql.includes("(org_id = ? OR org_id IS NULL)") &&
+          args.includes("org-a")
+        );
       }),
     ).toBe(true);
   });
