@@ -19,6 +19,9 @@ export const BABYSIT_WORK_RETRIGGER =
   "A new commit, pending CI, or GitHub finishing mergeability does not start another comment. New unanswered human review feedback, or a merge conflict that appeared after the branch was known to be conflict-free, can. Do not ask the bot to poll or loop; Factory re-checks on its schedule.";
 
 export const BABYSIT_DECISION_INSTRUCTION =
+  "For every in-scope item call propose-pr-babysit-status, then call babysit-factory-pull-request with decision. Use ping when the proposal allows it: the first request for an untouched pull request (first-ask), new human review feedback, or a merge conflict that appeared after the branch was known to be conflict-free; GitHub finishing its merge calculation is not new work. Use already_asked when Factory already asked during this round of work. Use stuck when another request cannot unblock the pull request, so a human has to look.";
+
+const OBSOLETE_BABYSIT_DECISION_NO_FIRST_ASK =
   "For every in-scope item call propose-pr-babysit-status, then call babysit-factory-pull-request with decision. Use ping only for new human review feedback, or for a merge conflict that appeared after the branch was known to be conflict-free; GitHub finishing its merge calculation is not new work. Use already_asked when Factory already asked during this round of work. Use stuck when another request cannot unblock the pull request, so a human has to look.";
 
 export function repairPrBabysitPrompt(content: string): string {
@@ -43,6 +46,13 @@ export function repairPrBabysitPrompt(content: string): string {
   // without one, and the action throws rather than guessing a ping.
   if (!next.includes("propose-pr-babysit-status")) {
     next = `${next.trimEnd()}\n\n${BABYSIT_DECISION_INSTRUCTION}\n`;
+  } else if (
+    next.includes(OBSOLETE_BABYSIT_DECISION_NO_FIRST_ASK) &&
+    !next.includes("first-ask")
+  ) {
+    next = next
+      .split(OBSOLETE_BABYSIT_DECISION_NO_FIRST_ASK)
+      .join(BABYSIT_DECISION_INSTRUCTION);
   }
   const first = next.indexOf(BABYSIT_LIST_BOUND);
   const second = next.indexOf(BABYSIT_LIST_BOUND, first + 1);

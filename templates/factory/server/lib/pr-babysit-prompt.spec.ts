@@ -86,4 +86,16 @@ evidence, the hardcoded comment, and the quiet window. Never approve or merge.
     expect(twice).toBe(once);
     expect(twice.split(BABYSIT_DECISION_INSTRUCTION).length - 1).toBe(1);
   });
+
+  it("upgrades the decision instruction to include first-ask", () => {
+    const legacy = `# Factory PR babysitting
+
+For every in-scope item call propose-pr-babysit-status, then call babysit-factory-pull-request with decision. Use ping only for new human review feedback, or for a merge conflict that appeared after the branch was known to be conflict-free; GitHub finishing its merge calculation is not new work. Use already_asked when Factory already asked during this round of work. Use stuck when another request cannot unblock the pull request, so a human has to look.
+`;
+
+    const repaired = repairPrBabysitPrompt(legacy);
+
+    expect(repaired).toContain("first-ask");
+    expect(repaired).toContain(BABYSIT_DECISION_INSTRUCTION);
+  });
 });

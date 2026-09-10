@@ -48,6 +48,7 @@ import {
   hasHumanChangesRequested,
   reconcileBabysitState,
   shouldRecordBabysitAudit,
+  shouldVetoDuplicateBabysitComment,
   type BabysitPingReason,
 } from "../server/triage/pr-babysit.js";
 
@@ -106,6 +107,11 @@ async function releaseBabysitPostClaim(
 ): Promise<void> {
   const db = getDb();
   await db.transaction(async (tx) => {
+    await tx
+      .select({ id: triageItems.id })
+      .from(triageItems)
+      .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+      .for("update");
     const row = (
       await tx
         .select({ metadataJson: triageItems.metadataJson })
@@ -137,22 +143,29 @@ async function updateBabysitItem(
   options?: { status?: string; touchUpdatedAt?: boolean },
 ): Promise<void> {
   const db = getDb();
-  const item = (
-    await db
-      .select({
-        metadataJson: triageItems.metadataJson,
-        factoryId: triageItems.factoryId,
-      })
+  await db.transaction(async (tx) => {
+    await tx
+      .select({ id: triageItems.id })
       .from(triageItems)
       .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
-      .limit(1)
-  )[0];
-  if (!item) throw new Error("Factory item disappeared during PR babysitting.");
-  const factoryId = item.factoryId ?? DEFAULT_FACTORY_ID;
-  const metadata = parseTriageMetadata(item.metadataJson);
-  Object.assign(metadata, patch);
-  const touchUpdatedAt = options?.touchUpdatedAt !== false;
-  await db.transaction(async (tx) => {
+      .for("update");
+    const item = (
+      await tx
+        .select({
+          metadataJson: triageItems.metadataJson,
+          factoryId: triageItems.factoryId,
+        })
+        .from(triageItems)
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .limit(1)
+    )[0];
+    if (!item) {
+      throw new Error("Factory item disappeared during PR babysitting.");
+    }
+    const factoryId = item.factoryId ?? DEFAULT_FACTORY_ID;
+    const metadata = parseTriageMetadata(item.metadataJson);
+    Object.assign(metadata, patch);
+    const touchUpdatedAt = options?.touchUpdatedAt !== false;
     await tx
       .update(triageItems)
       .set({
@@ -363,6 +376,7 @@ export default defineAction({
       snapshot: proposal,
       reviewStates: details.reviews.map((review) => review.state),
     });
+    const consumedPendingReopen = stored.pendingReopen;
     const parkedPatch = {
       prBabysitHumanReviewCommentCount: countHumanReviewComments(
         details.comments,
@@ -374,7 +388,7 @@ export default defineAction({
       prBabysitMergeConflict: mechanical.mergeability.mergeConflict,
       prBabysitMergeabilityComputed:
         mechanical.mergeability.mergeabilityComputed,
-      prBabysitPendingReopen: false,
+      ...(consumedPendingReopen ? { prBabysitPendingReopen: false } : {}),
     };
     const evidenceDetails = {
       author: pullRequest.userLogin,
@@ -429,142 +443,159 @@ export default defineAction({
       );
     };
 
-    if (!mechanical.needsWork) {
-      if (
-        shouldRecordBabysitAudit({
-          previousState,
-          nextState: "clean",
-          posted: false,
-        })
-      ) {
-        await recordFactoryAudit(
-          context,
-          { userEmail, orgId },
-          {
-            action: "babysit-factory-pull-request",
-            kind: "decision",
-            status: "skipped",
-            itemId,
-            source: "github",
-            sourceUrl: item.sourceUrl,
-            summary: formatBabysitAuditSummary(
-              item.pullRequestNumber,
-              "is clean; no Builder feedback request.",
-            ),
-            details: evidenceDetails,
-          },
-          factoryId,
-        );
-      }
-      await updateBabysitItem(
-        itemId,
-        orgId,
-        {
-          prBabysitState: "clean",
-          prBabysitLastCheckedAt: nowIso,
-          prBabysitFingerprint: fingerprint,
-          ...parkedPatch,
-        },
-        { touchUpdatedAt: previousState !== "clean" },
-      );
-      return { ok: true, action: "clean" };
-    }
-
-    if (decision === "stuck") {
-      await park("stuck", babysitStuckClause(), { status: "needs_manual" });
-      return { ok: true, action: "stuck" };
-    }
-    if (decision === "already_asked") {
-      await park("waiting", babysitAlreadyAskedClause());
-      return { ok: true, action: "waiting" };
-    }
-    if (!mechanical.ping.allowed) {
-      await park("waiting", babysitHeldPingClause(mechanical.ping.reason));
-      return { ok: true, action: "waiting", veto: mechanical.ping.reason };
-    }
-
     const vetoHeldPing = async (reason: BabysitPingReason) => {
       await park("waiting", babysitHeldPingClause(reason));
       return { ok: true as const, action: "waiting" as const, veto: reason };
     };
 
+    const shouldVetoDuplicate = (count: number) =>
+      shouldVetoDuplicateBabysitComment({
+        existingBabysitCommentCount: count,
+        newHumanWork: mechanical.newHumanWork,
+        newDefiniteMergeConflict: mechanical.newDefiniteMergeConflict,
+      });
+
     const scanIssueComments = async () =>
       github.listIssueComments(repository, pullRequestNumber);
 
-    const preClaimScan = await scanIssueComments();
-    if (preClaimScan.truncated) {
-      return vetoHeldPing("comment-scan-truncated");
-    }
-    if (countBabysitComments(preClaimScan.comments) > 0) {
-      return vetoHeldPing("duplicate-comment");
-    }
-
     const acquired = await tryAcquireBabysitPostClaim(itemId, orgId, factoryId);
     if (!acquired) {
-      const contendedScan = await scanIssueComments();
-      if (contendedScan.truncated) {
-        return vetoHeldPing("comment-scan-truncated");
+      if (decision === "ping") {
+        const contendedScan = await scanIssueComments();
+        if (contendedScan.truncated) {
+          return {
+            ok: true,
+            action: "waiting",
+            veto: "comment-scan-truncated" as const,
+          };
+        }
+        if (shouldVetoDuplicate(countBabysitComments(contendedScan.comments))) {
+          return {
+            ok: true,
+            action: "waiting",
+            veto: "duplicate-comment" as const,
+          };
+        }
       }
-      if (countBabysitComments(contendedScan.comments) > 0) {
-        return vetoHeldPing("duplicate-comment");
-      }
-      return vetoHeldPing("already-asked");
+      return { ok: true, action: "waiting", veto: "already-asked" as const };
     }
 
-    let comment: Awaited<ReturnType<typeof github.createIssueComment>>;
     try {
+      if (!mechanical.needsWork) {
+        if (
+          shouldRecordBabysitAudit({
+            previousState,
+            nextState: "clean",
+            posted: false,
+          })
+        ) {
+          await recordFactoryAudit(
+            context,
+            { userEmail, orgId },
+            {
+              action: "babysit-factory-pull-request",
+              kind: "decision",
+              status: "skipped",
+              itemId,
+              source: "github",
+              sourceUrl: item.sourceUrl,
+              summary: formatBabysitAuditSummary(
+                item.pullRequestNumber,
+                "is clean; no Builder feedback request.",
+              ),
+              details: evidenceDetails,
+            },
+            factoryId,
+          );
+        }
+        await updateBabysitItem(
+          itemId,
+          orgId,
+          {
+            prBabysitState: "clean",
+            prBabysitLastCheckedAt: nowIso,
+            prBabysitFingerprint: fingerprint,
+            ...parkedPatch,
+          },
+          { touchUpdatedAt: previousState !== "clean" },
+        );
+        return { ok: true, action: "clean" };
+      }
+
+      if (decision === "stuck") {
+        await park("stuck", babysitStuckClause(), { status: "needs_manual" });
+        return { ok: true, action: "stuck" };
+      }
+      if (decision === "already_asked") {
+        await park("waiting", babysitAlreadyAskedClause());
+        return { ok: true, action: "waiting" };
+      }
+      if (!mechanical.ping.allowed) {
+        await park("waiting", babysitHeldPingClause(mechanical.ping.reason));
+        return { ok: true, action: "waiting", veto: mechanical.ping.reason };
+      }
+
+      const preClaimScan = await scanIssueComments();
+      if (preClaimScan.truncated) {
+        return vetoHeldPing("comment-scan-truncated");
+      }
+      if (shouldVetoDuplicate(countBabysitComments(preClaimScan.comments))) {
+        return vetoHeldPing("duplicate-comment");
+      }
+
       const finalScan = await scanIssueComments();
       if (finalScan.truncated) {
         return vetoHeldPing("comment-scan-truncated");
       }
-      if (countBabysitComments(finalScan.comments) > 0) {
+      if (shouldVetoDuplicate(countBabysitComments(finalScan.comments))) {
         return vetoHeldPing("duplicate-comment");
       }
-      comment = await github.createIssueComment(
+
+      const comment = await github.createIssueComment(
         repository,
         pullRequestNumber,
         DEFAULT_BABYSIT_PR_COMMENT,
       );
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "babysit-factory-pull-request",
+          kind: "external_action",
+          itemId,
+          source: "github",
+          sourceUrl: comment.htmlUrl,
+          summary: formatBabysitAuditSummary(
+            item.pullRequestNumber,
+            "posted the feedback-fix request.",
+          ),
+          details: {
+            author: pullRequest.userLogin,
+            commentUrl: comment.htmlUrl,
+            pingReason: mechanical.ping.reason,
+          },
+        },
+        factoryId,
+      );
+      // Posting parks straight to `waiting`: the ask is out, so the item leaves
+      // needsReview until poll finds new human review work. An `active` state here
+      // is what let mergeability flicker re-list and re-ping the same PR.
+      await updateBabysitItem(itemId, orgId, {
+        prBabysitState: "waiting",
+        prBabysitFingerprint: fingerprint,
+        prBabysitLastCheckedAt: nowIso,
+        prBabysitLastCommentAt: nowIso,
+        prBabysitLastCommentUrl: comment.htmlUrl,
+        ...parkedPatch,
+      });
+      return {
+        ok: true,
+        action: "commented",
+        commentUrl: comment.htmlUrl,
+        pingReason: mechanical.ping.reason,
+      };
     } finally {
       await releaseBabysitPostClaim(itemId, orgId, factoryId);
     }
-    await recordFactoryAudit(
-      context,
-      { userEmail, orgId },
-      {
-        action: "babysit-factory-pull-request",
-        kind: "external_action",
-        itemId,
-        source: "github",
-        sourceUrl: comment.htmlUrl,
-        summary: formatBabysitAuditSummary(
-          item.pullRequestNumber,
-          "posted the feedback-fix request.",
-        ),
-        details: {
-          author: pullRequest.userLogin,
-          commentUrl: comment.htmlUrl,
-          pingReason: mechanical.ping.reason,
-        },
-      },
-      factoryId,
-    );
-    // Posting parks straight to `waiting`: the ask is out, so the item leaves
-    // needsReview until poll finds new human review work. An `active` state here
-    // is what let mergeability flicker re-list and re-ping the same PR.
-    await updateBabysitItem(itemId, orgId, {
-      prBabysitState: "waiting",
-      prBabysitFingerprint: fingerprint,
-      prBabysitLastCheckedAt: nowIso,
-      prBabysitLastCommentAt: nowIso,
-      prBabysitLastCommentUrl: comment.htmlUrl,
-      ...parkedPatch,
-    });
-    return {
-      ok: true,
-      action: "commented",
-      commentUrl: comment.htmlUrl,
-      pingReason: mechanical.ping.reason,
-    };
   },
 });

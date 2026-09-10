@@ -77,27 +77,29 @@ beforeEach(() => {
     role: "owner",
   });
   requireFactoryAutomationMock.mockResolvedValue(undefined);
-  const update = () => ({ set: () => ({ where: async () => undefined }) });
-  getDbMock.mockReturnValue({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: async () => [
-            {
-              id: "item-1",
-              factoryId: "testingfactory",
-              source: "github",
-              repository: "BuilderIO/agent-native",
-              pullRequestNumber: 3749,
-              sourceUrl: "https://github.com/BuilderIO/agent-native/pull/3749",
-              metadataJson: "{}",
-            },
-          ],
-        }),
+  const triageRow = {
+    id: "item-1",
+    factoryId: "testingfactory",
+    source: "github",
+    repository: "BuilderIO/agent-native",
+    pullRequestNumber: 3749,
+    sourceUrl: "https://github.com/BuilderIO/agent-native/pull/3749",
+    metadataJson: "{}",
+  };
+  const select = () => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => [triageRow],
+        for: async () => undefined,
       }),
     }),
+  });
+  const update = () => ({ set: () => ({ where: async () => undefined }) });
+  const tx = { select, update };
+  getDbMock.mockReturnValue({
+    select,
     update,
-    transaction: async (run: (tx: unknown) => Promise<void>) => run({ update }),
+    transaction: async (run: (tx: unknown) => Promise<void>) => run(tx),
   });
   // Reaching the GitHub client is the signal that the repository gate passed;
   // the evidence fetch itself is not what these cases exercise.

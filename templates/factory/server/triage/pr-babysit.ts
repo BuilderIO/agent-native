@@ -224,6 +224,17 @@ export function decideBabysitPing(input: {
   return { allowed: false, reason: "already-asked" };
 }
 
+/** POST-path duplicate scans must follow the same new-work override as decideBabysitPing. */
+export function shouldVetoDuplicateBabysitComment(input: {
+  existingBabysitCommentCount: number;
+  newHumanWork: boolean;
+  newDefiniteMergeConflict: boolean;
+}): boolean {
+  if (input.existingBabysitCommentCount === 0) return false;
+  if (input.newHumanWork || input.newDefiniteMergeConflict) return false;
+  return true;
+}
+
 /**
  * `quiet` is no longer written, because posting parks straight to `waiting`.
  * Rows stored before that change still carry it, and dropping the string here

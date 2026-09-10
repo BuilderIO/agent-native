@@ -16,6 +16,7 @@ import {
   reconcileBabysitState,
   resolveStickyMergeability,
   shouldRecordBabysitAudit,
+  shouldVetoDuplicateBabysitComment,
   countHumanReviewBodies,
   countHumanReviewComments,
   hasHumanChangesRequested,
@@ -758,6 +759,37 @@ describe("babysit work policy", () => {
       allowed: false,
       reason: "already-asked",
     });
+  });
+
+  it("matches decideBabysitPing on when an existing comment blocks a ping", () => {
+    expect(
+      shouldVetoDuplicateBabysitComment({
+        existingBabysitCommentCount: 0,
+        newHumanWork: false,
+        newDefiniteMergeConflict: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldVetoDuplicateBabysitComment({
+        existingBabysitCommentCount: 1,
+        newHumanWork: false,
+        newDefiniteMergeConflict: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldVetoDuplicateBabysitComment({
+        existingBabysitCommentCount: 1,
+        newHumanWork: true,
+        newDefiniteMergeConflict: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldVetoDuplicateBabysitComment({
+        existingBabysitCommentCount: 1,
+        newHumanWork: false,
+        newDefiniteMergeConflict: true,
+      }),
+    ).toBe(false);
   });
 
   // Pull request 4495 was pinged three times in seven minutes: a first look with
