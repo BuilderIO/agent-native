@@ -27,6 +27,7 @@ vi.mock("../../actions/_blocks-field-identity.js", () => ({
 }));
 
 const {
+  acceptedSuggestionRequestSource,
   applyMarkdownSuggestionOperation,
   contentDocumentSuggestionAdapter,
   publishPersistedAcceptedSuggestion,
@@ -47,6 +48,7 @@ const access = {
   resource: {
     id: "doc-1",
     content: "Before",
+    bodyRevision: 0,
     updatedAt: "rev-1",
     trashedAt: null,
     sourceMode: null,
@@ -83,6 +85,16 @@ describe("Content document suggestion adapter", () => {
     persistBlocksFieldIdentity.mockClear();
   });
 
+  it.each([
+    ["browser-tab-1", undefined],
+    ["agent", "agent"],
+  ])(
+    "routes accepted suggestion request source %s as %s",
+    (requestSource, expected) => {
+      expect(acceptedSuggestionRequestSource(requestSource)).toBe(expected);
+    },
+  );
+
   it("validates a proposal without mutating canonical content", async () => {
     await expect(
       contentDocumentSuggestionAdapter.validateProposal({
@@ -101,7 +113,11 @@ describe("Content document suggestion adapter", () => {
       execute: vi.fn(async (query: { sql: string }) => {
         expect(query.sql).toMatch(/^SELECT/);
         if (query.sql.startsWith("SELECT content,")) {
-          return { rows: [{ content: "Before", updated_at: "rev-1" }] };
+          return {
+            rows: [
+              { content: "Before", body_revision: 0, updated_at: "rev-1" },
+            ],
+          };
         }
         return { rows: [] };
       }),
@@ -132,7 +148,7 @@ describe("Content document suggestion adapter", () => {
   it("rejects amendments when transactional canonical state moved", async () => {
     const tx = {
       execute: vi.fn(async () => ({
-        rows: [{ content: "Changed", updated_at: "rev-2" }],
+        rows: [{ content: "Changed", body_revision: 1, updated_at: "rev-2" }],
       })),
     };
     await expect(
@@ -185,6 +201,7 @@ describe("Content document suggestion adapter", () => {
                 id: "doc-1",
                 title: "Page",
                 content: "Before",
+                body_revision: 0,
                 owner_email: "owner@example.com",
                 updated_at: "rev-1",
                 source_mode: null,
@@ -331,6 +348,7 @@ describe("Content document suggestion adapter", () => {
                 id: "doc-1",
                 title: "Page",
                 content: "Before",
+                body_revision: 0,
                 owner_email: "owner@example.com",
                 updated_at: "rev-1",
                 source_mode: null,
@@ -382,7 +400,11 @@ describe("Content document suggestion adapter", () => {
       writes.some((sql) => sql.startsWith("INSERT INTO document_versions")),
     ).toBe(true);
     expect(
-      writes.some((sql) => sql.startsWith("UPDATE documents SET content")),
+      writes.some((sql) =>
+        sql.startsWith(
+          "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?",
+        ),
+      ),
     ).toBe(true);
     expect(coordination.ydoc.persist).toHaveBeenCalledWith(tx, "After");
     expect(coordination.sync.persist).toHaveBeenCalledWith(tx);
@@ -413,6 +435,7 @@ describe("Content document suggestion adapter", () => {
                 id: "doc-1",
                 title: "Page",
                 content: "Before",
+                body_revision: 0,
                 owner_email: "owner@example.com",
                 updated_at: "rev-1",
                 source_mode: null,
@@ -487,6 +510,7 @@ describe("Content document suggestion adapter", () => {
                 id: "doc-1",
                 title: "Page",
                 content: "Newer",
+                body_revision: 1,
                 owner_email: "owner@example.com",
                 updated_at: "rev-2",
               },

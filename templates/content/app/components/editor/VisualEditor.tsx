@@ -1069,6 +1069,10 @@ interface VisualEditorProps {
   contentUpdatedAt?: string | null;
   /** Opaque body revision used for base-aware external-edit reconciliation. */
   contentRevision?: string | null;
+  collabContentRevision?: string | null;
+  requestCollabSync?: () => Promise<{
+    status: "synced" | "failed" | "unavailable";
+  }>;
   onBaseAwareReconcile?: (result: {
     status: "merged" | "conflict" | "failed";
     content: string;
@@ -2561,6 +2565,8 @@ export function VisualEditor({
   content,
   contentUpdatedAt,
   contentRevision,
+  collabContentRevision,
+  requestCollabSync,
   onBaseAwareReconcile,
   onChange,
   onSaveContent,
@@ -3347,6 +3353,10 @@ export function VisualEditor({
     contentRevision: propsPredateAcknowledgedRestore
       ? acknowledgedRestore!.contentRevision
       : contentRevision,
+    collabContentRevision: propsPredateAcknowledgedRestore
+      ? null
+      : collabContentRevision,
+    requestCollabSync,
     onBaseAwareReconcile,
     editable,
     isEditorFocused: isVisualEditorFocused,

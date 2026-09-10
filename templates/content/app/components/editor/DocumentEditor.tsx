@@ -170,6 +170,7 @@ import {
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
 import {
+  canonicalSuggestionRevision,
   createSuggestionDraftSession,
   previewSuggestionDraft,
   editableSuggestionDraft,
@@ -1923,6 +1924,7 @@ function PageEditorSessionBody({
     ydoc,
     awareness,
     isSynced: collabSynced,
+    requestSync: requestCollabSync,
     initialization: collabInitialization,
     activeUsers,
     agentActive,
@@ -3417,7 +3419,10 @@ function PageEditorSessionBody({
             suggestion,
             currentUserEmail: session?.email,
             canonicalContent: document.content,
-            canonicalRevision: document.updatedAt,
+            canonicalRevision: canonicalSuggestionRevision(
+              document,
+              suggestion,
+            ),
           })
         : null;
       if (suggestion && !existing) return false;
@@ -3429,7 +3434,7 @@ function PageEditorSessionBody({
         createSuggestionDraftSession({
           id: globalThis.crypto.randomUUID(),
           baseContent: document.content,
-          baseRevision: document.updatedAt,
+          baseRevision: canonicalSuggestionRevision(document),
           startedAt: new Date().toISOString(),
         });
       setSuggestionDraft(existing?.content ?? document.content);
@@ -3442,6 +3447,7 @@ function PageEditorSessionBody({
     [
       canSuggest,
       document.content,
+      document.revision,
       document.updatedAt,
       isSuggesting,
       session?.email,
@@ -5169,6 +5175,12 @@ function PageEditorSessionBody({
                                 : (document.revision ?? null)
                             }
                             onBaseAwareReconcile={handleBaseAwareReconcile}
+                            collabContentRevision={
+                              isLocalFileDocument || isSuggesting
+                                ? null
+                                : document.collabContentRevision
+                            }
+                            requestCollabSync={requestCollabSync}
                             onChange={
                               isSuggesting
                                 ? setSuggestionDraft

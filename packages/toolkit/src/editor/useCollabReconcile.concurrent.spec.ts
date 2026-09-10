@@ -212,13 +212,13 @@ async function flush() {
   });
 }
 
-function makePeerReconcileHarness() {
+function makePeerReconcileHarness(initialContent = "original body") {
   const ydoc = new Y.Doc();
   ydoc.clientID = 2;
   const seedEditor = new CoreEditor({
     extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
   });
-  seedEditor.commands.setContent("original body");
+  seedEditor.commands.setContent(initialContent);
   seedEditor.destroy();
   const awareness = new Awareness(ydoc);
   awareness.getStates().set(3, {
@@ -227,17 +227,26 @@ function makePeerReconcileHarness() {
     canFlushDocument: true,
   });
   const writes: Array<{ value: string; callbackVersion: number }> = [];
+  const reconciled: Array<{ status: string; baseRevision: string }> = [];
   let editor: Editor | null = null;
   function Harness({
-    value = "original body",
+    value = initialContent,
     revision = "revision-1",
     callbackVersion = 0,
     available = true,
+    collabContentRevision,
+    requestCollabSync,
+    baseAware = false,
   }: {
     value?: string;
     revision?: string;
     callbackVersion?: number;
     available?: boolean;
+    collabContentRevision?: string;
+    requestCollabSync?: () => Promise<{
+      status: "synced" | "failed" | "unavailable";
+    }>;
+    baseAware?: boolean;
   }) {
     editor = useEditor({
       extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
@@ -250,9 +259,16 @@ function makePeerReconcileHarness() {
       value,
       contentUpdatedAt: "2024-01-01T00:00:01.000Z",
       contentRevision: revision,
+      collabContentRevision,
+      requestCollabSync,
       initialAppliedUpdatedAt: null,
       editable: true,
-      parseValue: false,
+      parseValue: baseAware ? undefined : false,
+      onBaseAwareReconcile: baseAware
+        ? (result) => {
+            reconciled.push(result);
+          }
+        : undefined,
       getMarkdown: (editorToRead) => getEditorMarkdown(editorToRead),
       setContent: (editorToWrite, nextValue, options) => {
         writes.push({ value: nextValue, callbackVersion });
@@ -266,7 +282,10 @@ function makePeerReconcileHarness() {
   return {
     Harness,
     writes,
+    reconciled,
     awareness,
+    ydoc,
+    editor: () => editor!,
     markdown: () => getEditorMarkdown(editor!),
     dispose: () => {
       act(() => root.unmount());
@@ -367,6 +386,161 @@ function render(
 }
 
 describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
+  it("does not seed an empty editor from a collab-backed SQL snapshot", async () => {
+    vi.useFakeTimers();
+    const harness = makePeerReconcileHarness("");
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+    const serverEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: serverDoc,
+      }),
+    });
+    serverEditor.commands.insertContentAt(1, "Accepted body");
+    let finishSync!: (result: { status: "synced" }) => void;
+    const requestCollabSync = () =>
+      new Promise<{ status: "synced" }>((resolve) => {
+        finishSync = resolve;
+      });
+    try {
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "Accepted body",
+            revision: "revision-2",
+            collabContentRevision: "revision-2",
+            requestCollabSync,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(harness.markdown()).toBe("");
+      expect(harness.writes).toEqual([]);
+      act(() =>
+        Y.applyUpdate(harness.ydoc, Y.encodeStateAsUpdate(serverDoc), "remote"),
+      );
+      await act(async () => finishSync({ status: "synced" }));
+      expect(harness.markdown()).toBe("Accepted body");
+      expect(harness.writes).toEqual([]);
+    } finally {
+      serverEditor.destroy();
+      serverDoc.destroy();
+      harness.dispose();
+    }
+  });
+
+  it.each([
+    [false, false],
+    [true, false],
+    [true, true],
+  ])(
+    "receives a collab-backed revision exactly once without SQL fallback (local tail: %s, sync failure: %s)",
+    async (localTail, syncFailure) => {
+      vi.useFakeTimers();
+      const baseline = "original body\n\nSecond paragraph.";
+      const harness = makePeerReconcileHarness(baseline);
+      const serverDoc = new Y.Doc();
+      Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+      const serverEditor = new CoreEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: serverDoc,
+        }),
+      });
+      let finishSync!: (result: { status: "synced" }) => void;
+      const requestSync = vi.fn<() => Promise<{ status: "synced" | "failed" }>>(
+        () =>
+          new Promise((resolve) => {
+            finishSync = resolve;
+          }),
+      );
+      if (syncFailure) requestSync.mockResolvedValueOnce({ status: "failed" });
+      try {
+        act(() => root.render(React.createElement(harness.Harness)));
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        const stateVector = Y.encodeStateVector(harness.ydoc);
+        serverEditor.commands.insertContentAt(1, "Accepted ");
+        if (localTail) {
+          act(() =>
+            harness
+              .editor()
+              .commands.insertContentAt(
+                harness.editor().state.doc.content.size - 1,
+                " local tail",
+              ),
+          );
+        }
+        const props = {
+          value: `Accepted ${baseline}`,
+          revision: "revision-2",
+          collabContentRevision: "revision-2",
+          requestCollabSync: requestSync,
+          baseAware: true,
+        };
+        act(() => root.render(React.createElement(harness.Harness, props)));
+        await act(async () => vi.advanceTimersByTimeAsync(30000));
+        act(() =>
+          root.render(
+            React.createElement(harness.Harness, {
+              ...props,
+              callbackVersion: 1,
+            }),
+          ),
+        );
+        expect(requestSync).toHaveBeenCalledTimes(syncFailure ? 2 : 1);
+        expect(harness.writes).toEqual([]);
+        expect(harness.markdown()).toBe(
+          localTail ? `${baseline} local tail` : baseline,
+        );
+        act(() =>
+          Y.applyUpdate(
+            harness.ydoc,
+            Y.encodeStateAsUpdate(serverDoc, stateVector),
+            "remote",
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(30000));
+        expect(harness.markdown()).toBe(
+          `Accepted ${baseline}${localTail ? " local tail" : ""}`,
+        );
+        expect(harness.writes).toEqual([]);
+        // A partial cache update can retain the old marker; a different body
+        // token must still take the ordinary SQL reconciliation path.
+        act(() =>
+          root.render(
+            React.createElement(harness.Harness, {
+              ...props,
+              value: `Revised ${baseline}`,
+              revision: "revision-3",
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        expect(harness.writes).toEqual([]);
+        expect(harness.reconciled).toEqual([]);
+        expect(harness.markdown()).toBe(
+          `Accepted ${baseline}${localTail ? " local tail" : ""}`,
+        );
+        await act(async () => finishSync({ status: "synced" }));
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        expect(harness.markdown()).toBe(
+          `Revised ${baseline}${localTail ? " local tail" : ""}`,
+        );
+        if (localTail)
+          expect(harness.reconciled).toEqual([
+            expect.objectContaining({
+              status: "merged",
+              baseRevision: "revision-2",
+            }),
+          ]);
+      } finally {
+        serverEditor.destroy();
+        serverDoc.destroy();
+        harness.dispose();
+      }
+    },
+  );
   it.each([true, false])(
     "preserves ordinary mark removal before SQL catches up (author leads: %s)",
     async (authorLeads) => {

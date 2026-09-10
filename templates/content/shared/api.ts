@@ -51,6 +51,7 @@ export interface Document {
   /** Opaque token for optimistic document-body reconciliation. */
   revision?: string;
   bodyRevision?: number;
+  collabContentRevision?: string | null;
   contentHash?: string;
   contentFidelity?: NfmFidelityReport;
 }

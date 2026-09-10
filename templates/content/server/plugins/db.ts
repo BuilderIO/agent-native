@@ -1136,6 +1136,11 @@ export const runContentMigrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS content_database_setup_receipts_actor_operation_key
         ON content_database_setup_receipts (actor_email, operation, scope_id, idempotency_key)`,
     },
+    {
+      version: 92,
+      name: "content-document-collab-body-revision",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_body_revision INTEGER`,
+    },
   ],
   { table: "content_migrations" },
 );

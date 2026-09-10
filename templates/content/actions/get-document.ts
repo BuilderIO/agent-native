@@ -205,6 +205,7 @@ export default defineAction({
       ),
       hasInlineDatabase,
     });
+    const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
 
     return {
       id: doc.id,
@@ -217,9 +218,11 @@ export default defineAction({
         databaseMembership && !propertyDatabaseAccess ? null : doc.parentId,
       title: doc.title,
       content: doc.content,
-      revision: documentRevisionToken(doc.bodyRevision, doc.content ?? ""),
-      baseRevision: documentRevisionToken(doc.bodyRevision, doc.content ?? ""),
+      revision,
+      baseRevision: revision,
       bodyRevision: doc.bodyRevision,
+      collabContentRevision:
+        doc.collabBodyRevision === doc.bodyRevision ? revision : null,
       contentHash: documentContentHash(doc.content ?? ""),
       description: doc.description,
       icon: doc.icon,

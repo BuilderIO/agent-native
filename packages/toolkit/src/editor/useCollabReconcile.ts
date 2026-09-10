@@ -63,6 +63,12 @@ export interface UseCollabReconcileOptions {
   contentUpdatedAt?: string | null;
   /** Opaque authoritative body revision. Enables base-aware reconciliation. */
   contentRevision?: string | null;
+  /** This exact body revision is already represented in durable Yjs state. */
+  collabContentRevision?: string | null;
+  /** Resolves as synced only after a fresh provider response is applied. */
+  requestCollabSync?: () => Promise<{
+    status: "synced" | "failed" | "unavailable";
+  }>;
   /** Reports an automatic merge to persist, or a conflict whose local draft was preserved. */
   onBaseAwareReconcile?: (result: {
     status: "merged" | "conflict" | "failed";
@@ -246,6 +252,8 @@ export function useCollabReconcile({
   value,
   contentUpdatedAt,
   contentRevision,
+  collabContentRevision,
+  requestCollabSync,
   onBaseAwareReconcile,
   editable,
   isEditorFocused = defaultIsEditorFocused,
@@ -257,6 +265,9 @@ export function useCollabReconcile({
   initialAppliedUpdatedAt,
 }: UseCollabReconcileOptions): UseCollabReconcileResult {
   const collab = !!ydoc;
+  const collabBackedSnapshot = Boolean(
+    collab && contentRevision && collabContentRevision === contentRevision,
+  );
   const isSettingContentRef = useRef(false);
   const lastEmittedRef = useRef("");
   const lastRegisteredLocalEmissionRef = useRef<string | null>(null);
@@ -291,6 +302,70 @@ export function useCollabReconcile({
     revision: string;
   } | null>(contentRevision ? { value, revision: contentRevision } : null);
   const reportedConflictRevisionRef = useRef<string | null>(null);
+  const acknowledgedCollabRef = useRef<{ ydoc: YDoc; revision: string } | null>(
+    null,
+  );
+  const [pendingCollabSnapshot, setPendingCollabSnapshot] = useState<{
+    ydoc: YDoc;
+    revision: string;
+    value: string;
+    updatedAt: string | null | undefined;
+  } | null>(null);
+  useEffect(() => {
+    if (!collabBackedSnapshot || !ydoc || !contentRevision) return;
+    if (
+      acknowledgedCollabRef.current?.ydoc === ydoc &&
+      acknowledgedCollabRef.current.revision === contentRevision
+    )
+      return;
+    setPendingCollabSnapshot((pending) =>
+      pending?.ydoc === ydoc && pending.revision === contentRevision
+        ? pending
+        : {
+            ydoc,
+            revision: contentRevision,
+            value,
+            updatedAt: contentUpdatedAt,
+          },
+    );
+  }, [collabBackedSnapshot, ydoc, contentRevision, value, contentUpdatedAt]);
+  useEffect(() => {
+    if (
+      !pendingCollabSnapshot ||
+      !requestCollabSync ||
+      pendingCollabSnapshot.ydoc !== ydoc
+    )
+      return;
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const sync = async () => {
+      const result = await requestCollabSync().catch(() => ({
+        status: "failed" as const,
+      }));
+      if (cancelled) return;
+      if (result.status !== "synced") {
+        retry = setTimeout(() => void sync(), 2000);
+        return;
+      }
+      // The fetched CRDT includes this canonical revision even when unsynced
+      // local edits make the editor differ from its SQL body. Advance only the
+      // merge base, never rewrite those local edits to manufacture equality.
+      authoritativeBaseRef.current = {
+        value: pendingCollabSnapshot.value,
+        revision: pendingCollabSnapshot.revision,
+      };
+      reportedConflictRevisionRef.current = null;
+      if (pendingCollabSnapshot.updatedAt)
+        lastAppliedUpdatedAtRef.current = pendingCollabSnapshot.updatedAt;
+      acknowledgedCollabRef.current = pendingCollabSnapshot;
+      setPendingCollabSnapshot(null);
+    };
+    void sync();
+    return () => {
+      cancelled = true;
+      if (retry) clearTimeout(retry);
+    };
+  }, [pendingCollabSnapshot, requestCollabSync, ydoc]);
 
   // Whether THIS client is the one that seeds the empty shared doc / applies an
   // authoritative external snapshot into it. Exactly one client does, so the
@@ -348,6 +423,10 @@ export function useCollabReconcile({
     if (!collab || !editor || editor.isDestroyed || !ydoc) return;
     if (seededRef.current) return;
     if (!collabSynced) return;
+    if (collabBackedSnapshot) {
+      seededRef.current = true;
+      return;
+    }
     if (contentRevision) {
       authoritativeBaseRef.current = { value, revision: contentRevision };
       reportedConflictRevisionRef.current = null;
@@ -458,6 +537,7 @@ export function useCollabReconcile({
     getMarkdown,
     setContent,
     shouldSeed,
+    collabBackedSnapshot,
   ]);
 
   const peerReconcileWaitRef = useRef<{
@@ -531,6 +611,16 @@ export function useCollabReconcile({
       }
       if (collab && emptySnapshotDecisionPendingRef.current) {
         retry = setTimeout(() => apply(deferred), 50);
+        return;
+      }
+      // SQL and Yjs describe the same committed operation here. Reapplying SQL
+      // would create different CRDT insert identities and duplicate the text.
+      // Provider retries, not a timed SQL fallback, own delayed delivery.
+      if (
+        collabBackedSnapshot ||
+        (collab && pendingCollabSnapshot?.ydoc === ydoc)
+      ) {
+        peerWait.deadline = null;
         return;
       }
       const currentMarkdown = getMarkdown(editor);
@@ -828,6 +918,8 @@ export function useCollabReconcile({
     normalizeValue,
     isEditorFocused,
     onBaseAwareReconcile,
+    collabBackedSnapshot,
+    pendingCollabSnapshot,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {

@@ -17,6 +17,7 @@ const COMMENT_MUTATIONS = new Set([
 
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
+  "decide-resource-suggestion",
   "delete-document",
   "delete-document-property",
   "delete-content-database",

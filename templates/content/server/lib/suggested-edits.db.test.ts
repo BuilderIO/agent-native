@@ -2,6 +2,8 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { SuggestionOperation } from "@agent-native/core/review";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -21,6 +23,8 @@ let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
 let getDbExec: typeof import("@agent-native/core/db").getDbExec;
 let adapter: Adapter;
+let getDocumentAction: typeof import("../../actions/get-document.js").default;
+let updateDocumentAction: typeof import("../../actions/update-document.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -30,6 +34,9 @@ beforeAll(async () => {
   getDbExec = (await import("@agent-native/core/db")).getDbExec;
   adapter = (await import("./suggested-edits.js"))
     .contentDocumentSuggestionAdapter;
+  getDocumentAction = (await import("../../actions/get-document.js")).default;
+  updateDocumentAction = (await import("../../actions/update-document.js"))
+    .default;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
 }, 60_000);
@@ -110,6 +117,12 @@ const operation = {
   schemaVersion: 1,
 } as const;
 
+const contextualOperation = {
+  ...operation,
+  before: { markdown: "Before", changedText: "Before" },
+  after: { markdown: "After", changedText: "After" },
+} as const;
+
 function coordination() {
   return {
     ydoc: {
@@ -125,9 +138,14 @@ function coordination() {
   };
 }
 
-async function accept(documentId: string, tx: DbExec) {
-  const prepared = coordination();
-  await adapter.apply({
+async function accept(
+  documentId: string,
+  tx: DbExec,
+  baseRevision = "rev-1",
+  acceptedOperation: SuggestionOperation = operation,
+  prepared = coordination(),
+) {
+  const result = await adapter.apply({
     resourceType: "document",
     resourceId: documentId,
     suggestion: {
@@ -140,7 +158,7 @@ async function accept(documentId: string, tx: DbExec) {
       threadId: `thread-${documentId}`,
       authorEmail: "commenter@example.com",
       actorKind: "human",
-      baseRevision: "rev-1",
+      baseRevision,
       status: "pending",
       summary: "Suggest edits",
       ownerEmail,
@@ -149,28 +167,50 @@ async function accept(documentId: string, tx: DbExec) {
       createdAt: "now",
       updatedAt: "now",
       metadata: null,
-      operations: [operation],
+      operations: [acceptedOperation],
     },
-    operations: [operation],
+    operations: [acceptedOperation],
     access: { role: "editor" },
     ctx: {},
     transaction: tx,
     coordination: prepared,
   });
-  return prepared;
+  return { prepared, result };
 }
 
 describe("Content suggested edits Blocks transaction", () => {
   it("accepts a system database Page and reconciles its primary Blocks identity", async () => {
     const { documentId, propertyId } = await seedSystemDatabasePage();
-    let prepared!: ReturnType<typeof coordination>;
+    const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+      getDocumentAction.run({ id: documentId }),
+    );
     await getDbExec().transaction!(async (tx) => {
-      prepared = await accept(documentId, tx);
+      await expect(
+        adapter.validateProposal({
+          resourceType: "document",
+          resourceId: documentId,
+          baseRevision: before.baseRevision,
+          operations: [operation],
+          ctx: { transaction: tx },
+        }),
+      ).resolves.toEqual([operation]);
     });
+
+    let accepted!: Awaited<ReturnType<typeof accept>>;
+    await getDbExec().transaction!(async (tx) => {
+      accepted = await accept(documentId, tx, before.baseRevision);
+    });
+
+    const after = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+      getDocumentAction.run({ id: documentId }),
+    );
 
     const db = getDb();
     const [document] = await db
-      .select({ content: schema.documents.content })
+      .select({
+        content: schema.documents.content,
+        collabBodyRevision: schema.documents.collabBodyRevision,
+      })
       .from(schema.documents)
       .where(eq(schema.documents.id, documentId));
     const [field] = await db
@@ -183,34 +223,53 @@ describe("Content suggested edits Blocks transaction", () => {
       .where(eq(schema.documentBlocks.fieldId, field!.id));
 
     expect(document?.content).toBe("After");
+    expect(before.bodyRevision).toBe(0);
+    expect(after.bodyRevision).toBe(1);
+    expect(after.revision).not.toBe(before.revision);
+    expect(after.collabContentRevision).toBe(after.revision);
+    expect(document?.collabBodyRevision).toBe(1);
+    expect(accepted.result).toMatchObject({
+      revision: after.revision,
+      baseRevision: after.baseRevision,
+      bodyRevision: 1,
+    });
     expect(field).toMatchObject({ documentId, propertyId, revision: 1 });
     expect(blocks).toEqual([{ markdown: "After" }]);
-    expect(yDocToProsemirrorJSON(prepared.ydoc.doc, "default")).toMatchObject({
+    expect(
+      yDocToProsemirrorJSON(accepted.prepared.ydoc.doc, "default"),
+    ).toMatchObject({
       content: [{ type: "paragraph", content: [{ text: "After" }] }],
     });
+
+    await runWithRequestContext({ userEmail: ownerEmail }, () =>
+      updateDocumentAction.run({ id: documentId, content: "Ordinary save" }),
+    );
+    const afterOrdinarySave = await runWithRequestContext(
+      { userEmail: ownerEmail },
+      () => getDocumentAction.run({ id: documentId }),
+    );
+    expect(afterOrdinarySave.bodyRevision).toBe(2);
+    expect(afterOrdinarySave.collabContentRevision).toBeNull();
   });
 
-  it("rolls back canonical and Blocks identity writes when the acceptance transaction fails", async () => {
+  it("rolls back the collab marker and canonical writes when prepared Yjs persistence fails", async () => {
     const { documentId, propertyId } = await seedSystemDatabasePage();
+    const prepared = coordination();
+    prepared.ydoc.persist.mockRejectedValueOnce(
+      new Error("forced Yjs persistence failure"),
+    );
     await expect(
       getDbExec().transaction!(async (tx) => {
-        const failingTx: DbExec = {
-          execute: async (statement) => {
-            const sql =
-              typeof statement === "string" ? statement : statement.sql;
-            if (sql.startsWith("INSERT INTO document_versions")) {
-              throw new Error("forced version failure");
-            }
-            return tx.execute(statement);
-          },
-        };
-        await accept(documentId, failingTx);
+        await accept(documentId, tx, "rev-1", operation, prepared);
       }),
-    ).rejects.toThrow("forced version failure");
+    ).rejects.toThrow("forced Yjs persistence failure");
 
     const db = getDb();
     const [document] = await db
-      .select({ content: schema.documents.content })
+      .select({
+        content: schema.documents.content,
+        collabBodyRevision: schema.documents.collabBodyRevision,
+      })
       .from(schema.documents)
       .where(eq(schema.documents.id, documentId));
     const fields = await db
@@ -218,6 +277,31 @@ describe("Content suggested edits Blocks transaction", () => {
       .from(schema.documentBlockFields)
       .where(eq(schema.documentBlockFields.propertyId, propertyId));
     expect(document?.content).toBe("Before");
+    expect(document?.collabBodyRevision).toBeNull();
     expect(fields).toEqual([]);
+  });
+
+  it("rebases an older saved proposal across an unrelated canonical edit", async () => {
+    const { documentId } = await seedSystemDatabasePage();
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Intro\nBefore", bodyRevision: 1, updatedAt: "rev-2" })
+      .where(eq(schema.documents.id, documentId));
+
+    let accepted!: Awaited<ReturnType<typeof accept>>;
+    await getDbExec().transaction!(async (tx) => {
+      accepted = await accept(documentId, tx, "rev-1", contextualOperation);
+    });
+
+    const after = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+      getDocumentAction.run({ id: documentId }),
+    );
+    expect(after.content).toBe("Intro\nAfter");
+    expect(after.bodyRevision).toBe(2);
+    expect(accepted.result).toMatchObject({
+      revision: after.revision,
+      baseRevision: after.baseRevision,
+      bodyRevision: 2,
+    });
   });
 });

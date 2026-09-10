@@ -9,6 +9,16 @@ import {
   markdownSuggestionOperationsForReplacements,
 } from "./markdown-operation";
 
+export function canonicalSuggestionRevision(
+  document: { revision?: string; updatedAt: string },
+  suggestion?: Pick<ResourceSuggestion, "baseRevision">,
+): string {
+  // Keep an unchanged legacy proposal on its timestamp basis when reopening it.
+  if (suggestion?.baseRevision === document.updatedAt)
+    return document.updatedAt;
+  return document.revision ?? document.updatedAt;
+}
+
 export type SuggestionDraftSession = {
   id: string;
   baseContent: string;

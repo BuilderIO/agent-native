@@ -20,6 +20,7 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
+import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
 import {
   SUPPORTED_SUGGESTION_BLOCKS,
   SUPPORTED_SUGGESTION_MARKS,
@@ -139,6 +140,28 @@ function documentFromContext(ctx: Record<string, unknown> | undefined) {
   return access?.resource;
 }
 
+function matchesDocumentRevision(
+  baseRevision: string,
+  document: {
+    bodyRevision?: unknown;
+    content?: unknown;
+    updatedAt?: unknown;
+  },
+) {
+  const canonicalRevision =
+    typeof document.bodyRevision === "number" &&
+    Number.isSafeInteger(document.bodyRevision) &&
+    typeof document.content === "string"
+      ? documentRevisionToken(document.bodyRevision, document.content)
+      : null;
+  // Suggestions created before the body revision token shipped persisted the
+  // document timestamp as their basis. Keep those proposals reviewable while
+  // all new get-document callers use the canonical token.
+  return (
+    baseRevision === canonicalRevision || baseRevision === document.updatedAt
+  );
+}
+
 function decisionChatContext(ctx: Record<string, unknown> | undefined) {
   const context = Object.fromEntries(
     (["threadId", "runId", "turnId"] as const).flatMap((key) =>
@@ -166,6 +189,12 @@ export function publishPersistedAcceptedSuggestion(
   ) {
     sync.publish();
   }
+}
+
+export function acceptedSuggestionRequestSource(
+  requestSource: unknown,
+): "agent" | undefined {
+  return requestSource === "agent" ? "agent" : undefined;
 }
 
 let contentEditorSchema: ReturnType<typeof getSchema> | undefined;
@@ -270,13 +299,14 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     if (transaction) {
       const row = (
         await transaction.execute({
-          sql: "SELECT content,updated_at,trashed_at,source_mode,source_kind,source_path FROM documents WHERE id = ?",
+          sql: "SELECT content,body_revision,updated_at,trashed_at,source_mode,source_kind,source_path FROM documents WHERE id = ?",
           args: [input.resourceId],
         })
       ).rows[0];
       document = row
         ? {
             content: row.content,
+            bodyRevision: Number(row.body_revision),
             updatedAt: row.updated_at,
             trashedAt: row.trashed_at,
             sourceMode: row.source_mode,
@@ -291,7 +321,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     if (document.sourceMode || document.sourceKind || document.sourcePath) {
       throw new Error("Source-owned Pages cannot receive suggestions");
     }
-    if (document.updatedAt !== input.baseRevision) {
+    if (!matchesDocumentRevision(input.baseRevision, document)) {
       fail("The Page changed; refresh before saving this suggestion", {
         statusCode: 409,
         errorCode: "suggestion_conflict",
@@ -345,9 +375,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     });
     const result = await withPreparedYDocMutation(
       context.resourceId,
-      typeof context.ctx?.requestSource === "string"
-        ? context.ctx.requestSource
-        : undefined,
+      acceptedSuggestionRequestSource(context.ctx?.requestSource),
       (ydoc) => run({ ydoc, sync } satisfies ContentDecisionCoordination),
     );
     publishPersistedAcceptedSuggestion(sync, result);
@@ -365,11 +393,15 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     }
     const current = (
       await tx.execute({
-        sql: "SELECT id,title,content,owner_email,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ?",
+        sql: "SELECT id,title,content,body_revision,owner_email,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ?",
         args: [context.resourceId],
       })
     ).rows[0];
     if (!current) throw new Error("Document not found");
+    const currentDocument = {
+      bodyRevision: Number(current.body_revision),
+      content: String(current.content),
+    };
     if (
       current.source_mode ||
       current.source_kind ||
@@ -426,14 +458,19 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     );
     replacePreparedCollabContent(coordination.ydoc, nextDocument);
     const now = new Date().toISOString();
+    const nextBodyRevision = currentDocument.bodyRevision + 1;
+    const nextRevision = documentRevisionToken(nextBodyRevision, nextContent);
     const applied = await commitCanonicalDocumentBodyMutation({
       write: async () => {
         const updated = await tx.execute({
-          sql: "UPDATE documents SET content = ?, updated_at = ? WHERE id = ? AND updated_at = ? AND content = ?",
+          sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?, updated_at = ? WHERE id = ? AND body_revision = ? AND updated_at = ? AND content = ?",
           args: [
             nextContent,
+            nextBodyRevision,
+            nextBodyRevision,
             now,
             context.resourceId,
+            currentDocument.bodyRevision,
             current.updated_at,
             currentContent,
           ],
@@ -475,7 +512,13 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       error.name = "SuggestionStaleError";
       throw error;
     }
-    return { resourceId: context.resourceId, updatedAt: now };
+    return {
+      resourceId: context.resourceId,
+      updatedAt: now,
+      revision: nextRevision,
+      baseRevision: nextRevision,
+      bodyRevision: nextBodyRevision,
+    };
   },
   describeOperation(operation) {
     return operation.kind.split("_").join(" ");

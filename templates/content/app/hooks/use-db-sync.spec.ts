@@ -7,6 +7,63 @@ import {
 } from "./content-action-refresh";
 
 describe("contentActionInvalidatePredicate", () => {
+  it("refreshes the mounted document's save basis after a peer suggestion decision", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const predicate = contentActionInvalidatePredicate("/page/document-1");
+    let document = {
+      content: "Original",
+      revision: "body-1",
+      collabContentRevision: null as string | null,
+    };
+    const queryFn = vi.fn(async () => document);
+    const observer = new QueryObserver(queryClient, {
+      queryKey: ["action", "get-document", { id: "document-1" }],
+      queryFn,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await observer.refetch();
+      document = {
+        content: "Accepted",
+        revision: "body-2",
+        collabContentRevision: "body-2",
+      };
+      await queryClient.invalidateQueries({
+        predicate: (query) =>
+          predicate(query, [
+            { source: "action", key: "decide-resource-suggestion" },
+          ]),
+      });
+      expect(observer.getCurrentResult().data).toEqual(document);
+      expect(queryFn).toHaveBeenCalledTimes(2);
+      expect(
+        predicate(
+          {
+            queryKey: ["action", "get-document", { id: "document-2" }],
+            isActive: () => false,
+          },
+          [{ source: "action", key: "decide-resource-suggestion" }],
+        ),
+      ).toBe(false);
+      for (const key of [
+        "create-resource-suggestion",
+        "update-resource-suggestion",
+      ]) {
+        expect(
+          predicate(
+            { queryKey: ["action", "get-document", { id: "document-1" }] },
+            [{ source: "action", key }],
+          ),
+        ).toBe(false);
+      }
+    } finally {
+      unsubscribe();
+      queryClient.clear();
+    }
+  });
+
   it.each([
     "create-resource-suggestion",
     "update-resource-suggestion",

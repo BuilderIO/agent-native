@@ -2,6 +2,7 @@ import type { ResourceSuggestion } from "@agent-native/core/review";
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalSuggestionRevision,
   createSuggestionDraftSession,
   draftSuggestionsForSession,
   editableSuggestionDraft,
@@ -16,6 +17,25 @@ import {
 } from "./draft-session";
 
 describe("suggestion draft session", () => {
+  it("uses the body token for new drafts and preserves only a matching legacy basis", () => {
+    const document = {
+      revision: "body:3:sha256:example",
+      updatedAt: "timestamp",
+    };
+    expect(canonicalSuggestionRevision(document)).toBe(document.revision);
+    expect(
+      canonicalSuggestionRevision(document, { baseRevision: "timestamp" }),
+    ).toBe("timestamp");
+    expect(
+      canonicalSuggestionRevision(document, {
+        baseRevision: "older-timestamp",
+      }),
+    ).toBe(document.revision);
+    expect(canonicalSuggestionRevision({ updatedAt: "legacy-api" })).toBe(
+      "legacy-api",
+    );
+  });
+
   it("exposes unsupported formatting without producing persistable partial operations", () => {
     const baseContent = "<span underline=true color=red>Echo</span>";
     const session = createSuggestionDraftSession({
