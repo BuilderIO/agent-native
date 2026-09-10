@@ -74,6 +74,7 @@ export function previewSitesForChangedPaths(
   const available = new Set(sites);
   const selected = new Set<string>();
   let allSites = false;
+  let docsSiteChanged = false;
 
   for (const changedPath of changedPaths) {
     const file = changedPath.replaceAll("\\", "/").trim();
@@ -87,7 +88,17 @@ export function previewSitesForChangedPaths(
       allSites = true;
       continue;
     }
-    if (file.startsWith("packages/docs/")) continue;
+    if (
+      file === "packages/docs/CHANGELOG.md" ||
+      file === "packages/docs/README.md" ||
+      file.startsWith("packages/docs/changelog/")
+    ) {
+      continue;
+    }
+    if (file.startsWith("packages/docs/")) {
+      docsSiteChanged = true;
+      continue;
+    }
 
     const template = file.match(/^templates\/([^/]+)(?:\/|$)/)?.[1];
     if (template) {
@@ -99,7 +110,13 @@ export function previewSitesForChangedPaths(
     allSites = true;
   }
 
-  return allSites ? sites : sites.filter((site) => selected.has(site));
+  const appSites = allSites
+    ? sites
+    : sites.filter((site) => selected.has(site));
+  if (!docsSiteChanged) return appSites;
+
+  resolveNetlifyPrebuiltTarget("preview", "fw", repoRoot);
+  return [...appSites, "fw"];
 }
 
 function argumentValue(name: string): string | undefined {

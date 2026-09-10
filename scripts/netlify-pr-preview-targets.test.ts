@@ -33,9 +33,13 @@ test("expands shared runtime changes to every docs app site", () => {
   ]);
 });
 
-test("skips docs and hidden template changes", () => {
+test("previews the docs site for app changes but skips prose and hidden templates", () => {
   assert.deepEqual(
-    previewSitesForChangedPaths(["packages/docs/content/guide.md"]),
+    previewSitesForChangedPaths(["packages/docs/app/routes/apps.tsx"]),
+    ["fw"],
+  );
+  assert.deepEqual(
+    previewSitesForChangedPaths(["packages/docs/changelog/release.md"]),
     [],
   );
   assert.deepEqual(
