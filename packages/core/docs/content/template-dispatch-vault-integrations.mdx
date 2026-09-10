@@ -1,0 +1,316 @@
+---
+title: "Secrets, integrations, and workspace connections"
+description: "How Dispatch's secrets vault, reusable provider integrations, and Workspace Connections let one credential serve every app in the workspace — plus how the agent can query a connected provider's raw API on demand."
+---
+
+# Secrets, integrations, and workspace connections
+
+Dispatch is where your workspace's credentials live: API keys, OAuth tokens, and third-party accounts get saved once here, then granted to whichever apps need them. This page covers the vault, reusable provider integrations, and Workspace Connections — the newer flow the agent uses to set up, grant, and directly query a connected provider.
+
+## Secrets vault {#vault}
+
+A central store for API keys, OAuth tokens, and shared credentials. Apps in the workspace resolve secrets from Dispatch instead of duplicating them in every `.env`.
+
+- A secret is saved once, under a `credential_key` name other apps reference — never the app's own copy.
+- A **grant** gives one named app access to a secret. Requesting access when you don't have a grant creates a **request** that an admin reviews and approves or denies.
+- Every use is written to an **audit log**: who used which secret, from which app, and when.
+
+<DataModel
+  id="doc-block-1pitn7l"
+  title="Secrets vault schema"
+  summary={
+    "Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
+  }
+  entities={[
+    {
+      id: "secrets",
+      name: "vault_secrets",
+      note: "Stored credential values",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "owner_email",
+          type: "text",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "value",
+          type: "text",
+          note: "secret value",
+        },
+        {
+          name: "provider",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "grants",
+      name: "vault_grants",
+      note: "Per-app access grant",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "granted_by",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "requests",
+      name: "vault_requests",
+      note: "Access request + review",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "reason",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "reviewed_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "audit",
+      name: "vault_audit_log",
+      note: "Who used which secret when",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+          nullable: true,
+        },
+        {
+          name: "app_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "action",
+          type: "text",
+        },
+        {
+          name: "actor",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "secrets",
+      to: "grants",
+      kind: "1-n",
+      label: "granted via",
+    },
+    {
+      from: "secrets",
+      to: "audit",
+      kind: "1-n",
+      label: "use recorded by",
+    },
+  ]}
+/>
+
+## Reusable provider integrations {#integrations}
+
+One place to connect provider accounts, track credential references, and grant apps access. Dispatch owns provider identity and app grants; domain apps still own app-specific source choices, such as Brain's Slack channel allow-list or Analytics' metric/dashboard configuration. Connect a provider once from Dispatch's **Integrations** page and grant it to Brain, Analytics, Mail, or Dispatch itself without copying raw secrets between apps.
+
+## Ad hoc provider access {#provider-api}
+
+A grant is not a capability limit. When a canned action doesn't cover the exact endpoint, filter, or pagination mode you need, three actions give the agent a safe escape hatch onto the provider's real HTTP API:
+
+- **`provider-api-catalog`** lists which providers are configured — Slack, GitHub, Notion, HubSpot, Gmail, Google Calendar, Stripe, Jira, and others — with base URLs, auth style, docs/spec URLs, placeholders, and examples. It never returns secret values.
+- **`provider-api-docs`** fetches a provider's public docs, spec, or changelog page and can search the extracted content for the exact endpoint or field you need.
+- **`provider-api-request`** makes the actual authenticated call: method, path, query, headers, and body, constrained to the provider's host with credentials injected automatically. Private/internal URLs are blocked and secrets are redacted from responses.
+
+<AnnotatedCode
+  id="doc-block-dispatch2"
+  title="provider-api-request call"
+  filename="provider-api-request call"
+  language="json"
+  code={
+    '{\n  "provider": "slack",\n  "path": "/conversations.history",\n  "query": { "channel": "C0123456789", "limit": 50 },\n  "stageAs": "support-channel-last-50"\n}'
+  }
+  annotations={[
+    {
+      lines: "2",
+      note: "`provider` is one of the configured provider APIs. Use `provider-api-catalog` to see the full list and each provider's auth style.",
+    },
+    {
+      lines: "3",
+      note: "`path` is the provider's real REST path, not a Dispatch-invented shape — copy it from `provider-api-catalog`/`provider-api-docs` when unsure.",
+    },
+    {
+      lines: "4",
+      note: "Query params are passed straight through to the provider's HTTP API.",
+    },
+    {
+      lines: "5",
+      label: "Stage instead of return",
+      note: "`stageAs` writes the parsed response rows into a staged dataset instead of returning the full payload — query it afterward with `query-staged-dataset`.",
+    },
+  ]}
+/>
+
+## Workspace Connections and staged datasets {#workspace-connections}
+
+A **workspace connection** is a saved, shared account for one provider — Slack, GitHub, Notion, Salesforce, and more — that any granted app can use without doing its own OAuth or holding its own key.
+
+<Diagram id="doc-block-dispatch1" title={"Connection setup, grant, and query"} summary={"Plan a setup without ever returning secret values, apply it with credential ref names only, grant or preview impact per app, then use the connection through provider-api-request or a staged dataset."}>
+
+```html
+<div class="dsp-conn-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      plan-workspace-connection-setup<br /><small class="diagram-muted"
+        >inspect provider, missing creds</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    apply-workspace-connection-setup<br /><small class="diagram-muted"
+      >credential ref names only — never raw secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      set-workspace-connection-grant<br /><small class="diagram-muted"
+        >per-app access</small
+      >
+    </div>
+    <div class="diagram-node">
+      preview-workspace-connection-impact<br /><small class="diagram-muted"
+        >before revoke · disable · delete</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">provider-api-request</span
+    ><small class="diagram-muted">stageAs &rarr; staged dataset</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    query-staged-dataset<br /><small class="diagram-muted"
+      >filter · group · aggregate</small
+    >
+  </div>
+</div>
+```
+
+```css
+.dsp-conn-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dsp-conn-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dsp-conn-flow .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dsp-conn-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.dsp-conn-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+- **`plan-workspace-connection-setup`** inspects a provider (or an existing connection) and returns what's needed: required and suggested credential ref names, which apps commonly use it, and a summary of current grants. It never returns secret values.
+- **`apply-workspace-connection-setup`** saves the connection using credential ref names only — anything that looks like a raw secret (a Slack token, a GitHub PAT, a private key, and so on) is rejected outright.
+- **`set-workspace-connection-grant`** grants or revokes one app's access, or switches the whole connection between "every app" and "selected apps only."
+- **`preview-workspace-connection-impact`** shows which apps would lose access before you revoke, disable, or delete a connection.
+- **`list-workspace-connections`** lists the provider catalog, saved connections, and every app's current access in one call.
+- **`delete-workspace-connection`** removes a connection's metadata and grants; secret values stay in Vault or OAuth stores either way.
+
+Once a connection exists, `provider-api-request` can pass `stageAs: "name"` to write the response into scratch storage instead of returning it inline. `list-staged-datasets`, `query-staged-dataset` (filter, group, aggregate, or project columns without re-fetching), and `delete-staged-dataset` manage that storage. A staged dataset is scoped to the requesting app and user, capped at 200,000 rows or 50MB, and is meant for working data during an analysis — not permanent storage.
+
+## MCP hub mode and the /mcp connector {#mcp}
+
+Dispatch can still act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, Codex, Cursor, or another MCP host that should reach multiple workspace apps — add `https://dispatch.agent-native.com/mcp` as a connector, then choose which workspace apps it can reach from Dispatch's **Agents** page. Use a direct app URL only when that host should be isolated to one app.
+
+To add a server to that shared list, upload an HTTP MCP server definition under `mcp-servers/*.json` in Dispatch **Resources**, then scope it to All apps or selected app grants — the same scoping every other workspace resource uses.
+
+## What's next
+
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane overview
+- [**Messaging, routing, and approvals**](/docs/template-dispatch-messaging-routing) — channels, the orchestrator, and the approval queue
+- [**Operating the workspace**](/docs/template-dispatch-operations) — jobs, Dreams, and the operator console
+- [**Dispatch — architecture for developers**](/docs/template-dispatch-developers) — the package/app split and customizing it
+- [**Onboarding**](/docs/onboarding) — registering a setup step so a new API key shows up in the sidebar checklist

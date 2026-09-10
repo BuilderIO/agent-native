@@ -1,0 +1,121 @@
+---
+title: "التوجيه"
+description: "التوجيه المستند إلى الملفات لتطبيقات الوكيل الأصلية باستخدام React Router v8: الصفحات والمعلمات الديناميكية والتنقل."
+---
+
+# التوجيه
+
+تستخدم تطبيقات الوكيل الأصلية **React Router v8** مع التوجيه المستند إلى الملف عبر `flatRoutes()` من `@react-router/fs-routes`. كل ملف في `app/routes/` يصبح عنوان URL. تستخدم القوالب اصطلاح التدوين النقطي. تفصل النقاط مقاطع URL داخل اسم ملف واحد.
+
+تغطي هذه الصفحة مسارات العميل، الصفحات التي تُعرَض في المتصفح من `app/routes/`. مسارات الخادم نظام منفصل: مسارات ملفات Nitro تحت `server/routes/`، بالإضافة إلى نقاط نهاية إطار العمل الخاصة `/_agent-native/*`. تعيش تلك في صفحة [المسارات](/docs/server-routes). لا يتشارك الاثنان دليلًا، أو اصطلاح تسمية، أو موجِّهًا، لذا لا يصبح ملف `server/routes/` صفحة هنا أبدًا ولا يصبح ملف `app/routes/` نقطة نهاية خادم أبدًا.
+
+<Diagram id="doc-block-client-routing-1" title="اسم الملف ← URL" summary="يصبح كل ملف في app/routes/ عنوان URL. تتحول النقاط إلى شرطات مائلة، ويصبح مقطع $ معلمة ديناميكية.">
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## التوجيه المستند إلى الملف {#file-based-routing}
+
+### ملف ← تعيين URL
+
+| الملف                      | URL                    | ملاحظات                                                                             |
+| -------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | مسار الفهرس                                                                         |
+| `dashboard.tsx`            | `/dashboard`           | صفحة بسيطة                                                                          |
+| `extensions.$id.tsx`       | `/extensions/:id`      | يتداخل داخل `<Outlet/>` الخاص بـ `extensions.tsx`. `$` هو معلمة ديناميكية           |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | الشرطة السفلية اللاحقة `_` تتخطى التداخل تحت `dashboard.tsx`، لذا هذه صفحتها الخاصة |
+| `_app.tsx`                 | (لا يوجد مقطع URL)     | تخطيط بلا مسار. البادئة بـ `_`                                                      |
+| `inbox/route.tsx`          | `/inbox`               | نموذج المجلد. `route.tsx` هو الفهرس                                                 |
+
+ضع بادئة لمقطع بـ `$` لمعلمة ديناميكية. ضع بادئة بـ `_` لجعله مسار تخطيط بلا مسار (لا يوجد مقطع URL)، أو أضف شرطة سفلية لاحقة `_` قبل نقطة لاستثناء مسار يبدو متداخلًا من التداخل تحت تخطيط والده. تستخدم القوالب `flatRoutes()`. ملف التدوين النقطي أعلاه هو الأساسي. يعمل أيضًا نموذج المجلد المتداخل `inbox/route.tsx`.
+
+## إضافة صفحة جديدة {#adding-a-page}
+
+أنشئ الملف وصدِّر مكونًا افتراضيًا:
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+هذا كل شيء. يقرأ خادم التطوير ملفات المسارات عند بدء التشغيل. إذا كان `pnpm dev` يعمل بالفعل، فأعد تشغيله بعد إضافة الملف. لا حاجة إلى التسجيل.
+
+## المعلمات الديناميكية {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+تحافظ الشرطة السفلية اللاحقة `_` قبل النقطة على عدم تداخل هذه الصفحة داخل `<Outlet/>` الخاص بـ `dashboard.tsx`، لذا تُعرَض كصفحة كاملة خاصة بها عند `/dashboard/:ticketId` بدلاً من الظهور داخل تخطيط قائمة التذاكر.
+
+## التنقل {#navigation}
+
+استخدم `<Link>` للتنقل من جانب العميل و`useNavigate()` للتنقل البرمجي:
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+لا يخبر أي منهما الوكيل بمفرده بما ينظر إليه المستخدم. هذا اهتمام منفصل، تتم معالجته من خلال `useAgentRouteState()` الذي يكتب المسار الحالي إلى حالة التطبيق. راجع [الوعي بالسياق](/docs/context-awareness).
+
+## ما هي الخطوة التالية
+
+- [**نظرة عامة**](/docs/client-overview) — أين يتناسب `app/routes/` بين بقية `app/` و`public/`
+- [**البيانات والمزامنة**](/docs/client-data) — قراءة وكتابة البيانات من داخل مسار
+- [**محادثة الوكيل**](/docs/client-agent-chat) — إرسال المطالبات وتهيئة السياق من مسار
+- [**المسارات**](/docs/server-routes) — نظام توجيه الخادم المنفصل: مسارات الملفات تحت `server/routes/` ومساحة الاسم `/_agent-native/` الخاصة بإطار العمل
+- [**الوعي بالسياق**](/docs/context-awareness) — كيف يتعلم الوكيل المسار والتحديد الحاليين

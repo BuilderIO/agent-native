@@ -1,0 +1,238 @@
+import { defineAction } from "@agent-native/core/action";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb } from "../server/db/index.js";
+import { triageItems, triageRuns } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryScopedItemWhere,
+} from "../server/lib/factory-scope.js";
+import {
+  requireWorkspaceMember,
+  workspaceMemberIdentityFromContext,
+} from "../server/lib/require-workspace-member.js";
+import {
+  executorStateSchema,
+  triageSourceSchema,
+} from "../server/triage/contracts.js";
+import { stableId } from "../server/triage/ids.js";
+import {
+  reconcilePullRequestRun,
+  type PullRequestObservation,
+} from "../server/triage/pr-monitor.js";
+
+const reviewSchema = z.object({
+  author: z.string(),
+  state: z.enum([
+    "approved",
+    "changes_requested",
+    "commented",
+    "pending",
+    "dismissed",
+  ]),
+  commitSha: z.string().max(128).nullable().optional(),
+  htmlUrl: z.string().url().nullable().optional(),
+  body: z.string().max(4_000).nullable().optional(),
+  observedAt: z.string().datetime(),
+});
+const checkSchema = z.object({
+  name: z.string(),
+  state: z.enum(["queued", "in_progress", "passed", "failed", "cancelled"]),
+  observedAt: z.string().datetime(),
+});
+const observationSchema: z.ZodType<PullRequestObservation> = z.object({
+  repo: z.string(),
+  pullRequestNumber: z.number().int().positive(),
+  headSha: z.string(),
+  reviews: z.array(reviewSchema),
+  checks: z.array(checkSchema),
+  observedAt: z.string().datetime(),
+});
+
+export default defineAction({
+  description:
+    "Reconcile an observe-only pull-request monitoring run from provider observations. Missing provider reads remain typed failure states; no GitHub write occurs.",
+  schema: z.object({
+    itemId: z.string().min(1),
+    factoryId: factoryIdSchema.optional(),
+    runId: z.string().min(1),
+    source: triageSourceSchema.default("github"),
+    callback: z
+      .object({
+        state: executorStateSchema,
+        observedAt: z.string().datetime(),
+        terminalReason: z.string().optional(),
+      })
+      .optional(),
+    providerObservation: observationSchema.optional(),
+    heartbeatAt: z.string().datetime().optional(),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .default(15 * 60_000),
+  }),
+  http: { method: "POST" },
+  agentTool: false,
+  run: async (
+    {
+      itemId,
+      factoryId: factoryIdInput,
+      runId,
+      source,
+      callback,
+      providerObservation,
+      heartbeatAt,
+      timeoutMs,
+    },
+    context,
+  ) => {
+    const { userEmail, orgId } = await requireWorkspaceMember(
+      workspaceMemberIdentityFromContext(context),
+    );
+    const db = getDb();
+    const item = (
+      await db
+        .select({ factoryId: triageItems.factoryId })
+        .from(triageItems)
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .limit(1)
+    )[0];
+    if (!item)
+      throw new Error("Factory item not found for run reconciliation.");
+    const itemFactoryId = item.factoryId ?? DEFAULT_FACTORY_ID;
+    if (factoryIdInput && factoryIdInput !== itemFactoryId) {
+      throw new Error("Factory item does not belong to this factory.");
+    }
+    const factoryId = itemFactoryId;
+    const now = new Date().toISOString();
+    const scopedRunId = stableId("run", orgId, factoryId, runId);
+    const legacyRunId =
+      factoryId === DEFAULT_FACTORY_ID ? stableId("run", orgId, runId) : null;
+    const result = reconcilePullRequestRun({
+      triageItemId: itemId,
+      runId,
+      callback,
+      providerObservation,
+      heartbeatAt,
+      now,
+      timeoutMs,
+    });
+    const existingRun = (
+      await db
+        .select({
+          id: triageRuns.id,
+          progressLogJson: triageRuns.progressLogJson,
+          factoryId: triageRuns.factoryId,
+        })
+        .from(triageRuns)
+        .where(and(eq(triageRuns.id, scopedRunId), eq(triageRuns.orgId, orgId)))
+        .limit(1)
+    )[0];
+    let databaseRunId = scopedRunId;
+    let existing = existingRun;
+    if (!existing && legacyRunId) {
+      const legacyRun = (
+        await db
+          .select({
+            id: triageRuns.id,
+            progressLogJson: triageRuns.progressLogJson,
+            factoryId: triageRuns.factoryId,
+          })
+          .from(triageRuns)
+          .where(
+            and(eq(triageRuns.id, legacyRunId), eq(triageRuns.orgId, orgId)),
+          )
+          .limit(1)
+      )[0];
+      if (legacyRun) {
+        existing = legacyRun;
+        databaseRunId = legacyRunId;
+      }
+    }
+    if (existing && (existing.factoryId ?? DEFAULT_FACTORY_ID) !== factoryId) {
+      throw new Error("Run id is already used by another factory.");
+    }
+    const progressLog = appendProgressLog(existing?.progressLogJson, {
+      at: now,
+      state: result.state,
+      reason: result.reason,
+    });
+
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(triageRuns)
+        .values({
+          id: databaseRunId,
+          itemId,
+          source,
+          status: result.state,
+          progressLogJson: JSON.stringify(progressLog),
+          dispatchAttempts: 0,
+          needsContinuation: result.state === "reconciliation_required" ? 1 : 0,
+          startedAt: callback?.observedAt ?? now,
+          heartbeatAt: now,
+          completedAt: result.terminalState ? now : null,
+          error:
+            result.state === "failed" ||
+            result.state === "timed_out" ||
+            result.state === "reconciliation_required"
+              ? result.reason
+              : null,
+          ownerEmail: userEmail,
+          orgId,
+          factoryId,
+        })
+        .onConflictDoUpdate({
+          target: triageRuns.id,
+          set: {
+            status: result.state,
+            progressLogJson: JSON.stringify(progressLog),
+            needsContinuation:
+              result.state === "reconciliation_required" ? 1 : 0,
+            heartbeatAt: now,
+            completedAt: result.terminalState ? now : null,
+            error:
+              result.state === "failed" ||
+              result.state === "timed_out" ||
+              result.state === "reconciliation_required"
+                ? result.reason
+                : null,
+          },
+        });
+
+      if (result.triageItemPatch) {
+        await tx
+          .update(triageItems)
+          .set(result.triageItemPatch)
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+      } else if (result.state === "reconciliation_required") {
+        await tx
+          .update(triageItems)
+          .set({ status: "reconciliation_required", updatedAt: now })
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+      }
+    });
+
+    return result;
+  },
+});
+
+function appendProgressLog(
+  value: string | undefined,
+  entry: { at: string; state: string; reason: string },
+) {
+  if (!value) return [entry];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("Triage run progress log is unreadable.");
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("Triage run progress log is unreadable.");
+  }
+  return [...parsed, entry].slice(-100);
+}

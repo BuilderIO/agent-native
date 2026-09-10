@@ -1,0 +1,1016 @@
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { chunks } from "./_batch-utils.js";
+import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
+import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { renumberDatabaseRows } from "./_database-row-batch.js";
+
+const DELETE_BATCH_SIZE = 90;
+
+export class PermanentDeleteScopeChangedError extends Error {
+  constructor() {
+    super("Document deletion scope changed; retry deletion.");
+  }
+}
+
+type PermanentDeleteScope = {
+  documentIds: string[];
+  ownedDatabaseIds: string[];
+};
+
+function hasSameIds(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const rightIds = new Set(right);
+  return left.every((id) => rightIds.has(id));
+}
+
+async function selectDocumentChildren(
+  db: ReturnType<typeof getDb>,
+  parentIds: string[],
+  ownerEmail: string,
+) {
+  const rows: Array<{ id: string }> = [];
+  for (const batch of chunks(parentIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.parentId, batch),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        )),
+    );
+  }
+  return rows;
+}
+
+async function selectOwnedDatabaseIds(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownerEmail: string,
+) {
+  const rows: Array<{ id: string }> = [];
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            inArray(schema.contentDatabases.documentId, batch),
+            eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          ),
+        )),
+    );
+  }
+  return rows;
+}
+
+async function selectDatabaseItemDocuments(
+  db: ReturnType<typeof getDb>,
+  databaseIds: string[],
+  ownerEmail: string,
+) {
+  const rows: Array<{ documentId: string }> = [];
+  for (const batch of chunks(databaseIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ documentId: schema.contentDatabaseItems.documentId })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            inArray(schema.contentDatabaseItems.databaseId, batch),
+            eq(schema.contentDatabaseItems.ownerEmail, ownerEmail),
+          ),
+        )),
+    );
+  }
+  if (rows.length === 0) return rows;
+
+  const ownedRows: Array<{ id: string }> = [];
+  for (const batch of chunks(
+    rows.map((row) => row.documentId),
+    DELETE_BATCH_SIZE,
+  )) {
+    ownedRows.push(
+      ...(await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.id, batch),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        )),
+    );
+  }
+
+  return ownedRows.map((row) => ({ documentId: row.id }));
+}
+
+async function selectDatabaseItemDocumentTrashState(
+  db: ReturnType<typeof getDb>,
+  databaseIds: string[],
+  ownerEmail: string,
+) {
+  const itemDocuments = await selectDatabaseItemDocuments(
+    db,
+    databaseIds,
+    ownerEmail,
+  );
+  const rows: Array<{
+    id: string;
+    trashedAt: string | null;
+  }> = [];
+  for (const batch of chunks(
+    itemDocuments.map((item) => item.documentId),
+    DELETE_BATCH_SIZE,
+  )) {
+    rows.push(
+      ...(await db
+        .select({
+          id: schema.documents.id,
+          trashedAt: schema.documents.trashedAt,
+        })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.id, batch),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        )),
+    );
+  }
+  return rows;
+}
+
+async function selectMembershipsForDocuments(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+) {
+  const rows: Array<{ id: string; databaseId: string }> = [];
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          databaseId: schema.contentDatabaseItems.databaseId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.documentId, batch))),
+    );
+  }
+  return rows;
+}
+
+async function selectMembershipIdsForDatabases(
+  db: ReturnType<typeof getDb>,
+  databaseIds: string[],
+) {
+  const rows: Array<{ id: string }> = [];
+  for (const batch of chunks(databaseIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.databaseId, batch))),
+    );
+  }
+  return rows.map((row) => row.id);
+}
+
+async function collectDocumentSubtreeForDelete(
+  db: ReturnType<typeof getDb>,
+  rootId: string,
+  ownerEmail: string,
+) {
+  const documentIds = new Set([rootId]);
+  const ownedDatabaseIds = new Set<string>();
+  let frontier = [rootId];
+
+  while (frontier.length > 0) {
+    const next = new Set<string>();
+
+    for (const child of await selectDocumentChildren(
+      db,
+      frontier,
+      ownerEmail,
+    )) {
+      if (!documentIds.has(child.id)) {
+        documentIds.add(child.id);
+        next.add(child.id);
+      }
+    }
+
+    const ownedDatabases = await selectOwnedDatabaseIds(
+      db,
+      frontier,
+      ownerEmail,
+    );
+    const newDatabaseIds = ownedDatabases
+      .map((database) => database.id)
+      .filter((databaseId) => {
+        if (ownedDatabaseIds.has(databaseId)) return false;
+        ownedDatabaseIds.add(databaseId);
+        return true;
+      });
+
+    if (newDatabaseIds.length > 0) {
+      const itemDocuments = await selectDatabaseItemDocuments(
+        db,
+        newDatabaseIds,
+        ownerEmail,
+      );
+      for (const item of itemDocuments) {
+        if (!documentIds.has(item.documentId)) {
+          documentIds.add(item.documentId);
+          next.add(item.documentId);
+        }
+      }
+    }
+
+    frontier = [...next];
+  }
+
+  return {
+    documentIds: [...documentIds],
+    ownedDatabaseIds: [...ownedDatabaseIds],
+  };
+}
+
+async function lockPermanentDeleteScope(
+  db: ReturnType<typeof getDb>,
+  collectScope: () => Promise<PermanentDeleteScope>,
+) {
+  const initialScope = await collectScope();
+  const initialMemberships = await selectMembershipsForDocuments(
+    db,
+    initialScope.documentIds,
+  );
+  const lockedDatabaseIds = [
+    ...new Set([
+      ...initialScope.ownedDatabaseIds,
+      ...initialMemberships.map((membership) => membership.databaseId),
+    ]),
+  ].sort();
+  for (const databaseId of lockedDatabaseIds) {
+    await lockContentDatabaseMutation(db, databaseId);
+  }
+
+  const reloadedScope = await collectScope();
+  const reloadedMemberships = await selectMembershipsForDocuments(
+    db,
+    reloadedScope.documentIds,
+  );
+  const lockedDatabaseIdSet = new Set(lockedDatabaseIds);
+  const uncoveredDatabaseId = [
+    ...reloadedScope.ownedDatabaseIds,
+    ...reloadedMemberships.map((membership) => membership.databaseId),
+  ].find((databaseId) => !lockedDatabaseIdSet.has(databaseId));
+  if (uncoveredDatabaseId) {
+    throw new PermanentDeleteScopeChangedError();
+  }
+
+  const membershipIds = await selectMembershipIdsForDatabases(
+    db,
+    lockedDatabaseIds,
+  );
+  await lockDatabaseMemberships(db, membershipIds);
+
+  const lockedScope = await collectScope();
+  const lockedMemberships = await selectMembershipsForDocuments(
+    db,
+    lockedScope.documentIds,
+  );
+  const lockedMembershipIds = await selectMembershipIdsForDatabases(
+    db,
+    lockedDatabaseIds,
+  );
+  if (
+    !hasSameIds(reloadedScope.documentIds, lockedScope.documentIds) ||
+    !hasSameIds(reloadedScope.ownedDatabaseIds, lockedScope.ownedDatabaseIds) ||
+    !hasSameIds(membershipIds, lockedMembershipIds) ||
+    [
+      ...lockedScope.ownedDatabaseIds,
+      ...lockedMemberships.map((membership) => membership.databaseId),
+    ].some((databaseId) => !lockedDatabaseIdSet.has(databaseId))
+  ) {
+    throw new PermanentDeleteScopeChangedError();
+  }
+  return lockedScope;
+}
+
+export async function lockDatabasesForTrash(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+) {
+  const subtree = await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  const memberships = await selectMembershipsForDocuments(
+    db,
+    subtree.documentIds,
+  );
+  const databaseIds = [
+    ...new Set([
+      ...memberships.map((membership) => membership.databaseId),
+      ...subtree.ownedDatabaseIds,
+    ]),
+  ].sort();
+  for (const databaseId of databaseIds) {
+    await lockContentDatabaseMutation(db, databaseId);
+  }
+  return new Set(databaseIds);
+}
+
+export async function trashDocumentSubtree(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+  trashedAt = new Date().toISOString(),
+  lockedDatabaseIds?: ReadonlySet<string>,
+): Promise<string[]> {
+  const { documentIds, ownedDatabaseIds } =
+    await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  if (lockedDatabaseIds) {
+    const memberships = await selectMembershipsForDocuments(db, documentIds);
+    const unlockedDatabaseId = [
+      ...new Set([
+        ...ownedDatabaseIds,
+        ...memberships.map((membership) => membership.databaseId),
+      ]),
+    ].find((databaseId) => !lockedDatabaseIds.has(databaseId));
+    if (unlockedDatabaseId) {
+      throw new Error("Document subtree changed; retry deletion.");
+    }
+  }
+  await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
+
+  const independentlyTrashedDatabaseDocumentIds = new Set<string>();
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    for (const database of await db
+      .select({ documentId: schema.contentDatabases.documentId })
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          inArray(schema.contentDatabases.documentId, batch),
+          eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          isNotNull(schema.contentDatabases.deletedAt),
+        ),
+      )) {
+      independentlyTrashedDatabaseDocumentIds.add(database.documentId);
+    }
+  }
+
+  const activeDocumentIds: string[] = [];
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    activeDocumentIds.push(
+      ...(
+        await db
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(
+            and(
+              inArray(schema.documents.id, batch),
+              eq(schema.documents.ownerEmail, ownerEmail),
+              isNull(schema.documents.trashedAt),
+            ),
+          )
+      )
+        .map((document) => document.id)
+        .filter(
+          (documentId) =>
+            !independentlyTrashedDatabaseDocumentIds.has(documentId),
+        ),
+    );
+  }
+
+  const activeMemberships = await selectMembershipsForDocuments(
+    db,
+    activeDocumentIds,
+  );
+  const transitioningOwnedDatabases: Array<{ id: string }> = [];
+  for (const batch of chunks(activeDocumentIds, DELETE_BATCH_SIZE)) {
+    transitioningOwnedDatabases.push(
+      ...(await db
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            inArray(schema.contentDatabases.documentId, batch),
+            eq(schema.contentDatabases.ownerEmail, ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )),
+    );
+  }
+  const transitioningOwnedDatabaseIds = new Set(
+    transitioningOwnedDatabases.map((database) => database.id),
+  );
+  const externalDatabaseIds = [
+    ...new Set(
+      activeMemberships
+        .map((membership) => membership.databaseId)
+        .filter((databaseId) => !transitioningOwnedDatabaseIds.has(databaseId)),
+    ),
+  ].sort();
+  for (const databaseId of externalDatabaseIds) {
+    await touchContentDatabase(db, databaseId, trashedAt);
+  }
+
+  for (const batch of chunks(activeDocumentIds, DELETE_BATCH_SIZE)) {
+    await db
+      .update(schema.documents)
+      .set({ trashedAt, trashRootId: id, updatedAt: trashedAt })
+      .where(
+        and(
+          inArray(schema.documents.id, batch),
+          eq(schema.documents.ownerEmail, ownerEmail),
+          isNull(schema.documents.trashedAt),
+        ),
+      );
+    await db
+      .update(schema.contentDatabases)
+      .set({ deletedAt: trashedAt, updatedAt: trashedAt })
+      .where(
+        and(
+          inArray(schema.contentDatabases.documentId, batch),
+          eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
+  }
+
+  return activeDocumentIds;
+}
+
+export async function restoreDocumentSubtree(
+  db: ReturnType<typeof getDb>,
+  rootId: string,
+  ownerEmail: string,
+): Promise<string[]> {
+  const collectRestoreScope = async () => {
+    const documentIds = (
+      await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.trashRootId, rootId),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        )
+    ).map((document) => document.id);
+    const memberships = await selectMembershipsForDocuments(db, documentIds);
+    const ownedDatabaseIds = (
+      await selectOwnedDatabaseIds(db, documentIds, ownerEmail)
+    ).map((database) => database.id);
+    return { documentIds, memberships, ownedDatabaseIds };
+  };
+
+  const initialScope = await collectRestoreScope();
+  if (initialScope.documentIds.length === 0) return [];
+  const lockedDatabaseIds = [
+    ...new Set([
+      ...initialScope.ownedDatabaseIds,
+      ...initialScope.memberships.map((membership) => membership.databaseId),
+    ]),
+  ].sort();
+  for (const databaseId of lockedDatabaseIds) {
+    await lockContentDatabaseMutation(db, databaseId);
+  }
+
+  const restoreScope = await collectRestoreScope();
+  const lockedDatabaseIdSet = new Set(lockedDatabaseIds);
+  const unlockedDatabaseId = [
+    ...new Set([
+      ...restoreScope.ownedDatabaseIds,
+      ...restoreScope.memberships.map((membership) => membership.databaseId),
+    ]),
+  ].find((databaseId) => !lockedDatabaseIdSet.has(databaseId));
+  if (unlockedDatabaseId) {
+    throw new Error("Document restore scope changed; retry restoration.");
+  }
+  await lockDatabaseMemberships(
+    db,
+    await selectMembershipIdsForDatabases(db, lockedDatabaseIds),
+  );
+
+  const documentIds = restoreScope.documentIds;
+  if (documentIds.length === 0) return [];
+  const now = new Date().toISOString();
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    await db
+      .update(schema.documents)
+      .set({ trashedAt: null, trashRootId: null, updatedAt: now })
+      .where(
+        and(
+          inArray(schema.documents.id, batch),
+          eq(schema.documents.ownerEmail, ownerEmail),
+          eq(schema.documents.trashRootId, rootId),
+        ),
+      );
+    await db
+      .update(schema.contentDatabases)
+      .set({ deletedAt: null, updatedAt: now })
+      .where(
+        and(
+          inArray(schema.contentDatabases.documentId, batch),
+          eq(schema.contentDatabases.ownerEmail, ownerEmail),
+        ),
+      );
+  }
+
+  const databaseIds = [
+    ...new Set(
+      (
+        await db
+          .select({ databaseId: schema.contentDatabaseItems.databaseId })
+          .from(schema.contentDatabaseItems)
+          .where(inArray(schema.contentDatabaseItems.documentId, documentIds))
+      ).map((item) => item.databaseId),
+    ),
+  ];
+  for (const databaseId of databaseIds) {
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.id, databaseId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (database) await renumberDatabaseRows(db, database, now);
+  }
+
+  return documentIds;
+}
+
+async function deleteWhereIn<T>(
+  items: T[],
+  run: (batch: T[]) => Promise<unknown>,
+) {
+  for (const batch of chunks(items, DELETE_BATCH_SIZE)) {
+    if (batch.length > 0) await run(batch);
+  }
+}
+
+export async function deleteDocumentRecursive(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+): Promise<string[]> {
+  return db.transaction((tx) =>
+    deleteDocumentRootsRecursive(
+      tx as unknown as ReturnType<typeof getDb>,
+      [id],
+      ownerEmail,
+    ),
+  );
+}
+
+export async function deleteDocumentRootsRecursive(
+  db: ReturnType<typeof getDb>,
+  rootIds: string[],
+  ownerEmail: string,
+): Promise<string[]> {
+  const collectScope = async () => {
+    const documentIds = new Set<string>();
+    const ownedDatabaseIds = new Set<string>();
+    for (const rootId of rootIds) {
+      const scope = await collectDocumentSubtreeForDelete(
+        db,
+        rootId,
+        ownerEmail,
+      );
+      for (const documentId of scope.documentIds) documentIds.add(documentId);
+      for (const databaseId of scope.ownedDatabaseIds) {
+        ownedDatabaseIds.add(databaseId);
+      }
+    }
+    return {
+      documentIds: [...documentIds],
+      ownedDatabaseIds: [...ownedDatabaseIds],
+    };
+  };
+  const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
+    db,
+    collectScope,
+  );
+  return deleteCollectedDocuments(
+    db,
+    documentIds,
+    ownedDatabaseIds,
+    ownerEmail,
+  );
+}
+
+async function deleteCollectedDocuments(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownedDatabaseIds: string[],
+  ownerEmail: string,
+): Promise<string[]> {
+  await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
+
+  const propertyDefinitionIds: string[] = [];
+  await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
+    propertyDefinitionIds.push(
+      ...(
+        await db
+          .select({ id: schema.documentPropertyDefinitions.id })
+          .from(schema.documentPropertyDefinitions)
+          .where(
+            inArray(
+              schema.documentPropertyDefinitions.databaseId,
+              databaseIdBatch,
+            ),
+          )
+      ).map((definition) => definition.id),
+    );
+  });
+
+  const sourceIds: string[] = [];
+  await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
+    sourceIds.push(
+      ...(
+        await db
+          .select({ id: schema.contentDatabaseSources.id })
+          .from(schema.contentDatabaseSources)
+          .where(
+            inArray(schema.contentDatabaseSources.databaseId, databaseIdBatch),
+          )
+      ).map((source) => source.id),
+    );
+  });
+
+  // Delete database membership/schema, sync links, versions, shares, then documents.
+  await deleteWhereIn(sourceIds, async (sourceIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseBodyHydrationQueue)
+      .where(
+        inArray(
+          schema.contentDatabaseBodyHydrationQueue.sourceId,
+          sourceIdBatch,
+        ),
+      );
+    await db
+      .delete(schema.contentDatabaseSourceExecutions)
+      .where(
+        inArray(schema.contentDatabaseSourceExecutions.sourceId, sourceIdBatch),
+      );
+    await db
+      .delete(schema.contentDatabaseSourceChangeReviews)
+      .where(
+        inArray(
+          schema.contentDatabaseSourceChangeReviews.sourceId,
+          sourceIdBatch,
+        ),
+      );
+    await db
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(
+        inArray(schema.contentDatabaseSourceChangeSets.sourceId, sourceIdBatch),
+      );
+    await db
+      .delete(schema.contentDatabaseSourceRows)
+      .where(inArray(schema.contentDatabaseSourceRows.sourceId, sourceIdBatch));
+    await db
+      .delete(schema.contentDatabaseSourceFields)
+      .where(
+        inArray(schema.contentDatabaseSourceFields.sourceId, sourceIdBatch),
+      );
+  });
+
+  await deleteWhereIn(propertyDefinitionIds, async (propertyIdBatch) => {
+    await deleteBlocksFieldIdentity({ db, propertyIds: propertyIdBatch });
+    await db
+      .delete(schema.documentPropertyValues)
+      .where(
+        inArray(schema.documentPropertyValues.propertyId, propertyIdBatch),
+      );
+    await db
+      .delete(schema.documentBlockFieldContents)
+      .where(
+        inArray(schema.documentBlockFieldContents.propertyId, propertyIdBatch),
+      );
+  });
+
+  await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        inArray(
+          schema.contentDatabaseItemKeyClaims.databaseId,
+          databaseIdBatch,
+        ),
+      );
+  });
+
+  await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        inArray(
+          schema.contentDatabaseItemKeyClaims.documentId,
+          documentIdBatch,
+        ),
+      );
+  });
+
+  await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await deleteBlocksFieldIdentity({ db, documentIds: documentIdBatch });
+    await db
+      .delete(schema.contentDatabaseBodyHydrationQueue)
+      .where(
+        inArray(
+          schema.contentDatabaseBodyHydrationQueue.documentId,
+          documentIdBatch,
+        ),
+      );
+    await db
+      .delete(schema.documentPropertyValues)
+      .where(
+        and(
+          inArray(schema.documentPropertyValues.documentId, documentIdBatch),
+          eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
+        ),
+      );
+    await db
+      .delete(schema.documentBlockFieldContents)
+      .where(
+        inArray(schema.documentBlockFieldContents.documentId, documentIdBatch),
+      );
+    await db
+      .delete(schema.contentDatabaseItems)
+      .where(inArray(schema.contentDatabaseItems.documentId, documentIdBatch));
+  });
+
+  await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseItems)
+      .where(inArray(schema.contentDatabaseItems.databaseId, databaseIdBatch));
+    await db
+      .delete(schema.contentDatabaseSources)
+      .where(
+        inArray(schema.contentDatabaseSources.databaseId, databaseIdBatch),
+      );
+    await db
+      .delete(schema.documentPropertyDefinitions)
+      .where(
+        inArray(schema.documentPropertyDefinitions.databaseId, databaseIdBatch),
+      );
+    await db
+      .delete(schema.contentDatabases)
+      .where(inArray(schema.contentDatabases.id, databaseIdBatch));
+    // Receipts deliberately have no database foreign key. Removing them after
+    // the database row closes the race with a migration that already holds the
+    // row lock and commits its receipt before this deletion can continue.
+    await db
+      .delete(schema.contentDatabaseMigrationReceipts)
+      .where(
+        inArray(
+          schema.contentDatabaseMigrationReceipts.databaseId,
+          databaseIdBatch,
+        ),
+      );
+  });
+
+  await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await db
+      .delete(schema.documentSyncLinks)
+      .where(
+        and(
+          inArray(schema.documentSyncLinks.documentId, documentIdBatch),
+          eq(schema.documentSyncLinks.ownerEmail, ownerEmail),
+        ),
+      );
+    await db
+      .delete(schema.documentVersions)
+      .where(
+        and(
+          inArray(schema.documentVersions.documentId, documentIdBatch),
+          eq(schema.documentVersions.ownerEmail, ownerEmail),
+        ),
+      );
+    await db
+      .delete(schema.builderDocSidecars)
+      .where(
+        and(
+          inArray(schema.builderDocSidecars.documentId, documentIdBatch),
+          eq(schema.builderDocSidecars.ownerEmail, ownerEmail),
+        ),
+      );
+    await db
+      .delete(schema.documentComments)
+      .where(
+        and(
+          inArray(schema.documentComments.documentId, documentIdBatch),
+          eq(schema.documentComments.ownerEmail, ownerEmail),
+        ),
+      );
+    await db
+      .delete(schema.documentShares)
+      .where(inArray(schema.documentShares.resourceId, documentIdBatch));
+  });
+
+  await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await db
+      .delete(schema.documents)
+      .where(
+        and(
+          inArray(schema.documents.id, documentIdBatch),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      );
+  });
+
+  return documentIds;
+}
+
+export async function deleteTrashedDocumentSubtree(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+): Promise<string[]> {
+  const collectScope = async () => {
+    const [root] = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, id),
+          eq(schema.documents.ownerEmail, ownerEmail),
+          eq(schema.documents.trashRootId, id),
+          isNotNull(schema.documents.trashedAt),
+        ),
+      )
+      .limit(1);
+    if (!root) {
+      throw new Error(
+        "Document must be in Trash and be a Trash root before permanent deletion",
+      );
+    }
+
+    const documentIds = (
+      await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.ownerEmail, ownerEmail),
+            eq(schema.documents.trashRootId, id),
+            isNotNull(schema.documents.trashedAt),
+          ),
+        )
+    ).map((document) => document.id);
+    const ownedDatabaseIds = await selectOwnedDatabaseIds(
+      db,
+      documentIds,
+      ownerEmail,
+    ).then((rows) => rows.map((database) => database.id));
+    const documentIdSet = new Set(documentIds);
+    const activeOutsideScope = (
+      await selectDatabaseItemDocumentTrashState(
+        db,
+        ownedDatabaseIds,
+        ownerEmail,
+      )
+    ).find(
+      (document) => !documentIdSet.has(document.id) && !document.trashedAt,
+    );
+    if (activeOutsideScope) {
+      throw new Error(
+        "Database contains an active row outside this Trash item",
+      );
+    }
+    return { documentIds, ownedDatabaseIds };
+  };
+
+  const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
+    db,
+    collectScope,
+  );
+
+  await db
+    .update(schema.documents)
+    .set({ parentId: null, updatedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(schema.documents.ownerEmail, ownerEmail),
+        inArray(schema.documents.parentId, documentIds),
+        or(
+          isNull(schema.documents.trashRootId),
+          ne(schema.documents.trashRootId, id),
+        ),
+      ),
+    );
+
+  return deleteCollectedDocuments(
+    db,
+    documentIds,
+    ownedDatabaseIds,
+    ownerEmail,
+  );
+}
+
+export default defineAction({
+  description:
+    "Move a document and all its children to Trash. Use permanently-delete-document to destroy an item already in Trash.",
+  schema: z.object({
+    id: z.string().optional().describe("Document ID (required)"),
+    databaseDocumentId: z
+      .string()
+      .optional()
+      .describe("Database page the deletion was initiated from"),
+  }),
+  run: async (args) => {
+    const id = args.id;
+    if (!id) throw new Error("--id is required");
+
+    const db = getDb();
+    if (args.databaseDocumentId) {
+      const [contextDatabase] = await db
+        .select()
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.documentId, args.databaseDocumentId),
+            eq(schema.contentDatabases.systemRole, "favorites"),
+          ),
+        );
+      if (contextDatabase) {
+        await assertAccess("document", contextDatabase.documentId, "editor");
+        const [membership] = await db
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.databaseId, contextDatabase.id),
+              eq(schema.contentDatabaseItems.documentId, id),
+            ),
+          );
+        if (!membership) {
+          throw new Error("Document is not part of Favorites");
+        }
+        await db.transaction(async (tx) => {
+          await lockContentDatabaseMutation(
+            tx as unknown as ReturnType<typeof getDb>,
+            contextDatabase.id,
+          );
+          await touchContentDatabase(
+            tx as unknown as ReturnType<typeof getDb>,
+            contextDatabase.id,
+          );
+          await tx
+            .delete(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.id, membership.id));
+        });
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        return { success: true, deleted: 0, removed: 1 };
+      }
+    }
+
+    const access = await assertAccess("document", id, "admin");
+    const existing = access.resource;
+    const [systemDatabase] = await db
+      .select({ systemRole: schema.contentDatabases.systemRole })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.documentId, id));
+    if (systemDatabase?.systemRole) {
+      throw new Error("System Content database documents cannot be deleted");
+    }
+    const deleted = await db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+      const lockedDatabaseIds = await lockDatabasesForTrash(
+        transactionDb,
+        id,
+        existing.ownerEmail as string,
+      );
+      return trashDocumentSubtree(
+        transactionDb,
+        id,
+        existing.ownerEmail as string,
+        undefined,
+        lockedDatabaseIds,
+      );
+    });
+
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
+    return { success: true, deleted: deleted.length };
+  },
+});

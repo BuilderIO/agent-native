@@ -1,0 +1,27 @@
+---
+title: "入口点"
+description: "app/entry.client.tsx 和 app/entry.server.tsx：轻量的 hydration 与 SSR 引导包装器，以及何时需要自定义流式行为。"
+---
+
+# 入口点
+
+`app/entry.client.tsx` 在浏览器中对服务器渲染的 HTML 进行 hydrate，`app/entry.server.tsx` 则在服务器上渲染该 HTML。二者都是由 React Router 生成的轻量包装器，您很少需要修改它们。
+
+```ts filename="app/entry.server.tsx"
+import {
+  createDocumentRequestHandler,
+  streamTimeout,
+} from "@agent-native/core/server/entry-server";
+import { ServerRouter } from "react-router";
+
+export default createDocumentRequestHandler(ServerRouter);
+export { streamTimeout };
+```
+
+只有在需要高级 SSR 自定义时才需要用到它们，例如更改流式行为。普通的页面、布局和数据都不需要修改这里的内容。添加页面请改看 [路由](/docs/client-routing)。
+
+## 下一步
+
+- [**概览**](/docs/client-overview) — 这些文件在 `app/` 中的位置
+- [**路由**](/docs/client-routing) — 添加页面，扩展 `app/` 的正常方式
+- [**高级**](/docs/client-advanced) — 其他更底层的客户端原语和逃生舱

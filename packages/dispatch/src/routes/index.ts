@@ -1,0 +1,95 @@
+import { type RouteConfig, route, index } from "@react-router/dev/routes";
+
+/**
+ * Dispatch's routes as a programmatic `RouteConfig[]`. Splat into the
+ * consumer's `app/routes.ts`:
+ *
+ * ```ts
+ * import { type RouteConfig } from "@react-router/dev/routes";
+ * import { dispatchRoutes } from "@agent-native/dispatch/routes";
+ *
+ * export default [
+ *   ...localRoutes,    // consumer's own routes win on collision
+ *   ...dispatchRoutes, // dispatch fills in everything else
+ * ] satisfies RouteConfig;
+ * ```
+ *
+ * Route precedence: React Router 7 matches in declaration order, so
+ * placing `dispatchRoutes` LAST means consumer-defined routes with the
+ * same path take precedence. To override a single dispatch route, define
+ * it in your local routes; to keep it, omit it.
+ *
+ * The `file` paths below resolve relative to this file at runtime — they
+ * point into `packages/dispatch/dist/routes/pages/*.js` after build.
+ *
+ * Naming maps the original flatRoutes file conventions:
+ *   `_index.tsx`        → `index(...)`
+ *   `<name>.tsx`        → `route("<name>", ...)`
+ *   `<a>.$<param>.tsx`  → `route("<a>/:<param>", ...)`
+ *   `<a>._index.tsx`    → flattened as `route("<a>", ...)` (workspace
+ *      versions are bare and don't wrap a parent layout)
+ */
+export const dispatchRoutes: RouteConfig = [
+  index("./pages/_index.js"),
+  route("browser-connect", "./pages/browser-connect.js"),
+  route("browser-chat", "./pages/browser-chat.js"),
+  route("chat", "./pages/chat.js"),
+  route("chat/:threadId", "./pages/chat.js"),
+  route("overview", "./pages/overview.js"),
+  route("admin", "./pages/admin.js", [
+    index("./pages/admin._index.js"),
+    route("new-app", "./pages/new-app.js"),
+    route("operations", "./pages/operations.js"),
+    route("metrics", "./pages/metrics.js"),
+    route("automations", "./pages/automations.js"),
+    route("approvals", "./pages/approvals.js"),
+    route("destinations", "./pages/destinations.js"),
+    route("integrations", "./pages/agent-integrations.js"),
+    route("transactional-email", "./pages/transactional-email.js"),
+    route(
+      "transactional-email/:appId/:id",
+      "./pages/transactional-email.$appId.$id.js",
+    ),
+    route("vault", "./pages/vault.js"),
+    route("agents", "./pages/agents.js"),
+    route("workspace", "./pages/workspace.js"),
+    route("messaging", "./pages/messaging.js"),
+    route("identities", "./pages/identities.js"),
+    route("audit", "./pages/audit.js"),
+    route("dreams", "./pages/dreams.js"),
+    route("thread-debug", "./pages/thread-debug.js"),
+  ]),
+  route("metrics", "./pages/metrics.js"),
+  route("operations", "./pages/operations.js"),
+  route("apps", "./pages/apps.js"),
+  route("apps/:appId/*", "./pages/apps.$appId.js"),
+  route("new-app", "./pages/new-app.js"),
+  route("vault", "./pages/vault.js"),
+  route("integrations", "./pages/integrations.js"),
+  route("agents", "./pages/agents.js"),
+  route("workspace", "./pages/workspace.js"),
+  route("messaging", "./pages/messaging.js"),
+  route("destinations", "./pages/destinations.js"),
+  route("transactional-email", "./pages/transactional-email.js"),
+  route(
+    "transactional-email/:appId/:id",
+    "./pages/transactional-email.$appId.$id.js",
+  ),
+  route("identities", "./pages/identities.js"),
+  route("approval", "./pages/approval.js"),
+  route("approvals", "./pages/approvals.js"),
+  route("automations", "./pages/automations.js"),
+  route("audit", "./pages/audit.js"),
+  route("settings", "./pages/settings.js"),
+  route("dreams", "./pages/dreams.js"),
+  route("thread-debug", "./pages/thread-debug.js"),
+  route("team", "./pages/team.js"),
+  route("extensions", "./pages/extensions._index.js"),
+  route("extensions/:id", "./pages/extensions.$id.js"),
+  route("extensions/:id/:slug", "./pages/extensions.$id.js"),
+  // Catch-all for /:appId — bounces /dispatch/<appId> to /<appId> when the
+  // segment names a workspace app sibling (e.g. Builder.io routing a "go to
+  // /todo" call through Dispatch's mount). Declared last so React Router 7's
+  // specificity ranking still matches explicit static routes above first.
+  route(":appId", "./pages/$appId.js"),
+];

@@ -1,0 +1,467 @@
+import {
+  navigateWithAgentChatViewTransition,
+  useChatThreads,
+  type ChatThreadSummary,
+} from "@agent-native/core/client/agent-chat";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
+import { OrgSwitcher } from "@agent-native/core/client/org";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  ChatHistoryRail,
+  type ChatHistoryItem,
+} from "@agent-native/toolkit/chat-history";
+import {
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconSearch,
+} from "@tabler/icons-react";
+import { useEffect, useMemo } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { navItems } from "@/lib/brain";
+import { cn } from "@/lib/utils";
+
+const primaryNavItems = navItems.filter(
+  (item) => item.view !== "agent" && item.view !== "settings",
+);
+const bottomNavItems = navItems.filter(
+  (item) => item.view === "agent" || item.view === "settings",
+);
+
+const BRAIN_CHAT_STORAGE_KEY = "brain";
+const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
+
+interface SidebarProps {
+  collapsed?: boolean;
+  collapsible?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+}
+
+function formatThreadAge(updatedAt: number) {
+  const diffMs = Math.max(0, Date.now() - updatedAt);
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(updatedAt).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function threadTitle(thread: ChatThreadSummary) {
+  return thread.title || thread.preview || "Untitled chat";
+}
+
+function threadUpdatedAt(thread: ChatThreadSummary) {
+  return Number.isFinite(thread.updatedAt)
+    ? thread.updatedAt
+    : Number.isFinite(thread.createdAt)
+      ? thread.createdAt
+      : 0;
+}
+
+function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
+  const aPinned = a.pinnedAt ?? 0;
+  const bPinned = b.pinnedAt ?? 0;
+  if (aPinned || bPinned) return bPinned - aPinned;
+  return threadUpdatedAt(b) - threadUpdatedAt(a);
+}
+
+function persistedActiveThreadId() {
+  try {
+    return localStorage.getItem(BRAIN_ACTIVE_THREAD_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function BrainChatsSection({ open }: { open: boolean }) {
+  const navigate = useNavigate();
+  const t = useT();
+  const {
+    threads,
+    activeThreadId,
+    createThread,
+    switchThread,
+    pinThread,
+    archiveThread,
+    renameThread,
+    refreshThreads,
+  } = useChatThreads(undefined, BRAIN_CHAT_STORAGE_KEY, undefined, {
+    autoCreate: false,
+    restoreActiveThread: false,
+  });
+
+  const visibleThreads = useMemo(
+    () =>
+      threads
+        .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
+        .sort(compareThreads),
+    [threads],
+  );
+  const chatItems = useMemo<ChatHistoryItem[]>(
+    () =>
+      visibleThreads.map((thread) => ({
+        id: thread.id,
+        title: threadTitle(thread),
+        titleText: threadTitle(thread),
+        timestamp:
+          thread.id === activeThreadId
+            ? undefined
+            : formatThreadAge(threadUpdatedAt(thread)),
+        pinned: Boolean(thread.pinnedAt),
+      })),
+    [activeThreadId, visibleThreads],
+  );
+
+  useEffect(() => {
+    const refresh = () => refreshThreads();
+    const handleRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { isRunning?: unknown }
+        | undefined;
+      if (typeof detail?.isRunning === "boolean") refreshThreads();
+    };
+
+    window.addEventListener("agent-chat:threads-updated", refresh);
+    window.addEventListener("agentNative.chatRunning", handleRunning);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("agent-chat:threads-updated", refresh);
+      window.removeEventListener("agentNative.chatRunning", handleRunning);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refreshThreads]);
+
+  function openThread(threadId: string, options?: { isNew?: boolean }) {
+    switchThread(threadId);
+    navigateWithAgentChatViewTransition(navigate, "/home");
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId, newThread: options?.isNew === true },
+        }),
+      );
+    });
+  }
+
+  async function handleNewChat() {
+    const threadId = await createThread();
+    if (threadId) openThread(threadId, { isNew: true });
+  }
+
+  async function handleArchiveThread(threadId: string) {
+    const wasActive =
+      threadId === activeThreadId || threadId === persistedActiveThreadId();
+    const archived = await archiveThread(threadId);
+    if (!archived) {
+      toast.error(t("chat.archiveFailed"));
+      return;
+    }
+    if (wasActive) {
+      await handleNewChat();
+    }
+  }
+
+  function handleRenameThread(threadId: string, title: string) {
+    void renameThread(threadId, title).then((renamed) => {
+      if (!renamed) toast.error(t("chat.renameFailed"));
+    });
+  }
+
+  return (
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4">
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={activeThreadId}
+          onSelect={openThread}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("chat.chats"),
+            showLess: t("chat.chats"),
+          }}
+          previewCount={5}
+          expandedCount={15}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          renameMaxLength={160}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          labels={{
+            options: (item) =>
+              t("chat.optionsFor", { title: item.titleText ?? "" }),
+            renameInput: (item) =>
+              t("chat.renameThread", { title: item.titleText ?? "" }),
+            rename: t("chat.renameChat"),
+            pin: t("chat.pinChat"),
+            unpin: t("chat.unpinChat"),
+            delete: t("chat.archiveChat"),
+          }}
+          className="min-w-0"
+        />
+      </div>
+    </div>
+  );
+}
+
+export function Sidebar({
+  collapsed = false,
+  collapsible = true,
+  onCollapsedChange,
+}: SidebarProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const t = useT();
+  const isAskRoute = location.pathname === "/home";
+  const ToggleIcon = collapsed
+    ? IconLayoutSidebarLeftExpand
+    : IconLayoutSidebarLeftCollapse;
+  const navClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      "flex items-center text-sm transition-colors",
+      collapsed
+        ? "h-10 w-10 justify-center rounded-md"
+        : "h-9 gap-3 rounded-md px-3",
+      isActive
+        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+        : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
+    );
+  const collapseButton = collapsible ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => onCollapsedChange?.(!collapsed)}
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={
+            collapsed
+              ? t("navigation.expandSidebar")
+              : t("navigation.collapseSidebar")
+          }
+        >
+          <ToggleIcon className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed
+          ? t("navigation.expandSidebar")
+          : t("navigation.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("navigation.search")}
+          className="flex size-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconSearch className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("navigation.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
+
+  return (
+    <aside
+      data-collapsed={collapsed ? "true" : "false"}
+      className={cn(
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
+        collapsed ? "w-12" : "w-60",
+      )}
+    >
+      <div
+        className={cn(
+          "flex h-14 shrink-0 items-center border-b border-sidebar-border",
+          collapsed ? "justify-center px-0" : "gap-3 px-4",
+        )}
+      >
+        <Link
+          to="/home"
+          onClick={(event) => {
+            if (
+              !collapsible ||
+              !onCollapsedChange ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              event.button !== 0
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onCollapsedChange(!collapsed);
+          }}
+          className={cn(
+            "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed ? "size-8 justify-center" : "flex-1 gap-3",
+          )}
+          aria-label={
+            collapsible && onCollapsedChange
+              ? collapsed
+                ? t("navigation.expandSidebar")
+                : t("navigation.collapseSidebar")
+              : collapsed
+                ? t("navigation.brand")
+                : undefined
+          }
+        >
+          <AgentNativeIcon
+            aria-hidden="true"
+            className="h-3.5 w-6 shrink-0 text-sidebar-accent-foreground"
+          />
+          <div className={cn("min-w-0", collapsed && "sr-only")}>
+            <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
+              {t("navigation.brand")}
+            </p>
+          </div>
+        </Link>
+      </div>
+
+      <nav
+        className={cn(
+          "flex-1 overflow-y-auto",
+          collapsed ? "px-1 py-2" : "px-2 py-3",
+        )}
+      >
+        <div
+          className={cn(
+            "grid",
+            collapsed ? "justify-items-center gap-1" : "gap-1",
+          )}
+        >
+          {primaryNavItems.map((item) => {
+            const Icon = item.icon;
+            const label =
+              item.view === "agent"
+                ? t("settings.agentTitle")
+                : t(`navigation.${item.view}`);
+            const link = (
+              <NavLink
+                to={item.href}
+                end={item.href === "/home"}
+                onClick={(event) => {
+                  if (
+                    item.view === "ask" &&
+                    !isAskRoute &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    navigateWithAgentChatViewTransition(navigate, "/home");
+                  }
+                }}
+                className={navClass}
+                aria-label={collapsed ? label : undefined}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className={collapsed ? "sr-only" : "truncate"}>
+                  {label}
+                </span>
+              </NavLink>
+            );
+            return (
+              <div key={item.href}>
+                {collapsed ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>{link}</TooltipTrigger>
+                    <TooltipContent side="right">{label}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  link
+                )}
+                {!collapsed && item.view === "ask" ? (
+                  <BrainChatsSection open={isAskRoute} />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </nav>
+
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const label =
+            item.view === "agent"
+              ? t("settings.agentTitle")
+              : t(`navigation.${item.view}`);
+          const link = (
+            <NavLink
+              to={item.href}
+              className={navClass}
+              aria-label={collapsed ? label : undefined}
+            >
+              <Icon className="size-4 shrink-0" />
+              <span className={collapsed ? "sr-only" : "truncate"}>
+                {label}
+              </span>
+            </NavLink>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <div key={item.href}>{link}</div>
+          );
+        })}
+      </nav>
+
+      <div className="mt-auto shrink-0">
+        {!collapsed ? (
+          <div className="px-3 py-2 empty:hidden">
+            <OrgSwitcher />
+          </div>
+        ) : null}
+
+        {!collapsed ? (
+          <div className="px-3 py-2 empty:hidden">
+            <DevDatabaseLink />
+          </div>
+        ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
+      </div>
+    </aside>
+  );
+}

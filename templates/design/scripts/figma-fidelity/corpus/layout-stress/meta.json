@@ -1,0 +1,5 @@
+{
+  "width": 1440,
+  "height": 900,
+  "rootSelector": "[data-agent-native-node-id=\"frame\"]"
+}

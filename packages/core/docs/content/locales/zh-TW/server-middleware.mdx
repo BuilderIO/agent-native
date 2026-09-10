@@ -1,0 +1,149 @@
+---
+title: "中間件"
+description: "server/middleware/ 中的 Nitro 中間件——它是什麼、如何撰寫自己的中間件，以及內建驗證守衛的運作方式。"
+---
+
+# 中間件
+
+中間件是在每個傳入請求抵達路由處理常式之前執行的程式碼。它位於呼叫者與路由之間，因此是處理跨領域關注點的合適位置：驗證、記錄、CORS 標頭、速率限制,或任何無論由哪個路由處理請求都需要套用的邏輯。
+
+<Diagram id="doc-block-server-middleware-1" title="中間件在哪裡執行" summary="中間件會攔截每一個抵達路由前的請求。被允許的請求會繼續前往路由處理常式；被阻擋的請求則得到重新導向或錯誤回應。">
+
+```html
+<div class="diagram-mw">
+  <div class="diagram-col">
+    <div class="diagram-node">瀏覽器 / UI</div>
+    <div class="diagram-node">Agent 迴圈</div>
+    <div class="diagram-node">
+      外部客戶端<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>中間件</strong>
+    <small class="diagram-muted">server/middleware/</small>
+    <small class="diagram-muted">每個請求都會執行</small>
+  </div>
+  <div class="mw-outcomes">
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">允許</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>路由與處理常式</div>
+    </div>
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">阻擋</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>重新導向 / 錯誤</div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mw {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mw .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mw .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-mw .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mw-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw-outcome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-label {
+  font-size: 11px;
+  min-width: 44px;
+  text-align: right;
+}
+.mw-arrow {
+  font-size: 16px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+`server/middleware/` 中的檔案會被 Nitro 自動選取——無需註冊。該目錄中的每個檔案都會依字母順序,為每個請求執行一次。
+
+## 撰寫中間件 {#writing-middleware}
+
+一個中間件檔案匯出一個 `defineEventHandler`。若要讓請求繼續，不回傳任何值即可；若要阻擋請求，則拋出 `createError`，或用 `sendRedirect` 回傳一個重新導向。
+
+```ts filename="server/middleware/cors.ts"
+import { defineEventHandler, setResponseHeader } from "h3";
+
+export default defineEventHandler((event) => {
+  setResponseHeader(event, "Access-Control-Allow-Origin", "*");
+  // returning nothing passes the request through to the route handler
+});
+```
+
+多個中間件檔案會依字母順序的檔名，在符合的路由處理常式之前依序執行。每個中間件都可以檢查或修改請求、設定回應標頭，或直接短路整個回應。
+
+若需要更多中間件模式——條件邏輯、非同步操作、回應攔截——請參閱 [Nitro 中間件文件](https://nitro.build/guide/routing#middleware) 與 [H3 文件](https://h3.unjs.io)。
+
+## 驗證中間件 {#auth-middleware}
+
+每個 Agent-Native 應用都會附帶 `server/middleware/auth.ts`。它在所有路由上強制執行驗證，包括公開頁面路由，以及原本會繞過框架內建驗證的自訂 `/api/*` 路由。
+
+### 驗證守衛 {#auth-guard}
+
+```ts filename="server/middleware/auth.ts"
+import { runAuthGuard } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(async (event) => {
+  return runAuthGuard(event);
+});
+```
+
+`runAuthGuard` 會依照 [驗證外掛](/docs/server-plugins#auth-plugin) 所設定的驗證配置檢查每個請求。若請求未經驗證，且路徑不在 `publicPaths` 中，就會重新導向到登入頁面。
+
+### 為何使用中間件，而非外掛或路由層守衛 {#why-middleware}
+
+框架處理常式內建的中間件註冊表,範圍僅限於 `/_agent-native/*` 路由。若沒有獨立的中間件檔案，頁面路由（`/`、`/settings`）與自訂 API 路由（`/api/*`）會完全繞過驗證。
+
+外掛在啟動時執行，而非在每次請求時執行，因此無法強制執行逐請求的驗證。在每個自訂路由處理常式中各自加上路由層守衛，容易出錯也容易遺漏。`server/middleware/` 中的中間件,是唯一無論路徑為何、每個請求都會執行的地方。
+
+### 新增公開路徑 {#public-paths}
+
+若要讓未經驗證的使用者存取特定路徑，請將其傳給 `server/plugins/auth.ts` 中的 `createAuthPlugin`——而不是直接傳給中間件：
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhooks/stripe"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+`runAuthGuard` 會在請求時從驗證外掛讀取所設定的公開路徑。
+
+## 下一步是什麼 {#whats-next}
+
+- [**外掛**](/docs/server-plugins)：中間件所強制執行的驗證外掛設定
+- [**路由**](/docs/server-routes)：受此中間件保護的自訂路由
+- [**Security**](/docs/security)：資料範圍限定、存取守衛，以及完整的驗證模型
+- [**Nitro 中間件文件**](https://nitro.build/guide/routing#middleware)：完整的中間件 API 與模式
