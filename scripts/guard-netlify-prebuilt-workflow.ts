@@ -258,6 +258,7 @@ if (
   !normalizedReusableConcurrencyGroup.includes(
     "github.event_name == 'workflow_dispatch'",
   ) ||
+  !normalizedReusableConcurrencyGroup.includes("!inputs.caller") ||
   !normalizedReusableConcurrencyGroup.includes(
     "format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)",
   )
@@ -857,6 +858,9 @@ if (
   !reusableBetaFreshness.includes("Beta source_ref must equal current main") ||
   !reusableBetaFreshness.includes(
     "Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta site has no published deploy",
   ) ||
   reusableBetaFreshness.includes("requested || 'beta'") ||
   !reusableBetaFreshness.includes(

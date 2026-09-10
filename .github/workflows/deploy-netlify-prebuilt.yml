@@ -128,6 +128,7 @@ concurrency:
         && 'agent-native-release-migrations'
         || inputs.target == 'beta'
         && github.event_name == 'workflow_dispatch'
+        && !inputs.caller
         && format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)
         || inputs.target == 'beta'
         && format('netlify-prebuilt-beta-{0}', inputs.site)
@@ -153,6 +154,7 @@ jobs:
         env:
           SOURCE_REF: ${{ inputs.source_ref }}
           TARGET: ${{ inputs.target }}
+          CALLER: ${{ inputs.caller }}
         with:
           script: |
             const requested = process.env.SOURCE_REF.trim();
@@ -184,7 +186,7 @@ jobs:
               return;
             }
             if (target === 'beta') {
-              if (context.eventName === 'workflow_dispatch') {
+              if (context.eventName === 'workflow_dispatch' && !process.env.CALLER.trim()) {
                 core.setFailed('Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.');
                 return;
               }
@@ -465,6 +467,7 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           node --experimental-strip-types <<'NODE'
@@ -871,7 +874,14 @@ jobs:
               throw new Error(`Netlify published deploy lookup failed with HTTP ${response.status}.`);
             }
             const deployId = site?.published_deploy?.id;
-            if (!deployId) throw new Error("Netlify site has no published deploy to protect.");
+            if (!deployId) {
+              if (process.env.TARGET === "beta") {
+                console.log("Netlify beta site has no published deploy; continuing without a rollback baseline.");
+                fs.appendFileSync(process.env.GITHUB_OUTPUT, "published_deploy_id=\n");
+                return;
+              }
+              throw new Error("Netlify site has no published deploy to protect.");
+            }
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `published_deploy_id=${deployId}\n`);
             console.log(`Captured current published deploy ${deployId} for callback rollback.`);
           })().catch((error) => {

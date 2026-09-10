@@ -353,7 +353,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
-      /github\.event_name == 'workflow_dispatch'/,
+      /github\.event_name == 'workflow_dispatch'\s+&&\s+!inputs\.caller/,
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
@@ -445,6 +445,8 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt\.yml\./,
     );
+    assert.match(reusableSource, /process\.env\.CALLER\.trim\(\)/);
+    assert.match(reusableSource, /Netlify beta site has no published deploy/);
     assert.doesNotMatch(reusableSource, /requested \|\| 'beta'/);
     assert.match(
       reusableSource,
