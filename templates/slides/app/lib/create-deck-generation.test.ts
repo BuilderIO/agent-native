@@ -256,6 +256,47 @@ describe("startDeckGeneration", () => {
     );
   });
 
+  it("lets a selected reference deck control styling without a design system", async () => {
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "get-deck-reference-context"
+        ? { agentContext: "REFERENCE_STYLE_CONTEXT" }
+        : undefined,
+    );
+    const deck = {
+      id: "deck-reference-style",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create an about us deck",
+        files: [],
+        referenceSelection: { referenceDeckId: "reference-deck-1" },
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    const context = agentSubmit.mock.calls[0]?.[1] as string;
+    expect(context).toContain("REFERENCE_STYLE_CONTEXT");
+    expect(context).toContain(
+      "Follow its visual language as the source of truth",
+    );
+    expect(context).not.toContain("use a light warm-neutral canvas");
+  });
+
   it("passes hosted URLs and inline image bytes through to agentSubmit", async () => {
     const deck = {
       id: "deck-image-1",

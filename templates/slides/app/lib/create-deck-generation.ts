@@ -429,7 +429,9 @@ export async function startDeckGeneration({
         "Design system selection:",
         "- No design system was selected in the picker.",
         "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
-        "- If no workspace default exists, use a light warm-neutral canvas, dark ink text, Inter or a close sans-serif, 64px by 80px minimum padding, strong title/body scale contrast, and one restrained blue or coral accent. Never default to a black canvas with white text or omit the padded fmd-slide wrapper.",
+        referenceDeckId
+          ? "- A reference deck is selected above. Follow its visual language as the source of truth; do not apply a generic fallback palette, font, or canvas."
+          : "- If no workspace default exists, use a light warm-neutral canvas, dark ink text, Inter or a close sans-serif, 64px by 80px minimum padding, strong title/body scale contrast, and one restrained blue or coral accent. Never default to a black canvas with white text or omit the padded fmd-slide wrapper.",
       ].join("\n");
   const referenceSource = referenceSelection.referenceSource;
   const referenceSourceContext = referenceSource

@@ -216,8 +216,18 @@ describe("new deck generation flow", () => {
     );
     expect(referenceImportFlow).toContain("importIntoDeck: true");
     expect(referenceImportFlow).toContain("setSelectedReferenceDeckId");
-    expect(referenceImportFlow).toMatch(
+    expect(referenceImportFlow).toContain(
+      "The target generation context must retain the source handle",
+    );
+    expect(referenceImportFlow).toContain("let generationFiles = uploaded;");
+    expect(referenceImportFlow).not.toMatch(
       /generationFiles = uploaded\.filter\(\s*\(file\) => file !== documentReference,/,
+    );
+    expect(referenceImportFlow).not.toContain(
+      "generationFiles = uploaded.filter((file) => file !== pptxReference)",
+    );
+    expect(onboardingSource).toContain(
+      "The target generation context must retain the source handle",
     );
     expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
     expect(referenceImportFlow).toContain(

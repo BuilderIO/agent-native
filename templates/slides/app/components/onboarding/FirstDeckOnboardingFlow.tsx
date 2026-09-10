@@ -375,6 +375,8 @@ export function FirstDeckOnboardingFlow({
           file.originalName.toLowerCase().endsWith(".docx"),
         );
         let importedReference: ImportedReference | null = null;
+        // The target generation context must retain the source handle; the
+        // imported reference deck stores rendered slides, not the original file.
         let generationFiles = uploaded;
         if (pptxReference) {
           const imported = (await callAction(
@@ -404,7 +406,6 @@ export function FirstDeckOnboardingFlow({
                 : t("home.importedReferenceDeck"),
             source: "pptx",
           };
-          generationFiles = uploaded.filter((file) => file !== pptxReference);
         } else if (pdfReference || docxReference) {
           const documentReference = pdfReference ?? docxReference;
           const documentFormat = pdfReference ? "pdf" : "docx";
@@ -462,9 +463,6 @@ export function FirstDeckOnboardingFlow({
                   : t("home.importedReferenceDeck"),
               source: documentFormat,
             };
-            generationFiles = uploaded.filter(
-              (file) => file !== documentReference,
-            );
           } catch (error) {
             deleteDeck(referenceDeck.id);
             throw error;
