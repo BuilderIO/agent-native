@@ -526,7 +526,7 @@ export default defineAction({
         await park("stuck", babysitStuckClause(), { status: "needs_manual" });
         return { ok: true, action: "stuck" };
       }
-      if (decision === "already_asked") {
+      if (decision === "already_asked" && !mechanical.ping.allowed) {
         await park("waiting", babysitAlreadyAskedClause());
         return { ok: true, action: "waiting" };
       }

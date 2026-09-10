@@ -246,6 +246,49 @@ describe("parkedRecheckEvidencePatch", () => {
   });
 });
 
+describe("buildPullRequestPollMetadataJson", () => {
+  const pullRequest = {
+    number: 42,
+    userLogin: "builder-io-bot",
+    userId: 1,
+    headRef: "head",
+    baseRef: "main",
+    draft: false,
+    updatedAt: "2026-09-10T12:00:00.000Z",
+    htmlUrl: "https://github.com/acme/repo/pull/42",
+    title: "PR 42",
+    body: "",
+    headSha: "sha-42",
+  };
+
+  it("preserves babysit post fields when merging poll-owned metadata", async () => {
+    const { buildPullRequestPollMetadataJson } =
+      await import("./poll-github-sources.js");
+    const current = JSON.stringify({
+      prBabysitState: "waiting",
+      prBabysitLastCommentAt: "2026-09-10T11:00:00.000Z",
+      prBabysitLastCommentUrl:
+        "https://github.com/acme/repo/pull/42#issuecomment-1",
+    });
+    const merged = JSON.parse(
+      buildPullRequestPollMetadataJson(
+        current,
+        pullRequest,
+        undefined,
+        false,
+        "2026-09-10T12:00:00.000Z",
+      ),
+    );
+    expect(merged).toMatchObject({
+      prBabysitState: "waiting",
+      prBabysitLastCommentAt: "2026-09-10T11:00:00.000Z",
+      prBabysitLastCommentUrl:
+        "https://github.com/acme/repo/pull/42#issuecomment-1",
+      author: "builder-io-bot",
+    });
+  });
+});
+
 describe("mapWithConcurrency", () => {
   it("never runs more workers than the limit", async () => {
     const { mapWithConcurrency } = await import("./poll-github-sources.js");
