@@ -73,6 +73,16 @@ SELECT date, template, visitors
 FROM wau
 ORDER BY date, template`;
 
+const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
+  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    "WHEN '{{timeRange}}' = '7d'",
+    "WHEN '{{timeRange}}' = '{{timeRange}}'",
+  );
+
+function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
+  return sql.trim() === MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL.trim();
+}
+
 export function repairFirstPartyBigQueryDashboardQueries(
   config: Record<string, unknown>,
 ): { config: Record<string, unknown>; changed: boolean } {
@@ -86,7 +96,8 @@ export function repairFirstPartyBigQueryDashboardQueries(
       panel.id !== "wau-over-time" ||
       panel.source !== "bigquery" ||
       typeof panel.sql !== "string" ||
-      panel.sql.trim() !== ""
+      (panel.sql.trim() !== "" &&
+        !isMalformedFirstPartyBigQueryWauSql(panel.sql))
     ) {
       return rawPanel;
     }
