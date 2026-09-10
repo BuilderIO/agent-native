@@ -574,6 +574,17 @@ const clipsBuild =
   buildStepStart >= 0 && buildStepEnd > buildStepStart
     ? reusable.slice(buildStepStart, buildStepEnd)
     : "";
+const hasOfflineSecretFreePreviewBuild =
+  clipsBuild.includes(
+    'if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then',
+  ) &&
+  clipsBuild.includes("build_args+=(--offline)") &&
+  clipsBuild.includes('netlify "${build_args[@]}"');
+if (!hasOfflineSecretFreePreviewBuild) {
+  issues.push(
+    `${reusablePath} must use Netlify offline mode for the secret-free PR build`,
+  );
+}
 const hasProductionChatBuildOverride =
   clipsBuild.includes(
     'if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',

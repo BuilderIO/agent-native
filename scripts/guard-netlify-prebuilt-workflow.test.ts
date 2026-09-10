@@ -109,6 +109,7 @@ describe("Netlify PR preview workflow guard", () => {
       /needs\.deploy\.result != 'cancelled'/,
     );
     assert.match(pullRequestPreviewSource, /No successful deploy record/);
+    assert.match(reusableSource, /build_args\+=\(--offline\)/);
   });
 });
 

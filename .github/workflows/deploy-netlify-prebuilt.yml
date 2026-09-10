@@ -490,7 +490,13 @@ jobs:
           if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
+          build_args=(build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE")
+          if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then
+            # The PR build is intentionally secret-free. Offline mode keeps
+            # Netlify CLI from querying site config with a deployment token.
+            build_args+=(--offline)
+          fi
+          netlify "${build_args[@]}"
           unset ANALYTICS_DATABASE_URL_SECRET
 
       - name: Build trusted preview Functions for the PR artifact
