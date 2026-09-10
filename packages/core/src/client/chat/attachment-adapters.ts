@@ -23,9 +23,11 @@ export const MAX_PDF_BYTES = 4 * 1024 * 1024;
 // images on the client before we ever serialize them.
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAGE_DIMENSION = 2048;
-// Estimated total serialized attachment budget (JSON POST). Vercel/Netlify cap
-// ~4.5 MB; leave a small reserve for the message envelope and history.
-export const MAX_ESTIMATED_BODY_BYTES = 4.25 * 1024 * 1024;
+// Vercel/Netlify cap requests at roughly 4.5 MB. Keep 1 MB for the message,
+// bounded history, and JSON framing; attachments get the remaining 3.5 MB.
+export const MAX_NON_ATTACHMENT_BODY_BYTES = 1 * 1024 * 1024;
+export const MAX_ESTIMATED_BODY_BYTES =
+  4.5 * 1024 * 1024 - MAX_NON_ATTACHMENT_BODY_BYTES;
 // Text files are read into memory before they can be sent as inline content.
 // Keep one file below the aggregate budget so an oversized EML is rejected
 // before file.text() allocates the whole payload.

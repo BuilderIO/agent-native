@@ -71,7 +71,7 @@ describe("isTextLikeFile", () => {
     await expect(
       serializeQueuedAttachments([{ name: file.name, file }]),
     ).rejects.toThrow(
-      '"large.eml" is 3.5 MB - text attachments are capped at 3.5 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+      '"large.eml" is 3.0 MB - text attachments are capped at 3.0 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
     );
   });
 });

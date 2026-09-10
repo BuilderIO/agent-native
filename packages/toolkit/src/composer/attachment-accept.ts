@@ -72,7 +72,7 @@ export const TEXT_ATTACHMENT_ACCEPT = [
   ".eml",
 ].join(",");
 
-export const MAX_TEXT_ATTACHMENT_BYTES = 3.5 * 1024 * 1024;
+export const MAX_TEXT_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
 export function formatOversizedTextAttachmentError(
   name: string,
