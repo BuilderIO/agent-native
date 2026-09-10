@@ -31,7 +31,6 @@ import {
   hasHumanChangesRequested,
   reconcileBabysitState,
 } from "../server/triage/pr-babysit.js";
-import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
 
 export type CreateBabysitEvidenceClient = (identity: {
   ownerEmail: string;
@@ -160,11 +159,6 @@ export function createBabysitPullRequestAction(
           mergeable: summary.mergeable,
           mergeableState: summary.mergeableState,
           mergeabilityComputed: mechanical.mergeability.mergeabilityComputed,
-          ownerOwnedArea: detectOwnerOwnedArea([
-            item.repository,
-            summary.title,
-            summary.body,
-          ]),
           checksCoverage: details.checksCoverage,
           checks: details.checks.length,
           reviewsTruncated: details.reviewsTruncated,

@@ -50,7 +50,6 @@ import {
   shouldRecordBabysitAudit,
   type BabysitPingReason,
 } from "../server/triage/pr-babysit.js";
-import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
 
 const babysitDecisionSchema = z.enum(["ping", "already_asked", "stuck"]);
 const BABYSIT_POST_CLAIM_TTL_MS = 120_000;
@@ -332,43 +331,6 @@ export default defineAction({
     }
 
     const { summary: pullRequest, details } = read;
-    const ownerOwnedArea = detectOwnerOwnedArea([
-      item.repository,
-      pullRequest.title,
-      pullRequest.body,
-    ]);
-    if (ownerOwnedArea) {
-      await updateBabysitItem(
-        itemId,
-        orgId,
-        {
-          prBabysitState: "owner-managed",
-          prBabysitOwnerArea: ownerOwnedArea,
-          prBabysitLastCheckedAt: nowIso,
-        },
-        { status: "needs_manual" },
-      );
-      const reason = formatBabysitAuditSummary(
-        item.pullRequestNumber,
-        `skipped; ${ownerOwnedArea} is owner-managed.`,
-      );
-      await recordFactoryAudit(
-        context,
-        { userEmail, orgId },
-        {
-          action: "babysit-factory-pull-request",
-          kind: "decision",
-          status: "skipped",
-          itemId,
-          source: "github",
-          sourceUrl: item.sourceUrl,
-          summary: reason,
-          details: { author: pullRequest.userLogin, ownerOwnedArea },
-        },
-        factoryId,
-      );
-      return { ok: true, action: "skipped", reason };
-    }
 
     const proposal = reconcileBabysitState({
       comments: details.comments,
