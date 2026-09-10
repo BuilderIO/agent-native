@@ -207,23 +207,24 @@ try {
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 
-if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
-  issues.push(`${reusablePath} beta deploys must queue every source SHA`);
+if (
+  asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !==
+  "${{ inputs.target == 'beta' }}"
+) {
+  issues.push(
+    `${reusablePath} beta child deploys must cancel stale sources while production remains non-canceling`,
+  );
 }
 const betaWorkflowConcurrency = asRecord(
   parsedWorkflows.get(betaPath)?.concurrency,
 );
-const betaWorkflowGroup = String(betaWorkflowConcurrency?.group ?? "");
 if (
-  !betaWorkflowGroup.includes("github.event_name == 'push'") ||
-  !betaWorkflowGroup.includes("'deploy-agent-native-beta-sites-prebuilt'") ||
-  !betaWorkflowGroup.includes(
-    "'deploy-agent-native-beta-sites-prebuilt-manual'",
-  ) ||
-  betaWorkflowConcurrency["cancel-in-progress"] !== false
+  betaWorkflowConcurrency?.group !==
+    "deploy-agent-native-beta-sites-prebuilt" ||
+  betaWorkflowConcurrency?.["cancel-in-progress"] !== true
 ) {
   issues.push(
-    `${betaPath} must coalesce pending main pushes without canceling an active fleet publish`,
+    `${betaPath} must cancel older automatic and manual publishes for the latest main`,
   );
 }
 const reusableConcurrencyGroup = String(
@@ -235,11 +236,11 @@ const normalizedReusableConcurrencyGroup = reusableConcurrencyGroup.replace(
 );
 if (
   !normalizedReusableConcurrencyGroup.includes(
-    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}-{1}', inputs.caller, inputs.site)",
+    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}', inputs.site)",
   )
 ) {
   issues.push(
-    `${reusablePath} beta publishes must isolate automatic and manual child queues per site`,
+    `${reusablePath} beta publishes must share one latest-wins child queue per site`,
   );
 }
 
@@ -827,6 +828,10 @@ if (
 const reusableBetaFreshness = reusable;
 if (
   reusableBetaFreshness.includes("allowPinnedRecovery") ||
+  !reusableBetaFreshness.includes(
+    "Beta source_ref must be a full 40-character commit SHA.",
+  ) ||
+  reusableBetaFreshness.includes("requested || 'beta'") ||
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
   ) ||

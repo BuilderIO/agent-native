@@ -203,20 +203,15 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("coalesces pending beta runs and keeps the source latest-main", () => {
+  it("cancels stale beta runs and keeps the source latest-main", () => {
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
     const betaConcurrency = beta.concurrency as Workflow;
-    assert.equal(betaConcurrency["cancel-in-progress"], false);
-    assert.match(String(betaConcurrency.group), /github\.event_name == 'push'/);
-    assert.match(
-      String(betaConcurrency.group),
-      /deploy-agent-native-beta-sites-prebuilt'/,
-    );
-    assert.match(
-      String(betaConcurrency.group),
-      /deploy-agent-native-beta-sites-prebuilt-manual'/,
+    assert.equal(betaConcurrency["cancel-in-progress"], true);
+    assert.equal(
+      betaConcurrency.group,
+      "deploy-agent-native-beta-sites-prebuilt",
     );
     assert.equal((beta.permissions as Workflow).contents, "write");
     assert.equal(
@@ -346,7 +341,11 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
-      /inputs\.target == 'beta'\s+&&\s+format\('netlify-prebuilt-beta-\{0\}-\{1\}', inputs\.caller, inputs\.site\)/,
+      /inputs\.target == 'beta'\s+&&\s+format\('netlify-prebuilt-beta-\{0\}', inputs\.site\)/,
+    );
+    assert.equal(
+      (reusable.concurrency as Workflow)["cancel-in-progress"],
+      "${{ inputs.target == 'beta' }}",
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
@@ -389,6 +388,11 @@ describe("production Netlify site concurrency guard", () => {
       String(betaResolveStep?.with?.script),
       /Manual beta source_ref must equal current main/,
     );
+    assert.match(
+      reusableSource,
+      /Beta source_ref must be a full 40-character commit SHA/,
+    );
+    assert.doesNotMatch(reusableSource, /requested \|\| 'beta'/);
     assert.match(
       reusableSource,
       /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,

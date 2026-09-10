@@ -117,8 +117,8 @@ permissions:
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
   # manager, and promotion jobs. Release migrations use a separate queue.
-  # Beta caller lanes stay separate so manual recovery cannot replace a
-  # pending automatic child deployment for the same site.
+  # Beta uploads are latest-wins; production lanes remain non-canceling so an
+  # accepted production cutover can finish safely.
   group: >-
     ${{ inputs.caller == 'release-migration'
         && inputs.target == 'production'
@@ -126,15 +126,15 @@ concurrency:
         || inputs.caller == 'release-migration'
         && 'agent-native-release-migrations'
         || inputs.target == 'beta'
-        && format('netlify-prebuilt-beta-{0}-{1}', inputs.caller, inputs.site)
+        && format('netlify-prebuilt-beta-{0}', inputs.site)
         || inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
-  # Caller workflows own their workflow-level queues. These per-site child
-  # queues remain non-canceling for accepted uploads.
-  cancel-in-progress: false
+  # A newer beta source cancels an older child upload; production cutovers do
+  # not cancel an accepted upload.
+  cancel-in-progress: ${{ inputs.target == 'beta' }}
 
 jobs:
   deploy:
@@ -179,7 +179,17 @@ jobs:
               return;
             }
             if (target === 'beta') {
-              core.setOutput('source_ref', requested || 'beta');
+              const mainSha = (await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'heads/main',
+              })).data.object.sha;
+              const sourceSha = requested || mainSha;
+              if (!/^[0-9a-f]{40}$/i.test(sourceSha)) {
+                core.setFailed('Beta source_ref must be a full 40-character commit SHA.');
+                return;
+              }
+              core.setOutput('source_ref', sourceSha);
               return;
             }
             core.setFailed(`Unknown deployment target: ${target}`);

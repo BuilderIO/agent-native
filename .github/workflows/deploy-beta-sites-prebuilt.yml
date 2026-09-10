@@ -24,15 +24,11 @@ permissions:
   contents: write
   actions: read
 
-# Beta is a moving mirror of main. Keep one active push fleet run for a safe
-# publish, and replace any pending push with the newest main commit. Manual
-# recovery runs use a separate queue so they cannot evict an automatic push.
+# Beta is a moving mirror of main. A newer main push or manual recovery run
+# supersedes every older beta publish so only the latest main can go live.
 concurrency:
-  group: >-
-    ${{ github.event_name == 'push'
-        && 'deploy-agent-native-beta-sites-prebuilt'
-        || 'deploy-agent-native-beta-sites-prebuilt-manual' }}
-  cancel-in-progress: false
+  group: deploy-agent-native-beta-sites-prebuilt
+  cancel-in-progress: true
 
 jobs:
   resolve-source:
