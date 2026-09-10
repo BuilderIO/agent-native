@@ -60,6 +60,8 @@ export interface RecordingViewsBadgeProps {
   recordingId: string;
   /** Public counted-view total. Rendered as-is when details are unavailable. */
   viewCount: number;
+  /** Outside-agent read total. Shown beside the human count, never folded into it. */
+  agentViewCount?: number;
   /** Total recorded emoji reactions for the engagement funnel. */
   reactionCount?: number;
   /** Opens the unified surface when arriving from the legacy insights route. */
@@ -78,6 +80,7 @@ export interface RecordingViewsBadgeProps {
 export function RecordingViewsBadge({
   recordingId,
   viewCount,
+  agentViewCount = 0,
   reactionCount = 0,
   defaultOpen = false,
   canViewDetails,
@@ -101,13 +104,24 @@ export function RecordingViewsBadge({
   );
 
   const countLabel = t("recordingInsights.viewsCount", { count: viewCount });
+  const agentCountLabel = t("recordingInsights.agentViewsCount", {
+    count: agentViewCount,
+  });
 
-  if (viewCount <= 0 && !canViewDetails) return null;
+  if (viewCount <= 0 && agentViewCount <= 0 && !canViewDetails) return null;
 
   if (!canViewDetails) {
     return (
-      <span className={cn("text-sm text-muted-foreground", className)}>
+      <span
+        className={cn(
+          "inline-flex items-center gap-2 text-sm text-muted-foreground",
+          className,
+        )}
+      >
         <span className="tabular-nums">{countLabel}</span>
+        {agentViewCount > 0 ? (
+          <AgentViewCount count={agentViewCount} label={agentCountLabel} />
+        ) : null}
       </span>
     );
   }
@@ -135,7 +149,11 @@ export function RecordingViewsBadge({
             "h-8 cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
             className,
           )}
-          aria-label={countLabel}
+          aria-label={
+            agentViewCount > 0
+              ? `${countLabel}, ${agentCountLabel}`
+              : countLabel
+          }
           onClick={(event) => event.stopPropagation()}
         >
           {viewers.length > 0 ? (
@@ -150,6 +168,9 @@ export function RecordingViewsBadge({
             </span>
           ) : null}
           <span className="tabular-nums">{countLabel}</span>
+          {agentViewCount > 0 ? (
+            <AgentViewCount count={agentViewCount} label={agentCountLabel} />
+          ) : null}
         </Button>
       </PopoverTrigger>
       <PopoverContent

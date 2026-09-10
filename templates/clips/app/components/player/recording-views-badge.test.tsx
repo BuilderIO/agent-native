@@ -145,6 +145,27 @@ describe("RecordingViewsBadge", () => {
     expect(queryMocks.calls).toEqual(["list-viewers"]);
   });
 
+  it("shows agent views inline without folding them into human views", () => {
+    render(
+      <RecordingViewsBadge
+        recordingId="recording-1"
+        viewCount={0}
+        agentViewCount={1}
+        canViewDetails
+      />,
+    );
+
+    expect(container.textContent).toContain("recordingInsights.viewsCount");
+    expect(container.querySelector('[aria-label*="agentViewsCount"]')).not.toBe(
+      null,
+    );
+    expect(
+      container.querySelector("button")?.getAttribute("aria-label"),
+    ).toContain("recordingInsights.agentViewsCount");
+    expect(container.textContent).toContain("0");
+    expect(container.textContent).toContain("1");
+  });
+
   it("splits viewers and insights into tabs without splitting human and agent lists", () => {
     const source = readFileSync(
       resolve(process.cwd(), "app/components/player/recording-views-badge.tsx"),
@@ -152,6 +173,10 @@ describe("RecordingViewsBadge", () => {
     );
     const chartSource = readFileSync(
       resolve(process.cwd(), "app/components/player/insights-chart.tsx"),
+      "utf8",
+    );
+    const controlsSource = readFileSync(
+      resolve(process.cwd(), "app/components/player/viewer-controls.tsx"),
       "utf8",
     );
 
@@ -180,10 +205,11 @@ describe("RecordingViewsBadge", () => {
     expect(chartSource).toContain('indicatorClassName="bg-highlight"');
     expect(chartSource).not.toContain("dropOff");
     expect(source).not.toContain("<ResponsiveContainer");
+    expect(controlsSource).toContain("overflow-x-auto overflow-y-hidden");
     expect(source).not.toContain("onOpenInsights");
     expect(source).not.toContain('t("recordingInsights.humanViews")');
-    expect(source).not.toContain("agentViewCount");
-    expect(source).not.toContain('t("recordingInsights.agentViews")');
+    expect(source).toContain("agentViewCount");
+    expect(source).toContain("<AgentViewCount");
   });
 
   it("parks the Analytics handoff outside the visible insights experience", () => {
