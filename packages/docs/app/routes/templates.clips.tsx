@@ -208,7 +208,7 @@ export default function ClipsTemplate() {
         </GridInner>
 
         <GridInner>
-          <div className="flex flex-col border border-solid border-[var(--b-border-subtle)]">
+          <div className="flex flex-col border-t border-x border-solid border-[var(--b-border-subtle)]">
             {USE_CASES.map((useCase) => {
               const textLeft = useCase.textLeft;
 

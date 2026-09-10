@@ -255,10 +255,21 @@ export function ClipsActOnFeedbackMock({
                   <div className="flex w-full shrink-0 justify-center">
                     <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border">
                       <div className="group relative h-full w-full select-none overflow-hidden rounded-2xl bg-black @container">
+                        {/* The dark "build your own" thumbnail is a mostly-black
+                            editor screenshot, which on a light page pulls the
+                            eye more than the share menu this illustration is
+                            actually about. Swapped for a brighter recording in
+                            light mode via the theme-img-dark/light crossfade
+                            pattern (tokens.css), not a new one. */}
                         <img
                           src="/clips/build-your-own.jpg"
                           alt=""
-                          className="h-full w-full object-cover"
+                          className="theme-img-dark absolute inset-0 h-full w-full object-cover"
+                        />
+                        <img
+                          src="/clips/meeting-report.jpg"
+                          alt=""
+                          className="theme-img-light absolute inset-0 h-full w-full object-cover"
                         />
 
                         {/* CenterPlaybackOverlay */}
