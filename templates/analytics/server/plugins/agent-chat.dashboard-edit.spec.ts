@@ -132,6 +132,27 @@ describe("realDataFinalGuard dashboard edits", () => {
     );
 
     expect(result).toBeNull();
+
+    const nestedResult = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a dashboard automation to refresh the Revenue dashboard every morning",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(nestedResult).toBeNull();
   });
 
   it("keeps recovery for an automation-themed dashboard request", () => {
@@ -369,6 +390,8 @@ describe("realDataFinalGuard dashboard edits", () => {
       "Create a cron to email the Revenue dashboard daily",
       "Set up cron to refresh the Revenue dashboard daily",
       "Schedule the Revenue dashboard refresh via cron",
+      "Refresh the Revenue dashboard via cron every morning",
+      "Run the Revenue dashboard refresh on a cron schedule",
     ]) {
       const result = realDataFinalGuard(
         guardContext({

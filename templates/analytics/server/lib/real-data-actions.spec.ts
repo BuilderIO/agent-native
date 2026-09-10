@@ -1084,6 +1084,11 @@ describe("incomplete evidence detection", () => {
     expect(
       looksLikeDashboardConstructionRequest("Update the dashboard automation"),
     ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Create a dashboard automation to refresh the Revenue dashboard every morning",
+      ),
+    ).toBe(false);
   });
 
   it("keeps automation-themed dashboards as dashboard construction", () => {
@@ -1198,6 +1203,29 @@ describe("incomplete evidence detection", () => {
         "Schedule the Revenue dashboard refresh via cron",
       ),
     ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Refresh the Revenue dashboard via cron every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Run the Revenue dashboard refresh on a cron schedule",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps schedule dimensions as analytics requests", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Show the conversion rate by schedule for our automations",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What is the schedule and conversion rate for our workflows?",
+      ),
+    ).toBe(true);
   });
 
   it("keeps automation dashboards that use a template as construction", () => {

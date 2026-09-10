@@ -180,7 +180,7 @@ const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
 
 const DASHBOARD_CONSTRUCTION_OBJECT_TERMS =
-  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:(?!\b(?:and|or|then)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)\b/gi;
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:(?!\b(?:and|or|then)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)(?!\s+(?:via|using|with|on)\s+(?:a\s+)?cron(?:\s+(?:job|schedule))?\b)\b/gi;
 
 const DASHBOARD_AUTOMATION_COMPOUND_TERMS =
   /\b(?:dashboard|extension|panel|widget)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b/i;
@@ -196,6 +196,9 @@ const DASHBOARD_AUTOMATION_NESTED_TEMPLATE_TERMS =
 
 const DASHBOARD_AUTOMATION_AND_DASHBOARD_TERMS =
   /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b\s+(?:and|or|then)\s+(?:(?:a|an|the)\s+)?(?:(?!\b(?:and|or|then)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
+
+const DASHBOARD_TEMPLATE_CONSTRUCTION_TERMS =
+  /\b(?:use|build|create|make|clone|copy|duplicate|adapt|replicate)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:as a template|template)\b(?!\s+automation\b)/i;
 
 export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = stripInjectedAnalyticsGuardContext(text);
@@ -234,7 +237,9 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
     );
   if (
     hasTemplateConstruction &&
-    (!hasWorkflowOrAutomationRequest || hasDashboardConstructionObject)
+    (!hasWorkflowOrAutomationRequest ||
+      hasDashboardConstructionObject ||
+      DASHBOARD_TEMPLATE_CONSTRUCTION_TERMS.test(constructionRequestText))
   ) {
     return true;
   }
@@ -353,7 +358,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
   const hasWorkflowArtifact =
     /\b(github actions?|ya?ml|pnpm script)\b|\.(?:ya?ml)\b/.test(lower);
   const hasCreationIntent =
-    /\b(want|need|create|make|set up|setup|add|migrate|move|port|convert|turn|translate|recreate|build|schedule)\b/.test(
+    /\b(want|need|create|make|set up|setup|add|migrate|move|port|convert|turn|translate|recreate|build)\b/.test(
       lower,
     );
   const hasAutomationTarget =
@@ -361,17 +366,25 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
       lower,
     );
   const hasExplicitAutomationTarget =
-    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule)\b(?:(?!\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define)\b(?:(?!\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
+      lower,
+    );
+  const hasScheduledAutomationTarget =
+    /(?:^|[.!?;,\n]|\b(?:and|then|to|please)\b)\s*schedule\b(?:(?!\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
       lower,
     );
   const hasCronSchedulingTarget =
-    /\b(?:schedule|scheduled|set up|setup|run|trigger)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:via|using|with)\s+cron(?:\s+job)?\b/.test(
+    /\b(?:schedule|scheduled|set up|setup|run|trigger|refresh)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:(?:via|using|with)\s+cron(?:\s+job)?|on\s+(?:a\s+)?cron(?:\s+(?:schedule|job))?)\b/.test(
       lower,
     );
+  const hasDashboardAutomationTarget =
+    DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower);
 
   return (
     hasExplicitAutomationTarget ||
+    hasScheduledAutomationTarget ||
     hasCronSchedulingTarget ||
+    hasDashboardAutomationTarget ||
     (hasWorkflowArtifact && hasCreationIntent) ||
     (hasCreationIntent &&
       hasAutomationTarget &&
