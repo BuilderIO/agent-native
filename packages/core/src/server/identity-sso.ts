@@ -23,6 +23,7 @@ import * as jose from "jose";
 
 import { canonicalA2AAudience, signA2AToken } from "../a2a/index.js";
 import { getAppConfig } from "../app-config/index.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
   GOOGLE_AUTH_REQUIRED_MESSAGE,
   isGoogleSignInRequiredForEmail,
@@ -41,6 +42,7 @@ import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
 import { createOAuthSession, getAppUrl, getOrigin } from "./google-oauth.js";
 import { hasIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
+import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
 import {
   consumeSsoState,
   createSsoState,
@@ -62,7 +64,7 @@ import {
 
 export { getIdentityHubUrl, identitySsoLoginButtonHtml, isIdentitySsoEnabled };
 
-export const IDENTITY_SSO_PROVIDER_ID = "agent-native";
+export { IDENTITY_SSO_PROVIDER_ID };
 export const IDENTITY_SSO_SCOPE = "identity";
 export const IDENTITY_SSO_DESKTOP_COMPLETE_PATH =
   "/_agent-native/identity/desktop-complete";
@@ -539,13 +541,25 @@ async function exchangeIdentityCode(
   }
 }
 
-/** Ensure an authority-issued identity has a local Better Auth account. */
+/**
+ * Ensure an authority-issued identity has a local Better Auth account.
+ *
+ * Provisioning goes through the password signup ceremony because that is the
+ * only public API that runs Better Auth's user hooks, which leaves behind an
+ * unusable credential the person never chose. Pass `emailVerified` whenever the
+ * authority proved control of the address: without it the row stays unverified
+ * forever, because the verification email points at a password nobody set. An
+ * unverified row is not a cosmetic detail, it withholds pending invitations and
+ * domain auto-join.
+ */
 export async function ensureIdentityUser(
   email: string,
   name?: string,
   signupHeaders?: Headers,
+  options?: { emailVerified?: boolean },
 ): Promise<{
   id: string;
+  emailVerified: boolean;
   accounts: Array<{ providerId: string; accountId: string }>;
 }> {
   const adapter = await getBetterAuthInternalAdapter();
@@ -578,8 +592,31 @@ export async function ensureIdentityUser(
     throw new Error("Local account could not be resolved.");
   }
 
+  let emailVerified = existing.user.emailVerified === true;
+  if (options?.emailVerified === true && !emailVerified) {
+    if (!adapter.updateUser) {
+      console.warn(
+        "[identity-sso] cannot record authority-verified email: adapter has no updateUser",
+      );
+    } else {
+      await adapter.updateUser(existing.user.id, { emailVerified: true });
+      emailVerified = true;
+      // Better Auth's user-create hook skipped these when the row was created
+      // unverified, so nothing else reconciles them for a federated signup.
+      try {
+        await acceptPendingInvitationsForEmail(email);
+      } catch (error) {
+        console.error(
+          "[identity-sso] failed to reconcile pending invitations after authority verification",
+          error,
+        );
+      }
+    }
+  }
+
   return {
     id: existing.user.id,
+    emailVerified,
     accounts: existing.accounts ?? [],
   };
 }
@@ -595,6 +632,9 @@ async function jitLinkIdentity(
     identity.email,
     identity.name,
     signupHeaders,
+    // A Google identity at the authority is proof of control of the address.
+    // Any other authority session is not, so those rows stay unverified.
+    { emailVerified: identity.authProvider === "google" },
   );
 
   const accountId = identity.sub || identity.email;

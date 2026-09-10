@@ -1465,6 +1465,11 @@ export const bootstrapActivationHandler = defineEventHandler(
       const identityUser = await ensureIdentityUser(
         bootstrap.email,
         bootstrap.name,
+        undefined,
+        // verifyIdentityBootstrapRequest only accepts assertions that carried
+        // `email_verified: true`, so provisioning must not leave the local row
+        // unverified against a password nobody set.
+        { emailVerified: true },
       );
       if (bootstrap.orgId) {
         await setActiveOrgId(

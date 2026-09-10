@@ -367,6 +367,79 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     );
   });
 
+  it("promotes an unverified user whose only other account is the identity-SSO link", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+        {
+          id: "identity-sso-account",
+          providerId: "agent-native",
+          accountId: "owner@example.com",
+        },
+      ],
+    };
+    const { adapter, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+
+    expect(replaceUnverifiedCredentialWithGoogle).toHaveBeenCalledWith({
+      userId: "existing-user",
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+  });
+
+  it("keeps account-claim protection when a third party sits beside the identity-SSO link", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+        {
+          id: "identity-sso-account",
+          providerId: "agent-native",
+          accountId: "owner@example.com",
+        },
+        {
+          id: "github-account",
+          providerId: "github",
+          accountId: "github-sub-1",
+        },
+      ],
+    };
+    const { adapter, linkAccount, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await expect(
+      ensureGoogleAuthIdentityWithAdapter(adapter, {
+        email: "owner@example.com",
+        accountId: "google-sub-1",
+      }),
+    ).rejects.toThrow("unverified email/password identity");
+    expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+
   it("keeps account-claim protection for an unverified user with another account", async () => {
     const existing = {
       user: {

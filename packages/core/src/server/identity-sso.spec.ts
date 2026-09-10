@@ -16,6 +16,7 @@ const googleAuthRequiredMock = vi.fn(async () => false);
 const adapterUsers: Array<{
   id: string;
   email: string;
+  emailVerified?: boolean;
   accounts: Array<{ providerId: string; accountId: string }>;
 }> = [];
 const signUpEmailMock = vi.fn(async ({ body }: any) => {
@@ -39,9 +40,25 @@ const linkAccountMock = vi.fn(async (input: any) => {
 const findUserByEmailMock = vi.fn(async (email: string) => {
   const user = adapterUsers.find((candidate) => candidate.email === email);
   return user
-    ? { user: { id: user.id, email: user.email }, accounts: user.accounts }
+    ? {
+        user: {
+          id: user.id,
+          email: user.email,
+          emailVerified: user.emailVerified === true,
+        },
+        accounts: user.accounts,
+      }
     : null;
 });
+const updateUserMock = vi.fn(async (userId: string, data: any) => {
+  const user = adapterUsers.find((candidate) => candidate.id === userId);
+  if (user && data?.emailVerified === true) user.emailVerified = true;
+  return {};
+});
+const acceptPendingInvitationsForEmailMock = vi.fn(async () => ({
+  accepted: [],
+  activeOrgId: null,
+}));
 
 const states = new Map<
   string,
@@ -104,7 +121,12 @@ vi.mock("./better-auth-instance.js", () => ({
   getBetterAuthInternalAdapter: async () => ({
     findUserByEmail: (...args: any[]) => findUserByEmailMock(...args),
     linkAccount: (...args: any[]) => linkAccountMock(...args),
+    updateUser: (...args: any[]) => updateUserMock(...args),
   }),
+}));
+vi.mock("../org/accept-pending.js", () => ({
+  acceptPendingInvitationsForEmail: (...args: any[]) =>
+    acceptPendingInvitationsForEmailMock(...args),
 }));
 vi.mock("./identity-sso-store.js", () => ({
   CANONICAL_IDENTITY_SSO_HUB_URL: "https://dispatch.agent-native.com",
@@ -247,6 +269,8 @@ beforeEach(() => {
   googleAuthRequiredMock.mockReset().mockResolvedValue(false);
   linkAccountMock.mockClear();
   findUserByEmailMock.mockClear();
+  updateUserMock.mockClear();
+  acceptPendingInvitationsForEmailMock.mockClear();
   process.env.A2A_SECRET = SECRET;
   process.env.AGENT_NATIVE_IDENTITY_HUB_URL = HUB;
   // Stands in for the package layer: outside a template checkout package.json
@@ -617,6 +641,56 @@ describe("additive JIT linking", () => {
       providerId: "agent-native",
       accountId: "alice@example.test",
     });
+  });
+
+  it("records the authority's Google-proved verification on a new user", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "google",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"m".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(updateUserMock).toHaveBeenCalledWith(
+      "created-alice@example.test",
+      expect.objectContaining({ emailVerified: true }),
+    );
+    // The user-create hook skipped these while the row was still unverified.
+    expect(acceptPendingInvitationsForEmailMock).toHaveBeenCalledWith(
+      "alice@example.test",
+    );
+  });
+
+  it("leaves the row unverified when the authority proved no email control", async () => {
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"n".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(acceptPendingInvitationsForEmailMock).not.toHaveBeenCalled();
   });
 
   it("creates a new user with a random unusable credential", async () => {
