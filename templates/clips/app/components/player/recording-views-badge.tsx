@@ -1,8 +1,9 @@
 import { useActionQuery, useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconAlertTriangle, IconBrain, IconUser } from "@tabler/icons-react";
+import { IconAlertTriangle, IconBotId, IconUser } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { ClaudeLogo, CodexLogo } from "@/components/agent-destination-logos";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,6 +47,7 @@ interface AgentViewerRow {
 
 interface AgentViewersResponse {
   views?: number;
+  agentViews?: number;
   uniqueViewers?: number;
   completionRate?: number;
   ctaConversionRate?: number;
@@ -54,9 +56,9 @@ interface AgentViewersResponse {
 
 export interface RecordingViewsBadgeProps {
   recordingId: string;
-  /** Public counted-view total. Rendered as-is when details are unavailable. */
+  /** Public counted human-view total. Combined with agentViewCount for display. */
   viewCount: number;
-  /** Outside-agent read total. Shown beside the human count, never folded into it. */
+  /** Outside-agent read total. Broken out in the Views tab. */
   agentViewCount?: number;
   /** Total recorded emoji reactions for the engagement funnel. */
   reactionCount?: number;
@@ -99,12 +101,12 @@ export function RecordingViewsBadge({
     { enabled: canViewDetails && open },
   );
 
-  const countLabel = t("recordingInsights.viewsCount", { count: viewCount });
-  const agentCountLabel = t("recordingInsights.agentViewsCount", {
-    count: agentViewCount,
+  const totalViewCount = viewCount + agentViewCount;
+  const countLabel = t("recordingInsights.viewsCount", {
+    count: totalViewCount,
   });
 
-  if (viewCount <= 0 && agentViewCount <= 0 && !canViewDetails) return null;
+  if (totalViewCount <= 0 && !canViewDetails) return null;
 
   if (!canViewDetails) {
     return (
@@ -115,9 +117,6 @@ export function RecordingViewsBadge({
         )}
       >
         <span className="tabular-nums">{countLabel}</span>
-        {agentViewCount > 0 ? (
-          <AgentViewCount count={agentViewCount} label={agentCountLabel} />
-        ) : null}
       </span>
     );
   }
@@ -126,7 +125,9 @@ export function RecordingViewsBadge({
   const agentViewers = agentViewersQuery.data?.agentViewers ?? [];
 
   const insightData = agentViewersQuery.data;
-  const insightViews = insightData?.views ?? viewCount;
+  const insightViews =
+    (insightData?.views ?? viewCount) +
+    (insightData?.agentViews ?? agentViewCount);
   const uniqueViewers = insightData?.uniqueViewers ?? null;
   return (
     <Popover
@@ -145,11 +146,7 @@ export function RecordingViewsBadge({
             "h-8 cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
             className,
           )}
-          aria-label={
-            agentViewCount > 0
-              ? `${countLabel}, ${agentCountLabel}`
-              : countLabel
-          }
+          aria-label={countLabel}
           onClick={(event) => event.stopPropagation()}
         >
           {viewers.length > 0 ? (
@@ -164,9 +161,6 @@ export function RecordingViewsBadge({
             </span>
           ) : null}
           <span className="tabular-nums">{countLabel}</span>
-          {agentViewCount > 0 ? (
-            <AgentViewCount count={agentViewCount} label={agentCountLabel} />
-          ) : null}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -189,10 +183,6 @@ export function RecordingViewsBadge({
 
           <div className="max-h-[min(70vh,520px)] overflow-y-auto">
             <TabsContent value="views" className="m-0 p-3">
-              <div className="mb-1 flex items-center justify-between gap-3 px-2 text-xs font-medium text-muted-foreground">
-                <span>{t("recordingInsights.recentViewers")}</span>
-                <span>{t("recordingInsights.completion")}</span>
-              </div>
               {viewersQuery.isError ? (
                 <InsightsErrorState
                   compact
@@ -201,22 +191,30 @@ export function RecordingViewsBadge({
               ) : viewersQuery.isLoading ? (
                 <ViewerRowsSkeleton />
               ) : viewers.length > 0 ? (
-                <ul className="grid gap-0.5">
-                  {viewers.map((viewer) => (
-                    <li
-                      key={viewer.id}
-                      className="flex min-h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/60"
-                    >
-                      <ViewerAvatar viewer={viewer} className="size-5" />
-                      <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                        {viewerLabel(viewer, t("recordingInsights.anonymous"))}
-                      </span>
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {Math.round(viewer.completedPct)}%
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <ViewerSection
+                  label={t("recordingInsights.humanViews")}
+                  trailingLabel={t("recordingInsights.completion")}
+                >
+                  <ul className="grid gap-0.5">
+                    {viewers.map((viewer) => (
+                      <li
+                        key={viewer.id}
+                        className="flex min-h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/60"
+                      >
+                        <ViewerAvatar viewer={viewer} className="size-5" />
+                        <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                          {viewerLabel(
+                            viewer,
+                            t("recordingInsights.anonymous"),
+                          )}
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {Math.round(viewer.completedPct)}%
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </ViewerSection>
               ) : null}
               {agentViewersQuery.isError ? (
                 <InsightsErrorState
@@ -228,28 +226,33 @@ export function RecordingViewsBadge({
                   <ViewerRowsSkeleton count={2} />
                 </div>
               ) : agentViewers.length > 0 ? (
-                <ul className="grid gap-0.5">
-                  {agentViewers.map((agent) => (
-                    <li
-                      key={agent.agentLabel ?? agent.userAgent ?? "unknown"}
-                      className="flex min-h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/60"
-                    >
-                      <AgentViewerAvatar className="size-5" />
-                      <span
-                        className="min-w-0 flex-1 truncate text-xs text-foreground"
-                        title={agent.userAgent ?? undefined}
+                <ViewerSection label={t("recordingInsights.agentViews")}>
+                  <ul className="grid gap-0.5">
+                    {agentViewers.map((agent) => (
+                      <li
+                        key={agent.agentLabel ?? agent.userAgent ?? "unknown"}
+                        className="flex min-h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/60"
                       >
-                        {agent.agentLabel ??
-                          t("recordingInsights.unknownAgent")}
-                      </span>
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {t("recordingInsights.viewsCount", {
-                          count: agent.views,
-                        })}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                        <AgentViewerAvatar
+                          agentLabel={agent.agentLabel}
+                          className="size-5"
+                        />
+                        <span
+                          className="min-w-0 flex-1 truncate text-xs text-foreground"
+                          title={agent.userAgent ?? undefined}
+                        >
+                          {agent.agentLabel ??
+                            t("recordingInsights.unknownAgent")}
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {t("recordingInsights.viewsCount", {
+                            count: agent.views,
+                          })}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </ViewerSection>
               ) : null}
               {!viewersQuery.isError &&
               !viewersQuery.isLoading &&
@@ -288,6 +291,26 @@ export function RecordingViewsBadge({
         </Tabs>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function ViewerSection({
+  label,
+  trailingLabel,
+  children,
+}: {
+  label: string;
+  trailingLabel?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="grid gap-1.5">
+      <div className="flex items-center justify-between gap-3 px-2 text-xs font-medium text-muted-foreground">
+        <h3>{label}</h3>
+        {trailingLabel ? <span>{trailingLabel}</span> : null}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -352,9 +375,25 @@ export function AgentViewCount({
   );
 }
 
-/** Agents use the same circular identity shape as people, with an assistant
- * mark instead of a terminal glyph that would imply developer tooling. */
-export function AgentViewerAvatar({ className }: { className?: string }) {
+/** Agents use provider logos when the public API identifies the provider. */
+export function AgentViewerAvatar({
+  agentLabel,
+  className,
+}: {
+  agentLabel?: string | null;
+  className?: string;
+}) {
+  const normalizedLabel = agentLabel?.toLowerCase() ?? "";
+  const logo = normalizedLabel.includes("claude") ? (
+    <ClaudeLogo className="size-3.5" />
+  ) : normalizedLabel.includes("openai") ||
+    normalizedLabel.includes("chatgpt") ||
+    normalizedLabel.includes("codex") ? (
+    <CodexLogo className="size-3.5" />
+  ) : (
+    <IconBotId className="size-3.5" />
+  );
+
   return (
     <span
       aria-hidden
@@ -363,7 +402,7 @@ export function AgentViewerAvatar({ className }: { className?: string }) {
         className,
       )}
     >
-      <IconBrain className="size-3.5" />
+      {logo}
     </span>
   );
 }
