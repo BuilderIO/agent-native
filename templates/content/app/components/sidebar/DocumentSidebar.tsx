@@ -7,16 +7,12 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
-  AgentNativeIcon,
   AppSidebarFooter,
   AppSidebarHeader,
-  EnvironmentBadge,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewOverrides,
@@ -31,7 +27,6 @@ import {
   IconArrowsSort,
   IconPlus,
   IconRestore,
-  IconSearch,
   IconSettings,
   IconPin,
   IconTrashX,
@@ -1924,55 +1919,9 @@ export function DocumentSidebar({
       </TooltipContent>
     </Tooltip>
   );
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("sidebar.search")}
-          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={openCommandMenu}
-        >
-          <IconSearch size={16} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
-    </Tooltip>
-  );
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
-  const brandButton = (isCollapsed: boolean) => (
-    <div
-      className={cn(
-        "flex min-w-0 items-center gap-2",
-        isCollapsed && "flex-col",
-      )}
-    >
-      <button
-        type="button"
-        onClick={onToggleCollapsed}
-        aria-label={isCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-        className={cn(
-          "flex min-w-0 items-center gap-2 rounded outline-none text-foreground transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
-          isCollapsed ? "size-8 justify-center" : "min-w-0 text-start",
-        )}
-        data-sidebar-brand-toggle
-      >
-        <AgentNativeIcon
-          aria-hidden="true"
-          className="h-3.5 w-6 shrink-0 text-foreground"
-        />
-        {!isCollapsed && (
-          <span className="truncate text-sm font-semibold tracking-tight">
-            Content
-          </span>
-        )}
-      </button>
-      <EnvironmentBadge placement="inline" />
-    </div>
-  );
-
   const toggleSection = (id: SidebarSectionId) => {
     setStoredCollapsedSections((current) => {
       const normalized = normalizeCollapsedSections(current);

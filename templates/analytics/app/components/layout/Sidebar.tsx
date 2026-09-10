@@ -1,8 +1,6 @@
 import {
-  AgentNativeIcon,
   AppSidebarFooter,
   AppSidebarHeader,
-  EnvironmentBadge,
 } from "@agent-native/core/client/ui";
 import {
   IconChartBar,
@@ -17,7 +15,6 @@ import {
   IconGripVertical,
   IconBook2,
   IconDatabase,
-  IconSearch,
   IconArchive,
   IconActivity,
   IconHeartbeat,
@@ -57,7 +54,7 @@ import {
   type DashboardVisibility,
   type DashboardVisibilityFilter,
 } from "@/lib/dashboard-visibility";
-import { cn, shortcutModifierLabel } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   dashboards,
   hideDashboard,
@@ -104,10 +101,8 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -2251,25 +2246,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     },
   ];
 
-  const footerSearch = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        {t("sidebar.searchShortcut", {
-          shortcut: `${shortcutModifierLabel()} K`,
-        })}
-      </TooltipContent>
-    </Tooltip>
-  );
   const footerCollapse = !mobile ? (
     <Tooltip>
       <TooltipTrigger asChild>

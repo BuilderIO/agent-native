@@ -12,10 +12,8 @@ import {
   useOrgRole,
 } from "@agent-native/core/client/org";
 import {
-  AgentNativeIcon,
   AppSidebarFooter,
   AppSidebarHeader,
-  EnvironmentBadge,
 } from "@agent-native/core/client/ui";
 import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/experiments";
 import {

@@ -64,13 +64,10 @@ import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { RunsTray } from "@agent-native/core/client/progress";
 import {
-  AgentNativeIcon,
   AppSidebarFooter,
   AppSidebarHeader,
-  EnvironmentBadge,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -89,7 +86,6 @@ import {
   IconLayoutSidebarLeftExpand,
   IconSettings,
   IconShield,
-  IconSearch,
   IconWorld,
   IconDeviceDesktop,
   IconPlus,
@@ -1049,21 +1045,6 @@ export function NavContent({
       </TooltipContent>
     </Tooltip>
   ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
-    </Tooltip>
-  );
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );

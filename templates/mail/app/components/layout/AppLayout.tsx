@@ -9,7 +9,6 @@ import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AgentNativeIcon,
@@ -608,21 +607,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         </TooltipContent>
       </Tooltip>
     ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          aria-label={t("mail.search.label")}
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
-    </Tooltip>
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={showCollapsedSidebar ? "icon" : "sidebar"}
