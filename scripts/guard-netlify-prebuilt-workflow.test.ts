@@ -9,12 +9,12 @@ import { describe, it } from "node:test";
 import { parse } from "yaml";
 
 import {
-  PRODUCTION_PURGE_CONDITION,
+  PUBLISHED_CACHE_PURGE_CONDITION,
   PRODUCTION_SITE_GROUP,
   validateGoogleCallbackVerificationWorkflow,
   validateNetlifyApiRateLimitHandling,
   validateNetlifyPrPreviewWorkflow,
-  validateProductionPurgeCondition,
+  validatePublishedCachePurgeCondition,
   validateReusableCallerPermissions,
   validateReusablePreviewRecordPlacement,
   validateReusableWorkflowConcurrency,
@@ -856,7 +856,7 @@ describe("production Netlify site concurrency guard", () => {
     }
   });
 
-  it("purges the production cache after smoke and before relocking the deploy", () => {
+  it("purges the published cache after smoke and before relocking the deploy", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
@@ -866,7 +866,7 @@ describe("production Netlify site concurrency guard", () => {
       (step) => step.name === "Smoke-test the uploaded deploy",
     );
     const purgeIndex = steps.findIndex(
-      (step) => step.name === "Purge the production Netlify cache",
+      (step) => step.name === "Purge the published Netlify cache",
     );
     const lockIndex = steps.findIndex(
       (step) => step.name === "Lock the published production deploy",
@@ -877,6 +877,7 @@ describe("production Netlify site concurrency guard", () => {
 
     const purge = steps[purgeIndex];
     assert.match(String(purge.if), /inputs.target == 'production'/);
+    assert.match(String(purge.if), /inputs.target == 'beta'/);
     assert.match(String(purge.if), /inputs.deploy_mode == 'production'/);
     assert.match(String(purge.if), /success\(\)/);
     assert.match(
@@ -1287,25 +1288,30 @@ describe("production Netlify site concurrency guard", () => {
     }
   });
 
-  it("rejects a purge step that is no longer production-only and success-gated", () => {
+  it("rejects a purge step that is not beta/production-only and success-gated", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
     const jobs = workflow.jobs as Record<string, Workflow>;
     const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
     const purge = steps.find(
-      (step) => step.name === "Purge the production Netlify cache",
+      (step) => step.name === "Purge the published Netlify cache",
     );
 
     assert(purge);
-    assert.equal(String(purge.if), PRODUCTION_PURGE_CONDITION);
+    assert.equal(String(purge.if), PUBLISHED_CACHE_PURGE_CONDITION);
+    assert.deepEqual(
+      validatePublishedCachePurgeCondition(PUBLISHED_CACHE_PURGE_CONDITION),
+      [],
+    );
     for (const mutatedIf of [
       "inputs.target == 'production' && inputs.deploy_mode == 'production' && success()",
+      "inputs.target == 'beta' && inputs.deploy && inputs.deploy_mode == 'production' && success()",
       "inputs.target == 'production' && !inputs.deploy && inputs.deploy_mode == 'production' && success()",
       "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && !success()",
       "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' || success()",
     ]) {
-      assert.notDeepEqual(validateProductionPurgeCondition(mutatedIf), []);
+      assert.notDeepEqual(validatePublishedCachePurgeCondition(mutatedIf), []);
     }
   });
 
