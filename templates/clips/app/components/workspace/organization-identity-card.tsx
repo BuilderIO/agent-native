@@ -1,5 +1,6 @@
 import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import { useMemo } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,11 +32,17 @@ export function OrganizationIdentityCard() {
   const t = useT();
   const { session } = useSession();
   const email = session?.email ?? "";
+  const { data: orgInfo, isLoading: orgLoading } = useOrg();
+  // Personal scope owns this surface: the framework Team card below already
+  // renders "create an organization", so an org-scoped branding fetch here
+  // has nothing to read and its failure reads as a broken page.
+  const hasActiveOrg = Boolean(orgInfo?.orgId);
 
   const { data, isPending, isError } =
     useActionQuery<OrganizationStateResponse>(
       "list-organization-state",
       undefined,
+      { enabled: hasActiveOrg },
     );
 
   const organization = data?.organization ?? null;
@@ -48,6 +55,9 @@ export function OrganizationIdentityCard() {
     return role === "admin" || role === "owner";
   }, [members, email, organization?.ownerEmail]);
 
+  if (!hasActiveOrg) {
+    return orgLoading ? <Skeleton className="h-64 w-full" /> : null;
+  }
   if (isPending) return <Skeleton className="h-64 w-full" />;
   // A failed load must not look like "this org has no branding".
   if (isError) {

@@ -1,5 +1,9 @@
 import { readAppState } from "@agent-native/core/application-state";
-import { implicitServiceOrgRole, orgMembers } from "@agent-native/core/org";
+import {
+  implicitServiceOrgRole,
+  organizations,
+  orgMembers,
+} from "@agent-native/core/org";
 import { getSession } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -247,12 +251,15 @@ export async function getActiveOrganizationId(
   }
 
   // Legacy fallback: old workspace UI's `current-workspace` app-state key,
-  // and the deprecated `workspaces` table.
+  // and the deprecated `workspaces` table. Both outlive the organization they
+  // name - deleting an org clears org_members but not these - so an unchecked
+  // id here resurrects a deleted org and turns every org-scoped read into a
+  // 403 instead of the personal-scope state the user actually has.
   try {
     const legacy = (await readAppState("current-workspace")) as {
       id?: string;
     } | null;
-    if (legacy?.id) return legacy.id;
+    if (legacy?.id && (await organizationExists(legacy.id))) return legacy.id;
   } catch {
     // fall through
   }
@@ -263,12 +270,21 @@ export async function getActiveOrganizationId(
       .from(schema.workspaces)
       .orderBy(desc(schema.workspaces.createdAt))
       .limit(1);
-    if (row?.id) return row.id;
+    if (row?.id && (await organizationExists(row.id))) return row.id;
   } catch {
     // fall through
   }
 
   return null;
+}
+
+async function organizationExists(organizationId: string): Promise<boolean> {
+  const [row] = await getDb()
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+  return Boolean(row);
 }
 
 /**
