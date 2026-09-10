@@ -161,6 +161,7 @@ import {
   IconLink,
   IconKeyboard,
   IconTemplate,
+  IconHistory,
   IconAdjustmentsHorizontal,
   IconMessageCircle,
 } from "@tabler/icons-react";
@@ -229,6 +230,7 @@ import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
 } from "@/components/design/editor/DesignWorkspaceRail";
+import { HistoryPanel } from "@/components/design/editor/HistoryPanel";
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
 import { MakeRealDialog } from "@/components/design/editor/MakeRealDialog";
 import { PendingScreenDeletionDialog } from "@/components/design/editor/PendingScreenDeletionDialog";
@@ -310,10 +312,6 @@ import type {
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
-import {
-  designSystemPickerOptions,
-  DesignSystemPickerControl,
-} from "@/components/editor/design-start-pickers";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -416,7 +414,10 @@ import {
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
-import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
+import {
+  DESIGN_HISTORY_OPEN_EVENT,
+  DESIGN_UI_TOGGLE_EVENT,
+} from "@/lib/design-ui-events";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import {
   dismissFigmaPasteImageNotice,
@@ -553,6 +554,11 @@ import { runLayerRename } from "./design-editor/commands/layer-rename";
 import { runLayerSelectionChange } from "./design-editor/commands/layer-selection-change";
 import { runModeChange } from "./design-editor/commands/mode-change";
 import { runNudgeSelection } from "./design-editor/commands/nudge-selection";
+import {
+  beginOptimisticBreakpointSetPatch,
+  optimisticAddBreakpointData,
+  optimisticRemoveBreakpointData,
+} from "./design-editor/commands/optimistic-breakpoint-mutation";
 import { runOverviewPrimitiveReparent } from "./design-editor/commands/overview-primitive-reparent";
 import { runPasteCopiedScreens } from "./design-editor/commands/paste-copied-screens";
 import { runPasteOverSelection } from "./design-editor/commands/paste-over-selection";
@@ -735,6 +741,10 @@ import {
   type ReflowCandidate,
 } from "./design-editor/layout-operations";
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
+import {
+  hasMinimalInspectorSelection,
+  rightInspectorPanelClassName,
+} from "./design-editor/minimal-inspector";
 import {
   applyMotionAutoKeyframesForStyles,
   hydrateMotionDockTracks,
@@ -1456,8 +1466,6 @@ function DesignEditor() {
   // canvas primary while leaving the style panel available for the first edit.
   const minimalUiByDefault = embedded && !hostOwnsChrome;
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
-  const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] =
-    useState(minimalUiByDefault);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");
@@ -3152,6 +3160,7 @@ function DesignEditor() {
 
   // Dialog open/close state for the "Make this a real app" flow.
   const [makeRealDialogOpen, setMakeRealDialogOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [autoLayoutSuggestionPreview, setAutoLayoutSuggestionPreview] =
     useState<{
       suggestion: AutoLayoutSuggestion;
@@ -12165,19 +12174,9 @@ function DesignEditor() {
 
   // ── UI toggles, ungroup, reparent, cut, screen deletion ────────────────────
   const handleToggleMinimalUi = useCallback(() => {
-    const enteringMinimalUi = !minimalUi;
-    setMinimalUi(enteringMinimalUi);
+    setMinimalUi((current) => !current);
     setUiHidden(false);
-    setMinimalRightSidebarOpen(enteringMinimalUi);
-  }, [minimalUi]);
-
-  const handleToggleMinimalRightSidebar = useCallback(() => {
-    if (uiHidden) {
-      setUiHidden(false);
-      return;
-    }
-    setMinimalRightSidebarOpen((current) => !current);
-  }, [uiHidden]);
+  }, []);
 
   const handleToggleUi = useCallback(() => {
     setUiHidden((current) => !current);
@@ -12188,6 +12187,13 @@ function DesignEditor() {
     return () =>
       window.removeEventListener(DESIGN_UI_TOGGLE_EVENT, handleToggleUi);
   }, [handleToggleUi]);
+
+  useEffect(() => {
+    const openHistory = () => setHistoryOpen(true);
+    window.addEventListener(DESIGN_HISTORY_OPEN_EVENT, openHistory);
+    return () =>
+      window.removeEventListener(DESIGN_HISTORY_OPEN_EVENT, openHistory);
+  }, []);
 
   // Figma's Shift+C — Show/Hide comments. The state is passed through every
   // mounted DesignCanvas so both focused and overview comment pins disappear
@@ -12382,6 +12388,11 @@ function DesignEditor() {
   const [pendingScreenDeletion, setPendingScreenDeletion] = useState<{
     files: DesignFile[];
   } | null>(null);
+  const [screenDeletionConfirming, setScreenDeletionConfirming] =
+    useState(false);
+  // Covers the gap before React re-renders after confirm — a second activation
+  // must not start another delete while the first mutation is still settling.
+  const screenDeletionConfirmingRef = useRef(false);
 
   const performDeleteFiles = useCallback(
     (
@@ -12517,16 +12528,32 @@ function DesignEditor() {
   );
 
   const handleCancelScreenDeletion = useCallback(() => {
+    if (screenDeletionConfirmingRef.current || screenDeletionConfirming) return;
     setPendingScreenDeletion(null);
-  }, []);
+  }, [screenDeletionConfirming]);
 
   const handleConfirmScreenDeletion = useCallback(() => {
     const pending = pendingScreenDeletion;
-    setPendingScreenDeletion(null);
-    if (pending) {
-      performDeleteFiles(pending.files, { recordDeletionHistory: true });
+    if (
+      !pending ||
+      screenDeletionConfirmingRef.current ||
+      screenDeletionConfirming
+    ) {
+      return;
     }
-  }, [pendingScreenDeletion, performDeleteFiles]);
+    // Keep the dialog locked until delete settles so a rapid second confirm
+    // cannot start a concurrent deletion / duplicate history entry.
+    screenDeletionConfirmingRef.current = true;
+    setScreenDeletionConfirming(true);
+    setPendingScreenDeletion(null);
+    performDeleteFiles(pending.files, {
+      recordDeletionHistory: true,
+      onMutationSettled: () => {
+        screenDeletionConfirmingRef.current = false;
+        setScreenDeletionConfirming(false);
+      },
+    });
+  }, [pendingScreenDeletion, performDeleteFiles, screenDeletionConfirming]);
 
   // ── Props/animation clipboard, transforms, nudge ───────────────────────────
   const handleCopyProps = useCallback(() => {
@@ -15780,10 +15807,6 @@ function DesignEditor() {
       })),
     [firstRunTemplatesQuery.data?.templates],
   );
-  const designSystemOptions = useMemo(
-    () => designSystemPickerOptions(designSystems),
-    [designSystems],
-  );
   const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(
     null,
   );
@@ -15793,9 +15816,7 @@ function DesignEditor() {
   const [chatMessageCount, setChatMessageCount] = useState(0);
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
   // The picked system is stored on the design and read by every later
-  // generation, so it outlives the starting-point row a template retires.
-  const showComposerDesignSystem =
-    designSystemsLoading || designSystemOptions.length > 0;
+  // generation; keep the picker out of the composer chrome so chat stays dense.
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -15825,15 +15846,6 @@ function DesignEditor() {
       queryClient,
       selectedPromptDesignSystemId,
     ],
-  );
-  const handleComposerDesignSystem = useCallback(
-    (designSystemId: string | null) => {
-      // null is the user picking "No design system"; only undefined means
-      // nothing has been chosen yet, which re-resolves the default.
-      setPromptDesignSystemId(designSystemId);
-      persistPromptDesignSystem(designSystemId);
-    },
-    [persistPromptDesignSystem],
   );
 
   const designAgentSuggestions = useMemo(
@@ -18608,17 +18620,44 @@ function DesignEditor() {
     (widthPx: number, label?: string) => {
       if (!id) return;
       const resolvedLabel = label ?? breakpointLabelForWidth(widthPx);
+      const existingWidths = getDesignBreakpointWidths(
+        designDataJsonRef.current,
+      );
+      if (existingWidths.includes(widthPx)) return;
+      const nextWidths = [...new Set([...existingWidths, widthPx])];
+      // Optimistic paint: patch the design query + ref in this click frame so
+      // overview frames / the breakpoint bar update before the mutation
+      // round-trips. Rollback on failure.
+      const optimisticId = `optimistic-bp-${widthPx}`;
+      const geometryBefore = cloneCanvasFrameGeometry(
+        getCanvasFrameGeometry(designDataJsonRef.current),
+      );
+      const { rollback } = beginOptimisticBreakpointSetPatch({
+        designId: id,
+        queryClient,
+        designDataJsonRef,
+        nextData: optimisticAddBreakpointData(designDataJsonRef.current, {
+          id: optimisticId,
+          label: resolvedLabel,
+          widthPx,
+        }),
+      });
+      reflowOverviewScreensForBreakpoints(nextWidths);
       void addBreakpointMutation
-        .mutateAsync({ designId: id, label: resolvedLabel, widthPx })
-        .then(() => {
-          const persisted = getDesignBreakpointWidths(
-            designDataJsonRef.current,
-          );
-          reflowOverviewScreensForBreakpoints([
-            ...new Set([...persisted, widthPx]),
-          ]);
+        .mutateAsync({
+          designId: id,
+          id: optimisticId,
+          label: resolvedLabel,
+          widthPx,
         })
         .catch((error) => {
+          rollback();
+          // Reflow may have already committed canvasFrames; restore pre-add
+          // geometry so a failed add does not leave a permanent board shift.
+          const geometryAfter = getCanvasFrameGeometry(
+            designDataJsonRef.current,
+          );
+          handleGeometryCommit(geometryAfter, geometryBefore);
           toast.error(t("common.genericError"), {
             description:
               error instanceof Error
@@ -18627,7 +18666,14 @@ function DesignEditor() {
           });
         });
     },
-    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints, t],
+    [
+      addBreakpointMutation,
+      handleGeometryCommit,
+      id,
+      queryClient,
+      reflowOverviewScreensForBreakpoints,
+      t,
+    ],
   );
   const handleBreakpointBarAdd = useCallback(
     (widthPx: number, label: string) => addDesignBreakpoint(widthPx, label),
@@ -18637,14 +18683,44 @@ function DesignEditor() {
     (breakpointId: string) => {
       if (!id) return;
       const removed = designBreakpoints.find((b) => b.id === breakpointId);
-      if (removed && removed.widthPx === activeBreakpointWidthState) {
+      const clearedActive =
+        removed != null && removed.widthPx === activeBreakpointWidthState;
+      const priorWidthPx = activeBreakpointWidthState;
+      const priorEditScope = responsiveEditScopeRef.current;
+      if (clearedActive) {
         // Removing the active breakpoint resets the edit scope to base.
         setActiveBreakpointWidthState(undefined);
         // Item 9 — see handleBreakpointBarSelect's matching comment.
         lastAppliedActiveBreakpointIdRef.current = "auto";
-        persistActiveBreakpoint("auto", responsiveEditScopeRef.current);
+        persistActiveBreakpoint("auto", priorEditScope);
       }
-      void removeBreakpointMutation.mutateAsync({ designId: id, breakpointId });
+      const { rollback } = beginOptimisticBreakpointSetPatch({
+        designId: id,
+        queryClient,
+        designDataJsonRef,
+        nextData: optimisticRemoveBreakpointData(
+          designDataJsonRef.current,
+          breakpointId,
+        ),
+      });
+      void removeBreakpointMutation
+        .mutateAsync({ designId: id, breakpointId })
+        .catch((error) => {
+          rollback();
+          if (clearedActive && removed && priorWidthPx !== undefined) {
+            // Restore the prior edit target so a failed remove does not leave
+            // edits scoped to base while the breakpoint reappears.
+            setActiveBreakpointWidthState(priorWidthPx);
+            lastAppliedActiveBreakpointIdRef.current = removed.id;
+            persistActiveBreakpoint(removed.id, priorEditScope);
+          }
+          toast.error(t("common.genericError"), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t("designEditor.breakpointBar.remove"),
+          });
+        });
     },
     [
       id,
@@ -18652,6 +18728,8 @@ function DesignEditor() {
       activeBreakpointWidthState,
       removeBreakpointMutation,
       persistActiveBreakpoint,
+      queryClient,
+      t,
     ],
   );
   // BP-DEEP v2 item 6 — "Change width" in the per-breakpoint "…" menu.
@@ -18900,6 +18978,9 @@ function DesignEditor() {
       activeWidthPx={activeBreakpointWidthState}
       baseWidthPx={activeScreenBaseWidthPx}
       canEdit={canEditDesign}
+      mutationPending={
+        addBreakpointMutation.isPending || removeBreakpointMutation.isPending
+      }
       showAllFrames={!breakpointFramesHidden}
       onShowAllFramesChange={(value) => setBreakpointFramesHidden(!value)}
       onSelect={handleBreakpointBarSelect}
@@ -18972,7 +19053,7 @@ function DesignEditor() {
       >
         <DropdownMenuItem asChild>
           <Link to="/home">
-            <IconArrowLeft className="mr-2 h-4 w-4" />
+            <IconArrowLeft className="h-4 w-4" />
             {t("designEditor.backToDesigns")}
           </Link>
         </DropdownMenuItem>
@@ -18981,13 +19062,17 @@ function DesignEditor() {
           onClick={() => setSaveTemplateOpen(true)}
           disabled={!canEditDesign || files.length === 0}
         >
-          <IconTemplate className="mr-2 h-4 w-4" />
+          <IconTemplate className="h-4 w-4" />
           {t("designEditor.saveAsTemplate")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setHistoryOpen(true)} disabled={!id}>
+          <IconHistory className="h-4 w-4" />
+          {"Version history" /* i18n-ignore */}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <IconFileExport className="mr-2 h-4 w-4" />
+            <IconFileExport className="h-4 w-4" />
             {t("designEditor.export")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="design-editor-app-menu-content w-56">
@@ -19047,7 +19132,7 @@ function DesignEditor() {
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <IconPencil className="mr-2 h-4 w-4" />
+            <IconPencil className="h-4 w-4" />
             {t("designEditor.modes.edit")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="design-editor-app-menu-content w-52">
@@ -19080,7 +19165,7 @@ function DesignEditor() {
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <IconLayoutGrid className="mr-2 h-4 w-4" />
+            <IconLayoutGrid className="h-4 w-4" />
             {"View" /* i18n-ignore design menu section */}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="design-editor-app-menu-content w-52">
@@ -19102,14 +19187,14 @@ function DesignEditor() {
           onClick={handlePinToolToggle}
           disabled={!activeFile || !canCommentDesign}
         >
-          <IconPin className="mr-2 h-4 w-4" />
+          <IconPin className="h-4 w-4" />
           {pinMode
             ? t("designEditor.stopPinningComments")
             : t("designEditor.pinComment")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleShowKeyboardShortcutsFromMenu}>
-          <IconKeyboard className="mr-2 h-4 w-4" />
+          <IconKeyboard className="h-4 w-4" />
           {t("designEditor.keyboardShortcuts.title")}
           <DropdownMenuShortcut>
             {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
@@ -19125,7 +19210,7 @@ function DesignEditor() {
                 handleOpenMakeReal();
               }}
             >
-              <IconRocket className="mr-2 h-4 w-4" />
+              <IconRocket className="h-4 w-4" />
               {"Make this a real app" /* i18n-ignore */}
             </DropdownMenuItem>
           </>
@@ -19193,37 +19278,6 @@ function DesignEditor() {
           minimalUi
             ? "Exit minimal UI" /* i18n-ignore minimal UI chrome */
             : "Minimize UI" /* i18n-ignore minimal UI chrome */
-        }
-      </TooltipContent>
-    </Tooltip>
-  );
-
-  const minimalRightSidebarToggle = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0 rounded-md"
-          aria-expanded={minimalRightSidebarOpen && !uiHidden}
-          aria-label={
-            minimalRightSidebarOpen && !uiHidden
-              ? "Hide design panel" /* i18n-ignore minimal UI chrome */
-              : "Show design panel" /* i18n-ignore minimal UI chrome */
-          }
-          data-design-minimal-toggle="right"
-          disabled={initialGenerationChromeLimited}
-          onClick={handleToggleMinimalRightSidebar}
-        >
-          <IconLayoutSidebar className="size-4 -scale-x-100" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {
-          minimalRightSidebarOpen && !uiHidden
-            ? "Hide design panel" /* i18n-ignore minimal UI chrome */
-            : "Show design panel" /* i18n-ignore minimal UI chrome */
         }
       </TooltipContent>
     </Tooltip>
@@ -19481,7 +19535,6 @@ function DesignEditor() {
         data-design-chrome-region="right-toolbar-actions"
         className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]"
       >
-        {minimalUi ? minimalRightSidebarToggle : null}
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <PresenceBar
@@ -19796,11 +19849,16 @@ function DesignEditor() {
       ? Math.max(leftSidebarWidth, 640)
       : Math.max(Math.min(leftSidebarWidth, 420), 220);
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
+  const minimalInspectorHasSelection = hasMinimalInspectorSelection({
+    selectedElement,
+    selectedLayerIds,
+    selectedScreenGeometry,
+  });
   const rightSidebarVisible =
     !hostOwnsChrome &&
     !uiHidden &&
     !initialGenerationChromeLimited &&
-    (!minimalUi || minimalRightSidebarOpen);
+    (!minimalUi || minimalInspectorHasSelection);
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
@@ -19940,7 +19998,7 @@ function DesignEditor() {
         {leftSidebarVisible ? (
           <div
             data-design-chrome-region="left-shell"
-            className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]"
+            className="absolute inset-y-0 left-0 z-[70] flex min-h-0 bg-[var(--design-editor-panel-bg)]"
           >
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
@@ -20074,16 +20132,6 @@ function DesignEditor() {
                     }
                     composerSlot={
                       <>
-                        {showComposerDesignSystem ? (
-                          <div data-design-system-picker className="px-3 pb-2">
-                            <DesignSystemPickerControl
-                              designSystems={designSystemOptions}
-                              loading={designSystemsLoading}
-                              selectedId={selectedPromptDesignSystemId ?? null}
-                              onChange={handleComposerDesignSystem}
-                            />
-                          </div>
-                        ) : null}
                         {detectedFigmaComposerLink ? (
                           <FigmaLinkComposerBubble
                             link={detectedFigmaComposerLink}
@@ -20872,6 +20920,10 @@ function DesignEditor() {
                         onEdit={handleOverviewFrameAction}
                         onDuplicate={handleDuplicateScreen}
                         onAddBreakpoint={handleOverviewAddBreakpoint}
+                        breakpointMutationPending={
+                          addBreakpointMutation.isPending ||
+                          removeBreakpointMutation.isPending
+                        }
                         onActiveBreakpointChange={
                           handleOverviewActiveBreakpointChange
                         }
@@ -21216,7 +21268,7 @@ function DesignEditor() {
           <div
             ref={rightSidebarContentRef}
             data-design-chrome-region="right-panel"
-            className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
+            className={rightInspectorPanelClassName(minimalUi)}
             style={{ width: rightSidebarWidth }}
           >
             <div
@@ -21259,7 +21311,7 @@ function DesignEditor() {
                   ? renderResponsiveInteractBar(true)
                   : null}
               </div>
-              {!minimalRightSidebarOpen || uiHidden ? (
+              {!rightSidebarVisible || uiHidden ? (
                 <div
                   data-design-minimal-bar="right"
                   className="pointer-events-auto min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
@@ -21281,9 +21333,22 @@ function DesignEditor() {
       mode === "edit" ? (
         <Sheet
           open={
-            minimalUi ? isMobileViewport && minimalRightSidebarOpen : undefined
+            minimalUi
+              ? isMobileViewport && minimalInspectorHasSelection
+              : undefined
           }
-          onOpenChange={minimalUi ? setMinimalRightSidebarOpen : undefined}
+          onOpenChange={
+            minimalUi
+              ? (nextOpen) => {
+                  if (nextOpen) return;
+                  // Controlled by selection — dismiss clears selection so the
+                  // sheet can close on Escape / overlay click.
+                  setSelectedElement(null);
+                  setSelectedLayerIdsState([]);
+                  setOverviewSelectedScreenIds([]);
+                }
+              : undefined
+          }
         >
           {!minimalUi ? (
             <SheetTrigger asChild>
@@ -21343,6 +21408,7 @@ function DesignEditor() {
         pendingScreenDeletion={pendingScreenDeletion}
         onCancel={handleCancelScreenDeletion}
         onConfirm={handleConfirmScreenDeletion}
+        confirming={screenDeletionConfirming}
       />
 
       {/* ── Render: motion dock ── */}
@@ -21528,6 +21594,20 @@ function DesignEditor() {
         pending={migrateMutation.isPending}
         onConfirm={handleConfirmMakeReal}
       />
+
+      {id ? (
+        <HistoryPanel
+          designId={id}
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          canRestore={canEditDesign}
+          onRestored={() => {
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-design", { id }],
+            });
+          }}
+        />
+      ) : null}
 
       <SaveTemplateDialog
         open={saveTemplateOpen}
