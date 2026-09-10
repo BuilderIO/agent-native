@@ -236,11 +236,20 @@ export default function ClipsTemplate() {
                   }`}
                 >
                   {useCase.id === "investigate-bug" ? (
-                    <ClipsInvestigateBugMock className="w-full max-w-[480px] lg:max-w-none" />
+                    <ClipsInvestigateBugMock
+                      className="w-full max-w-[480px] lg:max-w-none"
+                      label={t(`templateLanding.clips.${useCase.titleKey}`)}
+                    />
                   ) : useCase.id === "act-on-feedback" ? (
-                    <ClipsActOnFeedbackMock className="w-full" />
+                    <ClipsActOnFeedbackMock
+                      className="w-full"
+                      label={t(`templateLanding.clips.${useCase.titleKey}`)}
+                    />
                   ) : (
-                    <ClipsBriefOutputsMock className="w-full max-w-[480px] lg:max-w-none" />
+                    <ClipsBriefOutputsMock
+                      className="w-full max-w-[480px] lg:max-w-none"
+                      label={t(`templateLanding.clips.${useCase.titleKey}`)}
+                    />
                   )}
                 </div>
               );

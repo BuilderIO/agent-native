@@ -72,8 +72,17 @@ const CLIPS_BRIEF_MOCK_CSS = [
   ".clips-brief-mock { width: 100%; }",
   `.clips-brief-mock-frame { ${CLIPS_APP_PALETTE} }`,
   `html.light .clips-brief-mock-frame { ${CLIPS_APP_PALETTE_LIGHT} }`,
-  ".clips-brief-mock-frame { display: flex; justify-content: center; width: 100%; padding: 16px 0; }",
+  ".clips-brief-mock-frame { display: flex; justify-content: center; width: 100%; padding: 16px 0; container-type: inline-size; }",
   ".clips-brief-mock-diagram { position: relative; width: 100%; max-width: 680px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: '. n .' 'w clip e' '. s .'; align-items: center; justify-items: center; gap: 28px; }",
+  // Below this the 280px clip card plus the full-text side labels no longer
+  // fit the three side-by-side columns and get clipped by the page section.
+  // Shrinking the clip card and dropping each output to icon-only (the
+  // labels are aria-hidden decoration; the accessible name lives on the
+  // outer role="img") keeps the whole diagram inside its container instead.
+  "@container (max-width: 420px) { .clips-brief-mock-diagram { gap: 12px; } }",
+  "@container (max-width: 420px) { .clips-brief-mock-clip { width: 200px; } }",
+  "@container (max-width: 420px) { .clips-brief-mock-output { padding: 10px; gap: 0; } }",
+  "@container (max-width: 420px) { .clips-brief-mock-output-label { display: none; } }",
   ".clips-brief-mock-rays { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }",
   // `--border` is a light grey in both themes, near-invisible on light mode's
   // pale page background even though it reads fine against dark mode's near-
@@ -96,7 +105,7 @@ const CLIPS_BRIEF_MOCK_CSS = [
 function BriefClipCard() {
   return (
     <div
-      className="relative w-[280px] select-none overflow-hidden rounded-lg border border-border bg-card text-card-foreground"
+      className="clips-brief-mock-clip relative w-[280px] select-none overflow-hidden rounded-lg border border-border bg-card text-card-foreground"
       style={{ gridArea: "clip" }}
     >
       <div className="relative aspect-video bg-muted">
@@ -167,10 +176,10 @@ export function ClipsBriefOutputsMock({
             <div
               key={output.label}
               style={{ gridArea: output.area }}
-              className="relative flex w-max select-none items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-3 text-card-foreground transition-colors hover:bg-accent"
+              className="clips-brief-mock-output relative flex w-max select-none items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-3 text-card-foreground transition-colors hover:bg-accent"
             >
               <output.icon className="size-5 shrink-0 text-muted-foreground" />
-              <span className="text-base font-medium whitespace-nowrap">
+              <span className="clips-brief-mock-output-label text-base font-medium whitespace-nowrap">
                 {output.label}
               </span>
             </div>
