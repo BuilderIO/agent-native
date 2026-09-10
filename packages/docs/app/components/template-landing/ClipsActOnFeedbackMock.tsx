@@ -54,12 +54,10 @@
  * pixels of a product screenshot (a fake recording, owner, and transcript).
  */
 import {
-  IconBrandOpenai,
   IconChevronRight,
   IconCopy,
   IconDotsVertical,
   IconDownload,
-  IconLink,
   IconMaximize,
   IconMoodSmile,
   IconPictureInPicture,
@@ -69,49 +67,15 @@ import {
   IconRectangle,
   IconSearch,
   IconSubtitles,
-  IconUserPlus,
   IconVolume,
 } from "@tabler/icons-react";
 
-// Copies of `ClaudeLogo` / `ClaudeCodeLogo` from
-// templates/clips/app/components/agent-destination-logos.tsx. `CodexLogo`
-// there is `IconBrandOpenai`, so it is imported directly above.
-function ClaudeLogo({ className }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={`shrink-0 ${className ?? ""}`}
-      fill="currentColor"
-      viewBox="0 0 100 100"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path d="m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z" />
-    </svg>
-  );
-}
-
-function ClaudeCodeLogo({ className }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={`shrink-0 ${className ?? ""}`}
-      fill="none"
-      viewBox="0 0 20 20"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <g
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.2"
-      >
-        <path d="m13.75 13.5 3.5-3.5-3.5-3.5" />
-        <path d="M9 16 11 4" />
-        <path d="m6.25 13.5-3.5-3.5 3.5-3.5" />
-      </g>
-    </svg>
-  );
-}
+import {
+  CLIPS_APP_PALETTE,
+  CLIPS_SHARE_UI_CSS,
+  ClipsShareControl,
+  ClipsShareMenu,
+} from "./ClipsShareUi";
 
 const RECORDING_TITLE = "Feedback on the landing page rewrite";
 
@@ -129,16 +93,6 @@ const TRANSCRIPT_SKELETON: number[][] = [
   [100, 38],
   [100, 58],
 ];
-
-const AGENT_ROWS = [
-  { label: "Copy agent prompt", icon: <IconLink className="size-4" /> },
-  { label: "Open in Claude", icon: <ClaudeLogo className="size-4" /> },
-  {
-    label: "Open in Claude Code",
-    icon: <ClaudeCodeLogo className="size-4" />,
-  },
-  { label: "Open in Codex", icon: <IconBrandOpenai className="size-4" /> },
-] as const;
 
 // The page is laid out at desktop width so the real `lg:` layout applies.
 // Below `lg` the product moves the transcript panel under the player, which is
@@ -167,21 +121,10 @@ const FADE_COLOR = "#0a0a0a";
 const CLIPS_PAGE_MOCK_CSS = [
   ".clips-page-mock { width: 100%; }",
 
-  // Clips' own dark palette (templates/clips/app/global.css:50-84), pinned so
-  // the real utility classes below resolve to the app's colours instead of the
-  // docs page theme. `--player-control*` come from the same file's `:root`.
-  //
-  // Two deliberate departures from the app: `--background` and
-  // `--sidebar-background` are darker here (5% / 8% against the app's 10% /
-  // 14%) so the crop settles into the near-black section it sits on instead of
-  // reading as a lighter panel floating on it. The 3-point gap between them is
-  // kept, which is what still separates the transcript panel from the page.
-  // Do not "restore" these to the app values without re-checking the section.
-  ".clips-page-mock-page { --background: 0 0% 5%; --foreground: 0 0% 90%; --card: 0 0% 14%; --card-foreground: 0 0% 90%; --popover: 0 0% 15%; --popover-foreground: 0 0% 90%; --primary: 0 0% 75%; --primary-foreground: 0 0% 10%; --muted: 0 0% 16%; --muted-foreground: 0 0% 60%; --accent: 0 0% 18%; --accent-foreground: 0 0% 90%; --border: 0 0% 24%; --input: 0 0% 24%; --sidebar-background: 0 0% 8%; --sidebar-foreground: 0 0% 60%; --player-control: 0 0% 0%; --player-control-foreground: 0 0% 100%; }",
-
-  // `.dark .clips-share-trigger` sets the same override in the real app, which
-  // is what makes the header's share controls read as solid white on dark.
-  ".clips-page-mock-share-group { --primary: 0 0% 100%; }",
+  // The app palette and the share-control override live in ClipsShareUi,
+  // which holds the single copy shared with the bare variant.
+  ".clips-page-mock-page { " + CLIPS_APP_PALETTE + " }",
+  CLIPS_SHARE_UI_CSS,
 
   // The recording page is held back so the open share menu reads as the
   // subject of the illustration. The popover is a sibling of this wrapper, so
@@ -441,36 +384,7 @@ export function ClipsActOnFeedbackMock({
               magnification crowded the crop, so it is pulled in. The shadow is
               likewise heavier than `shadow-md` because it has to separate the
               menu from a near-black page. */}
-          <div className="absolute end-4 top-[46px] z-20 w-[293px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-[1px_1px_70px_0_rgba(0,0,0,1)]">
-            <div className="px-3 py-2">
-              <div className="flex flex-col gap-3">
-                <div className="flex h-8 w-full items-center justify-start gap-1 rounded-none px-0 py-0 text-muted-foreground">
-                  <span className="relative inline-flex h-8 min-w-0 flex-none items-center justify-center rounded-none px-2 py-0 text-sm font-medium text-foreground/60 transition-colors hover:text-foreground">
-                    People
-                  </span>
-                  <span className="relative inline-flex h-8 min-w-0 flex-none items-center justify-center rounded-none px-2 py-0 text-sm font-medium text-foreground transition-colors after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-foreground">
-                    Agents
-                  </span>
-                </div>
-
-                <div className="-mx-1.5 flex flex-col gap-0.5">
-                  {AGENT_ROWS.map((row, index) => (
-                    <div key={row.label}>
-                      {index === 1 ? (
-                        <div className="my-1 border-t border-border" />
-                      ) : null}
-                      <span className="flex h-9 w-full items-center justify-start gap-2 rounded-md px-1.5 text-sm font-normal transition-colors hover:bg-accent hover:text-accent-foreground">
-                        <span className="text-muted-foreground">
-                          {row.icon}
-                        </span>
-                        {row.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+          <ClipsShareMenu className="absolute end-4 top-[46px] z-20" />
 
           {/* The share control triggers that menu, so it stays clear of the
               shadow the menu casts and out of the receded layer. It has to be
@@ -479,15 +393,7 @@ export function ClipsActOnFeedbackMock({
               it stays trapped under the popover however high it goes. The
               offsets put it back in its header row, an h-9 control centred in
               h-12, inset by the px-4 of that row. */}
-          <div className="clips-page-mock-share-group absolute end-4 top-1.5 z-30 flex shrink-0 items-center">
-            <span className="inline-flex h-9 items-center gap-2 rounded-md rounded-e-none bg-primary px-3 text-sm font-medium text-primary-foreground">
-              <IconUserPlus className="size-4" />
-              <span>Share</span>
-            </span>
-            <span className="inline-flex h-9 w-8 items-center justify-center rounded-md rounded-s-none border-s border-primary-foreground/15 bg-primary px-0 text-primary-foreground shadow-none">
-              <IconLink className="size-4" />
-            </span>
-          </div>
+          <ClipsShareControl className="absolute end-4 top-1.5 z-30" />
         </div>
 
         <div className="clips-page-mock-fade" />
