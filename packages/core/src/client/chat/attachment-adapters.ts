@@ -182,11 +182,12 @@ export async function getImageFileDataURL(file: File): Promise<string> {
  */
 export function estimateAttachmentBodyBytes(values: string[]): number {
   const encodedBytes = new TextEncoder();
-  // JSON.stringify adds ~2 bytes of quotes per string; add 15% for JSON
-  // framing after measuring the actual UTF-8 payload size.
+  // Measure each string after JSON escaping so quote-heavy or control-heavy
+  // text cannot pass the guard with an underestimated request size.
   return (
     values.reduce(
-      (sum, value) => sum + encodedBytes.encode(value).byteLength,
+      (sum, value) =>
+        sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
       0,
     ) * 1.15
   );

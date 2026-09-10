@@ -95,7 +95,7 @@ describe("attachment body size estimation", () => {
       "mail body",
       "data:application/pdf;base64,abc",
     ]);
-    expect(estimateAttachmentBodyBytes(["é"])).toBeCloseTo(2.3);
+    expect(estimateAttachmentBodyBytes(['"\\\né'])).toBeCloseTo(11.5);
   });
 });
 
