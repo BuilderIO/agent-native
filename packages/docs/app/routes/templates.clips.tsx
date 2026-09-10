@@ -236,11 +236,11 @@ export default function ClipsTemplate() {
                   }`}
                 >
                   {useCase.id === "investigate-bug" ? (
-                    <ClipsInvestigateBugMock className="w-full" />
+                    <ClipsInvestigateBugMock className="w-full max-w-[480px] lg:max-w-none" />
                   ) : useCase.id === "act-on-feedback" ? (
                     <ClipsActOnFeedbackMock className="w-full" />
                   ) : (
-                    <ClipsBriefOutputsMock className="w-full" />
+                    <ClipsBriefOutputsMock className="w-full max-w-[480px] lg:max-w-none" />
                   )}
                 </div>
               );
