@@ -70,14 +70,11 @@ herunterladen. Die unterstützten Gebietsschemacodes sind `en-US`, `zh-CN`,
 `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` und
 `ar-SA`.
 
-Diese Liste ist durch das Framework fest vorgegeben. Sie ist nicht nur das,
-was dieses Beispiel zufällig bündelt. `LocaleCode` ist eine TypeScript-Union
-genau dieser Codes, und `set-localization-preference` lehnt zur Laufzeit
-alles andere ab. Jedes Gebietsschema benötigt außerdem vom Framework
-kuratierte Metadaten, etwa die Textrichtung für Sprachen, die von rechts nach
-links geschrieben werden. Ein neues Gebietsschema hinzuzufügen bedeutet, das
-Framework selbst zu erweitern, nicht nur eine Katalogdatei zur App
-hinzuzufügen.
+Das Framework liefert integrierte Gebietsschemata. Apps können zusätzliche
+kanonische BCP-47-Gebietsschemata mit eigenen Metadaten registrieren, etwa
+native und englische Namen sowie Textrichtung. Verwenden Sie
+`coreMessageOverrides` für optionale Framework-Übersetzungen; fehlende
+Schlüssel fallen auf Englisch zurück.
 
 `createAgentNativeI18nCatalog` akzeptiert außerdem ein optionales
 `sourceLocale`, das standardmäßig `en-US` ist, sowie ein optionales
@@ -86,7 +83,11 @@ hinzuzufügen.
 alle zehn ausliefert. Der Standardwert umfasst jedes vom Framework
 unterstützte Gebietsschema. `LanguagePicker` listet nur Gebietsschemata aus
 dieser Menge auf, und jedes erkannte oder angeforderte Gebietsschema
-außerhalb dieser Menge fällt auf `sourceLocale` zurück.
+außerhalb dieser Menge fällt auf `sourceLocale` zurück. Registrierte
+`locales` werden dieser Liste hinzugefügt, auch wenn `supportedLocales` die
+integrierten Gebietsschemata einschränkt. `translations.locales` in
+`agent-native.json` ist eine ausdrückliche App-Allowlist und hat Vorrang vor
+der Katalogregistrierung.
 
 ## UI
 
@@ -118,7 +119,7 @@ Jede App erbt:
 - `get-localization-preference` — liest die `{ locale, timezone }` des aktuellen Benutzers
 - `set-localization-preference` — legt `locale` und/oder `timezone` fest, jeweils optional
 
-`locale` ist `"system"` oder ein unterstütztes BCP-47-Gebietsschema.
+`locale` ist `"system"` oder ein gültiges, von der App registriertes BCP-47-Gebietsschema.
 `timezone` ist `"system"` oder eine IANA-Zone wie `America/New_York`. Sie
 existiert, damit geplante Aufgaben und Automatisierungen in der Zeitzone des
 Benutzers statt in der des Hosts ausgeführt werden. Wenn nur ein Feld gesetzt

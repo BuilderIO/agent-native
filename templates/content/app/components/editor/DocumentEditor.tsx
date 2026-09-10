@@ -27,7 +27,11 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  type QueryClient,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -186,6 +190,7 @@ interface DocumentEditorProps {
   documentId: string;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
+  viewId?: string | null;
 }
 
 export interface PageEditorSession {
@@ -233,6 +238,22 @@ export function titleMatchConfirmsSave(args: {
     args.pendingTitle === args.localTitle &&
     args.localTitle !== args.lastSavedTitle
   );
+}
+
+export function refreshUnchangedTitleSaveWatermark(args: {
+  serverTitle: string;
+  serverUpdatedAt: string | null;
+  lastSaved: FieldSaveWatermark;
+}): FieldSaveWatermark {
+  if (
+    args.serverTitle !== args.lastSaved.title ||
+    !args.serverUpdatedAt ||
+    (args.lastSaved.updatedAt &&
+      args.serverUpdatedAt <= args.lastSaved.updatedAt)
+  ) {
+    return args.lastSaved;
+  }
+  return { ...args.lastSaved, updatedAt: args.serverUpdatedAt };
 }
 
 export function refreshUnchangedContentSaveWatermark(args: {
@@ -344,12 +365,14 @@ export function DocumentEditor({
   documentId,
   databaseId,
   databaseDocumentId,
+  viewId,
 }: DocumentEditorProps) {
   return (
     <PageEditorSurface
       documentId={documentId}
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
+      viewId={viewId}
       host="page"
     />
   );
@@ -370,6 +393,7 @@ export function PageEditorSurface({
   documentId,
   databaseId,
   databaseDocumentId,
+  viewId,
   host,
   onSessionChange,
   onDelete,
@@ -392,6 +416,14 @@ export function PageEditorSurface({
   } = documentQuery;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const documentQueryKeyValue = documentQueryKey(documentId, {
+    databaseId,
+    databaseDocumentId,
+  });
+  const authoritativeSuccess = useAuthoritativeQuerySuccess(
+    queryClient,
+    documentQueryKeyValue,
+  );
   const [manualRetryDocumentId, setManualRetryDocumentId] = useState<
     string | null
   >(null);
@@ -407,6 +439,7 @@ export function PageEditorSurface({
     errorUpdateCount,
     errorUpdatedAt,
     isError,
+    authoritativeSuccess,
   });
   loadFailureRef.current = loadFailure;
   const loadState = documentEditorLoadState({
@@ -437,7 +470,9 @@ export function PageEditorSurface({
       });
       loadFailureRef.current = {
         documentId,
+        queryIdentity: authoritativeSuccess.queryIdentity,
         baselineErrorUpdateCount: errorUpdateCount,
+        baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
         failed: false,
       };
       await documentQuery.refetch();
@@ -489,6 +524,7 @@ export function PageEditorSurface({
         document={document}
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
+        viewId={viewId}
         host={host}
         onSessionChange={onSessionChange}
         onDelete={onDelete}
@@ -558,10 +594,19 @@ export function documentEditorLoadState({
   const activeAdmittedDocumentId =
     admittedDocumentId === documentId ? admittedDocumentId : null;
 
-  if (
-    hasDocument &&
-    (isDocumentCreationPending || activeAdmittedDocumentId === documentId)
-  ) {
+  if (hasDocument && isDocumentCreationPending) {
+    return {
+      view: "editor" as const,
+      admittedDocumentId: documentId,
+    };
+  }
+  if (!isFetching && isError && isDocumentLoadUnavailableError(error)) {
+    return {
+      view: "unavailable" as const,
+      admittedDocumentId: null,
+    };
+  }
+  if (hasDocument && activeAdmittedDocumentId === documentId) {
     return {
       view: "editor" as const,
       admittedDocumentId: documentId,
@@ -590,9 +635,68 @@ export function documentEditorLoadState({
 
 type DocumentLoadFailureState = {
   documentId: string;
+  queryIdentity: string;
   baselineErrorUpdateCount: number;
+  baselineAuthoritativeSuccessGeneration: number;
   failed: boolean;
 };
+
+export type AuthoritativeQuerySuccess = {
+  queryIdentity: string;
+  generation: number;
+  errorUpdateCount: number;
+};
+
+export function subscribeToAuthoritativeQuerySuccess(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+  onSuccess: (errorUpdateCount: number) => void,
+) {
+  const queryHash = hashKey(queryKey);
+  return queryClient.getQueryCache().subscribe((event) => {
+    if (
+      event.type === "updated" &&
+      event.query.queryHash === queryHash &&
+      event.action.type === "success" &&
+      event.action.manual !== true
+    ) {
+      onSuccess(event.query.state.errorUpdateCount);
+    }
+  });
+}
+
+function useAuthoritativeQuerySuccess(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+): AuthoritativeQuerySuccess {
+  const queryHash = hashKey(queryKey);
+  const [success, setSuccess] = useState({
+    queryHash,
+    generation: 0,
+    errorUpdateCount: 0,
+  });
+
+  useEffect(
+    () =>
+      subscribeToAuthoritativeQuerySuccess(
+        queryClient,
+        queryKey,
+        (errorUpdateCount) => {
+          setSuccess((current) => ({
+            queryHash,
+            generation:
+              current.queryHash === queryHash ? current.generation + 1 : 1,
+            errorUpdateCount,
+          }));
+        },
+      ),
+    [queryClient, queryHash],
+  );
+
+  return success.queryHash === queryHash
+    ? { ...success, queryIdentity: queryHash }
+    : { queryIdentity: queryHash, generation: 0, errorUpdateCount: 0 };
+}
 
 export function updateDocumentLoadFailureState({
   previous,
@@ -602,6 +706,7 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount,
   errorUpdatedAt,
   isError,
+  authoritativeSuccess,
 }: {
   previous: DocumentLoadFailureState | null;
   documentId: string;
@@ -610,18 +715,41 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount: number;
   errorUpdatedAt: number;
   isError: boolean;
+  authoritativeSuccess: AuthoritativeQuerySuccess;
 }): DocumentLoadFailureState {
-  if (previous?.documentId !== documentId) {
+  if (
+    previous?.documentId !== documentId ||
+    previous.queryIdentity !== authoritativeSuccess.queryIdentity
+  ) {
     return {
       documentId,
+      queryIdentity: authoritativeSuccess.queryIdentity,
       baselineErrorUpdateCount: errorUpdateCount,
+      baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
       failed:
         isError || (errorUpdateCount > 0 && errorUpdatedAt > dataUpdatedAt),
     };
   }
+  if (
+    !isError &&
+    authoritativeSuccess.generation >
+      previous.baselineAuthoritativeSuccessGeneration &&
+    authoritativeSuccess.errorUpdateCount >= errorUpdateCount
+  ) {
+    return {
+      ...previous,
+      baselineErrorUpdateCount: errorUpdateCount,
+      baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
+      failed: false,
+    };
+  }
   if (admitted || previous.failed) return previous;
   return errorUpdateCount > previous.baselineErrorUpdateCount
-    ? { ...previous, failed: true }
+    ? {
+        ...previous,
+        baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
+        failed: true,
+      }
     : previous;
 }
 
@@ -698,6 +826,7 @@ interface DocumentEditorBodyProps {
   document: Document;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
+  viewId?: string | null;
   host: "page" | "preview";
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
@@ -866,6 +995,12 @@ export function documentEditorShowsInlineComments(args: {
       args.hasSelectedCommentThread ||
       args.hasPendingComment)
   );
+}
+
+export function utilityPanelAfterCommentFocusDismissal(
+  utilityPanel: DocumentUtilityPanel,
+): DocumentUtilityPanel {
+  return utilityPanel === "comments" ? null : utilityPanel;
 }
 
 export function documentEditorTitleRegionClassName(
@@ -1107,6 +1242,7 @@ function PageEditorSessionBody({
   document: incomingDocument,
   databaseId,
   databaseDocumentId,
+  viewId,
   host,
   onSessionChange,
   onDelete,
@@ -1702,7 +1838,14 @@ function PageEditorSessionBody({
     if (isLinkedLocalSourceDocument) return;
     const serverTitle = document.title;
     const lastSaved = lastSavedTitleRef.current;
-    if (serverTitle === lastSaved.title) return;
+    if (serverTitle === lastSaved.title) {
+      lastSavedTitleRef.current = refreshUnchangedTitleSaveWatermark({
+        serverTitle,
+        serverUpdatedAt: document.updatedAt ?? null,
+        lastSaved,
+      });
+      return;
+    }
     const adopt =
       localTitle === lastSaved.title ||
       (titleExternalIsNewer && !titleFocusedRef.current);
@@ -2877,6 +3020,8 @@ function PageEditorSessionBody({
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const [lastUtilityPanel, setLastUtilityPanel] =
     useState<Exclude<DocumentUtilityPanel, null>>("comments");
+  const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
+    useState<HTMLElement | null>(null);
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
   const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
     useState(false);
@@ -3023,7 +3168,7 @@ function PageEditorSessionBody({
     clearCommentFocus();
     if (!hasUtilityRailSpace) {
       setCommentsBrowseOpen(false);
-      setUtilityPanel(null);
+      setUtilityPanel(utilityPanelAfterCommentFocusDismissal);
     }
   }, [clearCommentFocus, hasUtilityRailSpace]);
 
@@ -3473,6 +3618,7 @@ function PageEditorSessionBody({
   const renderUtilityPanelContent = (
     panel: Exclude<DocumentUtilityPanel, null>,
     inSheet = false,
+    popoverContainer?: HTMLElement | null,
   ) => {
     const utilityPanelTitle =
       panel === "info" ? t("editor.toolbar.info") : t("comments.title");
@@ -3530,6 +3676,7 @@ function PageEditorSessionBody({
             databaseId={databaseId}
             databaseDocumentId={databaseDocumentId}
             canEdit={editorCanEdit}
+            popoverContainer={popoverContainer}
             onSaveDescription={(description) =>
               persistDocumentUpdates({ description })
             }
@@ -3903,6 +4050,7 @@ function PageEditorSessionBody({
                     <DocumentDatabase
                       document={document}
                       canEdit={canEdit}
+                      viewId={viewId}
                       onExportContextChange={handleDatabaseExportContextChange}
                     />
                   </div>
@@ -4212,9 +4360,23 @@ function PageEditorSessionBody({
           }}
         >
           <SheetContent
+            ref={setUtilityPanelSheetContainer}
             side="right"
             className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
             aria-describedby={undefined}
+            onEscapeKeyDown={(event) => {
+              const target = event.target;
+              const nestedPopper =
+                target instanceof Element
+                  ? target.closest("[data-radix-popper-content-wrapper]")
+                  : null;
+              if (
+                nestedPopper &&
+                utilityPanelSheetContainer?.contains(nestedPopper)
+              ) {
+                event.preventDefault();
+              }
+            }}
           >
             <SheetHeader className="sr-only">
               <SheetTitle>
@@ -4225,11 +4387,19 @@ function PageEditorSessionBody({
             </SheetHeader>
             {lastUtilityPanel === "comments" ? (
               <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(lastUtilityPanel, true)}
+                {renderUtilityPanelContent(
+                  lastUtilityPanel,
+                  true,
+                  utilityPanelSheetContainer,
+                )}
               </CommentHistoryScrollContainer>
             ) : (
               <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(lastUtilityPanel, true)}
+                {renderUtilityPanelContent(
+                  lastUtilityPanel,
+                  true,
+                  utilityPanelSheetContainer,
+                )}
               </div>
             )}
           </SheetContent>

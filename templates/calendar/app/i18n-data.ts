@@ -1,4 +1,4 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 

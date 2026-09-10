@@ -131,7 +131,7 @@ export function MediaDeviceRow({
               </DropdownMenuTrigger>
             ) : (
               <span
-                className="row-button row-button-placeholder row-label-muted"
+                className="row-button row-button-placeholder"
                 aria-disabled="true"
               >
                 {label}
@@ -191,8 +191,10 @@ export function MediaDeviceRow({
         </div>
       </div>
       {kind === "mic" && onSystemAudioToggle ? (
-        <div className="system-audio-row">
-          <span className="row-icon" aria-hidden>
+        <div
+          className={`row ${systemAudio ? "row-on" : "row-off"} system-audio-row`}
+        >
+          <span className="row-icon system-audio-icon" aria-hidden>
             <IconVolume2 size={20} stroke={1.75} />
           </span>
           <span className="system-audio-label">Record system audio</span>

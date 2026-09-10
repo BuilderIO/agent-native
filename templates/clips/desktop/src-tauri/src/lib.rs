@@ -100,16 +100,24 @@ pub fn run() {
                     _ => {}
                 }
             }
-            // The popover and camera bubble are separate native windows. If
-            // the popover is closed before its webview emits the visibility
-            // event, tear down the bubble from the native lifecycle instead.
-            if window.label() == "popover"
-                && matches!(
-                    event,
-                    tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
-                )
-            {
-                clips::close_bubble_if_idle(window.app_handle());
+            // The popover and camera bubble are separate native windows. A
+            // native close hides the panel back to the tray instead of
+            // destroying the webview, so tray clicks and the app's second
+            // launch can show the same window again.
+            if window.label() == "popover" {
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let app = window.app_handle();
+                        let _ = window.hide();
+                        clips::close_bubble_if_idle(&app);
+                        let _ = app.emit("clips:popover-visible", false);
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        clips::close_bubble_if_idle(window.app_handle());
+                    }
+                    _ => {}
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![

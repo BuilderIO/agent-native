@@ -65,6 +65,7 @@ function createFetchFixture({
   },
   listResponse,
   setResponse,
+  providerSettingsResponse,
   disconnectResponse,
 }: {
   engines?: EngineFixture[] | (() => EngineFixture[]);
@@ -73,6 +74,7 @@ function createFetchFixture({
   status?: Record<string, unknown>;
   listResponse?: (request: number) => Promise<Response> | Response;
   setResponse: () => Promise<Response> | Response;
+  providerSettingsResponse?: () => Promise<Response> | Response;
   disconnectResponse?: () => Promise<Response> | Response;
 }) {
   const setRequests: Array<Record<string, unknown>> = [];
@@ -106,7 +108,7 @@ function createFetchFixture({
       }
       if (url.endsWith("/_agent-native/agent-engine/api-key")) {
         providerSettingsRequests.push(JSON.parse(String(init?.body)));
-        return json({ ok: true });
+        return providerSettingsResponse?.() ?? json({ ok: true });
       }
       if (url.endsWith("/_agent-native/actions/manage-agent-engine")) {
         const body = JSON.parse(String(init?.body ?? "{}")) as Record<
@@ -230,6 +232,42 @@ afterEach(() => {
 });
 
 describe("AgentSettingsContent provider save", () => {
+  it("shows the server error when provider settings cannot be saved", async () => {
+    const fixture = createFetchFixture({
+      setResponse: () => json({ ok: true }),
+      providerSettingsResponse: () =>
+        json(
+          {
+            error:
+              "Endpoint URL resolves to a private/internal address — SSRF not allowed.",
+          },
+          400,
+        ),
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await chooseOpenAi();
+    const endpointToggle = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Advanced"),
+    );
+    if (!(endpointToggle instanceof HTMLButtonElement)) {
+      throw new Error("Missing endpoint settings toggle");
+    }
+    await click(endpointToggle);
+    const endpoint = document.querySelector<HTMLInputElement>(
+      'input[placeholder="https://gateway.example/v1"]',
+    );
+    if (!endpoint) throw new Error("Missing endpoint input");
+    await changeInput(endpoint, "http://localhost:11434");
+
+    await click(buttonNamed("Save endpoint"));
+
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      "SSRF not allowed",
+    );
+    expect(fixture.providerSettingsRequests).toHaveLength(1);
+    act(() => root.unmount());
+  });
+
   it("keeps Apply available and shows a bare action error without success or events", async () => {
     const fixture = createFetchFixture({
       setResponse: () => json("Error: optional packages are not installed"),

@@ -934,6 +934,8 @@ export function createAgentChatPlugin(
       } catch {
         // Package action registration is optional.
       }
+      const { mergeCoreSharingActions } = await import("./action-discovery.js");
+      await mergeCoreSharingActions(templateScriptsAll);
 
       // Resource, chat, docs, db, and cross-agent scripts are available in both
       // prod and dev modes, unless the app switched the group off through

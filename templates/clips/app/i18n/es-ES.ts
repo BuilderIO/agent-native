@@ -64,6 +64,7 @@ const messages = {
     extensions: "Extensiones",
     newRecording: "Nueva grabación",
     folders: "Carpetas",
+    recordings: "Grabaciones",
     newFolder: "Nueva carpeta",
     noSpaces: "Aún no hay espacios",
     desktopCta: "Obtener la app de escritorio",
@@ -517,6 +518,11 @@ const messages = {
     shareLink: "Enlace para compartir",
     shareWithHumans: "Compartir con personas",
     shareWithAgents: "Compartir con agentes",
+    people: "Personas",
+    agents: "Agentes",
+    openInClaude: "Abrir en Claude",
+    openInClaudeCode: "Abrir en Claude Code",
+    openInCodex: "Abrir en Codex",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
       "Obtén esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Usa transcript.segments para el contexto hablado, obtén recommendedFrames o las URLs de la API de fotogramas para ver la pantalla y revisa browserDiagnostics si está presente para ver registros de consola redactados y metadatos de solicitudes fetch/XHR.",
@@ -1750,6 +1756,7 @@ const messages = {
     donePageTitle: "Informe de error enviado · Clips",
     eyebrow: "Informe de error",
     title: "Grabar un informe de error",
+    sidebarCta: "Enviar comentarios",
     description:
       "Captura una reproducción breve con pantalla, voz y contexto del navegador redactado para tu equipo.",
     issueTitleLabel: "Título del problema",

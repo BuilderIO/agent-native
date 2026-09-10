@@ -64,6 +64,7 @@ const messages = {
     extensions: "Erweiterungen",
     newRecording: "Neue Aufnahme",
     folders: "Ordner",
+    recordings: "Aufnahmen",
     newFolder: "Neuer Ordner",
     noSpaces: "Noch keine Bereiche",
     desktopCta: "Desktop-App laden",
@@ -522,6 +523,11 @@ const messages = {
     shareLink: "Teillink",
     shareWithHumans: "Mit Menschen teilen",
     shareWithAgents: "Mit Agenten teilen",
+    people: "Personen",
+    agents: "Agenten",
+    openInClaude: "In Claude öffnen",
+    openInClaudeCode: "In Claude Code öffnen",
+    openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
       "Rufe diese Clips-Agent-Kontext-URL ab: {{agentContextUrl}}. Verwende transcript.segments fuer den gesprochenen Kontext, rufe recommendedFrames oder die Frame-API-URLs ab, um den Bildschirm zu sehen, und pruefe browserDiagnostics, falls vorhanden, fuer redigierte Konsolenprotokolle und fetch/XHR-Anfragemetadaten.",
@@ -1759,6 +1765,7 @@ const messages = {
     donePageTitle: "Fehlerbericht gesendet · Clips",
     eyebrow: "Fehlerbericht",
     title: "Fehlerbericht aufnehmen",
+    sidebarCta: "Feedback senden",
     description:
       "Nimm eine kurze Reproduktion mit Bildschirm, Stimme und redigiertem Browserkontext für dein Team auf.",
     issueTitleLabel: "Titel des Problems",

@@ -326,7 +326,8 @@ button[title="Open agent sidebar"] {
 
 /* Slide content styling */
 .slide-content {
-  font-family: "Poppins", sans-serif;
+  font-family: var(--ds-body-font, "Inter", sans-serif);
+  color: var(--ds-text, #1f2933);
 }
 
 /* Per-element inline text editing — highlight the text layer that is
@@ -352,27 +353,27 @@ button[title="Open agent sidebar"] {
 }
 .slide-content h1 {
   @apply text-5xl font-bold mb-6 leading-tight tracking-tight;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 .slide-content h2 {
   @apply text-3xl font-semibold mb-4 leading-snug tracking-tight;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 .slide-content h3 {
   @apply text-2xl font-medium mb-3;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 .slide-content p {
   @apply text-xl leading-relaxed mb-4;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--ds-text-muted, #667085);
 }
 .slide-content ul {
   @apply text-lg space-y-3 list-disc list-inside;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--ds-text-muted, #667085);
 }
 .slide-content ol {
   @apply text-lg space-y-3 list-decimal list-inside;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--ds-text-muted, #667085);
 }
 .slide-content code {
   @apply bg-white/10 px-2 py-0.5 rounded text-base font-mono;
@@ -390,7 +391,7 @@ button[title="Open agent sidebar"] {
 }
 .slide-content strong {
   @apply font-bold;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 .slide-content em {
   @apply italic;
@@ -415,18 +416,18 @@ button[title="Open agent sidebar"] {
 }
 .slide-content td {
   @apply py-3 text-base;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--ds-text-muted, #667085);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 .slide-content td:first-child {
   @apply font-semibold;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 
 /* Builder brand hr styling */
 .slide-content hr {
   @apply my-4;
-  border-color: rgba(255, 255, 255, 0.06);
+  border-color: var(--ds-accent, #2457d6);
 }
 
 /* ─── Slide Styles ─── */
@@ -438,11 +439,18 @@ button[title="Open agent sidebar"] {
   height: 100%;
   display: flex;
   flex-direction: column;
-  color: var(--ds-text, #ffffff);
-  background: var(--ds-bg, #0b0b0d);
-  font-family: var(--ds-body-font, "Poppins", sans-serif);
+  padding: 64px 80px;
+  color: var(--ds-text, #1f2933);
+  background: var(--ds-bg, #f5f2ea);
+  font-family: var(--ds-body-font, "Inter", sans-serif);
   box-sizing: border-box;
   overflow: hidden;
+}
+
+/* Imported source slides use absolute source-canvas coordinates. */
+.fmd-slide[data-imported-pptx="true"],
+.fmd-slide[data-imported-pdf="true"] {
+  padding: 0;
 }
 
 /* Semantic slide markup is persisted by the agent. Keep the classes useful
@@ -452,7 +460,7 @@ button[title="Open agent sidebar"] {
   justify-content: center;
   align-items: flex-start;
   gap: 24px;
-  padding: 80px 110px;
+  padding: 64px 80px;
 }
 
 .fmd-slide.fmd-slide--content,
@@ -477,11 +485,8 @@ button[title="Open agent sidebar"] {
 .fmd-slide.fmd-slide--two-column h2,
 .fmd-slide.fmd-slide--statement h1,
 .fmd-slide.fmd-slide--statement h2 {
-  color: var(--ds-text, #ffffff);
-  font-family: var(
-    --ds-heading-font,
-    var(--ds-body-font, "Poppins", sans-serif)
-  );
+  color: var(--ds-text, #1f2933);
+  font-family: var(--ds-heading-font, var(--ds-body-font, "Inter", sans-serif));
   font-weight: 700;
   letter-spacing: -0.03em;
 }
@@ -511,7 +516,7 @@ button[title="Open agent sidebar"] {
 
 .fmd-slide .fmd-subtitle,
 .fmd-slide .fmd-muted {
-  color: var(--ds-text-muted, rgba(255, 255, 255, 0.7));
+  color: var(--ds-text-muted, #667085);
 }
 
 .fmd-slide .fmd-subtitle {
@@ -536,7 +541,7 @@ button[title="Open agent sidebar"] {
 
 .fmd-slide .fmd-accent,
 .fmd-slide .fmd-cyan {
-  color: var(--ds-accent, #00e5ff);
+  color: var(--ds-accent, #2457d6);
 }
 
 .fmd-autofit-scale {

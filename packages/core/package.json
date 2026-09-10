@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.177.1",
+  "version": "0.178.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -410,6 +410,7 @@
     "@rrweb/record": "2.1.0",
     "@sentry/browser": "10.60.0",
     "@sentry/node": "10.60.0",
+    "@sentry/vite-plugin": "5.4.0",
     "@shadcn/react": "^0.2.0",
     "@standard-schema/spec": "^1.1.0",
     "@tanstack/react-table": "^8.21.3",

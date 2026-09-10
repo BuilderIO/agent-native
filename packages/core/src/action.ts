@@ -437,6 +437,8 @@ export interface ActionMcpAppResourceConfig {
 }
 
 export interface ActionMcpAppConfig {
+  /** Preserve the sanitized object result alongside concise text, even without an inline app. Use for durable mutation receipts. */
+  structuredContent?: boolean;
   /**
    * Optional MCP Apps UI resource for hosts that render inline app iframes.
    * Required when the action should open an interactive app view. Omit when
@@ -1125,7 +1127,11 @@ export function defineAction(options: any) {
       return undefined;
     }
     // compactCatalog-only: no resource required; just keep the flag.
-    if (options.mcpApp.compactCatalog === true && !options.mcpApp.resource) {
+    if (
+      (options.mcpApp.compactCatalog === true ||
+        options.mcpApp.structuredContent === true) &&
+      !options.mcpApp.resource
+    ) {
       return options.mcpApp as ActionMcpAppConfig;
     }
     // Full resource: validate html is present.

@@ -3,6 +3,12 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-09
+
+### Improved
+
+- Collaborator avatars in the design editor use a slimmer border.
+
 ## 2026-09-04
 
 ### Improved

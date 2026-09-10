@@ -153,10 +153,17 @@ export function getEventDisplayColor(
       ? preferences.accountColors?.[accountKey]
       : undefined;
 
-    if (accountMode) {
-      // A per-account choice exists — honor it even if it's "multi" (auto).
-      if (accountMode === "single" && accountColor) return accountColor;
-    } else if (preferences.colorMode === "single" && preferences.singleColor) {
+    const colorMode = accountMode ?? preferences.colorMode;
+    if (colorMode === "multi") {
+      return EVENT_CATEGORY_COLORS[classifyEvent(event)];
+    }
+
+    if (accountMode === "single" && accountColor) return accountColor;
+    if (
+      !accountMode &&
+      preferences.colorMode === "single" &&
+      preferences.singleColor
+    ) {
       // No per-account choice yet — fall back to the legacy global setting so
       // existing single-account users keep their color after the upgrade.
       return accountColor ?? preferences.singleColor;

@@ -3982,7 +3982,15 @@ function tryGitInit(dir: string): boolean {
 function renameGitignore(dir: string): void {
   const src = path.join(dir, "_gitignore");
   const dst = path.join(dir, ".gitignore");
-  if (fs.existsSync(src)) fs.renameSync(src, dst);
+  if (!fs.existsSync(src)) return;
+  fs.renameSync(src, dst);
+  const contents = fs.readFileSync(dst, "utf8");
+  if (!contents.includes("data/*.lock")) {
+    fs.appendFileSync(
+      dst,
+      `${contents.endsWith("\n") ? "" : "\n"}data/*.lock\n`,
+    );
+  }
 }
 
 function replacePlaceholders(

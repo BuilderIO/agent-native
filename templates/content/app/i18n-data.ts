@@ -1,4 +1,4 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
@@ -3118,7 +3118,7 @@ const localFilesMessages = {
   importedLocalFiles: "Imported local files",
   importedSource: "Imported source",
   lastSync: "Last sync",
-  localFolders: "Local folders",
+  localFolders: "Folders",
   mainFolder: "Main folder",
   metaTitle: "Local files - Content",
   noFoldersLinked: "No folders linked",
@@ -3201,6 +3201,11 @@ const enUS = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
+    experiments: "Experiments",
+    experimentsIntro: "Preview experimental features before they ship.",
+    experimentCreativeContext: "Creative Context",
+    experimentCreativeContextDescription:
+      "Connect and reuse governed reference context in Content.",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -3481,6 +3486,7 @@ const enUS = {
     addChildTo: "Add child to {{title}}",
     addSubPage: "Add sub-page",
     collapse: "Collapse sidebar",
+    resize: "Resize sidebar",
     completeStepsAboveFirst: "Complete steps above first",
     connectWorkspace: "Connect workspace",
     connected: "Connected",
@@ -3654,7 +3660,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       folderLinked: "已链接 {{count}} 个文件夹",
       foldersLinked: "已链接 {{count}} 个文件夹",
       lastSync: "上次同步",
-      localFolders: "本地文件夹",
+      localFolders: "文件夹",
       mainFolder: "主文件夹",
       metaTitle: "本地文件 - Content",
       noFoldersLinked: "未链接文件夹",
@@ -3895,7 +3901,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       folderLinked: "{{count}} carpeta enlazada",
       foldersLinked: "{{count}} carpetas enlazadas",
       lastSync: "Última sincronización",
-      localFolders: "Carpetas locales",
+      localFolders: "Carpetas",
       mainFolder: "Carpeta principal",
       metaTitle: "Archivos locales - Content",
       noFoldersLinked: "No hay carpetas enlazadas",
@@ -10147,6 +10153,11 @@ export const messagesByLocale = {
       agentTitle: "管理代理",
       agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
       openAgentSettings: "管理代理",
+      experiments: "实验功能",
+      experimentsIntro: "在正式发布前预览实验性功能。",
+      experimentCreativeContext: "创意上下文",
+      experimentCreativeContextDescription:
+        "在 Content 中连接并复用受管控的参考上下文。",
     },
     chat: {
       publicEmptyState: "向我询问有关此文档的任何问题",
@@ -10215,6 +10226,7 @@ export const messagesByLocale = {
       newDatabase: "新建数据库",
       noWorkspaces: "还没有工作区",
       collapse: "折叠侧边栏",
+      resize: "调整侧边栏宽度",
       expand: "展开侧边栏",
       failedCreatePage: "创建页面失败",
       failedDeletePage: "删除页面失败",
@@ -10346,6 +10358,12 @@ export const messagesByLocale = {
       agentDescription:
         "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
       openAgentSettings: "Gestionar agente",
+      experiments: "Experimentos",
+      experimentsIntro:
+        "Prueba funciones experimentales antes de su lanzamiento.",
+      experimentCreativeContext: "Contexto creativo",
+      experimentCreativeContextDescription:
+        "Conecta y reutiliza contexto de referencia regulado en Content.",
     },
     chat: {
       publicEmptyState: "Pregúntame cualquier cosa sobre este documento",
@@ -10416,6 +10434,7 @@ export const messagesByLocale = {
       newDatabase: "Nueva base de datos",
       noWorkspaces: "Aún no hay espacios de trabajo",
       collapse: "Contraer barra lateral",
+      resize: "Cambiar ancho de la barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "No se pudo crear la página",
       failedDeletePage: "No se pudo eliminar la página",
@@ -10549,6 +10568,12 @@ export const messagesByLocale = {
       agentDescription:
         "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
       openAgentSettings: "Gérer l’agent",
+      experiments: "Expériences",
+      experimentsIntro:
+        "Prévisualisez les fonctionnalités expérimentales avant leur déploiement.",
+      experimentCreativeContext: "Contexte créatif",
+      experimentCreativeContextDescription:
+        "Connectez et réutilisez un contexte de référence gouverné dans Content.",
     },
     chat: {
       publicEmptyState: "Posez-moi une question sur ce document",
@@ -10619,6 +10644,7 @@ export const messagesByLocale = {
       newDatabase: "Nouvelle base de données",
       noWorkspaces: "Aucun espace de travail pour le moment",
       collapse: "Réduire la barre latérale",
+      resize: "Redimensionner la barre latérale",
       expand: "Développer la barre latérale",
       failedCreatePage: "Échec de la création de la page",
       failedDeletePage: "Échec de la suppression de la page",
@@ -10750,6 +10776,12 @@ export const messagesByLocale = {
       agentDescription:
         "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
       openAgentSettings: "Agent verwalten",
+      experiments: "Experimente",
+      experimentsIntro:
+        "Testen Sie experimentelle Funktionen vor ihrer Veröffentlichung.",
+      experimentCreativeContext: "Kreativer Kontext",
+      experimentCreativeContextDescription:
+        "Verbinden und Wiederverwenden von geregeltem Referenzkontext in Content.",
     },
     chat: {
       publicEmptyState: "Frag mich alles zu diesem Dokument",
@@ -10820,6 +10852,7 @@ export const messagesByLocale = {
       newDatabase: "Neue Datenbank",
       noWorkspaces: "Noch keine Arbeitsbereiche",
       collapse: "Seitenleiste einklappen",
+      resize: "Seitenleiste skalieren",
       expand: "Seitenleiste ausklappen",
       failedCreatePage: "Seite konnte nicht erstellt werden",
       failedDeletePage: "Seite konnte nicht gelöscht werden",
@@ -10950,6 +10983,11 @@ export const messagesByLocale = {
       agentDescription:
         "エージェントのモデル、API キー、自動化、音声などを管理します。",
       openAgentSettings: "エージェントを管理",
+      experiments: "実験機能",
+      experimentsIntro: "正式リリース前の試験的な機能をお試しいただけます。",
+      experimentCreativeContext: "クリエイティブコンテキスト",
+      experimentCreativeContextDescription:
+        "Content 内で管理された参照コンテキストを接続して再利用します。",
     },
     chat: {
       publicEmptyState: "このドキュメントについて何でも聞いてください",
@@ -11020,6 +11058,7 @@ export const messagesByLocale = {
       newDatabase: "新しいデータベース",
       noWorkspaces: "ワークスペースはまだありません",
       collapse: "サイドバーを折りたたむ",
+      resize: "サイドバーの幅を変更",
       expand: "サイドバーを展開",
       failedCreatePage: "ページを作成できませんでした",
       failedDeletePage: "ページを削除できませんでした",
@@ -11141,6 +11180,11 @@ export const messagesByLocale = {
       agentDescription:
         "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
       openAgentSettings: "에이전트 관리",
+      experiments: "실험 기능",
+      experimentsIntro: "출시 전 실험적인 기능을 미리 사용해 보세요.",
+      experimentCreativeContext: "크리에이티브 컨텍스트",
+      experimentCreativeContextDescription:
+        "Content에서 제어된 참조 컨텍스트를 연결하고 재사용합니다.",
     },
     chat: {
       publicEmptyState: "이 문서에 대해 무엇이든 물어보세요",
@@ -11209,6 +11253,7 @@ export const messagesByLocale = {
       newDatabase: "새 데이터베이스",
       noWorkspaces: "아직 워크스페이스가 없습니다",
       collapse: "사이드바 접기",
+      resize: "사이드바 너비 조절",
       expand: "사이드바 펼치기",
       failedCreatePage: "페이지를 만들지 못했습니다",
       failedDeletePage: "페이지를 삭제하지 못했습니다",
@@ -11340,6 +11385,12 @@ export const messagesByLocale = {
       agentDescription:
         "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
       openAgentSettings: "Gerenciar agente",
+      experiments: "Experimentos",
+      experimentsIntro:
+        "Experimente recursos experimentais antes do lançamento.",
+      experimentCreativeContext: "Contexto criativo",
+      experimentCreativeContextDescription:
+        "Conecte e reutilize contexto de referência regulado no Content.",
     },
     chat: {
       publicEmptyState: "Pergunte qualquer coisa sobre este documento",
@@ -11410,6 +11461,7 @@ export const messagesByLocale = {
       newDatabase: "Novo banco de dados",
       noWorkspaces: "Ainda não há espaços de trabalho",
       collapse: "Recolher barra lateral",
+      resize: "Redimensionar barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "Falha ao criar página",
       failedDeletePage: "Falha ao excluir página",
@@ -11529,6 +11581,11 @@ export const messagesByLocale = {
       agentDescription:
         "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
       openAgentSettings: "एजेंट प्रबंधित करें",
+      experiments: "प्रयोग",
+      experimentsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
+      experimentCreativeContext: "क्रिएटिव संदर्भ",
+      experimentCreativeContextDescription:
+        "Content में प्रबंधित संदर्भ संदर्भ को कनेक्ट और पुन: उपयोग करें।",
     },
     chat: {
       publicEmptyState: "इस document के बारे में कुछ भी पूछें",
@@ -11597,6 +11654,7 @@ export const messagesByLocale = {
       newDatabase: "नया डेटाबेस",
       noWorkspaces: "अभी कोई कार्यस्थान नहीं है",
       collapse: "साइडबार संकुचित करें",
+      resize: "साइडबार का आकार बदलें",
       expand: "साइडबार फैलाएं",
       failedCreatePage: "पेज नहीं बन सका",
       failedDeletePage: "पेज हटाया नहीं जा सका",
@@ -11719,6 +11777,11 @@ export const messagesByLocale = {
       agentDescription:
         "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
       openAgentSettings: "إدارة الوكيل",
+      experiments: "التجارب",
+      experimentsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
+      experimentCreativeContext: "السياق الإبداعي",
+      experimentCreativeContextDescription:
+        "ربط سياق المرجع الخاضع للإدارة وإعادة استخدامه في Content.",
     },
     chat: {
       publicEmptyState: "اسألني أي شيء عن هذا المستند",
@@ -11787,6 +11850,7 @@ export const messagesByLocale = {
       newDatabase: "قاعدة بيانات جديدة",
       noWorkspaces: "لا توجد مساحات عمل بعد",
       collapse: "طي الشريط الجانبي",
+      resize: "تغيير حجم الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
       failedCreatePage: "فشل إنشاء الصفحة",
       failedDeletePage: "فشل حذف الصفحة",

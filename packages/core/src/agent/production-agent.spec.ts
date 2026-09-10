@@ -1278,6 +1278,39 @@ describe("buildUserContentWithAttachments", () => {
     expect(writeTool.description).toContain("Plan mode blocked");
   });
 
+  it("keeps object-only union actions available to the in-app agent", () => {
+    const anyOf = [
+      {
+        type: "object",
+        properties: { operation: { const: "create" } },
+        required: ["operation"],
+      },
+      {
+        type: "object",
+        properties: { operation: { const: "update" } },
+        required: ["operation"],
+      },
+    ];
+    const tools = actionsToEngineTools({
+      setup: {
+        tool: {
+          description: "Configure a database",
+          parameters: { anyOf } as any,
+        },
+        run: async () => ({}),
+      },
+      scalar: {
+        tool: {
+          description: "Invalid tool",
+          parameters: { type: "string" } as any,
+        },
+        run: async () => ({}),
+      },
+    });
+    expect(tools.map((tool) => tool.name)).toEqual(["setup"]);
+    expect(tools[0].inputSchema).toMatchObject({ type: "object", anyOf });
+  });
+
   it("keeps the default initial catalog to discovery/runtime tools", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({

@@ -84,6 +84,23 @@ describe("library recording cards", () => {
     expect(source).toContain("{relative}");
   });
 
+  it("balances recording metadata across the card width", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain(
+      'className="relative z-10 flex flex-1 flex-col gap-2 p-4 pointer-events-none"',
+    );
+    expect(source).toContain('className="flex items-center gap-3"');
+    expect(source).toContain(
+      'className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground"',
+    );
+    expect(source).toContain('className="flex min-w-0 items-center gap-1.5"');
+    expect(source).toContain(
+      'className="flex items-center justify-self-end gap-x-2 whitespace-nowrap"',
+    );
+    expect(source).toContain('className="whitespace-nowrap"');
+  });
+
   it("waits for the delete menu to close before removing a card", () => {
     const source = readSource("./recording-card.tsx");
 

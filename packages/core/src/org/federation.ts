@@ -58,13 +58,9 @@ export type FederatedMembershipValidation =
   | { active: true; role: OrgRole }
   | { active: false; role: null };
 
-function requestEventFromContext(): H3Event {
+function requestEventFromContext(): H3Event | undefined {
   const requestOrigin = getRequestContext()?.requestOrigin;
-  if (!requestOrigin) {
-    throw new Error(
-      "Federated membership validation requires a request origin.",
-    );
-  }
+  if (!requestOrigin) return undefined;
   let url: URL;
   try {
     url = new URL(requestOrigin);
@@ -422,7 +418,7 @@ export async function revokeFederatedOrganizationMember(
  * them while an unavailable authority fails closed.
  */
 export async function validateFederatedOrganizationMembership(
-  event: H3Event,
+  event: H3Event | undefined,
   input: { orgId: string; email: string },
 ): Promise<FederatedMembershipValidation> {
   const email = input.email.trim().toLowerCase();
@@ -458,7 +454,7 @@ export async function validateFederatedOrganizationMembership(
     throw new Error("Organization has an invalid identity mapping.");
   }
 
-  const currentOrigin = normalizeAuthority(getOrigin(event));
+  const currentOrigin = event ? normalizeAuthority(getOrigin(event)) : null;
   if (currentOrigin === identityAuthority) {
     return { active: true, role: localRole };
   }
@@ -469,6 +465,11 @@ export async function validateFederatedOrganizationMembership(
   if (rollout === "unavailable") {
     throw new Error(
       "Cross-app organization federation rollout is unavailable.",
+    );
+  }
+  if (!event) {
+    throw new Error(
+      "Federated membership validation requires a request origin.",
     );
   }
   const hub = resolveIdentityHubUrl(event);

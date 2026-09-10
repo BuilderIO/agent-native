@@ -64,6 +64,7 @@ const messages = {
     extensions: "확장 프로그램",
     newRecording: "새 녹화",
     folders: "폴더",
+    recordings: "녹화",
     newFolder: "새 폴더",
     noSpaces: "아직 스페이스가 없습니다",
     desktopCta: "데스크톱 앱 받기",
@@ -505,6 +506,11 @@ const messages = {
     shareLink: "공유 링크",
     shareWithHumans: "사람과 공유",
     shareWithAgents: "상담원과 공유",
+    people: "사용자",
+    agents: "에이전트",
+    openInClaude: "Claude에서 열기",
+    openInClaudeCode: "Claude Code에서 열기",
+    openInCodex: "Codex에서 열기",
     copyAgentPrompt: "에이전트 프롬프트 복사",
     agentPrompt:
       "이 Clips 에이전트 컨텍스트 URL을 가져오세요: {{agentContextUrl}}. 말한 내용의 맥락은 transcript.segments를 사용하고, 화면을 보기 위해 recommendedFrames 또는 프레임 API URL을 가져오며, browserDiagnostics가 있으면 수정된 콘솔 로그와 fetch/XHR 요청 메타데이터를 확인하세요.",
@@ -1720,6 +1726,7 @@ const messages = {
     donePageTitle: "버그 리포트 제출됨 · Clips",
     eyebrow: "버그 리포트",
     title: "버그 리포트 녹화",
+    sidebarCta: "피드백 보내기",
     description:
       "팀을 위해 화면, 음성, 정리된 브라우저 컨텍스트로 짧은 재현 영상을 캡처합니다.",
     issueTitleLabel: "문제 제목",

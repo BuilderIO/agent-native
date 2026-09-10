@@ -6,15 +6,21 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { ListTrashedContentDatabasesResponse } from "../shared/api.js";
+import { configurationRevision } from "./_database-setup-mutation.js";
 
 export default defineAction({
   description:
     "List soft-deleted content databases the current user can access for the sidebar Trash surface.",
-  schema: z.object({}),
+  mcpTool: true,
+  schema: z.object({
+    limit: z.number().int().min(1).max(100).optional(),
+    offset: z.number().int().min(0).optional(),
+  }),
   http: { method: "GET" },
   readOnly: true,
-  run: async (): Promise<ListTrashedContentDatabasesResponse> => {
+  run: async (args, context): Promise<ListTrashedContentDatabasesResponse> => {
     const db = getDb();
+    const limit = args.limit ?? (context?.caller === "mcp" ? 100 : undefined);
     const hostDocuments = alias(schema.documents, "host_documents");
     const isBlockOwned = and(
       isNotNull(schema.contentDatabases.ownerDocumentId),
@@ -25,8 +31,9 @@ export default defineAction({
       isNull(schema.documents.parentId),
       ne(schema.documents.parentId, schema.contentDatabases.ownerDocumentId),
     );
-    const rows = await db
+    const query = db
       .select({
+        databaseRecord: schema.contentDatabases,
         databaseId: schema.contentDatabases.id,
         databaseTitle: schema.contentDatabases.title,
         documentId: schema.contentDatabases.documentId,
@@ -74,10 +81,22 @@ export default defineAction({
           ),
         ),
       )
-      .orderBy(desc(schema.contentDatabases.deletedAt));
+      .orderBy(
+        desc(schema.contentDatabases.deletedAt),
+        schema.contentDatabases.id,
+      );
+    const rows =
+      limit === undefined
+        ? await query
+        : await query.limit(limit + 1).offset(args.offset ?? 0);
+    const hasMore = limit !== undefined && rows.length > limit;
 
     return {
-      databases: rows.map((row) => ({
+      hasMore,
+      nextOffset: hasMore ? (args.offset ?? 0) + limit : null,
+      databases: rows.slice(0, limit ?? rows.length).map((row) => ({
+        spaceId: row.databaseRecord.spaceId,
+        configurationRevision: configurationRevision(row.databaseRecord),
         databaseId: row.databaseId,
         title:
           row.documentTitle?.trim() ||

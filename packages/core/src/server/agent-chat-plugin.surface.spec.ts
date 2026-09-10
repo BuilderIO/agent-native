@@ -542,6 +542,16 @@ describe("framework tool gating — wiring guards", () => {
     encoding: "utf-8",
   });
 
+  it("merges core actions before filtering an explicit agent registry", () => {
+    const merge = source.indexOf(
+      "await mergeCoreSharingActions(templateScriptsAll);",
+    );
+    expect(merge).toBeGreaterThan(source.indexOf("const rawActions ="));
+    expect(merge).toBeLessThan(
+      source.indexOf("filterAgentTools(templateScriptsAll)"),
+    );
+  });
+
   it("resolves the framework tool surface once and gates both agent registries", () => {
     expect(source).toContain(
       "const frameworkTools = resolveFrameworkTools(options);",

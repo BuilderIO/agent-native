@@ -64,6 +64,7 @@ const messages = {
     extensions: "एक्सटेंशन",
     newRecording: "नई रिकॉर्डिंग",
     folders: "फ़ोल्डर",
+    recordings: "रिकॉर्डिंग",
     newFolder: "नया फ़ोल्डर",
     noSpaces: "अभी कोई स्पेस नहीं",
     desktopCta: "डेस्कटॉप ऐप पाएँ",
@@ -499,6 +500,11 @@ const messages = {
     shareLink: "शेयर लिंक",
     shareWithHumans: "लोगों के साथ साझा करें",
     shareWithAgents: "एजेंटों के साथ साझा करें",
+    people: "लोग",
+    agents: "एजेंट",
+    openInClaude: "Claude में खोलें",
+    openInClaudeCode: "Claude Code में खोलें",
+    openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
       "यह Clips एजेंट संदर्भ URL प्राप्त करें: {{agentContextUrl}}। बोले गए संदर्भ के लिए transcript.segments का उपयोग करें, स्क्रीन देखने के लिए recommendedFrames या फ्रेम API URL प्राप्त करें, और यदि browserDiagnostics मौजूद हो तो संशोधित कंसोल लॉग और fetch/XHR अनुरोध मेटाडेटा जांचें।",
@@ -1700,6 +1706,7 @@ const messages = {
     donePageTitle: "बग रिपोर्ट सबमिट हुई · Clips",
     eyebrow: "बग रिपोर्ट",
     title: "बग रिपोर्ट रिकॉर्ड करें",
+    sidebarCta: "फ़ीडबैक भेजें",
     description:
       "अपनी टीम के लिए स्क्रीन, आवाज़ और संशोधित ब्राउज़र संदर्भ के साथ छोटा रेप्रो कैप्चर करें।",
     issueTitleLabel: "समस्या का शीर्षक",

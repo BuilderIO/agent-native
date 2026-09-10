@@ -2,20 +2,31 @@ import fs from "fs";
 import path from "path";
 
 import { defineAction, fail } from "@agent-native/core/action";
+import {
+  hydrateBuilderDesignSystemReference,
+  parseBuilderDesignSystemProxyReference,
+} from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { sanitizeCssValue } from "../app/lib/sanitize-slide-html.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
 } from "../server/lib/tenant-files.js";
+import type { DesignSystemData } from "../shared/api.js";
 import {
   type AspectRatio,
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import {
+  backgroundCssValue,
+  DEFAULT_SLIDE_BACKGROUND,
+  resolveSlideBackground,
+} from "../shared/slide-background.js";
 
 /**
  * Minimal server-side HTML sanitizer for exported slide content.
@@ -37,17 +48,254 @@ function sanitizeSlideContent(html: string): string {
     .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
+function safeCssToken(
+  value: unknown,
+  fallback: string,
+  builderTokenValues?: Record<string, string>,
+): string {
+  if (typeof value !== "string") return fallback;
+  const sanitized = sanitizeCssValue(value);
+  if (!sanitized) return fallback;
+  const resolved = sanitized
+    .replace(/[{}<>;]/g, "")
+    .replace(/var\(\s*(--[a-zA-Z][\w-]*)\s*\)/g, (_, name: string) => {
+      const replacement = builderTokenValues?.[name];
+      const safeReplacement = replacement
+        ? sanitizeCssValue(replacement)
+        : null;
+      return safeReplacement && !/[{}<>;]/.test(safeReplacement)
+        ? safeReplacement
+        : `var(${name})`;
+    })
+    .trim();
+  const finalValue = sanitizeCssValue(resolved)?.replace(/[{}<>;]/g, "");
+  return !finalValue || /var\(\s*--/i.test(finalValue)
+    ? fallback
+    : finalValue.slice(0, 240) || fallback;
+}
+
+const STANDALONE_TAILWIND_BACKGROUNDS: Record<string, string> = {
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-black": "#000000",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-white": "#FFFFFF",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-slate-900": "#0F172A",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-slate-950": "#020617",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-gray-900": "#111827",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-zinc-900": "#18181B",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-neutral-900": "#171717",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-stone-900": "#1C1917",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-red-500": "#EF4444",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-orange-500": "#F97316",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-amber-500": "#F59E0B",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-yellow-400": "#FACC15",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-lime-500": "#84CC16",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-green-500": "#22C55E",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-emerald-500": "#10B981",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-teal-500": "#14B8A6",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-cyan-500": "#06B6D4",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-sky-500": "#0EA5E9",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-blue-500": "#3B82F6",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-indigo-500": "#6366F1",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-indigo-950": "#1E1B4B",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-violet-500": "#8B5CF6",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-purple-600": "#9333EA",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-fuchsia-500": "#D946EF",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-pink-500": "#EC4899",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-rose-500": "#F43F5E",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-slate-700": "#334155",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-slate-800": "#1E293B",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-zinc-50": "#FAFAFA",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-gray-100": "#F3F4F6",
+};
+
+const TAILWIND_GRADIENT_DIRECTIONS: Record<string, string> = {
+  "bg-gradient-to-t": "to top",
+  "bg-gradient-to-tr": "to top right",
+  "bg-gradient-to-r": "to right",
+  "bg-gradient-to-br": "to bottom right",
+  "bg-gradient-to-b": "to bottom",
+  "bg-gradient-to-bl": "to bottom left",
+  "bg-gradient-to-l": "to left",
+  "bg-gradient-to-tl": "to top left",
+};
+
+function standaloneBackgroundCssValue(value: string): string {
+  const cssValue = backgroundCssValue(value);
+  if (cssValue) return cssValue;
+  const classes = value.split(/\s+/);
+  const solidBackground = classes.find(
+    (className) => STANDALONE_TAILWIND_BACKGROUNDS[className],
+  );
+  if (solidBackground) return STANDALONE_TAILWIND_BACKGROUNDS[solidBackground];
+  const direction = classes.find(
+    (className) => TAILWIND_GRADIENT_DIRECTIONS[className],
+  );
+  if (direction) {
+    const stops = classes
+      .filter((className) => /^(?:from|via|to)-/.test(className))
+      .map((className) => {
+        const [, color, shade] =
+          className.match(/^(?:from|via|to)-([\w]+)-([\d]+)$/) ?? [];
+        return color && shade
+          ? STANDALONE_TAILWIND_BACKGROUNDS[`bg-${color}-${shade}`]
+          : undefined;
+      })
+      .filter((stop): stop is string => Boolean(stop));
+    if (stops.length >= 2) {
+      return `linear-gradient(${TAILWIND_GRADIENT_DIRECTIONS[direction]}, ${stops.join(", ")})`;
+    }
+  }
+  return STANDALONE_TAILWIND_BACKGROUNDS[value] ?? DEFAULT_SLIDE_BACKGROUND;
+}
+
+function isDarkStandaloneBackground(value: string): boolean {
+  const colors = [
+    ...value.matchAll(/#([\da-f]{3,8})\b/gi),
+    ...value.matchAll(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/gi),
+  ];
+  if (colors.length === 0) return false;
+  return colors.every((match) => {
+    const channels = match[0].startsWith("#")
+      ? match[1].length === 3 || match[1].length === 4
+        ? match[1]
+            .slice(0, 3)
+            .split("")
+            .map((channel) => parseInt(channel + channel, 16))
+        : [
+            match[1].slice(0, 2),
+            match[1].slice(2, 4),
+            match[1].slice(4, 6),
+          ].map((channel) => parseInt(channel, 16))
+      : match.slice(1, 4).map(Number);
+    return (
+      channels[0] * 0.299 + channels[1] * 0.587 + channels[2] * 0.114 < 128
+    );
+  });
+}
+
+function googleFontHref(font: unknown): string | undefined {
+  if (typeof font !== "string") return undefined;
+  const family = font.split(",", 1)[0]?.replace(/["']/g, "").trim();
+  const supported = [
+    "DM Sans",
+    "Inter",
+    "Manrope",
+    "Montserrat",
+    "Open Sans",
+    "Poppins",
+    "Plus Jakarta Sans",
+    "Roboto",
+    "Space Grotesk",
+    "Work Sans",
+  ];
+  if (
+    !family ||
+    !supported.some(
+      (candidate) => candidate.toLowerCase() === family.toLowerCase(),
+    )
+  ) {
+    return undefined;
+  }
+  return `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g, "+")}:wght@400;700&display=swap`;
+}
+
+function standaloneDesignSystemVars(
+  designSystem: DesignSystemData | undefined,
+  slideBackground: string,
+  builderTokenValues?: Record<string, string>,
+): string {
+  const colors = designSystem?.colors;
+  const typography = designSystem?.typography;
+  const borders = designSystem?.borders;
+  const standaloneBackground = standaloneBackgroundCssValue(slideBackground);
+  const safeBackground = safeCssToken(
+    standaloneBackground,
+    DEFAULT_SLIDE_BACKGROUND,
+    builderTokenValues,
+  );
+  const darkBackground = isDarkStandaloneBackground(safeBackground);
+  return [
+    `--ds-bg: ${safeBackground}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    // guard:allow-raw-color - standalone export dark-background fallback
+    `--ds-text: ${safeCssToken(colors?.text, darkBackground ? "#FFFFFF" : "#1F2933", builderTokenValues)}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    // guard:allow-raw-color - standalone export dark-background fallback
+    `--ds-text-muted: ${safeCssToken(colors?.textMuted, darkBackground ? "rgba(255, 255, 255, 0.72)" : "#667085", builderTokenValues)}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-accent: ${safeCssToken(colors?.accent, "#2457D6", builderTokenValues)}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-primary: ${safeCssToken(colors?.primary, "#2457D6", builderTokenValues)}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-secondary: ${safeCssToken(colors?.secondary, "#C85C3A", builderTokenValues)}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-surface: ${safeCssToken(colors?.surface, "#FFFFFF", builderTokenValues)}`,
+    `--ds-heading-font: ${safeCssToken(typography?.headingFont, "Inter, sans-serif", builderTokenValues)}`,
+    `--ds-body-font: ${safeCssToken(typography?.bodyFont, "Inter, sans-serif", builderTokenValues)}`,
+    `--ds-radius: ${safeCssToken(borders?.radius, "14px", builderTokenValues)}`,
+    ...Object.entries(builderTokenValues ?? {})
+      .filter(
+        ([name, value]) =>
+          /^--[a-zA-Z][\w-]*$/.test(name) && typeof value === "string",
+      )
+      .map(
+        ([name, value]) =>
+          `${name}: ${safeCssToken(value, "initial", builderTokenValues)}`,
+      ),
+  ].join("; ");
+}
+
 function buildStandaloneHtml(
   title: string,
-  slides: Array<{ id: string; content: string; notes?: string }>,
+  slides: Array<{
+    id: string;
+    content: string;
+    notes?: string;
+    background?: string;
+  }>,
   aspectRatio?: AspectRatio,
+  designSystem?: DesignSystemData,
+  builderTokenValues?: Record<string, string>,
 ): string {
   const dims = getAspectRatioDims(aspectRatio);
   const slideHtmlSections = slides
-    .map(
-      (slide, i) =>
-        `<section class="slide" data-index="${i}" style="display: ${i === 0 ? "flex" : "none"};">${sanitizeSlideContent(slide.content)}</section>`,
-    )
+    .map((slide, i) => {
+      const slideBackground = resolveSlideBackground(
+        slide.background,
+        designSystem,
+      );
+      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
+      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideContent(slide.content)}</section>`;
+    })
     .join("\n");
 
   return `<!DOCTYPE html>
@@ -56,9 +304,16 @@ function buildStandaloneHtml(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
-  <!-- Self-hosted Poppins via Bunny Fonts CDN (privacy-respecting, no tracking) -->
-  <link rel="preconnect" href="https://fonts.bunny.net">
-  <link href="https://fonts.bunny.net/css?family=poppins:400,600,700,800,900&display=swap" rel="stylesheet">
+  ${[
+    googleFontHref(designSystem?.typography?.headingFont),
+    googleFontHref(designSystem?.typography?.bodyFont),
+  ]
+    .filter(
+      (href, index, all): href is string =>
+        Boolean(href) && all.indexOf(href) === index,
+    )
+    .map((href) => `<link rel="stylesheet" href="${escapeHtml(href)}">`)
+    .join("\n  ")}
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -66,7 +321,7 @@ function buildStandaloneHtml(
       width: 100%; height: 100%;
       background: #111;
       overflow: hidden;
-      font-family: 'Poppins', sans-serif;
+      font-family: 'Inter', sans-serif;
     }
 
     .viewport {
@@ -88,7 +343,9 @@ function buildStandaloneHtml(
     .slide {
       width: ${dims.width}px;
       height: ${dims.height}px;
-      background: #000;
+      background: var(--ds-bg);
+      color: var(--ds-text);
+      font-family: var(--ds-body-font);
       overflow: hidden;
       position: absolute;
       top: 0;
@@ -106,6 +363,31 @@ function buildStandaloneHtml(
       width: 100%;
       height: 100%;
       box-sizing: border-box;
+      padding: 64px 80px;
+      display: flex;
+      flex-direction: column;
+      color: var(--ds-text);
+      background: var(--ds-bg);
+      font-family: var(--ds-body-font);
+    }
+
+    .fmd-slide[data-imported-pptx="true"], .fmd-slide[data-imported-pdf="true"] { padding: 0; }
+
+    .fmd-slide h1, .fmd-slide h2, .fmd-slide h3 {
+      color: var(--ds-text);
+      font-family: var(--ds-heading-font);
+    }
+
+    .fmd-slide h1 { font-size: 56px; line-height: 1.05; }
+    .fmd-slide h2 { font-size: 34px; line-height: 1.12; }
+    .fmd-slide h3 { font-size: 24px; line-height: 1.2; }
+    .fmd-slide p, .fmd-slide li { color: var(--ds-text-muted); }
+    .fmd-slide strong { color: var(--ds-text); }
+    .fmd-slide hr { border-color: var(--ds-accent); }
+
+    .fmd-slide .fmd-img-placeholder {
+      border-radius: var(--ds-radius);
+      background: var(--ds-surface);
     }
 
     .bottom-bar {
@@ -120,7 +402,7 @@ function buildStandaloneHtml(
       align-items: center;
       justify-content: space-between;
       padding: 0 20px;
-      font-family: 'Poppins', sans-serif;
+      font-family: 'Inter', sans-serif;
       font-size: 13px;
       color: rgba(255, 255, 255, 0.5);
       z-index: 100;
@@ -258,6 +540,20 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function parseStoredDesignSystem(
+  rawData: string,
+): DesignSystemData | undefined {
+  try {
+    const parsed = JSON.parse(rawData);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as DesignSystemData)
+      : undefined;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return undefined;
+  }
+}
+
 export default defineAction({
   description:
     "Export a deck as a standalone HTML file with built-in keyboard navigation. Returns a download URL for the generated file.",
@@ -296,7 +592,41 @@ export default defineAction({
       });
     }
 
-    const html = buildStandaloneHtml(row.title, slides, aspectRatio);
+    const designSystemId = row.designSystemId ?? deckData.designSystemId;
+    let designSystem: DesignSystemData | undefined;
+    let builderTokenValues: Record<string, string> | undefined;
+    if (typeof designSystemId === "string" && designSystemId.trim()) {
+      const designSystemAccess = await resolveAccess(
+        "design-system",
+        designSystemId,
+      );
+      const rawData = designSystemAccess?.resource?.data;
+      if (typeof rawData === "string") {
+        designSystem = parseStoredDesignSystem(rawData);
+        const builderReference =
+          parseBuilderDesignSystemProxyReference(rawData);
+        if (builderReference) {
+          try {
+            builderTokenValues = (
+              await hydrateBuilderDesignSystemReference(builderReference)
+            ).tokenValues;
+          } catch (error) {
+            console.warn(
+              "Builder design-system export hydration failed",
+              error,
+            );
+          }
+        }
+      }
+    }
+
+    const html = buildStandaloneHtml(
+      row.title,
+      slides,
+      aspectRatio,
+      designSystem,
+      builderTokenValues,
+    );
     const filename = safeGeneratedFilename(row.title, ".html");
 
     // Disk write is only useful when the same process can later serve the
