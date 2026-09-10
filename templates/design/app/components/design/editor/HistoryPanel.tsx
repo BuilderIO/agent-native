@@ -112,11 +112,10 @@ export function HistoryPanel({
       onRestored?.();
       handleClose(false);
     } catch (error) {
+      const fallbackDescription = "Please try again." /* i18n-ignore */;
       toast.error("Couldn't restore version" /* i18n-ignore */, {
         description:
-          error instanceof Error
-            ? error.message
-            : "Please try again." /* i18n-ignore */,
+          error instanceof Error ? error.message : fallbackDescription,
       });
     }
   };

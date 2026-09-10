@@ -161,7 +161,7 @@ describe("MakeRealDialog", () => {
     mocks.session = { email: "reader@example.com" };
     mocks.fetch.mockResolvedValue({
       ok: true,
-      json: async () => ({ formSubmitted: true }),
+      text: async () => JSON.stringify({ formSubmitted: true }),
     });
     await renderDialog();
 
