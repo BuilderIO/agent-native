@@ -150,6 +150,15 @@ beforeEach(() => {
 });
 
 describe("update-slide", () => {
+  it("uses a full-content repair for verified layout overflow", () => {
+    expect(action.tool.description).toContain(
+      "verified layout overflow: call get-deck with slideId",
+    );
+    expect(action.tool.description).toContain(
+      "one fullContent repair with baseContentHash",
+    );
+  });
+
   it("always advances a millisecond deck revision", () => {
     const revision = "2026-01-01T00:00:00.000Z";
     expect(nextDeckRevision(revision, new Date(revision))).toBe(
