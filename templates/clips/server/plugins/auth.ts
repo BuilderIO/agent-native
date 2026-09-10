@@ -41,10 +41,10 @@ export default createAuthPlugin({
     // The recorder is public only so a signed intake URL can reach the
     // browser capture UI. Recording creation and upload remain token-scoped.
     "/record",
-    // Anonymous intake is a signed, write-only capability. The action and
-    // transport handlers perform their own token and recording-scope checks.
+    // Anonymous intake is a signed, write-only capability. The recording
+    // action and transport handlers perform their own token and recording-
+    // scope checks. Agent-link exchange stays behind normal auth.
     "/_agent-native/actions/create-intake-recording",
-    "/_agent-native/actions/create-intake-agent-link",
     "/api/clip-intake",
     // React Router's lazy route-discovery endpoint. If this is gated by
     // auth it returns an HTML login page; the client tries to parse it

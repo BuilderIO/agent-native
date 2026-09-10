@@ -57,36 +57,19 @@ export default function BugReportDoneRoute() {
     let cancelled = false;
     void (async () => {
       let agentLink: BugReportAgentLink | null = null;
-      const maxAttempts = intake ? 5 : 1;
-      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (cancelled) return;
+      if (!intake) {
         try {
-          agentLink = (await callAction(
-            intake ? "create-intake-agent-link" : "create-recording-agent-link",
-            intake
-              ? {
-                  intakeId: intake.intakeId,
-                  intakeToken: intake.token,
-                  recordingId,
-                  ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
-                }
-              : {
-                  recordingId,
-                  ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
-                },
-          )) as BugReportAgentLink;
-          break;
+          agentLink = (await callAction("create-recording-agent-link", {
+            recordingId,
+            ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
+          })) as BugReportAgentLink;
         } catch (error) {
-          const retryable =
-            intake && (error as { status?: unknown } | null)?.status === 409;
-          if (!retryable || attempt === maxAttempts - 1) break;
-          await new Promise((resolve) =>
-            window.setTimeout(resolve, Math.min(1_000 * 2 ** attempt, 4_000)),
-          );
+          // The completion message keeps access explicitly unavailable when
+          // the authenticated exchange cannot be completed.
+          console.warn("[bug-report] agent link unavailable:", error);
         }
       }
       if (cancelled) return;
-
       const message = createBugReportSubmissionMessage({
         recordingId,
         recordingUrl,

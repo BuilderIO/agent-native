@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { captureClientException } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
+import { redactBrowserDiagnosticString } from "@shared/browser-diagnostics";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chooseFallbackAudioInput,
@@ -2418,7 +2419,9 @@ export class RecorderEngine {
             httpStatus: String(res.status),
           },
           extra: {
-            url,
+            url: redactBrowserDiagnosticString(url, {
+              redactQueryValues: true,
+            }),
             status: res.status,
             statusText: res.statusText,
             responseBodyTail: text?.slice(0, 2000) ?? "",

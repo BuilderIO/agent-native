@@ -565,11 +565,19 @@ interface PendingRecording {
   uploadMode?: UploadMode;
 }
 
+const INTAKE_CREATE_RETRY_DELAYS_MS = [250, 500, 1_000, 2_000] as const;
+
+function isRetryableIntakeCreateStatus(status: number): boolean {
+  return [408, 409, 425, 429, 500, 502, 503, 504].includes(status);
+}
+
 async function createRecordingRequest(
   url: string,
   body: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<Response> {
+  const isIntakeRequest =
+    typeof body.intakeId === "string" && typeof body.intakeToken === "string";
   const request = () =>
     fetch(url, {
       method: "POST",
@@ -578,22 +586,44 @@ async function createRecordingRequest(
       signal,
     });
 
-  try {
-    return await request();
-  } catch (error) {
-    if (
-      typeof body.intakeId !== "string" ||
-      typeof body.intakeToken !== "string" ||
-      signal?.aborted
-    ) {
-      throw error;
+  for (let attempt = 0; ; attempt += 1) {
+    let response: Response;
+    try {
+      response = await request();
+    } catch (error) {
+      if (
+        !isIntakeRequest ||
+        signal?.aborted ||
+        attempt >= INTAKE_CREATE_RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) =>
+        window.setTimeout(
+          resolve,
+          INTAKE_CREATE_RETRY_DELAYS_MS[attempt] ?? 2_000,
+        ),
+      );
+      continue;
     }
 
-    // The server may have claimed and attached the recording before a lost
-    // response reaches the browser. The signed action is idempotent after
-    // attachment, so one bounded retry can recover its upload URLs.
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
-    return request();
+    if (
+      !isIntakeRequest ||
+      !isRetryableIntakeCreateStatus(response.status) ||
+      attempt >= INTAKE_CREATE_RETRY_DELAYS_MS.length
+    ) {
+      return response;
+    }
+
+    // A transient response can mean the server already claimed the one-use
+    // intake and is still attaching its recording. Retrying the same signed
+    // request lets the idempotent action recover the attached row.
+    await new Promise((resolve) =>
+      window.setTimeout(
+        resolve,
+        INTAKE_CREATE_RETRY_DELAYS_MS[attempt] ?? 2_000,
+      ),
+    );
   }
 }
 
@@ -1749,9 +1779,8 @@ export default function RecordRoute() {
         }
         createdId = info.id;
         fileUploadRecordingIdRef.current = createdId;
-        fileUploadAbortUrlRef.current = info.abortUrl
-          ? `${appBasePath()}${info.abortUrl}`
-          : null;
+        fileUploadAbortUrlRef.current =
+          intake && info.abortUrl ? `${appBasePath()}${info.abortUrl}` : null;
         if (!intake) await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
         if (!intake) {

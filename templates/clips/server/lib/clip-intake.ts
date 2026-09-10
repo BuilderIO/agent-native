@@ -54,6 +54,26 @@ export async function findClipIntakeSession(
   return session;
 }
 
+export async function findOwnedClipIntakeSession(
+  intakeId: string,
+  ownerEmail: string,
+  organizationId: string,
+): Promise<ClipIntakeSession | null> {
+  const [session] = await getDb()
+    .select()
+    .from(schema.clipIntakeSessions)
+    .where(
+      and(
+        eq(schema.clipIntakeSessions.id, intakeId),
+        ownerEmailMatches(schema.clipIntakeSessions.ownerEmail, ownerEmail),
+        eq(schema.clipIntakeSessions.organizationId, organizationId),
+      ),
+    )
+    .limit(1);
+  if (!session || intakeIsExpired(session)) return null;
+  return session;
+}
+
 export async function requireClipIntakeSession(
   intakeId: string,
   token: string,

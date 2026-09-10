@@ -1,27 +1,31 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestContext,
+  getRequestUserEmail,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { findClipIntakeSession } from "../server/lib/clip-intake.js";
-import { ownerEmailMatches } from "../server/lib/recordings.js";
+import { findOwnedClipIntakeSession } from "../server/lib/clip-intake.js";
+import {
+  getActiveOrganizationId,
+  ownerEmailMatches,
+  requireOrganizationAccess,
+} from "../server/lib/recordings.js";
 import { BUG_REPORT_AGENT_ACCESS_TTL_SECONDS } from "../shared/bug-report.js";
 import createRecordingAgentLink from "./create-recording-agent-link.js";
 
 export default defineAction({
   description:
-    "Create a temporary read-only agent link for the recording created by one signed Clips intake URL. The intake token is never a library-read token.",
+    "Create a temporary read-only agent link for a completed Clips intake recording. This is an authenticated host-side exchange; the anonymous intake bearer cannot mint read access.",
   agentTool: false,
-  requiresAuth: false,
+  requiresAuth: true,
   http: { method: "POST" },
   maxBodyBytes: 16 * 1024,
   schema: z.object({
     intakeId: z.string().min(16).max(80),
-    intakeToken: z.string().min(1).max(4096),
     recordingId: z.string().min(1).max(200),
     ttlSeconds: z
       .number()
@@ -31,9 +35,19 @@ export default defineAction({
       .optional(),
   }),
   run: async (args) => {
-    const session = await findClipIntakeSession(
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) {
+      fail("Sign in to exchange an intake for agent access.", {
+        errorCode: "authentication_required",
+        statusCode: 401,
+      });
+    }
+    const organizationId = await getActiveOrganizationId();
+    const access = await requireOrganizationAccess(organizationId);
+    const session = await findOwnedClipIntakeSession(
       args.intakeId,
-      args.intakeToken,
+      access.email,
+      access.organizationId,
     );
     if (
       !session ||

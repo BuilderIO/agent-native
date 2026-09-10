@@ -132,10 +132,10 @@ export default defineAction({
       throw error;
     }
 
-    try {
-      await attachClipIntakeRecording(intakeId, created.id);
-    } catch (error) {
-      await abandonClipIntake(intakeId).catch(() => {});
+    const cleanupCreatedRecording = async () => {
+      await abandonClipIntake(intakeId).catch((cleanupError: unknown) => {
+        console.warn("[clip-intake] session cleanup failed:", cleanupError);
+      });
       await Promise.resolve(
         runWithRequestContext(
           {
@@ -153,20 +153,19 @@ export default defineAction({
             ),
         ),
       ).catch((cleanupError: unknown) => {
-        console.warn("[clip-intake] attach cleanup failed:", cleanupError);
+        console.warn("[clip-intake] recording cleanup failed:", cleanupError);
       });
-      throw error;
-    }
+    };
 
     if (bugReport) {
-      await runWithRequestContext(
-        {
-          userEmail: claimed.ownerEmail,
-          orgId: claimed.organizationId,
-        },
-        async () => {
-          try {
-            await saveBugReportContext.run(
+      try {
+        await runWithRequestContext(
+          {
+            userEmail: claimed.ownerEmail,
+            orgId: claimed.organizationId,
+          },
+          () =>
+            saveBugReportContext.run(
               {
                 recordingId: created.id,
                 ...bugReport,
@@ -177,34 +176,25 @@ export default defineAction({
                 userEmail: claimed.ownerEmail,
                 orgId: claimed.organizationId,
               },
-            );
-          } catch (error) {
-            await abandonClipIntake(intakeId, created.id).catch(() => {});
-            await Promise.resolve(
-              trashRecording.run(
-                { id: created.id, skipIfReady: true },
-                {
-                  caller: "http",
-                  userEmail: claimed.ownerEmail,
-                  orgId: claimed.organizationId,
-                },
-              ),
-            ).catch((cleanupError: unknown) => {
-              console.warn(
-                "[clip-intake] bug report cleanup failed:",
-                cleanupError,
-              );
-            });
-            fail(
-              "Could not save the bug report context. This intake was not completed. Try again.",
-              {
-                errorCode: "intake_context_unavailable",
-                statusCode: 503,
-              },
-            );
-          }
-        },
-      );
+            ),
+        );
+      } catch {
+        await cleanupCreatedRecording();
+        fail(
+          "Could not save the bug report context. This intake was not completed. Try again.",
+          {
+            errorCode: "intake_context_unavailable",
+            statusCode: 503,
+          },
+        );
+      }
+    }
+
+    try {
+      await attachClipIntakeRecording(intakeId, created.id);
+    } catch (error) {
+      await cleanupCreatedRecording();
+      throw error;
     }
 
     return {
