@@ -34,6 +34,9 @@ describe("production cache contract probe helpers", () => {
   it("recognizes hits and successful stale revalidation without false positives", () => {
     assert.equal(cacheStatusHasHit('"Netlify Durable"; hit; ttl=599'), true);
     assert.equal(cacheStatusHasHit('"Netlify Edge"; hit; ttl=599'), true);
+    assert.equal(cacheStatusHasHit('"Netlify Edge"; hit=?1'), true);
+    assert.equal(cacheStatusHasHit('"Netlify Edge"; hit=?0'), false);
+    assert.equal(cacheStatusHasHit("hit"), false);
     assert.equal(
       cacheStatusHasHit('"Netlify Edge"; fwd=stale; fwd-status=304; stored'),
       true,

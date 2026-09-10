@@ -194,10 +194,11 @@ export function cacheStatusHasHit(value) {
   return splitCacheStatus(value ?? "", ",").some((member) => {
     const segments = splitCacheStatus(member, ";");
     const parameters = segments
-      .slice(segments.length > 1 ? 1 : 0)
+      .slice(1)
       .map((segment) => segment.trim().toLowerCase());
     return (
       parameters.includes("hit") ||
+      parameters.includes("hit=?1") ||
       (parameters.includes("fwd=stale") &&
         parameters.includes("fwd-status=304"))
     );
