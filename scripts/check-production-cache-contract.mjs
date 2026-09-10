@@ -62,7 +62,9 @@ const REAL_PROBES_BY_HOST = {
     { pathname: "/apps", contentType: "text/html", requireRepeatHit: true },
     {
       pathname: "/apps/_.data",
-      contentType: "text/x-script",
+      // Netlify serves prerendered React Router data as text/plain; SSR
+      // single-fetch responses use text/x-script.
+      contentType: ["text/x-script", "text/plain"],
       requireRepeatHit: true,
     },
     { pathname: "/docs/agent-resources/", contentType: "text/html" },
@@ -72,7 +74,7 @@ const REAL_PROBES_BY_HOST = {
     { pathname: "/apps", contentType: "text/html", requireRepeatHit: true },
     {
       pathname: "/apps/_.data",
-      contentType: "text/x-script",
+      contentType: ["text/x-script", "text/plain"],
       requireRepeatHit: true,
     },
     { pathname: "/docs/agent-resources/", contentType: "text/html" },
@@ -165,14 +167,56 @@ async function probe(host, fetchImpl = fetch) {
   ];
 }
 
+function splitCacheStatus(value, delimiter) {
+  const segments = [];
+  let segmentStart = 0;
+  let inQuotes = false;
+  let backslashRun = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === "\\") {
+      backslashRun += 1;
+      continue;
+    }
+    if (character === '"' && backslashRun % 2 === 0) {
+      inQuotes = !inQuotes;
+    } else if (character === delimiter && !inQuotes) {
+      segments.push(value.slice(segmentStart, index));
+      segmentStart = index + 1;
+    }
+    backslashRun = 0;
+  }
+  segments.push(value.slice(segmentStart));
+  return segments;
+}
+
 export function cacheStatusHasHit(value) {
-  return /(?:^|[;,]\s*)hit(?:\s*[,;]|\s*$)/i.test(value ?? "");
+  return splitCacheStatus(value ?? "", ",").some((member) => {
+    const segments = splitCacheStatus(member, ";");
+    const parameters = new Map();
+    for (const segment of segments.slice(1)) {
+      const parameter = segment.trim().toLowerCase();
+      const separator = parameter.indexOf("=");
+      const name = separator === -1 ? parameter : parameter.slice(0, separator);
+      const parameterValue =
+        separator === -1 ? "" : parameter.slice(separator + 1);
+      parameters.set(name, parameterValue);
+    }
+    const hit = parameters.get("hit");
+    return (
+      hit === "" ||
+      hit === "?1" ||
+      (parameters.get("fwd") === "stale" &&
+        parameters.get("fwd-status") === "304")
+    );
+  });
 }
 
 export function contentTypeMatches(value, expected) {
-  return (
-    (value ?? "").split(";", 1)[0].trim().toLowerCase() ===
-    expected.toLowerCase()
+  const actual = (value ?? "").split(";", 1)[0].trim().toLowerCase();
+  const expectedTypes = Array.isArray(expected) ? expected : [expected];
+  return expectedTypes.some(
+    (expectedType) => actual === expectedType.toLowerCase(),
   );
 }
 

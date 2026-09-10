@@ -10,8 +10,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
 
 concurrency:
   group: netlify-pr-preview-${{ github.event.pull_request.number }}
@@ -87,6 +85,8 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       needs.discover.outputs.has_targets == 'true'
     needs: [discover, build]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
@@ -106,6 +106,141 @@ jobs:
       pull_request_number: ${{ github.event.pull_request.number }}
       preview_alias: pr-${{ github.event.pull_request.number }}
     secrets: inherit
+
+  comment:
+    name: ${{ matrix.site }} PR preview comment
+    if: >-
+      always() &&
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.discover.outputs.has_targets == 'true' &&
+      needs.deploy.result != 'cancelled'
+    needs: [discover, deploy]
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - name: Find the trusted PR preview deploy record
+        id: find_record
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SITE_NAME: ${{ matrix.site }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const siteName = process.env.SITE_NAME;
+            const prefix = `netlify-pr-preview-record-${siteName}-${context.runId}-${process.env.RUN_ATTEMPT}-`;
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const deployJob = jobs.find(
+              (job) =>
+                (job.name === `${siteName} PR preview` ||
+                  job.name.startsWith(`${siteName} PR preview /`)) &&
+                job.conclusion === 'success',
+            );
+            const deployStartedAt = Date.parse(deployJob?.started_at ?? '');
+            if (!Number.isFinite(deployStartedAt)) {
+              core.notice(`No successful deploy job for ${siteName}; skipping its preview comment.`);
+              return;
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const trustedArtifacts = artifacts
+              .filter(
+                (artifact) =>
+                  artifact.name.startsWith(prefix) &&
+                  artifact.expired !== true &&
+                  Date.parse(artifact.created_at) > deployStartedAt,
+              )
+              .sort(
+                (left, right) =>
+                  Date.parse(right.created_at) - Date.parse(left.created_at),
+              );
+            const artifact = trustedArtifacts[0];
+            if (!artifact) {
+              core.notice(`No trusted deploy record for ${siteName}; skipping its preview comment.`);
+              return;
+            }
+            core.setOutput('artifact_id', String(artifact.id));
+
+      - name: Download the trusted PR preview deploy record
+        if: always() && steps.find_record.outputs.artifact_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ steps.find_record.outputs.artifact_id }}
+          path: ${{ runner.temp }}/netlify-pr-preview-record
+
+      - name: Comment the PR preview URL
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RECORD_FILE: ${{ runner.temp }}/netlify-pr-preview-record/record.json
+          SITE_NAME: ${{ matrix.site }}
+          SOURCE_REF: ${{ github.event.pull_request.head.sha }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { existsSync, readFileSync } = require('node:fs');
+            if (!existsSync(process.env.RECORD_FILE)) {
+              core.notice(`No successful deploy record for ${process.env.SITE_NAME}; skipping its preview comment.`);
+              return;
+            }
+            const record = JSON.parse(readFileSync(process.env.RECORD_FILE, 'utf8'));
+            if (
+              record.pullRequestNumber !== context.issue.number ||
+              !record.deployId ||
+              !record.deployUrl ||
+              record.siteName !== process.env.SITE_NAME ||
+              record.sourceRef !== process.env.SOURCE_REF
+            ) {
+              core.setFailed('PR preview upload did not return a complete deploy record.');
+              return;
+            }
+            const marker = `<!-- agent-native-netlify-preview:${record.siteName} -->`;
+            const body = [
+              marker,
+              `**${record.siteName} preview:** [Open preview](${record.deployUrl})`,
+              '',
+              `Built by GitHub Actions from \`${record.sourceRef}\`; Netlify is serving the uploaded artifact.`,
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 
   fork:
     name: Fork preview policy

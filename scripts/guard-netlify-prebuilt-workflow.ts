@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { parse } from "yaml";
 
@@ -17,8 +17,8 @@ const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 // all three production lanes must therefore share one per-site queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
-export const PRODUCTION_PURGE_CONDITION =
-  "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()";
+export const PUBLISHED_CACHE_PURGE_CONDITION =
+  "(inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && inputs.deploy_mode == 'production' && (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') && success()";
 
 const reusable = readFileSync(reusablePath, "utf8");
 const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
@@ -48,25 +48,93 @@ export function validateReusableWorkflowConcurrency(
     !group.includes("inputs.caller") ||
     !group.includes("netlify-prebuilt-child") ||
     !group.includes("netlify-prebuilt-preview-{0}-{1}") ||
+    !group.includes("netlify-prebuilt-beta-{0}") ||
+    !group.includes("netlify-prebuilt-beta-direct") ||
     !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
     !group.includes("agent-native-production-site") ||
-    group.includes("github.event_name")
+    !group.includes("github.event_name")
   ) {
     return [
-      "reusable Netlify workflow must select a distinct child queue through inputs.caller",
+      "reusable Netlify workflow must serialize beta publishers per site and isolate direct beta dispatches",
     ];
   }
   return [];
 }
 
-export function validateProductionPurgeCondition(ifValue: unknown): string[] {
+export function validateReusableWorkflowPermissions(
+  workflow: Record<string, unknown>,
+): string[] {
+  const permissions = asRecord(workflow.permissions);
+  if (
+    permissions?.contents !== "read" ||
+    Object.keys(permissions ?? {}).some(
+      (permission) => permission !== "contents",
+    )
+  ) {
+    return [
+      `${reusablePath} must declare only the read permissions used by the reusable deploy job`,
+    ];
+  }
+  return [];
+}
+
+export function validateReusableCallerPermissions(
+  workflow: Record<string, unknown>,
+  path: string,
+): string[] {
+  const issues: string[] = [];
+  const workflowPermissions = asRecord(workflow.permissions);
+  for (const [jobName, value] of Object.entries(
+    asRecord(workflow.jobs) ?? {},
+  )) {
+    const job = asRecord(value);
+    if (job?.uses !== `./${reusablePath}`) continue;
+    const permissions = asRecord(job.permissions) ?? workflowPermissions;
+    if (
+      !permissions ||
+      (permissions.contents !== "read" && permissions.contents !== "write")
+    ) {
+      issues.push(
+        `${path} ${jobName} reusable deploy job must explicitly retain contents access`,
+      );
+    }
+  }
+  return issues;
+}
+
+export function validateReusablePreviewRecordPlacement(
+  workflow: Record<string, unknown>,
+): string[] {
+  const deploy = asRecord(asRecord(workflow.jobs)?.deploy);
+  const steps = Array.isArray(deploy?.steps) ? deploy.steps.map(asRecord) : [];
+  const stepIndex = (name: string) =>
+    steps.findIndex((step) => step?.name === name);
+  const recordIndex = stepIndex("Prepare the trusted PR preview deploy record");
+  const previewSmokeIndex = stepIndex("Smoke-test the uploaded PR preview");
+  const docsSmokeIndex = stepIndex("Smoke-test the static docs deploy");
+  if (
+    recordIndex < 0 ||
+    previewSmokeIndex < 0 ||
+    docsSmokeIndex < 0 ||
+    recordIndex <= Math.max(previewSmokeIndex, docsSmokeIndex)
+  ) {
+    return [
+      `${reusablePath} must publish PR preview records only after every preview smoke check`,
+    ];
+  }
+  return [];
+}
+
+export function validatePublishedCachePurgeCondition(
+  ifValue: unknown,
+): string[] {
   const normalized =
     typeof ifValue === "string" ? ifValue.trim().replace(/\s+/g, " ") : "";
-  if (normalized !== PRODUCTION_PURGE_CONDITION) {
+  if (normalized !== PUBLISHED_CACHE_PURGE_CONDITION) {
     return [
-      `${reusablePath} production cache purge must run only after a successful production deploy`,
+      `${reusablePath} published cache purge must run only after a successful beta or production deploy`,
     ];
   }
   return [];
@@ -125,6 +193,8 @@ export function validateNetlifyPrPreviewWorkflow(
   const discoverCheckoutWith = asRecord(discoverCheckout?.with);
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
+  const comment = asRecord(jobs?.comment);
+  const commentPermissions = asRecord(comment?.permissions);
 
   if (!asRecord(triggers?.pull_request_target)) {
     issues.push(`${pullRequestPath} must be triggered by pull_request_target`);
@@ -182,6 +252,35 @@ export function validateNetlifyPrPreviewWorkflow(
   ) {
     issues.push(
       `${pullRequestPath} PR build job must not receive deployment secrets`,
+    );
+  }
+  if (
+    comment?.["runs-on"] !== "ubuntu-latest" ||
+    !Array.isArray(comment.needs) ||
+    !comment.needs.includes("deploy") ||
+    commentPermissions?.actions !== "read" ||
+    commentPermissions?.contents !== "read" ||
+    commentPermissions.issues !== "write" ||
+    commentPermissions["pull-requests"] !== "write" ||
+    Object.keys(commentPermissions ?? {}).some(
+      (permission) =>
+        !["actions", "contents", "issues", "pull-requests"].includes(
+          permission,
+        ),
+    ) ||
+    !source.includes("actions/download-artifact@") ||
+    !source.includes("actions/github-script@") ||
+    !source.includes("listJobsForWorkflowRun") ||
+    !source.includes("listWorkflowRunArtifacts") ||
+    !source.includes("artifact-ids:") ||
+    !source.includes("started_at") ||
+    !source.includes("created_at") ||
+    !source.includes("needs.deploy.result != 'cancelled'") ||
+    !source.includes("continue-on-error: true") ||
+    !source.includes("No successful deploy record")
+  ) {
+    issues.push(
+      `${pullRequestPath} comment job must own PR comment permissions and consume the trusted deploy record`,
     );
   }
   if (deployWith?.target !== "preview") {
@@ -335,6 +434,21 @@ try {
     }
     parsedWorkflows.set(path, document);
   }
+  for (const fileName of readdirSync(".github/workflows")) {
+    if (!/\.ya?ml$/.test(fileName)) continue;
+    const path = `.github/workflows/${fileName}`;
+    if (parsedWorkflows.has(path)) continue;
+    const source = readFileSync(path, "utf8");
+    const document = asRecord(parse(source));
+    if (!document) {
+      throw new Error(`${path} must contain a YAML mapping at the root`);
+    }
+    const hasReusableCaller = Object.values(asRecord(document.jobs) ?? {}).some(
+      (value) => asRecord(value)?.uses === `./${reusablePath}`,
+    );
+    if (!hasReusableCaller) continue;
+    parsedWorkflows.set(path, document);
+  }
   if (!reusable.includes("workflow_call:")) {
     issues.push(`${reusablePath} must remain a reusable workflow`);
   }
@@ -346,6 +460,12 @@ try {
 
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
+issues.push(...validateReusableWorkflowPermissions(reusableDocument ?? {}));
+issues.push(...validateReusablePreviewRecordPlacement(reusableDocument ?? {}));
+for (const [path, workflow] of parsedWorkflows) {
+  if (path === reusablePath) continue;
+  issues.push(...validateReusableCallerPermissions(workflow, path));
+}
 issues.push(
   ...validateNetlifyPrPreviewWorkflow(
     parsedWorkflows.get(pullRequestPath) ?? {},
@@ -354,22 +474,38 @@ issues.push(
 );
 
 if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
-  issues.push(`${reusablePath} beta deploys must queue every source SHA`);
+  issues.push(
+    `${reusablePath} beta child deploys must keep accepted publishers alive and coalesce pending sources`,
+  );
 }
 const betaWorkflowConcurrency = asRecord(
   parsedWorkflows.get(betaPath)?.concurrency,
 );
-const betaWorkflowGroup = String(betaWorkflowConcurrency?.group ?? "");
+const betaWorkflowConcurrencyGroup = String(
+  betaWorkflowConcurrency?.group ?? "",
+);
 if (
-  !betaWorkflowGroup.includes("github.event_name == 'push'") ||
-  !betaWorkflowGroup.includes("'deploy-agent-native-beta-sites-prebuilt'") ||
-  !betaWorkflowGroup.includes(
-    "'deploy-agent-native-beta-sites-prebuilt-manual'",
+  !betaWorkflowConcurrencyGroup.includes(
+    "github.event_name == 'workflow_dispatch'",
   ) ||
-  betaWorkflowConcurrency["cancel-in-progress"] !== false
+  !betaWorkflowConcurrencyGroup.includes(
+    "format('deploy-agent-native-beta-manual-{0}', github.run_id)",
+  ) ||
+  !betaWorkflowConcurrencyGroup.includes(
+    "'deploy-agent-native-beta-sites-prebuilt'",
+  ) ||
+  betaWorkflowConcurrency?.["cancel-in-progress"] !== false
 ) {
   issues.push(
-    `${betaPath} must coalesce pending main pushes without canceling an active fleet publish`,
+    `${betaPath} must isolate manual validation from the automatic beta publisher queue`,
+  );
+}
+const reusableDeployJobConfig = asRecord(
+  asRecord(reusableDocument?.jobs)?.deploy,
+);
+if (reusableDeployJobConfig?.["timeout-minutes"] !== 150) {
+  issues.push(
+    `${reusablePath} must reserve cleanup time after the Netlify publish wait`,
   );
 }
 const reusableConcurrencyGroup = String(
@@ -381,11 +517,18 @@ const normalizedReusableConcurrencyGroup = reusableConcurrencyGroup.replace(
 );
 if (
   !normalizedReusableConcurrencyGroup.includes(
-    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}-{1}', inputs.caller, inputs.site)",
+    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}', inputs.site)",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "github.event_name == 'workflow_dispatch'",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes("!inputs.caller") ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)",
   )
 ) {
   issues.push(
-    `${reusablePath} beta publishes must isolate automatic and manual child queues per site`,
+    `${reusablePath} beta publishes must share one latest-wins child queue per site`,
   );
 }
 
@@ -453,16 +596,27 @@ const clipsBuild =
   buildStepStart >= 0 && buildStepEnd > buildStepStart
     ? reusable.slice(buildStepStart, buildStepEnd)
     : "";
-const hasProductionChatBuildOverride =
+const hasOfflineSecretFreePreviewBuild =
   clipsBuild.includes(
-    'if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',
+    'if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then',
+  ) &&
+  clipsBuild.includes("build_args+=(--offline)") &&
+  clipsBuild.includes('netlify "${build_args[@]}"');
+if (!hasOfflineSecretFreePreviewBuild) {
+  issues.push(
+    `${reusablePath} must use Netlify offline mode for the secret-free PR build`,
+  );
+}
+const hasChatBuildOverride =
+  clipsBuild.includes(
+    'if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',
   ) &&
   chatNetlify.includes("agentNativePrebuiltBuild") &&
   chatNetlify.includes("agentNativePrebuiltDatabaseUrl") &&
   chatNetlify.includes("agentNativePrebuiltAuthSecret");
-if (!hasProductionChatBuildOverride) {
+if (!hasChatBuildOverride) {
   issues.push(
-    `${reusablePath} and ${chatNetlifyPath} must provide production and PR preview Chat build-only overrides for masked Netlify secrets`,
+    `${reusablePath} and ${chatNetlifyPath} must provide beta, production, and PR preview Chat build-only overrides for masked Netlify secrets`,
   );
 }
 const hasClipsAndPlanBuildOverride = clipsBuild.includes(
@@ -561,7 +715,7 @@ const parsedUploadIndex = parsedStepIndex("Upload the prebuilt deploy");
 const parsedPublishWaitIndex = parsedStepIndex(
   "Wait for the Netlify deploy to publish",
 );
-const parsedPurgeIndex = parsedStepIndex("Purge the production Netlify cache");
+const parsedPurgeIndex = parsedStepIndex("Purge the published Netlify cache");
 const parsedLockIndex = parsedStepIndex("Lock the published production deploy");
 const parsedResumeIndex = parsedStepIndex(
   "Resume automatic Netlify builds after production cutover",
@@ -644,7 +798,7 @@ if (
   );
 }
 issues.push(
-  ...validateProductionPurgeCondition(reusableSteps[parsedPurgeIndex]?.if),
+  ...validatePublishedCachePurgeCondition(reusableSteps[parsedPurgeIndex]?.if),
 );
 
 const uploadStart = reusable.indexOf("name: Upload the prebuilt deploy");
@@ -652,7 +806,7 @@ const uploadEnd = reusable.indexOf(
   "name: Wait for the Netlify deploy to publish",
   uploadStart,
 );
-const purgeStart = reusable.indexOf("name: Purge the production Netlify cache");
+const purgeStart = reusable.indexOf("name: Purge the published Netlify cache");
 const purgeEnd = reusable.indexOf(
   "name: Lock the published production deploy",
   purgeStart,
@@ -720,7 +874,7 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
 }
 if (purgeStart < 0 || purgeEnd <= purgeStart) {
   issues.push(
-    `${reusablePath} must purge the production cache before locking the published deploy`,
+    `${reusablePath} must purge the published cache before locking the published deploy`,
   );
 } else {
   const purge = reusable.slice(purgeStart, purgeEnd);
@@ -734,7 +888,7 @@ if (purgeStart < 0 || purgeEnd <= purgeStart) {
     !purge.includes("response.ok")
   ) {
     issues.push(
-      `${reusablePath} production cache purge must POST the site_id to Netlify and fail on a non-success response`,
+      `${reusablePath} published cache purge must POST the site_id to Netlify and fail on a non-success response`,
     );
   }
 }
@@ -978,15 +1132,164 @@ if (
 }
 
 const reusableBetaFreshness = reusable;
+const firstBetaPublishStart = reusableBetaFreshness.indexOf(
+  "name: Publish first beta deploy after freshness verification",
+);
+const firstBetaPublishEnd = reusableBetaFreshness.indexOf(
+  "name: Verify beta source is current after publish",
+  firstBetaPublishStart,
+);
+const firstBetaPublish =
+  firstBetaPublishStart >= 0 && firstBetaPublishEnd > firstBetaPublishStart
+    ? reusableBetaFreshness.slice(firstBetaPublishStart, firstBetaPublishEnd)
+    : "";
 if (
   reusableBetaFreshness.includes("allowPinnedRecovery") ||
   !reusableBetaFreshness.includes(
+    "Beta source_ref must be a full 40-character commit SHA.",
+  ) ||
+  !reusableBetaFreshness.includes("Beta source_ref must equal current main") ||
+  !reusableBetaFreshness.includes(
+    "Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta site has no published deploy",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Uploading the first beta deploy as a draft until its source is revalidated.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Verify first beta deploy source immediately before publish",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Publish first beta deploy after freshness verification",
+  ) ||
+  !firstBetaPublish.includes("id: beta_first_publish") ||
+  !firstBetaPublish.includes("--prod") ||
+  firstBetaPublish.includes("/restore") ||
+  !firstBetaPublish.includes(
+    "Wait for first beta production deploy to publish",
+  ) ||
+  !firstBetaPublish.includes("id: beta_first_publish_wait") ||
+  !firstBetaPublish.includes("Netlify first beta production deploy status") ||
+  !firstBetaPublish.includes(
+    "did not become ready and published within 30 minutes",
+  ) ||
+  !firstBetaPublish.includes("main_sha,,}") ||
+  !firstBetaPublish.includes("SOURCE_REF,,}") ||
+  !reusableBetaFreshness.includes("id: beta_first_publish_reconcile") ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id",
+  ) ||
+  !reusableBetaFreshness.includes("Recovered first beta production deploy") ||
+  !reusableBetaFreshness.includes("Netlify published unrelated deploy") ||
+  reusableBetaFreshness.includes(
+    "DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}",
+  ) ||
+  !reusableBetaFreshness.includes("Delete staged first beta draft") ||
+  !reusableBetaFreshness.includes("id: beta_draft_cleanup") ||
+  !reusableBetaFreshness.includes("DRAFT_DEPLOY_ID") ||
+  !reusableBetaFreshness.includes(
+    "Netlify staged beta draft ${draftId} deletion",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Refusing to delete staged beta draft ${draftId} because Netlify published it.",
+  ) ||
+  !reusableBetaFreshness.includes("cancellationDeadline") ||
+  !reusableBetaFreshness.includes(
+    "staged beta draft ${draftId} cancellation status",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Canceled and deleted staged beta draft ${draftId}.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "did not become terminal after cancellation",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.beta_first_publish_reconcile.outputs.deploy_url || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_url) }}",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "First publishes are staged as drafts and only published after a current-main check",
+  ) ||
+  reusableBetaFreshness.includes("requested || 'beta'") ||
+  !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
   ) ||
-  !reusableBetaFreshness.includes("core.setOutput('current', String(current))")
+  !reusableBetaFreshness.includes(
+    "core.setOutput('current', String(current))",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Verify beta source is current after publish",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "always() && inputs.target == 'beta' && inputs.deploy",
+  ) ||
+  !reusableBetaFreshness.includes("steps.deploy.outputs.deploy_id != ''") ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_post_freshness.outputs.current == 'false'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_post_freshness.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_freshness.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_freshness.outputs.current == 'false'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_wait.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes("id: deploy_wait") ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta deploy ${process.env.DEPLOY_ID} was superseded by unrelated published deploy",
+  ) ||
+  !reusableBetaFreshness.includes("steps.deploy_wait.outcome == 'failure'") ||
+  !reusableBetaFreshness.includes("Revert stale beta deploy") ||
+  !reusableBetaFreshness.includes(
+    "/sites/${siteId}/deploys/${previousId}/restore",
+  ) ||
+  !reusableBetaFreshness.includes("/deploys/${deployId}/cancel") ||
+  !reusableBetaFreshness.includes("cancellationRequested") ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta freshness restore precondition",
+  ) ||
+  !reusableBetaFreshness.includes("const restoredDeployId = restored?.id") ||
+  !reusableBetaFreshness.includes(
+    "current.published_deploy?.id === restoredDeployId",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Keep this job in the per-site concurrency group until Netlify",
+  ) ||
+  !reusableBetaFreshness.includes("cancellationRejected") ||
+  !reusableBetaFreshness.includes("deletionRequested") ||
+  !reusableBetaFreshness.includes('method: "DELETE"') ||
+  !reusableBetaFreshness.includes(
+    "Netlify stale beta deploy ${deployId} deletion",
+  ) ||
+  !reusableBetaFreshness.includes("Fail after beta freshness verification") ||
+  reusableBetaFreshness.includes(
+    "did not settle before the five-minute cleanup deadline",
+  ) ||
+  !reusableBetaFreshness.includes("PREVIOUS_DEPLOY_ID") ||
+  !reusableBetaFreshness.includes("const publishedDeployId") ||
+  !reusableBetaFreshness.includes(
+    "keeping the beta queue occupied until the stale deploy is non-publishable",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.previous.outputs.published_deploy_id != ''",
+  ) ||
+  !reusableBetaFreshness.includes("TARGET: ${{ inputs.target }}") ||
+  !reusableBetaFreshness.includes("PUBLISH_STARTED_AT") ||
+  !reusableBetaFreshness.includes("DEPLOY_MESSAGE") ||
+  !reusableBetaFreshness.includes(
+    "first beta production deploy reconciliation",
+  ) ||
+  !reusableBetaFreshness.includes("Could not parse Netlify CLI output") ||
+  !reusableBetaFreshness.includes("deploy.commit_ref")
 ) {
   issues.push(
-    `${reusablePath} must reject stale beta recovery sources before upload`,
+    `${reusablePath} must reject stale beta sources before upload and revert accepted stale deploys`,
   );
 }
 if (
