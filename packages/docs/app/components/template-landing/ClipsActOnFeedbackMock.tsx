@@ -28,8 +28,9 @@
  *   (_app.r.$recordingId.tsx:2502-2545, 2089-2136,
  *   components/player/recording-views-badge.tsx:140-164,
  *   components/player/delete-recording-menu.tsx:95-104).
- * - Transcript panel: search field, copy/download actions, and
- *   `TranscriptSegmentRow` rows with their right-aligned mono timestamps
+ * - Transcript panel: search field, copy/download actions, and the
+ *   `TranscriptSegmentRow` gutter — text column plus a fixed timestamp slot —
+ *   drawn as skeleton lines rather than sentences
  *   (components/player/transcript-panel.tsx:320-431,
  *   components/transcript/transcript-segment-row.tsx:48-95).
  * - The open share popover on the Agents tab, which is the point of the card:
@@ -114,35 +115,19 @@ function ClaudeCodeLogo({ className }: { className?: string }) {
 
 const RECORDING_TITLE = "Feedback on the landing page rewrite";
 
-const TRANSCRIPT: Array<{ time: string; text: string }> = [
-  {
-    time: "0:00",
-    text: "Recording some feedback on the landing page rewrite so you can pick it up from here.",
-  },
-  {
-    time: "0:14",
-    text: "The hero headline is good, but the subhead underneath repeats it almost word for word.",
-  },
-  {
-    time: "0:29",
-    text: "Right here, the install snippet gets cut off on the right at this window width.",
-  },
-  {
-    time: "0:41",
-    text: "The three cards below should be equal height. The middle one is short so the row looks uneven.",
-  },
-  {
-    time: "0:58",
-    text: "I left the console open for this part. There is a hydration warning coming from the copy button.",
-  },
-  {
-    time: "1:12",
-    text: "Last one, the footer links are lighter than the body text and hard to read.",
-  },
-  {
-    time: "1:26",
-    text: "That is everything. Should be about twenty minutes of work.",
-  },
+// The panel body is drawn as skeleton lines rather than sentences. Whichever
+// tab is showing — Comments or Transcript — it is a stack of wrapped text rows,
+// and abstracting it keeps the illustration about the share menu instead of
+// inviting the reader to read fake feedback. Each entry is one segment, and its
+// numbers are the widths of that segment's wrapped lines, so the last line of
+// each runs short the way real text does.
+const TRANSCRIPT_SKELETON: number[][] = [
+  [100, 64],
+  [100, 100, 46],
+  [100, 72],
+  [100, 100, 52],
+  [100, 38],
+  [100, 58],
 ];
 
 const AGENT_ROWS = [
@@ -418,9 +403,7 @@ export function ClipsActOnFeedbackMock({
                   <div className="flex items-center gap-2 border-b border-border p-3">
                     <div className="relative flex-1">
                       <IconSearch className="absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <div className="flex h-8 w-full items-center rounded-md border border-input bg-transparent pr-3 pl-8 text-xs text-muted-foreground">
-                        Search transcript
-                      </div>
+                      <div className="flex h-8 w-full items-center rounded-md border border-input bg-transparent pr-3 pl-8 text-xs text-muted-foreground" />
                     </div>
                     <div className="flex items-center gap-0.5">
                       <span className="inline-flex size-8 items-center justify-center rounded-md">
@@ -434,26 +417,22 @@ export function ClipsActOnFeedbackMock({
 
                   <div className="min-h-0 flex-1 overflow-hidden px-3">
                     <ul className="py-1">
-                      {TRANSCRIPT.map((segment, index) => (
-                        <li key={segment.time}>
-                          <div
-                            className={`relative flex w-full items-baseline gap-4 rounded-md px-3 py-1.5 text-left text-sm leading-normal text-foreground ${
-                              index === 0 ? "bg-accent" : ""
-                            }`}
-                          >
-                            <span className="min-w-0 flex-1 whitespace-pre-wrap">
-                              <span
-                                className={
-                                  index === 0
-                                    ? "text-sm leading-normal text-foreground"
-                                    : "text-sm leading-normal text-foreground/80"
-                                }
-                              >
-                                {segment.text}
-                              </span>
+                      {TRANSCRIPT_SKELETON.map((lines, index) => (
+                        <li key={index}>
+                          {/* Keeps TranscriptSegmentRow's gutter: text column,
+                              then the fixed 12-unit timestamp slot. */}
+                          <div className="relative flex w-full items-start gap-4 rounded-md px-3 py-2">
+                            <span className="flex min-w-0 flex-1 flex-col gap-2">
+                              {lines.map((width, lineIndex) => (
+                                <span
+                                  key={lineIndex}
+                                  className="h-2.5 rounded-md bg-muted"
+                                  style={{ width: `${width}%` }}
+                                />
+                              ))}
                             </span>
-                            <span className="pointer-events-none w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/80">
-                              {segment.time}
+                            <span className="flex w-12 shrink-0 justify-end">
+                              <span className="h-2 w-8 rounded-md bg-muted" />
                             </span>
                           </div>
                         </li>
