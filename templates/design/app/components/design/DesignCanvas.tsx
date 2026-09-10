@@ -4353,17 +4353,19 @@ export function DesignCanvas({
   // Expose iframe runtime mutations for the editor orchestrator.
   useEffect(() => {
     if (!registerRuntimeBridge) return;
-    // Fan out to every linked breakpoint frame for this screen. The active
-    // canvas owns these globals, but a base style edit / undo must update the
-    // sibling `::bp-*` iframes too — they share one design_files row and
-    // otherwise keep a stale DOM after Cmd+Z (BUG-UNDO-LINKED-BREAKPOINT).
+    // Fan out base-scope style edits to linked breakpoint iframes so they stay
+    // visually in sync (BUG-UNDO-LINKED-BREAKPOINT). Breakpoint-scoped preview
+    // frames must only patch themselves — otherwise a Phone edit briefly paints
+    // onto Tablet/Desktop siblings before persistence scope is decided.
     const sendStyleChangeLinked = (
       selector: string,
       property: string,
       value: string,
       options?: { selectorCandidates?: string[]; nodeId?: string | null },
     ) => {
-      if (screenId) {
+      const isBreakpointScopedPreview =
+        typeof previewFrameId === "string" && previewFrameId.includes("::bp-");
+      if (screenId && !isBreakpointScopedPreview) {
         return sendLinkedScreenPreviewStyleChange(
           screenId,
           selector,

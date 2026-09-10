@@ -135,6 +135,15 @@ export function MakeRealDialog({
             : "Couldn't join the waitlist. Please try again." /* i18n-ignore */,
         );
       }
+      const formSubmitted =
+        payload !== null &&
+        "formSubmitted" in payload &&
+        (payload as { formSubmitted?: unknown }).formSubmitted === true;
+      if (!formSubmitted) {
+        throw new Error(
+          "Waitlist signup isn't available right now. Please try again later." /* i18n-ignore */,
+        );
+      }
       setWaitlistJoined(true);
     } catch (err) {
       setWaitlistError(

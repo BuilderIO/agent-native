@@ -18612,19 +18612,25 @@ function DesignEditor() {
       // Optimistic paint: patch the design query + ref in this click frame so
       // overview frames / the breakpoint bar update before the mutation
       // round-trips. Rollback on failure.
+      const optimisticId = `optimistic-bp-${widthPx}`;
       const { rollback } = beginOptimisticBreakpointSetPatch({
         designId: id,
         queryClient,
         designDataJsonRef,
         nextData: optimisticAddBreakpointData(designDataJsonRef.current, {
-          id: `optimistic-bp-${widthPx}`,
+          id: optimisticId,
           label: resolvedLabel,
           widthPx,
         }),
       });
       reflowOverviewScreensForBreakpoints(nextWidths);
       void addBreakpointMutation
-        .mutateAsync({ designId: id, label: resolvedLabel, widthPx })
+        .mutateAsync({
+          designId: id,
+          id: optimisticId,
+          label: resolvedLabel,
+          widthPx,
+        })
         .catch((error) => {
           rollback();
           toast.error(t("common.genericError"), {
@@ -21289,6 +21295,18 @@ function DesignEditor() {
           open={
             minimalUi
               ? isMobileViewport && minimalInspectorHasSelection
+              : undefined
+          }
+          onOpenChange={
+            minimalUi
+              ? (nextOpen) => {
+                  if (nextOpen) return;
+                  // Controlled by selection — dismiss clears selection so the
+                  // sheet can close on Escape / overlay click.
+                  setSelectedElement(null);
+                  setSelectedLayerIdsState([]);
+                  setOverviewSelectedScreenIds([]);
+                }
               : undefined
           }
         >

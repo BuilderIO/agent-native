@@ -79,7 +79,8 @@ export function useDesignVersion(
     designId && versionId ? { designId, versionId } : undefined,
     {
       enabled: !!(designId && versionId),
-      placeholderData: (prev: DesignVersionDetail | undefined) => prev,
+      // Do not carry the previous checkpoint as placeholderData — selecting
+      // version B must not render version A's preview/title while B loads.
     } as Record<string, unknown>,
   );
 }

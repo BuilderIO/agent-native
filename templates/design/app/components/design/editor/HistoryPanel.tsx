@@ -81,7 +81,13 @@ export function HistoryPanel({
   const restoreVersion = useRestoreDesignVersion();
 
   const versions = versionsQuery.data?.versions ?? [];
-  const selectedVersion = versionQuery.data;
+  const selectedVersion =
+    versionQuery.data?.id === selectedVersionId ? versionQuery.data : undefined;
+  const versionDetailPending =
+    !!selectedVersionId &&
+    (versionQuery.isLoading ||
+      versionQuery.isFetching ||
+      selectedVersion?.id !== selectedVersionId);
   const previewFiles =
     selectedVersion?.files.filter(
       (file) =>
@@ -96,7 +102,7 @@ export function HistoryPanel({
   };
 
   const handleRestore = async () => {
-    if (!selectedVersionId) return;
+    if (!selectedVersionId || versionDetailPending) return;
     try {
       await restoreVersion.mutateAsync({
         designId,
@@ -154,7 +160,7 @@ export function HistoryPanel({
         {selectedVersionId ? (
           <div className="flex h-[calc(100%-60px)] flex-col">
             <div className="border-b border-border px-4 py-3">
-              {versionQuery.isLoading ? (
+              {versionDetailPending ? (
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-2/3" />
                   <Skeleton className="h-3 w-1/3" />
@@ -164,14 +170,12 @@ export function HistoryPanel({
                   <p className="truncate text-sm font-medium">
                     {selectedVersion
                       ? versionTitle(selectedVersion)
-                      : "Snapshot unavailable"}{" "}
-                    {/* i18n-ignore */}
+                      : "Snapshot unavailable" /* i18n-ignore */}
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {selectedVersion
                       ? `${new Date(selectedVersion.createdAt ?? "").toLocaleString()} · ${fileCountLabel(selectedVersion.fileCount)}`
-                      : "Snapshot unavailable"}{" "}
-                    {/* i18n-ignore */}
+                      : "Snapshot unavailable" /* i18n-ignore */}
                   </p>
                 </>
               )}
@@ -179,7 +183,7 @@ export function HistoryPanel({
 
             <ScrollArea className="flex-1">
               <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
-                {versionQuery.isLoading ? (
+                {versionDetailPending ? (
                   Array.from({ length: 4 }).map((_, index) => (
                     <Skeleton
                       key={index}
@@ -211,7 +215,7 @@ export function HistoryPanel({
                   size="sm"
                   className="w-full"
                   onClick={() => void handleRestore()}
-                  disabled={restoreVersion.isPending || versionQuery.isLoading}
+                  disabled={restoreVersion.isPending || versionDetailPending}
                 >
                   {restoreVersion.isPending ? (
                     <IconLoader2 size={15} className="mr-1.5 animate-spin" />

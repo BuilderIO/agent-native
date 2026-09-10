@@ -543,6 +543,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(addHandler.indexOf("optimisticAddBreakpointData")).toBeLessThan(
       addHandler.indexOf("addBreakpointMutation"),
     );
+    expect(addHandler).toContain("id: optimisticId");
     const removeHandler = source.slice(
       source.indexOf("const handleBreakpointBarRemove"),
       source.indexOf("const handleBreakpointChangeWidth"),
