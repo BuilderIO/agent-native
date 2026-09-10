@@ -15,6 +15,16 @@ A central store for API keys, OAuth tokens, and shared credentials. Apps in the 
 - A **grant** gives one named app access to a secret. Requesting access when you don't have a grant creates a **request** that an admin reviews and approves or denies.
 - Every use is written to an **audit log**: who used which secret, from which app, and when.
 
+### How apps see Vault keys {#vault-precedence}
+
+Saving a key in the Vault writes it to the workspace's shared credential store under the key's `credential_key`, so you never re-enter it per app. Each app's **Settings → Integrations → Keys** section shows the value the app actually uses and where it comes from, in this order:
+
+1. **Personal** — a key you saved for yourself in an app's Keys section. Only your own sessions use it, and it overrides the shared value; the Keys section says so and offers to remove it.
+2. **Vault / Workspace** — the shared value every app and every member uses. Vault-managed keys show as `Set · Vault` and link back here; edit them in the Vault, not in the app.
+3. **Environment** — a deploy-level `.env` value, used only when nothing is saved above it.
+
+The **+ New** menu in an app's Keys section lists the keys that app declares; type any other name to add it as a custom key. Custom keys and Vault keys are both available to automations and the `web-request` tool as `${keys.NAME}`.
+
 <DataModel
   id="doc-block-1pitn7l"
   title="Secrets vault schema"

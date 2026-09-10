@@ -7,6 +7,19 @@ const SECTION_KEYS = {
   contact: ["support", "source", "security", "legal"],
 } as const;
 
+// Cloudflare's email obfuscation rewrites the plain-text address (in the
+// mailto link and in the support section's body copy) into a
+// `/cdn-cgi/l/email-protection` link that 404s for crawlers that don't run
+// its client-side decode script. The `email_off` comment pair is Cloudflare's
+// documented opt-out for content that should stay as a real, working link.
+function emailOffHtml(text: string): { __html: string } {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return { __html: `<!--email_off-->${escaped}<!--/email_off-->` };
+}
+
 export default function TrustPage({ kind }: { kind: TrustPageKind }) {
   const t = useT();
   const prefix = `legal.${kind}`;
@@ -28,9 +41,10 @@ export default function TrustPage({ kind }: { kind: TrustPageKind }) {
             <a
               href="mailto:support@builder.io"
               className="mt-5 inline-flex font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
-            >
-              {t("legal.contact.emailLabel")}
-            </a>
+              dangerouslySetInnerHTML={emailOffHtml(
+                t("legal.contact.emailLabel"),
+              )}
+            />
           ) : null}
         </header>
 
@@ -43,9 +57,18 @@ export default function TrustPage({ kind }: { kind: TrustPageKind }) {
               <h2 className="mb-4 text-2xl font-semibold tracking-tight text-[var(--fg)]">
                 {t(`${prefix}.sections.${sectionKey}.title`)}
               </h2>
-              <p className="m-0 text-base leading-7 text-[var(--fg-secondary)]">
-                {t(`${prefix}.sections.${sectionKey}.body`)}
-              </p>
+              {kind === "contact" && sectionKey === "support" ? (
+                <p
+                  className="m-0 text-base leading-7 text-[var(--fg-secondary)]"
+                  dangerouslySetInnerHTML={emailOffHtml(
+                    t(`${prefix}.sections.${sectionKey}.body`),
+                  )}
+                />
+              ) : (
+                <p className="m-0 text-base leading-7 text-[var(--fg-secondary)]">
+                  {t(`${prefix}.sections.${sectionKey}.body`)}
+                </p>
+              )}
             </section>
           ))}
         </div>

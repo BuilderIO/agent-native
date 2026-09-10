@@ -45,12 +45,14 @@ export function isTextLikeMimeType(contentType: string | undefined): boolean {
   if (ct === "application/json") return true;
   if (ct === "application/javascript") return true;
   if (ct === "application/typescript") return true;
+  if (ct === "application/x-yaml") return true;
+  if (ct === "message/rfc822") return true;
   return false;
 }
 
 export function isTextLikeFilename(name: string | undefined): boolean {
   if (!name) return false;
-  return /\.(txt|md|markdown|csv|json|jsonl|yaml|yml|ts|tsx|js|jsx|py|rb|go|rs|java|c|cpp|h|cs|swift|kt|sh|bash|zsh|fish|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|sql|graphql|gql)$/i.test(
+  return /\.(txt|md|markdown|csv|json|jsonl|yaml|yml|ts|tsx|js|jsx|py|rb|go|rs|java|c|cpp|h|cs|swift|kt|sh|bash|zsh|fish|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|sql|graphql|gql|eml)$/i.test(
     name,
   );
 }

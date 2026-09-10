@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   BinaryDocumentAttachmentAdapter,
   DownscalingImageAttachmentAdapter,
+  estimateAttachmentBodyBytes,
+  getAttachmentBodyStrings,
   isTextLikeFile,
+  MAX_TEXT_ATTACHMENT_BYTES,
   serializeAttachmentContentPart,
   serializeQueuedAttachments,
 } from "./attachment-adapters.js";
@@ -46,6 +49,53 @@ describe("isTextLikeFile", () => {
         new File(["<svg />"], "logo.svg", { type: "image/svg+xml" }),
       ),
     ).toBe(false);
+  });
+
+  it("routes EML exports through the inline text attachment path", () => {
+    expect(
+      isTextLikeFile(
+        new File(["From: sender@example.com\n\nHello"], "message.eml", {
+          type: "message/rfc822",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects oversized readable files before reading their contents", async () => {
+    const file = new File(
+      [new Uint8Array(MAX_TEXT_ATTACHMENT_BYTES + 1)],
+      "large.eml",
+      { type: "message/rfc822" },
+    );
+
+    await expect(
+      serializeQueuedAttachments([{ name: file.name, file }]),
+    ).rejects.toThrow(
+      '"large.eml" is 3.0 MB - text attachments are capped at 3.0 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+    );
+  });
+});
+
+describe("attachment body size estimation", () => {
+  it("counts text and inline file payloads alongside images", () => {
+    const attachments = [
+      {
+        type: "file",
+        name: "message.eml",
+        content: [{ type: "text", text: "mail body" }],
+      },
+      {
+        type: "file",
+        name: "report.pdf",
+        content: [{ type: "file", data: "data:application/pdf;base64,abc" }],
+      },
+    ] as any;
+
+    expect(getAttachmentBodyStrings(attachments)).toEqual([
+      "mail body",
+      "data:application/pdf;base64,abc",
+    ]);
+    expect(estimateAttachmentBodyBytes(['"\\\né'])).toBeCloseTo(11.5);
   });
 });
 
@@ -95,6 +145,34 @@ describe("serializeQueuedAttachments", () => {
         name: "pasted-text-1.txt",
         content: [{ type: "text", text: "pasted outline" }],
         metadata: { displayOnly: true },
+      }),
+    ]);
+  });
+
+  it("serializes EML exports as text instead of an unsupported binary file", async () => {
+    await expect(
+      serializeQueuedAttachments([
+        {
+          id: "message.eml",
+          type: "document",
+          name: "message.eml",
+          contentType: "message/rfc822",
+          file: new File(["From: sender@example.com\n\nHello"], "message.eml", {
+            type: "message/rfc822",
+          }),
+        },
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        name: "message.eml",
+        type: "file",
+        contentType: "message/rfc822",
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("Hello"),
+          },
+        ],
       }),
     ]);
   });

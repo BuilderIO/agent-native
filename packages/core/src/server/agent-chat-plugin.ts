@@ -1138,8 +1138,81 @@ export function createAgentChatPlugin(
                   const bashEntry =
                     devScriptsForA2A.bash ?? devScriptsForA2A.shell;
                   if (!bashEntry) return "Error: bash not available";
+                  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+                    return "Error: invalid action name";
+                  }
+
+                  const tokens: string[] = [];
+                  if (typeof input?.args === "string" && input.args.trim()) {
+                    let current = "";
+                    let inSingle = false;
+                    let inDouble = false;
+                    let escape = false;
+                    for (let i = 0; i < input.args.length; i++) {
+                      const char = input.args[i];
+                      if (escape) {
+                        current += char;
+                        escape = false;
+                        continue;
+                      }
+                      if (char === "\\") {
+                        if (inSingle) {
+                          current += char;
+                        } else {
+                          escape = true;
+                        }
+                        continue;
+                      }
+                      if (char === "'" && !inDouble) {
+                        inSingle = !inSingle;
+                        continue;
+                      }
+                      if (char === '"' && !inSingle) {
+                        inDouble = !inDouble;
+                        continue;
+                      }
+                      if (/\s/.test(char) && !inSingle && !inDouble) {
+                        if (current.length > 0) {
+                          tokens.push(current);
+                          current = "";
+                        }
+                        continue;
+                      }
+                      current += char;
+                    }
+                    if (current.length > 0) {
+                      tokens.push(current);
+                    }
+                  } else if (input && typeof input === "object") {
+                    for (const [k, v] of Object.entries(input)) {
+                      if (k === "args" || v === undefined || v === null)
+                        continue;
+                      const strVal =
+                        typeof v === "object" ? JSON.stringify(v) : String(v);
+                      tokens.push(`--${k}`, strVal);
+                    }
+                  }
+
+                  const BLOCKED_OPERATORS = new Set([
+                    ";",
+                    "&&",
+                    "||",
+                    "|",
+                    "&",
+                    ">",
+                    ">>",
+                    "<",
+                  ]);
+                  if (tokens.some((token) => BLOCKED_OPERATORS.has(token))) {
+                    return "Error: shell operators are not permitted in action arguments";
+                  }
+
+                  const escapedArgs = tokens
+                    .map((arg) => "'" + arg.replace(/'/g, "'\\''") + "'")
+                    .join(" ");
+
                   return bashEntry.run({
-                    command: `pnpm action ${name} ${input.args || ""}`.trim(),
+                    command: `pnpm action ${name} ${escapedArgs}`.trim(),
                   });
                 },
                 ...(httpConfig !== undefined ? { http: httpConfig } : {}),

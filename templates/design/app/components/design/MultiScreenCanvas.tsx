@@ -59,6 +59,7 @@ import {
   IconCopy,
   IconDots,
   IconHandClick,
+  IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -364,6 +365,7 @@ import {
 } from "./multi-screen/drill-in";
 import {
   angleBetween,
+  BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
   cloneFrameGeometryById,
   deviceViewportFloorForWidth,
@@ -413,6 +415,7 @@ import {
   accumulateZoomFactor,
   clampZoomFactor,
   normalizeWheelDeltaPx,
+  panAfterSurfaceLeftShift,
   resolveExternalZoomAnchor,
   resolveZoomGestureDevice,
   type ZoomGestureDevice,
@@ -525,6 +528,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   selectAllRequest,
   clearSelectionRequest,
   onAddBreakpoint,
+  breakpointMutationPending = false,
   onActiveBreakpointChange,
   onRemoveBreakpoint,
   onChangeBreakpointWidth,
@@ -1118,6 +1122,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // placeholders for live iframes one frame later — a visible cold-open flash.
   // The synchronous layout measurement keeps the first painted overview on
   // the correct culling tier while ResizeObserver owns later size changes.
+  //
+  // Also: when the left chrome opens/closes (or minimal mode toggles), the
+  // surface's left edge moves while its width changes. Without compensating
+  // pan.x by that left-edge delta, every board item appears to slide with the
+  // chrome. Keep world content fixed in viewport/monitor coordinates.
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
@@ -1131,6 +1140,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
     const rect = surface.getBoundingClientRect();
     updateSize(rect.width, rect.height);
+    let lastLeft = rect.left;
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -1142,6 +1152,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const contentRect = entry.contentRect;
         updateSize(contentRect.width, contentRect.height);
       }
+      const nextLeft = surface.getBoundingClientRect().left;
+      const deltaLeft = nextLeft - lastLeft;
+      lastLeft = nextLeft;
+      if (deltaLeft === 0) return;
+      panRef.current = panAfterSurfaceLeftShift(panRef.current, deltaLeft);
+      applyViewToDomRef.current();
+      // Keep React pan state in lockstep so the next committed gesture does
+      // not snap back to the pre-compensation value.
+      setPan(panRef.current);
     });
     observer.observe(surface);
     return () => observer.disconnect();
@@ -8721,6 +8740,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               // instead of a fresh per-screen closure allocated on every
               // MultiScreenCanvas render, which used to defeat memo(Screen).
               onAddBreakpoint={onAddBreakpoint}
+              breakpointMutationPending={breakpointMutationPending}
               onActiveBreakpointChange={onActiveBreakpointChange}
               onRemoveBreakpoint={onRemoveBreakpoint}
               onChangeBreakpointWidth={onChangeBreakpointWidth}
@@ -10090,6 +10110,7 @@ interface ScreenProps {
   // onAddBreakpoint is design-scoped and takes no screen id at all — see its
   // doc on MultiScreenCanvasProps.
   onAddBreakpoint?: (widthPx: number) => void;
+  breakpointMutationPending?: boolean;
   onActiveBreakpointChange?: (
     screenId: string,
     widthPx: number | undefined,
@@ -10143,6 +10164,7 @@ const Screen = memo(function Screen({
   renderBreakpointContent,
   cullTier,
   onAddBreakpoint,
+  breakpointMutationPending = false,
   onActiveBreakpointChange,
   onRemoveBreakpoint,
   onChangeBreakpointWidth,
@@ -10646,6 +10668,7 @@ const Screen = memo(function Screen({
               : undefined
           }
           onAddBreakpoint={onAddBreakpoint}
+          breakpointMutationPending={breakpointMutationPending}
           onRemoveBreakpoint={
             onRemoveBreakpoint
               ? (widthPx) => onRemoveBreakpoint(screen.id, widthPx)
@@ -10725,6 +10748,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     // per-screen arrow allocated in the render loop, so these are expected
     // to be referentially stable across renders and are safe to compare.
     prev.onAddBreakpoint === next.onAddBreakpoint &&
+    prev.breakpointMutationPending === next.breakpointMutationPending &&
     prev.onActiveBreakpointChange === next.onActiveBreakpointChange &&
     prev.onRemoveBreakpoint === next.onRemoveBreakpoint &&
     prev.onChangeBreakpointWidth === next.onChangeBreakpointWidth &&
@@ -10783,6 +10807,7 @@ function BreakpointPreviewRow({
   onStartFrameDrag,
   onActiveBreakpointChange,
   onAddBreakpoint,
+  breakpointMutationPending = false,
   onRemoveBreakpoint,
   onChangeBreakpointWidth,
   onEditBreakpoint,
@@ -10839,6 +10864,7 @@ function BreakpointPreviewRow({
   onStartFrameDrag?: (id: string, e: React.MouseEvent) => void;
   onActiveBreakpointChange?: (widthPx: number | undefined) => void;
   onAddBreakpoint?: (widthPx: number) => void;
+  breakpointMutationPending?: boolean;
   /** Item 8b — "…" menu "Remove" for one breakpoint frame. */
   onRemoveBreakpoint?: (widthPx: number) => void;
   /** Item 8b — "…" menu "Change width" for one breakpoint frame. */
@@ -11091,12 +11117,21 @@ function BreakpointPreviewRow({
                       {onRemoveBreakpoint ? (
                         <DropdownMenuItem
                           className="h-7 px-2 py-0 !text-[12px] text-destructive focus:text-destructive"
+                          disabled={breakpointMutationPending}
                           onSelect={() => {
+                            if (breakpointMutationPending) return;
                             setMenuOpenForWidth(null);
                             onRemoveBreakpoint(widthPx);
                           }}
                         >
-                          {t("designEditor.breakpointBar.remove")}
+                          {breakpointMutationPending ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <IconLoader2 className="size-3 animate-spin" />
+                              {t("designEditor.breakpointBar.remove")}
+                            </span>
+                          ) : (
+                            t("designEditor.breakpointBar.remove")
+                          )}
                         </DropdownMenuItem>
                       ) : null}
                     </DropdownMenuContent>
@@ -11273,8 +11308,13 @@ function BreakpointPreviewRow({
           // at FRAME_LABEL_HEIGHT * chromeScale below the wrapper top (see
           // the top: 0 + scaled-label-row comment above), and the button
           // itself is size-7 (28px), so subtract half of that.
+          //
+          // Gap: offsetX already includes BREAKPOINT_FRAME_GAP after the last
+          // card, then add a chrome-scaled inset so the constant-size "+" never
+          // sits flush against the frame edge at any zoom. transformOrigin is
+          // left-center so chromeScale grows the button away from the frame.
           style={{
-            left: offsetX,
+            left: offsetX + BREAKPOINT_ADD_BUTTON_GAP_PX * chromeScale,
             top:
               FRAME_LABEL_HEIGHT * chromeScale +
               primaryGeometry.height / 2 -
@@ -11284,13 +11324,16 @@ function BreakpointPreviewRow({
         >
           <button
             type="button"
+            disabled={breakpointMutationPending}
+            aria-busy={breakpointMutationPending || undefined}
             className={cn(
               "flex size-7 items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-sm transition-colors",
               "hover:border-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+              breakpointMutationPending && "opacity-70",
             )}
             style={{
               transform: `scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-              transformOrigin: "center",
+              transformOrigin: "left center",
             }}
             // Says "to all screens" because that is what it does: a design has
             // one breakpoint set, so this is not scoped to the frame it renders
@@ -11302,10 +11345,15 @@ function BreakpointPreviewRow({
             })}
             onClick={(e) => {
               e.stopPropagation();
+              if (breakpointMutationPending) return;
               onAddBreakpoint(nextWidth);
             }}
           >
-            <IconPlus className="size-3.5" />
+            {breakpointMutationPending ? (
+              <IconLoader2 className="size-3.5 animate-spin" />
+            ) : (
+              <IconPlus className="size-3.5" />
+            )}
           </button>
         </div>
       ) : null}
