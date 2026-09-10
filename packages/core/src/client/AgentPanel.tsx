@@ -362,14 +362,20 @@ const AGENT_PANEL_CONTROL_STYLE = {
   lineHeight: 1,
 } satisfies React.CSSProperties;
 const ACTIVATE_KEYS = new Set(["Enter", " "]);
+type AgentPanelOverlayOpenTiming = "animation-frame" | "timeout";
 
 export function deferAgentPanelOverlayOpen(
   event: { preventDefault: () => void },
   closeMenu: () => void,
   openOverlay: () => void,
+  timing: AgentPanelOverlayOpenTiming = "animation-frame",
 ): void {
   event.preventDefault();
   closeMenu();
+  if (timing === "timeout") {
+    setTimeout(openOverlay, 0);
+    return;
+  }
   if (
     typeof window !== "undefined" &&
     typeof window.requestAnimationFrame === "function"
@@ -1688,13 +1694,14 @@ function AgentPanelInner({
               })()}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  closeHeaderMenuForOverlay();
-                  // Let the menu finish restoring focus before mounting the
-                  // history popover; otherwise Radix dismisses the new overlay.
-                  setTimeout(() => toggleHistory(), 0);
-                }}
+                onSelect={(event) =>
+                  deferAgentPanelOverlayOpen(
+                    event,
+                    closeHeaderMenuForOverlay,
+                    toggleHistory,
+                    "timeout",
+                  )
+                }
               >
                 <IconHistory size={14} className="shrink-0" />
                 {showHistory
