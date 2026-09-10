@@ -2016,7 +2016,11 @@ jobs:
           echo "Static docs smoke check passed: ${url%/}/"
 
       - name: Purge the published Netlify cache
-        if: (inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && inputs.deploy_mode == 'production' && success()
+        if: >-
+          (inputs.target == 'production' || inputs.target == 'beta') &&
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') &&
+          success()
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}

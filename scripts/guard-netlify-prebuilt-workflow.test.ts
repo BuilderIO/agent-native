@@ -1305,6 +1305,10 @@ describe("production Netlify site concurrency guard", () => {
       validatePublishedCachePurgeCondition(PUBLISHED_CACHE_PURGE_CONDITION),
       [],
     );
+    assert.match(
+      String(purge.if),
+      /steps\.beta_freshness\.outputs\.current == 'true'/,
+    );
     for (const mutatedIf of [
       "inputs.target == 'production' && inputs.deploy_mode == 'production' && success()",
       "inputs.target == 'beta' && inputs.deploy && inputs.deploy_mode == 'production' && success()",
