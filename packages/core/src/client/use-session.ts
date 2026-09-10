@@ -89,6 +89,20 @@ function monotonicNow(): number {
   return performance.now();
 }
 
+/**
+ * Resolves to an unreadable read once `remainingMs` elapses. Races against
+ * the actual session read so a read starting near the retry budget cannot
+ * itself run past that budget on the client request timeout.
+ */
+function budgetExceededRead(remainingMs: number): Promise<SessionRead> {
+  return new Promise((resolve) => {
+    setTimeout(
+      () => resolve({ state: "unreadable" }),
+      Math.max(remainingMs, 0),
+    );
+  });
+}
+
 function hasFreshSessionCache(): boolean {
   return (
     cachedSession !== undefined &&
@@ -339,7 +353,12 @@ export function useSession(): UseSessionResult {
     const startedAt = monotonicNow();
 
     const resolveSession = async () => {
-      const read = await fetchSharedSession();
+      const remainingAtStart =
+        SESSION_RETRY_BUDGET_MS - (monotonicNow() - startedAt);
+      const read = await Promise.race([
+        fetchSharedSession(),
+        budgetExceededRead(remainingAtStart),
+      ]);
       if (cancelled) return;
 
       if (read.state !== "resolved") {

@@ -252,6 +252,35 @@ describe("useSession", () => {
     expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
   });
 
+  it("reports unavailable at the budget boundary, not after the request's own timeout", async () => {
+    // Build up elapsed time with fast failures until an attempt starts right
+    // before the 30s budget expires, then hang that read. It must not be
+    // allowed to run for its own full 15s request timeout on top of that,
+    // which would leave the gate on "loading" until ~42.5s instead of ~30s.
+    vi.useFakeTimers();
+    let callCount = 0;
+    const fetchMock = vi.fn(() => {
+      callCount += 1;
+      if (callCount < 9) {
+        return Promise.resolve(new Response(null, { status: 503 }));
+      }
+      return new Promise<Response>(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toBe("loading");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(35_000);
+    });
+
+    expect(container.textContent).toBe("unavailable");
+  });
+
   it("recovers on its own when a cold backend comes back mid-budget", async () => {
     // A backend that fails fast for 10s and then answers must never reach the
     // notice: the visitor should see the app, not a retry screen.
