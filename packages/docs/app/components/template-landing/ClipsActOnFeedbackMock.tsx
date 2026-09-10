@@ -1,55 +1,85 @@
 /**
- * Static, decorative recreation of the real recording player's Share
- * button and popover, used as the art for the "Act on recorded feedback"
- * use-case card on the Clips landing page. Structure and copy are lifted
- * directly from the live components rather than invented:
+ * Static recreation of the real Clips recording page, used as the art for the
+ * "Act on recorded feedback" use-case card on the Clips landing page.
  *
- * - Header row: title on the left, Share button on the right, above the
- *   player frame, mirroring `PageHeader` in
- *   `templates/clips/app/routes/_app.r.$recordingId.tsx:2372-2387`.
- * - Player frame: `aspect-video`, black background, `rounded-2xl`
- *   (`_app.r.$recordingId.tsx:2412-2473`,
- *   `templates/clips/app/components/player/video-player.tsx:1692-1762`).
- * - Controls bar: play/pause, scrubber with marker dots, elapsed/total time,
- *   speed, and fullscreen, recreating
- *   `templates/clips/app/components/player/player-controls.tsx:132-328`.
- * - Trigger: `ClipsShareTrigger` / `PageHeaderPrimaryAction`
- *   (templates/clips/app/components/player/clips-share-trigger.tsx:10-37) —
- *   a solid button with `IconUserPlus` and the label "Share".
- * - Popover: `Popover` + `PopoverContent` at `w-[360px]`
- *   (templates/clips/app/components/player/share-dialog.tsx:134-243).
- * - Tabs: "People" / "Agents" (share-dialog.tsx:295-380).
- * - Agents tab rows and dividers, including the exact copy, icons, and the
- *   real `ClaudeLogo` / `ClaudeCodeLogo` / `IconBrandOpenai` (Codex) icons
- *   (templates/clips/app/components/agent-destination-logos.tsx and
- *   share-dialog.tsx:827-871).
+ * Unlike a hand-drawn mock, every surface here is built from the class strings
+ * of the components that actually render that page, so the artwork tracks the
+ * product instead of drifting from it:
  *
- * Deliberately distinct from `ClipsInvestigateBugMock` (a chat transcript):
- * this shows the actual entry point for handing a clip to an agent.
+ * - Header: `PageHeader` + `PageBreadcrumb`, with the joined share controls
+ *   from `ShareRecordingPopover` — the solid `ClipsShareTrigger` (IconUserPlus
+ *   + "Share") next to the `IconLink` copy button
+ *   (templates/clips/app/routes/_app.r.$recordingId.tsx:2372-2387,
+ *   components/library/page-header.tsx:98-137,
+ *   components/player/clips-share-trigger.tsx:10-37,
+ *   components/player/share-dialog.tsx:189-220).
+ * - Two-column body: `lg:grid-cols-[minmax(0,1fr)_auto]` with the player column
+ *   and the `lg:w-[360px]` `RecordingSidePanel`
+ *   (_app.r.$recordingId.tsx:2388-2398, 2607-2614,
+ *   components/player/recording-side-panel.tsx:25-35).
+ * - Player: the route's `aspect-video ... ring-1 ring-border sm:rounded-2xl`
+ *   frame, `CenterPlaybackOverlay`'s circular play button, and `PlayerControls`
+ *   in its real left-to-right order — play, back/forward 5s, volume, time,
+ *   captions, speed, picture-in-picture, theater, fullscreen
+ *   (_app.r.$recordingId.tsx:2412-2417, components/player/video-player.tsx:
+ *   1692-1704, 2214-2243, components/player/player-controls.tsx:132-328,
+ *   components/player/scrubber.tsx:281-307).
+ * - Title and meta row, view badge, React button, and options menu
+ *   (_app.r.$recordingId.tsx:2502-2545, 2089-2136,
+ *   components/player/recording-views-badge.tsx:140-164,
+ *   components/player/delete-recording-menu.tsx:95-104).
+ * - Transcript panel: search field, copy/download actions, and
+ *   `TranscriptSegmentRow` rows with their right-aligned mono timestamps
+ *   (components/player/transcript-panel.tsx:320-431,
+ *   components/transcript/transcript-segment-row.tsx:48-95).
+ * - The open share popover on the Agents tab, which is the point of the card:
+ *   this is the real entry point for handing a recording to an agent
+ *   (share-dialog.tsx:223-241, 455-481, 827-871).
  *
- * All CSS lives here, scoped under `.clips-cell-mock`, following the same
- * convention as `ClipsLibraryMock.tsx`. The left edge fades into the
- * section's background rather than having a hard edge, matching the
- * reference screenshot of the real player page.
+ * Two things make those real classes work outside the Clips app. The scope
+ * pins Clips' own dark palette (templates/clips/app/global.css:50-84) as HSL
+ * triplets, so `bg-background`, `bg-sidebar`, `border-border`, and friends
+ * resolve to the app's colours rather than the docs theme. And the page is
+ * laid out at a fixed desktop width, then scaled to the card by generated
+ * `@container` steps — the real desktop layout has to survive at card size,
+ * since below `lg` the product moves the transcript panel under the player.
+ *
+ * Deliberately distinct from `ClipsInvestigateBugMock` (an agent chat
+ * transcript): this one shows the recording itself and how it reaches an agent.
  *
  * i18n-raw-literal-disable-file -- this is artwork, not UI copy. The wrapper is
- * a `role="img"` with a localized `aria-label` and the entire frame inside it
- * is `aria-hidden`, so no assistive tech ever reads these strings; they are
- * the pixels of a product screenshot (a fake player page with its real share
- * popover open).
+ * a `role="img"` with a localized `aria-label` and everything inside it is
+ * `aria-hidden`, so no assistive tech ever reads these strings; they are the
+ * pixels of a product screenshot (a fake recording, owner, and transcript).
  */
 import {
   IconBrandOpenai,
+  IconChevronRight,
+  IconCopy,
+  IconDotsVertical,
+  IconDownload,
   IconLink,
   IconMaximize,
+  IconMoodSmile,
+  IconPictureInPicture,
+  IconPlayerPlay,
   IconPlayerPlayFilled,
+  IconPlayerSkipForward,
+  IconRectangle,
+  IconSearch,
+  IconSubtitles,
   IconUserPlus,
+  IconVolume,
 } from "@tabler/icons-react";
 
-function ClaudeLogo() {
+// Copies of `ClaudeLogo` / `ClaudeCodeLogo` from
+// templates/clips/app/components/agent-destination-logos.tsx. `CodexLogo`
+// there is `IconBrandOpenai`, so it is imported directly above.
+function ClaudeLogo({ className }: { className?: string }) {
   return (
     <svg
-      className="clips-cell-mock-agent-icon"
+      aria-hidden="true"
+      className={`shrink-0 ${className ?? ""}`}
       fill="currentColor"
       viewBox="0 0 100 100"
       xmlns="http://www.w3.org/2000/svg"
@@ -59,10 +89,11 @@ function ClaudeLogo() {
   );
 }
 
-function ClaudeCodeLogo() {
+function ClaudeCodeLogo({ className }: { className?: string }) {
   return (
     <svg
-      className="clips-cell-mock-agent-icon"
+      aria-hidden="true"
+      className={`shrink-0 ${className ?? ""}`}
       fill="none"
       viewBox="0 0 20 20"
       xmlns="http://www.w3.org/2000/svg"
@@ -81,64 +112,111 @@ function ClaudeCodeLogo() {
   );
 }
 
+const RECORDING_TITLE = "Feedback on the landing page rewrite";
+
+const TRANSCRIPT: Array<{ time: string; text: string }> = [
+  {
+    time: "0:00",
+    text: "Recording some feedback on the landing page rewrite so you can pick it up from here.",
+  },
+  {
+    time: "0:14",
+    text: "The hero headline is good, but the subhead underneath repeats it almost word for word.",
+  },
+  {
+    time: "0:29",
+    text: "Right here, the install snippet gets cut off on the right at this window width.",
+  },
+  {
+    time: "0:41",
+    text: "The three cards below should be equal height. The middle one is short so the row looks uneven.",
+  },
+  {
+    time: "0:58",
+    text: "I left the console open for this part. There is a hydration warning coming from the copy button.",
+  },
+  {
+    time: "1:12",
+    text: "Last one, the footer links are lighter than the body text and hard to read.",
+  },
+  {
+    time: "1:26",
+    text: "That is everything. Should be about twenty minutes of work.",
+  },
+];
+
 const AGENT_ROWS = [
-  { label: "Copy agent prompt", icon: <IconLink size={16} /> },
-  { label: "Open in Claude", icon: <ClaudeLogo /> },
-  { label: "Open in Claude Code", icon: <ClaudeCodeLogo /> },
-  { label: "Open in Codex", icon: <IconBrandOpenai size={16} /> },
+  { label: "Copy agent prompt", icon: <IconLink className="size-4" /> },
+  { label: "Open in Claude", icon: <ClaudeLogo className="size-4" /> },
+  {
+    label: "Open in Claude Code",
+    icon: <ClaudeCodeLogo className="size-4" />,
+  },
+  { label: "Open in Codex", icon: <IconBrandOpenai className="size-4" /> },
 ] as const;
 
-const CLIPS_CELL_MOCK_CSS = [
-  ".clips-cell-mock { position: relative; width: 100%; }",
-  ".clips-cell-mock, .clips-cell-mock * { box-sizing: border-box; }",
-  ".clips-cell-mock-inner { position: relative; }",
+// The page is laid out at desktop width so the real `lg:` layout applies, then
+// scaled into the card. Below `lg` the product drops the transcript panel
+// under the player, which is a different screen than the one this depicts.
+const DESIGN_WIDTH = 1120;
+const DESIGN_HEIGHT = 580;
 
-  // Mirrors the real page's PageHeader row: breadcrumb/title on the left,
-  // Share button on the right, sitting above the player frame
-  // (_app.r.$recordingId.tsx:2372-2387).
-  ".clips-cell-mock-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 14px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
-  ".clips-cell-mock-title { font-size: 14px; font-weight: 600; color: #e6e6e6; }",
+const SCALE_STEPS = Array.from({ length: 60 }, (_, index) => 240 + index * 16)
+  .map(
+    (width) =>
+      `@container (min-width: ${width}px) { .clips-page-mock-page { transform: scale(${(
+        width / DESIGN_WIDTH
+      ).toFixed(4)}); } }`,
+  )
+  .join("\n");
 
-  // Real player frame: aspect-video, black background, rounded-2xl
-  // (_app.r.$recordingId.tsx:2412-2473, video-player.tsx:1692-1762).
-  ".clips-cell-mock-frame { position: relative; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; background: linear-gradient(135deg, #1c1c1c, #101010); border: 1px solid #262626; box-shadow: 0 28px 56px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
-  // Fades the player's left edge into the dark section background instead of
-  // a hard card edge, matching the reference screenshot of the real page.
-  ".clips-cell-mock-fade { position: absolute; inset: 0; background: linear-gradient(to right, #0a0a0a 0%, rgba(10, 10, 10, 0) 38%); pointer-events: none; }",
+const CLIPS_PAGE_MOCK_CSS = [
+  ".clips-page-mock { container-type: inline-size; width: 100%; }",
 
-  // Real trigger: PageHeaderPrimaryAction, a solid size="sm" Button with
-  // IconUserPlus + "Share" (clips-share-trigger.tsx:10-37).
-  ".clips-cell-mock-share-btn { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 8px; background: #f5f5f5; color: #151515; font-size: 14px; font-weight: 600; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }",
+  // Clips' own dark palette (templates/clips/app/global.css:50-84), pinned so
+  // the real utility classes below resolve to the app's colours instead of the
+  // docs page theme. `--player-control*` come from the same file's `:root`.
+  ".clips-page-mock-page { --background: 0 0% 10%; --foreground: 0 0% 90%; --card: 0 0% 14%; --card-foreground: 0 0% 90%; --popover: 0 0% 15%; --popover-foreground: 0 0% 90%; --primary: 0 0% 75%; --primary-foreground: 0 0% 10%; --muted: 0 0% 16%; --muted-foreground: 0 0% 60%; --accent: 0 0% 18%; --accent-foreground: 0 0% 90%; --border: 0 0% 24%; --input: 0 0% 24%; --sidebar-background: 0 0% 14%; --sidebar-foreground: 0 0% 60%; --player-control: 0 0% 0%; --player-control-foreground: 0 0% 100%; }",
 
-  // Real popover: PopoverContent className="w-[360px] ... p-0" (share-dialog.tsx:170-176).
-  // Positioned to drop down from the header's Share button, over the frame.
-  ".clips-cell-mock-popover { position: absolute; top: 48px; right: 0; width: 360px; border-radius: 10px; overflow: hidden; background: #1c1c1c; border: 1px solid #333333; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5); z-index: 1; }",
+  // `.dark .clips-share-trigger` sets the same override in the real app, which
+  // is what makes the header's share controls read as solid white on dark.
+  ".clips-page-mock-share-group { --primary: 0 0% 100%; }",
 
-  // Real Tabs header: TabsList variant="line" h-8, "People" | "Agents" (share-dialog.tsx:320-345).
-  ".clips-cell-mock-tabs { display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 12px; border-bottom: 1px solid #2c2c2c; }",
-  ".clips-cell-mock-tab { position: relative; height: 100%; display: flex; align-items: center; font-size: 13px; color: #808080; }",
-  ".clips-cell-mock-tab.is-active { color: #e6e6e6; font-weight: 500; }",
-  ".clips-cell-mock-tab.is-active::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: #e6e6e6; border-radius: 2px 2px 0 0; }",
-
-  // Real Agents tab content: "-mx-1.5 flex flex-col gap-0.5", rows are ghost
-  // Button h-9 with size-4 icons and text-sm labels (share-dialog.tsx:827-871).
-  ".clips-cell-mock-agent-list { display: flex; flex-direction: column; gap: 2px; padding: 8px; }",
-  ".clips-cell-mock-agent-row { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px; border-radius: 6px; color: #e6e6e6; font-size: 14px; font-weight: 400; }",
-  ".clips-cell-mock-agent-divider { margin: 4px 6px; border-top: 1px solid #333333; }",
-  ".clips-cell-mock-agent-icon { width: 16px; height: 16px; color: #999999; flex-shrink: 0; }",
-
-  // Recreates player-controls.tsx's control bar: play/pause, scrubber with
-  // marker dots, elapsed/total time, speed, and fullscreen
-  // (player-controls.tsx:132-328).
-  ".clips-cell-mock-controls { position: absolute; left: 14px; bottom: 12px; right: 14px; display: flex; align-items: center; gap: 10px; color: rgba(255, 255, 255, 0.85); }",
-  ".clips-cell-mock-controls-icon { flex-shrink: 0; }",
-  ".clips-cell-mock-controls-track { position: relative; flex: 1 1 auto; height: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.22); overflow: visible; }",
-  ".clips-cell-mock-controls-fill { width: 42%; height: 100%; border-radius: 999px; background: rgba(255, 255, 255, 0.7); }",
-  ".clips-cell-mock-controls-marker { position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%; background: #ffffff; transform: translate(-50%, -50%); }",
-  ".clips-cell-mock-controls-time { flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }",
-  ".clips-cell-mock-controls-time-total { color: rgba(255, 255, 255, 0.5); }",
-  ".clips-cell-mock-controls-speed { flex-shrink: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }",
+  ".clips-page-mock-crop { position: relative; width: 100%; overflow: hidden; border-radius: 12px; }",
+  `.clips-page-mock-crop { aspect-ratio: ${DESIGN_WIDTH} / ${DESIGN_HEIGHT}; }`,
+  `.clips-page-mock-page { position: absolute; top: 0; left: 0; width: ${DESIGN_WIDTH}px; height: ${DESIGN_HEIGHT}px; transform-origin: top left; transform: scale(${(
+    240 / DESIGN_WIDTH
+  ).toFixed(4)}); }`,
+  SCALE_STEPS,
 ].join("\n");
+
+function IconBtn({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md">
+      {children}
+    </span>
+  );
+}
+
+function PanelTab({
+  label,
+  active = false,
+}: {
+  label: string;
+  active?: boolean;
+}) {
+  return (
+    <span
+      className={`relative inline-flex h-10 min-w-0 flex-none items-center justify-center gap-1.5 rounded-none px-2 py-0 text-sm font-medium whitespace-nowrap ${
+        active
+          ? "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-foreground"
+          : "text-foreground/60"
+      }`}
+    >
+      {label}
+    </span>
+  );
+}
 
 export function ClipsActOnFeedbackMock({
   className = "",
@@ -148,66 +226,245 @@ export function ClipsActOnFeedbackMock({
   label?: string;
 }) {
   return (
-    <div className={`clips-cell-mock ${className}`} role="img" aria-label={label}>
-      <style>{CLIPS_CELL_MOCK_CSS}</style>
-      <div className="clips-cell-mock-inner" aria-hidden="true">
-        <div className="clips-cell-mock-header">
-          <span className="clips-cell-mock-title">Fix cart bug on mobile</span>
-          <div className="clips-cell-mock-share-btn">
-            <IconUserPlus size={16} />
-            Share
-          </div>
-        </div>
-
-        <div className="clips-cell-mock-frame">
-          <div className="clips-cell-mock-fade" />
-
-          <div className="clips-cell-mock-controls">
-            <IconPlayerPlayFilled
-              className="clips-cell-mock-controls-icon"
-              size={16}
-            />
-            <div className="clips-cell-mock-controls-track">
-              <div className="clips-cell-mock-controls-fill" />
-              <span
-                className="clips-cell-mock-controls-marker"
-                style={{ left: "28%" }}
-              />
-              <span
-                className="clips-cell-mock-controls-marker"
-                style={{ left: "61%" }}
-              />
+    <div
+      className={`clips-page-mock ${className}`}
+      role="img"
+      aria-label={label}
+    >
+      <style>{CLIPS_PAGE_MOCK_CSS}</style>
+      <div className="clips-page-mock-crop" aria-hidden="true">
+        <div className="clips-page-mock-page bg-background text-foreground">
+          {/* PageHeader: breadcrumb, then the joined share controls. */}
+          <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+            <nav className="min-w-0">
+              <ol className="flex flex-nowrap items-center gap-1.5 overflow-hidden text-sm text-muted-foreground">
+                <li className="block max-w-48 shrink-0 truncate">Library</li>
+                <li className="shrink-0">
+                  <IconChevronRight className="size-3.5" />
+                </li>
+                <li className="min-w-0 truncate font-medium text-foreground">
+                  {RECORDING_TITLE}
+                </li>
+              </ol>
+            </nav>
+            <div className="ms-auto flex shrink-0 items-center">
+              <div className="clips-page-mock-share-group flex shrink-0 items-center">
+                <span className="inline-flex h-9 items-center gap-2 rounded-md rounded-e-none bg-primary px-3 text-sm font-medium text-primary-foreground">
+                  <IconUserPlus className="size-4" />
+                  <span>Share</span>
+                </span>
+                <span className="inline-flex h-9 w-8 items-center justify-center rounded-md rounded-s-none border-s border-primary-foreground/15 bg-primary px-0 text-primary-foreground shadow-none">
+                  <IconLink className="size-4" />
+                </span>
+              </div>
             </div>
-            <span className="clips-cell-mock-controls-time">
-              1:24
-              <span className="clips-cell-mock-controls-time-total">
-                /4:52
-              </span>
-            </span>
-            <span className="clips-cell-mock-controls-speed">1.2x</span>
-            <IconMaximize className="clips-cell-mock-controls-icon" size={16} />
           </div>
-        </div>
 
-        <div className="clips-cell-mock-popover">
-          <div className="clips-cell-mock-tabs">
-            <span className="clips-cell-mock-tab">People</span>
-            <span className="clips-cell-mock-tab is-active">Agents</span>
-          </div>
-          <div className="clips-cell-mock-agent-list">
-            {AGENT_ROWS.map((row, index) => (
-              <div key={row.label}>
-                {index === 1 ? (
-                  <div className="clips-cell-mock-agent-divider" />
-                ) : null}
-                <div className="clips-cell-mock-agent-row">
-                  <span className="clips-cell-mock-agent-icon">
-                    {row.icon}
-                  </span>
-                  <span>{row.label}</span>
+          {/* clips-recording-view: player column + side panel column. */}
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(0,1fr)]">
+            <div className="col-start-1 row-start-1 flex min-w-0 flex-col gap-4 px-5 pb-5 pt-4">
+              <div className="mx-auto flex w-full flex-1 flex-col gap-4">
+                <div className="flex w-full shrink-0 justify-center">
+                  <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border">
+                    <div className="group relative h-full w-full select-none overflow-hidden rounded-2xl bg-black @container">
+                      <img
+                        src="/clips/build-your-own.jpg"
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+
+                      {/* CenterPlaybackOverlay */}
+                      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/15 text-white">
+                        <div className="flex flex-col items-center gap-3 px-4 drop-shadow-[0_8px_24px_rgba(0,0,0,0.55)]">
+                          <span className="flex size-[clamp(2.75rem,8cqw,4rem)] items-center justify-center rounded-full bg-player-control-foreground text-player-control shadow-xl ring-1 ring-player-control-foreground/35 [&_svg]:size-[clamp(1.25rem,3.5cqw,1.75rem)]">
+                            <IconPlayerPlay className="fill-current" />
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* PlayerControls */}
+                      <div className="absolute inset-x-0 bottom-0">
+                        <div className="bg-gradient-to-t from-black/80 via-black/50 to-transparent px-3 pb-2 pt-10">
+                          <div className="relative flex h-10 items-center">
+                            <div className="relative h-1.5 w-full rounded-full bg-white/35 shadow-[0_0_0_1px_rgba(0,0,0,0.16)]">
+                              <div className="absolute inset-y-0 left-0 w-[2%] rounded-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.45)]" />
+                              <span className="absolute top-1/2 left-[34%] h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80" />
+                              <span className="absolute top-1/2 left-[68%] h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80" />
+                            </div>
+                          </div>
+
+                          <div className="relative flex min-w-0 items-center gap-1.5 text-white">
+                            <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-md [&_svg]:size-5">
+                              <IconPlayerPlayFilled />
+                            </span>
+                            <IconBtn>
+                              <IconPlayerSkipForward className="size-4 rotate-180" />
+                            </IconBtn>
+                            <IconBtn>
+                              <IconPlayerSkipForward className="size-4" />
+                            </IconBtn>
+                            <IconBtn>
+                              <IconVolume className="size-4" />
+                            </IconBtn>
+                            <span className="shrink-0 px-1 font-mono text-[11px] leading-none whitespace-nowrap tabular-nums text-white/85">
+                              0:00
+                              <span className="text-white/50">/1:38</span>
+                            </span>
+                            <div className="flex-1" />
+                            <IconBtn>
+                              <IconSubtitles className="size-4" />
+                            </IconBtn>
+                            <span className="inline-flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium tabular-nums">
+                              1.2x
+                            </span>
+                            <IconBtn>
+                              <IconPictureInPicture className="size-4" />
+                            </IconBtn>
+                            <IconBtn>
+                              <IconRectangle className="size-4" />
+                            </IconBtn>
+                            <IconBtn>
+                              <IconMaximize className="size-4" />
+                            </IconBtn>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Title, owner meta, and the view / react / options actions. */}
+                <div className="flex shrink-0 flex-col gap-3 px-1 pt-4">
+                  <div className="flex flex-row items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-2xl font-semibold leading-tight tracking-[-0.02em]">
+                        {RECORDING_TITLE}
+                      </div>
+                      <div className="mt-2 flex min-w-0 items-center gap-2">
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+                          N
+                        </span>
+                        <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+                          <span className="min-w-0 max-w-full truncate font-medium text-foreground">
+                            nadia@example.com
+                          </span>
+                          <span>·</span>
+                          <span>Aug 31, 2026</span>
+                          <span>·</span>
+                          <span>Public</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="inline-flex h-8 items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground">
+                        <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[9px] font-semibold ring-1 ring-background">
+                          P
+                        </span>
+                        <span className="tabular-nums">14 views</span>
+                      </span>
+                      <span className="inline-flex h-8 items-center gap-1.5 px-2 text-xs">
+                        <IconMoodSmile className="size-4" />
+                        React
+                      </span>
+                      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md">
+                        <IconDotsVertical className="size-4" />
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            ))}
+            </div>
+
+            {/* RecordingSidePanel */}
+            <div className="col-start-2 row-start-1 my-4 me-4 flex w-[360px] min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-sidebar shadow-sm">
+              <div className="flex h-10 min-h-10 w-fit max-w-full shrink-0 items-center justify-start gap-1 rounded-none bg-sidebar px-3 py-0 text-muted-foreground">
+                <PanelTab label="Comments" />
+                <PanelTab label="Transcript" active />
+                <PanelTab label="Settings" />
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex items-center gap-2 border-b border-border p-3">
+                  <div className="relative flex-1">
+                    <IconSearch className="absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <div className="flex h-8 w-full items-center rounded-md border border-input bg-transparent pr-3 pl-8 text-xs text-muted-foreground">
+                      Search transcript
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    <span className="inline-flex size-8 items-center justify-center rounded-md">
+                      <IconCopy className="h-4 w-4" />
+                    </span>
+                    <span className="inline-flex size-8 items-center justify-center rounded-md">
+                      <IconDownload className="h-4 w-4" />
+                    </span>
+                  </div>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-hidden px-3">
+                  <ul className="py-1">
+                    {TRANSCRIPT.map((segment, index) => (
+                      <li key={segment.time}>
+                        <div
+                          className={`relative flex w-full items-baseline gap-4 rounded-md px-3 py-1.5 text-left text-sm leading-normal text-foreground ${
+                            index === 0 ? "bg-accent" : ""
+                          }`}
+                        >
+                          <span className="min-w-0 flex-1 whitespace-pre-wrap">
+                            <span
+                              className={
+                                index === 0
+                                  ? "text-sm leading-normal text-foreground"
+                                  : "text-sm leading-normal text-foreground/80"
+                              }
+                            >
+                              {segment.text}
+                            </span>
+                          </span>
+                          <span className="pointer-events-none w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/80">
+                            {segment.time}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ShareRecordingPopover, open on the Agents tab. */}
+          {/* `align="end"` anchors it to the Share trigger, whose right edge
+              sits one 32px copy button in from the header padding. */}
+          <div className="absolute end-12 top-[46px] z-20 w-[360px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md">
+            <div className="px-3 py-2">
+              <div className="flex flex-col gap-3">
+                <div className="flex h-8 w-full items-center justify-start gap-1 rounded-none px-0 py-0 text-muted-foreground">
+                  <span className="relative inline-flex h-8 min-w-0 flex-none items-center justify-center rounded-none px-2 py-0 text-sm font-medium text-foreground/60">
+                    People
+                  </span>
+                  <span className="relative inline-flex h-8 min-w-0 flex-none items-center justify-center rounded-none px-2 py-0 text-sm font-medium text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-foreground">
+                    Agents
+                  </span>
+                </div>
+
+                <div className="-mx-1.5 flex flex-col gap-0.5">
+                  {AGENT_ROWS.map((row, index) => (
+                    <div key={row.label}>
+                      {index === 1 ? (
+                        <div className="my-1 border-t border-border" />
+                      ) : null}
+                      <span className="flex h-9 w-full items-center justify-start gap-2 rounded-md px-1.5 text-sm font-normal">
+                        <span className="text-muted-foreground">
+                          {row.icon}
+                        </span>
+                        {row.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
