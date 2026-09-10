@@ -149,6 +149,7 @@ describe("workspacifyApp core pinning", () => {
       "packageExtensions:\n  'node-pty@*':\n    dependencies:\n      node-gyp: '^12.4.0'\n",
       "packageExtensions: {}\n",
       'packageExtensions: {"other@1": {dependencies: {dep: "^1"}}}\n',
+      "packageExtensions: # preserve this map\n  other@1:\n    dependencies:\n      dep: '^1'\n",
     ];
 
     for (const source of sources) {
