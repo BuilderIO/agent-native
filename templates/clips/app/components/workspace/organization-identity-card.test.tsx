@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   org: undefined as { orgId: string | null } | undefined,
   orgLoading: false,
+  orgError: false,
   actionCalls: [] as string[],
   actionResult: {
     data: undefined as unknown,
@@ -29,7 +30,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
-  useOrg: () => ({ data: state.org, isLoading: state.orgLoading }),
+  useOrg: () => ({
+    data: state.org,
+    isLoading: state.orgLoading,
+    isError: state.orgError,
+  }),
 }));
 
 vi.mock("@/components/workspace/branding-editor", () => ({
@@ -43,6 +48,7 @@ import { OrganizationIdentityCard } from "./organization-identity-card";
 beforeEach(() => {
   state.org = undefined;
   state.orgLoading = false;
+  state.orgError = false;
   state.actionCalls = [];
   state.actionResult = { data: undefined, isPending: false, isError: false };
 });
@@ -57,6 +63,19 @@ describe("OrganizationIdentityCard", () => {
     const markup = renderToStaticMarkup(<OrganizationIdentityCard />);
 
     expect(markup).toBe("");
+    expect(state.actionCalls).toEqual([]);
+  });
+
+  it("reports a failed organization lookup instead of hiding the section", () => {
+    // A failed `useOrg()` leaves `data` undefined, which is indistinguishable
+    // from a loaded `orgId: null` unless the error is read. Coercing it into
+    // personal scope would silently hide an auth/network/backend failure.
+    state.org = undefined;
+    state.orgError = true;
+
+    const markup = renderToStaticMarkup(<OrganizationIdentityCard />);
+
+    expect(markup).toContain("organizationSettings.brandingLoadFailed");
     expect(state.actionCalls).toEqual([]);
   });
 

@@ -250,16 +250,14 @@ export async function getActiveOrganizationId(
     }
   }
 
-  // Legacy fallback: old workspace UI's `current-workspace` app-state key,
-  // and the deprecated `workspaces` table. Both outlive the organization they
-  // name - deleting an org clears org_members but not these - so an unchecked
-  // id here resurrects a deleted org and turns every org-scoped read into a
-  // 403 instead of the personal-scope state the user actually has.
+  // Legacy fallback: old workspace UI's `current-workspace` app-state key, and
+  // the deprecated `workspaces` table.
   try {
     const legacy = (await readAppState("current-workspace")) as {
       id?: string;
     } | null;
-    if (legacy?.id && (await organizationExists(legacy.id))) return legacy.id;
+    const legacyOrgId = await legacyOrganizationIdForCaller(legacy?.id, email);
+    if (legacyOrgId) return legacyOrgId;
   } catch {
     // fall through
   }
@@ -270,7 +268,8 @@ export async function getActiveOrganizationId(
       .from(schema.workspaces)
       .orderBy(desc(schema.workspaces.createdAt))
       .limit(1);
-    if (row?.id && (await organizationExists(row.id))) return row.id;
+    const legacyOrgId = await legacyOrganizationIdForCaller(row?.id, email);
+    if (legacyOrgId) return legacyOrgId;
   } catch {
     // fall through
   }
@@ -278,13 +277,37 @@ export async function getActiveOrganizationId(
   return null;
 }
 
-async function organizationExists(organizationId: string): Promise<boolean> {
+/**
+ * Vet a legacy workspace id before it becomes an active organization id.
+ *
+ * Neither legacy source is scoped to a caller and neither is cleaned up when an
+ * organization is deleted: the app-state key keeps naming a deleted org, and
+ * the `workspaces` lookup takes the globally newest row, which can belong to
+ * someone else entirely. Either way the caller ends up with an org id they have
+ * no relationship with, and every org-scoped read answers 403 instead of the
+ * personal scope they actually have.
+ *
+ * Migration v61 seeds `org_members` for every legacy workspace owner and
+ * member, so a real legacy user resolves through membership well before this
+ * fallback runs. A caller with no identity at all (CLI, solo dev) has nothing
+ * to scope by, so an existing org is the best available answer there.
+ */
+async function legacyOrganizationIdForCaller(
+  organizationId: string | null | undefined,
+  email: string | undefined,
+): Promise<string | null> {
+  if (!organizationId) return null;
+
   const [row] = await getDb()
     .select({ id: organizations.id })
     .from(organizations)
     .where(eq(organizations.id, organizationId))
     .limit(1);
-  return Boolean(row);
+  if (!row) return null;
+
+  if (!email) return organizationId;
+  const role = await getOrganizationRoleForEmail(organizationId, email);
+  return role ? organizationId : null;
 }
 
 /**

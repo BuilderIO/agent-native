@@ -32,10 +32,16 @@ export function OrganizationIdentityCard() {
   const t = useT();
   const { session } = useSession();
   const email = session?.email ?? "";
-  const { data: orgInfo, isLoading: orgLoading } = useOrg();
+  const {
+    data: orgInfo,
+    isLoading: orgLoading,
+    isError: isOrgError,
+  } = useOrg();
   // Personal scope owns this surface: the framework Team card below already
   // renders "create an organization", so an org-scoped branding fetch here
-  // has nothing to read and its failure reads as a broken page.
+  // has nothing to read and its failure reads as a broken page. A failed org
+  // lookup also leaves `orgInfo` undefined, so it must stay distinguishable
+  // from a loaded `orgId: null` instead of silently hiding the section.
   const hasActiveOrg = Boolean(orgInfo?.orgId);
 
   const { data, isPending, isError } =
@@ -55,12 +61,9 @@ export function OrganizationIdentityCard() {
     return role === "admin" || role === "owner";
   }, [members, email, organization?.ownerEmail]);
 
-  if (!hasActiveOrg) {
-    return orgLoading ? <Skeleton className="h-64 w-full" /> : null;
-  }
-  if (isPending) return <Skeleton className="h-64 w-full" />;
-  // A failed load must not look like "this org has no branding".
-  if (isError) {
+  // A failed load must not look like "this org has no branding", and an
+  // unreadable organization must not look like not having one.
+  if (isOrgError || isError) {
     return (
       <Card>
         <CardContent className="py-6 text-center text-sm text-muted-foreground">
@@ -69,6 +72,9 @@ export function OrganizationIdentityCard() {
       </Card>
     );
   }
+  if (orgLoading) return <Skeleton className="h-64 w-full" />;
+  if (!hasActiveOrg) return null;
+  if (isPending) return <Skeleton className="h-64 w-full" />;
   if (!organization) return null;
 
   if (!isAdmin) {
