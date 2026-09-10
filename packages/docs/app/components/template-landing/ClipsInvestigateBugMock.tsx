@@ -1,9 +1,10 @@
 /**
  * Static, decorative recreation of an agent chat exchange: a prompt with a
- * clip share link asking the agent to act on recorded feedback, followed by
- * the agent's confirmation that it made the requested changes — used as the
- * art for the "Act on recorded feedback" use-case card on the Clips landing
- * page.
+ * clip share link asking the agent to investigate a reported bug, followed
+ * by the agent's confirmation that it found and fixed the issues, citing the
+ * recording evidence (screenshot, console log, network log) it used — used
+ * as the art for the "Investigate a reported bug" use-case card on the Clips
+ * landing page.
  *
  * All CSS lives here, scoped under `.clips-cell-mock`, following the same
  * convention as `ClipsLibraryMock.tsx`. The chat renders inside its own
@@ -50,7 +51,7 @@ const CLIPS_CELL_MOCK_CSS = [
   "html.light .clips-cell-mock-composer-send { color: #f1f0ea; }",
 ].join("\n");
 
-export function ClipsActOnFeedbackMock({
+export function ClipsInvestigateBugMock({
   className = "",
   label,
 }: {

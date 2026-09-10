@@ -5,7 +5,7 @@ import type { MouseEvent } from "react";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
-import { ClipsActOnFeedbackMock } from "../components/template-landing/ClipsActOnFeedbackMock";
+import { ClipsInvestigateBugMock } from "../components/template-landing/ClipsInvestigateBugMock";
 import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
@@ -232,13 +232,13 @@ export default function ClipsTemplate() {
                 <div
                   key="media"
                   className={`order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)] ${
-                    useCase.id === "act-on-feedback"
+                    useCase.id === "investigate-bug"
                       ? ""
                       : "bg-[var(--b-bg-raised)]"
                   }`}
                 >
-                  {useCase.id === "act-on-feedback" ? (
-                    <ClipsActOnFeedbackMock className="w-full" />
+                  {useCase.id === "investigate-bug" ? (
+                    <ClipsInvestigateBugMock className="w-full" />
                   ) : (
                     <ImgPlaceholder
                       aspectRatio="4 / 3"
