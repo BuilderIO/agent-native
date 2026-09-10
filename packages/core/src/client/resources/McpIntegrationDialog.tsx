@@ -201,9 +201,14 @@ export function McpIntegrationDialog({
       createMcpIntegrationFormDefaults(initialIntegration);
     const initialNeedsScopeChoice = Boolean(
       initialIntegration &&
-      hasOrg &&
-      requiresMcpIntegrationSetup(initialIntegration) &&
-      supportsMcpIntegrationOrganizationScope(initialIntegration),
+      // Org-only integrations reach the choice screen regardless of workspace
+      // membership: the form would otherwise offer a personal connection the
+      // server rejects, and with no workspace there is nothing else to explain
+      // why the only option is unavailable.
+      (requiresMcpIntegrationOrganizationScope(initialIntegration) ||
+        (hasOrg &&
+          requiresMcpIntegrationSetup(initialIntegration) &&
+          supportsMcpIntegrationOrganizationScope(initialIntegration))),
     );
     setMode(
       initialNeedsScopeChoice

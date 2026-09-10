@@ -968,6 +968,22 @@ export function mcpIntegrationAuthLabel(mode: McpIntegrationAuthMode): string {
   return "OAuth";
 }
 
+/**
+ * Mirrors `resolveMcpOAuthScope` on the server, which keys its org-only rule on
+ * the server URL rather than on a catalog entry. Matching by URL also covers
+ * custom servers pasted by hand, which have no catalog entry to carry a flag.
+ */
+export function mcpUrlRequiresOrganizationScope(rawUrl: string): boolean {
+  if (!URL.canParse(rawUrl)) return false;
+  const url = new URL(rawUrl);
+  return (
+    url.origin === "https://mcp.builder.io" &&
+    url.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !url.search &&
+    !url.hash
+  );
+}
+
 export function buildMcpOAuthStartUrl({
   name,
   url,
@@ -979,7 +995,9 @@ export function buildMcpOAuthStartUrl({
     name,
     url,
     description,
-    scope,
+    // Every client OAuth start is built here, so this is the one place that can
+    // keep a personal scope off a server that only accepts a workspace one.
+    scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
   });
   return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
@@ -1037,8 +1055,8 @@ export function requiresMcpIntegrationOrganizationScope(
   integration: DefaultMcpIntegration,
 ): boolean {
   return (
-    integration.organizationScopeOnly === true &&
-    supportsMcpIntegrationOrganizationScope(integration)
+    integration.organizationScopeOnly === true ||
+    mcpUrlRequiresOrganizationScope(integration.url)
   );
 }
 

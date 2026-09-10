@@ -15,7 +15,10 @@ vi.mock("../server/credential-provider.js", () => ({
   resolveSecretPairs: resolveSecretPairsMock,
 }));
 
-import { DEFAULT_MCP_INTEGRATIONS } from "../client/resources/mcp-integration-catalog.js";
+import {
+  DEFAULT_MCP_INTEGRATIONS,
+  mcpUrlRequiresOrganizationScope,
+} from "../client/resources/mcp-integration-catalog.js";
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   bindMcpOAuthAuthorizationScope,
@@ -363,6 +366,24 @@ describe("managed MCP OAuth clients", () => {
     ).toEqual({ ok: true, scope: "org" });
   });
 
+  it("matches the server org-only rule for hand-entered Builder Publish URLs", () => {
+    for (const raw of [
+      "https://mcp.builder.io/mcp/publish",
+      "https://mcp.builder.io/mcp/publish/",
+    ]) {
+      expect(mcpUrlRequiresOrganizationScope(raw)).toBe(true);
+      expect(resolveMcpOAuthScope(new URL(raw), "user").ok).toBe(false);
+    }
+    for (const raw of [
+      "https://mcp.builder.io/mcp/fusion",
+      "https://mcp.hubspot.com",
+      "https://mcp.example.com/mcp",
+      "not-a-url",
+    ]) {
+      expect(mcpUrlRequiresOrganizationScope(raw)).toBe(false);
+    }
+  });
+
   it("keeps every catalog scope flag in step with what the server enforces", () => {
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       if (integration.authMode !== "oauth" || !integration.url) continue;
@@ -375,6 +396,16 @@ describe("managed MCP OAuth clients", () => {
       }).toEqual({
         id: integration.id,
         organizationScopeOnly: !resolveMcpOAuthScope(serverUrl, "user").ok,
+      });
+
+      // The URL-level rule that buildMcpOAuthStartUrl enforces has to agree
+      // with the server too, since custom servers carry no catalog flag.
+      expect({
+        id: integration.id,
+        urlRequiresOrg: mcpUrlRequiresOrganizationScope(integration.url),
+      }).toEqual({
+        id: integration.id,
+        urlRequiresOrg: !resolveMcpOAuthScope(serverUrl, "user").ok,
       });
 
       // ...nor a workspace connection the server rejects. `managedOAuth` is

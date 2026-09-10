@@ -626,6 +626,42 @@ describe("McpIntegrationDialog", () => {
     expect(document.body.textContent).toContain("Join a workspace first.");
   });
 
+  it("keeps the initial form out of user scope for an org-only integration", () => {
+    const builder = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "builder-cms",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    // McpConnectionSuggestion opens the dialog this way from the agent chat,
+    // which used to land on the form and submit scope=user.
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="builder-cms"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[builder]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    expect(personal).toBeUndefined();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "cannot be connected to just your account",
+    );
+  });
+
   it("starts the workspace connection directly for an org-only integration", () => {
     const builder = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "builder-cms",

@@ -461,6 +461,36 @@ describe("MCP integration catalog", () => {
     expect(mcpIntegrationAuthLabel("oauth")).toBe("OAuth");
   });
 
+  it("refuses to build a personal OAuth start for an org-only server", () => {
+    const params = new URL(
+      buildMcpOAuthStartUrl({
+        name: "Builder.io",
+        url: "https://mcp.builder.io/mcp/publish",
+        description: "Search Builder Publish content",
+        scope: "user",
+        returnUrl: "/settings/integrations",
+      }),
+      "https://example.com",
+    ).searchParams;
+
+    expect(params.get("scope")).toBe("org");
+  });
+
+  it("leaves the requested scope alone for every other server", () => {
+    const params = new URL(
+      buildMcpOAuthStartUrl({
+        name: "Linear",
+        url: "https://mcp.linear.app/sse",
+        description: "Read and write issues",
+        scope: "user",
+        returnUrl: "/settings/integrations",
+      }),
+      "https://example.com",
+    ).searchParams;
+
+    expect(params.get("scope")).toBe("user");
+  });
+
   it("builds an encoded OAuth start URL", () => {
     const url = buildMcpOAuthStartUrl({
       name: "Linear & Issues",

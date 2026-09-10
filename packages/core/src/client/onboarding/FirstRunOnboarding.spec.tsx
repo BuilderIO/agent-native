@@ -21,6 +21,14 @@ const mocks = vi.hoisted(() => ({
   trackOnboardingEvent: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
+  navigateToMcpOAuthStart: vi.fn(),
+}));
+
+vi.mock("../resources/mcp-integration-catalog.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../resources/mcp-integration-catalog.js")
+  >()),
+  navigateToMcpOAuthStart: mocks.navigateToMcpOAuthStart,
 }));
 
 vi.mock("./use-onboarding.js", () => ({
@@ -57,6 +65,7 @@ describe("FirstRunOnboarding", () => {
     mocks.createMcpServer.mockReset();
     mocks.testMcpServer.mockReset();
     mocks.useBuilderConnectFlow.mockReset();
+    mocks.navigateToMcpOAuthStart.mockReset();
     mocks.useMcpServers.mockReset();
     mocks.useMcpServersApi.mockReset();
     mocks.trackOnboardingEvent.mockReset();
@@ -910,6 +919,61 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(document.body.textContent).toContain("Who should use this?");
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
+  it("does not start a personal connection for an org-only integration without a workspace", () => {
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: null, role: null },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    expect(search).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Builder.io");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Builder.io"]')
+        ?.click();
+    });
+
+    // The no-workspace fast path used to send scope=user straight to the server.
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
     expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
   });
 
