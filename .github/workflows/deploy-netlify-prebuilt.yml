@@ -1014,9 +1014,9 @@ jobs:
       - name: Verify beta source is current after publish
         id: beta_post_freshness
         if: >-
-          inputs.target == 'beta' && inputs.deploy &&
+          always() && inputs.target == 'beta' && inputs.deploy &&
           steps.beta_freshness.outputs.current == 'true' &&
-          steps.deploy.outcome == 'success'
+          steps.deploy.outputs.deploy_id != ''
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
@@ -1038,7 +1038,8 @@ jobs:
 
       - name: Revert stale beta deploy
         if: >-
-          inputs.target == 'beta' && inputs.deploy &&
+          always() && inputs.target == 'beta' && inputs.deploy &&
+          steps.deploy.outputs.deploy_id != '' &&
           steps.beta_post_freshness.outputs.current == 'false'
         env:
           DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
@@ -1080,6 +1081,7 @@ jobs:
           if (!siteId || !deployId) throw new Error("Beta freshness cleanup is missing the site or deploy id.");
           const deadline = Date.now() + 5 * 60 * 1000;
           let cancellationRequested = false;
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
           while (Date.now() < deadline) {
             const site = await readJson(
               await request(`${api}/sites/${siteId}`),
@@ -1087,6 +1089,14 @@ jobs:
             );
             if (site.published_deploy?.id === deployId) {
               if (!previousId) throw new Error("Cannot revert stale beta deploy without a previous published deploy.");
+              const beforeRestore = await readJson(
+                await request(`${api}/sites/${siteId}`),
+                "Netlify beta freshness restore precondition",
+              );
+              if (beforeRestore.published_deploy?.id !== deployId) {
+                await sleep(1_000);
+                continue;
+              }
               await readJson(
                 await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, { method: "POST" }),
                 `Netlify beta freshness revert to ${previousId}`,
@@ -1101,7 +1111,7 @@ jobs:
                   process.exitCode = 1;
                   return;
                 }
-                await new Promise((resolve) => setTimeout(resolve, 10_000));
+                await sleep(10_000);
               }
               throw new Error(`Netlify did not restore beta deploy ${previousId} within five minutes.`);
             }
@@ -1126,7 +1136,7 @@ jobs:
               }
               cancellationRequested = true;
             }
-            await new Promise((resolve) => setTimeout(resolve, 10_000));
+            await sleep(10_000);
           }
           throw new Error(`Stale beta deploy ${deployId} did not settle before the five-minute cleanup deadline.`);
           })().catch((error) => {

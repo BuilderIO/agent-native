@@ -365,6 +365,15 @@ describe("production Netlify site concurrency guard", () => {
       /core\.setOutput\('current', String\(current\)\)/,
     );
     assert.match(reusableSource, /Verify beta source is current after publish/);
+    assert.match(
+      reusableSource,
+      /always\(\) && inputs\.target == 'beta' && inputs\.deploy/,
+    );
+    assert.match(reusableSource, /steps\.deploy\.outputs\.deploy_id != ''/);
+    assert.match(
+      reusableSource,
+      /steps\.beta_post_freshness\.outputs\.current == 'false'/,
+    );
     assert.match(reusableSource, /Revert stale beta deploy/);
     assert.match(
       reusableSource,
@@ -372,6 +381,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(reusableSource, /deploys\/\$\{deployId\}\/cancel/);
     assert.match(reusableSource, /cancellationRequested/);
+    assert.match(reusableSource, /Netlify beta freshness restore precondition/);
     assert.match(
       reusableSource,
       /did not settle before the five-minute cleanup deadline/,

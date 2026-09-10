@@ -839,12 +839,22 @@ if (
   !reusableBetaFreshness.includes(
     "Verify beta source is current after publish",
   ) ||
+  !reusableBetaFreshness.includes(
+    "always() && inputs.target == 'beta' && inputs.deploy",
+  ) ||
+  !reusableBetaFreshness.includes("steps.deploy.outputs.deploy_id != ''") ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_post_freshness.outputs.current == 'false'",
+  ) ||
   !reusableBetaFreshness.includes("Revert stale beta deploy") ||
   !reusableBetaFreshness.includes(
     "/sites/${siteId}/deploys/${previousId}/restore",
   ) ||
   !reusableBetaFreshness.includes("/deploys/${deployId}/cancel") ||
   !reusableBetaFreshness.includes("cancellationRequested") ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta freshness restore precondition",
+  ) ||
   !reusableBetaFreshness.includes(
     "did not settle before the five-minute cleanup deadline",
   )
