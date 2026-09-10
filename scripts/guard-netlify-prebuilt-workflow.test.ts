@@ -203,12 +203,12 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("cancels stale beta runs and keeps the source latest-main", () => {
+  it("coalesces pending beta runs and keeps the source latest-main", () => {
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
     const betaConcurrency = beta.concurrency as Workflow;
-    assert.equal(betaConcurrency["cancel-in-progress"], true);
+    assert.equal(betaConcurrency["cancel-in-progress"], false);
     assert.equal(
       betaConcurrency.group,
       "deploy-agent-native-beta-sites-prebuilt",
@@ -345,7 +345,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.equal(
       (reusable.concurrency as Workflow)["cancel-in-progress"],
-      "${{ inputs.target == 'beta' }}",
+      false,
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
@@ -363,6 +363,14 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       reusableSource,
       /core\.setOutput\('current', String\(current\)\)/,
+    );
+    assert.match(reusableSource, /Verify beta source is current after publish/);
+    assert.match(reusableSource, /Revert stale beta deploy/);
+    assert.match(reusableSource, /deploys\/\$\{previousId\}\/restore/);
+    assert.match(reusableSource, /deploys\/\$\{deployId\}\/cancel/);
+    assert.match(
+      reusableSource,
+      /inputs\.target == 'beta' \|\| \(inputs\.smoke && steps\.target\.outputs\.source_template != '@agent-native\/docs'\)/,
     );
     assert.match(reusableSource, /inputs\.caller/);
     const betaResolveSource = readWorkflow(
@@ -467,11 +475,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 9);
+    assert.equal(nodeHeredocs.length, 10);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      9,
+      10,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),

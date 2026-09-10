@@ -207,12 +207,9 @@ try {
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 
-if (
-  asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !==
-  "${{ inputs.target == 'beta' }}"
-) {
+if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
   issues.push(
-    `${reusablePath} beta child deploys must cancel stale sources while production remains non-canceling`,
+    `${reusablePath} beta child deploys must keep accepted publishers alive and coalesce pending sources`,
   );
 }
 const betaWorkflowConcurrency = asRecord(
@@ -221,10 +218,10 @@ const betaWorkflowConcurrency = asRecord(
 if (
   betaWorkflowConcurrency?.group !==
     "deploy-agent-native-beta-sites-prebuilt" ||
-  betaWorkflowConcurrency?.["cancel-in-progress"] !== true
+  betaWorkflowConcurrency?.["cancel-in-progress"] !== false
 ) {
   issues.push(
-    `${betaPath} must cancel older automatic and manual publishes for the latest main`,
+    `${betaPath} must coalesce pending automatic and manual publishes without canceling an accepted publisher`,
   );
 }
 const reusableConcurrencyGroup = String(
@@ -835,10 +832,18 @@ if (
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
   ) ||
-  !reusableBetaFreshness.includes("core.setOutput('current', String(current))")
+  !reusableBetaFreshness.includes(
+    "core.setOutput('current', String(current))",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Verify beta source is current after publish",
+  ) ||
+  !reusableBetaFreshness.includes("Revert stale beta deploy") ||
+  !reusableBetaFreshness.includes("/deploys/${previousId}/restore") ||
+  !reusableBetaFreshness.includes("/deploys/${deployId}/cancel")
 ) {
   issues.push(
-    `${reusablePath} must reject stale beta recovery sources before upload`,
+    `${reusablePath} must reject stale beta sources before upload and revert accepted stale deploys`,
   );
 }
 if (

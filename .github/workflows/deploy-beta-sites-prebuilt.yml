@@ -24,11 +24,11 @@ permissions:
   contents: write
   actions: read
 
-# Beta is a moving mirror of main. A newer main push or manual recovery run
-# supersedes every older beta publish so only the latest main can go live.
+# Beta is a moving mirror of main. Keep one accepted publisher running and
+# coalesce any pending automatic or manual run to the newest main commit.
 concurrency:
   group: deploy-agent-native-beta-sites-prebuilt
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   resolve-source:
