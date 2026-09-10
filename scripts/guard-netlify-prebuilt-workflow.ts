@@ -415,11 +415,14 @@ try {
     const path = `.github/workflows/${fileName}`;
     if (parsedWorkflows.has(path)) continue;
     const source = readFileSync(path, "utf8");
-    if (!source.includes(`uses: ./${reusablePath}`)) continue;
     const document = asRecord(parse(source));
     if (!document) {
       throw new Error(`${path} must contain a YAML mapping at the root`);
     }
+    const hasReusableCaller = Object.values(asRecord(document.jobs) ?? {}).some(
+      (value) => asRecord(value)?.uses === `./${reusablePath}`,
+    );
+    if (!hasReusableCaller) continue;
     parsedWorkflows.set(path, document);
   }
   if (!reusable.includes("workflow_call:")) {

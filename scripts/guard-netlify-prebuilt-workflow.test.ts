@@ -196,6 +196,23 @@ describe("Reusable workflow permission guard", () => {
       /future_caller reusable deploy job must explicitly retain contents access/,
     );
   });
+
+  it("normalizes quoted reusable caller paths before validating them", () => {
+    const quotedCaller = parse(`
+permissions:
+  contents: read
+jobs:
+  quoted_caller:
+    uses: "./.github/workflows/deploy-netlify-prebuilt.yml"
+`) as Workflow;
+    assert.deepEqual(
+      validateReusableCallerPermissions(
+        quotedCaller,
+        ".github/workflows/quoted-caller.yml",
+      ),
+      [],
+    );
+  });
 });
 
 describe("Netlify API rate-limit guard", () => {
