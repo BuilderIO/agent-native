@@ -1,10 +1,6 @@
 import { useActionQuery, useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconAlertTriangle,
-  IconMessageCircleBolt,
-  IconUser,
-} from "@tabler/icons-react";
+import { IconAlertTriangle, IconBrain, IconUser } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -367,7 +363,7 @@ export function AgentViewerAvatar({ className }: { className?: string }) {
         className,
       )}
     >
-      <IconMessageCircleBolt className="size-3.5" />
+      <IconBrain className="size-3.5" />
     </span>
   );
 }
