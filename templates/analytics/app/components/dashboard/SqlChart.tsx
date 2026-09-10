@@ -93,11 +93,13 @@ export function limitChartRows(
 ): Record<string, unknown>[] {
   if (
     rows.length <= MAX_CHART_POINTS ||
-    !["line", "area", "bar", "pie", "heatmap"].includes(chartType)
+    !["line", "area", "bar", "pie", "heatmap", "funnel", "callout"].includes(
+      chartType,
+    )
   ) {
     return rows;
   }
-  return chartType === "bar" || chartType === "pie"
+  return chartType !== "line" && chartType !== "area" && chartType !== "heatmap"
     ? rows.slice(0, MAX_CHART_POINTS)
     : rows.slice(-MAX_CHART_POINTS);
 }
@@ -1541,7 +1543,7 @@ export function SqlChart({
 
   if (chartType === "funnel") {
     return withConfigWarning(
-      <FunnelRenderer rows={rows} panel={panel} colors={colors} />,
+      <FunnelRenderer rows={chartRows} panel={panel} colors={colors} />,
     );
   }
 
@@ -1552,7 +1554,7 @@ export function SqlChart({
   }
 
   if (chartType === "callout") {
-    return withConfigWarning(<CalloutRenderer rows={rows} />);
+    return withConfigWarning(<CalloutRenderer rows={chartRows} />);
   }
 
   if (chartType !== "line" && chartType !== "area") {

@@ -57,6 +57,8 @@ describe("limitChartRows", () => {
     expect(limitChartRows(rows, "heatmap")).toEqual(rows.slice(-400));
     expect(limitChartRows(rows, "bar")).toEqual(rows.slice(0, 400));
     expect(limitChartRows(rows, "pie")).toEqual(rows.slice(0, 400));
+    expect(limitChartRows(rows, "funnel")).toEqual(rows.slice(0, 400));
+    expect(limitChartRows(rows, "callout")).toEqual(rows.slice(0, 400));
   });
 });
 
