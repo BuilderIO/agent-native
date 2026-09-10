@@ -1159,6 +1159,9 @@ function SqlDashboardPageContent({
           queryClient.removeQueries({
             queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
           });
+          queryClient.removeQueries({
+            queryKey: ["dashboard-revisions", dashboardId, dashboardScope],
+          });
           void queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-sidebar", dashboardScope],
           });
@@ -1211,6 +1214,9 @@ function SqlDashboardPageContent({
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
+      queryClient.removeQueries({
+        queryKey: ["dashboard-revisions", dashboardId, dashboardScope],
+      });
       void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
@@ -1235,21 +1241,26 @@ function SqlDashboardPageContent({
   );
 
   const handleUndo = useCallback(async () => {
-    if (!dashboardId || !canEdit || restoreDashboardRevision.isPending) {
+    if (
+      !dashboardId ||
+      !canEdit ||
+      restoreDashboardRevision.isPending ||
+      revisionRestoreInFlightRef.current
+    ) {
       return;
     }
 
-    const revisions =
-      dashboardRevisions ?? (await refetchDashboardRevisions()).data;
-    if (!revisions?.length) return;
-    const targetIndex =
-      undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
-    const targetRevision = revisions[targetIndex];
-    if (!targetRevision) return;
-
     revisionRestoreInFlightRef.current = true;
-    holdDashboardConfig();
     try {
+      const revisions =
+        dashboardRevisions ?? (await refetchDashboardRevisions()).data;
+      if (!revisions?.length) return;
+      const targetIndex =
+        undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
+      const targetRevision = revisions[targetIndex];
+      if (!targetRevision) return;
+
+      holdDashboardConfig();
       const restored = await restoreDashboardRevision.mutateAsync({
         dashboardId,
         revisionId: targetRevision.id,
