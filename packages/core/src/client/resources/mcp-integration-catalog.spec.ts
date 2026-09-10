@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildMcpOAuthStartUrl,
@@ -16,6 +16,7 @@ import {
   isMcpConnectionSuggestionText,
   mcpIntegrationAuthLabel,
   mergeDefaultMcpIntegrations,
+  navigateToMcpOAuthStart,
   resolveMcpIntegrationScope,
   shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
@@ -23,6 +24,20 @@ import {
 } from "./mcp-integration-catalog.js";
 
 describe("MCP integration catalog", () => {
+  it("opens OAuth setup without replacing the current app", () => {
+    const open = vi.fn();
+    vi.stubGlobal("window", { open });
+
+    navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start");
+
+    expect(open).toHaveBeenCalledWith(
+      "/_agent-native/mcp/servers/oauth/start",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    vi.unstubAllGlobals();
+  });
+
   it("includes direct-connect defaults that do not need headers", () => {
     const context7 = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "context7",

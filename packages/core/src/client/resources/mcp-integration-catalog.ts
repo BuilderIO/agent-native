@@ -980,15 +980,7 @@ export function buildMcpOAuthStartUrl({
 
 export function navigateToMcpOAuthStart(url: string): void {
   if (typeof window === "undefined") return;
-
-  const navigate = () => {
-    window.setTimeout(() => window.location.assign(url), 0);
-  };
-  if (typeof window.requestAnimationFrame === "function") {
-    window.requestAnimationFrame(navigate);
-  } else {
-    navigate();
-  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 export function resolveMcpIntegrationScope(
