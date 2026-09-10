@@ -60,11 +60,7 @@ export function ClipsShareMenuMock({
             leaves it on the real page, and the pair centres as one group. The
             4px gap is the popover's own `sideOffset`. */}
         <div className="clips-share-mock-group flex w-[293px] flex-col items-end gap-1">
-          {/* The control has to paint over the menu: the menu is the later
-              sibling, so without this its heavy shadow washes across the
-              button above it. No stacking context is in the way here, unlike
-              the page illustration, so an ordinary z-index is enough. */}
-          <ClipsShareControl className="relative z-10" />
+          <ClipsShareControl />
           <ClipsShareMenu />
         </div>
       </div>

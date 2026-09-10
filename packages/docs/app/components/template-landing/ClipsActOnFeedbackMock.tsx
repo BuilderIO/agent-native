@@ -384,7 +384,7 @@ export function ClipsActOnFeedbackMock({
               magnification crowded the crop, so it is pulled in. The shadow is
               likewise heavier than `shadow-md` because it has to separate the
               menu from a near-black page. */}
-          <ClipsShareMenu className="absolute end-4 top-[46px] z-20" />
+          <ClipsShareMenu className="absolute end-4 top-[46px] z-20 shadow-[1px_1px_70px_0_rgba(0,0,0,1)]" />
 
           {/* The share control triggers that menu, so it stays clear of the
               shadow the menu casts and out of the receded layer. It has to be

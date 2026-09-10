@@ -112,14 +112,16 @@ export function ClipsShareControl({ className = "" }: { className?: string }) {
 
 /**
  * The width is art direction rather than product truth: the real popover is
- * `w-[360px]`, which crowded the magnified crop, so it is pulled in. The
- * shadow is likewise heavier than `shadow-md` because it has to separate the
- * menu from a near-black page.
+ * `w-[360px]`, which crowded the magnified crop, so it is pulled in.
+ *
+ * Elevation is left to the caller, like position. Over the recording page the
+ * menu needs a heavy shadow to lift off a near-black surface; standing on its
+ * own in a card it overlaps nothing and a shadow would only add grime.
  */
 export function ClipsShareMenu({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`w-[293px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-[1px_1px_70px_0_rgba(0,0,0,1)] ${className}`}
+      className={`w-[293px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground ${className}`}
     >
       <div className="px-3 py-2">
         <div className="flex flex-col gap-3">
