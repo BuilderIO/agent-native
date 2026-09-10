@@ -57,6 +57,8 @@ jobs:
     needs: discover
     permissions:
       contents: read
+      issues: write
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
@@ -80,6 +82,10 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       needs.discover.outputs.has_targets == 'true'
     needs: [discover, build]
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}

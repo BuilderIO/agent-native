@@ -15,6 +15,7 @@ import {
   validateNetlifyApiRateLimitHandling,
   validateNetlifyPrPreviewWorkflow,
   validateProductionPurgeCondition,
+  validateReusableCallerPermissions,
   validateReusableWorkflowConcurrency,
   validateReusableWorkflowPermissions,
   validateProductionSiteConcurrency,
@@ -114,9 +115,37 @@ describe("Reusable workflow permission guard", () => {
     assert.match(
       validateReusableWorkflowPermissions({
         ...reusable,
-        permissions: { contents: "read", "pull-requests": "write" },
+        permissions: { contents: "read" },
       }).join("\n"),
-      /must not require write permissions/,
+      /must declare the permissions used by its PR preview comment step/,
+    );
+    const beta = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    assert.deepEqual(
+      validateReusableCallerPermissions(
+        beta,
+        ".github/workflows/deploy-beta-sites-prebuilt.yml",
+        "deploy",
+      ),
+      [],
+    );
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          ...beta,
+          jobs: {
+            ...(beta.jobs as Workflow),
+            deploy: {
+              ...(beta.jobs as Workflow).deploy,
+              permissions: { contents: "read" },
+            },
+          },
+        },
+        ".github/workflows/deploy-beta-sites-prebuilt.yml",
+        "deploy",
+      ).join("\n"),
+      /must pass reusable deploy comment permissions/,
     );
   });
 });

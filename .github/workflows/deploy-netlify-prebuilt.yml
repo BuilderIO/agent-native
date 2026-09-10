@@ -156,6 +156,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
