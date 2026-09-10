@@ -1,7 +1,7 @@
 pr=4647
 owner_thread=01a088a6-be17-7791-96ef-23281e334a7c
-version=20
-expires_at=2026-09-10T02:23:35Z
+version=21
+expires_at=2026-09-10T02:29:42Z
 observed_legacy_heartbeat_version=absent
 legacy_retired=true
 state=active
