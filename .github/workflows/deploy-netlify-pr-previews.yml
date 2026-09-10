@@ -32,9 +32,16 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          # pull_request_target may run for a branch that predates this helper.
+          # Load the discovery code from the trusted workflow base instead.
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Fetch the PR head for the path diff
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags origin "$HEAD_SHA"
 
       - name: Build the changed app site matrix
         id: targets

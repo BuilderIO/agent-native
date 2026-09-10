@@ -187,11 +187,11 @@ describe("getOnboardingHtml", () => {
       expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
-    it("cached canonical login HTML keeps silent federation enabled", () => {
+    it("keeps silent federation out of the request-independent login HTML", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
-      expect(readAuthPageData(getOnboardingHtml()).identitySsoAuto).toBe(true);
+      expect(readAuthPageData(getOnboardingHtml()).identitySsoAuto).toBe(false);
     });
 
     it("env set → enables silent federation without adding a separate sign-in control", () => {

@@ -7,6 +7,23 @@ import { resolveNetlifyPrebuiltTarget } from "./netlify-prebuilt-target.ts";
 
 type ProductionSites = Record<string, { host: string; siteId: string }>;
 
+// Keep previews aligned with the first-party apps rendered by the docs /apps
+// page. Internal and hidden templates must not get public PR preview URLs.
+const docsAppSites = new Set([
+  "analytics",
+  "assets",
+  "calendar",
+  "clips",
+  "content",
+  "design",
+  "dispatch",
+  "forms",
+  "mail",
+  "plan",
+  "slides",
+  "starter",
+]);
+
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -24,7 +41,7 @@ function readProductionSites(repoRoot = REPO_ROOT): ProductionSites {
 function buildableSites(repoRoot = REPO_ROOT): string[] {
   return Object.keys(readProductionSites(repoRoot))
     .filter((site) => {
-      if (site === "workspace") return false;
+      if (!docsAppSites.has(site)) return false;
       resolveNetlifyPrebuiltTarget("preview", site, repoRoot);
       return true;
     })
@@ -70,10 +87,7 @@ export function previewSitesForChangedPaths(
       allSites = true;
       continue;
     }
-    if (file.startsWith("packages/docs/")) {
-      selected.add("fw");
-      continue;
-    }
+    if (file.startsWith("packages/docs/")) continue;
 
     const template = file.match(/^templates\/([^/]+)(?:\/|$)/)?.[1];
     if (template) {
