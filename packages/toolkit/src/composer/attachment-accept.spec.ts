@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
   formatAttachmentError,
+  MAX_TEXT_ATTACHMENT_BYTES,
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
+  TextAttachmentAdapter,
   TEXT_ATTACHMENT_ACCEPT,
 } from "./attachment-accept.js";
 
@@ -58,6 +60,18 @@ describe("attachment accept lists", () => {
     ).toBe(fallback);
     expect(formatAttachmentError(new Error("Reader failed"), fallback)).toBe(
       "Reader failed",
+    );
+  });
+
+  it("rejects oversized text files before reading them", async () => {
+    const file = new File(
+      [new Uint8Array(MAX_TEXT_ATTACHMENT_BYTES + 1)],
+      "large.eml",
+      { type: "message/rfc822" },
+    );
+
+    await expect(new TextAttachmentAdapter().add({ file })).rejects.toThrow(
+      '"large.eml" is 3.5 MB - text attachments are capped at 3.5 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
     );
   });
 });

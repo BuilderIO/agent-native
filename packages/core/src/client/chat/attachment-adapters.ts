@@ -2,7 +2,9 @@
 
 import {
   CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
+  formatOversizedTextAttachmentError,
   IMAGE_ATTACHMENT_ACCEPT,
+  MAX_TEXT_ATTACHMENT_BYTES as MAX_TEXT_FILE_BYTES,
 } from "@agent-native/toolkit/composer/attachment-accept";
 import type {
   AttachmentAdapter,
@@ -23,11 +25,11 @@ export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAGE_DIMENSION = 2048;
 // Estimated total serialized body budget (JSON POST). Vercel/Netlify cap ~4.5 MB.
 // We stop well below to leave room for the text payload and JSON framing.
-export const MAX_ESTIMATED_BODY_BYTES = 3.5 * 1024 * 1024;
+export const MAX_ESTIMATED_BODY_BYTES = MAX_TEXT_FILE_BYTES;
 // Text files are read into memory before they can be sent as inline content.
 // Keep one file below the aggregate budget so an oversized EML is rejected
 // before file.text() allocates the whole payload.
-export const MAX_TEXT_ATTACHMENT_BYTES = MAX_ESTIMATED_BODY_BYTES;
+export const MAX_TEXT_ATTACHMENT_BYTES = MAX_TEXT_FILE_BYTES;
 // At 3.5 MB of serializable attachments, aggressively re-downscale images.
 export const AGGRESSIVE_MAX_IMAGE_DIMENSION = 1024;
 export const AGGRESSIVE_JPEG_QUALITY = 0.7;
@@ -67,12 +69,6 @@ function formatOversizedDocumentError(name: string, size: number): string {
   const mb = (size / 1024 / 1024).toFixed(1);
   const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
   return `"${name}" is ${mb} MB - documents are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
-}
-
-function formatOversizedTextError(name: string, size: number): string {
-  const mb = (size / 1024 / 1024).toFixed(1);
-  const maxMb = (MAX_TEXT_ATTACHMENT_BYTES / 1024 / 1024).toFixed(1);
-  return `"${name}" is ${mb} MB - text attachments are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -474,7 +470,9 @@ export async function serializeQueuedAttachments(
         });
       } else if (isTextLikeFile(file)) {
         if (file.size > MAX_TEXT_ATTACHMENT_BYTES) {
-          throw new Error(formatOversizedTextError(file.name, file.size));
+          throw new Error(
+            formatOversizedTextAttachmentError(file.name, file.size),
+          );
         }
         const text = await file.text();
         queued.push({

@@ -45,6 +45,7 @@ export function isTextLikeMimeType(contentType: string | undefined): boolean {
   if (ct === "application/json") return true;
   if (ct === "application/javascript") return true;
   if (ct === "application/typescript") return true;
+  if (ct === "application/x-yaml") return true;
   if (ct === "message/rfc822") return true;
   return false;
 }

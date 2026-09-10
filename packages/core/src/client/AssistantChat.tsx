@@ -5457,7 +5457,7 @@ const AssistantChatInner = forwardRef<
       continuationTurnId?: string,
       usageLabel?: string,
     ) => {
-      if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      if (isAgentChatSubmitCancelled(submitMessageId)) return false;
       const stoppedRunAtSubmitStart = userStoppedRunRef.current;
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
@@ -5488,9 +5488,9 @@ const AssistantChatInner = forwardRef<
         );
         setComposerError(msg);
         reportAgentChatSubmitResult(submitMessageId, false, "attachment-error");
-        return;
+        return false;
       }
-      if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      if (isAgentChatSubmitCancelled(submitMessageId)) return false;
       const imageAttachments = createAgentImageAttachments(images);
       const allAttachments = [
         ...(queuedAttachments ?? []),
@@ -5576,14 +5576,14 @@ const AssistantChatInner = forwardRef<
                 false,
                 "attachment-too-large",
               );
-              return;
+              return false;
             }
           }
           messageAttachments = recompressed;
         }
       }
       // ── End body-size guard ──────────────────────────────────────────
-      if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      if (isAgentChatSubmitCancelled(submitMessageId)) return false;
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -5697,6 +5697,7 @@ const AssistantChatInner = forwardRef<
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
       }
+      return true;
     },
     [
       applyLocalQueuedMessages,
@@ -6901,13 +6902,13 @@ const AssistantChatInner = forwardRef<
                                   onSubmit={
                                     isRunning ||
                                     visibleComposerContextItems.length > 0
-                                      ? (
+                                      ? async (
                                           text,
                                           references,
                                           attachments,
                                           options,
-                                        ) =>
-                                          void addToQueue(
+                                        ) => {
+                                          const accepted = await addToQueue(
                                             text,
                                             undefined,
                                             references.length > 0
@@ -6921,7 +6922,13 @@ const AssistantChatInner = forwardRef<
                                             }),
                                             undefined,
                                             true,
-                                          )
+                                          );
+                                          if (!accepted) {
+                                            throw new Error(
+                                              "Attachment submission was not accepted",
+                                            );
+                                          }
+                                        }
                                       : undefined
                                   }
                                   willQueue={engineSetupRequired || isRunning}
