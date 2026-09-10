@@ -170,13 +170,13 @@ Choose which apps can use that connection: Brain, Analytics, Mail, or Dispatch i
 
 <Callout tone="info">
 
-**Workspace Connections** are a newer, related idea: a saved, shared provider account any granted app can use directly, including letting the agent query that provider's raw API on demand when a canned action doesn't cover what you need. See [Dispatch developer guide](/docs/template-dispatch-developers) for the mechanics.
+**Workspace Connections** are a newer, related idea: a saved, shared provider account any granted app can use directly, including letting the agent query that provider's raw API on demand when a canned action doesn't cover what you need. See [Workspace connections and provider access](/docs/template-dispatch-developers#workspace-connections) for the mechanics.
 
 </Callout>
 
 ### Delivery destinations
 
-Save a reusable delivery target from **Admin → Destinations**: a Slack channel, a Telegram chat, or an email address. Automations and the agent can then send there by name instead of you re-entering it each time. See [Dispatch developer guide](/docs/template-dispatch-developers) for how delivery is tracked and tested.
+Save a reusable delivery target from **Admin → Destinations**: a Slack channel, a Telegram chat, or an email address. Automations and the agent can then send there by name instead of you re-entering it each time. See [Delivery destinations and queue internals](/docs/template-dispatch-developers#delivery) for how delivery is tracked and tested.
 
 ## Agent resources and profiles
 
@@ -238,7 +238,7 @@ Apply only the changes you want to keep. Once reports are consistently useful, a
 
 </Steps>
 
-Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?" or "which repeated lesson deserves a skill?"
+Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?" or "which repeated lesson deserves a skill?" See [Dreams internals](/docs/template-dispatch-developers#dreams-internals) for how evidence from untrusted sources is bounded before it reaches a report.
 
 ### Approval flow
 
@@ -297,7 +297,7 @@ Once a workspace is running, this is where you keep it healthy: change history, 
 - **Admin → Audit** is a flat, chronological change history for routes, settings, and approvals: summary, actor, action, and timestamp.
 - **Admin → Metrics** is the workspace-level LLM usage dashboard: spend, calls, active users, and threads, broken down by app, model, and work type over a 7/30/90-day window.
 
-**Admin → Operations** also has Monitoring and Database tabs, and **Admin → Thread Debug** searches and replays individual agent runs. Those are developer-facing surfaces for tracing a specific run or browsing raw data. See [Dispatch developer guide](/docs/template-dispatch-developers) for what each one shows.
+**Admin → Operations** also has Monitoring and Database tabs, and **Admin → Thread Debug** searches and replays individual agent runs. Those are developer-facing surfaces for tracing a specific run or browsing raw data. See [Operator console internals](/docs/template-dispatch-developers#operator-console) for what each one shows.
 
 **Admin → Identities** links an external sender (a Slack or Telegram account) to a workspace user with a one-time `/link TOKEN` code.
 

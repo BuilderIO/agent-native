@@ -360,7 +360,7 @@ const reply = useActionMutation("reply-to-email", {
 代理能看到的每一个 action,都会占用模型工具列表中的一个位置,而一份又长又重叠的列表会让模型更难选对工具。把 action 界面当作一套你在维护的 API 来设计,而不是 UI 里每个按钮配一个 action:
 
 - 优先选择**一个 CRUD 风格的 `update` action**,它接受一份包含可选字段的补丁,而不是 `update-name`、`update-order`、`update-color` 这样按字段拆分的许多 action。调用者只需要发送发生变化的字段。
-- 在为每一种查询或过滤条件新增一个读取类 action 之前,先考虑更通用的方案:面向 provider 数据的 [provider API 三件套](/docs/template-dispatch-vault-integrations#provider-api)(`provider-api-catalog`、`provider-api-docs` 和 `provider-api-request`),或者面向应用数据的开发用 `db-query` 工具。
+- 在为每一种查询或过滤条件新增一个读取类 action 之前,先考虑更通用的方案:面向 provider 数据的 [provider API 三件套](/docs/template-dispatch-developers#calling-a-provider-directly)(`provider-api-catalog`、`provider-api-docs` 和 `provider-api-request`),或者面向应用数据的开发用 `db-query` 工具。
 - 把仅供 UI 使用或程序化调用的 action 标记为 [`agentTool: false`](/docs/actions-access-control#agent-tool)。它们仍然可以从前端或通过 HTTP 调用,但不会占用模型工具列表中的位置。
 - 把代理时时都要用的少数几个 action 标记为 `deferLoading: false`。第一次模型请求发送的正是这些 schema;其余的会在代理需要时通过 `tool-search` 按需加载。只要有一个 action 这样退出,所有未标记的 action 就都会被推迟,所以要一次性标完整套起步 action,而不是一次标一个。这关乎第一轮的开销,而不是访问权限:被推迟的 action 在 `tool-search` 返回它的那一刻就可以调用。它是插件 `initialToolNames` 数组的按 action 写法,应用两者用其一即可。
 - 删除或隐藏 UI 已经不再使用的 action,而不是继续把它们暴露给模型。

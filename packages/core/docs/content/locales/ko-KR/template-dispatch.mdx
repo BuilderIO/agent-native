@@ -101,12 +101,12 @@ Dispatch는 다중 앱 작업 공간을 조율된 상태로 유지하기 위해 
 
 ## 무엇을 하는가 {#what-it-does}
 
-- **중앙 받은 편지함.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp, 이메일이 모두 한 곳으로 모입니다. Dispatch는 이를 분류하여 직접 처리하거나 위임합니다. [메시징, 라우팅, 승인](/docs/template-dispatch-messaging-routing)을 참조하세요.
+- **중앙 받은 편지함.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp, 이메일이 모두 한 곳으로 모입니다. Dispatch는 이를 분류하여 직접 처리하거나 위임합니다. [중앙 받은 편지함과 라우팅](/docs/template-dispatch-features#central-inbox-and-routing)을 참조하세요.
 - **제어 플레인 셸.** 채팅, 프로젝트, 실행, 작업 공간 앱, 에이전트, 자동화가 하나의 운영 셸 안에 있으며, 일회성 대시보드 대신 상태 중심의 목록과 드릴다운을 제공합니다.
 - **전문가가 아닌 오케스트레이터.** Dispatch는 이메일 앱이나 분석 앱이 되려고 하지 _않습니다_. 누군가 "지난주 가입자를 요약해 줘"라고 요청하면, Dispatch는 A2A를 통해 분석 에이전트를 호출하고 그 답변을 반환합니다.
-- **비밀 금고와 재사용 가능한 통합.** API 키, OAuth 토큰, 공급자 계정을 한 번만 저장하고 필요한 앱에 부여합니다. 요청/승인 흐름과 감사 추적이 함께 제공됩니다. [비밀, 통합, 작업 공간 연결](/docs/template-dispatch-vault-integrations)을 참조하세요.
+- **비밀 금고와 재사용 가능한 통합.** API 키, OAuth 토큰, 공급자 계정을 한 번만 저장하고 필요한 앱에 부여합니다. 요청/승인 흐름과 감사 추적이 함께 제공됩니다. [자격 증명과 통합](/docs/template-dispatch-features#credentials-and-integrations)을 참조하세요.
 - **작업 공간 리소스.** 전역 skills, 가드레일 지침, 사용자 지정 에이전트 프로필, 참조 리소스, HTTP MCP 서버를 Dispatch에서 한 번만 만들 수 있습니다. 모든 앱용 리소스는 복사 단계 없이 런타임에 모든 앱에 상속되며, 선택된 권한 부여는 앱별 예외를 처리합니다.
-- **예약된 작업과 꿈.** 앱 간 예약된 작업이 이곳에 있으며, 최근 실행을 검토해 메모리, skill, 지침 개선을 제안하는 검토 루프도 함께 제공됩니다. [작업 공간 운영](/docs/template-dispatch-operations)을 참조하세요.
+- **예약된 작업과 꿈.** 앱 간 예약된 작업이 이곳에 있으며, 최근 실행을 검토해 메모리, skill, 지침 개선을 제안하는 검토 루프도 함께 제공됩니다. [자동화와 예약된 작업](/docs/template-dispatch-features#automations-and-scheduled-jobs)과 [꿈과 승인](/docs/template-dispatch-features#dreams-and-approvals)을 참조하세요.
 - **승인 흐름.** 저장된 전달 대상, 모든 앱용 작업 공간 리소스, 공유 또는 팀 전체 꿈 메모리 제안과 같이 지속적인 변경 사항은 적용되기 전에 다른 관리자의 승인이 필요할 수 있습니다.
 - **채팅으로 새 앱 만들기.** 필요한 내용을 평범한 문장으로 설명하면, Dispatch는 기존 앱에 화면 하나를 더 추가하는 대신 실제로 독립된 형제 앱을 스캐폴딩합니다.
 
@@ -125,13 +125,13 @@ Dispatch는 다중 앱 작업 공간을 조율된 상태로 유지하기 위해 
 
 ## 일상적으로 하게 되는 일 {#what-youll-do}
 
-- **채널 연결하기.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp, 이메일 등 연결 단계는 [메시징, 라우팅, 승인](/docs/template-dispatch-messaging-routing)을 참조하세요.
-- **비밀을 저장하고 공급자를 한 번만 연결하기.** 작업 공간의 다른 모든 앱은 자체 사본을 갖는 대신 금고나 공유 연결에서 가져다 씁니다. [비밀, 통합, 작업 공간 연결](/docs/template-dispatch-vault-integrations)을 참조하세요.
+- **채널 연결하기.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp, 이메일 등 연결 단계는 [채널 연결하기](/docs/template-dispatch-features#connecting-a-channel)를 참조하세요.
+- **비밀을 저장하고 공급자를 한 번만 연결하기.** 작업 공간의 다른 모든 앱은 자체 사본을 갖는 대신 금고나 공유 연결에서 가져다 씁니다. [자격 증명과 통합](/docs/template-dispatch-features#credentials-and-integrations)을 참조하세요.
 - **회사 컨텍스트를 전역으로 유지하기.** 페르소나, 포지셔닝, 회사 정보, 가드레일을 Dispatch 리소스에 한 번만 입력한 다음, 특정 앱이나 사용자에 대해 작업 공간 → 앱/조직 → 개인 순서로 적용되는 스택을 미리 볼 수 있습니다.
-- **예약된 작업 설정하기.** "매주 월요일 오전 7시에 분석 에이전트에게 지난주 가입자를 물어보고 요약을 이메일로 보내줘." [작업 공간 운영](/docs/template-dispatch-operations)을 참조하세요.
+- **예약된 작업 설정하기.** "매주 월요일 오전 7시에 분석 에이전트에게 지난주 가입자를 물어보고 요약을 이메일로 보내줘." [자동화와 예약된 작업](/docs/template-dispatch-features#automations-and-scheduled-jobs)을 참조하세요.
 - **꿈 제안 검토하기.** Dispatch의 메모리 검토 루프가 이전 실행을 살펴보고, 작업 공간이 기억하는 내용에 대해 근거를 갖춘 변경 사항을 제안합니다.
-- **지속적인 변경 사항 통제하기.** 저장된 대상, 모든 앱용 작업 공간 리소스, 공유 꿈 제안은 적용 전에 다른 관리자의 승인이 필요하도록 설정할 수 있습니다. 승인 흐름에 대한 자세한 내용은 [메시징, 라우팅, 승인](/docs/template-dispatch-messaging-routing)을 참조하세요.
-- **운영자 콘솔 확인하기.** 모니터링, 데이터베이스 관리, 스레드 디버깅, 감사 내역, 사용량 지표가 모두 한곳에 모여 있습니다. [작업 공간 운영](/docs/template-dispatch-operations)을 참조하세요.
+- **지속적인 변경 사항 통제하기.** 저장된 대상, 모든 앱용 작업 공간 리소스, 공유 꿈 제안은 적용 전에 다른 관리자의 승인이 필요하도록 설정할 수 있습니다. [승인 흐름](/docs/template-dispatch-features#approval-flow)을 참조하세요.
+- **운영자 콘솔 확인하기.** 모니터링, 데이터베이스 관리, 스레드 디버깅, 감사 내역, 사용량 지표가 모두 한곳에 모여 있습니다. [운영자 콘솔 한눈에 보기](/docs/template-dispatch-features#operator-console-at-a-glance)를 참조하세요.
 - **채팅으로 새 앱 만들기.** 필요한 것을 요청하면 Dispatch가 기존 앱을 키우는 대신 새로운 형제 앱을 스캐폴딩합니다.
 
 ## 시작하기 {#get-started}

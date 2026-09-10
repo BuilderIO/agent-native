@@ -499,21 +499,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-dispatch-integrations",
           },
           {
-            id: "template-dispatch-messaging-routing",
-            labelKey: "dispatchMessagingRouting",
-            slug: "template-dispatch-messaging-routing",
-          },
-          {
-            id: "template-dispatch-operations",
-            labelKey: "dispatchOperations",
-            slug: "template-dispatch-operations",
-          },
-          {
-            id: "template-dispatch-vault-integrations",
-            labelKey: "dispatchVaultIntegrations",
-            slug: "template-dispatch-vault-integrations",
-          },
-          {
             id: "template-dispatch-developers",
             labelKey: "dispatchDevelopers",
             slug: "template-dispatch-developers",

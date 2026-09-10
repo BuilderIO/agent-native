@@ -101,12 +101,12 @@ Dispatch 是你与其他 Agent-Native 应用一起运行的应用，用于让多
 
 ## 它能做什么 {#what-it-does}
 
-- **中央收件箱。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp 和电子邮件全部汇集到一个地方。Dispatch 会进行分诊，自行处理请求或将其委派出去。参见 [消息传递、路由与审批](/docs/template-dispatch-messaging-routing)。
+- **中央收件箱。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp 和电子邮件全部汇集到一个地方。Dispatch 会进行分诊，自行处理请求或将其委派出去。参见 [中央收件箱与路由](/docs/template-dispatch-features#central-inbox-and-routing)。
 - **控制平面外壳。** 聊天、项目、运行记录、工作区应用、代理和自动化都位于同一个操作外壳中，采用以状态为先的列表和下钻视图，而不是零散的一次性仪表盘。
 - **是协调者，而非专家。** Dispatch _不会_ 试图成为电子邮件应用或分析应用。当有人问"汇总一下上周的注册情况"时，Dispatch 会通过 A2A 调用分析代理并返回答案。
-- **密钥保管库与可复用集成。** API 密钥、OAuth 令牌和服务商账户只需保存一次，即可授予需要它们的应用，并配有请求/批准流程和审计记录。参见 [密钥、集成与工作区连接](/docs/template-dispatch-vault-integrations)。
+- **密钥保管库与可复用集成。** API 密钥、OAuth 令牌和服务商账户只需保存一次，即可授予需要它们的应用，并配有请求/批准流程和审计记录。参见 [凭据与集成](/docs/template-dispatch-features#credentials-and-integrations)。
 - **工作区资源。** 全局技能、护栏说明、自定义代理配置文件、参考资源和 HTTP MCP 服务器都可以在 Dispatch 中创建一次。面向所有应用的资源在运行时会被每个应用自动继承，无需任何复制步骤；针对特定应用的例外情况则通过精选授权来覆盖。
-- **计划任务与梦想。** 跨应用的定期任务保存在这里，还有一个审查循环会检查最近的运行记录，并提出记忆、技能和说明方面的改进建议。参见 [运营工作区](/docs/template-dispatch-operations)。
+- **计划任务与梦想。** 跨应用的定期任务保存在这里，还有一个审查循环会检查最近的运行记录，并提出记忆、技能和说明方面的改进建议。参见 [自动化与计划任务](/docs/template-dispatch-features#automations-and-scheduled-jobs) 与 [梦想与审批](/docs/template-dispatch-features#dreams-and-approvals)。
 - **审批流程。** 持久性变更——包括已保存的投递目的地、面向所有应用的工作区资源，以及共享或团队范围的梦想记忆提案——在生效前可以要求另一位管理员批准。
 - **通过聊天构建新应用。** 用日常语言描述需求，Dispatch 就会搭建一个真正独立的同级应用，而不是在现有应用上再加一个界面。
 
@@ -125,13 +125,13 @@ Dispatch 是你与其他 Agent-Native 应用一起运行的应用，用于让多
 
 ## 你在日常工作中会用它做什么 {#what-youll-do}
 
-- **连接你的渠道。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp 或电子邮件——具体的接入步骤参见 [消息传递、路由与审批](/docs/template-dispatch-messaging-routing)。
-- **一次性保存密钥并连接服务商。** 工作区中的其他应用都会从保管库或共享连接中读取，而不是各自保留一份副本。参见 [密钥、集成与工作区连接](/docs/template-dispatch-vault-integrations)。
+- **连接你的渠道。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp 或电子邮件——具体的接入步骤参见 [连接一个渠道](/docs/template-dispatch-features#connecting-a-channel)。
+- **一次性保存密钥并连接服务商。** 工作区中的其他应用都会从保管库或共享连接中读取，而不是各自保留一份副本。参见 [凭据与集成](/docs/template-dispatch-features#credentials-and-integrations)。
 - **保持公司背景信息全局共享。** 把人设、定位、公司信息和护栏说明一次性放入 Dispatch 资源，然后可以为任意应用或用户预览工作区 → 应用/组织 → 个人这一层层叠加后的有效堆栈。
-- **设置定期任务。** "每周一早上 7 点，向分析代理询问上周的注册数据，并把摘要通过邮件发给我。"参见 [运营工作区](/docs/template-dispatch-operations)。
+- **设置定期任务。** "每周一早上 7 点，向分析代理询问上周的注册数据，并把摘要通过邮件发给我。"参见 [自动化与计划任务](/docs/template-dispatch-features#automations-and-scheduled-jobs)。
 - **审查梦想提案。** Dispatch 的记忆审查循环会检查以往的运行记录，并提出有据可查的、关于工作区记忆内容的变更建议。
-- **为持久性变更设置门槛。** 已保存的目的地、面向所有应用的工作区资源和共享的梦想提案，都可以要求另一位管理员批准后才能生效——审批流程详见 [消息传递、路由与审批](/docs/template-dispatch-messaging-routing)。
-- **关注运营控制台。** 监控、数据库管理、会话调试、审计历史和使用指标全部汇集在同一个地方——参见 [运营工作区](/docs/template-dispatch-operations)。
+- **为持久性变更设置门槛。** 已保存的目的地、面向所有应用的工作区资源和共享的梦想提案，都可以要求另一位管理员批准后才能生效——详见 [审批流程](/docs/template-dispatch-features#approval-flow)。
+- **关注运营控制台。** 监控、数据库管理、会话调试、审计历史和使用指标全部汇集在同一个地方——参见 [运营控制台一览](/docs/template-dispatch-features#operator-console-at-a-glance)。
 - **通过聊天创建新应用。** 提出你的需求，Dispatch 会搭建一个新的同级应用，而不是让现有应用不断膨胀。
 
 ## 快速开始 {#get-started}

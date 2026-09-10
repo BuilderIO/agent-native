@@ -86,6 +86,88 @@ The same **Destinations** page shows a queue-health panel, and each saved destin
 
 Agents manage destinations directly with `list-destinations`, `upsert-destination`, and `delete-destination`.
 
+## Workspace connections and provider access {#workspace-connections}
+
+A **workspace connection** is a saved, shared account for one provider — Slack, GitHub, Notion, Salesforce, and more — that any granted app can use without doing its own OAuth or holding its own key. Setting one up, granting it, and querying it are separate steps on purpose, so a plan or preview never has to touch a secret value.
+
+<Steps>
+
+### Plan the setup
+
+`plan-workspace-connection-setup` inspects the provider or an existing connection and returns what's needed: required and suggested credential ref names, which apps commonly use it, and a summary of current grants. It never returns secret values.
+
+### Apply it
+
+`apply-workspace-connection-setup` saves the connection using those credential ref names only. Anything that looks like a raw secret — a Slack token, a GitHub PAT, a private key — is rejected outright.
+
+### Grant or preview impact
+
+`set-workspace-connection-grant` grants or revokes one app's access, or switches the whole connection between all-apps and selected-apps only. `preview-workspace-connection-impact` shows which apps would lose access before a revoke, disable, or delete.
+
+### Query it
+
+Once a connection exists, the agent reaches it through `provider-api-request`, optionally staging the response with `stageAs` instead of returning it inline.
+
+</Steps>
+
+`list-workspace-connections` lists the provider catalog, saved connections, and every app's current access in one call; `delete-workspace-connection` removes a connection's metadata and grants, and secret values stay in Vault or OAuth stores either way. See [Dispatch action and data reference](/docs/template-dispatch-reference#actions) for the full action list.
+
+### Calling a provider directly
+
+A grant is not a capability limit. When a canned action doesn't cover the exact endpoint, filter, or pagination mode needed, `provider-api-request` makes the actual authenticated call:
+
+<AnnotatedCode
+  id="doc-block-dispatch-provider-api"
+  title="provider-api-request call"
+  filename="provider-api-request call"
+  language="json"
+  code={
+    '{\n  "provider": "slack",\n  "path": "/conversations.history",\n  "query": { "channel": "C0123456789", "limit": 50 },\n  "stageAs": "support-channel-last-50"\n}'
+  }
+  annotations={[
+    {
+      lines: "2",
+      note: "`provider` is one of the configured provider APIs. Use `provider-api-catalog` to see the full list and each provider's auth style.",
+    },
+    {
+      lines: "3",
+      note: "`path` is the provider's real REST path, not a Dispatch-invented shape — copy it from `provider-api-catalog`/`provider-api-docs` when unsure.",
+    },
+    {
+      lines: "4",
+      note: "Query params are passed straight through to the provider's HTTP API.",
+    },
+    {
+      lines: "5",
+      label: "Stage instead of return",
+      note: "`stageAs` writes the parsed response rows into a staged dataset instead of returning the full payload — query it afterward with `query-staged-dataset`. A staged dataset is scoped to the requesting app and user, capped at 200,000 rows or 50MB.",
+    },
+  ]}
+/>
+
+### Sharing MCP servers across the workspace
+
+Dispatch can also act as the workspace's MCP hub: an HTTP MCP server uploaded once as an `mcp-server`-kind workspace resource, under `mcp-servers/<name>.json`, is inherited by every app the same way a skill or instruction is, instead of each app configuring its own server list. Scope it to All apps or selected app grants, the same as any other workspace resource.
+
+## Dreams internals {#dreams-internals}
+
+Dreams collects evidence from real agent runs, thread debug data, feedback, evals, and repeated tool failures, then writes a report with proposed changes. Because that evidence comes from external, untrusted sources — chat transcripts, webhooks, third-party integrations — the pipeline bounds what a single message can do to a report:
+
+- **Bounded evidence length.** Quoted evidence is truncated before it's written into a proposal, roughly 120–260 characters for most snippets and up to 1,200 characters for full message/row text, so one oversized message can't dominate a report.
+- **Secret redaction.** Secret-looking substrings, like `sk-...` keys, `Bearer ...` tokens, and long base64 blobs, are redacted out of evidence text before it's compiled.
+- **Injected-context stripping.** A user message containing a fake `<context>` marker has everything after that marker dropped before the pipeline checks it for correction or frustration signals, so a message can't smuggle instructions into what looks like a genuine user correction.
+- **Clamped scan parameters.** Candidate limit, per-source/per-thread timeouts, and concurrency are Zod-validated and clamped at the action boundary, for example `limit` 1–50 and `sourceTimeoutMs` up to 60 seconds, so a malformed or oversized request can't force an unbounded scan.
+
+`list-dream-candidates` finds recent threads with grounded signals: explicit user corrections, failed runs, tool errors, feedback, eval failures, and successful checkpointed workflows. Pass `sourceId: "all"` or `sourceIds` to scan multiple thread-debug sources; `sourceTimeoutMs`, `sourceConcurrency`, `sourceStartStaggerMs`, `threadConcurrency`, and `threadTimeoutMs` keep production scans partial and bounded, and the response includes per-source health. `create-dream-report` writes the report and pending proposals; multi-source reports include a Source Health section so partial scans stay visible during review. Repeated corrections and recurring failures can become `workspace-instruction` proposals; repeated successful checkpointed workflows can become `workspace-skill` proposals.
+
+In development, the same workflow runs from `apps/dispatch` through the local action runner:
+
+```bash
+pnpm action get-dream-settings
+pnpm action set-dream-settings --enabled true --schedule "0 9 * * 1" --allSources true --limit 8
+pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limit 8
+```
+
 ## Agent profile imports {#agent-profile-imports}
 
 Two import paths land in the same place: a runnable profile at `agents/<slug>.md`.

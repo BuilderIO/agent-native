@@ -101,12 +101,12 @@ Dispatch は、マルチアプリ ワークスペースの調整を保つため�
 
 ## 機能 {#what-it-does}
 
-- **中央受信箱。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp、メールはすべて 1 か所に届きます。Dispatch がトリアージを行い、自身でリクエストを処理するか、委任します。[Messaging, routing, and approvals](/docs/template-dispatch-messaging-routing) を参照してください。
+- **中央受信箱。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp、メールはすべて 1 か所に届きます。Dispatch がトリアージを行い、自身でリクエストを処理するか、委任します。[中央受信箱とルーティング](/docs/template-dispatch-features#central-inbox-and-routing) を参照してください。
 - **コントロール プレーン シェル。** チャット、プロジェクト、実行、ワークスペース アプリ、エージェント、オートメーションが 1 つの運用シェルの中に存在し、単発のダッシュボードではなく、ステータス優先のリストとドリルダウンで表示されます。
 - **オーケストレーターであり、スペシャリストではない。** Dispatch は、メール アプリや分析アプリになろうと _しません_。誰かが「先週のサインアップを要約して」と尋ねると、Dispatch は A2A 経由で分析エージェントを呼び出し、回答を返します。
-- **シークレット ボールトと再利用可能な統合。** API キー、OAuth トークン、プロバイダー アカウントは一度だけ保存され、必要なアプリに許可されます。リクエスト/承認フローと監査証跡も備えています。[Secrets, integrations, and workspace connections](/docs/template-dispatch-vault-integrations) を参照してください。
+- **シークレット ボールトと再利用可能な統合。** API キー、OAuth トークン、プロバイダー アカウントは一度だけ保存され、必要なアプリに許可されます。リクエスト/承認フローと監査証跡も備えています。[認証情報と統合](/docs/template-dispatch-features#credentials-and-integrations) を参照してください。
 - **ワークスペース リソース。** グローバルな skills、ガードレール命令、カスタム エージェント プロファイル、参照リソース、HTTP MCP サーバーは、Dispatch 内で一度だけ作成できます。すべてのアプリ向けのリソースは、コピー手順なしに実行時にすべてのアプリへ継承されます。個別の許可はアプリ固有の例外に対応します。
-- **スケジュールされたジョブと Dreams。** クロスアプリの定期的なジョブはここに存在し、最近の実行を検査してメモリ、スキル、指示の改善を提案するレビュー ループも備えています。[Operating the workspace](/docs/template-dispatch-operations) を参照してください。
+- **スケジュールされたジョブと Dreams。** クロスアプリの定期的なジョブはここに存在し、最近の実行を検査してメモリ、スキル、指示の改善を提案するレビュー ループも備えています。[オートメーションとスケジュール済みジョブ](/docs/template-dispatch-features#automations-and-scheduled-jobs) と [Dreams と承認](/docs/template-dispatch-features#dreams-and-approvals) を参照してください。
 - **承認フロー。** 永続的な変更 — 保存された配信先、すべてのアプリ向けのワークスペース リソース、共有またはチーム全体の Dream メモリ提案 — は、有効になる前に 2 人目の管理者の承認を必要とするよう設定できます。
 - **チャットから新しいアプリを構築する。** 平易な言葉でニーズを説明すれば、Dispatch は既存のアプリにもう 1 画面追加するのではなく、実在する独立した兄弟アプリをスキャフォールディングします。
 
@@ -125,13 +125,13 @@ Dispatch は、マルチアプリ ワークスペースの調整を保つため�
 
 ## 日々の使い方 {#what-youll-do}
 
-- **チャネルを接続する。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp、メール。配線手順については [Messaging, routing, and approvals](/docs/template-dispatch-messaging-routing) を参照してください。
-- **シークレットを保存し、プロバイダーに一度だけ接続する。** ワークスペース内の他のすべてのアプリは、独自のコピーを持つのではなく、ボールトまたは共有接続から取得します。[Secrets, integrations, and workspace connections](/docs/template-dispatch-vault-integrations) を参照してください。
+- **チャネルを接続する。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp、メール。配線手順については [チャネルを接続する](/docs/template-dispatch-features#connecting-a-channel) を参照してください。
+- **シークレットを保存し、プロバイダーに一度だけ接続する。** ワークスペース内の他のすべてのアプリは、独自のコピーを持つのではなく、ボールトまたは共有接続から取得します。[認証情報と統合](/docs/template-dispatch-features#credentials-and-integrations) を参照してください。
 - **会社のコンテキストをグローバルに保つ。** ペルソナ、ポジショニング、会社の事実、ガードレールを Dispatch のリソースに一度だけ配置し、任意のアプリまたはユーザーについて実効的なワークスペース → アプリ/組織 → 個人のスタックをプレビューします。
-- **定期的なジョブを設定する。** 「毎週月曜午前 7 時に、分析エージェントに先週のサインアップを問い合わせて、概要をメールで送ってほしい」。[Operating the workspace](/docs/template-dispatch-operations) を参照してください。
+- **定期的なジョブを設定する。** 「毎週月曜午前 7 時に、分析エージェントに先週のサインアップを問い合わせて、概要をメールで送ってほしい」。[オートメーションとスケジュール済みジョブ](/docs/template-dispatch-features#automations-and-scheduled-jobs) を参照してください。
 - **Dream の提案をレビューする。** Dispatch のメモリ レビュー ループが過去の実行を検査し、ワークスペースが記憶している内容に対して根拠のある変更を提案します。
-- **永続的な変更をゲートする。** 保存された宛先、すべてのアプリ向けのワークスペース リソース、共有 Dream 提案は、適用される前に 2 人目の管理者の承認を必要とするよう設定できます。承認フローについては [Messaging, routing, and approvals](/docs/template-dispatch-messaging-routing) を参照してください。
-- **運用コンソールを見守る。** モニタリング、データベース管理、スレッドのデバッグ、監査履歴、使用状況の指標はすべて 1 つ屋根の下にあります。[Operating the workspace](/docs/template-dispatch-operations) を参照してください。
+- **永続的な変更をゲートする。** 保存された宛先、すべてのアプリ向けのワークスペース リソース、共有 Dream 提案は、適用される前に 2 人目の管理者の承認を必要とするよう設定できます。[承認フロー](/docs/template-dispatch-features#approval-flow) を参照してください。
+- **運用コンソールを見守る。** モニタリング、データベース管理、スレッドのデバッグ、監査履歴、使用状況の指標はすべて 1 つ屋根の下にあります。[運用コンソールの概要](/docs/template-dispatch-features#operator-console-at-a-glance) を参照してください。
 - **チャットから新しいアプリを立ち上げる。** 必要なものを頼めば、Dispatch は既存のアプリを大きくするのではなく、新しい兄弟アプリをスキャフォールディングします。
 
 ## はじめに {#get-started}

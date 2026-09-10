@@ -77,12 +77,23 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
 | `create-pylon-ticket`                                              | Creates a support ticket in Pylon.                                         |
 | `create-link-token` / `list-linked-identities`                     | Link an external sender's account to a workspace user.                     |
 
+### Workspace connections
+
+| Action                                | What it does                                                                                                                 |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `plan-workspace-connection-setup`     | Inspects a provider or an existing connection and returns what's needed to set it up, without ever returning secret values. |
+| `apply-workspace-connection-setup`    | Saves a connection using credential reference names only; rejects anything that looks like a raw secret.                    |
+| `set-workspace-connection-grant`      | Grants or revokes one app's access, or switches the whole connection between all-apps and selected-apps only.               |
+| `preview-workspace-connection-impact` | Shows which apps would lose access before a connection is revoked, disabled, or deleted.                                     |
+| `list-workspace-connections`          | Lists the provider catalog, saved connections, and every app's current access in one call.                                   |
+| `delete-workspace-connection`         | Removes a connection's metadata and grants; secret values stay in Vault or OAuth stores either way.                          |
+
 ### Provider APIs (ad hoc access)
 
 | Action                                                                    | What it does                                                           |
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-register`    | List configured providers, fetch their docs, or register a custom one. |
-| `provider-api-request`                                                    | Makes an authenticated request directly against a provider's HTTP API. |
+| `provider-api-request`                                                    | Makes an authenticated request directly against a provider's HTTP API, and can stage its response into a dataset instead of returning it inline. |
 | `list-staged-datasets` / `query-staged-dataset` / `delete-staged-dataset` | Manage scratch datasets staged from a broad API scan.                  |
 
 ### Approvals and audit

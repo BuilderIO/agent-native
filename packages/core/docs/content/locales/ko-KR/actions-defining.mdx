@@ -365,7 +365,7 @@ const reply = useActionMutation("reply-to-email", {
 에이전트가 볼 수 있는 모든 action은 모델의 도구 목록에서 한 자리를 차지하며, 목록이 길고 서로 겹치면 모델이 올바른 도구를 고르기 어려워집니다. UI의 버튼 하나마다 action을 하나씩 만들기보다, 여러분이 유지 관리하는 API처럼 action 표면을 설계하세요.
 
 - `update-name`, `update-order`, `update-color`처럼 필드별로 action을 여러 개 만드는 대신, 선택적 필드로 이루어진 패치를 받는 **하나의 CRUD 스타일 `update` action**을 선호하세요. 호출자는 바뀐 필드만 보내면 됩니다.
-- 모든 쿼리나 필터마다 새 읽기 action을 추가하기 전에, 더 범용적인 선택지를 먼저 고려하세요. 프로바이더 데이터에는 [provider API 트리오](/docs/template-dispatch-vault-integrations#provider-api)(`provider-api-catalog`, `provider-api-docs`, `provider-api-request`)를, 앱 데이터에는 개발용 `db-query` 도구를 사용하세요.
+- 모든 쿼리나 필터마다 새 읽기 action을 추가하기 전에, 더 범용적인 선택지를 먼저 고려하세요. 프로바이더 데이터에는 [provider API 트리오](/docs/template-dispatch-developers#calling-a-provider-directly)(`provider-api-catalog`, `provider-api-docs`, `provider-api-request`)를, 앱 데이터에는 개발용 `db-query` 도구를 사용하세요.
 - UI 전용이거나 프로그래밍 방식 action은 [`agentTool: false`](/docs/actions-access-control#agent-tool)로 표시하세요. 모델의 도구 목록에는 자리를 차지하지 않으면서, 프런트엔드나 HTTP를 통해서는 계속 호출할 수 있습니다.
 - 에이전트가 늘 손을 뻗는 소수의 action에는 `deferLoading: false`를 표시하세요. 첫 모델 요청에 실려 가는 것이 바로 그 스키마들이고, 나머지는 에이전트가 필요로 할 때 `tool-search`를 통해 그때그때 로드됩니다. 한 action이라도 이렇게 빠지는 순간 표시하지 않은 action은 모두 뒤로 미뤄지므로, 한 번에 하나씩이 아니라 시작에 필요한 묶음을 한꺼번에 표시하세요. 이것은 접근 권한이 아니라 첫 턴의 비용에 대한 이야기입니다. 뒤로 미룬 action도 `tool-search`가 반환하는 순간 호출할 수 있습니다. 플러그인의 `initialToolNames` 배열을 action 단위로 표현한 것이며, 앱은 둘 중 어느 쪽이든 쓸 수 있습니다.
 - UI가 더 이상 사용하지 않는 action은 모델에 노출된 채로 두지 말고 삭제하거나 숨기세요.

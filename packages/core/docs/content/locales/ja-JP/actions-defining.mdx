@@ -365,7 +365,7 @@ const reply = useActionMutation("reply-to-email", {
 エージェントから見えるアクションはすべて、モデルのツール一覧の枠を1つ消費します。一覧が長く、重複が多いほど、モデルが正しいツールを選ぶのが難しくなります。UI のボタン1つにつきアクション1つを作るのではなく、自分たちが保守する API のようにアクション サーフェスを設計してください。
 
 - `update-name`、`update-order`、`update-color` のようなフィールドごとの複数のアクションよりも、オプション フィールドのパッチを受け取る **CRUD スタイルの `update` アクションを1つ** 用意することを優先してください。呼び出し元は、変更されたフィールドだけを送信すればよくなります。
-- クエリやフィルターごとに新しい読み取りアクションを追加する前に、まずより汎用的な選択肢を検討してください。プロバイダー データには [provider API トリオ](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`、`provider-api-docs`、`provider-api-request`)、アプリ データには開発用の `db-query` ツールがあります。
+- クエリやフィルターごとに新しい読み取りアクションを追加する前に、まずより汎用的な選択肢を検討してください。プロバイダー データには [provider API トリオ](/docs/template-dispatch-developers#calling-a-provider-directly) (`provider-api-catalog`、`provider-api-docs`、`provider-api-request`)、アプリ データには開発用の `db-query` ツールがあります。
 - UI 専用またはプログラム的なアクションには、[`agentTool: false`](/docs/actions-access-control#agent-tool) を付けてください。フロントエンドや HTTP からは引き続き呼び出せますが、モデルのツール一覧の枠は消費しません。
 - エージェントが常に使うごく少数のアクションには `deferLoading: false` を付けてください。最初のモデル リクエストで送られるのは、それらのスキーマです。それ以外は、エージェントが必要としたときに `tool-search` を通じてオンデマンドで読み込まれます。1つでもこの形で除外すると、印の付いていないアクションはすべて後回しになるので、1つずつではなく、開始時に必要な一式をまとめて印を付けてください。これはアクセス制御ではなく、最初のターンのコストの話です。後回しにしたアクションも、`tool-search` が返した時点で呼び出せます。プラグインの `initialToolNames` 配列をアクション側で表現したもので、アプリはどちらを使ってもかまいません。
 - UI がもう使わなくなったアクションは、モデルに公開したままにせず、削除するか非表示にしてください。
