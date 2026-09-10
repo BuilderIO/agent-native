@@ -1152,6 +1152,16 @@ describe("incomplete evidence detection", () => {
         "Create an automation to clone the Revenue dashboard template every morning",
       ),
     ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation using the Revenue dashboard template every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation for the Revenue dashboard using a template",
+      ),
+    ).toBe(false);
   });
 
   it("preserves long and automation-first dashboard construction requests", () => {
@@ -1165,6 +1175,24 @@ describe("incomplete evidence detection", () => {
         "Create an automation and a dashboard",
       ),
     ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation, build a sales dashboard",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not treat bare cron automation requests as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a cron to email the Revenue dashboard daily",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Set up cron to refresh the Revenue dashboard daily",
+      ),
+    ).toBe(false);
   });
 
   it("keeps named dashboards as dashboard construction", () => {
