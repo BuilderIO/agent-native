@@ -7,8 +7,12 @@
  *
  * The clip in the centre is the real Library card (thumbnail, play overlay,
  * duration badge, title, owner row) so the thing being fanned out still reads
- * as a Clips recording. The four outputs are icon cards; they are outside the
- * product, so there is no real UI to copy.
+ * as a Clips recording. The four outputs sit on the four cardinal sides of it
+ * rather than at its corners, so each one reads as its own direction instead
+ * of all four looking like they spill out of the same corner of the video.
+ * Each output is a single row — icon and label sharing one box — rather than
+ * an icon in its own inset tile, which was reading as two stacked cards of
+ * the same colour.
  *
  * The rays are one SVG sized to the whole diagram, drawn behind the cards with
  * percentage endpoints rather than a viewBox, which keeps the stroke an even
@@ -37,30 +41,30 @@ const OUTPUTS = [
   {
     label: "App change",
     icon: IconCode,
-    area: "tl",
-    x: "13%",
-    y: "15%",
+    area: "n",
+    x: "50%",
+    y: "12%",
   },
   {
     label: "Presentation",
     icon: IconPresentation,
-    area: "tr",
-    x: "87%",
-    y: "15%",
+    area: "e",
+    x: "92%",
+    y: "50%",
   },
   {
     label: "Design",
     icon: IconPalette,
-    area: "bl",
-    x: "13%",
-    y: "85%",
+    area: "s",
+    x: "50%",
+    y: "88%",
   },
   {
     label: "Document",
     icon: IconFileText,
-    area: "br",
-    x: "87%",
-    y: "85%",
+    area: "w",
+    x: "8%",
+    y: "50%",
   },
 ] as const;
 
@@ -68,7 +72,7 @@ const CLIPS_BRIEF_MOCK_CSS = [
   ".clips-brief-mock { width: 100%; }",
   `.clips-brief-mock-frame { ${CLIPS_APP_PALETTE} }`,
   ".clips-brief-mock-frame { display: flex; justify-content: center; width: 100%; padding: 16px 0; }",
-  ".clips-brief-mock-diagram { position: relative; width: 100%; max-width: 620px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: 'tl . tr' '. clip .' 'bl . br'; align-items: center; justify-items: center; gap: 56px 8px; }",
+  ".clips-brief-mock-diagram { position: relative; width: 100%; max-width: 560px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: '. n .' 'w clip e' '. s .'; align-items: center; justify-items: center; gap: 40px 24px; }",
   ".clips-brief-mock-rays { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }",
   ".clips-brief-mock-rays line { stroke: hsl(var(--border)); }",
 ].join("\n");
@@ -147,12 +151,12 @@ export function ClipsBriefOutputsMock({
             <div
               key={output.label}
               style={{ gridArea: output.area }}
-              className="relative flex w-[136px] select-none flex-col items-center gap-2 rounded-lg border border-border bg-card px-3 py-4 text-card-foreground transition-colors hover:border-border hover:bg-accent"
+              className="relative flex w-max select-none items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-card-foreground transition-colors hover:bg-accent"
             >
-              <span className="flex size-9 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-                <output.icon className="size-[18px]" />
+              <output.icon className="size-[18px] shrink-0 text-muted-foreground" />
+              <span className="text-sm font-medium whitespace-nowrap">
+                {output.label}
               </span>
-              <span className="text-sm font-medium">{output.label}</span>
             </div>
           ))}
         </div>
