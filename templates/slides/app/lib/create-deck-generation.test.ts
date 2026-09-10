@@ -352,6 +352,67 @@ describe("startDeckGeneration", () => {
     );
   });
 
+  it("keeps every imported reference file out of source-preserving mode", async () => {
+    mockCallAction.mockClear();
+    mockCallAction.mockResolvedValue(undefined);
+    const deck = {
+      id: "deck-multiple-reference-files",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a polished about us deck",
+        files: [
+          {
+            path: "/uploads/reference.pptx",
+            originalName: "reference.pptx",
+            filename: "reference.pptx",
+            type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            size: 1024,
+          },
+          {
+            path: "/uploads/reference.pdf",
+            originalName: "reference.pdf",
+            filename: "reference.pdf",
+            type: "application/pdf",
+            size: 1024,
+          },
+        ],
+        referenceSelection: {
+          referenceDeckId: "reference-deck-1",
+          referenceFilePaths: [
+            "/uploads/reference.pptx",
+            "/uploads/reference.pdf",
+          ],
+        },
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    expect(mockCallAction).not.toHaveBeenCalledWith(
+      "import-file",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).not.toContain(
+      "Source-preserving improvement mode",
+    );
+  });
+
   it("passes hosted URLs and inline image bytes through to agentSubmit", async () => {
     const deck = {
       id: "deck-image-1",

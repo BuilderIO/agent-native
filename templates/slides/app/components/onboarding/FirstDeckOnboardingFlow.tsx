@@ -65,6 +65,7 @@ export function FirstDeckOnboardingFlow({
   const [step, setStep] = useState<FirstDeckStep>("prompt");
   const [prompt, setPrompt] = useState("");
   const [promptFiles, setPromptFiles] = useState<UploadedFile[]>([]);
+  const [referenceFilePaths, setReferenceFilePaths] = useState<string[]>([]);
   const [promptAttachments, setPromptAttachments] = useState<
     PromptChatAttachment[]
   >([]);
@@ -172,6 +173,7 @@ export function FirstDeckOnboardingFlow({
         const uploaded = await uploadFiles(files);
         retainFiles(files);
         promptSourceFilesRef.current = files;
+        setReferenceFilePaths([]);
         setPrompt(text);
         const chatAttachments = await createPromptChatAttachments(
           options?.attachments,
@@ -244,6 +246,12 @@ export function FirstDeckOnboardingFlow({
       files: UploadedFile[],
       selection: NewDeckReferenceSelection = {},
     ) => {
+      const generationReferenceFilePaths = [
+        ...new Set([
+          ...referenceFilePaths,
+          ...(selection.referenceFilePaths ?? []),
+        ]),
+      ];
       const sourceFiles = promptSourceFilesRef.current;
       const clearSourceFiles = () => {
         if (promptSourceFilesRef.current === sourceFiles) {
@@ -258,7 +266,12 @@ export function FirstDeckOnboardingFlow({
           files,
           attachments: promptAttachments,
           modelSelection: promptModelSelection,
-          referenceSelection: selection,
+          referenceSelection: {
+            ...selection,
+            ...(generationReferenceFilePaths.length > 0
+              ? { referenceFilePaths: generationReferenceFilePaths }
+              : {}),
+          },
           selectedDesignSystemId: initialDesignSystemId,
           selectedReferenceDeckId: initialReferenceDeckId,
           designSystems,
@@ -324,6 +337,7 @@ export function FirstDeckOnboardingFlow({
       prompt,
       promptAttachments,
       promptModelSelection,
+      referenceFilePaths,
       session,
       t,
       initialReferenceDeckId,
@@ -470,6 +484,13 @@ export function FirstDeckOnboardingFlow({
             throw error;
           }
         }
+        const importedReferenceFilePaths =
+          importedReference?.referenceFilePaths ?? [];
+        if (importedReferenceFilePaths.length > 0) {
+          setReferenceFilePaths((current) => [
+            ...new Set([...current, ...importedReferenceFilePaths]),
+          ]);
+        }
         setPromptFiles((current) => [...current, ...generationFiles]);
         if (importedReference) {
           await reloadDecks();
@@ -553,6 +574,7 @@ export function FirstDeckOnboardingFlow({
   const handleFirstDeckSkip = useCallback(() => {
     discardFiles(promptSourceFilesRef.current);
     promptSourceFilesRef.current = [];
+    setReferenceFilePaths([]);
     onSkip();
   }, [discardFiles, onSkip]);
 
@@ -572,6 +594,7 @@ export function FirstDeckOnboardingFlow({
           if (!open && !generationInFlightRef.current) {
             discardFiles(promptSourceFilesRef.current);
             promptSourceFilesRef.current = [];
+            setReferenceFilePaths([]);
             setStep("prompt");
           }
         }}

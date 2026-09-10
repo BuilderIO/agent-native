@@ -133,6 +133,7 @@ const RETRY_REASONING_EFFORTS = new Set([
 interface DeckGenerationRetryState {
   retryPrompt?: string;
   retryFiles?: UploadedFile[];
+  retryReferenceFilePaths?: string[];
   retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
   modelSelection?: DeckModelSelection;
@@ -387,6 +388,8 @@ export default function Index() {
   const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
     [],
   );
+  const [newDeckRetryReferenceFilePaths, setNewDeckRetryReferenceFilePaths] =
+    useState<string[]>([]);
   const [newDeckRetryContext, setNewDeckRetryContext] = useState<
     string | undefined
   >();
@@ -402,6 +405,7 @@ export default function Index() {
   const [pendingDeck, setPendingDeck] = useState<{
     prompt: string;
     files: UploadedFile[];
+    referenceFilePaths: string[];
     context?: string;
     attachments: ReadonlyArray<PromptChatAttachment>;
     modelSelection?: DeckModelSelection;
@@ -596,6 +600,7 @@ export default function Index() {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
+          setNewDeckRetryReferenceFilePaths([]);
           setNewDeckRetryContext(undefined);
           setNewDeckRetryPrompt(undefined);
           setNewDeckRetryAttachments([]);
@@ -628,6 +633,7 @@ export default function Index() {
       setNewDeckRetryContext(options.context);
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles([]);
+      setNewDeckRetryReferenceFilePaths([]);
       setNewDeckRetryAttachments(options.attachments ?? []);
       setNewDeckRetryModelSelection(options.modelSelection);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
@@ -722,6 +728,7 @@ export default function Index() {
       setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     }
     setNewDeckRetryFiles(state.retryFiles ?? []);
+    setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? []);
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
@@ -857,6 +864,7 @@ export default function Index() {
       setNewDeckRetryContext(additionalContext || undefined);
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles(filesForGeneration);
+      setNewDeckRetryReferenceFilePaths([...referenceFilePaths]);
       setNewDeckRetryAttachments(attachmentsForGeneration);
       setNewDeckRetryModelSelection(modelSelection);
       deleteDeck(deckId);
@@ -870,6 +878,7 @@ export default function Index() {
           state: {
             retryPrompt: prompt,
             retryFiles: filesForGeneration,
+            retryReferenceFilePaths: [...referenceFilePaths],
             retryContext: additionalContext || undefined,
             retryAttachments: attachmentsForGeneration,
             modelSelection,
@@ -910,6 +919,7 @@ export default function Index() {
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
+    setNewDeckRetryReferenceFilePaths([]);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryAttachments([]);
@@ -1141,6 +1151,8 @@ export default function Index() {
       setPendingDeck({
         prompt,
         files,
+        referenceFilePaths:
+          prompt === newDeckRetryPrompt ? newDeckRetryReferenceFilePaths : [],
         context: retryContext,
         attachments: [
           ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
@@ -1155,6 +1167,7 @@ export default function Index() {
           : newDeckRetryModelSelection,
       });
       setNewDeckRetryPrompt(undefined);
+      setNewDeckRetryReferenceFilePaths([]);
       setNewDeckRetryContext(undefined);
       setNewDeckRetryAttachments([]);
       setNewDeckRetryModelSelection(undefined);
@@ -1163,6 +1176,7 @@ export default function Index() {
     },
     [
       newDeckRetryAttachments,
+      newDeckRetryReferenceFilePaths,
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
@@ -1174,10 +1188,16 @@ export default function Index() {
     settlePendingDeckAttachments("discard");
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryReferenceFilePaths([]);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryAttachments([]);
     setNewDeckRetryModelSelection(undefined);
-    setPendingDeck({ prompt: "", files: [], attachments: [] });
+    setPendingDeck({
+      prompt: "",
+      files: [],
+      referenceFilePaths: [],
+      attachments: [],
+    });
     setShowNewDeckReferenceStep(true);
   }, [setNewDeckPromptOpen, settlePendingDeckAttachments]);
 
@@ -1319,10 +1339,19 @@ export default function Index() {
           forgetReference("deck");
         }
       }
+      const referenceFilePaths = [
+        ...new Set([
+          ...(pending.referenceFilePaths ?? []),
+          ...(selection.referenceFilePaths ?? []),
+        ]),
+      ];
       const generation = runPendingDeckGeneration(
         pending.prompt,
         pending.files,
-        selection,
+        {
+          ...selection,
+          ...(referenceFilePaths.length > 0 ? { referenceFilePaths } : {}),
+        },
         pending.context,
         pending.attachments,
         pending.modelSelection,
@@ -1448,7 +1477,16 @@ export default function Index() {
         }
         setPendingDeck((current) =>
           current
-            ? { ...current, files: [...current.files, ...generationFiles] }
+            ? {
+                ...current,
+                files: [...current.files, ...generationFiles],
+                referenceFilePaths: [
+                  ...new Set([
+                    ...current.referenceFilePaths,
+                    ...(importedReference?.referenceFilePaths ?? []),
+                  ]),
+                ],
+              }
             : current,
         );
         if (importedReference) {
@@ -1543,6 +1581,9 @@ export default function Index() {
       {
         designSystemId: null,
         referenceDeckId: null,
+        ...(pending.referenceFilePaths.length > 0
+          ? { referenceFilePaths: pending.referenceFilePaths }
+          : {}),
       },
       pending.context,
       pending.attachments,
