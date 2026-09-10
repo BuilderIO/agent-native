@@ -308,7 +308,13 @@ export function McpIntegrationDialog({
       }),
     );
     if (!onOAuthStart) {
-      navigateToMcpOAuthStart(oauthUrl);
+      const opened = navigateToMcpOAuthStart(oauthUrl);
+      setBusy(false);
+      if (opened) {
+        onOpenChange(false);
+      } else {
+        setError(t("mcpIntegrations.connectionError"));
+      }
       return;
     }
     void Promise.resolve()

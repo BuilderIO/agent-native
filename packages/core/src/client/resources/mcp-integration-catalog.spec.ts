@@ -25,16 +25,26 @@ import {
 
 describe("MCP integration catalog", () => {
   it("opens OAuth setup without replacing the current app", () => {
-    const open = vi.fn();
+    const popup = {} as Window;
+    const open = vi.fn(() => popup);
     vi.stubGlobal("window", { open });
 
-    navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start");
+    expect(
+      navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
+    ).toBe(true);
 
     expect(open).toHaveBeenCalledWith(
       "/_agent-native/mcp/servers/oauth/start",
       "_blank",
       "noopener,noreferrer",
     );
+
+    open.mockImplementationOnce(() => {
+      throw new Error("blocked");
+    });
+    expect(
+      navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
+    ).toBe(false);
     vi.unstubAllGlobals();
   });
 

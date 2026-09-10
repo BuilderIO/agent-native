@@ -978,9 +978,14 @@ export function buildMcpOAuthStartUrl({
   return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
 }
 
-export function navigateToMcpOAuthStart(url: string): void {
-  if (typeof window === "undefined") return;
-  window.open(url, "_blank", "noopener,noreferrer");
+export function navigateToMcpOAuthStart(url: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.open(url, "_blank", "noopener,noreferrer") !== null;
+  } catch (error) {
+    console.error("Failed to open MCP OAuth popup.", error);
+    return false;
+  }
 }
 
 export function resolveMcpIntegrationScope(

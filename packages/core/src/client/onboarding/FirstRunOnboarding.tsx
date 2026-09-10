@@ -439,7 +439,7 @@ export function FirstRunOnboarding({
       integration.connectionMode === "oauth" &&
       integration.availability === "ready"
     ) {
-      navigateToMcpOAuthStart(
+      const opened = navigateToMcpOAuthStart(
         appPath(
           buildMcpOAuthStartUrl({
             name: integration.name,
@@ -450,6 +450,9 @@ export function FirstRunOnboarding({
           }),
         ),
       );
+      if (!opened) {
+        setConnectError(t("mcpIntegrations.connectionError"));
+      }
       return;
     }
 
