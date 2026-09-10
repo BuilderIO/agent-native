@@ -424,15 +424,6 @@ useDbSync({ queryClient });
 
 這在所有部署環境中都能運作，包括無伺服器和邊緣環境，因為它使用資料庫，而不是記憶體內狀態或檔案系統監看器。
 
-## Frames {#frames}
-
-_frame_ 是在你的應用程式旁託管代理的環境。在本機，它是嵌入式面板；在雲端，它是 Builder.io 的託管介面。請參閱 [Frames](/docs/frames)。
-
-Agent-Native 應用程式包含一個嵌入式代理面板，會在應用程式 UI 旁邊提供 AI 代理。這正是讓這個架構得以運作的關鍵：代理需要一台電腦（資料庫、瀏覽器、程式碼執行），而應用程式則需要代理來完成 AI 工作。
-
-- **嵌入式代理面板：** 每個應用程式都內建聊天和可選的 CLI 終端機。支援 Claude Code、Codex、Gemini、OpenCode 和 Builder.io。在本機執行，免費且開放原始碼。
-- **雲端：** 部署到任何雲端，具備即時協作、視覺化編輯、角色與權限。最適合團隊使用。
-
 ## 情境感知 {#context-awareness}
 
 代理隨時都知道使用者正在看什麼。UI 會在每次路由變更時，將一個 `navigation` 鍵寫入 application-state。代理會在採取行動之前，透過 `view-screen` action 讀取它。
