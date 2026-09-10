@@ -594,9 +594,16 @@ describe("production Netlify site concurrency guard", () => {
       ),
       /\/restore/,
     );
+    assert.match(reusableSource, /id: beta_first_publish_reconcile/);
     assert.match(
       reusableSource,
-      /steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.deploy\.outputs\.deploy_id/,
+      /steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.beta_first_publish_reconcile\.outputs\.deploy_id/,
+    );
+    assert.match(reusableSource, /Recovered first beta production deploy/);
+    assert.match(reusableSource, /Netlify published unrelated deploy/);
+    assert.doesNotMatch(
+      reusableSource,
+      /DEPLOY_ID: \$\{\{ steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.deploy\.outputs\.deploy_id \}\}/,
     );
     assert.match(reusableSource, /Delete staged first beta draft/);
     assert.match(reusableSource, /id: beta_draft_cleanup/);
@@ -611,7 +618,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       reusableSource,
-      /DEPLOY_URL: \$\{\{ steps\.beta_first_publish\.outputs\.deploy_url \|\| steps\.deploy\.outputs\.deploy_url \}\}/,
+      /DEPLOY_URL: \$\{\{ steps\.beta_first_publish\.outputs\.deploy_url \|\| steps\.beta_first_publish_reconcile\.outputs\.deploy_url \|\| \(steps\.previous\.outputs\.published_deploy_id != '' && steps\.deploy\.outputs\.deploy_url\) \}\}/,
     );
     assert.match(
       reusableSource,
@@ -692,11 +699,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 12);
+    assert.equal(nodeHeredocs.length, 13);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      12,
+      13,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
@@ -1080,7 +1087,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(appSmoke);
     assert.equal(
       appSmoke.if,
-      "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+      "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs' && (inputs.target != 'beta' || steps.beta_first_publish.outputs.deploy_id != '' || steps.beta_first_publish_reconcile.outputs.deploy_id != '' || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != ''))",
     );
     // The smoke step asserts the health BODY (ready, db, schema,
     // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.

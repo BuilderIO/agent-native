@@ -1026,8 +1026,14 @@ if (
   ) ||
   !firstBetaPublish.includes("main_sha,,}") ||
   !firstBetaPublish.includes("SOURCE_REF,,}") ||
+  !reusableBetaFreshness.includes("id: beta_first_publish_reconcile") ||
   !reusableBetaFreshness.includes(
-    "steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id",
+    "steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id",
+  ) ||
+  !reusableBetaFreshness.includes("Recovered first beta production deploy") ||
+  !reusableBetaFreshness.includes("Netlify published unrelated deploy") ||
+  reusableBetaFreshness.includes(
+    "DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}",
   ) ||
   !reusableBetaFreshness.includes("Delete staged first beta draft") ||
   !reusableBetaFreshness.includes("id: beta_draft_cleanup") ||
@@ -1039,7 +1045,7 @@ if (
     "Refusing to delete staged beta draft ${draftId} because Netlify published it.",
   ) ||
   !reusableBetaFreshness.includes(
-    "DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.deploy.outputs.deploy_url }}",
+    "DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.beta_first_publish_reconcile.outputs.deploy_url || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_url) }}",
   ) ||
   !reusableBetaFreshness.includes(
     "First publishes are staged as drafts and only published after a current-main check",

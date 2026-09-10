@@ -1251,6 +1251,7 @@ jobs:
           steps.previous.outputs.published_deploy_id == '' &&
           steps.beta_first_publish_freshness.outputs.current == 'true' &&
           steps.deploy.outputs.deploy_id != ''
+        continue-on-error: true
         env:
           FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
           GH_TOKEN: ${{ github.token }}
@@ -1270,6 +1271,7 @@ jobs:
           deploy_json="$RUNNER_TEMP/netlify-first-beta-production.json"
           deploy_message="GitHub Actions first beta production deploy $SOURCE_REF"
           publish_started_at="$(date -u +%s%3N)"
+          echo "publish_started_at=$publish_started_at" >> "$GITHUB_OUTPUT"
           set +e
           netlify deploy \
             --site "$NETLIFY_SITE_ID" \
@@ -1373,11 +1375,86 @@ jobs:
           echo "deploy_id=$deploy_id" >> "$GITHUB_OUTPUT"
           echo "Published first beta artifact as production deploy $deploy_id after the final freshness check."
 
+      - name: Reconcile first beta production deploy after publish attempt
+        id: beta_first_publish_reconcile
+        if: >-
+          always() && inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.previous.outputs.published_deploy_id == '' &&
+          steps.beta_first_publish.outputs.publish_started_at != '' &&
+          steps.beta_first_publish.outputs.deploy_id == ''
+        env:
+          DEPLOY_MESSAGE: GitHub Actions first beta production deploy ${{ steps.source.outputs.source_ref }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PUBLISH_STARTED_AT: ${{ steps.beta_first_publish.outputs.publish_started_at }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+          const fs = require("node:fs");
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+          };
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const readJson = async (response, label) => {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          };
+          const details = (deploy) => ({
+            deployId: deploy?.id || deploy?.deploy_id || "",
+            deployUrl: deploy?.deploy_url || deploy?.deploy_ssl_url || deploy?.ssl_url || deploy?.url || "",
+          });
+          const deadline = Date.now() + 60_000;
+          while (Date.now() < deadline) {
+            const deploys = await readJson(
+              await requestNetlifyApi(`${api}/sites/${process.env.NETLIFY_SITE_ID}/deploys?per_page=100&production=true`, { headers }),
+              "Netlify first beta production deploy recovery",
+            );
+            if (!Array.isArray(deploys)) throw new Error("Netlify returned an invalid deploy list during first beta recovery.");
+            const candidates = deploys
+              .filter((deploy) => {
+                const createdAt = Date.parse(deploy.created_at || "");
+                const candidateSource = String(deploy.commit_ref || "").toLowerCase();
+                const candidateMessage = String(deploy.title || deploy.message || "");
+                return (
+                  deploy.context === "production" &&
+                  Number.isFinite(createdAt) &&
+                  createdAt >= Number(process.env.PUBLISH_STARTED_AT) - 30_000 &&
+                  (candidateSource === process.env.SOURCE_REF.toLowerCase() || candidateMessage === process.env.DEPLOY_MESSAGE)
+                );
+              })
+              .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+            const recovered = details(candidates[0]);
+            if (recovered.deployId && recovered.deployUrl) {
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `deploy_id=${recovered.deployId}\ndeploy_url=${recovered.deployUrl}\n`);
+              console.log(`Recovered first beta production deploy ${recovered.deployId} after the publisher step lost its output.`);
+              return;
+            }
+            await sleep(5_000);
+          }
+          throw new Error("Netlify accepted the first beta production upload, but recovery could not identify its production deploy.");
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Wait for first beta production deploy to publish
         id: beta_first_publish_wait
-        if: steps.beta_first_publish.outputs.deploy_id != ''
+        if: >-
+          always() &&
+          (steps.beta_first_publish.outputs.deploy_id != '' ||
+          steps.beta_first_publish_reconcile.outputs.deploy_id != '')
         env:
-          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id }}
+          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
@@ -1425,9 +1502,9 @@ jobs:
                   return;
                 }
                 if (publishedId) {
-                  fs.appendFileSync(process.env.GITHUB_OUTPUT, `published_deploy_id=${publishedId}\n`);
-                  console.log(`Netlify first beta production deploy ${deployId} was superseded by published deploy ${publishedId}.`);
-                  return;
+                  throw new Error(
+                    `Netlify published unrelated deploy ${publishedId} while waiting for first beta production deploy ${deployId}.`,
+                  );
                 }
                 console.log("First beta production deploy is ready; waiting for Netlify to publish it.");
               } else {
@@ -1477,7 +1554,8 @@ jobs:
           inputs.deploy_mode == 'production' &&
           steps.previous.outputs.published_deploy_id == '' &&
           steps.deploy.outputs.deploy_id != '' &&
-          steps.deploy.outputs.deploy_id != steps.beta_first_publish.outputs.deploy_id
+          steps.deploy.outputs.deploy_id != steps.beta_first_publish.outputs.deploy_id &&
+          steps.deploy.outputs.deploy_id != steps.beta_first_publish_reconcile.outputs.deploy_id
         env:
           DRAFT_DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -1540,13 +1618,17 @@ jobs:
       - name: Revert stale beta deploy
         if: >-
           always() && inputs.target == 'beta' && inputs.deploy &&
-          steps.deploy.outputs.deploy_id != '' &&
+          (steps.beta_first_publish.outputs.deploy_id != '' ||
+          steps.beta_first_publish_reconcile.outputs.deploy_id != '' ||
+          (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != '')) &&
           (steps.beta_post_freshness.outputs.current == 'false' ||
           steps.beta_post_freshness.outcome == 'failure' ||
-          steps.beta_first_publish.outcome == 'failure' ||
-          steps.beta_first_publish_wait.outcome == 'failure')
+          steps.beta_first_publish_wait.outcome == 'failure' ||
+          (steps.beta_first_publish.outcome == 'failure' &&
+          steps.beta_first_publish.outputs.deploy_id == '' &&
+          steps.beta_first_publish_reconcile.outputs.deploy_id == ''))
         env:
-          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}
+          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id) }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
@@ -1714,7 +1796,10 @@ jobs:
           (steps.beta_post_freshness.outcome == 'failure' ||
           steps.beta_post_freshness.outputs.current == 'false' ||
           steps.beta_first_publish_freshness.outcome == 'failure' ||
-          steps.beta_first_publish_freshness.outputs.current == 'false')
+          steps.beta_first_publish_freshness.outputs.current == 'false' ||
+          (steps.beta_first_publish.outcome == 'failure' &&
+          steps.beta_first_publish.outputs.deploy_id == '' &&
+          steps.beta_first_publish_reconcile.outputs.deploy_id == ''))
         run: |
           set -euo pipefail
           echo "::error::Beta source freshness could not be verified after publish."
@@ -1724,11 +1809,15 @@ jobs:
         if: >-
           inputs.target != 'preview' && inputs.deploy &&
           steps.beta_freshness.outputs.current != 'false' &&
-          inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
+          inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs' &&
+          (inputs.target != 'beta' ||
+          steps.beta_first_publish.outputs.deploy_id != '' ||
+          steps.beta_first_publish_reconcile.outputs.deploy_id != '' ||
+          (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != ''))
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
-          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}
-          DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.deploy.outputs.deploy_url }}
+          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id) }}
+          DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.beta_first_publish_reconcile.outputs.deploy_url || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_url) }}
           HOST: ${{ steps.target.outputs.host }}
         run: |
           set -euo pipefail
@@ -1849,7 +1938,7 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          NEW_DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}
+          NEW_DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id || steps.deploy.outputs.deploy_id }}
           PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
         run: |
           set -euo pipefail
