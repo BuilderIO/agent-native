@@ -29,8 +29,4 @@ pnpm install
 pnpm dev
 ```
 
-This template ships a `.mise.toml` pinning the Node and pnpm versions it's
-built against. If you use [mise](https://mise.jdx.dev), run `mise install` in
-the project directory to pick them up automatically.
-
 Full docs: [agent-native.com/docs/template-chat](https://agent-native.com/docs/template-chat).
