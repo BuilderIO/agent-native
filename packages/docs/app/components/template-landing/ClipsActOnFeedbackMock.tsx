@@ -157,16 +157,22 @@ const AGENT_ROWS = [
 
 // The page is laid out at desktop width so the real `lg:` layout applies.
 // Below `lg` the product moves the transcript panel under the player, which is
-// a different screen than the one this depicts.
+// a different screen than the one this depicts. The height stops just under
+// the player, so the crop ends on the frame rather than on the title block.
 const DESIGN_WIDTH = 1120;
-const DESIGN_HEIGHT = 580;
+const DESIGN_HEIGHT = 470;
 
-// The page is deliberately wider than the card at these scales: it is anchored
-// to the right so the share popover and transcript panel stay whole, and the
-// player runs off the left edge under the fade. Shrinking it to fit instead
-// would make the UI too small to read as a product screenshot.
-const SCALE = 0.8;
-const MOBILE_SCALE = 0.55;
+// Scale is set from type size, not from the box: the product renders its body
+// copy at 14px and the illustration has to read at 18px, so everything is
+// magnified by that ratio. The consequence is intentional — the page is far
+// wider than the card, so it is anchored right to keep the share popover and
+// transcript panel whole while the player runs off the left edge under the
+// fade. Fitting the whole page in instead is what made the UI too small to
+// read as a product screenshot.
+const UI_TEXT_PX = 14;
+const ILLUSTRATION_TEXT_PX = 18;
+const SCALE = ILLUSTRATION_TEXT_PX / UI_TEXT_PX;
+const MOBILE_SCALE = 0.9;
 
 // Matches the pinned row background on the landing page
 // (app/routes/templates.clips.tsx), so the crop dissolves into the section
@@ -197,8 +203,10 @@ const CLIPS_PAGE_MOCK_CSS = [
   `.clips-page-mock-page { position: absolute; top: 0; right: 0; width: ${DESIGN_WIDTH}px; height: ${DESIGN_HEIGHT}px; transform-origin: top right; transform: scale(${SCALE}); }`,
 
   // Short on purpose: the fade only has to dissolve the cut edge, so it has to
-  // clear the player before the video itself goes dark.
-  `.clips-page-mock-fade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, ${FADE_COLOR} 0%, ${FADE_COLOR} 3%, transparent 22%); }`,
+  // clear the player before the video itself goes dark. At this magnification
+  // only a sliver of the player is in frame, so the ramp is tighter than it
+  // would need to be on a wider crop.
+  `.clips-page-mock-fade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, ${FADE_COLOR} 0%, ${FADE_COLOR} 2%, transparent 12%); }`,
 
   `@media (max-width: 768px) { .clips-page-mock-crop { height: ${Math.round(
     DESIGN_HEIGHT * MOBILE_SCALE,
