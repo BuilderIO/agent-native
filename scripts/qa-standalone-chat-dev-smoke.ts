@@ -671,7 +671,6 @@ function suppressedNoiseBlock(): string {
 function isBenignConsoleError(text: string): boolean {
   if (text.startsWith("Failed to load resource:")) return true;
   if (text.includes("favicon")) return true;
-  // React 19 dev warns when agent-readable JSON discovery uses <script> tags.
   if (
     text.includes("Encountered a script tag while rendering React component")
   ) {
