@@ -3785,7 +3785,10 @@ function createAgentNativeConfig(
     inferredDeploymentEnvironment !== undefined
       ? {
           ...appConfig,
-          deployment: { environment: inferredDeploymentEnvironment },
+          deployment: {
+            ...appConfig.deployment,
+            environment: inferredDeploymentEnvironment,
+          },
         }
       : appConfig;
   const buildId = resolveAgentNativeBuildId(process.env, "development");
