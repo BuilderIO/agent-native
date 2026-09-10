@@ -529,8 +529,9 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("optimistically patches breakpointSet and shows pending feedback on add/remove", () => {
-    expect(source).toContain("applyOptimisticBreakpointAdd");
-    expect(source).toContain("applyOptimisticBreakpointRemove");
+    expect(source).toContain("optimisticAddBreakpointData");
+    expect(source).toContain("optimisticRemoveBreakpointData");
+    expect(source).toContain("beginOptimisticBreakpointSetPatch");
     expect(source).toContain("breakpointMutationPending={");
     expect(source).toContain("addBreakpointMutation.isPending");
     expect(source).toContain("removeBreakpointMutation.isPending");
@@ -538,17 +539,17 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("const addDesignBreakpoint"),
       source.indexOf("const handleBreakpointBarAdd"),
     );
-    expect(addHandler).toContain("queryClient.setQueryData");
-    expect(addHandler.indexOf("applyOptimisticBreakpointAdd")).toBeLessThan(
+    expect(addHandler).toContain("beginOptimisticBreakpointSetPatch");
+    expect(addHandler.indexOf("optimisticAddBreakpointData")).toBeLessThan(
       addHandler.indexOf("addBreakpointMutation"),
     );
     const removeHandler = source.slice(
       source.indexOf("const handleBreakpointBarRemove"),
       source.indexOf("const handleBreakpointChangeWidth"),
     );
-    expect(removeHandler).toContain("applyOptimisticBreakpointRemove");
+    expect(removeHandler).toContain("optimisticRemoveBreakpointData");
     expect(
-      removeHandler.indexOf("applyOptimisticBreakpointRemove"),
+      removeHandler.indexOf("optimisticRemoveBreakpointData"),
     ).toBeLessThan(removeHandler.indexOf("removeBreakpointMutation"));
   });
 

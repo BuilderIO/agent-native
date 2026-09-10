@@ -554,6 +554,11 @@ import { runLayerRename } from "./design-editor/commands/layer-rename";
 import { runLayerSelectionChange } from "./design-editor/commands/layer-selection-change";
 import { runModeChange } from "./design-editor/commands/mode-change";
 import { runNudgeSelection } from "./design-editor/commands/nudge-selection";
+import {
+  beginOptimisticBreakpointSetPatch,
+  optimisticAddBreakpointData,
+  optimisticRemoveBreakpointData,
+} from "./design-editor/commands/optimistic-breakpoint-mutation";
 import { runOverviewPrimitiveReparent } from "./design-editor/commands/overview-primitive-reparent";
 import { runPasteCopiedScreens } from "./design-editor/commands/paste-copied-screens";
 import { runPasteOverSelection } from "./design-editor/commands/paste-over-selection";
@@ -610,16 +615,7 @@ import {
   type DesignDataOperation,
   type PendingDesignDataOperations,
 } from "./design-editor/data-operations";
-import {
-  beginOptimisticBreakpointSetPatch,
-  optimisticAddBreakpointData,
-  optimisticRemoveBreakpointData,
-} from "./design-editor/commands/optimistic-breakpoint-mutation";
-import {
-  applyOptimisticBreakpointAdd,
-  applyOptimisticBreakpointRemove,
-  deriveDesignBreakpoints,
-} from "./design-editor/derive/design-breakpoints";
+import { deriveDesignBreakpoints } from "./design-editor/derive/design-breakpoints";
 import { deriveOverviewScreens } from "./design-editor/derive/overview-screens";
 import {
   cloneCanvasFrameGeometry,
@@ -18608,26 +18604,29 @@ function DesignEditor() {
     (widthPx: number, label?: string) => {
       if (!id) return;
       const resolvedLabel = label ?? breakpointLabelForWidth(widthPx);
-      const nextWidths = [
-        ...new Set([
-          ...getDesignBreakpointWidths(designDataJsonRef.current),
+      const existingWidths = getDesignBreakpointWidths(
+        designDataJsonRef.current,
+      );
+      if (existingWidths.includes(widthPx)) return;
+      const nextWidths = [...new Set([...existingWidths, widthPx])];
+      // Optimistic paint: patch the design query + ref in this click frame so
+      // overview frames / the breakpoint bar update before the mutation
+      // round-trips. Rollback on failure.
+      const { rollback } = beginOptimisticBreakpointSetPatch({
+        designId: id,
+        queryClient,
+        designDataJsonRef,
+        nextData: optimisticAddBreakpointData(designDataJsonRef.current, {
+          id: `optimistic-bp-${widthPx}`,
+          label: resolvedLabel,
           widthPx,
-        ]),
-      ];
-      // Immediate feedback: reflow before the mutation round-trips so the new
-      // frame appears to open under the "+" without a dead wait.
+        }),
+      });
       reflowOverviewScreensForBreakpoints(nextWidths);
       void addBreakpointMutation
         .mutateAsync({ designId: id, label: resolvedLabel, widthPx })
-        .then(() => {
-          const persisted = getDesignBreakpointWidths(
-            designDataJsonRef.current,
-          );
-          reflowOverviewScreensForBreakpoints([
-            ...new Set([...persisted, widthPx]),
-          ]);
-        })
         .catch((error) => {
+          rollback();
           toast.error(t("common.genericError"), {
             description:
               error instanceof Error
@@ -18636,7 +18635,13 @@ function DesignEditor() {
           });
         });
     },
-    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints, t],
+    [
+      addBreakpointMutation,
+      id,
+      queryClient,
+      reflowOverviewScreensForBreakpoints,
+      t,
+    ],
   );
   const handleBreakpointBarAdd = useCallback(
     (widthPx: number, label: string) => addDesignBreakpoint(widthPx, label),
@@ -18653,7 +18658,26 @@ function DesignEditor() {
         lastAppliedActiveBreakpointIdRef.current = "auto";
         persistActiveBreakpoint("auto", responsiveEditScopeRef.current);
       }
-      void removeBreakpointMutation.mutateAsync({ designId: id, breakpointId });
+      const { rollback } = beginOptimisticBreakpointSetPatch({
+        designId: id,
+        queryClient,
+        designDataJsonRef,
+        nextData: optimisticRemoveBreakpointData(
+          designDataJsonRef.current,
+          breakpointId,
+        ),
+      });
+      void removeBreakpointMutation
+        .mutateAsync({ designId: id, breakpointId })
+        .catch((error) => {
+          rollback();
+          toast.error(t("common.genericError"), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t("designEditor.breakpointBar.remove"),
+          });
+        });
     },
     [
       id,
@@ -18661,6 +18685,8 @@ function DesignEditor() {
       activeBreakpointWidthState,
       removeBreakpointMutation,
       persistActiveBreakpoint,
+      queryClient,
+      t,
     ],
   );
   // BP-DEEP v2 item 6 — "Change width" in the per-breakpoint "…" menu.
