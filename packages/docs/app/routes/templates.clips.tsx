@@ -217,7 +217,7 @@ export default function ClipsTemplate() {
               const textBlock = (
                 <div
                   key="text"
-                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:col-span-1 lg:p-[var(--spacing-12)]"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
                 >
                   <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                     {t(`templateLanding.clips.${useCase.titleKey}`)}
@@ -231,7 +231,7 @@ export default function ClipsTemplate() {
               const mediaBlock = (
                 <div
                   key="media"
-                  className={`order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:col-span-2 lg:p-[var(--spacing-12)] ${
+                  className={`order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)] ${
                     useCase.id === "act-on-feedback"
                       ? ""
                       : "bg-[var(--b-bg-raised)]"
@@ -254,7 +254,7 @@ export default function ClipsTemplate() {
               return (
                 <div
                   key={useCase.id}
-                  className="grid border-t border-solid border-[var(--b-border-subtle)] bg-[#0a0a0a] first:border-t-0 lg:grid-cols-3"
+                  className="grid border-t border-solid border-[var(--b-border-subtle)] bg-[#0a0a0a] first:border-t-0 lg:grid-cols-[1fr_1.25fr]"
                 >
                   {textLeft ? (
                     <>

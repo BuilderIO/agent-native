@@ -27,11 +27,11 @@ const FIXED_ITEMS = [
 const CLIPS_CELL_MOCK_CSS = [
   ".clips-cell-mock { position: relative; width: 100%; }",
   ".clips-cell-mock, .clips-cell-mock * { box-sizing: border-box; }",
-  ".clips-cell-mock-frame { display: flex; flex-direction: column; gap: 24px; padding: 36px; border-radius: 26px; background: var(--cell-window-bg); border: 1px solid var(--cell-window-border); box-shadow: 0 28px 56px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
+  ".clips-cell-mock-frame { display: flex; flex-direction: column; gap: 24px; padding: 36px; border-radius: 12px; background: var(--cell-window-bg); border: 1px solid var(--cell-window-border); box-shadow: 0 28px 56px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
 
   ".clips-cell-mock { --cell-window-bg: #1c1c1c; --cell-window-border: #2c2c2c; --cell-prompt-bg: #2c2c2c; --cell-prompt-border: #3d3d3d; --cell-prompt-fg: #e6e6e6; --cell-fg: #e6e6e6; --cell-fg-muted: #999999; --cell-fg-subtle: #808080; --cell-composer-bg: #262626; --cell-composer-border: #383838; }",
 
-  ".clips-cell-mock-prompt { padding: 16px 18px; border-radius: 20px; background: var(--cell-prompt-bg); border: 1px solid var(--cell-prompt-border); color: var(--cell-prompt-fg); font-size: 16px; line-height: 1.5; }",
+  ".clips-cell-mock-prompt { padding: 16px 18px; border-radius: 8px; background: var(--cell-prompt-bg); border: 1px solid var(--cell-prompt-border); color: var(--cell-prompt-fg); font-size: 16px; line-height: 1.5; }",
   ".clips-cell-mock-prompt-link { color: var(--cell-fg-muted); }",
 
   ".clips-cell-mock-response { display: flex; flex-direction: column; gap: 11px; }",
@@ -41,7 +41,7 @@ const CLIPS_CELL_MOCK_CSS = [
   ".clips-cell-mock-list-item { display: flex; align-items: flex-start; gap: 9px; color: var(--cell-fg-muted); font-size: 15.5px; line-height: 1.5; }",
   ".clips-cell-mock-list-index { flex-shrink: 0; color: var(--cell-fg-subtle); }",
 
-  ".clips-cell-mock-composer { display: flex; align-items: center; gap: 12px; padding: 13px 18px; border-radius: 999px; background: var(--cell-composer-bg); border: 1px solid var(--cell-composer-border); color: var(--cell-fg-subtle); }",
+  ".clips-cell-mock-composer { display: flex; align-items: center; gap: 12px; padding: 13px 18px; border-radius: 8px; background: var(--cell-composer-bg); border: 1px solid var(--cell-composer-border); color: var(--cell-fg-subtle); }",
   ".clips-cell-mock-composer-label { flex: 1 1 auto; font-size: 15.5px; }",
   ".clips-cell-mock-composer-send { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 999px; background: var(--cell-fg); color: #191919; flex-shrink: 0; }",
 
