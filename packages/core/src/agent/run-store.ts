@@ -1826,13 +1826,29 @@ async function attemptStaleRunRecovery(
     return { outcome: "budget_exhausted" };
   }
 
-  // See `STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN`. `id = ?` counts the row
-  // being reaped even when its own `error_code` UPDATE isn't visible yet on
-  // this handle — true on the non-transactional fallback path above, which
-  // calls this BEFORE writing `error_code`, and harmless on the transactional
-  // path where the UPDATE already landed on the same `tx`.
+  // Serialize the cap check + successor insert per turn: two concurrent
+  // reapers for the same turn could otherwise both read a stale count under
+  // the cap and both insert a successor. On the transactional path `db` is
+  // the caller's open `tx` (see `reapSingleStaleRun`), so this lock is held
+  // until that transaction commits and a second reaper's acquire blocks
+  // until the first reaper's COUNT+INSERT are already visible to it. On the
+  // documented non-transactional fallback path `db` has no open transaction,
+  // so this statement autocommits and the lock releases immediately — that
+  // path's own accepted two-successor race (see its comment above) already
+  // covers this gap, so this is a no-op there rather than a fix.
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [`agent-native:stale-recovery:${turnId}`],
+  });
+
+  // See `STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN`. Counts PRIOR stale_run
+  // rows only (`id <> ?` excludes the row being reaped, whether or not its
+  // own `error_code` UPDATE is visible yet on this handle) so successors 1,
+  // 2, and 3 are created on the 1st/2nd/3rd stale reap for a turn and the
+  // 4th is declined — exactly three successors per turn, matching the
+  // constant's name.
   const { rows: staleCountRows } = await db.execute({
-    sql: `SELECT COUNT(*) AS stale_count FROM agent_runs WHERE turn_id = ? AND (error_code = ? OR id = ?)`,
+    sql: `SELECT COUNT(*) AS stale_count FROM agent_runs WHERE turn_id = ? AND error_code = ? AND id <> ?`,
     args: [turnId, STALE_RUN_ERROR_EVENT.errorCode, runId],
   });
   const staleSuccessorCount = Number(

@@ -5766,7 +5766,9 @@ export async function runAgentLoop(opts: {
             });
             send({ type: "clear" });
             model = fallbackModel;
-            usage.model = model;
+            // `usage.model` stays the requested model — token usage already
+            // accumulated on the primary attempts belongs to it, not the
+            // fallback. The `activity` event above is what records the switch.
             retry = -1;
             continue;
           }
