@@ -29,17 +29,8 @@ interface DeclarationValueSpan {
   start: number;
 }
 
-const STYLE_BLOCK_PATTERN = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
 const STYLE_ATTRIBUTE_PATTERN =
   /\sstyle\s*=\s*(?:"([\s\S]*?)"|'([\s\S]*?)'|([^\s>]+))/gi;
-const NON_RENDERED_HTML_PATTERN =
-  /<!--[\s\S]*?-->|<script\b[\s\S]*?<\/script\s*>|<noscript\b[\s\S]*?<\/noscript\s*>/gi;
-
-function maskNonRenderedHtml(content: string): string {
-  return content.replace(NON_RENDERED_HTML_PATTERN, (match) =>
-    match.replace(/[^\r\n]/g, " "),
-  );
-}
 
 function maskCssComments(css: string): string {
   const masked = css.split("");
@@ -85,25 +76,33 @@ interface HtmlTagSpan {
   value: string;
 }
 
+interface StyleBlockSpan {
+  start: number;
+  value: string;
+}
+
+function htmlStartTagName(tag: string): string | null {
+  const match = tag.match(/^<\s*([A-Za-z][\w:-]*)/i);
+  if (!match) return null;
+  const delimiter = tag[match[0].length];
+  if (delimiter && !/[\s/>]/.test(delimiter)) return null;
+  return match[1].toLowerCase();
+}
+
+function rawTextClosingTag(tagName: string): RegExp {
+  return new RegExp(`</${tagName}(?=[\\s/>])[^>]*>`, "gi");
+}
+
 function htmlTagSpans(content: string): HtmlTagSpan[] {
   const tags: HtmlTagSpan[] = [];
   let start = -1;
   let quote: string | null = null;
-  let escaped = false;
   for (let index = 0; index < content.length; index += 1) {
     const character = content[index];
     if (start < 0) {
       if (character === "<" && /[A-Za-z!?/]/.test(content[index + 1] ?? "")) {
         start = index;
       }
-      continue;
-    }
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (character === "\\") {
-      escaped = true;
       continue;
     }
     if (quote) {
@@ -122,6 +121,105 @@ function htmlTagSpans(content: string): HtmlTagSpan[] {
   return tags;
 }
 
+function styleBlockSpans(content: string): StyleBlockSpan[] {
+  const blocks: StyleBlockSpan[] = [];
+  const tags = htmlTagSpans(content);
+  const closingTag = rawTextClosingTag("style");
+  let tagIndex = 0;
+  let searchStart = 0;
+  while (tagIndex < tags.length) {
+    const openingTag = tags[tagIndex];
+    tagIndex += 1;
+    if (openingTag.start < searchStart) continue;
+    if (htmlStartTagName(openingTag.value) !== "style") continue;
+
+    const openingEnd = openingTag.start + openingTag.value.length;
+    closingTag.lastIndex = openingEnd;
+    const closingMatch = closingTag.exec(content);
+    if (!closingMatch) break;
+    blocks.push({
+      start: openingEnd,
+      value: content.slice(openingEnd, closingMatch.index),
+    });
+    searchStart = closingMatch.index + closingMatch[0].length;
+    while (tagIndex < tags.length && tags[tagIndex].start < searchStart) {
+      tagIndex += 1;
+    }
+  }
+  return blocks;
+}
+
+function htmlTagEnd(content: string, start: number): number {
+  let quote: string | null = null;
+  for (let index = start; index < content.length; index += 1) {
+    const character = content[index];
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === ">") return index + 1;
+  }
+  return -1;
+}
+
+function maskNonRenderedHtml(content: string): string {
+  const masked = content.split("");
+  const maskRange = (start: number, end: number) => {
+    for (let index = start; index < end; index += 1) {
+      if (content[index] !== "\r" && content[index] !== "\n") {
+        masked[index] = " ";
+      }
+    }
+  };
+
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.indexOf("<", cursor);
+    if (start < 0) break;
+    if (content.startsWith("<!--", start)) {
+      const commentEnd = /--!?>/g;
+      commentEnd.lastIndex = start + 4;
+      const closing = commentEnd.exec(content);
+      const end = closing ? closing.index + closing[0].length : content.length;
+      maskRange(start, end);
+      cursor = end;
+      continue;
+    }
+    if (!/[A-Za-z!?/]/.test(content[start + 1] ?? "")) {
+      cursor = start + 1;
+      continue;
+    }
+    const end = htmlTagEnd(content, start);
+    if (end < 0) break;
+    const tag = content.slice(start, end);
+    const tagName = htmlStartTagName(tag);
+    if (!tagName) {
+      cursor = end;
+      continue;
+    }
+    if (tagName !== "script" && tagName !== "noscript" && tagName !== "style") {
+      cursor = end;
+      continue;
+    }
+
+    const closingTag = rawTextClosingTag(tagName);
+    closingTag.lastIndex = end;
+    const closing = closingTag.exec(content);
+    if (!closing) {
+      maskRange(start, content.length);
+      break;
+    }
+    const closingEnd = closing.index + closing[0].length;
+    if (tagName !== "style") maskRange(start, closingEnd);
+    cursor = closingEnd;
+  }
+  return masked.join("");
+}
+
 function cssPropertyName(property: string): string {
   return property
     .replace(/^\s*\/\*[\s\S]*?\*\//g, "")
@@ -135,7 +233,9 @@ function isColorDeclaration(property: string): boolean {
   if (normalized.startsWith("--")) return true;
   return (
     COLOR_STYLE_PROPERTIES.has(normalized) ||
-    /^border(?:-(?:top|right|bottom|left))?(?:-color)?$/.test(normalized) ||
+    /^border-(?:(?:top|right|bottom|left)(?:-color)?|(?:inline|block)(?:-(?:start|end))?(?:-color)?)$/.test(
+      normalized,
+    ) ||
     /^-webkit-text-stroke(?:-color)?$/.test(normalized)
   );
 }
@@ -236,9 +336,113 @@ function declarationValueSpans(
   return declarations;
 }
 
+function readCssIdentifier(
+  value: string,
+  start: number,
+  limit: number,
+): { end: number; name: string } | null {
+  let cursor = start;
+  let name = "";
+  while (cursor < limit) {
+    const character = value[cursor];
+    if (/[A-Za-z0-9_-]/.test(character)) {
+      name += character;
+      cursor += 1;
+      continue;
+    }
+    if (character !== "\\") break;
+
+    cursor += 1;
+    if (cursor >= limit) break;
+    const escapeStart = cursor;
+    while (
+      cursor < limit &&
+      cursor - escapeStart < 6 &&
+      /[0-9a-f]/i.test(value[cursor])
+    ) {
+      cursor += 1;
+    }
+    if (cursor > escapeStart) {
+      const codePoint = parseInt(value.slice(escapeStart, cursor), 16);
+      name +=
+        codePoint === 0 ||
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+          ? "\uFFFD"
+          : String.fromCodePoint(codePoint);
+      if (/\s/.test(value[cursor] ?? "")) {
+        if (value[cursor] === "\r" && value[cursor + 1] === "\n") {
+          cursor += 2;
+        } else {
+          cursor += 1;
+        }
+      }
+    } else if (
+      value[cursor] === "\r" ||
+      value[cursor] === "\n" ||
+      value[cursor] === "\f"
+    ) {
+      if (value[cursor] === "\r" && value[cursor + 1] === "\n") {
+        cursor += 2;
+      } else {
+        cursor += 1;
+      }
+    } else {
+      name += value[cursor];
+      cursor += 1;
+    }
+  }
+  return name ? { end: cursor, name: name.toLowerCase() } : null;
+}
+
 function isInsideUrl(value: string, index: number): boolean {
-  const before = value.slice(0, index).toLowerCase();
-  return before.lastIndexOf("url(") > before.lastIndexOf(")");
+  const functions: boolean[] = [];
+  let quote: string | null = null;
+  let escaped = false;
+  for (let cursor = 0; cursor < index; ) {
+    const character = value[cursor];
+    if (escaped) {
+      escaped = false;
+      cursor += 1;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      if (character === "\\") escaped = true;
+      cursor += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      cursor += 1;
+      continue;
+    }
+    if (/[A-Za-z_\\-]/.test(character)) {
+      const identifier = readCssIdentifier(value, cursor, index);
+      if (identifier) {
+        if (value[identifier.end] === "(") {
+          functions.push(identifier.name === "url");
+          cursor = identifier.end + 1;
+          continue;
+        }
+        cursor = identifier.end;
+        continue;
+      }
+    }
+    if (character === "\\") {
+      escaped = true;
+      cursor += 1;
+      continue;
+    }
+    if (character === "(") {
+      functions.push(false);
+      cursor += 1;
+      continue;
+    }
+    if (character === ")") functions.pop();
+    cursor += 1;
+  }
+  return functions.includes(true);
 }
 
 function colorTokenSpansInCss(css: string, offset = 0): ColorTokenSpan[] {
@@ -262,6 +466,7 @@ function colorTokenSpansInCss(css: string, offset = 0): ColorTokenSpan[] {
 
 function colorTokenSpansInHtml(content: string): ColorTokenSpan[] {
   const maskedContent = maskNonRenderedHtml(content);
+  const styleBlocks = styleBlockSpans(maskedContent);
   const tokens: ColorTokenSpan[] = [];
 
   for (const { start: tagOffset, value: tag } of htmlTagSpans(maskedContent)) {
@@ -274,10 +479,8 @@ function colorTokenSpansInHtml(content: string): ColorTokenSpan[] {
     }
   }
 
-  for (const match of maskedContent.matchAll(STYLE_BLOCK_PATTERN)) {
-    const css = match[1] ?? "";
-    const cssOffset = (match.index ?? 0) + match[0].indexOf(css);
-    tokens.push(...colorTokenSpansInCss(css, cssOffset));
+  for (const block of styleBlocks) {
+    tokens.push(...colorTokenSpansInCss(block.value, block.start));
   }
 
   return tokens.sort((left, right) => left.start - right.start);
@@ -359,6 +562,7 @@ const COLOR_STYLE_PROPERTIES = new Set([
   "flood-color",
   "lighting-color",
   "stop-color",
+  "text-decoration",
 ]);
 
 function cssColorTokens(value: string): string[] {

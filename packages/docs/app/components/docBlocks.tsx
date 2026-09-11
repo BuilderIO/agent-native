@@ -52,6 +52,7 @@ import { comparisonBlock } from "./blocks/comparison";
 import { gettingStartedPathsBlock } from "./blocks/getting-started-paths";
 import { imageBlock } from "./blocks/image";
 import { noticeBlock } from "./blocks/notice";
+import { sequenceBlock } from "./blocks/sequence";
 import { signatureBlock } from "./blocks/signature";
 import { stepsBlock } from "./blocks/steps";
 import { videoBlock } from "./blocks/video";
@@ -90,6 +91,7 @@ function getDocBlockRegistry(): BlockRegistry {
   registry.register(stepsBlock);
   registry.register(cardsBlock);
   registry.register(comparisonBlock);
+  registry.register(sequenceBlock);
   registry.register(gettingStartedPathsBlock);
   registry.register(signatureBlock);
   registry.register(imageBlock);

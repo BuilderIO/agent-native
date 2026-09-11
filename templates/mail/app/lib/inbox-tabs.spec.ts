@@ -153,6 +153,22 @@ describe("resolvePinnedLabels", () => {
   });
 });
 
+describe("labelTabHref", () => {
+  it("routes a nested user label to the unscoped all-mail view, not the inbox tab", () => {
+    // Repro: Jason Yang's "2-Tasks/Jira" label carries mail that's filed out
+    // of the inbox. Routing through /inbox forces `in:inbox` server-side
+    // (gmail-query.ts) and the label reads as empty even though it has mail.
+    expect(labelTabHref("2-tasks/jira")).toBe("/all?label=2-tasks%2Fjira");
+  });
+
+  it("keeps Gmail's inbox-only categories pinned to the inbox view", () => {
+    // "important" (and the other category labels) only ever exist inside the
+    // inbox, so they keep the client-slice-of-inbox behavior on purpose.
+    expect(labelTabHref("important")).toBe("/inbox?label=important");
+    expect(labelTabHref("updates")).toBe("/inbox?label=updates");
+  });
+});
+
 describe("resolveDefaultMailHref", () => {
   it("selects Important by default on fresh install", () => {
     expect(

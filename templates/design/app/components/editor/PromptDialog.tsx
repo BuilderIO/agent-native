@@ -6,6 +6,7 @@ import {
   useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
@@ -361,7 +362,11 @@ interface PromptPopoverProps {
    * that would otherwise share the same global draft key). Defaults to a
    * scope derived from `title`, which is already distinct across the
    * current call sites; pass an explicit value (e.g. including a design id)
-   * for finer isolation between instances that share the same title.
+   * for finer isolation between instances that share the same title. The
+   * popover further suffixes whatever scope it resolves with the active
+   * org id (see `PromptPopover`'s `orgScopedDraftScope`), so an abandoned
+   * draft never survives switching accounts either — callers never need to
+   * fold the org id in themselves.
    */
   draftScope?: string;
 }
@@ -440,6 +445,22 @@ export default function PromptPopover({
   draftScope,
 }: PromptPopoverProps) {
   const t = useT();
+  // Composer drafts persist to localStorage, which is scoped to the browser
+  // origin, not to the signed-in account — switching orgs is a client-side
+  // transition with no reload and no storage clear (see useSwitchOrg). Fold
+  // the active org id into the key so a draft abandoned under one account
+  // never resurfaces after switching to another.
+  const { data: org, isPending: orgPending } = useOrg();
+  const baseDraftScope = draftScope ?? title;
+  // Before the org query resolves, we don't yet know which account this
+  // draft belongs to. Route to a distinct "pending" bucket rather than
+  // falling back to the unscoped base key, which could otherwise restore
+  // (or later leak) a different account's abandoned draft during the brief
+  // window before `org` loads. `org?.orgId` is legitimately `null` for
+  // users with no active org, so that gets its own stable suffix too.
+  const orgScopedDraftScope = orgPending
+    ? `${baseDraftScope}:pending`
+    : `${baseDraftScope}:${org?.orgId ?? "none"}`;
   const [showStartChoice, setShowStartChoice] = useState(offerStartChoice);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);
@@ -961,7 +982,7 @@ export default function PromptPopover({
             placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
             onAttachmentsChange={handleAttachmentsChange}
-            draftScope={draftScope ?? title}
+            draftScope={orgScopedDraftScope}
             initialText={restoredPromptText}
             initialTextKey={restoredPromptKey}
             attachButton={
