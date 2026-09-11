@@ -30,6 +30,8 @@ import {
   LEGACY_V0_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
   LEGACY_WAU_BY_TEMPLATE_SQL,
   MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+  PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
+  PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
   repairFirstPartyObservedRetentionPanels,
 } from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
@@ -266,7 +268,13 @@ describe("dashboard catalog", () => {
       expect(seedPanel?.sql).toContain(
         "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')",
       );
-      expect(seedPanel?.config?.description).toContain("previous 365 days");
+      // retention-over-time's description dropped the "previous 365 days"
+      // wording when it switched to describing per-row return-window
+      // maturity instead of the cohort lookback; the other two panels are
+      // unaffected by that copy change.
+      if (id !== "retention-over-time") {
+        expect(seedPanel?.config?.description).toContain("previous 365 days");
+      }
       const sql = catalogPanel.sql;
       const baseEnd = sql.indexOf(
         id === "retention-over-time"
@@ -280,7 +288,9 @@ describe("dashboard catalog", () => {
       );
       expect(lookback).toBeGreaterThan(sql.indexOf("WITH base AS"));
       expect(lookback).toBeLessThan(baseEnd);
-      expect(catalogPanel.config?.description).toContain("previous 365 days");
+      if (id !== "retention-over-time") {
+        expect(catalogPanel.config?.description).toContain("previous 365 days");
+      }
     }
   });
 
@@ -363,8 +373,7 @@ describe("dashboard catalog", () => {
           sql: LEGACY_V0_RETENTION_OVER_TIME_SQL,
           config: {
             ...(legacyRetention.config ?? {}),
-            description:
-              "Trailing 7-day first-seen signed-in app session cohorts, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.",
+            description: PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
           },
         },
         {

@@ -4084,6 +4084,34 @@ const PERMANENT_PRECONDITION_LINE_PATTERNS: readonly RegExp[] = [
   /^(?!\s)[^\n]*\(errorCode:\s*permanent_precondition\)\s*$/m,
 ];
 
+const PERMANENT_PRECONDITION_REASON_MAX_CHARS = 240;
+
+/**
+ * The concrete "what's actually missing" for a permanent-precondition stop,
+ * pulled out of the tool error so the headline can lead with it instead of
+ * the generic "needs a setup step" sentence. `runToolCall` always wraps a
+ * thrown error as `Error running <tool>: <message>`; a nested
+ * `AgentActionStopError` (see the catch above) skips that wrapper and starts
+ * with the message itself. Both prefixes are stripped so the reason starts
+ * at the actual sentence ("Requires editor role on …"), not the tool name.
+ */
+export function permanentPreconditionReason(
+  toolName: string,
+  message: string,
+): string | null {
+  const escapedName = toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const reason = message
+    .replace(new RegExp(`^Error running ${escapedName}:\\s*`), "")
+    .replace(new RegExp(`^${escapedName}:\\s*`), "")
+    .trim()
+    // The headline appends its own sentence punctuation.
+    .replace(/[.。]+$/, "");
+  if (!reason) return null;
+  return reason.length > PERMANENT_PRECONDITION_REASON_MAX_CHARS
+    ? `${reason.slice(0, PERMANENT_PRECONDITION_REASON_MAX_CHARS).trim()}…`
+    : reason;
+}
+
 const SOURCE_SWEEP_TOOL_NAME =
   /\b(?:api|calls?|deals?|docs?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|source|tickets?|transcripts?)\b/i;
 
@@ -6220,17 +6248,24 @@ export async function runAgentLoop(opts: {
         // remedy reaches them on attempt one.
         const permanentRemedy = permanentPreconditionRemedy(sanitizedResult);
         if (permanentRemedy) {
+          const reason = permanentPreconditionReason(
+            toolCall.name,
+            permanentRemedy,
+          );
           requestedActionStop ??= {
-            message:
-              `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
-              "Retrying would not have changed it, and anything completed before this is saved.",
+            message: reason
+              ? `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
+                "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
+              : `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
+                "Retrying would not have changed it, and anything completed before this is saved.",
             errorCode: "permanent_precondition",
             details: sanitizedResult,
           };
-          return (
-            `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
-            `Do not retry it with different arguments. ${sanitizedResult}`
-          );
+          return reason
+            ? `Stopped: ${toolCall.name} can't run yet: ${reason}. ` +
+                `Do not retry it with different arguments. ${sanitizedResult}`
+            : `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
+                `Do not retry it with different arguments. ${sanitizedResult}`;
         }
         const errorKey = `${toolCallCacheKey(
           toolCall.name,

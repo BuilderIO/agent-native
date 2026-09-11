@@ -71,6 +71,7 @@ import {
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   permanentPreconditionRemedy,
+  permanentPreconditionReason,
   normalizeToolErrorForBreaker,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
@@ -6463,6 +6464,40 @@ describe("runAgentLoop", () => {
     }
   });
 
+  it("derives the concrete permanent-precondition reason from the tool error, stripping the tool-name prefix", () => {
+    expect(
+      permanentPreconditionReason(
+        "mutate-dashboard",
+        "Error running mutate-dashboard: Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+      ),
+    ).toBe(
+      "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    );
+    // The nested-AgentActionStopError shape has no "Error running <tool>:"
+    // wrapper — just "<tool>: <message>" — and must be stripped the same way.
+    expect(
+      permanentPreconditionReason(
+        "connect-google-calendar",
+        "connect-google-calendar: Connect Google Calendar in settings first.",
+      ),
+    ).toBe("Connect Google Calendar in settings first");
+    // Capped at ~240 chars so a verbose nested-stop message doesn't blow up
+    // the headline.
+    const long = "x".repeat(300);
+    expect(
+      permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
+    ).toBeLessThanOrEqual(241); // 240 chars + the truncation ellipsis
+    // Nothing left after stripping the prefix: no usable reason text, so the
+    // caller must fall back to the generic sentence instead of an empty or
+    // meaningless headline.
+    expect(
+      permanentPreconditionReason(
+        "mutate-dashboard",
+        "Error running mutate-dashboard:   ",
+      ),
+    ).toBeNull();
+  });
+
   // Echoed candidate/ambiguous-match text an edit tool quotes back from the
   // user's own content is fenced with `<<<diagnostic-snippet` /
   // `>>>end-diagnostic-snippet` (diagnostic-snippet.ts) precisely so it can
@@ -6561,9 +6596,77 @@ describe("runAgentLoop", () => {
     expect((stop as { details: string }).details).toContain(
       "Save GEMINI_API_KEY in settings",
     );
-    expect((stop as { error: string }).error).not.toContain("GEMINI_API_KEY");
+    // The headline now leads with the concrete reason instead of a generic
+    // "needs a setup step" sentence, so it names the actual missing key.
     expect((stop as { error: string }).error).toContain(
-      "needs a setup step outside this turn",
+      "generate-slides-ai can't run yet: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
+    );
+    expect((stop as { error: string }).error).toContain(
+      "needs to be fixed outside this chat",
+    );
+  });
+
+  // Prod report: a user asked the agent to fix a dashboard panel and the
+  // headline read as a generic "needs a setup step" with the real reason
+  // (missing editor role) buried in `details`. The headline must lead with
+  // the concrete reason so the user doesn't have to dig for it.
+  it("leads the headline with the concrete reason when the tool error has one", async () => {
+    const run = vi.fn(async () => {
+      throw new Error(
+        "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "mutate-1",
+              name: "mutate-dashboard",
+              input: { panelId: "p1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "mutate-dashboard": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "mutate-dashboard can't run yet: Requires editor role on dashboard " +
+        "agent-native-templates-first-party-bigquery-v2 (have viewer)",
     );
   });
 
