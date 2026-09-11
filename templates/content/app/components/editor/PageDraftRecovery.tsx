@@ -33,6 +33,9 @@ export function PageDraftRecovery({
   const creationPending = isDocumentCreationPending(document);
   const drafts = usePreviewDocumentDraft(document.id, {
     enabled: !creationPending,
+    // Lets the read ride out a row that is still settling after its own create
+    // without also retrying a genuinely revoked share.
+    createdAt: document.createdAt,
   });
   const update = useUpdateDocument();
   const updateDraft = useUpdatePreviewDocumentDraft();

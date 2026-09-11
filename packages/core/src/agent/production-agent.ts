@@ -816,6 +816,10 @@ export interface ActionEntry {
   toolCallable?: boolean;
   /** Capability scopes allowed on the page-local WebMCP route. */
   capabilityScopes?: readonly string[];
+  /** Set on the bash-wrapper fallback entries the agent-chat plugin builds for
+   *  CLI-style scripts: their `run` shells out to `pnpm action <name>`, so
+   *  surfaces that already run inside the server must not invoke them. */
+  cliWrapper?: boolean;
   /** Optional deep-link builder. When set, MCP/A2A surfaces append an
    *  "Open in <app> →" link built from the call's args + result. Pure, sync,
    *  best-effort. See `defineAction` and the `external-agents` skill. */
