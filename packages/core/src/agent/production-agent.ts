@@ -2793,6 +2793,11 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
   // rejection (see the constant's own doc comment) — load-shedding, not a
   // revoked key, so it belongs on the same retry-with-backoff lane as 429/529.
   if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) return true;
+  // The Builder engine's in-stream throttle stop (see builder-engine.ts's
+  // `reason === "rate_limited"` handling) carries this code with no
+  // statusCode at all — providerRetryable is the only other signal it sets,
+  // so treat any rate-limit-class code paired with it the same way.
+  if (code === "rate_limited" && err.providerRetryable === true) return true;
   return false;
 }
 
@@ -5749,16 +5754,14 @@ export async function runAgentLoop(opts: {
           // chunk starts the same dance on the primary model again.
           hasBudgetForEngineRetry(budgetStartedAt, 0)
         ) {
-          const fallbackModel = resolveFallbackModel(model);
-          // `resolveFallbackModel` names a Builder-catalog id; only switch to
-          // it when the engine actually in use for this run advertises
-          // support for it (e.g. the direct Anthropic engine's model list
-          // excludes some Builder-only ids). No `supportedModels` list at
-          // all is treated as "don't fall back", not "anything goes".
-          if (
-            fallbackModel &&
-            engine.supportedModels?.includes(fallbackModel)
-          ) {
+          // `resolveFallbackModel` already resolves against the engine's own
+          // `supportedModels` (Builder-catalog ids vs. the direct Anthropic
+          // engine's dated ids), so its result is guaranteed supported here.
+          const fallbackModel = resolveFallbackModel(
+            model,
+            engine.supportedModels,
+          );
+          if (fallbackModel) {
             fallbackModelAttempted = true;
             send({
               type: "activity",

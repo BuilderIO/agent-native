@@ -11510,6 +11510,28 @@ describe("isTransientProviderRateLimitError", () => {
       ),
     ).toBe(true);
   });
+
+  it("accepts the Builder engine's in-stream rate_limited stop", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("rate_limit exceeded: upstream provider rate limited", {
+          errorCode: "rate_limited",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps rate_limit_exceeded (the daily/account cap) non-retryable", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("daily gateway request cap reached", {
+          errorCode: "rate_limit_exceeded",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 // ─── isRetryableError ────────────────────────────────────────────────────────

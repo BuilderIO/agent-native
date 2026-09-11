@@ -323,35 +323,76 @@ describe("getMaxOutputTokensForModel", () => {
 });
 
 describe("resolveFallbackModel", () => {
-  it("swaps haiku and sonnet 5 for each other", () => {
-    expect(resolveFallbackModel("claude-haiku-4-5")).toBe(
-      CLAUDE_SONNET_MODEL_ID,
-    );
-    expect(resolveFallbackModel(CLAUDE_SONNET_MODEL_ID)).toBe(
-      "claude-haiku-4-5",
-    );
+  it("swaps haiku and sonnet for each other on the Builder catalog", () => {
+    expect(
+      resolveFallbackModel(
+        "claude-haiku-4-5",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe(CLAUDE_SONNET_MODEL_ID);
+    expect(
+      resolveFallbackModel(
+        CLAUDE_SONNET_MODEL_ID,
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe("claude-haiku-4-5");
   });
 
-  it("falls back opus 5 to sonnet 5", () => {
-    expect(resolveFallbackModel("claude-opus-4-8")).toBe(
-      CLAUDE_SONNET_MODEL_ID,
-    );
+  it("falls back opus to sonnet on the Builder catalog", () => {
+    expect(
+      resolveFallbackModel(
+        "claude-opus-4-8",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe(CLAUDE_SONNET_MODEL_ID);
   });
 
-  it("only covers ids actually in BUILDER_MODEL_CONFIG.supportedModels", () => {
-    for (const model of [
-      "claude-haiku-4-5",
-      CLAUDE_SONNET_MODEL_ID,
-      "claude-opus-4-8",
-    ]) {
-      expect(BUILDER_MODEL_CONFIG.supportedModels).toContain(model);
-    }
+  it("resolves by family against the direct Anthropic engine's dated ids", () => {
+    // The direct Anthropic engine advertises a dated haiku id
+    // ("claude-haiku-4-5-20251001") that never appears in the Builder
+    // catalog — the resolver must match by family, not by literal id.
+    expect(
+      resolveFallbackModel(
+        CLAUDE_SONNET_MODEL_ID,
+        ANTHROPIC_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe("claude-haiku-4-5-20251001");
+    expect(
+      resolveFallbackModel(
+        "claude-haiku-4-5-20251001",
+        ANTHROPIC_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe(CLAUDE_SONNET_MODEL_ID);
   });
 
-  it("returns undefined for models with no established fallback sibling", () => {
-    expect(resolveFallbackModel("auto")).toBeUndefined();
-    expect(resolveFallbackModel("gpt-5-6-luna")).toBeUndefined();
-    expect(resolveFallbackModel("gemini-3-5-flash")).toBeUndefined();
-    expect(resolveFallbackModel("unknown-model-xyz")).toBeUndefined();
+  it("returns undefined for an unknown model family", () => {
+    expect(
+      resolveFallbackModel("auto", BUILDER_MODEL_CONFIG.supportedModels),
+    ).toBeUndefined();
+    expect(
+      resolveFallbackModel(
+        "gpt-5-6-luna",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBeUndefined();
+    expect(
+      resolveFallbackModel(
+        "gemini-3-5-flash",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBeUndefined();
+    expect(
+      resolveFallbackModel(
+        "unknown-model-xyz",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when supportedModels has no sibling in the target family", () => {
+    expect(
+      resolveFallbackModel("claude-haiku-4-5", ["claude-haiku-4-5"]),
+    ).toBeUndefined();
+    expect(resolveFallbackModel("claude-haiku-4-5", undefined)).toBeUndefined();
   });
 });
