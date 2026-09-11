@@ -1127,11 +1127,19 @@ export function useBuilderConnectFlow(
             ? null
             : `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
         );
-      } else if (isPopupClosed(activePopupRef.current)) {
+      } else if (
+        isPopupClosed(activePopupRef.current) &&
+        callbackSuccessStartedAtRef.current !== started
+      ) {
         // The user closed or cancelled the popup before Builder confirmed
         // credentials. Give a slow-but-real confirmation a grace window
         // (see POPUP_CLOSED_CONFIRMATION_GRACE_MS) before giving up, but do
         // not leave the button spinning for the full 5-minute ceiling below.
+        // Skipped entirely once the postMessage/BroadcastChannel success
+        // handler has started for this attempt (callbackSuccessStartedAtRef
+        // set): that handler owns its own bounded retry and must be the one
+        // to resolve `connecting`, or this branch would race it and discard
+        // a real success that lands a moment after the grace window closes.
         popupClosedAtRef.current ??= Date.now();
         if (
           Date.now() - popupClosedAtRef.current >
