@@ -1325,6 +1325,7 @@ export function renderChatFirstAppSurfaceTab({
         id: registration.id,
         name: registration.name ?? registration.id,
         path: registration.path,
+        homePath: registration.homePath,
         url: registration.url,
       }}
       embedPath={embedPath}
