@@ -691,8 +691,8 @@ describe("workspace dev startup", () => {
     const appCall = fake.calls().at(-1);
     expect(appCall?.options).toMatchObject({
       detached: process.platform !== "win32",
-      shell: process.platform === "win32",
     });
+    expect(appCall?.options?.shell).toBeUndefined();
     Object.defineProperty(appCall?.child, "pid", {
       configurable: true,
       value: 489,

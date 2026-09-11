@@ -848,7 +848,6 @@ export async function runWorkspaceDev(
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
-      shell: process.platform === "win32",
       env: devWatcherEnv(
         {
           ...env,
