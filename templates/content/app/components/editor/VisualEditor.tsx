@@ -136,6 +136,10 @@ import {
   videoUploadErrorMessage,
 } from "./image-upload";
 import { LinkHoverPreview } from "./LinkHoverPreview";
+import {
+  schemaSafePasteContent,
+  type MarkdownPasteContent,
+} from "./markdown-paste-content";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { TableHoverControls } from "./TableHoverControls";
 
@@ -280,12 +284,35 @@ const MarkdownPasteDetection = Extension.create({
               return false;
             }
 
-            // Prevent default paste and insert markdown as content —
-            // tiptap-markdown will parse it into rich nodes
+            // Parse before preventing the default paste: a markdown payload
+            // that cannot be turned into editor content has to fall through to
+            // ProseMirror's own clipboard handling, not disappear.
+            let parsed: MarkdownPasteContent;
+            try {
+              parsed = schemaSafePasteContent(
+                (editor.storage as any).markdown.parser.parse(plainText),
+                editor.schema,
+                editor.options.parseOptions,
+              );
+            } catch (err) {
+              parsed = { status: "unusable", reason: String(err) };
+            }
+            if (parsed.status === "unusable") {
+              console.warn(
+                "Markdown paste left to the default clipboard handler:",
+                parsed.reason,
+              );
+              return false;
+            }
+            if (parsed.repairedFrom) {
+              console.warn(
+                "Repaired unrepresentable content in a markdown paste:",
+                parsed.repairedFrom,
+              );
+            }
+
             event.preventDefault();
-            editor.commands.insertContent(
-              (editor.storage as any).markdown.parser.parse(plainText),
-            );
+            editor.commands.insertContent(parsed.content);
             return true;
           },
         },
