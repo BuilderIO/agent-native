@@ -675,6 +675,7 @@ const messages = {
     stable: "Estável",
     nightly: "Nightly",
     allPlatforms: "Todas as plataformas",
+    releaseChannel: "Canal de lançamento",
     switchToNightly: "Mudar para builds Nightly",
     switchToStable: "Mudar para builds estáveis",
     retry: "Tentar novamente",

@@ -10,7 +10,7 @@ import {
   IconHelpCircle,
   IconTerminal2,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -240,14 +240,18 @@ function DownloadChannelToggle({
   onChange: (nextChannel: DownloadReleaseChannel) => void;
 }) {
   const t = useT();
+  const channelRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const channels = [
+    ["production", t("downloadRoute.stable")],
+    ["nightly", t("downloadRoute.nightly")],
+  ] as const;
   return (
-    <div className="inline-flex items-center gap-0.5 rounded-md border border-border/60 p-1">
-      {(
-        [
-          ["production", t("downloadRoute.stable")],
-          ["nightly", t("downloadRoute.nightly")],
-        ] as const
-      ).map(([value, label]) => {
+    <div
+      role="radiogroup"
+      aria-label={t("downloadRoute.releaseChannel")}
+      className="inline-flex items-center gap-0.5 rounded-md border border-border/60 p-1"
+    >
+      {channels.map(([value, label], index) => {
         const active = channel === value;
         return (
           <button
@@ -255,7 +259,25 @@ function DownloadChannelToggle({
             type="button"
             role="radio"
             aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            ref={(element) => {
+              channelRefs.current[index] = element;
+            }}
             onClick={() => onChange(value)}
+            onKeyDown={(event) => {
+              const direction =
+                event.key === "ArrowRight" || event.key === "ArrowDown"
+                  ? 1
+                  : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                    ? -1
+                    : 0;
+              if (!direction) return;
+              event.preventDefault();
+              const nextIndex =
+                (index + direction + channels.length) % channels.length;
+              onChange(channels[nextIndex][0]);
+              channelRefs.current[nextIndex]?.focus();
+            }}
             className={`rounded px-3 py-1.5 font-mono text-[11px] font-semibold transition-colors ${
               active
                 ? "bg-foreground text-background"
@@ -410,7 +432,7 @@ export default function DownloadPage() {
                 (asset) => handleDownload(asset, downloadLabel),
               )}
 
-              {primaryDownloadStarted && confirmedDownload && (
+              {confirmedDownload && (
                 <p aria-live="polite" className="text-xs text-muted-foreground">
                   <span className="sr-only">{downloadStartedLabel}</span>
                   <a

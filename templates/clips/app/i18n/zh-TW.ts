@@ -636,6 +636,7 @@ const messages = {
     stable: "穩定版",
     nightly: "Nightly",
     allPlatforms: "所有平台",
+    releaseChannel: "發佈頻道",
     switchToNightly: "切換至 Nightly 建置",
     switchToStable: "切換至穩定版建置",
     retry: "重試",

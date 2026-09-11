@@ -27,6 +27,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadRoute.stable": "Stable",
       "downloadRoute.nightly": "Nightly",
       "downloadRoute.allPlatforms": "All platforms",
+      "downloadRoute.releaseChannel": "Release channel",
       "downloadRoute.macSublabel": "Universal (Apple Silicon + Intel)",
       "downloadRoute.windowsSublabel": "64-bit MSI installer",
       "downloadRoute.chromeTitle": "Chrome extension for browser logs",
@@ -178,6 +179,44 @@ describe("Clips download page", () => {
 
     expect(markDownloaded).toHaveBeenCalledTimes(1);
     expect(download?.textContent).toContain("Download started");
+    expect(container.textContent).toContain(
+      "Didn't work? Try downloading again",
+    );
+  });
+
+  it("supports keyboard navigation for release channels", () => {
+    const group = container.querySelector('[role="radiogroup"]');
+    const radios = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
+    );
+    expect(group?.getAttribute("aria-label")).toBe("Release channel");
+    expect(radios[0]?.tabIndex).toBe(0);
+    expect(radios[1]?.tabIndex).toBe(-1);
+
+    act(() => {
+      radios[0]?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" }),
+      );
+    });
+
+    expect(radios[0]?.getAttribute("aria-checked")).toBe("false");
+    expect(radios[1]?.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(radios[1]);
+  });
+
+  it("confirms downloads from secondary platform cards", () => {
+    const windowsDownload = container.querySelector<HTMLAnchorElement>(
+      `a[href="${stableManifest.assets[1].url}"]`,
+    );
+    expect(windowsDownload).toBeTruthy();
+
+    act(() => {
+      windowsDownload?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(markDownloaded).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain(
       "Didn't work? Try downloading again",
     );

@@ -666,6 +666,7 @@ const messages = {
     stable: "مستقر",
     nightly: "Nightly",
     allPlatforms: "جميع المنصات",
+    releaseChannel: "قناة الإصدار",
     switchToNightly: "التبديل إلى إصدارات Nightly",
     switchToStable: "التبديل إلى الإصدارات المستقرة",
     retry: "إعادة المحاولة",

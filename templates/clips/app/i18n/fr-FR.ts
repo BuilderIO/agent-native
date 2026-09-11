@@ -678,6 +678,7 @@ const messages = {
     stable: "Stable",
     nightly: "Nightly",
     allPlatforms: "Toutes les plateformes",
+    releaseChannel: "Canal de publication",
     switchToNightly: "Passer aux versions Nightly",
     switchToStable: "Passer aux versions stables",
     retry: "Réessayer",

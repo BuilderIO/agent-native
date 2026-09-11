@@ -664,6 +664,7 @@ const messages = {
     stable: "안정 버전",
     nightly: "Nightly",
     allPlatforms: "모든 플랫폼",
+    releaseChannel: "릴리스 채널",
     switchToNightly: "Nightly 빌드로 전환",
     switchToStable: "안정 버전 빌드로 전환",
     retry: "다시 시도",

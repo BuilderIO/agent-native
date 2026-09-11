@@ -674,6 +674,7 @@ const messages = {
     stable: "安定版",
     nightly: "Nightly",
     allPlatforms: "すべてのプラットフォーム",
+    releaseChannel: "リリースチャンネル",
     switchToNightly: "Nightly ビルドに切り替え",
     switchToStable: "安定版ビルドに切り替え",
     retry: "再試行",

@@ -656,6 +656,7 @@ const messages = {
     stable: "स्थिर",
     nightly: "Nightly",
     allPlatforms: "सभी प्लेटफ़ॉर्म",
+    releaseChannel: "रिलीज़ चैनल",
     switchToNightly: "Nightly बिल्ड पर जाएँ",
     switchToStable: "स्थिर बिल्ड पर जाएँ",
     retry: "फिर कोशिश करें",
