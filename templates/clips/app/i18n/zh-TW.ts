@@ -1748,6 +1748,7 @@ const messages = {
       "{{consoleCount}} 個主控台問題 · {{networkCount}} 個失敗請求",
     noFailures: "未偵測到失敗",
     failuresPresent: "偵測到瀏覽器故障",
+    unviewedCount: "{{count}} 個未讀",
     captureSuccessful: "診斷資訊擷取成功",
     capturedFrom: "擷取自 {{source}}",
     browserCapture: "瀏覽器擷取",

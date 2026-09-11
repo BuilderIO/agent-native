@@ -1876,6 +1876,7 @@ const messages = {
       "{{consoleCount}} Konsolenprobleme · {{networkCount}} fehlgeschlagene Anfragen",
     noFailures: "Keine Fehler erkannt",
     failuresPresent: "Browserfehler erkannt",
+    unviewedCount: "{{count}} ungesehen",
     captureSuccessful: "Diagnosedaten erfolgreich erfasst",
     capturedFrom: "Erfasst von {{source}}",
     browserCapture: "Browseraufnahme",

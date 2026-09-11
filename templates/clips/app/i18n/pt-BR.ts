@@ -1855,6 +1855,7 @@ const messages = {
       "{{consoleCount}} problemas no console · {{networkCount}} solicitações com falha",
     noFailures: "Nenhuma falha detectada",
     failuresPresent: "Falhas do navegador detectadas",
+    unviewedCount: "{{count}} não vistos",
     captureSuccessful: "Diagnósticos capturados com sucesso",
     capturedFrom: "Capturado de {{source}}",
     browserCapture: "Captura do navegador",
