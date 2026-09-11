@@ -1569,30 +1569,76 @@ const frFR = {
     },
     slides: {
       faq: {
-        question1: "Puis-je créer une présentation depuis Claude ou ChatGPT ?",
+        question1: "Qu'est-ce qu'Agent-Native Slides ?",
         answer1:
-          "Oui. Demandez un deck à Claude ou ChatGPT et il arrive dans Slides — conforme à votre marque, modifiable et exportable — au lieu de vous obliger à tout recommencer sur un site de présentations.",
-        question2: "Puis-je corriger les erreurs de l'IA ?",
+          "Agent-Native Slides est un générateur de présentations IA gratuit et open source. Créez des decks à l'image de votre marque à partir de vos idées et de vos documents source avec un agent IA, puis modifiez les diapositives vous-même, présentez-les ou exportez-les vers PowerPoint.",
+        question2:
+          "Puis-je modifier les diapositives une fois que l'IA les a générées ?",
         answer2:
-          "De trois façons : par prompt, manuellement — cliquez sur n'importe quel élément et double-cliquez sur n'importe quel texte — ou dans le code. Vous ne vous retrouvez jamais bloqué à régénérer en espérant un meilleur résultat.",
-        question3: "Comment les decks restent-ils conformes à la marque ?",
+          "Oui. Modifiez le texte, la mise en page et le style directement dans l'éditeur visuel, ou demandez à l'agent IA de revoir une diapositive sélectionnée. Vous pouvez continuer à affiner la présentation après le premier brouillon.",
+        question3:
+          "Puis-je créer une présentation à partir d'un deck ou d'un document existant ?",
         answer3:
-          "Ajoutez aux favoris un deck dont vous êtes fier. Chaque nouveau deck hérite de ses mises en page, titres, style visuel et tokens de marque. Les générateurs ponctuels vous donnent un deck ; cette approche vous permet d'établir une pratique durable pour vos présentations.",
-        question4: "En quoi Slides diffère-t-il de Gamma ?",
+          "Oui. Joignez un deck ou un document comme document de référence pour une nouvelle présentation. Pour travailler directement sur le deck existant, importez-le explicitement. Vérifiez les diapositives importées pour détecter des changements de mise en page ou des images manquantes.",
+        question4:
+          "Puis-je utiliser mes propres couleurs de marque, polices et logo ?",
         answer4:
-          "Gamma génère rapidement un deck correct en une fois ; vous vous retrouvez ensuite dans son canevas, avec son abonnement, à régénérer quand le résultat n'est juste qu'à 85 %. Slides est gratuit, open source, reprend votre marque et vous permet de tout modifier.",
-        question5: "Slides est-il gratuit ?",
+          "Oui. Appliquez un design system avec les couleurs, la typographie et les logos de votre marque, puis réutilisez-le sur plusieurs decks. Vous pouvez aussi fournir une présentation de référence pour guider les choix de design de l'agent IA.",
+        question5:
+          "Puis-je utiliser ma présentation dans PowerPoint ou Google Slides ?",
         answer5:
-          "Oui. Il est gratuit et open source, sans abonnement, compteur de crédits ni tarification par deck.",
+          "Exportez un fichier PPTX pour l'ouvrir dans PowerPoint. Pour utiliser la présentation dans Google Slides, importez-y ce fichier. Vérifiez les polices et les mises en page après l'export, car elles peuvent s'afficher différemment selon les éditeurs.",
       },
       s001: "Capture d'écran du modèle Slides",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "Créez des présentations avec votre agent IA",
+      heroDescription:
+        "Slides est un générateur de présentations IA gratuit et open source pour créer des decks à l'image de votre marque à partir de vos idées et de vos documents source, avec des diapositives que vous pouvez modifier vous-même.",
+      heroCta: "Créer une présentation",
+      useCasesHeading: "Que pouvez-vous faire avec Slides ?",
+      useCasesBody:
+        "Préparez un pitch, présentez un plan ou partagez une mise à jour. Donnez à votre agent IA le contenu et le public que vous avez en tête.",
+      useCase1Title: "Créer des decks commerciaux et de pitch",
+      useCase1Body:
+        "Transformez votre brief produit en un deck pour des prospects ou des investisseurs. Adaptez le discours au public devant lequel vous présentez.",
+      useCase2Title: "Présenter des plans et des stratégies",
+      useCase2Body:
+        "Donnez à votre agent IA un brief stratégique ou un plan de lancement à transformer en diapositives qui expliquent la direction et les prochaines étapes proposées.",
+      useCase3Title: "Partager des mises à jour d'activité",
+      useCase3Body:
+        "Transformez des notes de projet ou des rapports de performance en une présentation qui montre l'avancement, explique les résultats et met en avant ce qui nécessite de l'attention.",
+      keyFeaturesEyebrow: "Fonctionnalités clés",
+      keyFeaturesHeading:
+        "Tout ce qu'il faut pour créer, modifier et présenter",
+      feature1Title: "Génération de présentations par IA",
+      feature1Body:
+        "Partez d'un prompt, d'un document ou d'un deck de référence. Donnez à votre agent IA le sujet et le public autour desquels construire la présentation.",
+      feature2Title: "Édition par IA et visuelle",
+      feature2Body:
+        "Sélectionnez du texte pour que votre agent IA le révise, ou modifiez vous-même le texte, la mise en page et le style directement sur la diapositive.",
+      feature3Title: "Styles de marque réutilisables",
+      feature3Body:
+        "Enregistrez vos couleurs, polices et logos dans un design system. Appliquez-le à plusieurs decks pour garder vos présentations cohérentes avec votre marque.",
+      feature4Title: "Images et logos",
+      feature4Body:
+        "Demandez à votre agent IA de générer des images, de trouver des photos ou de rechercher des logos d'entreprise à utiliser dans vos diapositives.",
+      feature5Title: "Collaboration en équipe",
+      feature5Body:
+        "Travaillez sur des decks avec vos coéquipiers, laissez des commentaires sur des diapositives précises et restaurez une version antérieure quand vous en avez besoin.",
+      feature6Title: "Présentation et export",
+      feature6Body:
+        "Présentez en plein écran avec des notes de présentateur, partagez un lien de consultation ou exportez votre deck en fichier PowerPoint.",
+      finalCtaHeading: "Commencez votre prochaine présentation",
+      finalCtaBody: "Apportez une idée, un brief ou un deck existant.",
+      finalCtaButton: "Créer une présentation",
       s002: "Décrire",
       s003: "Générer",
       s004: "Affiner",
       s005: "Tous les modèles",
       s006Primary: "Des présentations",
       s006Secondary: "À votre image et modifiables",
-      s007: "Générez des présentations aux couleurs de votre marque depuis votre agent IA, apportez vos propres modifications manuelles à tout moment et exportez-les où vous voulez.",
+      s007: "Générez des présentations à l'image de votre marque avec votre agent IA, modifiez ensuite les diapositives vous-même et exportez-les où vous voulez.",
       s008: "Essayer",
       s009: "Comment ça marche",
       s010: "Tout ce dont vous avez besoin",

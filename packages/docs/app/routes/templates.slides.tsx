@@ -1,41 +1,40 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconCheck } from "@tabler/icons-react";
+import { IconArrowUpRight } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 
 import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { SectionDivider } from "../components/SectionDivider";
-import {
-  TemplateCapabilityGrid,
-  TemplateComparisonTable,
-  TemplateFinalCta,
-  TemplateHero,
-  TemplateLandingFaq,
-  TemplateLandingShell,
-  TemplateSplitFeature,
-  TemplateStatOrStepsGrid,
-  TemplateStatOrStepsGridItem,
-} from "../components/template-landing";
+import { TemplateHero } from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { Button } from "../components/website-redesign/ds/button";
+import { ContentCard } from "../components/website-redesign/ds/content-card";
+import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
-      { title: "Agent-Native Slides — Open Source AI Presentation Builder" },
+      {
+        title: "Free AI Presentation Maker | Agent-Native Slides",
+      },
       {
         name: "description",
         content:
-          "Generate and edit presentations with AI. Open source alternative to Google Slides and Pitch. Create slide decks via natural language with visual editing, 8 layouts, image generation, logo search, sharing, and presentation mode.",
+          "Create presentations with your AI agent, apply your brand, and edit individual slides. Slides is a free, open-source AI presentation maker with PowerPoint export.",
       },
       {
         property: "og:title",
-        content: "Agent-Native Slides — Open Source AI Presentation Builder",
+        content: "Free AI Presentation Maker | Agent-Native Slides",
       },
       {
         property: "og:description",
         content:
-          "Generate and edit presentations with AI. Create slide decks via natural language.",
+          "Create presentations with your AI agent, apply your brand, and edit individual slides. Slides is a free, open-source AI presentation maker with PowerPoint export.",
       },
       {
         name: "keywords",
@@ -48,336 +47,215 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "slides")!;
 
-const COMPARISON_ROWS = [
+// Same no-imagery pattern Clips used before its use-case mocks existed: plain
+// ContentCards, no `image`/`imageLabel`, so the section reads as one system
+// with the key-features grid below it instead of leaving placeholder boxes.
+const USE_CASES = [
   {
-    feature: "Where you start",
-    google: "Blank deck UI",
-    gamma: "In-app prompt",
-    slides: "In-app prompt.\nOr your own AI agent (Claude, GPT, etc)",
+    id: "sales-and-pitch-decks",
+    titleKey: "useCase1Title",
+    bodyKey: "useCase1Body",
   },
   {
-    feature: "Does it know your brand?",
-    google: "No",
-    gamma: "If you pay.",
-    slides:
-      "Yes. Import design systems.\nOr ask the agent to riff an old deck.",
+    id: "plans-and-strategies",
+    titleKey: "useCase2Title",
+    bodyKey: "useCase2Body",
   },
   {
-    feature: "AI control",
-    google: "Manual, start to finish",
-    gamma: "Black box",
-    slides: "Open-source, customizable",
+    id: "business-updates",
+    titleKey: "useCase3Title",
+    bodyKey: "useCase3Body",
+  },
+] as const;
+
+const KEY_FEATURES = [
+  { id: "ai-generation", titleKey: "feature1Title", bodyKey: "feature1Body" },
+  {
+    id: "ai-visual-editing",
+    titleKey: "feature2Title",
+    bodyKey: "feature2Body",
+  },
+  { id: "brand-styles", titleKey: "feature3Title", bodyKey: "feature3Body" },
+  {
+    id: "images-and-logos",
+    titleKey: "feature4Title",
+    bodyKey: "feature4Body",
   },
   {
-    feature: "Integrations",
-    google: "Only Google Suite",
-    gamma: "Touchy and limited",
-    slides: "Anything",
+    id: "team-collaboration",
+    titleKey: "feature5Title",
+    bodyKey: "feature5Body",
   },
-];
+  {
+    id: "presentation-and-export",
+    titleKey: "feature6Title",
+    bodyKey: "feature6Body",
+  },
+] as const;
+
+const FAQ_ITEMS = [
+  { id: "what-is-slides", question: "question1", answer: "answer1" },
+  { id: "edit-after-generation", question: "question2", answer: "answer2" },
+  { id: "create-from-existing", question: "question3", answer: "answer3" },
+  { id: "brand-colors-fonts-logo", question: "question4", answer: "answer4" },
+  { id: "powerpoint-google-slides", question: "question5", answer: "answer5" },
+] as const;
+
+// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
+// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
+// below draws its grid lines flush to that same max-w-site edge, so this
+// wrapper must match exactly (no px-* here) or the hero's border-x box ends
+// up narrower than the rest of the page.
+const HERO_WRAPPER_CLASS =
+  "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
 export default function SlidesTemplate() {
   const t = useT();
-  const workflowSteps = [
-    {
-      title: t("templateLanding.slides.s002"),
-      description: t("templateLanding.slides.howItWorksDescribe"),
-    },
-    {
-      title: t("templateLanding.slides.s003"),
-      description:
-        "The agent builds a complete deck — structure, content, layouts, and image prompts.",
-    },
-    {
-      title: t("templateLanding.slides.s004"),
-      description:
-        "Edit visually, conversationally, or in code. Changes appear through polling sync.",
-    },
-  ];
-  const capabilities = [
-    {
-      title: t("templateLanding.slides.s012"),
-      description: t("templateLanding.slides.s013"),
-    },
-    {
-      title: t("templateLanding.slides.s014"),
-      description: t("templateLanding.slides.s015"),
-    },
-    {
-      title: t("templateLanding.slides.s016"),
-      description: t("templateLanding.slides.s017"),
-    },
-    {
-      title: t("templateLanding.slides.s018"),
-      description: t("templateLanding.slides.s019"),
-    },
-    {
-      title: t("templateLanding.slides.s020"),
-      description: t("templateLanding.slides.s021"),
-    },
-    {
-      title: t("templateLanding.slides.s022"),
-      description: t("templateLanding.slides.s023"),
-    },
-  ];
-  const faqItems = Array.from({ length: 5 }, (_, index) => {
-    const itemNumber = index + 1;
-    return {
-      id: `slides-question-${itemNumber}`,
-      question: t(`templateLanding.slides.faq.question${itemNumber}`),
-      answer: (
-        <p className="m-0">
-          {t(`templateLanding.slides.faq.answer${itemNumber}`)}
-        </p>
-      ),
-    };
-  });
 
   return (
-    <TemplateLandingShell>
-      <TemplateHero
-        eyebrow={
-          <span className="text-[var(--fg-secondary)]">
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={
-          <>
-            <span className="text-[var(--fg)] lg:whitespace-nowrap">
-              {t("templateLanding.slides.s006Primary")}{" "}
+    <div className="builder-brand-tokens">
+      {/* Hero — copy and layout updated to match Clips; existing hero
+          screenshot kept since there's no newer Slides asset yet. */}
+      <div className={HERO_WRAPPER_CLASS}>
+        <TemplateHero
+          title={t("templateLanding.slides.heroTitle")}
+          eyebrow={
+            <span className="text-[var(--fg-secondary)]">
+              {t("templateLanding.slides.heroEyebrow")}
             </span>
-            <span className="text-[var(--fg-secondary)] lg:block">
-              {t("templateLanding.slides.s006Secondary")}
-            </span>
-          </>
-        }
-        customizeTemplate={template}
-        description={<p className="m-0">{t("templateLanding.slides.s007")}</p>}
-        headingAction={
-          <a
+          }
+          customizeTemplate={template}
+          headingAction={
+            <a
+              href={firstPartyAppUrl("https://slides.agent-native.com")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{ gap: "4px" }}
+              onClick={(event) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("generate deck", {
+                  template: template.slug,
+                  location: "landing_page_hero",
+                });
+              }}
+            >
+              {t("templateLanding.slides.heroCta")}
+              <IconArrowUpRight size={16} />
+            </a>
+          }
+          description={<p>{t("templateLanding.slides.heroDescription")}</p>}
+          descriptionPlacement="below-title"
+          mediaOverlapsHeader
+          media={
+            <BuilderImage
+              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3723b83883aa4df7b1c53011d2f7ce2c"
+              crossOrigin="anonymous"
+              alt={t("templateLanding.slides.s001")}
+              loading="lazy"
+              decoding="async"
+              className="h-auto max-h-[640px] w-full object-cover object-top"
+            />
+          }
+        />
+      </div>
+
+      {/* What can you do with Slides? — three use-case cards */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.slides.useCasesHeading")}
+          </h2>
+          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.slides.useCasesBody")}
+          </p>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
+            {USE_CASES.map((useCase) => (
+              <ContentCard
+                key={useCase.id}
+                title={t(`templateLanding.slides.${useCase.titleKey}`)}
+                body={t(`templateLanding.slides.${useCase.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* Key features — six cards, same layout as builder.io/platform/code
+          and the Clips key-features grid, so both apps read as one system. */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
+            {t("templateLanding.slides.keyFeaturesEyebrow")}
+          </p>
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.slides.keyFeaturesHeading")}
+          </h2>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
+            {KEY_FEATURES.map((feature) => (
+              <ContentCard
+                key={feature.id}
+                title={t(`templateLanding.slides.${feature.titleKey}`)}
+                body={t(`templateLanding.slides.${feature.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* FAQs */}
+      <PageSection>
+        <GridInner className="border-t border-solid border-[var(--b-border-default)]">
+          <FaqAccordion
+            idPrefix="slides-faq"
+            eyebrow={t("templateLanding.faq.eyebrow")}
+            title={t("templateLanding.faq.title")}
+            items={FAQ_ITEMS.map((item) => ({
+              id: item.id,
+              question: t(`templateLanding.slides.faq.${item.question}`),
+              answer: (
+                <p className="m-0">
+                  {t(`templateLanding.slides.faq.${item.answer}`)}
+                </p>
+              ),
+            }))}
+          />
+        </GridInner>
+      </PageSection>
+
+      {/* Final CTA */}
+      <PageSection>
+        <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.slides.finalCtaHeading")}
+          </h2>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.slides.finalCtaBody")}
+          </p>
+          <Button
+            variant="cta"
             href={firstPartyAppUrl("https://slides.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            className="primary-button"
-            onClick={(event) => {
+            style={{ gap: "3px" }}
+            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("generate deck", {
-                template: "slides",
-                location: "landing_page_hero",
+                template: template.slug,
+                location: "landing_page_final_cta",
               });
             }}
           >
-            {t("common.getStarted")}
-          </a>
-        }
-        media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3723b83883aa4df7b1c53011d2f7ce2c"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.slides.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[640px] w-full object-cover object-top"
-          />
-        }
-      />
-
-      <SectionDivider />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[var(--fg)] sm:text-4xl">
-            {t("templateLanding.slides.s009")}
-          </h2>
-        </div>
-        <TemplateStatOrStepsGrid>
-          {workflowSteps.map((step, index) => (
-            <TemplateStatOrStepsGridItem key={step.title}>
-              <span
-                aria-hidden="true"
-                className="font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]"
-              >
-                {String(index + 1).padStart(2, "0")}
-              </span>
-              <h3 className="m-0 text-2xl font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-                {step.title}
-              </h3>
-              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-                {step.description}
-              </p>
-            </TemplateStatOrStepsGridItem>
-          ))}
-        </TemplateStatOrStepsGrid>
-      </section>
-
-      <SectionDivider />
-
-      <TemplateCapabilityGrid
-        intro={
-          <>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
-              {t("templateLanding.slides.s010")}
-            </h2>
-            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s011")}
-            </p>
-          </>
-        }
-      >
-        {capabilities.map((capability) => (
-          <article
-            key={capability.title}
-            className="flex min-h-[220px] flex-col gap-4 border-b border-[var(--docs-border)] p-6 last:border-b-0 sm:p-8 sm:odd:border-e sm:[&:nth-last-child(-n+2)]:border-b-0"
-          >
-            <div
-              aria-hidden="true"
-              className="h-1 w-10 rounded-full bg-[var(--docs-border)]"
-            />
-            <h3 className="m-0 text-lg font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {capability.title}
-            </h3>
-            <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {capability.description}
-            </p>
-          </article>
-        ))}
-      </TemplateCapabilityGrid>
-
-      <SectionDivider />
-
-      <TemplateSplitFeature
-        leading={
-          <article className="flex h-full flex-col gap-6 p-6 sm:p-8 lg:p-10">
-            <div className="flex flex-col gap-3">
-              <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
-                {t("templateLanding.slides.s024")}
-              </h2>
-              <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s025")}
-              </p>
-            </div>
-            <ul className="m-0 grid list-none gap-3 p-0 text-base text-[var(--fg-secondary)]">
-              {[
-                t("templateLanding.slides.s026"),
-                t("templateLanding.slides.s027"),
-                t("templateLanding.slides.s028"),
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-3">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
-                  />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </article>
-        }
-        trailing={
-          <article className="flex h-full flex-col gap-6 p-6 sm:p-8 lg:p-10">
-            <div className="flex flex-col gap-3">
-              <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
-                {t("templateLanding.slides.s029")}
-              </h2>
-              <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s030")}
-              </p>
-            </div>
-            <ul className="m-0 grid list-none border-t border-[var(--docs-border)] p-0 font-mono text-sm leading-6 text-[var(--fg-secondary)]">
-              {[
-                t("templateLanding.slides.s031"),
-                t("templateLanding.slides.s032"),
-                t("templateLanding.slides.s033"),
-                t("templateLanding.slides.s034"),
-              ].map((example) => (
-                <li
-                  key={example}
-                  className="border-b border-[var(--docs-border)] py-4"
-                >
-                  {example}
-                </li>
-              ))}
-            </ul>
-          </article>
-        }
-      />
-
-      <SectionDivider />
-
-      <section
-        id="comparison"
-        className="scroll-mt-24 border-t border-[var(--docs-border)]"
-      >
-        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[var(--fg)] sm:text-4xl">
-            {t("templateLanding.slides.s035")}
-          </h2>
-        </div>
-        <TemplateComparisonTable
-          caption={t("templateLanding.slides.s035")}
-          featureHeader={t("templateLanding.slides.s035")}
-          columns={[
-            {
-              id: "google",
-              className: "w-[22%]",
-              header: "Google Slides",
-            },
-            {
-              id: "gamma",
-              className: "w-[22%]",
-              header: "Gamma, Tome",
-            },
-            {
-              id: "slides",
-              className: "w-[30%]",
-              emphasized: true,
-              agentNative: { name: template.name },
-            },
-          ]}
-          rows={[
-            ...COMPARISON_ROWS.map((row) => ({
-              id: row.feature,
-              label: row.feature,
-              cells: {
-                google: row.google,
-                gamma: row.gamma,
-                slides: (
-                  <span className="whitespace-pre-line">{row.slides}</span>
-                ),
-              },
-            })),
-            {
-              id: "pricing",
-              label: t("templateLanding.slides.s051"),
-              cells: {
-                google: t("templateLanding.slides.s052"),
-                gamma: t("templateLanding.slides.s053"),
-                slides: t("templateLanding.slides.s054"),
-              },
-            },
-          ]}
-        />
-      </section>
-
-      <SectionDivider />
-
-      <TemplateFinalCta
-        className="[&>div:first-child]:py-10 sm:[&>div:first-child]:py-12 lg:[&>div:first-child]:py-16 [&>div:last-child]:gap-4 sm:[&>div:last-child]:gap-4"
-        template={template}
-      />
-
-      <SectionDivider />
-
-      <TemplateLandingFaq
-        idPrefix="slides-faq"
-        eyebrow={
-          <span className="text-[var(--fg-secondary)]">
-            {t("templateLanding.faq.eyebrow")}
-          </span>
-        }
-        title={t("templateLanding.faq.title")}
-        items={faqItems}
-      />
-    </TemplateLandingShell>
+            {t("templateLanding.slides.finalCtaButton")}
+          </Button>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

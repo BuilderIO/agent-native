@@ -1566,31 +1566,77 @@ const deDE = {
     },
     slides: {
       faq: {
-        question1:
-          "Kann ich eine Präsentation aus Claude oder ChatGPT erstellen?",
+        question1: "Was ist Agent-Native Slides?",
         answer1:
-          "Ja. Bitten Sie Claude oder ChatGPT um ein Deck, und es landet in Slides — markenkonform, bearbeitbar und exportierbar —, statt dass Sie auf einer Präsentationswebsite von vorn beginnen.",
-        question2: "Kann ich korrigieren, was die KI falsch macht?",
+          "Agent-Native Slides ist ein kostenloser Open-Source-KI-Präsentationsersteller. Erstelle mit einem KI-Agenten markenkonforme Decks aus deinen Ideen und Quellmaterialien, bearbeite die Folien dann selbst, präsentiere sie oder exportiere sie nach PowerPoint.",
+        question2:
+          "Kann ich Folien bearbeiten, nachdem die KI sie generiert hat?",
         answer2:
-          "Auf drei Arten: per Prompt, von Hand — klicken Sie auf jedes Element und doppelklicken Sie auf jeden Text — oder direkt im Code. Sie stehen nie vor der Hürde, neu zu generieren und auf das Beste zu hoffen.",
-        question3: "Wie bleiben Decks markenkonform?",
+          "Ja. Bearbeite Text, Layout und Stil direkt im visuellen Editor, oder bitte den KI-Agenten, eine ausgewählte Folie zu überarbeiten. Du kannst die Präsentation auch nach dem ersten Entwurf weiter verfeinern.",
+        question3:
+          "Kann ich eine Präsentation aus einem bestehenden Deck oder Dokument erstellen?",
         answer3:
-          "Markieren Sie ein Deck, auf das Sie stolz sind, als Favoriten. Jedes neue Deck übernimmt dessen Layouts, Überschriften, visuellen Stil und Marken-Tokens. One-Shot-Generatoren erstellen ein einzelnes Deck; hier entsteht ein wiederholbarer Prozess für Ihre Decks.",
-        question4: "Wie unterscheidet sich Slides von Gamma?",
+          "Ja. Hänge ein Deck oder Dokument als Referenzmaterial für eine neue Präsentation an. Um am bestehenden Deck selbst zu arbeiten, importiere es explizit. Überprüfe importierte Folien auf Layoutänderungen oder fehlende Bilder.",
+        question4:
+          "Kann ich meine eigenen Markenfarben, Schriften und mein Logo verwenden?",
         answer4:
-          "Gamma erstellt schnell ein ordentliches Deck in einem Durchgang — danach arbeiten Sie in dessen Canvas, zahlen das Abonnement und generieren neu, wenn es nur zu 85 % stimmt. Slides ist kostenlos, Open Source, übernimmt Ihre Marke und lässt Sie alles bearbeiten.",
-        question5: "Ist Slides kostenlos?",
+          "Ja. Wende ein Design-System mit den Farben, der Typografie und den Logos deiner Marke an und verwende es in mehreren Decks wieder. Du kannst auch eine Referenzpräsentation bereitstellen, um die Designentscheidungen des KI-Agenten zu leiten.",
+        question5:
+          "Kann ich meine Präsentation in PowerPoint oder Google Slides verwenden?",
         answer5:
-          "Ja. Kostenlos und Open Source — kein Abonnement, kein Credit-Zähler und keine Preise pro Deck.",
+          "Exportiere eine PPTX-Datei, um sie in PowerPoint zu öffnen. Um die Präsentation in Google Slides zu verwenden, importiere die Datei dort. Überprüfe Schriften und Layouts nach dem Export, da sie sich zwischen Editoren unterschiedlich darstellen können.",
       },
       s001: "Screenshot der Vorlage Slides",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "Präsentationen mit deinem KI-Agenten erstellen",
+      heroDescription:
+        "Slides ist ein kostenloser Open-Source-KI-Präsentationsersteller für markenkonforme Decks aus deinen Ideen und Quellmaterialien – mit Folien, die du selbst bearbeiten kannst.",
+      heroCta: "Präsentation erstellen",
+      useCasesHeading: "Was kannst du mit Slides machen?",
+      useCasesBody:
+        "Bereite eine Pitch vor, präsentiere einen Plan oder teile ein Update. Gib deinem KI-Agenten das Material und das Publikum, das du im Kopf hast.",
+      useCase1Title: "Vertriebs- und Pitch-Decks erstellen",
+      useCase1Body:
+        "Verwandle dein Produkt-Briefing in ein Deck für Interessenten oder Investoren. Passe die Geschichte an das Publikum an, vor dem du präsentierst.",
+      useCase2Title: "Pläne und Strategien präsentieren",
+      useCase2Body:
+        "Gib deinem KI-Agenten ein Strategie-Briefing oder einen Launch-Plan, damit er daraus Folien erstellt, die Richtung und nächste Schritte erklären.",
+      useCase3Title: "Business-Updates teilen",
+      useCase3Body:
+        "Verwandle Projektnotizen oder Leistungsberichte in eine Präsentation, die Fortschritt zeigt, Ergebnisse erklärt und hervorhebt, was Aufmerksamkeit braucht.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Erstellen, Bearbeiten und Präsentieren brauchst",
+      feature1Title: "KI-Präsentationserstellung",
+      feature1Body:
+        "Starte mit einem Prompt, einem Dokument oder einem Referenz-Deck. Gib deinem KI-Agenten das Thema und das Publikum, um die Präsentation darum herum aufzubauen.",
+      feature2Title: "KI- und visuelle Bearbeitung",
+      feature2Body:
+        "Markiere Text, damit dein KI-Agent ihn überarbeitet, oder bearbeite Text, Layout und Stil direkt auf der Folie selbst.",
+      feature3Title: "Wiederverwendbare Markenstile",
+      feature3Body:
+        "Speichere deine Farben, Schriften und Logos in einem Design-System. Wende es auf mehrere Decks an, damit Präsentationen zu deiner Marke passen.",
+      feature4Title: "Bilder und Logos",
+      feature4Body:
+        "Bitte deinen KI-Agenten, Bilder zu generieren, Fotos zu finden oder Firmenlogos für deine Folien zu suchen.",
+      feature5Title: "Teamzusammenarbeit",
+      feature5Body:
+        "Arbeite mit Teammitgliedern an Decks, hinterlasse Kommentare zu bestimmten Folien und stelle bei Bedarf eine frühere Version wieder her.",
+      feature6Title: "Präsentation und Export",
+      feature6Body:
+        "Präsentiere im Vollbild mit Sprechernotizen, teile einen Ansichtslink oder exportiere dein Deck als PowerPoint-Datei.",
+      finalCtaHeading: "Starte deine nächste Präsentation",
+      finalCtaBody:
+        "Bring eine Idee, ein Briefing oder ein bestehendes Deck mit.",
+      finalCtaButton: "Präsentation erstellen",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
       s006Primary: "Folienpräsentationen",
       s006Secondary: "Markenkonform & bearbeitbar",
-      s007: "Lassen Sie Ihren KI-Agenten Präsentationen in Ihrem Markendesign erstellen, nehmen Sie jederzeit eigene manuelle Änderungen vor und exportieren Sie sie überallhin.",
+      s007: "Erstelle mit deinem KI-Agenten markenkonforme Präsentationen, bearbeite die Folien dann selbst und exportiere sie überallhin.",
       s008: "Ausprobieren",
       s009: "Wie es funktioniert",
       s010: "Alles was Sie brauchen",

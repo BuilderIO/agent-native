@@ -1562,31 +1562,75 @@ const ptBR = {
     },
     slides: {
       faq: {
-        question1:
-          "Posso criar uma apresentação a partir do Claude ou ChatGPT?",
+        question1: "O que é o Agent-Native Slides?",
         answer1:
-          "Sim. Peça uma apresentação ao Claude ou ChatGPT, e ela chegará ao Slides — com sua marca, editável e exportável — em vez de você precisar começar de novo em um site de apresentações.",
-        question2: "Posso corrigir o que a IA fizer de errado?",
+          "Agent-Native Slides é um criador de apresentações de IA gratuito e de código aberto. Crie decks com a identidade da sua marca a partir das suas ideias e materiais de origem com um agente de IA, depois edite os slides você mesmo, apresente ou exporte para o PowerPoint.",
+        question2: "Posso editar os slides depois que a IA os gera?",
         answer2:
-          "De três formas: por prompt, manualmente — clique em qualquer elemento e dê dois cliques em qualquer texto — ou no código. Você nunca fica preso no ciclo de gerar novamente e torcer para dar certo.",
-        question3: "Como as apresentações permanecem alinhadas à marca?",
+          "Sim. Edite texto, layout e estilo diretamente no editor visual, ou peça ao agente de IA para revisar um slide selecionado. Você pode continuar refinando a apresentação depois do primeiro rascunho.",
+        question3:
+          "Posso criar uma apresentação a partir de um deck ou documento existente?",
         answer3:
-          "Marque como favorita uma apresentação da qual você se orgulha. Cada nova apresentação herda layouts, títulos, estilo visual e tokens de marca dela. Geradores de uma tentativa criam uma apresentação; esta abordagem cria uma prática repetível para suas apresentações.",
-        question4: "Qual é a diferença entre Slides e Gamma?",
+          "Sim. Anexe um deck ou documento como material de referência para uma nova apresentação. Para trabalhar no deck existente propriamente dito, importe-o explicitamente. Revise os slides importados em busca de mudanças de layout ou imagens ausentes.",
+        question4:
+          "Posso usar minhas próprias cores de marca, fontes e logotipo?",
         answer4:
-          "Gamma cria rapidamente uma apresentação razoável em uma tentativa; depois você fica no canvas da plataforma, pagando a assinatura e gerando novamente quando o resultado está apenas 85% certo. Slides é gratuito, de código aberto, herda sua marca e permite editar tudo.",
-        question5: "Slides é gratuito?",
+          "Sim. Aplique um design system com as cores, tipografia e logotipos da sua marca, e reutilize-o em vários decks. Você também pode fornecer uma apresentação de referência para guiar as escolhas de design do agente de IA.",
+        question5:
+          "Posso usar minha apresentação no PowerPoint ou no Google Slides?",
         answer5:
-          "Sim. É gratuito e de código aberto, sem assinatura, medidor de créditos ou cobrança por apresentação.",
+          "Exporte um arquivo PPTX para abrir no PowerPoint. Para usar a apresentação no Google Slides, importe esse arquivo lá. Revise fontes e layouts após a exportação, pois podem ser renderizados de forma diferente entre os editores.",
       },
       s001: "Captura de tela do modelo Slides",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "Crie apresentações com seu agente de IA",
+      heroDescription:
+        "Slides é um criador de apresentações de IA gratuito e de código aberto para criar decks com a identidade da sua marca a partir das suas ideias e materiais de origem, com slides que você mesmo pode editar.",
+      heroCta: "Criar uma apresentação",
+      useCasesHeading: "O que você pode fazer com o Slides?",
+      useCasesBody:
+        "Prepare um pitch, apresente um plano ou compartilhe uma atualização. Dê ao seu agente de IA o material e o público que você tem em mente.",
+      useCase1Title: "Criar apresentações de vendas e pitch",
+      useCase1Body:
+        "Transforme o briefing do seu produto em um deck para clientes em potencial ou investidores. Ajuste a narrativa ao público para quem você está apresentando.",
+      useCase2Title: "Apresentar planos e estratégias",
+      useCase2Body:
+        "Dê ao seu agente de IA um briefing de estratégia ou plano de lançamento para transformar em slides que expliquem a direção e os próximos passos propostos.",
+      useCase3Title: "Compartilhar atualizações do negócio",
+      useCase3Body:
+        "Transforme anotações de projetos ou relatórios de desempenho em uma apresentação que mostre o progresso, explique os resultados e destaque o que precisa de atenção.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para criar, editar e apresentar",
+      feature1Title: "Geração de apresentações por IA",
+      feature1Body:
+        "Comece com um prompt, documento ou deck de referência. Dê ao seu agente de IA o tema e o público para construir a apresentação em torno deles.",
+      feature2Title: "Edição por IA e visual",
+      feature2Body:
+        "Selecione o texto para que seu agente de IA o revise, ou edite texto, layout e estilo diretamente no slide você mesmo.",
+      feature3Title: "Estilos de marca reutilizáveis",
+      feature3Body:
+        "Salve suas cores, fontes e logotipos em um design system. Aplique-o em vários decks para manter as apresentações consistentes com sua marca.",
+      feature4Title: "Imagens e logotipos",
+      feature4Body:
+        "Peça ao seu agente de IA para gerar imagens, encontrar fotos ou procurar logotipos de empresas para usar nos seus slides.",
+      feature5Title: "Colaboração em equipe",
+      feature5Body:
+        "Trabalhe em decks com colegas de equipe, deixe comentários em slides específicos e restaure uma versão anterior quando precisar.",
+      feature6Title: "Apresentação e exportação",
+      feature6Body:
+        "Apresente em tela cheia com notas do apresentador, compartilhe um link de visualização ou exporte seu deck como um arquivo do PowerPoint.",
+      finalCtaHeading: "Comece sua próxima apresentação",
+      finalCtaBody: "Traga uma ideia, um briefing ou um deck já existente.",
+      finalCtaButton: "Criar uma apresentação",
       s002: "Descrever",
       s003: "Gerar",
       s004: "Refinar",
       s005: "Todos os modelos",
       s006Primary: "Apresentações de slides",
       s006Secondary: "Com sua marca e editáveis",
-      s007: "Gere apresentações com a identidade da sua marca usando seu agente de IA, faça suas próprias alterações manuais a qualquer momento e exporte para qualquer lugar.",
+      s007: "Gere apresentações com a identidade da sua marca usando seu agente de IA, depois edite os slides você mesmo e exporte para qualquer lugar.",
       s008: "Experimentar",
       s009: "Como funciona",
       s010: "Tudo que você precisa",

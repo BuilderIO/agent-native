@@ -1551,30 +1551,72 @@ const enUS = {
     },
     slides: {
       faq: {
-        question1: "Can I make a presentation from Claude or ChatGPT?",
+        question1: "What is Agent-Native Slides?",
         answer1:
-          "Yes. Ask Claude or ChatGPT for a deck and it lands in Slides — branded, editable, exportable — instead of you starting over in a deck website.",
-        question2: "Can I fix what the AI gets wrong?",
+          "Agent-Native Slides is a free and open-source AI presentation maker. Create on-brand decks from your ideas and source material with an AI agent, then edit the slides yourself, present, or export to PowerPoint.",
+        question2: "Can I edit slides after AI generates them?",
         answer2:
-          "Three ways: by prompt, by hand (click any element, double-click any text), or in the code. You never face the regenerate-and-hope wall.",
-        question3: "How do decks stay on brand?",
+          "Yes. Edit text, layout, and styling directly in the visual editor, or ask the AI agent to revise a selected slide. You can keep refining the presentation after the first draft.",
+        question3:
+          "Can I create a presentation from an existing deck or document?",
         answer3:
-          "Star a deck you're proud of. Every new deck inherits its layouts, headings, visual style, and brand tokens. One-shot generators make you a deck; this makes you a deck practice.",
-        question4: "How is Slides different from Gamma?",
+          "Yes. Attach a deck or document as reference material for a new presentation. To work on the existing deck itself, explicitly import it. Review imported slides for layout changes or missing images.",
+        question4: "Can I use my own brand colors, fonts, and logo?",
         answer4:
-          "Gamma one-shots a decent deck fast — then you're in its canvas, on its subscription, regenerating when it's 85% right. Slides is free, open source, inherits your brand, and lets you edit anything.",
-        question5: "Is Slides free?",
+          "Yes. Apply a design system with your brand's colors, typography, and logos, then reuse it across decks. You can also provide a reference presentation to guide the AI agent's design choices.",
+        question5: "Can I use my presentation in PowerPoint or Google Slides?",
         answer5:
-          "Yes. Free and open source — no subscription, no credit meter, no per-deck pricing.",
+          "Export a PPTX file to open in PowerPoint. To use the presentation in Google Slides, import that file there. Review fonts and layouts after export because they can render differently between editors.",
       },
       s001: "Slides app screenshot",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "Create presentations with your AI agent",
+      heroDescription:
+        "Slides is a free and open-source AI presentation maker for creating on-brand decks from your ideas and source material, with slides you can edit yourself.",
+      heroCta: "Create a presentation",
+      useCasesHeading: "What can you do with Slides?",
+      useCasesBody:
+        "Prepare a pitch, present a plan, or share an update. Give your AI agent the material and the audience you have in mind.",
+      useCase1Title: "Create sales and pitch decks",
+      useCase1Body:
+        "Turn your product brief into a deck for prospects or investors. Tailor the story to the audience you're presenting to.",
+      useCase2Title: "Present plans and strategies",
+      useCase2Body:
+        "Give your AI agent a strategy brief or launch plan to shape into slides that explain the direction and proposed next steps.",
+      useCase3Title: "Share business updates",
+      useCase3Body:
+        "Turn project notes or performance reports into a presentation that shows progress, explains results, and highlights what needs attention.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading: "Everything you need to create, edit, and present",
+      feature1Title: "AI presentation generation",
+      feature1Body:
+        "Start with a prompt, document, or reference deck. Give your AI agent the topic and audience to build the presentation around.",
+      feature2Title: "AI and visual editing",
+      feature2Body:
+        "Select text for your AI agent to revise, or edit text, layout, and styling yourself directly on the slide.",
+      feature3Title: "Reusable brand styles",
+      feature3Body:
+        "Save your colors, fonts, and logos in a design system. Apply it across decks to keep presentations consistent with your brand.",
+      feature4Title: "Images and logos",
+      feature4Body:
+        "Ask your AI agent to generate images, find photos, or look up company logos to use in your slides.",
+      feature5Title: "Team collaboration",
+      feature5Body:
+        "Work on decks with teammates, leave comments on specific slides, and restore an earlier version when you need to.",
+      feature6Title: "Presentation and export",
+      feature6Body:
+        "Present full-screen with speaker notes, share a viewing link, or export your deck as a PowerPoint file.",
+      finalCtaHeading: "Start your next presentation",
+      finalCtaBody: "Bring an idea, a brief, or an existing deck.",
+      finalCtaButton: "Create a presentation",
       s002: "Prompt it.",
       s003: "Brand it.",
       s004: "Re-use it.",
       s005: "All Apps",
       s006Primary: "Decks from your AI agent.",
       s006Secondary: "On-brand & editable",
-      s007: "Generate branded slide decks from your AI agent, apply your own manual changes anytime, export anywhere.",
+      s007: "Generate on-brand presentations with your AI agent, then edit slides yourself and export anywhere.",
       s008: "Try It",
       s009: "How it works",
       s010: "Everything you need",
