@@ -402,6 +402,7 @@ describe("realDataFinalGuard dashboard edits", () => {
     for (const userText of [
       "Create an automation to refresh the Revenue dashboard, build a Sales dashboard",
       "Create an automation to refresh the Revenue dashboard and build a Sales dashboard",
+      "Create an automation to refresh the Revenue dashboard but build a Sales dashboard",
     ]) {
       const result = realDataFinalGuard(
         guardContext({

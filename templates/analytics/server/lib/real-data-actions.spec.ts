@@ -1123,6 +1123,7 @@ describe("incomplete evidence detection", () => {
       "Create an automation to refresh the Revenue dashboard, build a Sales dashboard",
       "Create an automation to refresh the Revenue dashboard and build a Sales dashboard",
       "Create an automation to refresh Revenue dashboard plus build Sales dashboard",
+      "Create an automation to refresh the Revenue dashboard but build a Sales dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
     }
@@ -1279,6 +1280,7 @@ describe("incomplete evidence detection", () => {
       "Create a dashboard refresh schedule",
       "Create a job to refresh the dashboard",
       "Set up a job for the dashboard",
+      "Create a job for the dashboard",
       "Create a job that refreshes the dashboard",
       "Create a dashboard scheduled refresh",
       "Create a recurring dashboard refresh",
@@ -1471,6 +1473,16 @@ describe("incomplete evidence detection", () => {
         "What is the refresh rate of the dashboard? Then build a Sales dashboard",
       ),
     ).toBe(true);
+  });
+
+  it("preserves modified follow-up dashboard builds after refresh-rate questions", () => {
+    for (const request of [
+      "What is the dashboard refresh rate and also build a Sales dashboard",
+      "What is the dashboard refresh rate and then please build a Sales dashboard",
+      "What is the dashboard refresh rate? Please build a Sales dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    }
   });
 
   it("preserves an elliptical dashboard target after a refresh-rate report", () => {
