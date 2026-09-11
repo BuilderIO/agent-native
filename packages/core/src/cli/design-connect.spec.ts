@@ -1284,6 +1284,35 @@ describe("design connect bridge endpoints", () => {
         keepAlive.destroy();
       }
 
+      // A percent-encoded spelling of the identity param is still a duplicate.
+      const encodedStale = await getText(
+        `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?%61gentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      expect(encodedStale.status).toBe(200);
+      expect(encodedStale.body).toContain(
+        JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
+      );
+      expect(encodedStale.body).not.toContain("screen-b");
+
+      // The keyed page remembers its screen in window.name, and an unkeyed
+      // frame navigation (no referer: Referrer-Policy no-referrer) carries a
+      // recovery snippet that goes back through /live-edit with that key.
+      expect(landed.body).toContain(
+        'window.name="agent-native-bridge:"+"screen-a"',
+      );
+      const noReferer = await fetch(`${base}/settings`, {
+        redirect: "manual",
+        headers: { ...auth, "sec-fetch-dest": "iframe" },
+      });
+      expect(noReferer.status).toBe(200);
+      const noRefererHtml = await noReferer.text();
+      expect(noRefererHtml).toContain(
+        'window.name.indexOf("agent-native-bridge:")===0',
+      );
+      expect(noRefererHtml).toContain(
+        `location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(`http://127.0.0.1:${devPort}/settings`)})`,
+      );
+
       // A reload of the rewritten URL itself carries the key in the request.
       const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
         redirect: "manual",

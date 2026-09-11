@@ -1189,12 +1189,22 @@ function keyedFrameNavigation(
  *  valueless Vite flag like `?url` into `?url=`, which Vite treats differently
  *  (see stripPreviewTokenQueryParam). */
 function stripQueryPair(search: string, name: string): string {
-  if (!search.includes(name)) return search;
+  if (!search) return search;
   const raw = search.startsWith("?") ? search.slice(1) : search;
-  const kept = raw
-    .split("&")
-    .filter((pair) => pair !== name && !pair.startsWith(`${name}=`));
-  return kept.length > 0 ? `?${kept.join("&")}` : "";
+  // Compare decoded names so a percent-encoded spelling of the same param
+  // cannot survive as a duplicate; every other pair stays byte-identical.
+  const kept = raw.split("&").filter((pair) => {
+    const rawName = pair.split("=", 1)[0] ?? pair;
+    let decoded = rawName;
+    try {
+      decoded = decodeURIComponent(rawName);
+    } catch {
+      // coercion-ok: an undecodable name is not this param.
+    }
+    return decoded !== name;
+  });
+  const next = kept.join("&");
+  return next ? `?${next}` : "";
 }
 
 /** Append one query pair to a raw search string, preserving existing pairs
@@ -1385,11 +1395,30 @@ function addLiveEditBaseHref(html: string, href: string): string {
  * (before deferred module bundles), so `history.replaceState` lands the SPA on
  * the intended route. Assets still resolve via the injected `<base href>`.
  */
-function injectPreBootLocationShim(html: string, targetPath: string): string {
+/** Prefix of the `window.name` a keyed frame carries. `window.name` is per
+ *  browsing context and survives every navigation inside the frame, so it
+ *  recovers the frame's screen identity even when the app's Referrer-Policy
+ *  hides the referer and a root-relative link dropped the query param. */
+const FRAME_IDENTITY_NAME_PREFIX = "agent-native-bridge:";
+
+function injectPreBootLocationShim(
+  html: string,
+  targetPath: string,
+  identity: { bridgeKey?: string; recoverTargetUrl?: string } = {},
+): string {
   const path = targetPath.trim();
   if (!path || path === "/live-edit") return html;
+  const prefix = JSON.stringify(FRAME_IDENTITY_NAME_PREFIX);
+  const remember = identity.bridgeKey
+    ? `if(!window.name||window.name.indexOf(${prefix})===0){window.name=${prefix}+${JSON.stringify(identity.bridgeKey)};}`
+    : "";
+  // An unkeyed navigation inside a frame that remembers a key goes back
+  // through /live-edit with that key instead of booting the unkeyed script.
+  const recover = identity.recoverTargetUrl
+    ? `if(window.name&&window.name.indexOf(${prefix})===0){var k=window.name.slice(${prefix}.length);if(k){location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(identity.recoverTargetUrl)})+"&bridgeKey="+encodeURIComponent(k));return;}}`
+    : "";
   const shim = `<script data-agent-native-live-edit-location>
-(function(){try{var p=${JSON.stringify(path)};if(p&&(location.pathname+location.search)!==p){history.replaceState(null,"",p);}}catch(e){}})();
+(function(){try{${recover}${remember}var p=${JSON.stringify(path)};if(p&&(location.pathname+location.search)!==p){history.replaceState(null,"",p);}}catch(e){}})();
 </script>`;
   if (/<head\b[^>]*>/i.test(html)) {
     return html.replace(/<head\b[^>]*>/i, (match) => `${match}${shim}`);
@@ -1408,10 +1437,12 @@ function injectLiveEditBridge(
   baseHref: string,
   script: string,
   targetPath: string,
+  identity: { bridgeKey?: string; recoverTargetUrl?: string } = {},
 ) {
   const withBase = injectPreBootLocationShim(
     addLiveEditBaseHref(html, baseHref),
     targetPath,
+    identity,
   );
   if (!script) return withBase;
   return injectDocumentMarkup(withBase, script);
@@ -2503,6 +2534,7 @@ export async function startDesignConnectBridge(
               new URL("/", manifest.bridgeUrl).toString(),
               includeEditorBridge ? editorBridgeScript : "",
               targetPath,
+              requestedBridgeKey ? { bridgeKey: requestedBridgeKey } : {},
             );
             sendText(
               res,
@@ -2928,6 +2960,9 @@ export async function startDesignConnectBridge(
                           }` || "/"
                         );
                       })(),
+                      keyed
+                        ? { bridgeKey: keyed.bridgeKey }
+                        : { recoverTargetUrl: targetUrl },
                     ),
                   )
                 : proxied.body;
