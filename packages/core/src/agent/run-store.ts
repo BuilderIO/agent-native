@@ -1062,7 +1062,7 @@ export async function listUnclaimedBackgroundRunRows(options?: {
           WHERE status = 'running'
             AND dispatch_mode = 'background'
             AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})
-          ORDER BY started_at ASC
+          ORDER BY COALESCE(heartbeat_at, started_at) ASC, started_at ASC
           LIMIT ${limit}`,
     args: [Date.now()],
   });
