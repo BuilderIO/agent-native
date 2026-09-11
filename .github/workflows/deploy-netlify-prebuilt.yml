@@ -2170,82 +2170,8 @@ jobs:
           console.log(`Locked published production deploy ${process.env.DEPLOY_ID}.`);
           NODE
 
-      - name: Resume automatic Netlify builds after production cutover
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && always()
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
-          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
-          cutoverHasGitConnectedBuild: ${{ steps.pause.outputs.has_git_connected_build }}
-        run: |
-          set -euo pipefail
-          node --experimental-strip-types <<'NODE'
-          const api = "https://api.netlify.com/api/v1";
-          const headers = {
-            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
-            "User-Agent": "agent-native-prebuilt-production-build-resume",
-          };
-          const request = (url, options = {}) =>
-            import("./scripts/netlify-api-request.ts").then(({ requestNetlifyApi }) =>
-              requestNetlifyApi(url, {
-                ...options,
-                headers: { ...headers, ...(options.headers || {}) },
-              }),
-            );
-
-          async function readJson(response, label) {
-            const text = await response.text();
-            const body = text ? JSON.parse(text) : null;
-            if (!response.ok) {
-              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
-            }
-            return body;
-          }
-
-          if (process.env.cutoverWasPaused !== "true") {
-            console.log("No production cutover state was acquired; automatic builds are unchanged.");
-            process.exit(0);
-          }
-          if (process.env.cutoverHasGitConnectedBuild !== "true") {
-            console.log(
-              "No Git-connected Netlify build was configured; automatic builds are unchanged.",
-            );
-            process.exit(0);
-          }
-          if (process.env.cutoverWasStopped === "true") {
-            console.log("Automatic Netlify builds were already stopped; preserving that setting.");
-            process.exit(0);
-          }
-          const siteId = process.env.NETLIFY_SITE_ID;
-          await readJson(
-            await request(`${api}/sites/${siteId}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ build_settings: { stop_builds: false } }),
-            }),
-            "Netlify automatic build resume",
-          );
-          async function waitForBuildSetting(expected, label) {
-            let actual;
-            for (let attempt = 1; attempt <= 15; attempt += 1) {
-              const site = await readJson(
-                await request(`${api}/sites/${siteId}`),
-                `${label} verification attempt ${attempt}`,
-              );
-              actual = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
-              if (actual === expected) return;
-              if (attempt < 15) {
-                await new Promise((resolve) => setTimeout(resolve, 2_000));
-              }
-            }
-            throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
-          }
-          await waitForBuildSetting(false, "Netlify automatic build resume");
-          console.log("Automatic Netlify builds resumed after production cutover.");
-          NODE
-
       - name: Restore the production deploy lock after a failed cutover
+        id: failure_cleanup
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && failure()
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -2333,6 +2259,7 @@ jobs:
             throw new Error("Cannot restore the production lock: site has no published deploy.");
           }
           if (newDeployId && currentDeployId === newDeployId) {
+            let rollbackError;
             try {
               const restored = await readJson(
                 await request(
@@ -2353,12 +2280,30 @@ jobs:
                 process.env.cutoverWasLocked,
                 `Restored production deploy ${restoredDeployId}`,
               );
-            } finally {
+            } catch (error) {
+              rollbackError = error;
+            }
+            let failedDeployLockError;
+            try {
               await restoreLockState(
                 newDeployId,
                 "true",
                 `Failed production deploy ${newDeployId}`,
               );
+            } catch (error) {
+              failedDeployLockError = error;
+            }
+            if (rollbackError && failedDeployLockError) {
+              throw new AggregateError(
+                [rollbackError, failedDeployLockError],
+                "Netlify rollback and failed deploy lock cleanup both failed.",
+              );
+            }
+            if (rollbackError) {
+              throw rollbackError;
+            }
+            if (failedDeployLockError) {
+              throw failedDeployLockError;
             }
             console.log(
               `Restored previous production deploy ${originalDeployId} and locked failed deploy ${newDeployId} after cutover failure.`,
@@ -2375,6 +2320,84 @@ jobs:
             process.env.cutoverWasLocked,
             `Published production deploy ${originalDeployId}`,
           );
+          NODE
+
+      - name: Resume automatic Netlify builds after production cutover
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' && always() &&
+          steps.failure_cleanup.outcome != 'failure'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
+          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
+          cutoverHasGitConnectedBuild: ${{ steps.pause.outputs.has_git_connected_build }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-production-build-resume",
+          };
+          const request = (url, options = {}) =>
+            import("./scripts/netlify-api-request.ts").then(({ requestNetlifyApi }) =>
+              requestNetlifyApi(url, {
+                ...options,
+                headers: { ...headers, ...(options.headers || {}) },
+              }),
+            );
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          }
+
+          if (process.env.cutoverWasPaused !== "true") {
+            console.log("No production cutover state was acquired; automatic builds are unchanged.");
+            process.exit(0);
+          }
+          if (process.env.cutoverHasGitConnectedBuild !== "true") {
+            console.log(
+              "No Git-connected Netlify build was configured; automatic builds are unchanged.",
+            );
+            process.exit(0);
+          }
+          if (process.env.cutoverWasStopped === "true") {
+            console.log("Automatic Netlify builds were already stopped; preserving that setting.");
+            process.exit(0);
+          }
+          const siteId = process.env.NETLIFY_SITE_ID;
+          await readJson(
+            await request(`${api}/sites/${siteId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ build_settings: { stop_builds: false } }),
+            }),
+            "Netlify automatic build resume",
+          );
+          async function waitForBuildSetting(expected, label) {
+            let actual;
+            for (let attempt = 1; attempt <= 15; attempt += 1) {
+              const site = await readJson(
+                await request(`${api}/sites/${siteId}`),
+                `${label} verification attempt ${attempt}`,
+              );
+              actual = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
+              if (actual === expected) return;
+              if (attempt < 15) {
+                await new Promise((resolve) => setTimeout(resolve, 2_000));
+              }
+            }
+            throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
+          }
+          await waitForBuildSetting(false, "Netlify automatic build resume");
+          console.log("Automatic Netlify builds resumed after production cutover.");
           NODE
 
       - name: Summarize the pilot

@@ -1699,7 +1699,7 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("restores the previous deploy before failure lock cleanup", () => {
+  it("rolls back before resuming builds and preserves cleanup errors", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
@@ -1743,6 +1743,14 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.equal(typeof cleanup?.if, "string");
     assert.match(cleanup?.if as string, /failure\(\)/);
+    assert.equal(cleanup?.id, "failure_cleanup");
+    const resumeIndex = steps.indexOf(resume as Workflow);
+    const cleanupIndex = steps.indexOf(cleanup as Workflow);
+    assert(resumeIndex > cleanupIndex);
+    assert.match(
+      resume?.if as string,
+      /steps\.failure_cleanup\.outcome != 'failure'/,
+    );
     assert.equal(
       (cleanup?.env as Record<string, unknown>).cutoverPublishedDeployId,
       "${{ steps.unlock.outputs.published_deploy_id }}",
@@ -1786,7 +1794,16 @@ describe("production Netlify site concurrency guard", () => {
       String(cleanup?.run),
       /waitForPublished\(originalDeployId\)/,
     );
-    assert.match(String(cleanup?.run), /finally/);
+    assert.match(String(cleanup?.run), /catch \(error\)/);
+    assert.match(String(cleanup?.run), /let rollbackError/);
+    assert.match(String(cleanup?.run), /let failedDeployLockError/);
+    assert.match(String(cleanup?.run), /rollbackError = error/);
+    assert.match(String(cleanup?.run), /failedDeployLockError = error/);
+    assert.match(String(cleanup?.run), /throw new AggregateError/);
+    assert.match(
+      String(cleanup?.run),
+      /rollbackError && failedDeployLockError/,
+    );
     assert.match(
       String(cleanup?.run),
       /restoreLockState\(\s*newDeployId,\s*"true"/,
