@@ -105,6 +105,14 @@ export function useNavigationState() {
   openAddPersonPrefilledRef.current = openAddPersonPrefilled;
 
   useAgentRouteState<NavigationState>({
+    // The `/_agent-native/open` deep-link route (e.g. the overlay-request
+    // email's "Add them to my calendar" button) writes its one-shot command
+    // to the unscoped `navigate` key, since that redirect is a fresh
+    // top-level navigation with no browser tab id yet. Without this, the
+    // default tab-scoped read (`navigate:<browserTabId>`) never matches
+    // that write and the command (addPersonEmail, eventId, ...) is
+    // silently dropped.
+    readGlobalCommandFallback: true,
     getNavigationState: ({ pathname }) => {
       const state: NavigationState = { view: "calendar" };
 
