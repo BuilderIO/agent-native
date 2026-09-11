@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -445,6 +445,37 @@ function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   });
 }
 
+function killChildProcessTree(
+  child: ChildProcess | undefined,
+  signal: NodeJS.Signals,
+): void {
+  if (!child?.pid) {
+    child?.kill(signal);
+    return;
+  }
+  try {
+    if (process.platform === "win32") {
+      const result = spawnSync(
+        "taskkill",
+        [
+          "/pid",
+          String(child.pid),
+          "/T",
+          ...(signal === "SIGKILL" ? ["/F"] : []),
+        ],
+        { stdio: "ignore" },
+      );
+      if (result.status === 0) return;
+    } else {
+      process.kill(-child.pid, signal);
+      return;
+    }
+  } catch {
+    // coercion-ok: an unavailable platform tree-kill falls back to the direct child.
+  }
+  child.kill(signal);
+}
+
 function probeHttpReady(
   app: Pick<WorkspaceApp, "id" | "port">,
   timeoutMs = 1_000,
@@ -816,6 +847,8 @@ export async function runWorkspaceDev(
     const child = spawnProcess("pnpm", childArgs, {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+      shell: process.platform === "win32",
       env: devWatcherEnv(
         {
           ...env,
@@ -950,7 +983,7 @@ export async function runWorkspaceDev(
       output,
       logMessage: message,
     });
-    app.process?.kill("SIGTERM");
+    killChildProcessTree(app.process, "SIGTERM");
   }
 
   function forwardedProto(req: http.IncomingMessage): string {
@@ -1451,7 +1484,7 @@ export async function runWorkspaceDev(
     shuttingDown = true;
     server.close();
     for (const app of apps) {
-      app.process?.kill("SIGTERM");
+      killChildProcessTree(app.process, "SIGTERM");
     }
     if (syncTimer) clearTimeout(syncTimer);
     process.off("SIGINT", handleSigint);
