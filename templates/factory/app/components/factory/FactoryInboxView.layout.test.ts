@@ -73,6 +73,9 @@ describe("FactoryInboxView", () => {
     // menu's own trigger button can nest inside it without invalid HTML.
     const rowAt = source.indexOf("<div\n                        key={id}");
     expect(rowAt).toBeGreaterThan(-1);
+    // The nested menu trigger's Enter/Space must not bubble into the row's
+    // own onKeyDown and also call selectItem.
+    expect(source).toContain("onKeyDown={(event) => event.stopPropagation()}");
   });
 
   it("separates identity, reason, evidence, and log into banded sections", () => {

@@ -43,62 +43,81 @@ export default defineAction({
       workspaceMemberIdentityFromContext(context),
     );
     const db = getDb();
-    const item = (
-      await db
-        .select()
-        .from(triageItems)
+
+    return await db.transaction(async (tx) => {
+      const item = (
+        await tx
+          .select()
+          .from(triageItems)
+          .where(
+            and(
+              eq(triageItems.id, itemId),
+              orgFactoryItemFilter(orgId, factoryId),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (!item) throw new Error("Triage item not found");
+
+      const nextStatus =
+        outcome === "resolved"
+          ? "resolved"
+          : item.source === "github"
+            ? "pr_observed"
+            : "received";
+
+      // Reopening a claimed Slack item or a parked GitHub PR only helps if the
+      // metadata gate that took it out of the automation scan is cleared too;
+      // status alone leaves it invisible to the next run.
+      const metadataPatch: Record<string, undefined> = {};
+      if (outcome === "reopen") {
+        if (item.source === "slack")
+          metadataPatch.slackReactionName = undefined;
+        if (item.source === "github") metadataPatch.prBabysitState = undefined;
+      }
+      const metadataJson =
+        Object.keys(metadataPatch).length > 0
+          ? mergeTriageMetadata(item.metadataJson, metadataPatch)
+          : item.metadataJson;
+
+      const now = new Date().toISOString();
+      // Guard against a poller or another manual edit landing between the
+      // read above and this write: only apply if the row is still the
+      // snapshot we read.
+      const updated = await tx
+        .update(triageItems)
+        .set({ status: nextStatus, metadataJson, updatedAt: now })
         .where(
           and(
             eq(triageItems.id, itemId),
             orgFactoryItemFilter(orgId, factoryId),
+            eq(triageItems.updatedAt, item.updatedAt),
           ),
         )
-        .limit(1)
-    )[0];
-    if (!item) throw new Error("Triage item not found");
+        .returning({ id: triageItems.id });
+      if (updated.length === 0) {
+        throw new Error(
+          "This item changed since it was loaded. Refresh and try again.",
+        );
+      }
 
-    const nextStatus =
-      outcome === "resolved"
-        ? "resolved"
-        : item.source === "github"
-          ? "pr_observed"
-          : "received";
-
-    // Reopening a claimed Slack item or a parked GitHub PR only helps if the
-    // metadata gate that took it out of the automation scan is cleared too;
-    // status alone leaves it invisible to the next run.
-    const metadataPatch: Record<string, undefined> = {};
-    if (outcome === "reopen") {
-      if (item.source === "slack") metadataPatch.slackReactionName = undefined;
-      if (item.source === "github") metadataPatch.prBabysitState = undefined;
-    }
-    const metadataJson =
-      Object.keys(metadataPatch).length > 0
-        ? mergeTriageMetadata(item.metadataJson, metadataPatch)
-        : item.metadataJson;
-
-    const now = new Date().toISOString();
-    await db
-      .update(triageItems)
-      .set({ status: nextStatus, metadataJson, updatedAt: now })
-      .where(
-        and(eq(triageItems.id, itemId), orgFactoryItemFilter(orgId, factoryId)),
+      await recordManualFactoryAudit(
+        { userEmail, orgId },
+        {
+          action: "set-triage-item-outcome",
+          kind: "governance",
+          factoryId,
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: `${OUTCOME_SUMMARY[outcome]} by ${userEmail}.`,
+          details: { outcome, previousStatus: item.status, nextStatus },
+        },
+        undefined,
+        tx,
       );
 
-    await recordManualFactoryAudit(
-      { userEmail, orgId },
-      {
-        action: "set-triage-item-outcome",
-        kind: "governance",
-        factoryId,
-        itemId,
-        source: item.source,
-        sourceUrl: item.sourceUrl,
-        summary: `${OUTCOME_SUMMARY[outcome]} by ${userEmail}.`,
-        details: { outcome, previousStatus: item.status, nextStatus },
-      },
-    );
-
-    return { ok: true, itemId, status: nextStatus };
+      return { ok: true, itemId, status: nextStatus };
+    });
   },
 });

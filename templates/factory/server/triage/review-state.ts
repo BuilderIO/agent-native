@@ -29,6 +29,7 @@ export function statusAfterTriageSourceUpdate(
   sourceChanged: boolean,
   reviewStatus: string,
 ): string {
+  if (existingStatus === "resolved") return "resolved";
   return sourceChanged ? reviewStatus : (existingStatus ?? reviewStatus);
 }
 

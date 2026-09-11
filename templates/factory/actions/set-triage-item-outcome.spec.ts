@@ -42,10 +42,25 @@ function item(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function mockDb(selected: Record<string, unknown> | undefined) {
-  const setMock = vi.fn().mockReturnValue({ where: vi.fn() });
+/**
+ * Mocks the `db.transaction(async (tx) => ...)` shape the action now uses:
+ * a `tx` with `select`/`update` and an update chain ending in `.returning()`
+ * so the action's optimistic-concurrency check can be exercised too.
+ */
+function mockDb(
+  selected: Record<string, unknown> | undefined,
+  options: { updateMatches?: boolean } = {},
+) {
+  const updateMatches = options.updateMatches ?? true;
+  const returningMock = vi
+    .fn()
+    .mockResolvedValue(updateMatches && selected ? [{ id: selected.id }] : []);
+  const whereForUpdateMock = vi
+    .fn()
+    .mockReturnValue({ returning: returningMock });
+  const setMock = vi.fn().mockReturnValue({ where: whereForUpdateMock });
   const updateMock = vi.fn().mockReturnValue({ set: setMock });
-  getDbMock.mockReturnValue({
+  const tx = {
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
@@ -54,8 +69,13 @@ function mockDb(selected: Record<string, unknown> | undefined) {
       }),
     }),
     update: updateMock,
+  };
+  getDbMock.mockReturnValue({
+    transaction: vi.fn(async (callback: (tx: unknown) => unknown) =>
+      callback(tx),
+    ),
   });
-  return { updateMock, setMock };
+  return { updateMock, setMock, tx };
 }
 
 beforeEach(() => {
@@ -74,7 +94,7 @@ beforeEach(() => {
 describe("set-triage-item-outcome action", () => {
   it("marks a Slack item resolved without touching its metadata", async () => {
     const { default: action } = await import("./set-triage-item-outcome.js");
-    const { setMock } = mockDb(item());
+    const { setMock, tx } = mockDb(item());
 
     const result = await action.run(
       { factoryId: "default", itemId: "item-1", outcome: "resolved" },
@@ -98,6 +118,8 @@ describe("set-triage-item-outcome action", () => {
           nextStatus: "resolved",
         }),
       }),
+      undefined,
+      tx,
     );
   });
 
@@ -152,5 +174,18 @@ describe("set-triage-item-outcome action", () => {
         {},
       ),
     ).rejects.toThrow("Triage item not found");
+  });
+
+  it("throws a conflict error when the item changed since it was read", async () => {
+    const { default: action } = await import("./set-triage-item-outcome.js");
+    mockDb(item(), { updateMatches: false });
+
+    await expect(
+      action.run(
+        { factoryId: "default", itemId: "item-1", outcome: "resolved" },
+        {},
+      ),
+    ).rejects.toThrow("This item changed since it was loaded");
+    expect(recordManualFactoryAuditMock).not.toHaveBeenCalled();
   });
 });

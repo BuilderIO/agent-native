@@ -438,6 +438,7 @@ export function FactoryInboxView({
                         <span
                           className="flex justify-end"
                           onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
                         >
                           <TriageOutcomeMenu
                             factoryId={factoryId}
