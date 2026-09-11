@@ -773,6 +773,8 @@ function renderActiveRecording(recording: NativeRecording | null): void {
   const recordingStatus = byId<HTMLDivElement>("recording-status");
   const start = byId<HTMLButtonElement>("start");
   const signIn = byId<HTMLButtonElement>("sign-in");
+  const stop = byId<HTMLButtonElement>("stop");
+  const discard = byId<HTMLButtonElement>("discard");
   const recordingActions =
     document.querySelector<HTMLDivElement>(".recording-actions");
 
@@ -786,6 +788,11 @@ function renderActiveRecording(recording: NativeRecording | null): void {
     setStorageHelp(false);
     return;
   }
+
+  const settling =
+    recording.status === "stopping" || recording.status === "uploading";
+  stop.disabled = settling;
+  discard.disabled = settling;
 
   recordingTitle.textContent = recording.targetTitle || "Current recording";
   const host = hostnameLabel(recording.targetUrl);

@@ -419,7 +419,7 @@ async function restoreRuntimeState(): Promise<void> {
     // Recording survived a worker restart. The offscreen document owns the
     // recorder + pre-roll timer, so it kept running; restore the active-recording
     // popup before the user can click the extension icon again.
-    setActionPopup("src/popup.html");
+    setActionPopup(overlayPhase === "saving" ? "" : "src/popup.html");
     if (
       overlayPhase === "countdown" &&
       countdownEndsAtMs > 0 &&
@@ -1758,11 +1758,12 @@ async function stopRecording() {
   const recording = activeNativeRecording;
   console.log("[clips-bg] stopRecording — active:", !!recording);
   if (!recording) return { ok: false, error: "No active Clips recording." };
+  if (overlayPhase === "saving") return { ok: false };
   recording.status = "stopping";
-  // Keep an overlay up: swap the recording controls/bubble for a "Saving…" card
-  // so the user has feedback during the upload gap (instead of everything
-  // vanishing while the clip uploads invisibly). Mirrors the desktop Finalizing
-  // overlay. The popup stays disabled so the icon can't interrupt the save.
+  // Disable the popup while saving so a second Stop or Discard cannot race
+  // finalization. Keep an overlay up with a "Saving…" card so the user still
+  // gets feedback during the upload gap.
+  setActionPopup("");
   overlayPhase = "saving";
   countdownEndsAtMs = 0;
   const diagnostics = await stopNativeDiagnostics(recording);
@@ -1820,6 +1821,7 @@ async function stopRecording() {
 
 async function cancelRecording() {
   const recording = activeNativeRecording;
+  if (overlayPhase === "saving") return { ok: false };
   resetOverlay();
   await broadcastUnmount();
   broadcastOverlayState();
