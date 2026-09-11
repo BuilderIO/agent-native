@@ -1648,7 +1648,11 @@ describe("createAgentChatAdapter", () => {
     return fetchSpy;
   }
 
-  async function postOutboundAttachment(fetchSpy: any, text: string) {
+  async function postOutboundAttachment(
+    fetchSpy: any,
+    text: string,
+    options: { name?: string; contentType?: string } = {},
+  ) {
     const adapter = createAgentChatAdapter({
       apiUrl: "/_agent-native/agent-chat",
       tabId: "chat-large-attachment",
@@ -1661,8 +1665,8 @@ describe("createAgentChatAdapter", () => {
             content: [{ type: "text", text: "Host this as an extension" }],
             attachments: [
               {
-                name: "pasted-text-1.txt",
-                contentType: "text/plain",
+                name: options.name ?? "pasted-text-1.txt",
+                contentType: options.contentType ?? "text/plain",
                 content: [{ type: "text", text }],
               },
             ],
@@ -1689,17 +1693,14 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
-  it("caps a pathological multi-hundred-KB outbound attachment at 200K with a visible notice", async () => {
+  it("preserves a current EML attachment beyond the legacy outbound cap", async () => {
     const fetchSpy = stubLargeAttachmentEnv();
-    const body = await postOutboundAttachment(fetchSpy, "a".repeat(200_010));
-    expect(body.attachments[0].text).toHaveLength(
-      200_000 +
-        "\n\n[Attachment truncated after 200,000 characters; 10 characters omitted from the submitted attachment.]"
-          .length,
-    );
-    expect(body.attachments[0].text).toContain(
-      "10 characters omitted from the submitted attachment",
-    );
+    const eml = "a".repeat(200_010);
+    const body = await postOutboundAttachment(fetchSpy, eml, {
+      name: "message.eml",
+      contentType: "message/rfc822",
+    });
+    expect(body.attachments[0].text).toBe(eml);
   });
 
   it("routes missing-credential HTTP responses through the run-error card", async () => {

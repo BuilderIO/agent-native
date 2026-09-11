@@ -260,6 +260,7 @@ export function FirstRunOnboarding({
   });
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
+  const builderCtaRef = useRef<HTMLButtonElement>(null);
   const dismissOnboarding = useCallback(() => {
     void finishOnboarding(null);
   }, [finishOnboarding]);
@@ -439,7 +440,7 @@ export function FirstRunOnboarding({
       integration.connectionMode === "oauth" &&
       integration.availability === "ready"
     ) {
-      navigateToMcpOAuthStart(
+      const opened = navigateToMcpOAuthStart(
         appPath(
           buildMcpOAuthStartUrl({
             name: integration.name,
@@ -450,6 +451,9 @@ export function FirstRunOnboarding({
           }),
         ),
       );
+      if (!opened) {
+        setConnectError(t("mcpIntegrations.connectionError"));
+      }
       return;
     }
 
@@ -560,33 +564,47 @@ export function FirstRunOnboarding({
           </h1>
           <div className="grid gap-3 sm:grid-cols-2">
             <section className="rounded-xl bg-primary/[0.06] p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold">
-                    {canActivateBuilderFreeCredits
-                      ? t("agentChat.onboarding.builderActivateCredits")
-                      : t("agentChat.onboarding.builderConnectCredits")}
-                  </h2>
-                  <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
-                    {canActivateBuilderFreeCredits ? (
-                      t("agentChat.onboarding.builderActivateDescription")
-                    ) : (
-                      <>
-                        One click connects{" "}
-                        <a
-                          href="https://www.builder.io/"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          Builder.io free credits
-                        </a>{" "}
-                        with the services this app needs.
-                      </>
-                    )}
-                  </p>
-                </div>
-                <IconArrowRight className="mt-0.5 text-primary" size={17} />
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {/* BuilderConnectPopover accepts a single trigger, so this
+                      header delegates to the canonical CTA below instead of
+                      opening a second consent popover on its own anchor. */}
+                  <button
+                    type="button"
+                    data-testid="first-run-builder-header-activate"
+                    className="group flex w-full items-start justify-between gap-3 rounded-md text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => builderCtaRef.current?.click()}
+                  >
+                    <span>
+                      {canActivateBuilderFreeCredits
+                        ? t("agentChat.onboarding.builderActivateCredits")
+                        : t("agentChat.onboarding.builderConnectCredits")}
+                    </span>
+                    <IconArrowRight
+                      aria-hidden="true"
+                      className="mt-0.5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5"
+                      size={17}
+                    />
+                  </button>
+                </h2>
+                <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
+                  {canActivateBuilderFreeCredits ? (
+                    t("agentChat.onboarding.builderActivateDescription")
+                  ) : (
+                    <>
+                      One click connects{" "}
+                      <a
+                        href="https://www.builder.io/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        Builder.io free credits
+                      </a>{" "}
+                      with the services this app needs.
+                    </>
+                  )}
+                </p>
               </div>
               <div className="mt-5 pt-3">
                 <p className="text-[11px] font-medium text-muted-foreground">
@@ -671,6 +689,7 @@ export function FirstRunOnboarding({
                 secondaryTestId="first-run-builder-existing-account"
               >
                 <button
+                  ref={builderCtaRef}
                   type="button"
                   data-testid="first-run-connect-builder"
                   className={cn(primaryButtonClass, "mt-5 w-full")}

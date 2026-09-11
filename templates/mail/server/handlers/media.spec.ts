@@ -12,6 +12,23 @@ const tickets = vi.hoisted(() => ({
   claim: vi.fn(),
 }));
 const storage = vi.hoisted(() => ({ store: vi.fn() }));
+const org = vi.hoisted(() => ({ resolve: vi.fn() }));
+const auth = vi.hoisted(() => ({
+  session: {
+    email: "owner@example.com",
+    orgId: "org-1",
+  } as { email: string; orgId?: string } | null,
+}));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return { ...actual, getSession: async () => auth.session };
+});
+
+vi.mock("@agent-native/core/org", () => ({
+  resolveOrgIdForEmail: org.resolve,
+}));
 
 vi.mock("h3", async (importOriginal) => {
   const actual = await importOriginal<typeof import("h3")>();
@@ -36,7 +53,7 @@ vi.mock("../lib/media-upload.js", async (importOriginal) => {
   return { ...actual, storeMediaUpload: storage.store };
 });
 
-import { uploadAttachmentWithTicket } from "./media.js";
+import { uploadAttachmentWithTicket, uploadMedia } from "./media.js";
 
 describe("ticketed attachment upload handler", () => {
   beforeEach(() => {
@@ -45,14 +62,17 @@ describe("ticketed attachment upload handler", () => {
     h3.authorization = "Bearer ticket-token";
     h3.body = Buffer.from("file bytes");
     h3.uploadId = "upload-1";
+    auth.session = { email: "owner@example.com", orgId: "org-1" };
+    org.resolve.mockResolvedValue("org-legacy");
     tickets.verify.mockResolvedValue({
       ownerEmail: "owner@example.com",
-      ticket: { uploadId: "upload-1" },
+      ticket: { uploadId: "upload-1", orgId: "org-1" },
     });
     tickets.claim.mockResolvedValue({
       ownerEmail: "owner@example.com",
       ticket: {
         uploadId: "upload-1",
+        orgId: "org-1",
         filename: "upload-1.pdf",
         originalName: "report.pdf",
       },
@@ -71,6 +91,7 @@ describe("ticketed attachment upload handler", () => {
 
     expect(storage.store).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
+      orgId: "org-1",
       data: expect.any(Uint8Array),
       filename: "upload-1.pdf",
       originalName: "report.pdf",
@@ -82,6 +103,42 @@ describe("ticketed attachment upload handler", () => {
     expect(result).toMatchObject({
       attachment: { filename: "upload-1.pdf", originalName: "report.pdf" },
     });
+  });
+
+  it("stores browser uploads in the authenticated organization", async () => {
+    h3.query = { filename: "report.pdf" };
+
+    await uploadMedia({} as never);
+
+    expect(storage.store).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        originalName: "report.pdf",
+      }),
+    );
+  });
+
+  it("resolves the owner's organization for legacy tickets", async () => {
+    tickets.verify.mockResolvedValue({
+      ownerEmail: "owner@example.com",
+      ticket: { uploadId: "upload-1" },
+    });
+    tickets.claim.mockResolvedValue({
+      ownerEmail: "owner@example.com",
+      ticket: {
+        uploadId: "upload-1",
+        filename: "upload-1.pdf",
+        originalName: "report.pdf",
+      },
+    });
+
+    await uploadAttachmentWithTicket({} as never);
+
+    expect(org.resolve).toHaveBeenCalledWith("owner@example.com");
+    expect(storage.store).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-legacy" }),
+    );
   });
 
   it("rejects invalid capabilities before storing bytes", async () => {
@@ -116,6 +173,7 @@ describe("ticketed attachment upload handler", () => {
         ownerEmail: "owner@example.com",
         ticket: {
           uploadId: "upload-1",
+          orgId: "org-1",
           filename: "upload-1.pdf",
           originalName: "report.pdf",
         },

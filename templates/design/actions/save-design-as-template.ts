@@ -5,6 +5,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -36,7 +37,7 @@ export default defineAction({
     description: z.string().trim().max(500).optional(),
     category: designTemplateCategorySchema.optional().default("other"),
   }),
-  run: async ({ designId, title, description, category }) => {
+  run: async ({ designId, title, description, category }, ctx) => {
     const access = await resolveAccess("design", designId);
     if (!access || !["owner", "admin", "editor"].includes(access.role)) {
       throw new Error("Design not found or not editable");
@@ -127,6 +128,19 @@ export default defineAction({
         })),
       );
     });
+
+    track(
+      "template_saved",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: templateId,
+        output_type: "design_template",
+        source_design_id: designId,
+        file_count: snapshot.files.length,
+      },
+      ctx,
+    );
 
     return {
       id: templateId,

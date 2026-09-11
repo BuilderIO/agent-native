@@ -2634,6 +2634,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "Selection",
     "SimpleImageAttachmentAdapter",
     "SimpleTextAttachmentAdapter",
+    "Slice",
     "StarterKit",
     "Table",
     "TableCell",
@@ -2645,6 +2646,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "Text",
     "TextSelection",
     "ThreadPrimitive",
+    "Transform",
     "WebLinksAddon",
     "captureException",
     "codeToHtml",
@@ -2658,6 +2660,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "Doc",
     "getHTMLFromFragment",
     "getIsolationScope",
+    "getSchema",
     "init",
     "isChangeOrigin",
     "isNodeEmpty",
@@ -3785,7 +3788,10 @@ function createAgentNativeConfig(
     inferredDeploymentEnvironment !== undefined
       ? {
           ...appConfig,
-          deployment: { environment: inferredDeploymentEnvironment },
+          deployment: {
+            ...appConfig.deployment,
+            environment: inferredDeploymentEnvironment,
+          },
         }
       : appConfig;
   const buildId = resolveAgentNativeBuildId(process.env, "development");

@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   recordGenerationCreativeContext,
   validateGenerationCreativeContext,
@@ -180,17 +181,20 @@ export default defineAction({
     }),
   },
   http: { method: "POST" },
-  run: async ({
-    title,
-    slides: rawSlides,
-    deckId,
-    aspectRatio,
-    designSystemId: explicitDesignSystemId,
-    designSystem,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) => {
+  run: async (
+    {
+      title,
+      slides: rawSlides,
+      deckId,
+      aspectRatio,
+      designSystemId: explicitDesignSystemId,
+      designSystem,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    ctx,
+  ) => {
     const db = getDb();
     const now = new Date().toISOString();
     const normalizedSlides = ensureUniqueSlideIds(
@@ -202,6 +206,17 @@ export default defineAction({
     const slides = rebindCreativeContextSlideLabels(
       normalizedSlides.slides,
       normalizedSlides.originalIds,
+    );
+    track(
+      "generation_started",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        has_reference_deck: Boolean(contextPackId),
+        slide_count: slides.length,
+        ...(deckId ? { output_id: deckId } : {}),
+      },
+      ctx,
     );
     const validatedCreativeContext = await validateGenerationCreativeContext({
       contextPackId,
@@ -347,6 +362,18 @@ export default defineAction({
         ...creativeContextProvenance,
         ...(elementProvenance.length ? { elementProvenance } : {}),
       });
+      track(
+        "deck_edited",
+        {
+          app_name: "slides",
+          template_name: "slides",
+          output_id: deckId,
+          output_type: "deck",
+          slide_count: slides.length,
+          edit_mode: "replace_all",
+        },
+        ctx,
+      );
       return {
         id: deckId,
         title: existingDeckTitle,
@@ -408,6 +435,17 @@ export default defineAction({
       ...creativeContextProvenance,
       ...(elementProvenance.length ? { elementProvenance } : {}),
     });
+    track(
+      "deck_created",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: id,
+        output_type: "deck",
+        slide_count: slides.length,
+      },
+      ctx,
+    );
     return {
       id,
       title: resolvedTitle,

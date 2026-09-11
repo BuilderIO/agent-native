@@ -3,25 +3,27 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
- * The design system the composer picker sets is stored on the design and read
- * by every later generation. Gating it on the empty-design start row meant
- * applying a template — which fills the design — took the control away with it.
+ * The composer used to host an always-visible design system picker. That
+ * chrome is gone — systems are still choosable from the prompt dialog and
+ * first-run flows, just not above the chat input.
  */
 describe("DesignEditor composer design system picker", () => {
   const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
   const slot = source.slice(
     source.indexOf("composerSlot={"),
-    source.indexOf("detectedFigmaComposerLink ? ("),
+    source.indexOf("composerSlot={") >= 0
+      ? source.indexOf("</>", source.indexOf("composerSlot={")) + 3
+      : 0,
   );
 
-  it("outlives the first-run start row", () => {
-    expect(slot).toContain("showComposerDesignSystem ?");
-    expect(slot).not.toContain("showFirstRunStart");
+  it("does not render the design system picker above chat", () => {
+    expect(slot).not.toContain("DesignSystemPickerControl");
+    expect(slot).not.toContain("showComposerDesignSystem");
+    expect(slot).not.toContain("data-design-system-picker");
   });
 
-  it("stays out of the composer when there is nothing to pick", () => {
-    expect(source).toContain(
-      "designSystemsLoading || designSystemOptions.length > 0",
-    );
+  it("still keeps Figma link detection in the composer slot", () => {
+    expect(slot).toContain("detectedFigmaComposerLink");
+    expect(slot).toContain("FigmaLinkComposerBubble");
   });
 });
