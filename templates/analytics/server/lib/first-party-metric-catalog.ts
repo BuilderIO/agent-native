@@ -307,7 +307,7 @@ export function usesFirstPartyDashboardFilters(sql: string): boolean {
   );
 }
 
-function scopeFirstPartyPanelSql(sql: string): string {
+export function scopeFirstPartyPanelSql(sql: string): string {
   if (sql.includes("{{appFilter}}")) return sql;
   return sql
     .replace(
@@ -591,6 +591,23 @@ export function repairFirstPartyObservedRetentionPanels(
           }
         : replacement,
     );
+  }
+  // Persisted panels store SQL after scopeFirstPartyPanelSql injects the
+  // {{appFilter}} predicate, but every legacySql entry above is the unscoped
+  // form. Match both so already-deployed (scoped) panels are still recognized
+  // as legacy, for every replacement above, not just retention.
+  for (const [id, replacement] of replacements) {
+    replacements.set(id, {
+      ...replacement,
+      legacySql: Array.from(
+        new Set(
+          replacement.legacySql.flatMap((sql) => [
+            sql,
+            scopeFirstPartyPanelSql(sql),
+          ]),
+        ),
+      ),
+    });
   }
   let changed = false;
   const panels = config.panels.map((rawPanel) => {

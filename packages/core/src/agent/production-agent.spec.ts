@@ -6496,6 +6496,22 @@ describe("runAgentLoop", () => {
         "Error running mutate-dashboard:   ",
       ),
     ).toBeNull();
+    // A nested A2A/Assets delegation's error text is itself a terminal stop
+    // narrative (its own "I stopped because …" headline plus the
+    // `permanent_precondition` marker). Embedding that whole payload as "the
+    // concrete reason" would double the narrative, so this must fall back to
+    // null (the generic headline) instead of surfacing it verbatim.
+    expect(
+      permanentPreconditionReason(
+        "generate-image-api",
+        "Error running generate-image-api: Assets could not generate this " +
+          "image (failed): I stopped because generate-image-batch needs a " +
+          "setup step outside this turn — a credential, a role, a " +
+          "connected account, or an approval — before it can run. " +
+          "Retrying would not have changed it, and anything completed " +
+          "before this is saved.\ncode: permanent_precondition",
+      ),
+    ).toBeNull();
   });
 
   // Echoed candidate/ambiguous-match text an edit tool quotes back from the
@@ -6738,8 +6754,15 @@ describe("runAgentLoop", () => {
       errorCode: "permanent_precondition",
       recoverable: false,
     });
-    expect((stop as { error: string }).error).toContain(
-      "needs a setup step outside this turn",
+    // Generic fallback headline: the nested delegation's own "I stopped
+    // because …" narrative is a stop message, not a usable "concrete reason",
+    // so it must not be embedded (doubled) into this outer headline.
+    expect((stop as { error: string }).error).toBe(
+      "I stopped because generate-image-api needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. " +
+        "Retrying would not have changed it, and anything completed before this is saved.",
+    );
+    expect((stop as { error: string }).error).not.toContain(
+      "Assets could not generate",
     );
     // Not the scarier, less specific repeated-failure message the incident
     // actually produced.

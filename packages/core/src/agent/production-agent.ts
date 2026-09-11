@@ -4107,6 +4107,17 @@ export function permanentPreconditionReason(
     // The headline appends its own sentence punctuation.
     .replace(/[.。]+$/, "");
   if (!reason) return null;
+  // A nested A2A/ask_app delegation's error text can itself be a terminal
+  // stop narrative (its own "I stopped because …" headline plus the
+  // `permanent_precondition` marker). Embedding that whole payload as "the
+  // concrete reason" doubles the narrative instead of naming what's missing,
+  // so fall back to the generic headline instead.
+  if (
+    /\bI stopped because\b/i.test(reason) ||
+    /permanent_precondition/i.test(reason)
+  ) {
+    return null;
+  }
   return reason.length > PERMANENT_PRECONDITION_REASON_MAX_CHARS
     ? `${reason.slice(0, PERMANENT_PRECONDITION_REASON_MAX_CHARS).trim()}…`
     : reason;

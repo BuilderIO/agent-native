@@ -33,6 +33,7 @@ import {
   PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
   PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
   repairFirstPartyObservedRetentionPanels,
+  scopeFirstPartyPanelSql,
 } from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
 
@@ -496,6 +497,42 @@ describe("dashboard catalog", () => {
         config: { description: "Custom SQL" },
       },
     ]);
+  });
+
+  it("repairs a retention panel persisted with the app-filter scope already injected", () => {
+    // Persisted panels store SQL after scopeFirstPartyPanelSql injects the
+    // {{appFilter}} predicate, so the registered legacySql (unscoped) must
+    // still match already-deployed (scoped) panels.
+    const deployedScopedRetention = scopeFirstPartyPanelSql(
+      PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
+    );
+    expect(deployedScopedRetention).toContain("{{appFilter}}");
+    expect(deployedScopedRetention).not.toBe(
+      PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
+    );
+
+    const repaired = repairFirstPartyObservedRetentionPanels({
+      panels: [
+        {
+          id: "retention-over-time",
+          sql: deployedScopedRetention,
+          config: {
+            description: PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
+          },
+        },
+      ],
+    });
+
+    expect(repaired.changed).toBe(true);
+    const canonical = requiredFirstPartyPanel("retention-over-time");
+    const panel = (
+      repaired.config.panels as Array<{
+        sql: string;
+        config?: { description?: string };
+      }>
+    )[0];
+    expect(panel?.sql).toBe(canonical.sql);
+    expect(panel?.config?.description).toBe(canonical.config?.description);
   });
 
   it("repairs the deployed bounded monolithic recurring SQL exactly", () => {
