@@ -58,6 +58,10 @@ const jaJP = {
     draftLabel: "ドラフト",
     draftDescription:
       "このページは作成中です。内容は公開前に不完全であったり変更される場合があります。",
+    translationLabel: "機械翻訳",
+    translationDescription:
+      "このページは自動的に翻訳されたもので、内容が完全に正確でない場合があります。",
+    translationViewOriginal: "英語の原文を見る",
   },
   search: {
     dialogLabel: "ドキュメントを検索",

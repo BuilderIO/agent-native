@@ -14,7 +14,7 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
 ### App discovery, launch, and delegation
 
 | Action                                                                                                                 | What it does                                                                                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `list-workspace-apps`                                                                                                  | Lists apps mounted in this deployment: paths, URLs, audience, and live agent-card metadata.                                                                                                                                     |
 | `list-connected-agents`                                                                                                | Lists agents available for A2A delegation: built-in apps plus custom connections. This is a separate list from `list-workspace-apps` on purpose, see [Dispatch in a Multi-App Workspace](/docs/template-dispatch-integrations). |
 | `list_apps`                                                                                                            | Lists apps reachable through the MCP gateway, filtered by the current access policy.                                                                                                                                            |
@@ -51,7 +51,7 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
 ### Agent and workspace resources
 
 | Action                                                                                                                                 | What it does                                                                   |
-| --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `create-workspace-resource` / `update-workspace-resource` / `delete-workspace-resource`                                                | Manage a skill, instruction, agent profile, knowledge, or MCP-server resource. |
 | `create-workspace-resource-grant` / `revoke-workspace-resource-grant` / `grant-workspace-resources-to-app`                             | Manage per-app access to a `selected`-scope resource.                          |
 | `list-workspace-resources` / `list-workspace-resource-options` / `list-workspace-resource-grants` / `list-workspace-resources-for-app` | List resources and their grants.                                               |
@@ -79,27 +79,27 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
 
 ### Workspace connections
 
-| Action                                | What it does                                                                                                                 |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Action                                | What it does                                                                                                                |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `plan-workspace-connection-setup`     | Inspects a provider or an existing connection and returns what's needed to set it up, without ever returning secret values. |
 | `apply-workspace-connection-setup`    | Saves a connection using credential reference names only; rejects anything that looks like a raw secret.                    |
 | `set-workspace-connection-grant`      | Grants or revokes one app's access, or switches the whole connection between all-apps and selected-apps only.               |
-| `preview-workspace-connection-impact` | Shows which apps would lose access before a connection is revoked, disabled, or deleted.                                     |
-| `list-workspace-connections`          | Lists the provider catalog, saved connections, and every app's current access in one call.                                   |
-| `delete-workspace-connection`         | Removes a connection's metadata and grants; secret values stay in Vault or OAuth stores either way.                          |
+| `preview-workspace-connection-impact` | Shows which apps would lose access before a connection is revoked, disabled, or deleted.                                    |
+| `list-workspace-connections`          | Lists the provider catalog, saved connections, and every app's current access in one call.                                  |
+| `delete-workspace-connection`         | Removes a connection's metadata and grants; secret values stay in Vault or OAuth stores either way.                         |
 
 ### Provider APIs (ad hoc access)
 
-| Action                                                                    | What it does                                                           |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-register`    | List configured providers, fetch their docs, or register a custom one. |
+| Action                                                                    | What it does                                                                                                                                     |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-register`    | List configured providers, fetch their docs, or register a custom one.                                                                           |
 | `provider-api-request`                                                    | Makes an authenticated request directly against a provider's HTTP API, and can stage its response into a dataset instead of returning it inline. |
-| `list-staged-datasets` / `query-staged-dataset` / `delete-staged-dataset` | Manage scratch datasets staged from a broad API scan.                  |
+| `list-staged-datasets` / `query-staged-dataset` / `delete-staged-dataset` | Manage scratch datasets staged from a broad API scan.                                                                                            |
 
 ### Approvals and audit
 
 | Action                                                   | What it does                                      |
-| -------------------------------------------------------- | -------------------------------------------------- |
+| -------------------------------------------------------- | ------------------------------------------------- |
 | `approve-dispatch-change` / `reject-dispatch-change`     | Resolve a pending approval request.               |
 | `set-dispatch-approval-policy` / `get-dispatch-settings` | Configure or read the approval policy.            |
 | `list-dispatch-approvals` / `list-dispatch-audit`        | List pending approvals or the change-history log. |
@@ -107,7 +107,7 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
 ### Overview, usage, and reliability
 
 | Action                                                                                                      | What it does                                      |
-| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | `list-dispatch-overview`                                                                                    | Counts and recent activity for the Overview page. |
 | `list-dispatch-usage-metrics`                                                                               | Workspace or personal LLM usage and spend.        |
 | `get-workspace-info`                                                                                        | Workspace identity: name and app count.           |
@@ -116,7 +116,7 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
 ### Dreams
 
 | Action                                                                      | What it does                                                      |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `list-dream-candidates` / `create-dream-report`                             | Find threads with grounded signals, and write a report from them. |
 | `get-dream` / `list-dreams`                                                 | Read one report or list recent ones.                              |
 | `preview-dream-proposal` / `apply-dream-proposal` / `reject-dream-proposal` | Review one proposal.                                              |
@@ -125,7 +125,7 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
 ### Navigation and context
 
 | Action        | What it does                                                                 |
-| ------------- | ------------------------------------------------------------------------------ |
+| ------------- | ---------------------------------------------------------------------------- |
 | `navigate`    | Moves the UI to a view, path, or chat thread.                                |
 | `view-screen` | Reads back the current navigation state and a view-specific context payload. |
 

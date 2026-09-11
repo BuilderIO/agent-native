@@ -58,6 +58,10 @@ const hiIN = {
     draftLabel: "ड्राफ़्ट",
     draftDescription:
       "यह पेज अभी तैयार किया जा रहा है। प्रकाशन से पहले सामग्री अधूरी हो सकती है या इसमें बदलाव हो सकता है।",
+    translationLabel: "मशीन-अनुवादित",
+    translationDescription:
+      "यह पेज स्वचालित रूप से अनुवादित किया गया है और पूरी तरह सटीक नहीं हो सकता।",
+    translationViewOriginal: "अंग्रेज़ी में मूल पेज देखें",
   },
   search: {
     dialogLabel: "दस्तावेज़ खोजें",

@@ -58,6 +58,10 @@ const esES = {
     draftLabel: "Borrador",
     draftDescription:
       "Esta página está en construcción. El contenido puede estar incompleto o sujeto a cambios antes de su publicación.",
+    translationLabel: "Traducción automática",
+    translationDescription:
+      "Esta página se tradujo automáticamente y puede no ser del todo precisa.",
+    translationViewOriginal: "Ver el original en inglés",
   },
   search: {
     dialogLabel: "Buscar documentación",
