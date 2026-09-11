@@ -7655,7 +7655,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // is only safe when it identifies exactly one live element. Prefer the
   // runtime projection's stable source id and fall back to the selector only
   // when that id has no match at all.
-  function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId?) {
+  function findUniqueRuntimeStructureTarget(
+    selector,
+    sourceId,
+    pendingId?,
+    allowDocumentBody = false,
+  ) {
     var matches = new Set<Element>();
     // Pending ids are deliberately NOT part of the stable-id list below: they
     // are minted per hit-test and only ever stamped on the live DOM, so they
@@ -7669,8 +7674,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (pendingMatches.length === 1) {
           var pendingMatch = pendingMatches[0];
           if (
-            pendingMatch !== document.body &&
             pendingMatch !== document.documentElement &&
+            (allowDocumentBody || pendingMatch !== document.body) &&
             !isOverlayElement(pendingMatch) &&
             !isLayerInteractionBlocked(pendingMatch)
           ) {
@@ -7702,21 +7707,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (matches.size === 1) {
         var sourceMatch = Array.from(matches)[0];
         return sourceMatch &&
-          sourceMatch !== document.body &&
           sourceMatch !== document.documentElement &&
+          (allowDocumentBody || sourceMatch !== document.body) &&
           !isOverlayElement(sourceMatch) &&
           !isLayerInteractionBlocked(sourceMatch)
           ? sourceMatch
           : null;
       }
     }
-    if (typeof selector !== "string" || !selector) return null;
+    if (typeof selector !== "string" || !selector) {
+      // An empty anchor is the explicit hit-test shape for a blank root drop;
+      // never reinterpret a failed stable or pending identity as the root.
+      return allowDocumentBody &&
+        !(typeof sourceId === "string" && sourceId) &&
+        !(typeof pendingId === "string" && pendingId)
+        ? document.body
+        : null;
+    }
     try {
       var selectorMatches = document.querySelectorAll(selector);
       if (selectorMatches.length !== 1) return null;
       var selectorMatch = selectorMatches[0];
-      return selectorMatch !== document.body &&
-        selectorMatch !== document.documentElement &&
+      return selectorMatch !== document.documentElement &&
+        (allowDocumentBody || selectorMatch !== document.body) &&
         !isOverlayElement(selectorMatch) &&
         !isLayerInteractionBlocked(selectorMatch)
         ? selectorMatch
@@ -9326,6 +9339,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     phase: "start" | "move" | "end" | "cancel",
     el?: Element | null,
     ev?: { clientX?: number; clientY?: number } | null,
+    options?: {
+      duplicate?: boolean;
+      elementRect?: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+      };
+      pointerOffset?: { x: number; y: number };
+      styleSnapshot?: unknown;
+    },
   ): void {
     dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
     if (phase === "cancel") {
@@ -9337,16 +9361,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (phase === "start") {
-      activeCrossScreenStyleSnapshot = collectPortableStyleSnapshot(el ?? null);
+      activeCrossScreenStyleSnapshot =
+        options?.styleSnapshot ?? collectPortableStyleSnapshot(el ?? null);
     }
-    var rect = el ? el.getBoundingClientRect() : null;
+    var rect = options?.elementRect ?? (el ? el.getBoundingClientRect() : null);
     var pointerOffset =
-      rect && ev?.clientX !== undefined && ev.clientY !== undefined
+      options?.pointerOffset ??
+      (rect && ev?.clientX !== undefined && ev.clientY !== undefined
         ? {
             x: ev.clientX - rect.left,
             y: ev.clientY - rect.top,
           }
-        : undefined;
+        : undefined);
     (window.parent as Window).postMessage(
       {
         type: "agent-native:cross-screen-drag",
@@ -9369,6 +9395,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : undefined,
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
+        duplicate: options?.duplicate === true ? true : undefined,
+        sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
       },
       "*",
     );
@@ -10727,6 +10755,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function postVisualDuplicateChange(originalEl, cloneEl, target) {
     if (!originalEl || !cloneEl) return;
+    // The host immediately pushes the persisted clone back through the source
+    // morph. Claim the optimistic clone first so that round-trip reuses it
+    // instead of importing a second copy beside it.
+    recordSourceSubtree(cloneEl);
     (window.parent as Window).postMessage(
       {
         type: "visual-duplicate-change",
@@ -11934,8 +11966,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ctrl: Boolean(e.ctrlKey),
         target: dndTarget(currentTarget),
       });
-      var reorderSelector = getSelector(reorderEl);
-      var reorderSourceId = getSourceId(reorderEl);
       crossScreenClaimedByHost = false;
       var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
       var reorderRect = reorderEl.getBoundingClientRect();
@@ -11944,6 +11974,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         x: reorderPointerStart.clientX - reorderRect.left,
         y: reorderPointerStart.clientY - reorderRect.top,
       };
+      if (!isGroupDrag) {
+        postCrossScreenDrag("start", reorderEl, reorderPointerStart, {
+          duplicate: duplicatedForDrag,
+          elementRect: {
+            left: reorderRect.left,
+            top: reorderRect.top,
+            width: reorderRect.width,
+            height: reorderRect.height,
+          },
+          pointerOffset: reorderPointerOffset,
+          styleSnapshot: reorderStyleSnapshot,
+        });
+      }
       // Transform-only follow: must be cleared before any pointer-up commit
       // reads getBoundingClientRect, or the drag delta corrupts the result.
       function authoredTransformOf(el: HTMLElement): string {
@@ -12299,28 +12342,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // in-iframe (the host's cross-screen drop moves a single element and
         // would tear the group apart), so they never arm the host.
         if (!isGroupDrag) {
-          (window.parent as Window).postMessage(
+          postCrossScreenDrag(
+            "move",
+            reorderEl,
+            { clientX: cx, clientY: cy },
             {
-              type: "agent-native:cross-screen-drag",
-              phase: "move",
-              selector: reorderSelector,
-              sourceId: reorderSourceId,
-              iframeX: cx,
-              iframeY: cy,
-              viewportW: vw,
-              viewportH: vh,
-              // Without a size the host can only draw a 16px cursor dot, so
-              // the element being dragged is invisible once it leaves here.
-              elementRect: {
-                left: reorderRect.left,
-                top: reorderRect.top,
-                width: reorderRect.width,
-                height: reorderRect.height,
-              },
+              duplicate: duplicatedForDrag,
+              elementRect: reorderRect,
               pointerOffset: reorderPointerOffset,
               styleSnapshot: reorderStyleSnapshot,
             },
-            "*",
           );
         }
         if (outside && !isGroupDrag) {
@@ -12395,10 +12426,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cleanupReorderDrag();
         hideTransformBadge();
         hideInsertionGuide();
-        (window.parent as Window).postMessage(
-          { type: "agent-native:cross-screen-drag", phase: "cancel" },
-          "*",
-        );
+        if (!isGroupDrag) postCrossScreenDrag("cancel");
         // Revert any clone that was inserted for alt-drag.
         if (
           duplicatedForDrag &&
@@ -12461,28 +12489,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Group drags never armed the host (see onReorderMove), so posting
         // end here would trigger a bogus single-element cross-screen move.
         if (!isGroupDrag) {
-          (window.parent as Window).postMessage(
+          postCrossScreenDrag(
+            "end",
+            reorderEl,
+            { clientX: cx, clientY: cy },
             {
-              type: "agent-native:cross-screen-drag",
-              phase: "end",
-              selector: reorderSelector,
-              sourceId: reorderSourceId,
-              iframeX: cx,
-              iframeY: cy,
-              viewportW: vw,
-              viewportH: vh,
-              // Without a size the host can only draw a 16px cursor dot, so
-              // the element being dragged is invisible once it leaves here.
-              elementRect: {
-                left: reorderRect.left,
-                top: reorderRect.top,
-                width: reorderRect.width,
-                height: reorderRect.height,
-              },
+              duplicate: duplicatedForDrag,
+              elementRect: reorderRect,
               pointerOffset: reorderPointerOffset,
               styleSnapshot: reorderStyleSnapshot,
             },
-            "*",
           );
         }
         // When the pointer is outside this iframe at release, the host owns the
@@ -12494,7 +12510,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // user briefly exits the iframe and re-enters before releasing.  The host
         // already clears cross-screen state on re-entry so checking the
         // momentary excursion flag here would wrongly drop the element nowhere.
-        if (outsideOnDrop) return;
+        if (outsideOnDrop) {
+          if (duplicatedForDrag) {
+            if (reorderEl.parentElement)
+              reorderEl.parentElement.removeChild(reorderEl);
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+          }
+          return;
+        }
         // Resolve from the RELEASE point + release-time modifiers so a Ctrl or
         // Space held only at release still takes effect; live reflow then runs
         // one final stabilize tick so the drop still lands on the previewed
@@ -12553,6 +12578,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             reorderEl,
             currentTarget,
           );
+          postCrossScreenDrag("cancel");
         } else if (isGroupDrag) {
           applyGroupStructureDrop(
             groupEls,
@@ -12740,8 +12766,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var dragElOffsetScaleX = ancestorScale(dragEl, "x");
     var dragElOffsetScaleY = ancestorScale(dragEl, "y");
-    if (!duplicatedForDrag && !isGroupDrag) {
-      postCrossScreenDrag("start", dragEl, e);
+    if (!isGroupDrag) {
+      postCrossScreenDrag("start", dragEl, e, {
+        duplicate: duplicatedForDrag,
+      });
     }
     // rAF-coalesce the "move" phase postMessage: a raw mousemove/pointermove
     // stream can fire well above 60/s on a high-poll-rate mouse or trackpad,
@@ -12760,7 +12788,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       crossScreenDragMoveScheduled = false;
       var pendingEv = crossScreenDragMovePendingEv;
       crossScreenDragMovePendingEv = null;
-      if (pendingEv) postCrossScreenDrag("move", dragEl, pendingEv);
+      if (pendingEv) {
+        postCrossScreenDrag("move", dragEl, pendingEv, {
+          duplicate: duplicatedForDrag,
+        });
+      }
     }
     function scheduleCrossScreenDragMove(ev): void {
       crossScreenDragMovePendingEv = {
@@ -12849,13 +12881,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         state.el.style.top =
           quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
       });
-      if (!duplicatedForDrag && !isGroupDrag) {
+      if (!isGroupDrag) {
         scheduleCrossScreenDragMove(ev);
       }
-      if (
-        !duplicatedForDrag &&
-        isOutsideIframeViewport(ev.clientX, ev.clientY)
-      ) {
+      if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
       } else {
@@ -12899,7 +12928,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentAutoLayoutTarget.dropMode !== "absolute-container";
       if (
         flowInsertPending ||
-        (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY))
+        (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY))
       ) {
         hideSnapGuides();
         dragChromeSuppressed = true;
@@ -12957,6 +12986,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         selectedEl = originalSelectedEl;
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
+        postCrossScreenDrag("cancel");
       } else if (dragEl && document.documentElement.contains(dragEl)) {
         restoreSourceDragPosition();
         if (!isGroupDrag) postCrossScreenDrag("cancel");
@@ -12981,6 +13011,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         hideSnapGuides();
         hideSizeBadge();
         hideConstraintGuides();
+        if (duplicatedForDrag) {
+          if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+          selectedEl = originalSelectedEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          postElementSelect(selectedEl);
+          postCrossScreenDrag("cancel");
+        }
         return;
       }
       cleanupMoveDrag();
@@ -12997,19 +13034,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ? isOutsideIframeViewport(ev.clientX, ev.clientY) ||
           crossScreenClaimedByHost
         : false;
-      if (
-        ev &&
-        !duplicatedForDrag &&
-        !isGroupDrag &&
-        (outsideOnDrop || designCanvasBoardSurface)
-      ) {
-        postCrossScreenDrag("end", dragEl, ev);
+      if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
+        postCrossScreenDrag("end", dragEl, ev, {
+          duplicate: duplicatedForDrag,
+        });
       }
-      if (ev && !duplicatedForDrag && outsideOnDrop) {
+      if (ev && !isGroupDrag && outsideOnDrop) {
         // Outside release: the host owns a single-element cross-screen drop;
         // group drags never armed the host, so an outside release simply
         // restores every member (cancel semantics).
-        restoreSourceDragPosition();
+        if (duplicatedForDrag) {
+          if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+          selectedEl = originalSelectedEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          postElementSelect(selectedEl);
+        } else {
+          restoreSourceDragPosition();
+        }
         return;
       }
       if (
@@ -13045,10 +13086,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         selectedEl = originalSelectedEl;
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
+        postCrossScreenDrag("cancel");
         return;
       }
       if (duplicatedForDrag) {
         postVisualDuplicateChange(originalSelectedEl, dragEl);
+        postCrossScreenDrag("cancel");
       } else if (currentAutoLayoutTarget) {
         // Nest-on-drop: a free element nests as an absolute child of a plain
         // container ("absolute-container", keeps left/top) or flow-inserts into
@@ -16090,6 +16133,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof e.data.anchorPendingNodeId === "string"
           ? e.data.anchorPendingNodeId
           : "",
+        true,
       );
       if (!insertAnchor) {
         rejectInsert("anchor-unresolved");

@@ -1,3 +1,4 @@
+import { buildCodeLayerProjection } from "@shared/code-layer";
 import {
   getPenPathGeometry,
   serializePenNodes,
@@ -253,6 +254,19 @@ function prepareClonedHtmlLayer(
       const target = elementAtPortableStylePath(clone, node);
       if (target) applyPortableStyles(target, node.styles);
     });
+  }
+  if (
+    !["data-agent-native-layer-name", "data-layer-name"].some((attribute) =>
+      clone.getAttribute(attribute)?.trim(),
+    )
+  ) {
+    const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
+    clone.setAttribute(
+      "data-agent-native-layer-name",
+      sourceNode?.layerNameSource === "tag"
+        ? "Copy"
+        : (sourceNode?.layerName ?? "Copy"),
+    );
   }
   const nodeIdMap = new Map<string, string>();
   const previousRootNodeId = clone.getAttribute("data-agent-native-node-id");
