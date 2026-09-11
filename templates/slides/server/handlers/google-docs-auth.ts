@@ -30,6 +30,7 @@ import {
   getGooglePickerConfig,
   getGoogleOAuthClientId,
   hasGoogleDriveExportScope,
+  hasGoogleDriveUploadScope,
   isGoogleDocsOAuthConfigured,
   listGoogleDocsAccounts,
 } from "../lib/google-docs-oauth.js";
@@ -181,6 +182,7 @@ async function googleSlidesExportField(
   event: H3Event,
   owner: string,
   configured: boolean,
+  hasUploadCapableAccount: boolean,
 ): Promise<{ googleSlidesExport?: GoogleSlidesExportAvailability }> {
   try {
     return {
@@ -188,6 +190,7 @@ async function googleSlidesExportField(
         configured,
         clientId: configured ? await getGoogleOAuthClientId(owner) : null,
         origin: getOrigin(event),
+        hasUploadCapableAccount,
       }),
     };
   } catch (error) {
@@ -239,7 +242,14 @@ export const getGoogleDocsStatus = defineEventHandler(
           // "available" that nobody actually checked is the failure this gate
           // exists to prevent. Absent means no verdict; the client keeps the
           // export enabled and says nothing about it.
-          ...(await googleSlidesExportField(event, owner, configured)),
+          ...(await googleSlidesExportField(
+            event,
+            owner,
+            configured,
+            accounts.some((account) =>
+              hasGoogleDriveUploadScope(account.scope),
+            ),
+          )),
           connected: accounts.length > 0,
           googleSlidesUrlImportReady: accounts.some((account) =>
             hasGoogleDriveExportScope(account.scope),

@@ -44,12 +44,23 @@ export async function resolveGoogleSlidesExportAvailability(input: {
   configured: boolean;
   clientId: string | null;
   origin: string;
+  /**
+   * A stored Drive-upload-capable account. Its unexpired access token uploads
+   * without resolving client credentials at all
+   * (`refreshGoogleDocsToken` returns early), so this export can succeed even
+   * when no OAuth client is configured.
+   */
+  hasUploadCapableAccount?: boolean;
   preflight?: (args: {
     clientId: string;
     redirectUri: string;
     scopes: readonly string[];
   }) => Promise<GoogleOAuthPreflight>;
 }): Promise<GoogleSlidesExportAvailability> {
+  // This gate exists to stop a doomed authorization request. An already
+  // connected account never starts one, so there is nothing here to prevent -
+  // and disabling it would block an export that works.
+  if (input.hasUploadCapableAccount) return { available: true };
   if (!input.configured || !input.clientId) {
     return { available: false, reason: "not-configured" };
   }

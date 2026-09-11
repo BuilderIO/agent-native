@@ -56,6 +56,7 @@ vi.mock("../lib/google-docs-oauth.js", () => ({
   getGooglePickerConfig: mocks.getGooglePickerConfig,
   hasGoogleDriveExportScope: (scope: string) =>
     scope.includes("drive.readonly"),
+  hasGoogleDriveUploadScope: (scope: string) => scope.includes("drive.file"),
   isGoogleDocsOAuthConfigured: mocks.isGoogleDocsOAuthConfigured,
   getGoogleOAuthClientId: mocks.getGoogleOAuthClientId,
   listGoogleDocsAccounts: mocks.listGoogleDocsAccounts,
@@ -137,6 +138,16 @@ describe("getGoogleDocsStatus", () => {
       googleSlidesUrlImportReady: false,
       googleSlidesUrlImportError: "formatted: invalid_grant",
     });
+  });
+
+  it("tells the resolver a connected upload-capable account exists", async () => {
+    // The default fixture account carries drive.file, so the gate must know an
+    // upload can already happen without a fresh authorization request.
+    await getGoogleDocsStatus({} as any);
+
+    expect(mocks.resolveGoogleSlidesExportAvailability).toHaveBeenCalledWith(
+      expect.objectContaining({ hasUploadCapableAccount: true }),
+    );
   });
 
   it("reports that Google refuses the Slides export authorization request", async () => {

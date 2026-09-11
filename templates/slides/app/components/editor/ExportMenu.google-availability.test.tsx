@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,10 +51,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 
-import {
-  fetchGoogleSlidesExportAvailability,
-  resetGoogleSlidesExportAvailabilityCache,
-} from "@/lib/google-slides-export-availability-client";
+import { fetchGoogleSlidesExportAvailability } from "@/lib/google-slides-export-availability-client";
 
 import { ExportMenu } from "./ExportMenu";
 
@@ -64,16 +62,20 @@ function statusResponse(body: unknown) {
   });
 }
 
+let queryClient: QueryClient;
+
 function renderMenu(onExportGoogleSlides = vi.fn()) {
   return render(
-    <ExportMenu
-      deckId="deck-1"
-      deckTitle="Quarterly Review"
-      onDuplicate={vi.fn()}
-      onExportPdf={vi.fn()}
-      onExportPptx={vi.fn()}
-      onExportGoogleSlides={onExportGoogleSlides}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <ExportMenu
+        deckId="deck-1"
+        deckTitle="Quarterly Review"
+        onDuplicate={vi.fn()}
+        onExportPdf={vi.fn()}
+        onExportPptx={vi.fn()}
+        onExportGoogleSlides={onExportGoogleSlides}
+      />
+    </QueryClientProvider>,
   );
 }
 
@@ -89,7 +91,9 @@ const googleSlidesItem = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resetGoogleSlidesExportAvailabilityCache();
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   getDeckMock.mockReturnValue(undefined);
   flushDeckSaveMock.mockResolvedValue(undefined);
 });
@@ -212,22 +216,37 @@ describe("<ExportMenu> Google Slides availability", () => {
     expect(startWorkspaceProviderOAuth).not.toHaveBeenCalled();
   });
 
-  it("re-asks the server once the cached verdict expires", async () => {
-    // Switching organization only invalidates React Query caches, and this
-    // module is not one of them, so a verdict that never expired would
-    // outlive the credentials it was computed from.
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+  it("drops the verdict when the org switch invalidates queries", async () => {
+    // `useSwitchOrg` switches organization by calling `qc.invalidateQueries()`
+    // and staying in the SPA. The verdict is computed from org-scoped Google
+    // credentials, so it has to be reachable by that call - a module-local
+    // cache would outlive the credentials it came from.
     const fetchMock = vi.fn(async () =>
       statusResponse({ googleSlidesExport: { available: true } }),
     );
     globalThis.fetch = fetchMock as typeof fetch;
 
-    await fetchGoogleSlidesExportAvailability();
-    await fetchGoogleSlidesExportAvailability();
+    await fetchGoogleSlidesExportAvailability(queryClient);
+    await fetchGoogleSlidesExportAvailability(queryClient);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(31_000);
-    await fetchGoogleSlidesExportAvailability();
+    await queryClient.invalidateQueries();
+
+    await fetchGoogleSlidesExportAvailability(queryClient);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-asks the server once the verdict goes stale", async () => {
+    const fetchMock = vi.fn(async () =>
+      statusResponse({ googleSlidesExport: { available: true } }),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await fetchGoogleSlidesExportAvailability(queryClient);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(Date.now() + 31_000);
+    await fetchGoogleSlidesExportAvailability(queryClient);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();

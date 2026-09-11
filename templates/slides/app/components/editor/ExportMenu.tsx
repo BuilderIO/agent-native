@@ -10,6 +10,7 @@ import {
   IconShare2,
   IconBrandGoogle,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -239,6 +240,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     // Inline content is only mounted while the parent menu is open, so mounting
     // is itself the signal there; the standalone menu tracks its own open state.
     const [menuOpen, setMenuOpen] = useState(false);
+    const queryClient = useQueryClient();
     const googleSlidesExport = useGoogleSlidesExportAvailability(
       inline || menuOpen,
     );
@@ -397,7 +399,8 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         // value is still the optimistic default until the first status
         // response lands, so a click right after opening the menu would
         // otherwise sail past a verdict the badge has not received yet.
-        const availability = await fetchGoogleSlidesExportAvailability();
+        const availability =
+          await fetchGoogleSlidesExportAvailability(queryClient);
         if (!availability.available) {
           updateExportStatus({
             state: "error",
@@ -426,7 +429,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         // the server whether the integration is usable at all so a repeat
         // attempt is badged up front rather than dead-ending the same way; a
         // transient Drive blip re-checks clean and stays enabled.
-        invalidateGoogleSlidesExportAvailability();
+        invalidateGoogleSlidesExportAvailability(queryClient);
         updateExportStatus({
           state: "ready",
           title: t("editorExport.googleSlidesDownloaded"),

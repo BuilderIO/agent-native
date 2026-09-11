@@ -32,6 +32,38 @@ describe("resolveGoogleSlidesExportAvailability", () => {
     expect(preflight).not.toHaveBeenCalled();
   });
 
+  it("stays available for a connected account when no client is configured", async () => {
+    // An unexpired stored upload token uploads without resolving client
+    // credentials, so this export works and must not be gated.
+    const preflight = preflightReturning({ status: "ok" });
+    await expect(
+      resolveGoogleSlidesExportAvailability({
+        configured: false,
+        clientId: null,
+        origin: ORIGIN,
+        hasUploadCapableAccount: true,
+        preflight,
+      }),
+    ).resolves.toEqual({ available: true });
+    // Nothing is about to start an authorization request, so nothing to probe.
+    expect(preflight).not.toHaveBeenCalled();
+  });
+
+  it("stays available for a connected account even when Google rejects new grants", async () => {
+    await expect(
+      resolveGoogleSlidesExportAvailability({
+        configured: true,
+        clientId: "client-id",
+        origin: ORIGIN,
+        hasUploadCapableAccount: true,
+        preflight: preflightReturning({
+          status: "rejected",
+          code: "redirect_uri_mismatch",
+        }),
+      }),
+    ).resolves.toEqual({ available: true });
+  });
+
   it("is unavailable when Google refuses the authorization request", async () => {
     await expect(
       resolveGoogleSlidesExportAvailability({

@@ -13,6 +13,7 @@ const requestString = (value: unknown) =>
       : value instanceof Request
         ? value.url
         : (JSON.stringify(value) ?? "");
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -135,19 +136,23 @@ function captureDownloadNames() {
   return names;
 }
 
+let queryClient: QueryClient;
+
 function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
   return render(
-    <ExportMenu
-      deckId="deck-1"
-      deckTitle="Quarterly Review"
-      onDuplicate={vi.fn()}
-      onExportPdf={vi.fn()}
-      onExportPptx={vi.fn()}
-      onExportGoogleSlides={vi.fn().mockResolvedValue({
-        url: "https://docs.google.com/presentation/d/new-deck/edit",
-      })}
-      {...overrides}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <ExportMenu
+        deckId="deck-1"
+        deckTitle="Quarterly Review"
+        onDuplicate={vi.fn()}
+        onExportPdf={vi.fn()}
+        onExportPptx={vi.fn()}
+        onExportGoogleSlides={vi.fn().mockResolvedValue({
+          url: "https://docs.google.com/presentation/d/new-deck/edit",
+        })}
+        {...overrides}
+      />
+    </QueryClientProvider>,
   );
 }
 
@@ -158,6 +163,9 @@ function openExportMenu() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   // Editor-authored by default: only imported decks leave the browser path.
   getDeckMock.mockReturnValue(undefined);
   flushDeckSaveMock.mockResolvedValue(undefined);
@@ -305,18 +313,20 @@ describe("<ExportMenu>", () => {
   it("renders export actions inline inside a parent menu", async () => {
     const onExportPptx = vi.fn().mockResolvedValue(undefined);
     render(
-      <DropdownMenu open>
-        <DropdownMenuContent>
-          <ExportMenu
-            inline
-            deckId="deck-1"
-            deckTitle="Quarterly Review"
-            onDuplicate={vi.fn()}
-            onExportPdf={vi.fn()}
-            onExportPptx={onExportPptx}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <QueryClientProvider client={queryClient}>
+        <DropdownMenu open>
+          <DropdownMenuContent>
+            <ExportMenu
+              inline
+              deckId="deck-1"
+              deckTitle="Quarterly Review"
+              onDuplicate={vi.fn()}
+              onExportPdf={vi.fn()}
+              onExportPptx={onExportPptx}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </QueryClientProvider>,
     );
 
     expect(screen.queryByRole("button", { name: /^export$/i })).toBeNull();

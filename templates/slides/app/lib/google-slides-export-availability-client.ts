@@ -1,47 +1,25 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { useEffect, useState } from "react";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 
 export type GoogleSlidesExportAvailability =
   | { available: true }
   | { available: false; reason: "not-configured" | "oauth-rejected" };
 
 /**
- * Every export surface asks the same question on mount, so the in-flight
- * request is shared rather than repeated per menu.
+ * The verdict is computed from the caller's organization-scoped Google
+ * credentials, and this app mounts `OrgSwitcher`, so it can change while the
+ * page stays up. It lives in React Query specifically so the
+ * `invalidateQueries()` that `useSwitchOrg` already fires reaches it — a
+ * module-local cache would silently outlive the credentials it was derived
+ * from, keyed to nothing.
  */
-let inFlight: Promise<GoogleSlidesExportAvailability> | null = null;
+export const GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY = [
+  "slides",
+  "google-slides-export-availability",
+] as const;
 
-/**
- * The verdict is org-scoped on the server and can change without this page
- * reloading — switching organization only invalidates React Query caches, which
- * this module is not one of, and repairing the Google client fixes it server
- * side with no client event at all. So a resolved verdict expires instead of
- * living as long as the tab. The sibling status readers in this app refetch on
- * every mount; this keeps the shared dedupe while staying about as fresh.
- */
-const VERDICT_TTL_MS = 30_000;
-
-let cached: {
-  value: GoogleSlidesExportAvailability;
-  expiresAt: number;
-} | null = null;
-
-/**
- * Drops the cached verdict so the next export menu asks the server again. Call
- * this after a Google Slides export fails at runtime: the failure is evidence
- * the cached "available" answer may be stale, but not proof of it, so this
- * re-checks rather than assuming the integration is broken.
- */
-export function invalidateGoogleSlidesExportAvailability(): void {
-  inFlight = null;
-  cached = null;
-}
-
-/** Exposed for tests; production callers rely on the TTL. */
-export function resetGoogleSlidesExportAvailabilityCache(): void {
-  inFlight = null;
-  cached = null;
-}
+/** Repairing the Google client is server-side and raises no client event. */
+const STALE_MS = 30_000;
 
 type StatusBody = { googleSlidesExport?: GoogleSlidesExportAvailability };
 
@@ -77,18 +55,36 @@ async function load(): Promise<GoogleSlidesExportAvailability> {
   return reported;
 }
 
-export function fetchGoogleSlidesExportAvailability(): Promise<GoogleSlidesExportAvailability> {
-  if (cached && cached.expiresAt > Date.now()) {
-    return Promise.resolve(cached.value);
-  }
-  inFlight ??= load()
-    .catch(() => ({ available: true }) as GoogleSlidesExportAvailability)
-    .then((value) => {
-      cached = { value, expiresAt: Date.now() + VERDICT_TTL_MS };
-      inFlight = null;
-      return value;
-    });
-  return inFlight;
+const availabilityQuery = {
+  queryKey: GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY,
+  queryFn: load,
+  staleTime: STALE_MS,
+} as const;
+
+/**
+ * Resolves the verdict the export must obey. Reads through the same cache the
+ * badge renders from, so a click that lands before the first response still
+ * waits for the real answer instead of the optimistic default.
+ */
+export function fetchGoogleSlidesExportAvailability(
+  queryClient: QueryClient,
+): Promise<GoogleSlidesExportAvailability> {
+  return queryClient
+    .fetchQuery(availabilityQuery)
+    .catch(() => ({ available: true }) as GoogleSlidesExportAvailability);
+}
+
+/**
+ * Call after a Google Slides export fails at runtime: the failure is evidence
+ * the cached "available" answer may be stale, but not proof of it, so this
+ * re-checks rather than assuming the integration is broken.
+ */
+export function invalidateGoogleSlidesExportAvailability(
+  queryClient: QueryClient,
+): void {
+  void queryClient.invalidateQueries({
+    queryKey: GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY,
+  });
 }
 
 /**
@@ -98,19 +94,8 @@ export function fetchGoogleSlidesExportAvailability(): Promise<GoogleSlidesExpor
 export function useGoogleSlidesExportAvailability(
   enabled: boolean,
 ): GoogleSlidesExportAvailability {
-  const [availability, setAvailability] =
-    useState<GoogleSlidesExportAvailability>({ available: true });
-
-  useEffect(() => {
-    if (!enabled) return;
-    let active = true;
-    void fetchGoogleSlidesExportAvailability().then((result) => {
-      if (active) setAvailability(result);
-    });
-    return () => {
-      active = false;
-    };
-  }, [enabled]);
-
-  return availability;
+  const { data } = useQuery({ ...availabilityQuery, enabled });
+  // Optimistic until the first response: rendering the item disabled on every
+  // menu open would be its own bug. The click path awaits the real verdict.
+  return data ?? { available: true };
 }

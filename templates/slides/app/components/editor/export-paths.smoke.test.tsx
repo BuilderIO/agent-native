@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 /**
  * Per-release smoke test for every export path the export menu offers.
@@ -67,8 +68,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       }) as Record<string, string>
     )[key] ?? key,
 }));
-
-import { resetGoogleSlidesExportAvailabilityCache } from "@/lib/google-slides-export-availability-client";
 
 import { ExportMenu } from "./ExportMenu";
 
@@ -157,19 +156,23 @@ function installHarness(options: {
   return harness;
 }
 
+let queryClient: QueryClient;
+
 function renderMenu(overrides: Record<string, unknown> = {}) {
   return render(
-    <ExportMenu
-      deckId="deck-1"
-      deckTitle="Quarterly Review"
-      onDuplicate={vi.fn()}
-      onExportPdf={vi.fn().mockResolvedValue(undefined)}
-      onExportPptx={vi.fn().mockResolvedValue(undefined)}
-      onExportGoogleSlides={vi.fn().mockResolvedValue({
-        url: "https://docs.google.com/presentation/d/new/edit",
-      })}
-      {...overrides}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <ExportMenu
+        deckId="deck-1"
+        deckTitle="Quarterly Review"
+        onDuplicate={vi.fn()}
+        onExportPdf={vi.fn().mockResolvedValue(undefined)}
+        onExportPptx={vi.fn().mockResolvedValue(undefined)}
+        onExportGoogleSlides={vi.fn().mockResolvedValue({
+          url: "https://docs.google.com/presentation/d/new/edit",
+        })}
+        {...overrides}
+      />
+    </QueryClientProvider>,
   );
 }
 
@@ -190,7 +193,9 @@ function errorIsVisible(): boolean {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resetGoogleSlidesExportAvailabilityCache();
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   getDeckMock.mockReturnValue(undefined);
   flushDeckSaveMock.mockResolvedValue(undefined);
 });
@@ -369,7 +374,6 @@ describe("export paths smoke test", () => {
 
       cleanup();
       vi.restoreAllMocks();
-      resetGoogleSlidesExportAvailabilityCache();
     }
   });
 });
