@@ -18,6 +18,7 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import { warnAgent } from "./action-warnings.js";
+import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
   AgentEngine,
   EngineEvent,
@@ -54,6 +55,12 @@ import {
   backgroundNoProgressTerminalEvent,
   installBackgroundNoProgressTerminalEvent,
   resolveBackgroundNoProgressRepeat,
+  rateLimitChainCapTripped,
+  installRateLimitChainCapTerminalEvent,
+  PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
+  continuationReasonForResumableError,
+  isRecoverableContinuationError,
+  isTransientProviderRateLimitError,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
@@ -11071,6 +11078,238 @@ describe("runAgentLoop", () => {
   });
 });
 
+// ─── Model fallback on sustained rate limit ──────────────────────────────────
+
+describe("runAgentLoop model fallback", () => {
+  it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5", "claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        modelsUsed.push(opts.model);
+        if (opts.model === "claude-haiku-4-5") {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "claude-haiku-4-5",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // MAX_RETRIES (3) exponential-backoff retries on the primary model
+      // before the fallback swap fires.
+      await vi.advanceTimersByTimeAsync(60_000);
+      const usage = await run;
+
+      // 1 initial + 3 retries on the primary, then 1 on the fallback.
+      expect(modelsUsed).toEqual([
+        "claude-haiku-4-5",
+        "claude-haiku-4-5",
+        "claude-haiku-4-5",
+        "claude-haiku-4-5",
+        "claude-sonnet-5",
+      ]);
+      // The throttled primary attempts' partial usage is discarded at the
+      // switch, so the aggregate is attributed to the model that answered.
+      expect(usage.model).toBe("claude-sonnet-5");
+      expect(
+        events.some(
+          (event) =>
+            event.type === "activity" &&
+            event.label.includes("claude-haiku-4-5") &&
+            event.label.includes("claude-sonnet-5"),
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(events)).toContain("recovered");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls through to the terminal error when the fallback model is ALSO rate limited", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5", "claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        modelsUsed.push(opts.model);
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      },
+    };
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "claude-haiku-4-5",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+      const rejected = expect(run).rejects.toThrow("429 status code (no body)");
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+
+      // Switches to the fallback exactly once — it then gets its own normal
+      // retry budget (1 + MAX_RETRIES), but never swaps back or to a third
+      // model.
+      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(4);
+      expect(modelsUsed.filter((m) => m === "claude-haiku-4-5").length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not switch models for a provider with no known fallback (e.g. gpt-5.6-luna)", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "gpt-5.6-luna",
+      supportedModels: ["gpt-5.6-luna"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      },
+    };
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "gpt-5.6-luna",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+      const rejected = expect(run).rejects.toThrow("429 status code (no body)");
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+
+      // 1 initial + MAX_RETRIES (3), no fallback swap for an unmapped model.
+      expect(streamCalls).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not switch to a fallback the engine's supportedModels excludes, even when resolveFallbackModel maps one", async () => {
+    // "claude-haiku-4-5" DOES have a mapped fallback (claude-sonnet-5), but a
+    // direct-Anthropic engine can advertise a supportedModels list that omits
+    // the Builder-catalog fallback id (e.g. it only knows dated snapshot ids
+    // like "claude-haiku-4-5-20251001"). Switching anyway would send the next
+    // request to a model this engine cannot actually serve.
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        modelsUsed.push(opts.model);
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      },
+    };
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "claude-haiku-4-5",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+      const rejected = expect(run).rejects.toThrow("429 status code (no body)");
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+
+      // 1 initial + MAX_RETRIES (3), no fallback swap and no unsupported
+      // model ever reaches the engine.
+      expect(streamCalls).toBe(4);
+      expect(modelsUsed.every((m) => m === "claude-haiku-4-5")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 // ─── endsTurn (actions that hand control back to the user) ───────────────────
 
 describe("runAgentLoop endsTurn", () => {
@@ -11273,6 +11512,120 @@ describe("isContextTooLongError", () => {
   it("returns false for unrelated errors", () => {
     expect(isContextTooLongError(new Error("rate limit reached"))).toBe(false);
     expect(isContextTooLongError(new Error("overloaded"))).toBe(false);
+  });
+});
+
+// ─── rate-limit classification ──────────────────────────────────────────────
+
+describe("continuationReasonForResumableError", () => {
+  it("labels http_429 as rate_limited, not network_interrupted", () => {
+    const err = new EngineError("429 status code (no body)", {
+      errorCode: "http_429",
+    });
+    expect(continuationReasonForResumableError(err)).toBe("rate_limited");
+  });
+
+  it("labels http_529 as rate_limited", () => {
+    const err = new EngineError("overloaded", { errorCode: "http_529" });
+    expect(continuationReasonForResumableError(err)).toBe("rate_limited");
+  });
+
+  it("labels the gateway's in-stream rate_limited stop as rate_limited", () => {
+    const err = new EngineError("Too many requests", {
+      errorCode: "rate_limited",
+      providerRetryable: true,
+    });
+    expect(continuationReasonForResumableError(err)).toBe("rate_limited");
+  });
+
+  it("labels provider_transient_rejection as rate_limited", () => {
+    const err = new EngineError("Forbidden", {
+      errorCode: "provider_transient_rejection",
+    });
+    expect(continuationReasonForResumableError(err)).toBe("rate_limited");
+  });
+
+  it("labels a bare statusCode 429/529 as rate_limited even with no errorCode", () => {
+    expect(
+      continuationReasonForResumableError(
+        new EngineError("rate limited", { statusCode: 429 }),
+      ),
+    ).toBe("rate_limited");
+    expect(
+      continuationReasonForResumableError(
+        new EngineError("overloaded", { statusCode: 529 }),
+      ),
+    ).toBe("rate_limited");
+  });
+
+  it("labels a providerRetryable 403 as rate_limited but a plain 403 as network_interrupted", () => {
+    expect(
+      continuationReasonForResumableError(
+        new EngineError("Forbidden", {
+          statusCode: 403,
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe("rate_limited");
+    // A real credential rejection must stay out of the rate-limit lane.
+    expect(
+      continuationReasonForResumableError(
+        new EngineError("Forbidden", { statusCode: 403 }),
+      ),
+    ).toBe("network_interrupted");
+  });
+});
+
+describe("isRecoverableContinuationError", () => {
+  it("treats http_429/529 and provider_transient_rejection as recoverable", () => {
+    for (const errorCode of [
+      "http_429",
+      "http_529",
+      "rate_limited",
+      "provider_transient_rejection",
+    ]) {
+      expect(
+        isRecoverableContinuationError({
+          type: "error",
+          error: "rate limited",
+          errorCode,
+        }),
+      ).toBe(true);
+    }
+  });
+});
+
+describe("isTransientProviderRateLimitError", () => {
+  it("accepts provider_transient_rejection alongside http_429/529", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("Forbidden", {
+          errorCode: "provider_transient_rejection",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts the Builder engine's in-stream rate_limited stop", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("rate_limit exceeded: upstream provider rate limited", {
+          errorCode: "rate_limited",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps rate_limit_exceeded (the daily/account cap) non-retryable", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("daily gateway request cap reached", {
+          errorCode: "rate_limit_exceeded",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -11862,6 +12215,89 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
+  // ── Rate-limit chain cap ──────────────────────────────────────────────────
+  function makeRateLimitedRun(errorCode = "http_429"): ActiveRun {
+    return makeRun([
+      {
+        type: "error",
+        error: "429 status code (no body)",
+        errorCode,
+        recoverable: true,
+      },
+    ]);
+  }
+
+  it("labels a rate-limit-class terminal error as the rate_limited continuation reason", () => {
+    expect(backgroundContinuationReasonForRun(makeRateLimitedRun())).toBe(
+      "rate_limited",
+    );
+    expect(
+      backgroundContinuationReasonForRun(makeRateLimitedRun("http_529")),
+    ).toBe("rate_limited");
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRateLimitedRun("provider_transient_rejection"),
+      ),
+    ).toBe("rate_limited");
+  });
+
+  it("CHAINS the first rate-limited chunk of a turn (no prior rate-limited chunk)", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRateLimitedRun(),
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      rateLimitChainCapTripped({
+        run: makeRateLimitedRun(),
+        priorContinuationReason: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT chain a SECOND consecutive rate-limited chunk of the same turn", () => {
+    const run = makeRateLimitedRun();
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 1,
+        priorContinuationReason: "rate_limited",
+      }),
+    ).toBe(false);
+    expect(
+      rateLimitChainCapTripped({
+        run,
+        priorContinuationReason: "rate_limited",
+      }),
+    ).toBe(true);
+  });
+
+  it("installs the provider_rate_limited terminal event when the rate-limit cap trips", () => {
+    const run = makeRateLimitedRun();
+    const installed = installRateLimitChainCapTerminalEvent(run);
+    expect(installed).toBe(true);
+    const last = run.events.at(-1)!.event;
+    expect(last).toMatchObject({
+      type: "error",
+      errorCode: PROVIDER_RATE_LIMITED_ERROR_CODE,
+      error: PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
+      recoverable: false,
+    });
+    expect(run.continuationTerminalEvent).toEqual(last);
+  });
+
+  it("a DIFFERENT prior reason does not trip the rate-limit cap", () => {
+    expect(
+      rateLimitChainCapTripped({
+        run: makeRateLimitedRun(),
+        priorContinuationReason: "gateway_timeout",
+      }),
+    ).toBe(false);
+  });
+
   // ── Foreground self-chain (AGENT_CHAT_FOREGROUND_SELF_CHAIN) ─────────────
   // The boolean passed to shouldChainBackgroundContinuation is the already
   // resolved gate (hosted + A2A_SECRET + not explicitly opted out).
@@ -11944,10 +12380,11 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   // here: a provider throttle would self-chain up to
   // MAX_BACKGROUND_RUN_CONTINUATIONS background invocations into the very limit
   // that just rejected the call, on every lane. `recoverable` — the server's own
-  // boundary signal — still chains, which is the distinction.
+  // boundary signal — still chains, which is the distinction. The gateway's
+  // `rate_limited` code is the one throttle that chains, because it is now
+  // bounded by the one-hop rate-limit cap (`rateLimitChainCapTripped`).
   it("does NOT chain on the engine's retry verdict alone", () => {
     for (const errorCode of [
-      "rate_limited",
       "too_many_concurrent_requests",
       "upstream_unavailable",
     ]) {
@@ -11993,6 +12430,32 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
           },
         ]),
         continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("chains the gateway's rate_limited stop once, then the cap stops it", () => {
+    const run = makeRun([
+      {
+        type: "error",
+        error: "Too many requests",
+        errorCode: "rate_limited",
+        providerRetryable: true,
+      },
+    ]);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 1,
+        priorContinuationReason: "rate_limited",
       }),
     ).toBe(false);
   });
