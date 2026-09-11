@@ -4215,6 +4215,50 @@ describe("editor chrome bridge — text editing session", () => {
   );
 
   it(
+    "clears the native selection when a text edit blurs",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          )!;
+          target.focus();
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+        await page.evaluate(() => {
+          (
+            document.querySelector(
+              "[data-agent-native-text-editing]",
+            ) as HTMLElement
+          ).blur();
+        });
+        await page.waitForTimeout(30);
+
+        const state = await page.evaluate(() => ({
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+          rangeCount: window.getSelection()?.rangeCount ?? 0,
+        }));
+        expect(state.editing).toBe(false);
+        expect(state.rangeCount).toBe(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "T3: composing keydown (IME) does not trigger Escape/Enter handling",
     { timeout: 30_000 },
     async () => {

@@ -1606,10 +1606,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (isDocumentRootElement(el)) return true;
     if (el.parentElement !== document.body) return false;
     var sourceId = (getSourceId(el) || "").toLowerCase();
-    var layerName = (
-      (el.getAttribute && el.getAttribute("data-agent-native-layer-name")) ||
-      ""
-    ).toLowerCase();
+    var layerName = layerNameForElement(el).toLowerCase();
     return (
       sourceId === "body" || layerName === "body" || layerName === "<body>"
     );
@@ -1876,7 +1873,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return siblings.length > 0 ? siblings : [el];
   }
 
-  function selectionTargetForHit(hit: Element | null): Element | null {
+  function selectionTargetForHit(
+    hit: Element | null,
+    descendIntoGroup = false,
+  ): Element | null {
     if (!hit || isDocumentRootElement(hit)) return hit;
     // A <path>/<polygon> is geometry, not a layer: its tight bbox is 0-height
     // for a horizontal line, and only the outermost <svg> carries the id and a
@@ -1886,16 +1886,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // `data-an-text` is the editor's own wrapper around a painted leaf's bare
     // text. Selecting it hands the inspector a bare inline span, so a button's
     // radius, fill and component props all read as absent.
+    var target = hit;
     if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
       var textOwner = hit.parentElement;
-      if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+      if (textOwner && !isDocumentRootElement(textOwner)) target = textOwner;
     }
-    // Select the deepest element under the pointer on the first click. The
-    // bridge can mint a pending node id and build a source-equivalent selector
-    // for id-less descendants, so climbing to the nearest tagged ancestor is
-    // no longer necessary and makes ordinary list labels select their parent
-    // container instead.
-    return hit;
+    if (!descendIntoGroup) {
+      var group = target;
+      while (group && !isDocumentRootElement(group)) {
+        var groupName =
+          (group.getAttribute &&
+            group.getAttribute("data-agent-native-layer-name")) ||
+          (group.getAttribute && group.getAttribute("data-layer-name")) ||
+          "";
+        if (/^group(?: \d+)?$/i.test(groupName.trim())) return group;
+        group = group.parentElement;
+      }
+    }
+    // Select the deepest element under the pointer unless an explicit Group
+    // owns it. Double-click passes descendIntoGroup to reach the child.
+    return target;
   }
 
   function freshRuntimeNodeId(prefix: string): string {
@@ -1970,6 +1980,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return raw && raw.trim ? raw.trim() : "";
   }
 
+  function layerNameForElement(el: Element | null): string {
+    if (!el || !el.getAttribute) return "";
+    var canonical = el.getAttribute("data-agent-native-layer-name");
+    if (canonical && canonical.trim) {
+      var trimmedCanonical = canonical.trim();
+      if (trimmedCanonical) return trimmedCanonical;
+    }
+    var legacy = el.getAttribute("data-layer-name");
+    return legacy && legacy.trim ? legacy.trim() : "";
+  }
+
   // Only the annotation. The class/layer-name guess this replaced painted
   // shadcn's `bg-card` violet on canvas while the panel kept it blue, and
   // `btn-group` the other way round — the same element, two colours.
@@ -1989,8 +2010,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var explicit = explicitComponentNameForElement(el);
     if (explicit) return explicit;
     if (!elementLooksLikeComponent(el) || !el || !el.getAttribute) return "";
-    var layerName = el.getAttribute("data-agent-native-layer-name");
-    return layerName && layerName.trim ? layerName.trim() : "";
+    return layerNameForElement(el);
   }
 
   function isAutoLayoutDisplay(display: string | undefined): boolean {
@@ -5962,9 +5982,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function frameLabelText(frame: Element): string {
     var name =
-      frame.getAttribute("data-agent-native-layer-name") ||
-      frame.getAttribute("aria-label") ||
-      "";
+      layerNameForElement(frame) || frame.getAttribute("aria-label") || "";
     return name.trim() || "Frame" /* i18n-ignore canvas frame label */;
   }
 
@@ -7352,10 +7370,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       elements.push(candidate);
       var candidateInfo = getElementInfo(candidate);
-      var explicitLabel =
-        (candidate.getAttribute &&
-          candidate.getAttribute("data-agent-native-layer-name")) ||
-        "";
+      var explicitLabel = layerNameForElement(candidate);
       var textLabel = (candidate.textContent || "").trim().replace(/\s+/g, " ");
       var label =
         explicitLabel ||
@@ -14117,8 +14132,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   // Figma parity: a drag on a container's own background rubber-bands its
   // children. A leaf object, or one already selected, still moves.
-  function isContainerBackgroundHit(el: Element | null): boolean {
+  function isContainerBackgroundHit(
+    el: Element | null,
+    rawHit: Element | null = null,
+  ): boolean {
     if (!el || el === selectedEl) return false;
+    if (rawHit && rawHit !== el) return false;
     if (isDocumentRootElement(el)) return false;
     if (outermostSvgAncestor(el) === el) return false;
     return Boolean(el.firstElementChild);
@@ -14143,7 +14162,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hit === document.body ||
       hit === document.documentElement ||
       isBoardRootMarqueeSurface(hitTarget) ||
-      isContainerBackgroundHit(hitTarget)
+      isContainerBackgroundHit(hitTarget, hit)
     ) {
       beginMarqueeSelection(e);
       return;
@@ -14859,7 +14878,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           !isLayerInteractionBlocked(descendHit)
         ) {
           var previousSelectedElForDescend = selectedEl;
-          var descendTarget = selectionTargetForHit(descendHit);
+          var descendTarget = selectionTargetForHit(descendHit, true);
           if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
             selectedEl = descendTarget;
             positionOverlay(selectionOverlay, selectedEl);
@@ -15001,6 +15020,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.style.borderColor = originalBorderColor;
       setTextEditingPointerPassthrough(false);
       setSelectionOverlayResizeChromeVisible(true);
+      var nativeSelection = window.getSelection ? window.getSelection() : null;
+      if (nativeSelection) nativeSelection.removeAllRanges();
       if (activeTextEditEl === target) activeTextEditEl = null;
       // T4: this session no longer owns the active-edit slot.
       if (finishActiveTextEdit === finish) finishActiveTextEdit = null;
@@ -16657,6 +16678,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "class",
         "data-agent-native-component",
         "data-agent-native-layer-name",
+        "data-layer-name",
         "data-an-primitive",
         "data-component-name",
         "data-source-column",
@@ -16693,6 +16715,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       attributes: true,
       attributeFilter: [
         "data-agent-native-layer-name",
+        "data-layer-name",
         "data-an-primitive",
         "class",
         "style",

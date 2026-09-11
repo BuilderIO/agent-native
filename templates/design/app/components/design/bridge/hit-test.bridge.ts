@@ -393,6 +393,15 @@
     );
   }
 
+  function layerNameForElement(el: Element | null): string {
+    if (!el || !el.getAttribute) return "";
+    return (
+      el.getAttribute("data-agent-native-layer-name") ||
+      el.getAttribute("data-layer-name") ||
+      ""
+    );
+  }
+
   // Detects an Alpine `<template x-for>` runtime clone: Alpine keeps the
   // `<template>` element itself in the live DOM (as a hidden, zero-size
   // marker) and inserts every rendered instance as a DIRECT SIBLING of that
@@ -956,8 +965,7 @@
         selector: nodeId
           ? undefined
           : buildSourceEquivalentSelector(node) || undefined,
-        layerName:
-          node.getAttribute("data-agent-native-layer-name") || undefined,
+        layerName: layerNameForElement(node) || undefined,
         boundingRect: {
           x: rect.left - padX,
           y: rect.top - padY,
@@ -995,10 +1003,7 @@
             correlationId: reviewPointCorrelationId,
             nodeId: reviewPointNodeId || undefined,
             targetSelector: reviewPointSelector || undefined,
-            layerName:
-              reviewPointElement?.getAttribute(
-                "data-agent-native-layer-name",
-              ) || undefined,
+            layerName: layerNameForElement(reviewPointElement) || undefined,
             tagName: reviewPointElement?.tagName?.toLowerCase() || undefined,
           },
           "*",

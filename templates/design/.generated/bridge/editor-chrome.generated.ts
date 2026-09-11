@@ -1436,7 +1436,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (isDocumentRootElement(el)) return true;
       if (el.parentElement !== document.body) return false;
       var sourceId = (getSourceId(el) || "").toLowerCase();
-      var layerName = (el.getAttribute && el.getAttribute("data-agent-native-layer-name") || "").toLowerCase();
+      var layerName = layerNameForElement(el).toLowerCase();
       return sourceId === "body" || layerName === "body" || layerName === "<body>";
     }
     function closestStableSourceElement(el) {
@@ -1608,15 +1608,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return siblings.length > 0 ? siblings : [el];
     }
-    function selectionTargetForHit(hit) {
+    function selectionTargetForHit(hit, descendIntoGroup = false) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
       if (svgRoot) return svgRoot;
+      var target = hit;
       if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
         var textOwner = hit.parentElement;
-        if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+        if (textOwner && !isDocumentRootElement(textOwner)) target = textOwner;
       }
-      return hit;
+      if (!descendIntoGroup) {
+        var group = target;
+        while (group && !isDocumentRootElement(group)) {
+          var groupName = group.getAttribute && group.getAttribute("data-agent-native-layer-name") || group.getAttribute && group.getAttribute("data-layer-name") || "";
+          if (/^group(?: \\d+)?$/i.test(groupName.trim())) return group;
+          group = group.parentElement;
+        }
+      }
+      return target;
     }
     function freshRuntimeNodeId(prefix) {
       var random = "";
@@ -1674,6 +1683,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       var raw = el && el.getAttribute && el.getAttribute("data-agent-native-component");
       return raw && raw.trim ? raw.trim() : "";
     }
+    function layerNameForElement(el) {
+      if (!el || !el.getAttribute) return "";
+      var canonical = el.getAttribute("data-agent-native-layer-name");
+      if (canonical && canonical.trim) {
+        var trimmedCanonical = canonical.trim();
+        if (trimmedCanonical) return trimmedCanonical;
+      }
+      var legacy = el.getAttribute("data-layer-name");
+      return legacy && legacy.trim ? legacy.trim() : "";
+    }
     function elementLooksLikeComponent(el) {
       if (!el || !el.getAttribute || !el.tagName) return false;
       if (explicitComponentNameForElement(el)) return true;
@@ -1684,8 +1703,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var explicit = explicitComponentNameForElement(el);
       if (explicit) return explicit;
       if (!elementLooksLikeComponent(el) || !el || !el.getAttribute) return "";
-      var layerName = el.getAttribute("data-agent-native-layer-name");
-      return layerName && layerName.trim ? layerName.trim() : "";
+      return layerNameForElement(el);
     }
     function isAutoLayoutDisplay(display) {
       return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -4324,7 +4342,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
     }
     function frameLabelText(frame) {
-      var name = frame.getAttribute("data-agent-native-layer-name") || frame.getAttribute("aria-label") || "";
+      var name = layerNameForElement(frame) || frame.getAttribute("aria-label") || "";
       return name.trim() || "Frame";
     }
     function selectFrameFromLabel(frame, e) {
@@ -5285,7 +5303,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         elements.push(candidate);
         var candidateInfo = getElementInfo(candidate);
-        var explicitLabel = candidate.getAttribute && candidate.getAttribute("data-agent-native-layer-name") || "";
+        var explicitLabel = layerNameForElement(candidate);
         var textLabel = (candidate.textContent || "").trim().replace(/\\s+/g, " ");
         var label = explicitLabel || candidateInfo.componentName || candidate.id || (textLabel && textLabel.length <= 48 ? textLabel : "") || candidate.tagName.toLowerCase();
         var identity = candidateInfo.sourceId || candidateInfo.selector || String(layerCandidates.length);
@@ -9797,8 +9815,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (idx === -1) return null;
       return candidateKeys[(idx + 1) % candidateKeys.length];
     }
-    function isContainerBackgroundHit(el) {
+    function isContainerBackgroundHit(el, rawHit = null) {
       if (!el || el === selectedEl) return false;
+      if (rawHit && rawHit !== el) return false;
       if (isDocumentRootElement(el)) return false;
       if (outermostSvgAncestor(el) === el) return false;
       return Boolean(el.firstElementChild);
@@ -9811,7 +9830,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
-      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget)) {
+      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget, hit)) {
         beginMarqueeSelection(e);
         return;
       }
@@ -10291,7 +10310,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
           if (descendHit && descendHit !== document.body && descendHit !== document.documentElement && !isLayerInteractionBlocked(descendHit)) {
             var previousSelectedElForDescend = selectedEl;
-            var descendTarget = selectionTargetForHit(descendHit);
+            var descendTarget = selectionTargetForHit(descendHit, true);
             if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
               selectedEl = descendTarget;
               positionOverlay(selectionOverlay, selectedEl);
@@ -10388,6 +10407,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.style.borderColor = originalBorderColor;
         setTextEditingPointerPassthrough(false);
         setSelectionOverlayResizeChromeVisible(true);
+        var nativeSelection = window.getSelection ? window.getSelection() : null;
+        if (nativeSelection) nativeSelection.removeAllRanges();
         if (activeTextEditEl === target) activeTextEditEl = null;
         if (finishActiveTextEdit === finish) finishActiveTextEdit = null;
         postTextEditingState(target, false);
@@ -11543,6 +11564,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "class",
           "data-agent-native-component",
           "data-agent-native-layer-name",
+          "data-layer-name",
           "data-an-primitive",
           "data-component-name",
           "data-source-column",
@@ -11575,6 +11597,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         attributes: true,
         attributeFilter: [
           "data-agent-native-layer-name",
+          "data-layer-name",
           "data-an-primitive",
           "class",
           "style"
