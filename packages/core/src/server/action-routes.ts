@@ -593,7 +593,7 @@ function mountActionRoutesInternal(
         // the request as the logged-in user.
         let resolvedCaller: ActionRouteResolvedCaller | null = null;
         const capabilityAllowed =
-          options?.caller === "webmcp" &&
+          (options?.caller === "webmcp" || isFrontendActionRequest(event)) &&
           allowsWebMcpCapability(entry, authCapability);
         if (options?.allowDelegatedCaller !== false) {
           let caller: ActionRouteResolvedCaller | null;
@@ -669,9 +669,11 @@ function mountActionRoutesInternal(
               : undefined;
           } catch (error) {
             if (
-              entry.requiresAuth === false &&
               isAuthResolutionFailure(error) &&
-              (options?.caller !== "webmcp" || isPublicWebMcpAction(entry))
+              (capabilityAllowed ||
+                (entry.requiresAuth === false &&
+                  (options?.caller !== "webmcp" ||
+                    isPublicWebMcpAction(entry))))
             ) {
               userEmail = undefined;
               userName = undefined;

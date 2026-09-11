@@ -264,6 +264,7 @@ export default defineAction({
 
     let nextContent = file.content;
     let nextMetadata: Record<string, unknown>;
+    let appliedMetadata: Record<string, unknown>;
     let resultConnectionId: string | null = null;
     let fileUpdatedAt = file.updatedAt;
 
@@ -373,6 +374,8 @@ export default defineAction({
       nextMetadata = screenSourceMetadataForStatic(currentMetadata);
     }
 
+    appliedMetadata = nextMetadata;
+
     if (nextContent.length > MAX_SNAPSHOT_CHARS) {
       throw new Error("The screen HTML snapshot is too large to save.");
     }
@@ -404,17 +407,36 @@ export default defineAction({
         const localhostScreens = isRecord(current.localhostScreens)
           ? { ...current.localhostScreens }
           : {};
-        screenMetadata[fileId] = nextMetadata;
-        localhostScreens[fileId] = nextMetadata;
+        const latestMetadata = metadataForFile(current, fileId);
+        const mergedMetadata =
+          sourceType === "url"
+            ? sourceMetadataForUrl({
+                current: latestMetadata,
+                url: nextMetadata.url as string,
+                path: nextMetadata.path as string,
+                connectionId: nextMetadata.connectionId as string,
+                bridgeUrl:
+                  typeof nextMetadata.bridgeUrl === "string"
+                    ? nextMetadata.bridgeUrl
+                    : null,
+                previewToken:
+                  typeof nextMetadata.previewToken === "string"
+                    ? nextMetadata.previewToken
+                    : null,
+              })
+            : screenSourceMetadataForStatic(latestMetadata);
+        appliedMetadata = mergedMetadata;
+        screenMetadata[fileId] = mergedMetadata;
+        localhostScreens[fileId] = mergedMetadata;
         return { ...current, screenMetadata, localhostScreens };
       },
       isApplied: (current) => {
         const matches = (value: unknown) =>
           isRecord(value) &&
-          value.sourceType === nextMetadata.sourceType &&
-          value.url === nextMetadata.url &&
-          value.path === nextMetadata.path &&
-          value.connectionId === nextMetadata.connectionId;
+          value.sourceType === appliedMetadata.sourceType &&
+          value.url === appliedMetadata.url &&
+          value.path === appliedMetadata.path &&
+          value.connectionId === appliedMetadata.connectionId;
         return (
           isRecord(current.screenMetadata) &&
           isRecord(current.localhostScreens) &&
@@ -428,11 +450,11 @@ export default defineAction({
       designId,
       fileId,
       sourceType: sourceType as ScreenSourceType,
-      url: sourceType === "url" ? (nextMetadata.url as string) : null,
-      path: sourceType === "url" ? (nextMetadata.path as string) : null,
+      url: sourceType === "url" ? (appliedMetadata.url as string) : null,
+      path: sourceType === "url" ? (appliedMetadata.path as string) : null,
       connectionId: resultConnectionId,
       content: nextContent,
-      metadata: nextMetadata,
+      metadata: appliedMetadata,
       updatedAt: fileUpdatedAt ?? persisted.updatedAt,
       contentChanged: nextContent !== file.content,
       dataUpdatedAt: persisted.updatedAt,

@@ -989,6 +989,63 @@ describe("mountActionRoutes", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("allows a matching capability on a frontend action request", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestAuthCapability } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      caller: context?.caller,
+      userEmail: context?.userEmail,
+      authCapability: getRequestAuthCapability(),
+    }));
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "update-screen-source": {
+          http: { method: "POST" },
+          requiresAuth: true,
+          capabilityScopes: ["visual-edit"],
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/update-screen-source",
+          json: async () => ({ designId: "design_1", fileId: "file_1" }),
+        },
+      }),
+    ).resolves.toEqual({
+      caller: "frontend",
+      userEmail: undefined,
+      authCapability: "capability:visual-edit:design:design_1",
+    });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("allows HEAD for GET actions", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

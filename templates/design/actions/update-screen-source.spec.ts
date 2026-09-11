@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { routeUrl } from "./add-localhost-screens.js";
 import { screenSourceMetadataForStatic } from "./update-screen-source.js";
 
 describe("update-screen-source metadata", () => {
@@ -21,5 +22,13 @@ describe("update-screen-source metadata", () => {
       previewState: "static",
       stateRef: "onboarding-step-2",
     });
+  });
+
+  it("canonicalizes equivalent loopback aliases to the registered connection", () => {
+    expect(
+      routeUrl("http://localhost:5173", {
+        url: "http://127.0.0.1:5173/plans",
+      }),
+    ).toBe("http://localhost:5173/plans");
   });
 });

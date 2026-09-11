@@ -18,7 +18,6 @@ export default defineAction({
         "Design project ID (required for access check; must match the state's design_id).",
       ),
   }),
-  capabilityScopes: ["visual-edit"],
   run: async ({ id, designId }) => {
     await assertAccess("design", designId, "editor");
 
