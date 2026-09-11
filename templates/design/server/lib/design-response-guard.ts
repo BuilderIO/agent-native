@@ -87,6 +87,39 @@ const DESIGN_SKILL_DOMAIN_PREPOSITIONS = new Set([
 ]);
 const DESIGN_SKILL_CLAUSE_BOUNDARIES = new Set(["also", "and", "but", "then"]);
 
+function matchSpans(pattern: RegExp, text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    spans.push([start, start + match[0].length]);
+  }
+  return spans;
+}
+
+/**
+ * `design` is the one token present in both the verb and the object pattern,
+ * so testing the two independently lets a single word satisfy both halves of
+ * the conjunction. Every message that merely mentions a design then read as a
+ * request that had to persist one — including this guard's own save-failure
+ * notice, which is why pasting it back produced the same notice again.
+ */
+function hasDistinctVerbAndObject(text: string): boolean {
+  const verbs = matchSpans(
+    new RegExp(DESIGN_MUTATION_VERBS.source, "gi"),
+    text,
+  );
+  if (verbs.length === 0) return false;
+  return matchSpans(
+    new RegExp(DESIGN_MUTATION_OBJECTS.source, "gi"),
+    text,
+  ).some(([objectStart, objectEnd]) =>
+    verbs.some(
+      ([verbStart, verbEnd]) =>
+        verbEnd <= objectStart || objectEnd <= verbStart,
+    ),
+  );
+}
+
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
     .trim()
@@ -447,12 +480,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   const mutationText = removeAdvisorySkillsClauses(normalized);
   if (DESIGN_TEST_REQUEST.test(mutationText)) {
     const remainingMutationText = removeDesignTestRequests(mutationText);
-    if (
-      !DESIGN_MUTATION_VERBS.test(remainingMutationText) ||
-      !DESIGN_MUTATION_OBJECTS.test(remainingMutationText)
-    ) {
-      return false;
-    }
+    if (!hasDistinctVerbAndObject(remainingMutationText)) return false;
   }
 
   const advisoryMatch = DESIGN_ADVISORY_WORDS.exec(mutationText);
@@ -470,10 +498,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
     }
   }
 
-  return (
-    DESIGN_MUTATION_VERBS.test(mutationText) &&
-    DESIGN_MUTATION_OBJECTS.test(mutationText)
-  );
+  return hasDistinctVerbAndObject(mutationText);
 }
 
 /**
@@ -515,6 +540,13 @@ export function designFinalResponseGuard(
       "If an image or asset is involved, finish with `insert-asset` when placement is needed. " +
       "Do not claim the design is created, updated, or ready until the action result proves " +
       "that content was persisted.",
+    // Intent is read from the user's prose, so it will always misfire on some
+    // turn. Discarding the draft made every miss a dead end that told the user
+    // nothing and left them nothing to act on; labelling it keeps the
+    // correction honest without throwing away a real answer. The fallback
+    // below is still what a genuinely empty turn gets.
+    exhaustedDraftPrefix:
+      "Unverified — no Design action saved content in this turn, so nothing below is confirmed to exist in your design.",
     fallbackMessage:
       "I couldn't confirm that a Design artifact was saved, so I haven't marked this request complete. Please retry.",
     maxRetries: 1,
