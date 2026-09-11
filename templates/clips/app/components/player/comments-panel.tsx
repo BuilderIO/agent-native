@@ -1091,6 +1091,7 @@ function CommentCard({
             <InlineMarkdown
               content={comment.content}
               className="mt-0.5 text-sm text-foreground"
+              renderLists
               protectedSpans={commentMentionSpans(comment.mentions)}
             />
 

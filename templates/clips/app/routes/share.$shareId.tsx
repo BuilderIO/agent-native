@@ -521,7 +521,7 @@ export default function ShareRoute() {
   // Keep the public viewer's rail in the same default state as the signed-in
   // viewer. Its own tab strip is the only panel navigation; the page toolbar
   // stays focused on recording actions.
-  const [panel, setPanel] = useState<SharePanel>("transcript");
+  const [panel, setPanel] = useState<SharePanel>("comments");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
   const selectCommentsPanel = useCallback(() => {
@@ -693,13 +693,16 @@ export default function ShareRoute() {
 
   const recording = dataQ.data?.data?.recording;
   useEffect(() => {
-    if (panelParam !== "comments") return;
     if (recording && !recording.enableComments) {
-      setPanel("transcript");
+      if (panel === "comments") {
+        setPanel("transcript");
+      }
       return;
     }
-    selectCommentsPanel();
-  }, [panelParam, recording?.enableComments, selectCommentsPanel]);
+    if (panelParam === "comments") {
+      selectCommentsPanel();
+    }
+  }, [panel, panelParam, recording?.enableComments, selectCommentsPanel]);
   const {
     dismiss: dismissProcessingToast,
     error: failProcessingToast,
@@ -1679,7 +1682,10 @@ export default function ShareRoute() {
           tabs={
             <ViewerTabsList>
               {recording.enableComments ? (
-                <ViewerTabsTrigger value="comments">
+                <ViewerTabsTrigger
+                  value="comments"
+                  className="px-0 data-[state=active]:after:inset-x-0"
+                >
                   {t("sharePage.comments")}
                 </ViewerTabsTrigger>
               ) : null}
@@ -1702,9 +1708,6 @@ export default function ShareRoute() {
                 ref={commentsSectionRef}
                 className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"
               >
-                <h2 className="mb-3 shrink-0 text-sm font-semibold">
-                  {t("sharePage.comments")}
-                </h2>
                 <CommentsPanel
                   recordingId={recording.id}
                   comments={comments}

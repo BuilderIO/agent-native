@@ -361,6 +361,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerNetwork": "无法连接模型提供商。请检查网络连接后重试。",
   "errorMessages.providerRateLimit":
     "模型提供商目前正在限制此聊天的请求频率。请稍等片刻后重试。",
+  "errorMessages.providerTransientRejection":
+    "AI 提供商暂时拒绝了此请求。这种情况通常在一分钟内自行恢复,请重试。",
   "errorMessages.startNewChat": "开始新聊天",
   "errorMessages.upgradeAtBuilder": "在 Builder.io 升级",
   "feedback.inaccurate": "不准确",

@@ -9,9 +9,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
-import type {
-  AgentChatStructuredContentPart,
-  AgentChatStructuredMessage,
+import {
+  CONTINUATION_REASONS,
+  type AgentChatStructuredContentPart,
+  type AgentChatStructuredMessage,
 } from "../agent/types.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -439,15 +440,13 @@ function laneAwareTerminalReasonMessage(
  * replaced by a server-chained successor row; it must never be read as "the
  * turn is done" just because its own row says `status: "completed"`.
  */
-const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>([
-  "run_timeout",
-  "loop_limit",
-  "max_tokens",
-  "stream_ended",
-  "gateway_timeout",
-  "network_interrupted",
-  "no_progress",
-]);
+// Derived from the shared `CONTINUATION_REASONS` (types.ts) rather than
+// re-listing the reasons here, so a new chunk-boundary reason (like
+// "rate_limited" once was) can't land server-side without the client also
+// recognizing it as non-terminal.
+const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>(
+  CONTINUATION_REASONS,
+);
 
 function isUserInitiatedTerminalReason(reason: string): boolean {
   return (
@@ -1862,6 +1861,17 @@ function isRetryableStartupError(message: string): boolean {
 
 function isAuthErrorMessage(message: string): boolean {
   const msg = message.toLowerCase();
+  // A transient gateway 403/429 retry is diagnostic text that names its own
+  // HTTP status ("...temporarily refused this request (HTTP 403...", the
+  // gateway's `provider_transient_rejection`/`provider_rate_limited` codes),
+  // not an auth failure — it must not fall into the bare digit match below.
+  if (
+    msg.includes("provider_transient_rejection") ||
+    msg.includes("provider_rate_limited") ||
+    msg.includes("temporarily refused this request")
+  ) {
+    return false;
+  }
   return (
     msg.includes("authentication required") ||
     msg.includes("unauthorized") ||

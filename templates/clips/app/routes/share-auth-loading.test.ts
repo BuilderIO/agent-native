@@ -148,7 +148,7 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("CaptureInstallButton");
     expect(route).toContain('t("sharePage.downloadDesktopApp")');
     expect(route).not.toContain("agentNativeClips");
-    expect(route).toContain('useState<SharePanel>("transcript")');
+    expect(route).toContain('useState<SharePanel>("comments")');
     expect(route).toContain("lg:grid-cols-[minmax(0,1fr)_360px]");
     expect(route).toContain("col-span-full row-start-1");
     expect(route).toContain("lg:col-start-2");
@@ -194,7 +194,8 @@ describe("authenticated recording route loading", () => {
 
   it("keeps public comments in flow and consolidates recording insights", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
-    expect(shareRoute).toContain('<ViewerTabsTrigger value="comments">');
+    expect(shareRoute).toContain('value="comments"');
+    expect(shareRoute).toContain('useState<SharePanel>("comments")');
     expect(shareRoute).toContain('presentation="inline"');
     expect(shareRoute).toContain(
       'className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',

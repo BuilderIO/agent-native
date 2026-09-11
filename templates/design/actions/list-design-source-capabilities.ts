@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -29,6 +28,7 @@ export default defineAction({
       .describe("Design project ID to fetch source capabilities for"),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   run: async ({ designId }) => {
     const access = await resolveAccess("design", designId);
@@ -55,8 +55,10 @@ export default defineAction({
           typeof rawData === "string" ? JSON.parse(rawData) : {};
         const connectionId = designConnectionIdFromData(rawDesignData);
 
-        if (connectionId && getRequestUserEmail()) {
-          const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
+        if (connectionId) {
+          const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
+            designId,
+          });
           const [conn] = await db
             .select({
               capabilities: schema.designLocalhostConnections.capabilities,

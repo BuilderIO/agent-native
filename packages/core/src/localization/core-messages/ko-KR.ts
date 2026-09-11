@@ -378,6 +378,8 @@ const messages: AgentChatTranslation = {
     "모델 제공업체에 연결할 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
   "errorMessages.providerRateLimit":
     "현재 모델 제공업체가 이 채팅의 요청 속도를 제한하고 있습니다. 잠시 후 다시 시도하세요.",
+  "errorMessages.providerTransientRejection":
+    "AI 제공업체가 이 요청을 일시적으로 거부했습니다. 보통 1분 이내에 해결되니 다시 시도하세요.",
   "errorMessages.startNewChat": "새 채팅 시작",
   "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
   "feedback.inaccurate": "부정확함",

@@ -552,13 +552,11 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("hasChatFirstActiveChat");
     expect(hubSource).toContain("!chatFirstAppSelected");
     expect(hubSource).toContain("const openChatFirstNewChat = useCallback(");
+    expect(hubSource).toContain('new Event("agent-native:desktop-new-chat")');
     expect(hubSource).toContain("setHasChatFirstActiveChat(false)");
     expect(hubSource).toContain("onNewChat: openChatFirstNewChat");
     expect(hubSource).toContain("chatFirstSurfacePanel.toggle");
     expect(hubSource).toContain("sidebarOpen={chatFirstSurfacePanel.open}");
-    expect(hubSource).toContain(
-      "onToggleSidebar={chatFirstSurfacePanel.toggle}",
-    );
     expect(hubSource).toContain(
       "{chatFirstSurfacePanel.open && canRenderChatFirstSurfacePanel ? (",
     );
@@ -570,6 +568,12 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(hubSource).toContain(
       "const canToggleChatFirstSurfacePanel = canRenderChatFirstSurfacePanel;",
+    );
+    expect(hubSource).toContain(
+      "hasChatFirstActiveChat &&\n            !chatFirstAppSelected",
+    );
+    expect(hubSource).toContain(
+      "canToggleChatFirstSurfacePanel\n                    ? chatFirstSurfacePanel.toggle",
     );
     expect(hubSource).toContain(
       'if (!hasChatFirstActiveChat) {\n        setChatFirstNotice("Open a chat to view browser surfaces.");',
