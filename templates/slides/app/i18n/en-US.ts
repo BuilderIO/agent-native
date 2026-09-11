@@ -292,6 +292,10 @@ const messages = {
     exportPptx: "Export as PPTX",
     connectGoogle: "Connect Google",
     openInGoogleSlides: "Export to Google Slides",
+    googleSlidesUnavailable: "Unavailable",
+    googleSlidesOpenImporter: "Open Google Slides import",
+    googleSlidesUnavailableHint:
+      "Google Slides export is unavailable right now because the Google connection is not set up. Export as PPTX and import it into Google Slides instead.",
     googleSlidesCreated: "Exported to Google Slides",
     googleSlidesCreatedHint:
       "A copy of this deck was created in your Google Drive.",

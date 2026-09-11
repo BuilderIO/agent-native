@@ -291,6 +291,10 @@ const messages = {
     exportPptx: "PPTX के रूप में निर्यात करें",
     connectGoogle: "Google कनेक्ट करें",
     openInGoogleSlides: "Google Slides में खोलें",
+    googleSlidesUnavailable: "अनुपलब्ध",
+    googleSlidesOpenImporter: "Google Slides इंपोर्ट खोलें",
+    googleSlidesUnavailableHint:
+      "Google Slides एक्सपोर्ट अभी अनुपलब्ध है क्योंकि Google कनेक्शन सेट अप नहीं है. इसके बजाय PPTX के रूप में एक्सपोर्ट करें और उसे Google Slides में इंपोर्ट करें.",
     googleSlidesCreated: "Google Slides में खोला गया",
     googleSlidesCreatedHint: "इस प्रस्तुति की एक प्रति आपके Google Drive में बनाई गई।",
     duplicateDeck: "डेक डुप्लिकेट करें",
