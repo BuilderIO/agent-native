@@ -244,6 +244,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.toolCallable = entry.toolCallable;
   }
   if (
+    Array.isArray(entry.capabilityScopes) &&
+    entry.capabilityScopes.length > 0 &&
+    entry.capabilityScopes.every((scope: unknown) => typeof scope === "string")
+  ) {
+    out.capabilityScopes = entry.capabilityScopes;
+  }
+  if (
     entry.publicAgent &&
     typeof entry.publicAgent === "object" &&
     !Array.isArray(entry.publicAgent)
@@ -718,6 +725,8 @@ export async function mergeCoreSharingActions(
       "set-feature-flag",
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
+    ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),

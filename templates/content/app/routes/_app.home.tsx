@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
+import { readContentLandingRecovery } from "@/lib/content-landing";
 
 const SEO_TITLE = "Content - Open Source, agent-friendly Obsidian alternative";
 const SEO_DESCRIPTION =
@@ -51,6 +52,8 @@ export default function HomeRoute() {
   const location = useLocation();
   const navigate = useNavigate();
   const startedRef = useRef(false);
+  const recoveredDocumentId =
+    readContentLandingRecovery(location.state)?.unavailableDocumentId ?? null;
   const resolveLanding = useActionMutation<
     ContentLandingResult,
     Record<string, never>
@@ -61,7 +64,9 @@ export default function HomeRoute() {
     startedRef.current = true;
     try {
       const result = await resolveLanding.mutateAsync({});
-      if (result.fallbackReason === "saved-document-unavailable") {
+      if (recoveredDocumentId) {
+        toast.info(t("landing.requestedPageUnavailable"));
+      } else if (result.fallbackReason === "saved-document-unavailable") {
         toast.info(t("landing.previousPageUnavailable"));
       }
       void navigate(
@@ -77,7 +82,14 @@ export default function HomeRoute() {
       // starts a fresh resolver attempt rather than pretending arrival worked.
       console.error("Failed to resolve the Content landing page", error);
     }
-  }, [location.hash, location.search, navigate, resolveLanding, t]);
+  }, [
+    location.hash,
+    location.search,
+    navigate,
+    recoveredDocumentId,
+    resolveLanding,
+    t,
+  ]);
 
   useEffect(() => {
     void openLanding();

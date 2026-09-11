@@ -87,7 +87,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -585,7 +585,7 @@ export function DocumentToolbar({
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
-  const creativeContextEnabled = useCreativeContextExperiment();
+  const creativeContextEnabled = useCreativeContextLab();
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =

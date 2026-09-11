@@ -24,9 +24,11 @@ export type SignedOutShareCta = "signin" | "signup";
 export function buildShareSignInHref(
   recordingId: string,
   startAt?: string | null,
+  panel?: string | null,
 ): string {
   const params = new URLSearchParams();
   if (startAt) params.set("at", startAt);
+  if (panel) params.set("panel", panel);
   const query = params.toString();
   return buildSignInReturnHref({
     returnTo: `/share/${recordingId}${query ? `?${query}` : ""}`,
@@ -36,9 +38,11 @@ export function buildShareSignInHref(
 export function buildShareSignUpHref(
   recordingId: string,
   startAt?: string | null,
+  panel?: string | null,
 ): string {
   const params = new URLSearchParams();
   if (startAt) params.set("at", startAt);
+  if (panel) params.set("panel", panel);
   const query = params.toString();
   return buildSignUpReturnHref(
     `/share/${recordingId}${query ? `?${query}` : ""}`,
@@ -58,11 +62,13 @@ export function buildShareCopyHref(
 export function SignedOutShareActions({
   recordingId,
   startAt,
+  panel,
   onCtaClick,
   onSignup,
 }: {
   recordingId: string;
   startAt?: string | null;
+  panel?: string | null;
   onCtaClick?: (cta: SignedOutShareCta) => void;
   onSignup?: () => void;
 }) {
@@ -95,7 +101,7 @@ export function SignedOutShareActions({
     <>
       <Button variant="ghost" size="sm" asChild>
         <a
-          href={buildShareSignInHref(recordingId, startAt)}
+          href={buildShareSignInHref(recordingId, startAt, panel)}
           onClick={() => onCtaClick?.("signin")}
         >
           {t("sharePage.signIn")}
@@ -115,7 +121,7 @@ export function SignedOutShareActions({
         ) : (
           <PageHeaderPrimaryAction asChild>
             <a
-              href={buildShareSignUpHref(recordingId, startAt)}
+              href={buildShareSignUpHref(recordingId, startAt, panel)}
               onClick={() => onCtaClick?.("signup")}
             >
               {t("sharePage.getClipsFree")}

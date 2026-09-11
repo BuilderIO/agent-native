@@ -83,6 +83,7 @@ describe("EnvironmentBadge render", () => {
     );
     expect(badge?.className).toContain("bottom-3");
     expect(badge?.className).toContain("left-3");
+    expect(badge?.className).toContain("pointer-events-none");
     expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
   });
@@ -360,8 +361,10 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
+    // Marked as the lane's own doing, so beta can send the visitor back when
+    // it turns out they have no session there.
     expect(replace).toHaveBeenCalledWith(
-      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+      "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs",
     );
   });
 

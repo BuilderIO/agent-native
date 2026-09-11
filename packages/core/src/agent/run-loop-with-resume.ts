@@ -29,7 +29,8 @@ import {
   SERVER_OWNED_ABORT_REASONS,
   clientAbortReason,
 } from "./abort-reasons.js";
-import type { EngineMessage } from "./engine/types.js";
+import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
+import { EngineError, type EngineMessage } from "./engine/types.js";
 import {
   runAgentLoop,
   appendAgentLoopContinuation,
@@ -39,6 +40,7 @@ import {
   lastUnfinishedPreparingActionToolFromEvents,
   resolveFinalResponseGuardRequestText,
   SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
+  PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
   type AgentLoopContinuationReason,
   type AgentLoopOutcome,
 } from "./production-agent.js";
@@ -180,7 +182,7 @@ function appendContinuationCheckpoint(
 
 async function appendContinuationAndJournal(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason | "rate_limited",
+  reason: AgentLoopContinuationReason,
   threadId: string | undefined,
   turnId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
@@ -250,7 +252,8 @@ function internalContinuationReasonForAttempt(
     last.reason === "no_progress" ||
     last.reason === "stream_ended" ||
     last.reason === "gateway_timeout" ||
-    last.reason === "network_interrupted"
+    last.reason === "network_interrupted" ||
+    last.reason === "rate_limited"
   ) {
     return last.reason;
   }
@@ -259,16 +262,36 @@ function internalContinuationReasonForAttempt(
 
 /**
  * The engine already performs its own short provider retries. After those are
- * exhausted, a proven durable background A2A/MCP run gets one cooled-down
- * continuation for a transient 429/529. One extra round is enough to bridge a
- * short provider bucket without multiplying a sustained rate limit into a
- * request storm across the larger background continuation allowance.
+ * exhausted, an A2A/MCP run gets one cooled-down continuation for a transient
+ * 429/529/transient-403 — background or foreground, whichever lane this
+ * invocation is running, as long as the remaining wall-clock covers the
+ * cooldown plus a minimum continuation round (see `rateLimitRetryFitsBudget`
+ * below; a foreground turn's tighter budget often fails that check and skips
+ * straight to the `provider_rate_limited` terminal). One extra round is
+ * enough to bridge a short provider bucket without multiplying a sustained
+ * rate limit into a request storm.
  */
 export const MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS = 1;
 export const BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS = 20_000;
 
+/**
+ * The provider's own `Retry-After` (already capped by `classifyProviderError`)
+ * outranks the fixed cooldown when it asks for longer: retrying sooner than
+ * the header says is a guaranteed second 429, and the budget gate below
+ * measures the same delay so a wait the chunk cannot afford ends the turn
+ * with the visible rate-limit terminal instead of overrunning the wall.
+ */
+function rateLimitCooldownMs(err: unknown): number {
+  const retryAfterMs =
+    err instanceof EngineError && typeof err.retryAfterMs === "number"
+      ? err.retryAfterMs
+      : 0;
+  return Math.max(BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS, retryAfterMs);
+}
+
 function waitForBackgroundRateLimitCooldown(
   signal: AbortSignal,
+  delayMs: number,
 ): Promise<void> {
   if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
@@ -277,10 +300,7 @@ function waitForBackgroundRateLimitCooldown(
       signal.removeEventListener("abort", finish);
       resolve();
     };
-    const timer = setTimeout(
-      finish,
-      BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
-    );
+    const timer = setTimeout(finish, delayMs);
     signal.addEventListener("abort", finish, { once: true });
   });
 }
@@ -673,13 +693,17 @@ export async function runAgentLoopDirectWithSoftTimeout(
         continue;
       }
       const transientRateLimit = isTransientProviderRateLimitError(err);
+      // Was `timeoutOptions?.backgroundFunction === true` only — a foreground
+      // turn never got the one cooled-down retry and always surfaced the raw
+      // 429/529/transient-403. Budgeted the same way regardless of lane: the
+      // remaining-wall-clock check below already fails closed for a
+      // foreground turn that doesn't have the 20s cooldown + minimum
+      // continuation budget to spare.
+      const rateLimitCooldown = rateLimitCooldownMs(err);
       const rateLimitRetryFitsBudget =
-        timeoutOptions?.backgroundFunction === true &&
         backgroundRateLimitContinuations <
           MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS &&
-        timeoutMs -
-          (Date.now() - loopEntryAt) -
-          BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS >=
+        timeoutMs - (Date.now() - loopEntryAt) - rateLimitCooldown >=
           SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS;
       if (
         !turnSignal.aborted &&
@@ -705,8 +729,37 @@ export async function runAgentLoopDirectWithSoftTimeout(
           localTurnEvents,
           localTurnEvents.slice(attemptStartIndex),
         );
-        await waitForBackgroundRateLimitCooldown(turnSignal);
+        await waitForBackgroundRateLimitCooldown(turnSignal, rateLimitCooldown);
         continue;
+      }
+      // The one cooled-down retry is spent (or this lane never had budget for
+      // it): end the turn with the shared `provider_rate_limited` code. The
+      // thrown EngineError is what run-manager turns into the terminal `error`
+      // event, deliberately WITHOUT `recoverable: true` — that flag means
+      // "internal continuation boundary": thread-data-builder drops such
+      // errors from the persisted turn and `isRecoverableContinuationError`
+      // chains another chunk into the same throttle, which is exactly the
+      // spiral this exists to stop. The client never auto-continues this code,
+      // so the user gets a visible message and a manual retry.
+      if (!turnSignal.aborted && transientRateLimit) {
+        if (
+          (await completedSideEffectInCurrentTurn(
+            opts.threadId,
+            opts.turnId,
+            localTurnEvents,
+          )) === "none"
+        ) {
+          opts.send({ type: "clear" });
+        }
+        reportFinalOutcome({
+          state: "failed",
+          code: PROVIDER_RATE_LIMITED_ERROR_CODE,
+          retryable: true,
+          message: PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
+        });
+        throw new EngineError(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE, {
+          errorCode: PROVIDER_RATE_LIMITED_ERROR_CODE,
+        });
       }
       // Resumable transport / gateway interruptions: the LLM call was cut off
       // mid-stream (gateway 45s timeout, socket hang up, function-level

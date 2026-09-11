@@ -3,6 +3,9 @@ import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
+import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
+import { invalidateInboxThreads } from "@/hooks/use-inbox-threads";
+
 export interface GoogleAuthAccount {
   email: string;
   displayName?: string;
@@ -204,7 +207,8 @@ export function useDisconnectGoogle() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["google-status"] });
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
-      void queryClient.invalidateQueries({ queryKey: ["labels"] });
+      void queryClient.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      void invalidateInboxThreads(queryClient);
     },
   });
 }

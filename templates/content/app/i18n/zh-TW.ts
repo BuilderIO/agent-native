@@ -35,6 +35,8 @@ const messages = {
   },
   landing: {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+    requestedPageUnavailable:
+      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
   },
   team: {
@@ -63,10 +65,10 @@ const messages = {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",
-    experiments: "實驗功能",
-    experimentsIntro: "在正式發布前預覽實驗性功能。",
-    experimentCreativeContext: "創意上下文",
-    experimentCreativeContextDescription:
+    labs: "Labs",
+    labsIntro: "在正式發布前預覽實驗性功能。",
+    labCreativeContext: "創意上下文",
+    labCreativeContextDescription:
       "在 Content 中連接並重複使用受管治的參考上下文。",
   },
   chat: {
@@ -86,7 +88,6 @@ const messages = {
     documentUnavailableDescription:
       "此頁面可能已被刪除，或尚未共用給你的帳戶。",
     documentNotFound: "找不到文件",
-    goToDocuments: "前往檔案",
     newPage: "新頁面",
     createFailed: "建立頁面失敗",
     genericError: "出了點問題",

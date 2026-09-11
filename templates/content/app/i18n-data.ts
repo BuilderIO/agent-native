@@ -3173,6 +3173,8 @@ const enUS = {
   landing: {
     previousPageUnavailable:
       "Your previous page is no longer available, so we opened Welcome.",
+    requestedPageUnavailable:
+      "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
   },
   team: {
@@ -3204,10 +3206,10 @@ const enUS = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
-    experiments: "Experiments",
-    experimentsIntro: "Preview experimental features before they ship.",
-    experimentCreativeContext: "Creative Context",
-    experimentCreativeContextDescription:
+    labs: "Labs",
+    labsIntro: "Preview experimental features before they ship.",
+    labCreativeContext: "Creative Context",
+    labCreativeContextDescription:
       "Connect and reuse governed reference context in Content.",
   },
   chat: {
@@ -3228,7 +3230,6 @@ const enUS = {
     documentUnavailableDescription:
       "This page may have been deleted, or it has not been shared with your account.",
     documentNotFound: "Document not found",
-    goToDocuments: "Go to documents",
     newPage: "New page",
     createFailed: "Failed to create page",
     genericError: "Something went wrong",
@@ -3716,7 +3717,6 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       documentUnavailable: "文档不可用",
       documentUnavailableDescription:
         "此页面可能已被删除，或尚未共享给你的账户。",
-      goToDocuments: "前往文档",
     },
     editor: {
       suggestionCreateFailed: "无法创建建议",
@@ -3965,7 +3965,6 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       documentUnavailableDescription:
         "Es posible que esta página se haya eliminado o no se haya compartido con tu cuenta.",
       documentNotFound: "Documento no encontrado",
-      goToDocuments: "Ir a documentos",
     },
     editor: {
       suggestionCreateFailed: "No se pudo crear la sugerencia",
@@ -10255,50 +10254,70 @@ const commentMessagesByLocale = {
 const landingMessagesByLocale = {
   "zh-CN": {
     previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
+    requestedPageUnavailable:
+      "该页面对你的账户不可用，因此我们打开了欢迎页面。",
     saveFailed: "无法保存您的位置",
   },
   "zh-TW": {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+    requestedPageUnavailable:
+      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
   },
   "es-ES": {
     previousPageUnavailable:
       "Tu página anterior ya no está disponible, así que abrimos la página de bienvenida.",
+    requestedPageUnavailable:
+      "Esa página no está disponible para tu cuenta, así que abrimos la página de bienvenida.",
     saveFailed: "No se pudo guardar tu ubicación",
   },
   "fr-FR": {
     previousPageUnavailable:
       "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
+    requestedPageUnavailable:
+      "Cette page n’est pas accessible à votre compte. Nous avons donc ouvert la page de bienvenue.",
     saveFailed: "Votre emplacement n’a pas pu être enregistré",
   },
   "de-DE": {
     previousPageUnavailable:
       "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
+    requestedPageUnavailable:
+      "Diese Seite ist für dein Konto nicht verfügbar. Daher wurde die Willkommensseite geöffnet.",
     saveFailed: "Deine Position konnte nicht gespeichert werden",
   },
   "ja-JP": {
     previousPageUnavailable:
       "前回のページを利用できないため、ようこそページを開きました。",
+    requestedPageUnavailable:
+      "そのページはお使いのアカウントでは利用できないため、ようこそページを開きました。",
     saveFailed: "現在位置を保存できませんでした",
   },
   "ko-KR": {
     previousPageUnavailable:
       "이전 페이지를 더 이상 사용할 수 없어 시작 페이지를 열었습니다.",
+    requestedPageUnavailable:
+      "해당 페이지는 이 계정에서 사용할 수 없어 시작 페이지를 열었습니다.",
     saveFailed: "현재 위치를 저장하지 못했습니다",
   },
   "pt-BR": {
     previousPageUnavailable:
       "Sua página anterior não está mais disponível, então abrimos a página de boas-vindas.",
+    requestedPageUnavailable:
+      "Essa página não está disponível para sua conta, então abrimos a página de boas-vindas.",
     saveFailed: "Não foi possível salvar sua localização",
   },
   "hi-IN": {
     previousPageUnavailable:
       "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
+    requestedPageUnavailable:
+      "वह पेज आपके खाते के लिए उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
     saveFailed: "आपकी जगह सेव नहीं की जा सकी",
   },
   "ar-SA": {
     previousPageUnavailable:
       "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
+    requestedPageUnavailable:
+      "هذه الصفحة غير متاحة لحسابك، لذلك فتحنا صفحة الترحيب.",
     saveFailed: "تعذر حفظ موضعك",
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, typeof enUS.landing>;
@@ -10605,10 +10624,10 @@ export const messagesByLocale = {
       agentTitle: "管理代理",
       agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
       openAgentSettings: "管理代理",
-      experiments: "实验功能",
-      experimentsIntro: "在正式发布前预览实验性功能。",
-      experimentCreativeContext: "创意上下文",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "在正式发布前预览实验性功能。",
+      labCreativeContext: "创意上下文",
+      labCreativeContextDescription:
         "在 Content 中连接并复用受管控的参考上下文。",
     },
     chat: {
@@ -10810,11 +10829,10 @@ export const messagesByLocale = {
       agentDescription:
         "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
       openAgentSettings: "Gestionar agente",
-      experiments: "Experimentos",
-      experimentsIntro:
-        "Prueba funciones experimentales antes de su lanzamiento.",
-      experimentCreativeContext: "Contexto creativo",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
+      labCreativeContext: "Contexto creativo",
+      labCreativeContextDescription:
         "Conecta y reutiliza contexto de referencia regulado en Content.",
     },
     chat: {
@@ -11020,11 +11038,11 @@ export const messagesByLocale = {
       agentDescription:
         "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
       openAgentSettings: "Gérer l’agent",
-      experiments: "Expériences",
-      experimentsIntro:
+      labs: "Labs",
+      labsIntro:
         "Prévisualisez les fonctionnalités expérimentales avant leur déploiement.",
-      experimentCreativeContext: "Contexte créatif",
-      experimentCreativeContextDescription:
+      labCreativeContext: "Contexte créatif",
+      labCreativeContextDescription:
         "Connectez et réutilisez un contexte de référence gouverné dans Content.",
     },
     chat: {
@@ -11228,11 +11246,11 @@ export const messagesByLocale = {
       agentDescription:
         "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
       openAgentSettings: "Agent verwalten",
-      experiments: "Experimente",
-      experimentsIntro:
+      labs: "Labs",
+      labsIntro:
         "Testen Sie experimentelle Funktionen vor ihrer Veröffentlichung.",
-      experimentCreativeContext: "Kreativer Kontext",
-      experimentCreativeContextDescription:
+      labCreativeContext: "Kreativer Kontext",
+      labCreativeContextDescription:
         "Verbinden und Wiederverwenden von geregeltem Referenzkontext in Content.",
     },
     chat: {
@@ -11435,10 +11453,10 @@ export const messagesByLocale = {
       agentDescription:
         "エージェントのモデル、API キー、自動化、音声などを管理します。",
       openAgentSettings: "エージェントを管理",
-      experiments: "実験機能",
-      experimentsIntro: "正式リリース前の試験的な機能をお試しいただけます。",
-      experimentCreativeContext: "クリエイティブコンテキスト",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "正式リリース前の試験的な機能をお試しいただけます。",
+      labCreativeContext: "クリエイティブコンテキスト",
+      labCreativeContextDescription:
         "Content 内で管理された参照コンテキストを接続して再利用します。",
     },
     chat: {
@@ -11632,10 +11650,10 @@ export const messagesByLocale = {
       agentDescription:
         "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
       openAgentSettings: "에이전트 관리",
-      experiments: "실험 기능",
-      experimentsIntro: "출시 전 실험적인 기능을 미리 사용해 보세요.",
-      experimentCreativeContext: "크리에이티브 컨텍스트",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "출시 전 실험적인 기능을 미리 사용해 보세요.",
+      labCreativeContext: "크리에이티브 컨텍스트",
+      labCreativeContextDescription:
         "Content에서 제어된 참조 컨텍스트를 연결하고 재사용합니다.",
     },
     chat: {
@@ -11837,11 +11855,10 @@ export const messagesByLocale = {
       agentDescription:
         "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
       openAgentSettings: "Gerenciar agente",
-      experiments: "Experimentos",
-      experimentsIntro:
-        "Experimente recursos experimentais antes do lançamento.",
-      experimentCreativeContext: "Contexto criativo",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "Experimente recursos experimentais antes do lançamento.",
+      labCreativeContext: "Contexto criativo",
+      labCreativeContextDescription:
         "Conecte e reutilize contexto de referência regulado no Content.",
     },
     chat: {
@@ -12033,10 +12050,10 @@ export const messagesByLocale = {
       agentDescription:
         "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
       openAgentSettings: "एजेंट प्रबंधित करें",
-      experiments: "प्रयोग",
-      experimentsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
-      experimentCreativeContext: "क्रिएटिव संदर्भ",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
+      labCreativeContext: "क्रिएटिव संदर्भ",
+      labCreativeContextDescription:
         "Content में प्रबंधित संदर्भ संदर्भ को कनेक्ट और पुन: उपयोग करें।",
     },
     chat: {
@@ -12229,10 +12246,10 @@ export const messagesByLocale = {
       agentDescription:
         "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
       openAgentSettings: "إدارة الوكيل",
-      experiments: "التجارب",
-      experimentsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
-      experimentCreativeContext: "السياق الإبداعي",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
+      labCreativeContext: "السياق الإبداعي",
+      labCreativeContextDescription:
         "ربط سياق المرجع الخاضع للإدارة وإعادة استخدامه في Content.",
     },
     chat: {

@@ -10,6 +10,7 @@ import {
 import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
+  hasLocalizedDoc,
   loadDocRespectingDraftVisibility,
   preloadDocBlocksForDoc,
   type DocEntry,
@@ -23,6 +24,7 @@ import {
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import { DOCS_SLUG_REDIRECTS } from "../components/docs-slug-redirects";
 import DocsLayout from "../components/DocsLayout";
+import DocTranslationBanner from "../components/DocTranslationBanner";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 function requireLocale(value: unknown): DocsLocale {
@@ -109,6 +111,11 @@ export default function LocalizedDocPage() {
     >
       {doc.draft && <DocDraftBanner />}
       <DocContent markdown={doc.body} locale={locale} />
+      {hasLocalizedDoc(locale, doc.slug) && (
+        <DocTranslationBanner
+          originalHref={docsPathForSlug(doc.slug, DEFAULT_DOCS_LOCALE)}
+        />
+      )}
     </DocsLayout>
   );
 }

@@ -30,6 +30,7 @@ import {
   gmailModifyThread,
 } from "../server/lib/google-api.js";
 import { isConnected } from "../server/lib/google-auth.js";
+import { syncInboxLabelDelta } from "../server/lib/inbox-store-sync.js";
 import {
   readLocalEmails,
   withLocalEmailMutationLock,
@@ -248,6 +249,10 @@ export default defineAction({
               action === "filter" ? [labelId] : ["INBOX"],
               action === "filter" ? ["INBOX"] : [labelId],
             );
+            await syncInboxLabelDelta(ownerEmail, account.email, [threadId], {
+              add: action === "filter" ? [labelId] : ["INBOX"],
+              remove: action === "filter" ? ["INBOX"] : [labelId],
+            });
             succeededTargets.push({
               ...target,
               threadId,
