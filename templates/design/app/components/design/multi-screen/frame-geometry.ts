@@ -1,6 +1,8 @@
 import {
   BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
+  deviceViewportFloorForWidth,
+  getResponsiveGroupHeight,
   getResponsiveGroupWidth,
   visibleBreakpointWidths,
 } from "@shared/responsive-frame-layout";
@@ -16,6 +18,7 @@ const FRAME_LABEL_HEIGHT = 28;
 export {
   BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
+  deviceViewportFloorForWidth,
   visibleBreakpointWidths,
 };
 
@@ -37,15 +40,6 @@ type ResponsiveLayoutScreen = {
   breakpointWidths?: readonly number[];
   layoutGroupId?: string;
 };
-
-/** Minimum height for a frame of the given width — one device viewport tall
- * before it grows to content. Keep in sync with deviceViewportHeight in
- * content-size-report.ts. */
-export function deviceViewportFloorForWidth(widthPx: number): number {
-  if (!Number.isFinite(widthPx) || widthPx <= 640) return 844;
-  if (widthPx <= 1024) return 1024;
-  return 900;
-}
 
 export function getResponsiveScreenGroupSize(
   screen: ResponsiveLayoutScreen,
@@ -70,22 +64,20 @@ export function getResponsiveScreenGroupSize(
     // primary resized to a breakpoint width must not hide that breakpoint.
     screen.metadata?.width ?? primaryGeometry?.width,
   );
-  const breakpointNaturalHeight = (width: number) => {
-    const measured = resolveBreakpointHeightPx?.(width);
-    return measured && measured > 0
-      ? Math.max(deviceViewportFloorForWidth(width), measured)
-      : (width * sourceHeight) / sourceWidth;
-  };
   return {
     width: getResponsiveGroupWidth({
       primaryWidth: baseWidth,
       scale,
       visibleWidths: breakpoints,
     }),
-    height: Math.max(
-      baseHeight,
-      ...breakpoints.map((width) => breakpointNaturalHeight(width) * scale),
-    ),
+    height: getResponsiveGroupHeight({
+      primaryHeight: baseHeight,
+      scale,
+      sourceWidth,
+      sourceHeight,
+      visibleWidths: breakpoints,
+      resolveBreakpointHeightPx,
+    }),
   };
 }
 

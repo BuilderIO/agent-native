@@ -645,6 +645,45 @@ describe("present-design-variants", () => {
     ).toEqual([0, 2742]);
   });
 
+  it("reserves the full responsive height before starting a new row", async () => {
+    mocks.designData.breakpointSet = {
+      id: "existing",
+      breakpoints: [
+        { id: "mobile", widthPx: 390 },
+        { id: "tablet", widthPx: 768 },
+        { id: "desktop", widthPx: 1440 },
+      ],
+    };
+    mocks.nanoid.mockReset();
+    mocks.nanoid
+      .mockReturnValueOnce("responsive-set")
+      .mockReturnValueOnce("responsive-a")
+      .mockReturnValueOnce("responsive-b")
+      .mockReturnValueOnce("responsive-c")
+      .mockReturnValueOnce("responsive-d")
+      .mockReturnValueOnce("responsive-e");
+
+    await action.run({
+      designId: "design_123",
+      variants: Array.from({ length: 5 }, (_, index) => ({
+        id: `responsive-${index}`,
+        label: `Responsive ${index}`,
+        width: 390,
+        height: 844,
+        content: "<!doctype html><html><body>Variant</body></html>",
+      })),
+    });
+
+    const frames = mocks.designData.canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    expect(frames["responsive-a"]!.y).toBe(0);
+    expect(frames["responsive-c"]!.y).toBe(0);
+    expect(frames["responsive-d"]!.y).toBeCloseTo(96 + (1440 * 844) / 390);
+    expect(frames["responsive-e"]!.y).toBe(frames["responsive-d"]!.y);
+  });
+
   it("renders compact fallback variants from non-todo mobile direction data", async () => {
     await action.run({
       designId: "design_123",

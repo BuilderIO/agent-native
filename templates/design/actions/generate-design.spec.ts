@@ -1110,6 +1110,37 @@ describe("generate-design: new screens never stack on existing frames", () => {
     expect(overlaps).toBe(false);
     expect(second.x).toBeGreaterThanOrEqual(1440);
   });
+
+  it("spaces generated screens after their responsive previews", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a responsive product flow",
+      devices: ["desktop", "tablet", "mobile"],
+      files: [
+        {
+          filename: "home.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Home</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    const first = frames[result.savedFiles[0]!.id]!;
+    const second = frames[result.savedFiles[1]!.id]!;
+    // The 1440px primary paints 768px and 390px previews at the same scale.
+    expect(second.x - first.x).toBeCloseTo(
+      1440 + 24 + 768 * (1440 / 1280) + 24 + 390 * (1440 / 1280) + 96,
+    );
+  });
 });
 
 describe("generate-design: single-device regen clears stale breakpoints", () => {

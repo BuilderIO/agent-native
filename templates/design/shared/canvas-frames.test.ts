@@ -149,6 +149,22 @@ describe("nextFreeCanvasRowY", () => {
     expect(nextFreeCanvasRowY(existing, 24)).toBe(2024);
   });
 
+  it("clears responsive previews, not only the primary frame", () => {
+    const existing = {
+      mobile: { x: 0, y: 0, width: 390, height: 844 },
+    };
+    expect(
+      nextFreeCanvasRowY(existing, 96, {
+        responsiveLayout: {
+          screenMetadataByFileId: {
+            mobile: { width: 390, height: 844 },
+          },
+          breakpointWidths: [390, 768, 1440],
+        },
+      }),
+    ).toBeCloseTo(96 + (1440 * 844) / 390);
+  });
+
   it("ignores the frames being rewritten so a re-run stays put", () => {
     const existing = {
       keep: { x: 0, y: 0, width: 390, height: 500 },

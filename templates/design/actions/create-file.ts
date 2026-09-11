@@ -17,6 +17,7 @@ import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
 } from "../shared/html-integrity.js";
+import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 // Matches the desktop default the in-app generation directives use
@@ -135,7 +136,18 @@ export default defineAction({
                 fileId: id,
                 filename,
                 x: 0,
-                y: nextFreeCanvasRowY(current.canvasFrames, CREATED_SCREEN_GAP),
+                y: nextFreeCanvasRowY(
+                  current.canvasFrames,
+                  CREATED_SCREEN_GAP,
+                  {
+                    responsiveLayout: {
+                      screenMetadataByFileId: current.screenMetadata,
+                      breakpointWidths: getResponsiveBreakpointWidths(
+                        current.breakpointSet,
+                      ),
+                    },
+                  },
+                ),
                 width: CREATED_SCREEN_WIDTH,
                 height: CREATED_SCREEN_HEIGHT,
               },

@@ -1,4 +1,8 @@
 import { getRotatedFrameCorners } from "./canvas-math.js";
+import {
+  getResponsiveGroupHeight,
+  visibleBreakpointWidths,
+} from "./responsive-frame-layout.js";
 
 export interface CanvasFrameGeometry {
   x?: number;
@@ -146,15 +150,29 @@ export function numericDesignDataWriteError(
 export function nextFreeCanvasRowY(
   existing: unknown,
   gap: number,
-  options: { ignoreFileIds?: readonly string[] } = {},
+  options: {
+    ignoreFileIds?: readonly string[];
+    responsiveLayout?: {
+      screenMetadataByFileId?: unknown;
+      breakpointWidths?: readonly number[];
+    };
+  } = {},
 ): number {
   const ignored = new Set(options.ignoreFileIds ?? []);
   const frames = Object.entries(parseCanvasFrameGeometryById(existing)).filter(
     ([id]) => !ignored.has(id),
   );
+  const responsiveLayout = options.responsiveLayout;
+  const metadataByFileId = responsiveLayout?.screenMetadataByFileId;
+  const metadataMap =
+    metadataByFileId &&
+    typeof metadataByFileId === "object" &&
+    !Array.isArray(metadataByFileId)
+      ? (metadataByFileId as Record<string, unknown>)
+      : {};
   let bottom = 0;
   let sawFrame = false;
-  for (const [, frame] of frames) {
+  for (const [id, frame] of frames) {
     const y = frame.y ?? 0;
     const height = frame.height ?? 0;
     if (!Number.isFinite(y) || !Number.isFinite(height)) continue;
@@ -162,16 +180,50 @@ export function nextFreeCanvasRowY(
     const x = frame.x ?? 0;
     const width = frame.width ?? 0;
     const rotation = frame.rotation ?? 0;
-    // A rotated frame's visual box extends below y + height; place under
-    // its rotated corners so the new row cannot overlap it.
-    const frameBottom =
-      rotation && Number.isFinite(x) && Number.isFinite(width)
+    const rawMetadata = metadataMap[id];
+    const metadata =
+      rawMetadata &&
+      typeof rawMetadata === "object" &&
+      !Array.isArray(rawMetadata)
+        ? (rawMetadata as Record<string, unknown>)
+        : {};
+    const metadataWidth = finiteNumber(metadata.width);
+    const metadataHeight = finiteNumber(metadata.height);
+    const primaryWidth = Math.max(1, width || 320);
+    const sourceWidth = Math.max(1, metadataWidth ?? 1280);
+    const sourceHeight = Math.max(1, metadataHeight ?? 2560);
+    const primaryHeight = Math.max(
+      1,
+      height ||
+        Math.max(80, Math.round((primaryWidth * sourceHeight) / sourceWidth)),
+    );
+    const visibleWidths = visibleBreakpointWidths(
+      responsiveLayout?.breakpointWidths,
+      metadataWidth ?? width,
+    );
+    const scale = primaryWidth / sourceWidth;
+    const paintedHeight = responsiveLayout
+      ? getResponsiveGroupHeight({
+          primaryHeight,
+          scale,
+          sourceWidth,
+          sourceHeight,
+          visibleWidths,
+        })
+      : height;
+    // A rotated frame's visual box extends below y + height; place under its
+    // rotated corners so the new row cannot overlap it. Responsive previews
+    // are not rotated independently, so the primary bounds remain the safe
+    // fallback for rotated legacy placements.
+    const frameBottom = !rotation
+      ? y + paintedHeight
+      : Number.isFinite(x) && Number.isFinite(width)
         ? Math.max(
             ...getRotatedFrameCorners({ x, y, width, height, rotation }).map(
               (corner) => corner.y,
             ),
           )
-        : y + height;
+        : y + paintedHeight;
     bottom = Math.max(bottom, frameBottom);
   }
   return sawFrame ? bottom + gap : 0;

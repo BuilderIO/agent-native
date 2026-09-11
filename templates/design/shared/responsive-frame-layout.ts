@@ -3,10 +3,8 @@
  * breakpoint previews painted to its right.
  *
  * This lives in `shared/` because both sides of the contract need it. Actions
- * that *place* screens on the overview board (present-design-variants) must
- * reserve the same width the canvas will actually *paint*, or the next screen
- * lands underneath the previous screen's breakpoint row. Keeping the width in
- * one place is what makes writer and renderer agree.
+ * that place screens on the overview board must reserve the same footprint the
+ * canvas paints, or another screen can land underneath a breakpoint preview.
  */
 
 /** Gap between the primary frame and each breakpoint preview beside it. */
@@ -40,6 +38,34 @@ export function visibleBreakpointWidths(
   return deduped.filter((width) => Math.abs(width - primaryWidthPx) > 1);
 }
 
+export function getResponsiveBreakpointWidths(value: unknown): number[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const breakpoints = (value as Record<string, unknown>).breakpoints;
+  if (!Array.isArray(breakpoints)) return [];
+  return breakpoints.flatMap((breakpoint) => {
+    if (
+      !breakpoint ||
+      typeof breakpoint !== "object" ||
+      Array.isArray(breakpoint)
+    ) {
+      return [];
+    }
+    const widthPx = (breakpoint as Record<string, unknown>).widthPx;
+    return typeof widthPx === "number" &&
+      Number.isFinite(widthPx) &&
+      widthPx > 0
+      ? [widthPx]
+      : [];
+  });
+}
+
+/** The renderer's fallback height for an unmeasured responsive preview. */
+export function deviceViewportFloorForWidth(widthPx: number): number {
+  if (!Number.isFinite(widthPx) || widthPx <= 640) return 844;
+  if (widthPx <= 1024) return 1024;
+  return 900;
+}
+
 /**
  * Total painted width of a screen's frame group: the primary box plus every
  * breakpoint preview beside it, each drawn at the primary's own uniform
@@ -59,5 +85,36 @@ export function getResponsiveGroupWidth({
   return visibleWidths.reduce(
     (total, width) => total + BREAKPOINT_FRAME_GAP + width * scale,
     Math.max(1, primaryWidth),
+  );
+}
+
+/** Total painted height of a screen's primary and responsive frames. */
+export function getResponsiveGroupHeight({
+  primaryHeight,
+  scale,
+  sourceWidth,
+  sourceHeight,
+  visibleWidths,
+  resolveBreakpointHeightPx,
+}: {
+  primaryHeight: number;
+  scale: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  visibleWidths: readonly number[];
+  resolveBreakpointHeightPx?: (widthPx: number) => number | undefined;
+}): number {
+  const naturalWidth = Math.max(1, sourceWidth);
+  const naturalHeight = Math.max(1, sourceHeight);
+  return Math.max(
+    Math.max(1, primaryHeight),
+    ...visibleWidths.map((widthPx) => {
+      const measured = resolveBreakpointHeightPx?.(widthPx);
+      const frameHeight =
+        measured && measured > 0
+          ? Math.max(deviceViewportFloorForWidth(widthPx), measured)
+          : (widthPx * naturalHeight) / naturalWidth;
+      return frameHeight * scale;
+    }),
   );
 }
