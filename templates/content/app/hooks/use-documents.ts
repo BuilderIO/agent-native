@@ -554,11 +554,14 @@ export interface PreviewDocumentDraftRecord {
   updatedAt: string;
 }
 
-export function usePreviewDocumentDraft(documentId: string | null) {
+export function usePreviewDocumentDraft(
+  documentId: string | null,
+  options: { enabled?: boolean } = {},
+) {
   return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
     "get-preview-document-draft",
     documentId ? { documentId } : undefined,
-    { enabled: !!documentId, retry: false },
+    { enabled: !!documentId && options.enabled !== false, retry: false },
   );
 }
 

@@ -12,6 +12,7 @@ import {
   useUpdateDocument,
   useUpdatePreviewDocumentDraft,
 } from "@/hooks/use-documents";
+import { isDocumentCreationPending } from "@/lib/optimistic-document";
 
 import { documentBodyHydrationIsPending } from "./body-hydration";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -25,7 +26,14 @@ export function PageDraftRecovery({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const drafts = usePreviewDocumentDraft(document.id);
+  // Optimistic creation navigates to /page/<id> before create-document commits,
+  // so while that mark is set the row does not exist yet. Querying then fails
+  // with 403/404 and the error sticks — this query has retry: false and nothing
+  // refetches it after create succeeds.
+  const creationPending = isDocumentCreationPending(document);
+  const drafts = usePreviewDocumentDraft(document.id, {
+    enabled: !creationPending,
+  });
   const update = useUpdateDocument();
   const updateDraft = useUpdatePreviewDocumentDraft();
   const [releasedDocumentId, setReleasedDocumentId] = useState<string | null>(

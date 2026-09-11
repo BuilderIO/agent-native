@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
     baseDocumentUpdatedAt?: string | null;
     loadedContentWasEmpty?: number;
   },
+  draftQueryOptions: null as null | { enabled?: boolean } | undefined,
   update: vi.fn(),
   remove: vi.fn(),
   refetch: vi.fn(),
@@ -26,16 +27,20 @@ vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
   isDocumentUpdateConflict: (value: { conflict?: boolean }) =>
     value.conflict === true,
-  usePreviewDocumentDraft: () => ({
-    data: { draft: state.draft },
-    refetch: state.refetch,
-  }),
+  usePreviewDocumentDraft: (_id: string, options?: { enabled?: boolean }) => {
+    state.draftQueryOptions = options ?? null;
+    if (options?.enabled === false)
+      return { data: undefined, refetch: state.refetch };
+    return { data: { draft: state.draft }, refetch: state.refetch };
+  },
   useUpdateDocument: () => ({ mutateAsync: state.update }),
   useUpdatePreviewDocumentDraft: () => ({ mutateAsync: state.remove }),
 }));
 vi.mock("./DocumentEditorSkeleton", () => ({
-  DocumentEditorSkeleton: () => null,
+  DocumentEditorSkeleton: () => <div data-testid="editor-skeleton" />,
 }));
+import { markDocumentCreationPending } from "@/lib/optimistic-document";
+
 import { PageDraftRecovery } from "./PageDraftRecovery";
 
 describe("Page draft recovery", () => {
@@ -58,6 +63,7 @@ describe("Page draft recovery", () => {
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
+    state.draftQueryOptions = null;
     state.draft = {
       title: "Draft",
       content: "Draft body",
@@ -126,5 +132,42 @@ describe("Page draft recovery", () => {
     act(render);
     expect(container.querySelector("textarea")).toBe(editor);
     expect(container.textContent).not.toContain("editor.previewDraftRecovery");
+  });
+  it("does not query or surface draft errors while document creation is pending", () => {
+    const pending = markDocumentCreationPending({ ...page } as Document);
+    act(() =>
+      root.render(
+        <PageDraftRecovery document={pending}>
+          <textarea defaultValue="Live editor" />
+        </PageDraftRecovery>,
+      ),
+    );
+    expect(state.draftQueryOptions).toEqual({ enabled: false });
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+  it("queries the draft once document creation is no longer pending", () => {
+    const pending = markDocumentCreationPending({ ...page } as Document);
+    act(() =>
+      root.render(
+        <PageDraftRecovery document={pending}>
+          <textarea defaultValue="Live editor" />
+        </PageDraftRecovery>,
+      ),
+    );
+    expect(state.draftQueryOptions?.enabled).toBe(false);
+    state.draft = null;
+    act(() =>
+      root.render(
+        <PageDraftRecovery document={page}>
+          <textarea defaultValue="Live editor" />
+        </PageDraftRecovery>,
+      ),
+    );
+    expect(state.draftQueryOptions?.enabled).toBe(true);
+    expect(container.querySelector("textarea")).not.toBeNull();
   });
 });
