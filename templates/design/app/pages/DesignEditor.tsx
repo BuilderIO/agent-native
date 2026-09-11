@@ -15897,6 +15897,16 @@ function DesignEditor() {
     lockedLayerIds,
   ]);
 
+  const singleBlankScreenLayerPanelFiles = useMemo<
+    LayersPanelFile[] | undefined
+  >(() => {
+    if (viewMode === "overview" || activeLayerPanelNodes.length > 0) {
+      return undefined;
+    }
+    const active = layerPanelFiles.find((file) => file.id === activeFile?.id);
+    return active ? [{ ...active, layers: [] }] : undefined;
+  }, [activeFile?.id, activeLayerPanelNodes.length, layerPanelFiles, viewMode]);
+
   const selectedLayerIds = useMemo(() => {
     const validIds = new Set(
       (viewMode === "overview"
@@ -20053,10 +20063,11 @@ function DesignEditor() {
                     files={
                       viewMode === "overview"
                         ? overviewLayerPanelFiles
-                        : undefined
+                        : singleBlankScreenLayerPanelFiles
                     }
                     layers={
-                      viewMode === "overview"
+                      viewMode === "overview" ||
+                      singleBlankScreenLayerPanelFiles
                         ? undefined
                         : activeLayerPanelNodes
                     }

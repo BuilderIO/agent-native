@@ -56,6 +56,19 @@ describe("external design authoring catalog", () => {
   });
 });
 
+describe("design autosave tool coverage", () => {
+  it("treats screen renames as persisted design edits", () => {
+    const editToolsStart = agentChatSource.indexOf("const DESIGN_EDIT_TOOLS");
+    const fileTargetStart = agentChatSource.indexOf(
+      "const DESIGN_FILE_TARGET_TOOLS",
+    );
+
+    expect(agentChatSource.slice(editToolsStart, fileTargetStart)).toContain(
+      '"rename-screen"',
+    );
+  });
+});
+
 describe("select and reprompt agent contract", () => {
   it("keeps the preview-only rule in every always-visible instruction surface", () => {
     expect(agentChatSource).toContain(

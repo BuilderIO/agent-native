@@ -105,6 +105,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "insert-design-native-asset",
   "remove-breakpoint",
   "remove-motion-timeline",
+  "rename-screen",
   "swap-component-instance",
   "update-design",
   "update-file",
