@@ -1865,6 +1865,7 @@ const messages = {
       "{{consoleCount}} problemas de consola · {{networkCount}} solicitudes fallidas",
     noFailures: "No se detectaron fallos",
     failuresPresent: "Se detectaron fallos del navegador",
+    unviewedCount: "{{count}} sin ver",
     captureSuccessful: "Diagnósticos capturados correctamente",
     capturedFrom: "Capturado desde {{source}}",
     browserCapture: "Captura del navegador",

@@ -1,7 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
-import type { EmailMessage } from "@shared/types";
+import type { EmailMessage, Label } from "@shared/types";
 import {
   IconAlertCircle,
   IconArchive,
@@ -39,6 +39,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAccountFilter } from "@/hooks/use-account-filter";
 import {
   useEmails,
   useMarkRead,
@@ -56,6 +57,7 @@ import {
   EMPTY_LABELS,
   useMoveEmail,
   unsuppressThread,
+  type AccountError,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
@@ -89,6 +91,11 @@ interface EmailListProps {
   isLoading?: boolean;
   isFetching?: boolean;
   emailsError?: Error | null;
+  accountErrors?: AccountError[];
+  /** Override the labels this list renders chips from — the inbox view
+   * passes the same labels its tab bar used, so chips never disagree with
+   * the tab counts. Falls back to this component's own fetch otherwise. */
+  labels?: Label[];
   refetchEmails?: () => unknown;
   hasNextPage?: boolean;
   fetchNextPage?: () => Promise<unknown>;
@@ -366,6 +373,23 @@ function EmailErrorState({
   );
 }
 
+// One or more connected accounts failed to list this fetch — the rest of the
+// accounts still rendered, so this is a quiet inline row, not a red banner
+// (that treatment is reserved for a fetch that failed outright).
+function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
+  const t = useT();
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-border/30 bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground">
+      <IconAlertCircle className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">
+        {t("mail.error.someAccountsFailed", {
+          accounts: errors.map((e) => e.email).join(", "),
+        })}
+      </span>
+    </div>
+  );
+}
+
 // ─── Email List ─────────────────────────────────────────────────────────────
 
 export function EmailList({
@@ -373,6 +397,8 @@ export function EmailList({
   isLoading: isLoadingProp,
   isFetching: isFetchingProp,
   emailsError: emailsErrorProp,
+  accountErrors: accountErrorsProp,
+  labels: labelsProp,
   refetchEmails,
   hasNextPage: hasNextPageProp,
   fetchNextPage: fetchNextPageProp,
@@ -414,6 +440,7 @@ export function EmailList({
     fetchNextPage: fetchFetchedNextPage,
     isFetchingNextPage: fetchedEmailsFetchingNextPage,
     isFetchNextPageError: fetchedEmailsFetchNextPageError,
+    accountErrors: fetchedAccountErrors,
   } = useEmails(view, searchQuery, labelParam ?? undefined, {
     enabled: emailsProp === undefined,
   });
@@ -422,6 +449,7 @@ export function EmailList({
   const isLoading = isLoadingProp ?? fetchedEmailsLoading;
   const isFetching = isFetchingProp ?? fetchedEmailsFetching;
   const emailsError = emailsErrorProp ?? fetchedEmailsError;
+  const accountErrors = accountErrorsProp ?? fetchedAccountErrors;
   const refetch = refetchEmails ?? refetchFetchedEmails;
   const hasNextPage = hasNextPageProp ?? fetchedEmailsHasNextPage;
   const fetchNextPage = fetchNextPageProp ?? fetchFetchedNextPage;
@@ -445,8 +473,11 @@ export function EmailList({
   const bulkTrashEmails = useBulkTrashEmails();
   const bulkToggleStar = useBulkToggleStar();
   const bulkMarkRead = useBulkMarkRead();
-  const { data: labelsData } = useLabels();
-  const labels = labelsData ?? EMPTY_LABELS;
+  const { activeAccounts } = useAccountFilter();
+  const { data: labelsData } = useLabels(
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
+  );
+  const labels = labelsProp ?? labelsData ?? EMPTY_LABELS;
   const moveEmail = useMoveEmail();
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();
@@ -608,7 +639,14 @@ export function EmailList({
     onNavigateThread?.(targetThreadId);
     void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
-      setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
+      setTimeout(
+        () =>
+          markThreadRead.mutate({
+            threadId: targetThreadId,
+            accountEmail: thread.latestMessage.accountEmail,
+          }),
+        0,
+      );
     }
   }, [
     threads,
@@ -634,6 +672,10 @@ export function EmailList({
         )
         .filter((t): t is ThreadSummary => !!t);
       const emailIds = targets.map((t) => t.latestMessage.id);
+      const emailRefs = targets.map((t) => ({
+        id: t.latestMessage.id,
+        accountEmail: t.latestMessage.accountEmail,
+      }));
 
       // Move focus to the next non-selected thread (or previous if at end)
       const lastIdx = threads.findIndex(
@@ -687,7 +729,7 @@ export function EmailList({
             };
           },
         );
-        for (const id of emailIds) unarchiveEmail.mutate(id);
+        for (const ref of emailRefs) unarchiveEmail.mutate(ref);
       };
       setUndoAction(undo);
       toast(
@@ -751,7 +793,10 @@ export function EmailList({
           ),
         )
         .filter((t): t is ThreadSummary => !!t);
-      const emailIds = targets.map((t) => t.latestMessage.id);
+      const emailRefs = targets.map((t) => ({
+        id: t.latestMessage.id,
+        accountEmail: t.latestMessage.accountEmail,
+      }));
 
       // Move focus to the next non-selected thread
       const lastIdx = threads.findIndex(
@@ -795,7 +840,7 @@ export function EmailList({
             };
           },
         );
-        for (const id of emailIds) untrashEmail.mutate(id);
+        for (const ref of emailRefs) untrashEmail.mutate(ref);
       };
       setUndoAction(undo);
       toast(
@@ -816,7 +861,7 @@ export function EmailList({
           })),
         );
       } else {
-        for (const id of emailIds) trashEmail.mutate(id);
+        for (const ref of emailRefs) trashEmail.mutate(ref);
       }
       setSelectedIds(new Set());
     },
@@ -909,7 +954,10 @@ export function EmailList({
     const toMarkRead = targets.filter((t) => t.hasUnread);
     const toMarkUnread = targets.filter((t) => !t.hasUnread);
     for (const t of toMarkRead) {
-      markThreadRead.mutate(t.latestMessage.threadId || t.latestMessage.id);
+      markThreadRead.mutate({
+        threadId: t.latestMessage.threadId || t.latestMessage.id,
+        accountEmail: t.latestMessage.accountEmail,
+      });
     }
     if (toMarkUnread.length > 1) {
       bulkMarkRead.mutate({
@@ -940,7 +988,10 @@ export function EmailList({
 
   const markFocusedRead = useCallback(() => {
     for (const t of resolveTargets(getActionThreadKeys())) {
-      markThreadRead.mutate(t.latestMessage.threadId || t.latestMessage.id);
+      markThreadRead.mutate({
+        threadId: t.latestMessage.threadId || t.latestMessage.id,
+        accountEmail: t.latestMessage.accountEmail,
+      });
     }
     setSelectedIds(new Set());
   }, [markThreadRead, getActionThreadKeys, resolveTargets, setSelectedIds]);
@@ -1249,7 +1300,14 @@ export function EmailList({
       onNavigateThread?.(targetThreadId);
       void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
       if (thread.hasUnread) {
-        setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
+        setTimeout(
+          () =>
+            markThreadRead.mutate({
+              threadId: targetThreadId,
+              accountEmail: email.accountEmail,
+            }),
+          0,
+        );
       }
     },
     [
@@ -1277,7 +1335,10 @@ export function EmailList({
       e.stopPropagation();
       const email = thread.latestMessage;
       if (thread.hasUnread) {
-        markThreadRead.mutate(email.threadId || email.id);
+        markThreadRead.mutate({
+          threadId: email.threadId || email.id,
+          accountEmail: email.accountEmail,
+        });
       } else {
         markRead.mutate({
           id: email.id,
@@ -1379,6 +1440,7 @@ export function EmailList({
   const handleSwipeArchive = useCallback(
     (thread: ThreadSummary) => {
       const id = thread.latestMessage.id;
+      const accountEmail = thread.latestMessage.accountEmail;
       const tid = thread.latestMessage.threadId || id;
 
       setSelectedIds(new Set());
@@ -1416,7 +1478,7 @@ export function EmailList({
             };
           },
         );
-        unarchiveEmail.mutate(id);
+        unarchiveEmail.mutate({ id, accountEmail });
       };
       setUndoAction(undo);
       toast(t("mail.toasts.archived"), {
@@ -1732,11 +1794,17 @@ export function EmailList({
         </div>
       );
     }
-    if (view === "inbox" || view === "important" || labelParam) {
+    if (
+      (view === "inbox" || view === "important" || labelParam) &&
+      !accountErrors?.length
+    ) {
       return <InboxZero />;
     }
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
+        {!!accountErrors?.length && (
+          <AccountErrorsNotice errors={accountErrors} />
+        )}
         <div className="flex flex-1 flex-col items-center justify-center">
           <div className="text-center px-8">
             <p className="text-sm font-medium text-foreground/80">
@@ -1770,6 +1838,9 @@ export function EmailList({
 
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
+      {!!accountErrors?.length && (
+        <AccountErrorsNotice errors={accountErrors} />
+      )}
       <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
         <AiFilterDialog
           open={!!aiFilterDialog}

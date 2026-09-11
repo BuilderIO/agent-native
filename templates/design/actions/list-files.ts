@@ -13,6 +13,7 @@ export default defineAction({
     designId: z.string().describe("Design project ID"),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   run: async ({ designId }) => {
     // Verify access to the parent design

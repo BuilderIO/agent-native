@@ -12,8 +12,13 @@ import {
   chainServerDrivenContinuation,
   isLoopProtectionDispatchError,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
+  AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD,
+  AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD,
+  AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD,
   AGENT_CHAT_TURN_INPUT_TOKENS_FIELD,
   resolveContinuationDispatchBudget,
+  resolvePriorContinuationReason,
+  resolvePriorContinuationState,
   resolveSelfChainContinuationBudget,
   SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
   type BackgroundNoProgressRepeat,
@@ -82,6 +87,17 @@ function recoverableErrorBoundaryRun(): ActiveRun {
       type: "error",
       error: "Provider connection failed",
       errorCode: "provider_failed",
+      recoverable: true,
+    },
+  ]);
+}
+
+function rateLimitedBoundaryRun(): ActiveRun {
+  return makeRun([
+    {
+      type: "error",
+      error: "429 status code (no body)",
+      errorCode: "http_429",
       recoverable: true,
     },
   ]);
@@ -223,8 +239,15 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     const payload = JSON.parse(insertOptions.dispatchPayload);
     expect(payload.internalContinuation).toBe(true);
     expect(payload.message).toBe("a very large user message");
-    // …with the finished chunk's own marker stripped.
+    // …with the finished chunk's own marker stripped…
     expect(payload[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toBeUndefined();
+    // …but this chunk's continuationReason still rides the body, because a
+    // stale-run/unclaimed-run recovery redispatch only ever delivers a
+    // skeleton `{ runId, payloadRef: true }` marker and rehydrates the rest
+    // from this same persisted payload — see `resolvePriorContinuationReason`.
+    expect(payload[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]).toBe(
+      "run_timeout",
+    );
 
     // The chunk is marked terminal ONLY after the handoff landed.
     expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalledWith(
@@ -303,6 +326,41 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     expect(dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
       noProgressErrorCode: "builder_gateway_internal_error",
       noProgressCount: 1,
+    });
+    // Same companion-field treatment as `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD`:
+    // a stale-run/unclaimed-run recovery redispatch only delivers a skeleton
+    // marker, so the streak must also ride the persisted body — see
+    // `resolvePriorContinuationState`.
+    const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
+    const payload = JSON.parse(insertOptions.dispatchPayload);
+    expect(payload[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]).toBe(
+      "builder_gateway_internal_error",
+    );
+    expect(payload[AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]).toBe(1);
+  });
+
+  it("omits the no-progress body companion fields when the chunk made progress", async () => {
+    const h = makeHarness();
+    await runChain(h, { noProgressRepeat: { count: 0, tripped: false } });
+
+    const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
+    const payload = JSON.parse(insertOptions.dispatchPayload);
+    expect(
+      payload[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD],
+    ).toBeUndefined();
+    expect(payload[AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]).toBeUndefined();
+  });
+
+  it("labels the successor marker's continuationReason as rate_limited for an http_429 boundary", async () => {
+    const h = makeHarness();
+    await runChain(h, { run: rateLimitedBoundaryRun() });
+
+    const dispatch = (h.deps.fireInternalDispatch as any).mock.calls[0][0];
+    // This is exactly the field the NEXT chunk reads back as
+    // `priorContinuationReason` to decide whether the rate-limit chain cap
+    // applies — see `shouldChainBackgroundContinuation` in production-agent.ts.
+    expect(dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
+      continuationReason: "rate_limited",
     });
   });
 
@@ -956,6 +1014,80 @@ describe("chainServerDrivenContinuation — per-turn token total is carried to t
     const insertOpts = (h.deps.insertRun as any).mock.calls[0][3];
     expect(JSON.parse(insertOpts.dispatchPayload)).toMatchObject({
       [AGENT_CHAT_TURN_INPUT_TOKENS_FIELD]: 1_234_567,
+    });
+  });
+});
+
+describe("resolvePriorContinuationReason", () => {
+  it("reads continuationReason straight off a normal chain-hop marker", () => {
+    expect(
+      resolvePriorContinuationReason(
+        { continuationReason: "rate_limited" },
+        {},
+      ),
+    ).toBe("rate_limited");
+  });
+
+  it("falls back to the body's stashed reason for a payloadRef redelivery whose marker has none", () => {
+    // A stale-run recovery or unclaimed-run redispatch delivers only
+    // `{ runId, payloadRef: true }` — no continuationReason — and rehydrates
+    // the rest of the request from the run row's stored `dispatch_payload`,
+    // which is where `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD` lives.
+    expect(
+      resolvePriorContinuationReason(
+        { runId: "run-1", payloadRef: true },
+        { [AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]: "rate_limited" },
+      ),
+    ).toBe("rate_limited");
+  });
+
+  it("returns undefined when neither the marker nor the body carries a reason", () => {
+    expect(resolvePriorContinuationReason(null, {})).toBeUndefined();
+    expect(
+      resolvePriorContinuationReason({ runId: "run-1" }, {}),
+    ).toBeUndefined();
+  });
+});
+
+describe("resolvePriorContinuationState", () => {
+  it("resolves priorNoProgressErrorCode/priorNoProgressCount from the body for a skeleton-marker redelivery", () => {
+    // Same shape as a real stale-run/unclaimed-run recovery redispatch: the
+    // delivered marker carries only `{ runId, payloadRef: true }`, and the
+    // no-progress streak has to come from the run row's persisted
+    // `dispatch_payload` instead — see the companion fields' doc comment.
+    const state = resolvePriorContinuationState(
+      { runId: "run-1", payloadRef: true },
+      {
+        [AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]: "rate_limited",
+        [AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]:
+          "builder_gateway_internal_error",
+        [AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]: 1,
+      },
+    );
+    expect(state).toEqual({
+      continuationReason: "rate_limited",
+      noProgressErrorCode: "builder_gateway_internal_error",
+      noProgressCount: 1,
+    });
+  });
+
+  it("prefers the marker over the body when both carry the no-progress streak", () => {
+    const state = resolvePriorContinuationState(
+      { noProgressErrorCode: "http_429", noProgressCount: 2 },
+      {
+        [AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]: "stale_body_value",
+        [AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]: 99,
+      },
+    );
+    expect(state.noProgressErrorCode).toBe("http_429");
+    expect(state.noProgressCount).toBe(2);
+  });
+
+  it("defaults noProgressCount to 0 when neither the marker nor the body carries it", () => {
+    expect(resolvePriorContinuationState(null, {})).toEqual({
+      continuationReason: undefined,
+      noProgressErrorCode: undefined,
+      noProgressCount: 0,
     });
   });
 });

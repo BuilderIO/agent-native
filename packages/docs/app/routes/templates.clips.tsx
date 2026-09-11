@@ -386,8 +386,11 @@ export default function ClipsTemplate() {
             rel="noopener noreferrer"
             // Same optical fix as the hero CTA: the trailing arrow's ink
             // sits top-right in its box, so the default 6px gap still reads
-            // as extra space after the icon.
-            style={{ gap: "3px" }}
+            // as extra space after the icon. fontSize/textTransform match
+            // the hero's .primary-button (uppercase 12px mono, via the
+            // .template-detail-page CSS rule), which only applies inside
+            // the hero wrapper — this button sits outside it.
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
             onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("try live demo", {

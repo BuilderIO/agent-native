@@ -390,6 +390,8 @@ const messages: AgentChatTranslation = {
     "モデルプロバイダーに接続できませんでした。接続を確認して再試行してください。",
   "errorMessages.providerRateLimit":
     "現在、モデルプロバイダーがこのチャットのリクエスト数を制限しています。少し待ってから再試行してください。",
+  "errorMessages.providerTransientRejection":
+    "AIプロバイダーがこのリクエストを一時的に拒否しました。通常は1分以内に解消するので、再試行してください。",
   "errorMessages.startNewChat": "新しいチャットを開始",
   "errorMessages.upgradeAtBuilder": "Builder.io でアップグレード",
   "feedback.inaccurate": "不正確",

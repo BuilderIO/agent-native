@@ -89,7 +89,7 @@ Sept fonctionnalités, toutes situées au-dessus de la même base de données d'
 
 | Capacité                              | Ce que cela vous donne                                                                                 | Configurez-le                                                                    |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| **Boîte de réception centrale**       | Slack, e-mail, Telegram, WhatsApp atteignent tous un seul agent avec mémoire partagée + outils         | **Paramètres → Messagerie** ([Messaging](/docs/messaging))                       |
+| **Boîte de réception centrale**       | Slack, e-mail, Telegram, WhatsApp atteignent tous un seul agent avec mémoire partagée + outils         | **Administration → Messagerie** ([Messaging](/docs/messaging))                       |
 | **Coffre secret**                     | Stockez chaque identifiant une fois ; effectuer une rotation au même endroit dans chaque application   | **Vault** + mode d'accès (toutes les applications ou manuel)                     |
 | **Délégation inter-applications**     | Achemine une demande vers la bonne application spécialisée via A2A et répond dans le fil de discussion | Automatique ([A2A](/docs/a2a-protocol))                                          |
 | **Passerelle unifiée MCP**            | Un connecteur MCP pour les agents externes atteint chaque application d'espace de travail accordée     | [External Agents](/docs/external-agents)                                         |
@@ -101,7 +101,7 @@ Chacun est détaillé ci-dessous.
 
 ### Boîte de réception centrale
 
-Slack, les e-mails, Telegram et WhatsApp circulent tous dans la boucle des agents de Dispatch. Connectez chaque plateforme une fois dans **Paramètres → Messagerie** et chaque canal atteint le même agent avec la même mémoire et les mêmes outils. Un DM Slack et un e-mail adressé à `agent@yourcompany.com` se transforment en deux surfaces sur un seul historique de conversation, et non en deux robots déconnectés. Voir [Messaging](/docs/messaging) pour les informations d'identification et le webhook URL.
+Slack, les e-mails, Telegram et WhatsApp circulent tous dans la boucle des agents de Dispatch. Connectez chaque plateforme une fois dans **Administration → Messagerie** et chaque canal atteint le même agent avec la même mémoire et les mêmes outils. Un DM Slack et un e-mail adressé à `agent@yourcompany.com` se transforment en deux surfaces sur un seul historique de conversation, et non en deux robots déconnectés. Voir [Messaging](/docs/messaging) pour les informations d'identification et le webhook URL.
 
 ### Coffre secret
 
@@ -256,7 +256,7 @@ L'ensemble du pipeline est conçu pour survivre sur chaque hôte sans serveur (N
 Trois courtes étapes :
 
 1. **Élaborez un espace de travail qui inclut Dispatch.** Exécutez `npx @agent-native/core@latest create my-company-platform` et choisissez `dispatch` à côté des modèles de domaine de votre choix. Dispatch vit à `apps/dispatch` et le reste des applications se trouve à côté. Voir [Multi-App Workspace](/docs/multi-app-workspace).
-2. **Connectez la messagerie.** Ouvrez **Paramètres → Messagerie** dans Dispatch et cliquez sur Connecter pour Slack, Email, Telegram ou WhatsApp. Les champs du formulaire correspondent aux variables d'environnement dans le document [Messaging](/docs/messaging) – reportez-vous ici pour connaître les besoins de chaque plate-forme.
+2. **Connectez la messagerie.** Ouvrez **Administration → Messagerie** dans Dispatch et cliquez sur Connecter pour Slack, Email, Telegram ou WhatsApp. Les champs du formulaire correspondent aux variables d'environnement dans le document [Messaging](/docs/messaging) – reportez-vous ici pour connaître les besoins de chaque plate-forme.
 3. **Ajoutez d'autres applications.** Exécutez `npx @agent-native/core@latest add-app` à partir de la racine de l'espace de travail pour chaque application de domaine. Ils apparaissent automatiquement en tant que pairs A2A dans `list-workspace-apps` de Dispatch — pas d'enregistrement manuel, pas de modification de la carte d'agent. Dispatch commencera à leur déléguer dès que leurs cartes d'agent seront accessibles.
 
 Ajoutez ensuite les informations d'identification au coffre-fort et (éventuellement) créez des ressources d'espace de travail globales sous **Ressources**. Les clés du coffre-fort peuvent toujours être synchronisées ou accordées en fonction du mode d'accès ; Les ressources de l’espace de travail de toutes les applications sont héritées automatiquement. Si vous avez besoin d'une isolation secrète par application, définissez le paramètre d'accès au coffre-fort sur manuel avant d'accorder des applications individuelles.

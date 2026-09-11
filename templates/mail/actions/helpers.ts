@@ -148,7 +148,7 @@ import {
   createOAuth2Client,
   gmailListLabels,
 } from "../server/lib/google-api.js";
-import { getOAuth2Credentials } from "../server/lib/google-auth.js";
+import { getClients, getOAuth2Credentials } from "../server/lib/google-auth.js";
 
 interface TokenRecord {
   access_token: string;
@@ -197,6 +197,19 @@ export async function getAccessTokens(): Promise<
 > {
   const ownerEmail = await resolveOwnerEmail();
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+
+  // No per-user OAuth rows — the owner may still be connected through the
+  // managed workspace Gmail grant. getClients already carries that exact
+  // fallback (see getClientsWithErrors), so reuse it instead of
+  // re-resolving the workspace connection here.
+  if (accounts.length === 0) {
+    const managedClients = await getClients(ownerEmail);
+    return managedClients.map(({ email, accessToken }) => ({
+      email,
+      accessToken,
+    }));
+  }
+
   const results: Array<{ email: string; accessToken: string }> = [];
 
   for (const account of accounts) {

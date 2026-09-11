@@ -24,6 +24,9 @@ const messages = {
       extensions: "Erweiterungen",
       noteToSelf: "Notiz an mich",
     },
+    inbox: {
+      syncing: "Posteingang wird synchronisiert…",
+    },
     toolbar: {
       toggleMenu: "Menü umschalten",
       menu: "Menu",
@@ -315,6 +318,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "Konnte nicht laden: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Google-Konto verbinden",
