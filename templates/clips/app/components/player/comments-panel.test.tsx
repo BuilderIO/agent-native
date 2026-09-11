@@ -266,23 +266,28 @@ describe("CommentsPanel reply composer", () => {
     expect(container.querySelector("kbd")?.textContent).toBe("Enter");
   });
 
-  it("keeps inline comments scrollable with the composer available", () => {
+  it("keeps inline comments scrollable with the composer available, at every width", () => {
+    // Both recording routes render CommentsPanel with presentation="inline"
+    // inside the shared RecordingSidePanel rail, which is a fixed
+    // h-[min(420px,55dvh)] overflow-hidden box below the lg breakpoint too
+    // (not just at lg). Gating the scroll container behind lg: left that
+    // box with no way to scroll on mobile - content past 420px was just
+    // clipped. The scroll classes must apply unconditionally, matching the
+    // sibling transcript tab and the (dead) "default" preset.
     renderPanel("viewer@example.com", [rootComment], "inline");
 
     const panel = container.firstElementChild as HTMLElement | null;
     const listRegion = container.querySelector("ul")?.parentElement;
 
-    expect(panel?.className).toContain("lg:h-full");
-    expect(listRegion?.className).toContain("lg:overflow-y-auto");
-    expect(listRegion?.className).toContain("lg:overscroll-contain");
+    expect(panel?.className).toContain("h-full");
+    expect(panel?.className).not.toMatch(/\blg:h-full\b/);
+    expect(listRegion?.className).toContain("overflow-y-auto");
+    expect(listRegion?.className).not.toMatch(/\blg:overflow-y-auto\b/);
+    expect(listRegion?.className).toContain("overscroll-contain");
+    expect(listRegion?.className).not.toMatch(/\blg:overscroll-contain\b/);
   });
 
-  it("scrolls the default (sidebar) preset at every width, not just lg", () => {
-    // Only the "inline" preset gates its scroll container behind lg: (the
-    // conversation flow next to the player). The default preset - used by
-    // both the desktop and mobile/compact recording side panels - scrolls
-    // unconditionally, so the mobile rail does not need its own lg-scoped
-    // overflow class to be scrollable.
+  it("scrolls the default (sidebar) preset at every width too", () => {
     renderPanel("viewer@example.com", [rootComment], "default");
 
     const listRegion = container.querySelector("ul")?.parentElement;
