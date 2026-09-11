@@ -1,6 +1,7 @@
 import { getRotatedFrameCorners } from "./canvas-math.js";
 import {
   getResponsiveGroupHeight,
+  getResponsiveGroupWidth,
   visibleBreakpointWidths,
 } from "./responsive-frame-layout.js";
 
@@ -202,6 +203,13 @@ export function nextFreeCanvasRowY(
       metadataWidth ?? width,
     );
     const scale = primaryWidth / sourceWidth;
+    const paintedWidth = responsiveLayout
+      ? getResponsiveGroupWidth({
+          primaryWidth,
+          scale,
+          visibleWidths,
+        })
+      : width;
     const paintedHeight = responsiveLayout
       ? getResponsiveGroupHeight({
           primaryHeight,
@@ -213,17 +221,26 @@ export function nextFreeCanvasRowY(
       : height;
     // A rotated frame's visual box extends below y + height; place under its
     // rotated corners so the new row cannot overlap it. Responsive previews
-    // are not rotated independently, so the primary bounds remain the safe
-    // fallback for rotated legacy placements.
-    const frameBottom = !rotation
-      ? y + paintedHeight
-      : Number.isFinite(x) && Number.isFinite(width)
-        ? Math.max(
-            ...getRotatedFrameCorners({ x, y, width, height, rotation }).map(
-              (corner) => corner.y,
-            ),
-          )
-        : y + paintedHeight;
+    // rotate with the primary around its center, so use their full group
+    // footprint around that same pivot.
+    let frameBottom: number;
+    if (!rotation) {
+      frameBottom = y + paintedHeight;
+    } else if (responsiveLayout) {
+      const radians = (rotation * Math.PI) / 180;
+      const rotatedHeight =
+        paintedWidth * Math.abs(Math.sin(radians)) +
+        paintedHeight * Math.abs(Math.cos(radians));
+      frameBottom = y + height / 2 + rotatedHeight / 2;
+    } else if (Number.isFinite(x) && Number.isFinite(width)) {
+      frameBottom = Math.max(
+        ...getRotatedFrameCorners({ x, y, width, height, rotation }).map(
+          (corner) => corner.y,
+        ),
+      );
+    } else {
+      frameBottom = y + paintedHeight;
+    }
     bottom = Math.max(bottom, frameBottom);
   }
   return sawFrame ? bottom + gap : 0;

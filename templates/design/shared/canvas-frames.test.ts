@@ -165,6 +165,23 @@ describe("nextFreeCanvasRowY", () => {
     ).toBeCloseTo(96 + (1440 * 844) / 390);
   });
 
+  it("clears rotated responsive previews using their full footprint", () => {
+    const existing = {
+      mobile: { x: 0, y: 0, width: 390, height: 844, rotation: 90 },
+    };
+    const responsiveWidth = 390 + 24 + 768 + 24 + 1440;
+    expect(
+      nextFreeCanvasRowY(existing, 96, {
+        responsiveLayout: {
+          screenMetadataByFileId: {
+            mobile: { width: 390, height: 844 },
+          },
+          breakpointWidths: [390, 768, 1440],
+        },
+      }),
+    ).toBeCloseTo(96 + 844 / 2 + responsiveWidth / 2);
+  });
+
   it("ignores the frames being rewritten so a re-run stays put", () => {
     const existing = {
       keep: { x: 0, y: 0, width: 390, height: 500 },
