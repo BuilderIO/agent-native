@@ -296,9 +296,13 @@ export function classifyProviderError(
   // A 403 with a real status but no reason worth reading — the gateway
   // load-shedding signature, not a revoked credential. Checked against both
   // the cause chain and the raw provider message for the same reason
-  // `isConnectionError` is.
+  // `isConnectionError` is. This helper also serves the direct provider
+  // adapters, whose SDKs can say `isRetryable: false` outright; that verdict
+  // outranks the inference, so an opaque but explicitly final 403 from a
+  // direct provider keeps `http_403` and the credential-rejected lane.
   const isBareRejection =
     statusCode === 403 &&
+    providerError?.isRetryable !== false &&
     (isBareProviderRejectionMessage(described) ||
       isBareProviderRejectionMessage(
         typeof providerError?.message === "string"

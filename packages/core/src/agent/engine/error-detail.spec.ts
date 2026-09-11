@@ -286,6 +286,18 @@ describe("isProviderConnectionErrorMessage", () => {
   });
 });
 
+describe("classifyProviderError explicit non-retryable 403", () => {
+  it("keeps http_403 when the SDK says an opaque 403 is not retryable", () => {
+    const err = Object.assign(new Error("Forbidden"), {
+      statusCode: 403,
+      isRetryable: false,
+    });
+    const classified = classifyProviderError(err);
+    expect(classified.errorCode).toBe("http_403");
+    expect(classified.providerRetryable).toBe(false);
+  });
+});
+
 describe("isBareProviderRejectionMessage", () => {
   it("matches an SDK/proxy status echo with no reason", () => {
     expect(isBareProviderRejectionMessage("")).toBe(true);
