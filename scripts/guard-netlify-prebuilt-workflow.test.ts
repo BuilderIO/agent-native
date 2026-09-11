@@ -1699,7 +1699,7 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("restores cutover state before failure lock cleanup", () => {
+  it("restores the previous deploy before failure lock cleanup", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
@@ -1769,7 +1769,14 @@ describe("production Netlify site concurrency guard", () => {
       /!process\.env\.cutoverPublishedDeployId/,
     );
     assert.match(String(cleanup?.run), /currentDeployId === newDeployId/);
-    assert.match(String(cleanup?.run), /newly published deploy/);
+    assert.match(String(cleanup?.run), /\/restore/);
+    assert.match(String(cleanup?.run), /waitForPublished/);
+    assert.match(String(cleanup?.run), /finally/);
+    assert.match(
+      String(cleanup?.run),
+      /restoreLockState\(\s*newDeployId,\s*"true"/,
+    );
+    assert.match(String(cleanup?.run), /Restored previous production deploy/);
   });
 
   it("records cutover acquisition before pause verification", () => {

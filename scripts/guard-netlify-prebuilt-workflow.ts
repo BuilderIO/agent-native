@@ -972,12 +972,20 @@ if (
   !reusable.slice(cleanupStart).includes("cutoverPublishedDeployId") ||
   !reusable.slice(cleanupStart).includes("cutoverNewDeployId") ||
   !reusable.slice(cleanupStart).includes("cutoverWasLocked") ||
-  !reusable.slice(cleanupStart).includes("/lock") ||
+  !reusable
+    .slice(cleanupStart)
+    .includes('const action = expectedLocked ? "lock" : "unlock"') ||
+  !reusable.slice(cleanupStart).includes("/restore") ||
+  !reusable.slice(cleanupStart).includes("waitForPublished") ||
+  !reusable.slice(cleanupStart).includes("finally") ||
+  !/restoreLockState\(\s*newDeployId,\s*"true"/.test(
+    reusable.slice(cleanupStart),
+  ) ||
   !reusable.slice(cleanupStart).includes("currentDeployId === newDeployId") ||
-  !reusable.slice(cleanupStart).includes("newly published deploy")
+  !reusable.slice(cleanupStart).includes("Restored previous production deploy")
 ) {
   issues.push(
-    `${reusablePath} must pause automatic builds before cutover, lock the new published deploy, and fail-safe the production lock after cutover errors`,
+    `${reusablePath} must pause automatic builds before cutover, restore the prior deploy, lock the failed deploy, and fail-safe the production lock after cutover errors`,
   );
 }
 const pause = reusable.slice(pauseStart, unlockStart);
