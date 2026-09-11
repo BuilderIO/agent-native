@@ -384,7 +384,7 @@ async function insertBatch(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        skipInvalidRows: false,
+        skipInvalidRows: true,
         ignoreUnknownValues: false,
         rows: rows.map((row) => ({
           insertId: typeof row.id === "string" ? row.id : undefined,

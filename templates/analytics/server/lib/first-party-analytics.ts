@@ -21,6 +21,7 @@ import {
   firstPartyCacheKey,
   withFirstPartyCache,
 } from "./first-party-analytics-cache.js";
+import { isFirstPartyAnalyticsDeliveryQueueMissingError } from "./first-party-analytics-delivery.js";
 import {
   classifyFirstPartyAnalyticsQuery,
   queryOutcomeFromError,
@@ -108,6 +109,60 @@ function randomHex(bytes: number): string {
 
 function id(prefix: string): string {
   return `${prefix}_${randomHex(12)}`;
+}
+
+async function persistBigQueryRowsWithMigrationFallback(
+  db: any,
+  rows: Array<{
+    id: string;
+    ownerEmail: string;
+    orgId: string | null;
+    [key: string]: unknown;
+  }>,
+  table: string | null,
+  scope: AnalyticsScope,
+  receivedAt: string,
+): Promise<void> {
+  try {
+    await db.transaction(async (tx: any) => {
+      await tx.insert(schema.analyticsEvents).values(rows);
+      await tx.insert(schema.analyticsBigQueryDeliveryQueue).values(
+        rows.map((row) => ({
+          eventId: row.id,
+          ownerEmail: row.ownerEmail,
+          orgId: row.orgId,
+          tableRef: table,
+          nextAttemptAt: receivedAt,
+          createdAt: receivedAt,
+          updatedAt: receivedAt,
+        })),
+      );
+    });
+  } catch (error) {
+    if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
+
+    console.error(
+      "[first-party-analytics] Delivery queue migration is pending; retaining event in Postgres and attempting direct BigQuery delivery:",
+      error,
+    );
+    await db.transaction(async (tx: any) => {
+      await tx.insert(schema.analyticsEvents).values(rows);
+    });
+    try {
+      await runWithRequestContext(
+        {
+          userEmail: scope.userEmail,
+          orgId: scope.orgId ?? undefined,
+        },
+        () => insertFirstPartyAnalyticsRows(rows, table),
+      );
+    } catch (deliveryError) {
+      console.error(
+        "[first-party-analytics] BigQuery fallback delivery failed; Postgres event retained:",
+        deliveryError,
+      );
+    }
+  }
 }
 
 export function generateAnalyticsPublicKey(): string {
@@ -611,38 +666,33 @@ export async function recordAnalyticsEvents(
   let persistenceError: unknown = null;
   if (rows.length) {
     try {
-      await db.transaction(async (tx: any) => {
-        if (backend.sink === "bigquery") {
-          // BigQuery-mode events stay in SQL until the scheduled worker confirms
-          // delivery. This is the recoverable boundary after warehouse cutover.
+      if (backend.sink === "bigquery") {
+        // BigQuery-mode events stay in SQL until the scheduled worker confirms
+        // delivery. This is the recoverable boundary after warehouse cutover.
+        await persistBigQueryRowsWithMigrationFallback(
+          db,
+          rows,
+          backend.table,
+          { userEmail: key.ownerEmail, orgId: key.orgId ?? null },
+          receivedAt,
+        );
+      } else {
+        await db.transaction(async (tx: any) => {
+          if (backend.sink === "postgres" || backend.sink === "dual") {
+            await reserveFirstPartyPostgresEventVolume(
+              tx,
+              {
+                ownerEmail: key.ownerEmail,
+                orgId: key.orgId ?? null,
+                receivedAt,
+              },
+              rows.length,
+            );
+          }
           await tx.insert(schema.analyticsEvents).values(rows);
-          await tx.insert(schema.analyticsBigQueryDeliveryQueue).values(
-            rows.map((row: (typeof rows)[number]) => ({
-              eventId: row.id,
-              ownerEmail: row.ownerEmail,
-              orgId: row.orgId,
-              tableRef: backend.table,
-              nextAttemptAt: receivedAt,
-              createdAt: receivedAt,
-              updatedAt: receivedAt,
-            })),
-          );
-          return;
-        }
-        if (backend.sink === "postgres" || backend.sink === "dual") {
-          await reserveFirstPartyPostgresEventVolume(
-            tx,
-            {
-              ownerEmail: key.ownerEmail,
-              orgId: key.orgId ?? null,
-              receivedAt,
-            },
-            rows.length,
-          );
-        }
-        await tx.insert(schema.analyticsEvents).values(rows);
-        await upsertFirstPartyAnalyticsRollups(rows, tx);
-      });
+          await upsertFirstPartyAnalyticsRollups(rows, tx);
+        });
+      }
     } catch (error) {
       // Preserve SQL-only exception issues and public-key metadata below even
       // when a Postgres volume reservation or insert rejects the batch.

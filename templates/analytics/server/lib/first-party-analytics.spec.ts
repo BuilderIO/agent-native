@@ -20,6 +20,9 @@ const backendMocks = vi.hoisted(() => ({
 const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
 }));
+const deliveryMocks = vi.hoisted(() => ({
+  queueMissing: vi.fn(),
+}));
 const analyticsDbMocks = vi.hoisted(() => {
   const getDb = vi.fn();
   const selectLimit = vi.fn();
@@ -82,6 +85,9 @@ vi.mock("./first-party-analytics-health.js", () => ({
   queryOutcomeFromError: healthMocks.outcome,
   recordFirstPartyAnalyticsQueryPressure: healthMocks.record,
 }));
+vi.mock("./first-party-analytics-delivery.js", () => ({
+  isFirstPartyAnalyticsDeliveryQueueMissingError: deliveryMocks.queueMissing,
+}));
 vi.mock("./first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsBackend: backendMocks.get,
   getFirstPartyAnalyticsTable: backendMocks.table,
@@ -104,6 +110,7 @@ beforeEach(() => {
   execute.mockReset();
   analyticsDbMocks.getDb.mockReset();
   analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
+  analyticsDbMocks.db.transaction.mockClear();
   analyticsDbMocks.selectLimit.mockReset();
   analyticsDbMocks.insertValues.mockReset();
   analyticsDbMocks.insertOnConflictDoNothing.mockReset();
@@ -133,6 +140,8 @@ beforeEach(() => {
   backendMocks.insert.mockReset();
   backendMocks.query.mockReset();
   exceptionMocks.ingest.mockReset();
+  deliveryMocks.queueMissing.mockReset();
+  deliveryMocks.queueMissing.mockReturnValue(false);
   backendMocks.get.mockResolvedValue({
     sink: "postgres",
     table: null,
@@ -390,6 +399,30 @@ describe("recordAnalyticsEvents", () => {
       }),
     ]);
     expect(rollupMocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("retains events while the delivery queue migration is pending", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+    deliveryMocks.queueMissing.mockReturnValueOnce(true);
+    analyticsDbMocks.db.transaction.mockRejectedValueOnce(
+      new Error('relation "analytics_bigquery_delivery_queue" does not exist'),
+    );
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).resolves.toMatchObject({ accepted: 1 });
+
+    expect(analyticsDbMocks.db.transaction).toHaveBeenCalledTimes(2);
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
+    expect(backendMocks.insert).toHaveBeenCalledWith(
+      [expect.objectContaining({ eventName: "pageview" })],
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
   });
 
   it("enforces the Postgres volume limit during dual writes", async () => {

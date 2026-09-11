@@ -508,6 +508,9 @@ describe("first-party BigQuery backend", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
+      JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
+    ).toMatchObject({ skipInvalidRows: true, ignoreUnknownValues: false });
+    expect(
       JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string).rows,
     ).toHaveLength(200);
     expect(
