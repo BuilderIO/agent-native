@@ -277,6 +277,20 @@ describe("CommentsPanel reply composer", () => {
     expect(listRegion?.className).toContain("lg:overscroll-contain");
   });
 
+  it("scrolls the default (sidebar) preset at every width, not just lg", () => {
+    // Only the "inline" preset gates its scroll container behind lg: (the
+    // conversation flow next to the player). The default preset - used by
+    // both the desktop and mobile/compact recording side panels - scrolls
+    // unconditionally, so the mobile rail does not need its own lg-scoped
+    // overflow class to be scrollable.
+    renderPanel("viewer@example.com", [rootComment], "default");
+
+    const listRegion = container.querySelector("ul")?.parentElement;
+
+    expect(listRegion?.className).toContain("overflow-y-auto");
+    expect(listRegion?.className).not.toMatch(/\blg:overflow-y-auto\b/);
+  });
+
   it("opens account creation when a signed-out viewer activates the composer", () => {
     const onUnauthenticated = vi.fn();
 

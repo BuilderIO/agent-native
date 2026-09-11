@@ -297,11 +297,14 @@ describe("direct recording route shell cue", () => {
     // resolves. Gating on `recording?.enableComments` alone reads that as
     // falsy and drops the jump-to-comment link into "transcript" before the
     // data ever loads. Only the loaded-and-disabled case should fall back.
-    expect(effect).not.toContain(
+    // oxfmt may wrap the setPanel(...) call across lines, so match on the
+    // normalized (whitespace-collapsed) source instead of an exact literal.
+    const normalizedEffect = effect.replace(/\s+/g, " ");
+    expect(normalizedEffect).not.toContain(
       'setPanel(recording?.enableComments ? "comments" : "transcript")',
     );
-    expect(effect).toContain(
-      'setPanel(recording && !recording.enableComments ? "transcript" : "comments")',
+    expect(normalizedEffect).toContain(
+      'setPanel( recording && !recording.enableComments ? "transcript" : "comments", )',
     );
   });
 

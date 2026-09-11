@@ -694,7 +694,10 @@ export default function ShareRoute() {
   const recording = dataQ.data?.data?.recording;
   useEffect(() => {
     if (panelParam !== "comments") return;
-    if (recording && !recording.enableComments) return;
+    if (recording && !recording.enableComments) {
+      setPanel("transcript");
+      return;
+    }
     selectCommentsPanel();
   }, [panelParam, recording?.enableComments, selectCommentsPanel]);
   const {

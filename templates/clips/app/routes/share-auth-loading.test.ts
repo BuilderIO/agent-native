@@ -277,7 +277,13 @@ describe("authenticated recording route loading", () => {
     );
     const effectStart = shareRoute.indexOf('if (panelParam !== "comments")');
     expect(effectStart).toBeGreaterThan(-1);
-    const effect = shareRoute.slice(effectStart, effectStart + 200);
+    const effect = shareRoute.slice(effectStart, effectStart + 250);
     expect(effect).toContain("selectCommentsPanel();");
+
+    // A share whose owner disabled comments after the link was shared must
+    // land back on transcript - the comments tab and its content are both
+    // conditionally rendered on recording.enableComments, so leaving `panel`
+    // set to "comments" here would strand the Tabs value on nothing.
+    expect(effect).toContain('setPanel("transcript");');
   });
 });
