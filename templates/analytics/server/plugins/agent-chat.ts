@@ -423,6 +423,9 @@ function configuredDataSourceLabels(
 const UNVERIFIED_DRAFT_RETRY_INSTRUCTION =
   ' If you cannot run a query, restate every number, count, or trend in the draft as explicitly unverified (prefix the sentence with "Unverified:") rather than asserting it.';
 
+const PARTIAL_COVERAGE_DRAFT_PREFIX =
+  "Partial coverage - the full provider corpus was not searched, so the draft below is incomplete.";
+
 function exhaustedDraftPrefixFor({
   toolResults,
   setupMarkdown,
@@ -995,7 +998,10 @@ export function realDataFinalGuard(
       retryMessage:
         "The user asked a coverage-sensitive provider question, but the draft only used bounded convenience data actions. Do not finalize an exhaustive, all-records, or absence-sensitive answer from shortcut actions alone. Use the broad provider API/MCP surface and a staged analysis workflow now: provider-api-catalog/provider-api-docs when needed; for Gong, use configured tracker results from /calls/extensive when they cover the term, otherwise use provider-api-request as raw ingestion with stageAs/saveToFile followed by query-staged-dataset or a Data Program; use provider-corpus-job for durable batched raw-transcript scans. Never loop per call from run-code or a delegated agent. For 500 or more Gong records, gong-calls is not the broad-search path. If full coverage is not possible in this turn, finalize with explicit partial-coverage wording, inspected counts, filters, and remaining gaps.",
       fallbackMessage:
-        "I can't make a confident coverage-sensitive provider claim from bounded shortcut actions alone. I need a provider API/corpus workflow, or I need to label the answer as partial with exact inspected counts and gaps.",
+        "Partial coverage: only bounded shortcut results were inspected; the full provider corpus was not searched.",
+      maxRetries: 2,
+      expandToolSurface: true,
+      exhaustedDraftPrefix: PARTIAL_COVERAGE_DRAFT_PREFIX,
     };
   }
   if (

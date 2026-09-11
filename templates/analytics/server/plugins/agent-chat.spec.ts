@@ -1179,6 +1179,23 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("keeps a bounded provider answer as an explicitly partial draft after retries", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          'Find any closed won deal in HubSpot where products = "fusion", then for all those deals look through all Gong call transcripts after close and let me know if you surface anything around Figma MCP.',
+        draftText: "I found zero mentions.",
+        toolResults: [{ name: "bigquery", isError: false, content: "[]" }],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+      exhaustedDraftPrefix: expect.stringContaining("Partial coverage"),
+    });
+  });
+
   it("treats a completed catalog/dashboard-reference search as discovery, not a dead end", () => {
     const result = realDataFinalGuard(
       guardContext({

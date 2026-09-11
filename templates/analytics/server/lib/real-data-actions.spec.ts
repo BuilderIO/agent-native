@@ -607,6 +607,15 @@ describe("coverage-sensitive analytics request classification", () => {
     expect(
       needsCorpusWorkflowForCoverageSensitiveRequest({
         userText: broadProviderQuestion,
+        finalText:
+          "I need a provider API/corpus workflow, or I need to label the answer as partial with exact inspected counts and gaps.",
+        toolResults: shortcutOnly,
+      }),
+    ).toBe(true);
+
+    expect(
+      needsCorpusWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
         finalText: "I fetched the full cohort and found one mention.",
         toolResults: [
           { name: "hubspot-deals" },
