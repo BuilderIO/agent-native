@@ -1129,6 +1129,40 @@ describe("design connect bridge endpoints", () => {
       expect(landed.body).toContain("page /home");
       expect(landed.body).toContain('window.__screenBridge="A"');
       expect(landed.body).not.toContain('window.__screenBridge="B"');
+      // The pre-boot shim rewrites the frame URL to the app route; the key
+      // rides along so the NEXT navigation's referer still carries it.
+      expect(landed.body).toContain(
+        JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
+      );
+
+      // Second hop: the frame now sits on the rewritten app route, not on
+      // /live-edit, and follows another link.
+      const secondHop = await fetch(`${base}/settings`, {
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          referer: `${base}/home?agentNativeBridgeKey=screen-a`,
+        },
+      });
+      expect(secondHop.status).toBe(302);
+      const secondLocation = new URL(secondHop.headers.get("location") ?? "");
+      expect(secondLocation.searchParams.get("bridgeKey")).toBe("screen-a");
+      expect(secondLocation.searchParams.get("url")).toBe(
+        `http://127.0.0.1:${devPort}/settings`,
+      );
+
+      // A reload of the rewritten URL itself carries the key in the request.
+      const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
+        redirect: "manual",
+        headers: { ...auth, "sec-fetch-dest": "iframe" },
+      });
+      expect(reload.status).toBe(302);
+      const reloadLocation = new URL(reload.headers.get("location") ?? "");
+      expect(reloadLocation.searchParams.get("bridgeKey")).toBe("screen-a");
+      expect(reloadLocation.searchParams.get("url")).toBe(
+        `http://127.0.0.1:${devPort}/home`,
+      );
 
       // A navigation with no keyed referer still gets the proxied page with
       // the unkeyed bridge, as before.

@@ -1138,27 +1138,57 @@ function isFrameNavigationRequest(req: IncomingMessage): boolean {
   return dest === "document" || dest === "iframe" || dest === "frame";
 }
 
-/** The bridgeKey (and previewToken) of the /live-edit page a navigation came
- *  from, when its referer is that page on this bridge. */
-function keyedLiveEditOrigin(
+/** Query param the pre-boot shim keeps on a keyed frame's rewritten URL so the
+ *  key survives the app's own navigations. Root-relative links drop it, but the
+ *  browser's same-origin Referer still carries the page it was on. */
+const FRAME_BRIDGE_KEY_PARAM = "agentNativeBridgeKey";
+
+function bridgeKeyFromUrl(url: URL): string {
+  if (url.pathname === "/live-edit") {
+    return url.searchParams.get("bridgeKey")?.trim() ?? "";
+  }
+  return url.searchParams.get(FRAME_BRIDGE_KEY_PARAM)?.trim() ?? "";
+}
+
+/** The bridge identity a frame navigation belongs to: the key on the request
+ *  URL itself (a reload of a shim-rewritten page), else the key on the
+ *  same-origin page it came from — the keyed /live-edit page on the first hop,
+ *  a shim-rewritten app route after that. */
+function keyedFrameNavigation(
+  requestUrl: URL,
   referer: string | undefined,
   bridgeUrl: string,
 ): { bridgeKey: string; previewToken: string } | null {
-  if (!referer) return null;
-  try {
-    const url = new URL(referer);
-    if (url.origin !== new URL(bridgeUrl).origin) return null;
-    if (url.pathname !== "/live-edit") return null;
-    const bridgeKey = url.searchParams.get("bridgeKey")?.trim() ?? "";
-    if (!bridgeKey) return null;
+  const origin = new URL(bridgeUrl).origin;
+  const candidates: URL[] = [];
+  if (requestUrl.origin === origin) candidates.push(requestUrl);
+  if (referer) {
+    try {
+      const url = new URL(referer);
+      if (url.origin === origin) candidates.push(url);
+    } catch {
+      // coercion-ok: an unparseable referer carries no bridge identity.
+    }
+  }
+  for (const url of candidates) {
+    const bridgeKey = bridgeKeyFromUrl(url);
+    if (!bridgeKey) continue;
     return {
       bridgeKey,
       previewToken: url.searchParams.get("previewToken")?.trim() ?? "",
     };
-  } catch {
-    // coercion-ok: an unparseable referer carries no bridge identity.
-    return null;
   }
+  return null;
+}
+
+/** Remove one query param from an absolute URL, leaving the URL byte-identical
+ *  when the param is absent (touching `searchParams` re-serializes the query,
+ *  which breaks Vite's valueless `?url` flags — see stripPreviewTokenQueryParam). */
+function stripQueryParam(absoluteUrl: string, name: string): string {
+  if (!absoluteUrl.includes(`${name}=`)) return absoluteUrl;
+  const url = new URL(absoluteUrl);
+  url.searchParams.delete(name);
+  return url.toString();
 }
 
 function resolvePreviewProxyUrl(
@@ -2440,6 +2470,15 @@ export async function startDesignConnectBridge(
             // from the resolved snapshot target rather than the bridge's own
             // "/live-edit" request path.
             const targetParsed = new URL(targetUrl);
+            // A keyed frame keeps its key on the rewritten URL so a later
+            // navigation (whose Referer is that URL) can be sent back through
+            // /live-edit with the same identity.
+            if (requestedBridgeKey) {
+              targetParsed.searchParams.set(
+                FRAME_BRIDGE_KEY_PARAM,
+                requestedBridgeKey,
+              );
+            }
             const targetPath =
               `${targetParsed.pathname}${targetParsed.search}` || "/";
             const html = injectLiveEditBridge(
@@ -2777,16 +2816,20 @@ export async function startDesignConnectBridge(
             // the /live-edit URL it came from, so send it back through
             // /live-edit with that key and the frame keeps its identity.
             if (method === "GET" && isFrameNavigationRequest(req)) {
-              const origin = keyedLiveEditOrigin(
+              const keyed = keyedFrameNavigation(
+                proxyRequestUrl,
                 readHeader(req, "referer"),
                 manifest.bridgeUrl,
               );
-              if (origin) {
+              if (keyed) {
                 const next = new URL("/live-edit", manifest.bridgeUrl);
-                next.searchParams.set("url", targetUrl);
-                next.searchParams.set("bridgeKey", origin.bridgeKey);
-                if (origin.previewToken) {
-                  next.searchParams.set("previewToken", origin.previewToken);
+                next.searchParams.set(
+                  "url",
+                  stripQueryParam(targetUrl, FRAME_BRIDGE_KEY_PARAM),
+                );
+                next.searchParams.set("bridgeKey", keyed.bridgeKey);
+                if (keyed.previewToken) {
+                  next.searchParams.set("previewToken", keyed.previewToken);
                 }
                 res.writeHead(302, { location: next.toString() });
                 res.end();
