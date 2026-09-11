@@ -1145,8 +1145,8 @@ export default defineAction({
           {
             app_name: "assets",
             template_name: "assets",
-            source_app: "assets",
-            target_app: callerAppId,
+            source_app: callerAppId,
+            target_app: "assets",
             output_id: asset.id,
             output_type: "asset",
           },

@@ -290,7 +290,6 @@ export default defineAction({
         {
           app_name: "analytics",
           template_name: "analytics",
-          output_id: pngFilename,
           output_type: "chart",
           chart_type: chartType,
           series_count: datasets.length,
@@ -328,7 +327,6 @@ export default defineAction({
         {
           app_name: "analytics",
           template_name: "analytics",
-          output_id: svgFilename,
           output_type: "chart",
           chart_type: chartType,
           series_count: datasets.length,
