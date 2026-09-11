@@ -12338,6 +12338,8 @@ function DesignEditor() {
       targetLocalPoint?: { x: number; y: number };
       sourcePointerOffset?: { x: number; y: number };
       sourceHtmlSnapshot?: string;
+      duplicate?: boolean;
+      sourceCloneHtml?: string;
       styleSnapshot?: PortableStyleSnapshot;
     }) =>
       runCrossScreenElementDrop(
