@@ -26,6 +26,8 @@ import {
   INBOX_THREADS_QUERY_KEY,
   markInboxThreadReadOptimistic,
   removeInboxThreadsOptimistic,
+  restoreInboxThreadsOptimistic,
+  snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
 } from "@/hooks/use-inbox-threads";
 import { gmailMutationQueue } from "@/lib/gmail-mutation-queue";
@@ -948,6 +950,7 @@ export function useMarkRead() {
           emails.map((e) => (e.id === id ? { ...e, isRead } : e)),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
       markInboxThreadReadOptimistic(
         qc,
         new Set([resolvedThreadId ?? id]),
@@ -969,6 +972,7 @@ export function useMarkRead() {
       return {
         mutationVersion,
         threadId: resolvedThreadId,
+        inboxSnapshot,
         refreshThread:
           resolvedThreadId && restartThread
             ? { threadId: resolvedThreadId, accountEmail }
@@ -994,6 +998,9 @@ export function useMarkRead() {
         new Map([[id, confirmedState]]),
         context?.threadId,
       );
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
     onSettled: (_data, _error, _variables, context) => {
       if (context?.refreshThread) {
@@ -1046,6 +1053,7 @@ export function useMarkThreadRead() {
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
       }
+      const inboxSnapshot = snapshotInboxThreads(qc);
       markInboxThreadReadOptimistic(qc, new Set([threadId]), true);
       // Optimistic update
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
@@ -1063,6 +1071,7 @@ export function useMarkThreadRead() {
       }
       return {
         mutations,
+        inboxSnapshot,
         refreshThread: restartThread
           ? {
               threadId,
@@ -1094,6 +1103,9 @@ export function useMarkThreadRead() {
         );
       }
       applyReadMutationStates(qc, rollback, threadId);
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
     onSettled: (_data, _error, _variables, context) => {
       if (context?.refreshThread) {
@@ -1146,6 +1158,7 @@ export function useToggleStar() {
           emails.map((e) => (e.id === id ? { ...e, isStarred } : e)),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
       toggleInboxThreadsStarOptimistic(
         qc,
         new Set([resolvedThreadId ?? id]),
@@ -1159,13 +1172,21 @@ export function useToggleStar() {
           ),
         );
       }
-      return { previous, previousThread, threadId: resolvedThreadId };
+      return {
+        previous,
+        previousThread,
+        threadId: resolvedThreadId,
+        inboxSnapshot,
+      };
     },
     onError: (_err, { id }, context) => {
       clearOptimisticOverride(id);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
       if (context?.threadId && context.previousThread) {
         setCachedThread(context.threadId, context.previousThread);
+      }
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
     },
     onSettled: () =>
@@ -1222,12 +1243,16 @@ export function useArchiveEmail() {
           emails.filter((e) => (e.threadId || e.id) !== threadId),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
       removeInboxThreadsOptimistic(qc, new Set([threadId]));
-      return { previous, threadId };
+      return { previous, threadId, inboxSnapshot };
     },
     onError: (err, _vars, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
       toast.error(
         archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
       );
@@ -1295,12 +1320,16 @@ export function useTrashEmail() {
           emails.filter((e) => (e.threadId || e.id) !== threadId),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
       removeInboxThreadsOptimistic(qc, new Set([threadId]));
-      return { previous, threadId };
+      return { previous, threadId, inboxSnapshot };
     },
     onError: (_err, _id, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
     onSettled: () =>
       delayedInvalidate(qc, [
@@ -1370,14 +1399,18 @@ export function useBulkArchiveEmails() {
           emails.filter((e) => !threadIdSet.has(e.threadId || e.id)),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
       removeInboxThreadsOptimistic(qc, threadIdSet);
-      return { previous, threadIds: [...threadIdSet] };
+      return { previous, threadIds: [...threadIdSet], inboxSnapshot };
     },
     onError: (err, _vars, context) => {
       for (const threadId of context?.threadIds ?? []) {
         unsuppressThread(threadId);
       }
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
       toast.error(
         archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
       );
@@ -1422,14 +1455,18 @@ export function useBulkTrashEmails() {
           emails.filter((e) => !threadIdSet.has(e.threadId || e.id)),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
       removeInboxThreadsOptimistic(qc, threadIdSet);
-      return { previous, threadIds: [...threadIdSet] };
+      return { previous, threadIds: [...threadIdSet], inboxSnapshot };
     },
     onError: (_err, _vars, context) => {
       for (const threadId of context?.threadIds ?? []) {
         unsuppressThread(threadId);
       }
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
     onSettled: () =>
       delayedInvalidate(qc, [
@@ -1471,16 +1508,20 @@ export function useBulkToggleStar() {
           emails.map((e) => (ids.has(e.id) ? { ...e, isStarred } : e)),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
       toggleInboxThreadsStarOptimistic(
         qc,
         new Set(targets.map((t) => t.threadId || t.id)),
         isStarred,
       );
-      return { previous, ids: [...ids] };
+      return { previous, ids: [...ids], inboxSnapshot };
     },
     onError: (_err, _vars, context) => {
       for (const id of context?.ids ?? []) clearOptimisticOverride(id);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
     onSettled: () =>
       delayedInvalidate(qc, [
@@ -1522,16 +1563,20 @@ export function useBulkMarkRead() {
           emails.map((e) => (ids.has(e.id) ? { ...e, isRead } : e)),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
       markInboxThreadReadOptimistic(
         qc,
         new Set(targets.map((t) => t.threadId || t.id)),
         isRead,
       );
-      return { previous, ids: [...ids] };
+      return { previous, ids: [...ids], inboxSnapshot };
     },
     onError: (_err, _vars, context) => {
       for (const id of context?.ids ?? []) clearOptimisticOverride(id);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
     onSettled: () =>
       delayedInvalidate(qc, [
@@ -1926,11 +1971,19 @@ export const EMPTY_LABELS: Label[] = [];
  * key shape. */
 export const LABELS_QUERY_KEY = ["action", "list-labels"];
 
+interface ListLabelsResult {
+  labels: Label[];
+  errors: Array<{ accountEmail: string; error: string }>;
+}
+
+/** `data` stays `Label[]` for existing consumers even though the action
+ * returns `{ labels, errors }` — per-account label-fetch failures surface
+ * separately via `accountErrors`. */
 export function useLabels(accountEmails?: readonly string[]) {
   const accountFilter = accountEmails?.length
     ? [...new Set(accountEmails.map((email) => email.toLowerCase()))].sort()
     : undefined;
-  return useActionQuery<Label[]>(
+  const query = useActionQuery<ListLabelsResult>(
     "list-labels",
     accountFilter?.length ? { accountEmails: accountFilter } : {},
     {
@@ -1941,6 +1994,13 @@ export function useLabels(accountEmails?: readonly string[]) {
       staleTime: 60_000,
     },
   );
+  const accountErrors: AccountError[] | undefined = query.data?.errors.length
+    ? query.data.errors.map(({ accountEmail, error }) => ({
+        email: accountEmail,
+        error,
+      }))
+    : undefined;
+  return { ...query, data: query.data?.labels, accountErrors };
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────

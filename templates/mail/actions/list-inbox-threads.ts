@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
-import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
-import { isConnected } from "../server/lib/google-auth.js";
+import {
+  getConnectedAccounts,
+  isConnected,
+} from "../server/lib/google-auth.js";
 import { classifyAutomated } from "../server/lib/inbox-classify.js";
 import {
   inboxRowToItem,
@@ -176,12 +178,12 @@ export default defineAction({
     };
 
     // No connected Google account: mirror the synthetic local mailbox
-    // instead of the synced store (see the mail-backends skill). Same check
-    // list-emails.ts and list-labels.ts use to pick this fallback.
-    const connectedAccounts = await listOAuthAccountsByOwner(
-      "google",
-      ownerEmail,
-    );
+    // instead of the synced store (see the mail-backends skill).
+    // getConnectedAccounts is the single "which accounts exist" source —
+    // OAuth rows with Gmail scope, else a managed workspace grant's email —
+    // so a managed grant with no per-user OAuth row isn't mistaken for
+    // disconnected.
+    const connectedAccounts = await getConnectedAccounts(ownerEmail);
     if (connectedAccounts.length === 0) {
       const [emails, settings, localSetting] = await Promise.all([
         readLocalEmails(ownerEmail),

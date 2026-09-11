@@ -305,6 +305,36 @@ describe("applyLocalLabelDelta", () => {
       expect(set.isUnread).toBe(1);
     });
 
+    it("marking a 1-message thread unread twice stays clamped at message_count (1)", async () => {
+      const row = {
+        id: "owner@example.com:acct1@example.com:t1",
+        labelIdsJson: JSON.stringify(["INBOX"]),
+        messageIdsJson: JSON.stringify(["m1"]),
+        unreadCount: 0,
+      };
+      dbState.threadRows = [row];
+
+      await applyLocalLabelDelta(
+        "owner@example.com",
+        "acct1@example.com",
+        ["t1"],
+        { add: ["UNREAD"], scope: "message", messageIds: ["m1"] },
+      );
+      expect(dbState.updates[0].set.unreadCount).toBe(1);
+
+      // Simulate the same "mark unread" mutation landing again (e.g. a
+      // duplicate call) before the next history sync rehydrates state.
+      row.unreadCount = dbState.updates[0].set.unreadCount;
+      await applyLocalLabelDelta(
+        "owner@example.com",
+        "acct1@example.com",
+        ["t1"],
+        { add: ["UNREAD"], scope: "message", messageIds: ["m1"] },
+      );
+
+      expect(dbState.updates[1].set.unreadCount).toBe(1);
+    });
+
     it("adding STARRED sets the thread flag immediately", async () => {
       dbState.threadRows = [
         {

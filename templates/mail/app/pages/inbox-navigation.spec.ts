@@ -304,3 +304,21 @@ describe("Inbox draft opening", () => {
     expect(source).not.toContain("deleteDraft.mutate(email.id)");
   });
 });
+
+describe("Inbox load-more pagination error recovery", () => {
+  it("retries a failed extra page instead of skipping it with a new offset", () => {
+    const source = inboxSource();
+    const hook = source.slice(
+      source.indexOf("const fetchInboxNextPage = useCallback("),
+      source.indexOf("const inboxAccountErrors = useMemo("),
+    );
+
+    expect(hook).toContain(
+      "const lastPage = inboxExtraPages[inboxExtraPages.length - 1];",
+    );
+    expect(hook).toContain("if (lastPage?.isError)");
+    expect(hook).toContain("return lastPage.refetch().then(() => undefined);");
+    // Only reached once the failed-page retry branch above returns early.
+    expect(hook).toContain("setInboxExtraPageCount((count) => count + 1);");
+  });
+});

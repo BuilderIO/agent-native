@@ -18,6 +18,7 @@ import {
 } from "./google-api.js";
 import {
   getClientForAccount,
+  getConnectedAccounts,
   getHeader,
   invalidateListCacheForOwner,
   isPermanentRefreshError,
@@ -604,12 +605,16 @@ export async function ensureInboxFresh(
   const maxAgeMs = opts?.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
 
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  // getConnectedAccounts is the single "which accounts exist" source: OAuth
+  // accounts with Gmail scope, else the managed workspace grant's email (no
+  // per-user OAuth row). Enumerating via listOAuthAccountsByOwner alone
+  // would silently skip managed grants forever.
+  const accounts = await getConnectedAccounts(ownerEmail);
   const requested = opts?.accountEmails?.length
     ? new Set(opts.accountEmails.map((e) => e.toLowerCase()))
     : null;
   const emails = accounts
-    .map((a) => a.accountId.toLowerCase())
+    .map((email) => email.toLowerCase())
     .filter((email) => !requested || requested.has(email));
 
   const now = Date.now();
@@ -646,8 +651,11 @@ export async function resetInboxSync(
     await resetSyncAccountProgress(ownerEmail, accountEmail);
     return;
   }
-  const rows = await readSyncAccounts(ownerEmail);
+  // Same "which accounts exist" source as ensureInboxFresh — a managed
+  // grant has no sync-account row until its first ensureInboxFresh call, so
+  // resetting only existing readSyncAccounts rows would silently skip it.
+  const emails = await getConnectedAccounts(ownerEmail);
   await Promise.all(
-    rows.map((r) => resetSyncAccountProgress(ownerEmail, r.accountEmail)),
+    emails.map((email) => resetSyncAccountProgress(ownerEmail, email)),
   );
 }

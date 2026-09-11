@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
-import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import { z } from "zod";
 
 import { gmailListLabels } from "../server/lib/google-api.js";
+import { getConnectedAccounts } from "../server/lib/google-auth.js";
 import { readCachedLabels } from "../server/lib/inbox-store.js";
 import { readLocalEmails } from "../server/lib/local-email-store.js";
 import type { Label } from "../shared/types.js";
@@ -51,6 +51,25 @@ function recomputeLocalCounts(labels: Label[], emails: any[]): Label[] {
   });
 }
 
+// Same bound + redaction shape as list-emails.ts's inventoryError: never let
+// a token leak into a surfaced error, and cap length so one bad message
+// can't blow up the response.
+function boundedErrorMessage(err: unknown): string {
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : "Provider request failed";
+  return message
+    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(
+      /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,
+      "$1=[redacted]",
+    )
+    .slice(0, 240);
+}
+
 function mergeGmailLabels(
   labelsById: Map<string, Label>,
   rawLabels: Array<{
@@ -90,7 +109,7 @@ function mergeGmailLabels(
 
 export default defineAction({
   description:
-    "List labels for the connected Gmail accounts, returning stable ids, names, types, and message counts for move-email or provider API calls. Served from the synced inbox cache; an account with no cache yet falls back to a live Gmail call. A single account's failure never fails the whole read — its labels are simply absent from the result.",
+    "List labels for the connected Gmail accounts, returning stable ids, names, types, and message counts for move-email or provider API calls. Served from the synced inbox cache; an account with no cache yet falls back to a live Gmail call. Returns `{ labels, errors }`: a single account's failed live fetch never fails the whole read, but is reported in `errors` (accountEmail + bounded message) instead of silently returning an incomplete label list that looks complete.",
   schema: z.object({
     accountEmails: z
       .array(z.string().email())
@@ -106,10 +125,10 @@ export default defineAction({
       ? new Set(accountEmails.map((email) => email.toLowerCase()))
       : undefined;
 
-    const connectedEmails = (
-      await listOAuthAccountsByOwner("google", ownerEmail)
-    )
-      .map((account) => account.accountId.toLowerCase())
+    // getConnectedAccounts is the single "which accounts exist" source —
+    // OAuth rows with Gmail scope, else a managed workspace grant's email.
+    const connectedEmails = (await getConnectedAccounts(ownerEmail))
+      .map((email) => email.toLowerCase())
       .filter((email) => !requested || requested.has(email));
 
     if (connectedEmails.length === 0) {
@@ -117,7 +136,10 @@ export default defineAction({
       const labels = Array.isArray((local as any)?.labels)
         ? ((local as any).labels as Label[])
         : [];
-      return recomputeLocalCounts(labels, await readLocalEmails(ownerEmail));
+      return {
+        labels: recomputeLocalCounts(labels, await readLocalEmails(ownerEmail)),
+        errors: [],
+      };
     }
 
     const labelsById = new Map<string, Label>();
@@ -140,18 +162,20 @@ export default defineAction({
     const uncachedEmails = connectedEmails.filter(
       (email) => !cachedEmails.has(email),
     );
+    const errors: Array<{ accountEmail: string; error: string }> = [];
     if (uncachedEmails.length > 0) {
       const accounts = (await getAccessTokens()).filter(({ email }) =>
         uncachedEmails.includes(email.toLowerCase()),
       );
-      for (const { accessToken } of accounts) {
+      for (const { email, accessToken } of accounts) {
         try {
           const result = await gmailListLabels(accessToken);
           mergeGmailLabels(labelsById, result.labels ?? []);
-        } catch {
-          // coercion-ok: an account with neither a cache nor a live fetch
-          // just contributes no labels; the account's own sync/connection
-          // status is visible via list-inbox-threads' `accounts` field.
+        } catch (err) {
+          // An account with neither a cache nor a live fetch contributes no
+          // labels for this call — reported here instead of swallowed, so
+          // callers can tell an incomplete inventory from a complete one.
+          errors.push({ accountEmail: email, error: boundedErrorMessage(err) });
         }
       }
     }
@@ -171,6 +195,6 @@ export default defineAction({
       }
     }
 
-    return [...labelsById.values()];
+    return { labels: [...labelsById.values()], errors };
   },
 });

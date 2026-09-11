@@ -351,7 +351,7 @@ export function InboxPage() {
 
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
-  const { data: labelsData } = useLabels(
+  const { data: labelsData, accountErrors: labelAccountErrors } = useLabels(
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
   const labels = labelsData ?? EMPTY_LABELS;
@@ -478,11 +478,17 @@ export function InboxPage() {
     (page) => page.isError,
   );
   const fetchInboxNextPage = useCallback(() => {
-    if (inboxHasNextPage && !inboxIsFetchingNextPage) {
-      setInboxExtraPageCount((count) => count + 1);
+    if (!inboxHasNextPage || inboxIsFetchingNextPage) return Promise.resolve();
+    // Retry the last offset if it's the one that failed, instead of adding a
+    // new offset on top of it — otherwise that offset's rows are skipped
+    // forever and every later page permanently shifts past a gap.
+    const lastPage = inboxExtraPages[inboxExtraPages.length - 1];
+    if (lastPage?.isError) {
+      return lastPage.refetch().then(() => undefined);
     }
+    setInboxExtraPageCount((count) => count + 1);
     return Promise.resolve();
-  }, [inboxHasNextPage, inboxIsFetchingNextPage]);
+  }, [inboxHasNextPage, inboxIsFetchingNextPage, inboxExtraPages]);
   const inboxAccountErrors = useMemo(() => {
     // Also covers `needs_reauth`: an account needing reconnection has unread
     // rows we could not read either, so it must count toward incomplete
@@ -493,12 +499,22 @@ export function InboxPage() {
       (account) =>
         account.state === "error" || account.state === "needs_reauth",
     );
-    if (!errored?.length) return undefined;
-    return errored.map((account) => ({
-      email: account.accountEmail,
-      error: account.error ?? "",
-    }));
-  }, [inboxThreads.data?.accounts]);
+    const inboxErrors = errored?.length
+      ? errored.map((account) => ({
+          email: account.accountEmail,
+          error: account.error ?? "",
+        }))
+      : [];
+    // A label-fetch failure is its own incomplete-coverage signal (tab chips
+    // derived from labels go stale for that account) — fold it into the same
+    // notice instead of a second banner, skipping accounts already reported.
+    const reportedEmails = new Set(inboxErrors.map((e) => e.email));
+    const labelErrors = (labelAccountErrors ?? []).filter(
+      (e) => !reportedEmails.has(e.email),
+    );
+    const combined = [...inboxErrors, ...labelErrors];
+    return combined.length ? combined : undefined;
+  }, [inboxThreads.data?.accounts, labelAccountErrors]);
 
   useEffect(() => {
     if (

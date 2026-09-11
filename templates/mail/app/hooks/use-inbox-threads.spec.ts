@@ -7,6 +7,8 @@ import {
   mergeInboxThreadPages,
   removeInboxThreadsOptimistic,
   resolveInboxTabId,
+  restoreInboxThreadsOptimistic,
+  snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
 } from "./use-inbox-threads";
 
@@ -254,5 +256,41 @@ describe("mergeInboxThreadPages", () => {
 
   it("returns an empty array for no pages", () => {
     expect(mergeInboxThreadPages([])).toEqual([]);
+  });
+});
+
+describe("snapshotInboxThreads / restoreInboxThreadsOptimistic", () => {
+  it("restores every cached page an optimistic removal touched", () => {
+    const qc = makeClient(seedResult());
+    qc.setQueryData(["action", "list-inbox-threads", { tab: "other" }], {
+      ...seedResult(),
+      activeTabId: "other",
+    });
+
+    const snapshot = snapshotInboxThreads(qc);
+    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+
+    // Sanity: the optimistic write actually landed before we roll it back.
+    expect(
+      qc
+        .getQueryData<ReturnType<typeof seedResult>>([
+          "action",
+          "list-inbox-threads",
+          { tab: "important" },
+        ])!
+        .items.map((i) => i.id),
+    ).toEqual(["m2"]);
+
+    restoreInboxThreadsOptimistic(qc, snapshot);
+
+    for (const tab of ["important", "other"]) {
+      const restored = qc.getQueryData<ReturnType<typeof seedResult>>([
+        "action",
+        "list-inbox-threads",
+        { tab },
+      ])!;
+      expect(restored.items.map((i) => i.id)).toEqual(["m1", "m2"]);
+      expect(restored.total).toBe(2);
+    }
   });
 });

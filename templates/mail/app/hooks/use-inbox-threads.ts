@@ -98,6 +98,25 @@ export function invalidateInboxThreads(qc: QueryClient) {
   return qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY });
 }
 
+/** Snapshot every cached `list-inbox-threads` page before an optimistic
+ * write, for `restoreInboxThreadsOptimistic` to roll back on mutation error.
+ * Take this alongside the existing `['emails']` snapshot — the two caches
+ * are restored independently. */
+export function snapshotInboxThreads(qc: QueryClient) {
+  return qc.getQueriesData<ListInboxThreadsResult>({
+    queryKey: INBOX_THREADS_QUERY_KEY,
+  });
+}
+
+/** Restore a snapshot taken with `snapshotInboxThreads` — used on mutation
+ * error rollback, mirroring the `['emails']` `context.previous` restore. */
+export function restoreInboxThreadsOptimistic(
+  qc: QueryClient,
+  snapshot: ReturnType<typeof snapshotInboxThreads>,
+) {
+  for (const [key, data] of snapshot) qc.setQueryData(key, data);
+}
+
 /** Back-compat: old `?label=<id>` / `?filter=<id>` links and the `?tab=other`
  * sentinel all resolve to the same `?tab=<id>` the new contract expects.
  * Undefined means "let the server default to its first configured tab". */

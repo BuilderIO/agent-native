@@ -360,10 +360,20 @@ export async function applyLocalLabelDelta(
         // come from that subset — not from whether UNREAD is anywhere in the
         // thread's unioned label set, which reflects just the last-touched
         // message.
+        const messageCount = parseJsonArray<string>(
+          row.messageIdsJson,
+          [],
+        ).length;
         const matched = parseJsonArray<string>(row.messageIdsJson, []).filter(
           (id) => targetMessageIds.has(id),
         ).length;
-        const currentUnread = row.unreadCount ?? 0;
+        // Clamp to [0, messageCount]: we don't track per-message read state,
+        // so a message-scope mark-unread can only bound the count, not know
+        // whether the targeted messages were already unread. Without the
+        // clamp, marking the same 1-message thread unread twice inflates
+        // unreadCount past messageCount. The next history sync (≤15s)
+        // rehydrates exact per-message state from Gmail.
+        const currentUnread = Math.min(row.unreadCount ?? 0, messageCount);
         if (delta.remove?.includes("UNREAD")) {
           const nextUnread = Math.max(0, currentUnread - matched);
           set.unreadCount = nextUnread;
@@ -372,8 +382,9 @@ export async function applyLocalLabelDelta(
           // thread has been cleared — a partial read must not hide the rest.
           if (nextUnread === 0) labels.delete("UNREAD");
         } else if (delta.add?.includes("UNREAD")) {
-          set.unreadCount = currentUnread + matched;
-          set.isUnread = 1;
+          const nextUnread = Math.min(messageCount, currentUnread + matched);
+          set.unreadCount = nextUnread;
+          set.isUnread = nextUnread > 0 ? 1 : 0;
           labels.add("UNREAD");
         }
         if (delta.add?.includes("STARRED")) {
