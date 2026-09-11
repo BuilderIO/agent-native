@@ -1417,6 +1417,8 @@ function injectPreBootLocationShim(
   const recover = identity.recoverTargetUrl
     ? `if(window.name&&window.name.indexOf(${prefix})===0){var k=window.name.slice(${prefix}.length);if(k){location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(identity.recoverTargetUrl)})+"&bridgeKey="+encodeURIComponent(k));return;}}`
     : "";
+  // coercion-ok: this is browser-side JS injected ahead of the app; a
+  // replaceState or window.name failure must not break the app's own boot.
   const shim = `<script data-agent-native-live-edit-location>
 (function(){try{${recover}${remember}var p=${JSON.stringify(path)};if(p&&(location.pathname+location.search)!==p){history.replaceState(null,"",p);}}catch(e){}})();
 </script>`;
