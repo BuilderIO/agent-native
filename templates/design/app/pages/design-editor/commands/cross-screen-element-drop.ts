@@ -19,6 +19,7 @@ import type {
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   bridgeSourceIdForCodeLayerNode,
+  codeLayerSelectorAliases,
   codeLayerPatchMessage,
   elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromBridge,
@@ -34,6 +35,8 @@ import {
 import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import { applyPortableStyleSnapshotToHtml } from "@/pages/design-editor/portable-style";
 import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
+
+import { insertClonedHtmlLayers } from "../clone-and-pen-edit";
 
 /** Empty generated screens strip absolute positioning, so a flow-insert
  * into an empty body parks the node at 0,0. Drop at the pointer instead. */
@@ -170,6 +173,8 @@ export function runCrossScreenElementDrop(
     targetLocalPoint,
     sourcePointerOffset,
     sourceHtmlSnapshot,
+    duplicate,
+    sourceCloneHtml,
     styleSnapshot,
   }: {
     sourceSelector: string;
@@ -191,6 +196,8 @@ export function runCrossScreenElementDrop(
     targetLocalPoint?: { x: number; y: number };
     sourcePointerOffset?: { x: number; y: number };
     sourceHtmlSnapshot?: string;
+    duplicate?: boolean;
+    sourceCloneHtml?: string;
     styleSnapshot?: PortableStyleSnapshot;
   },
 ) {
@@ -387,6 +394,103 @@ export function runCrossScreenElementDrop(
   const sourceContent = getScreenContent(sourceScreenId);
   const rawDestContent = getScreenContent(targetScreenId);
   if (!sourceContent || !rawDestContent) return;
+
+  if (duplicate) {
+    if (!sourceCloneHtml) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return;
+    }
+    const destinationProjection = buildCodeLayerProjection(rawDestContent);
+    const targetAnchor = targetAnchorNodeId
+      ? resolveCodeLayerNodeFromBridge(
+          destinationProjection,
+          undefined,
+          targetAnchorNodeId,
+        )
+      : null;
+    const anchorSelectors = targetAnchor
+      ? codeLayerSelectorAliases(targetAnchor)
+      : targetAnchorSelector
+        ? [targetAnchorSelector]
+        : [];
+    const hasAnchor = anchorSelectors.length > 0;
+    const placeAbsolute =
+      Boolean(targetLocalPoint) &&
+      (!hasAnchor || targetDropMode === "absolute-container");
+    const nextContent = insertClonedHtmlLayers(
+      rawDestContent,
+      [sourceCloneHtml],
+      {
+        targetSelectors: anchorSelectors,
+        anchorSelectors,
+        placement: targetAnchorPlacement ?? "inside",
+        positions:
+          placeAbsolute && targetLocalPoint
+            ? [
+                absolutePlacePointForDrop({
+                  placeAbsoluteOnEmptyScreen: false,
+                  targetAnchorRect,
+                  targetLocalPoint,
+                }),
+              ]
+            : undefined,
+        stripRootPosition:
+          hasAnchor &&
+          !placeAbsolute &&
+          targetDropMode !== "absolute-container",
+        styleSnapshots: [styleSnapshot],
+        preserveIncomingNodeIds: true,
+      },
+    );
+    if (!nextContent) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    const nextDestContent = nextContent.content;
+    recordContentHistoryEntry({
+      changes: [
+        {
+          fileId: targetScreenId,
+          before: rawDestContent,
+          after: nextDestContent,
+        },
+      ],
+    });
+    applyFileContentUpdate(targetScreenId, nextDestContent, {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+    });
+    pendingOverviewScreenSelectionRef.current =
+      targetScreenId === boardFileId ? null : targetScreenId;
+    pendingOverviewLayerSelectionRef.current =
+      nextContent.rootNodeIds[0] ?? null;
+    clearPendingOverviewLayerSelectionTimer();
+    setActiveFileId(targetScreenId);
+    const finalProjection = buildCodeLayerProjection(nextDestContent);
+    const copiedNode = finalProjection.nodes.find(
+      (node) =>
+        node.id === nextContent.rootNodeIds[0] ||
+        node.dataAttributes["data-agent-native-node-id"] ===
+          nextContent.rootNodeIds[0],
+    );
+    if (copiedNode) {
+      setCreatedOverviewLayerSelection({
+        screenId: targetScreenId,
+        layerId: copiedNode.id,
+      });
+      setSelectedLayerIdsState([copiedNode.id]);
+      setSelectedElement(elementInfoFromCodeLayerNode(copiedNode));
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(
+          targetScreenId === boardFileId ? [] : [targetScreenId],
+        );
+      }
+    }
+    return;
+  }
 
   // Id-on-demand handshake (two-step, mirroring the element-select
   // persist-on-select path above): AI-generated/duplicated screens often

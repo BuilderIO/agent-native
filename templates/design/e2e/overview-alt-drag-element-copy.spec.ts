@@ -30,24 +30,32 @@ async function action(
   return response.json();
 }
 
-async function createDesign(request: APIRequestContext) {
+async function createDesign(
+  request: APIRequestContext,
+  fileCount = 1,
+  content = SCREEN_HTML,
+) {
   const created = await action(request, "create-design", {
     title: `Alt-drag element QA ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id ?? created.design?.id;
   if (!designId) throw new Error("create-design returned no id");
-  const file = await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  if (!fileId) throw new Error("create-file returned no id");
+  const fileIds: string[] = [];
+  for (let index = 0; index < fileCount; index += 1) {
+    const file = await action(request, "create-file", {
+      designId,
+      filename: index === 0 ? "index.html" : `screen-${index + 1}.html`,
+      content,
+      fileType: "html",
+    });
+    const fileId = file.id ?? file.data?.id;
+    if (!fileId) throw new Error("create-file returned no id");
+    fileIds.push(fileId);
+  }
   await action(request, "update-design", {
     id: designId,
-    dataOperations: [
+    dataOperations: fileIds.flatMap((fileId, index) => [
       {
         op: "set",
         path: ["screenMetadata", fileId],
@@ -56,35 +64,40 @@ async function createDesign(request: APIRequestContext) {
       {
         op: "set",
         path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 1280, height: 1400, z: 0 },
+        value: {
+          x: index * 1600,
+          y: 0,
+          width: 1280,
+          height: 1400,
+          z: index,
+        },
       },
-    ],
+    ]),
   });
-  return { designId };
+  return { designId, fileIds };
 }
 
 /** Shapes actually painted in the screen's live preview document. */
 async function paintedShapes(page: Page) {
-  return page.evaluate(() => {
+  return paintedShapesInFrame(page);
+}
+
+async function paintedShapesInFrame(page: Page, screenId?: string) {
+  return page.evaluate((id) => {
     const frame = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-screen-iframe-id]",
+      id
+        ? `iframe[data-screen-iframe-id="${id}"]`
+        : "iframe[data-screen-iframe-id]",
     );
     const doc = frame?.contentDocument;
     if (!doc) return -1;
     return doc.querySelectorAll("body > div[data-agent-native-node-id]").length;
-  });
+  }, screenId);
 }
 
-// One alt-drag paints TWO clones (count goes 1 -> 3), so the gesture
-// duplicates twice. Mechanism located: startMove clones the element into the
-// live DOM (cloneNode + insertBefore) to drag an optimistic copy, and the host
-// Measured: a duplicate never reaches the canvas. paintedShapes is 1 where 2
-// is expected (the pre-drag count of 1 passes, so the counter is right). Same
-// number, same shape as editor-keyboard-layers' keyboard-duplicate step, so
-// one bug with two gestures: the clone is created in state, then the host's
-// follow-up source push removes what it cannot match by selector. Lives in the
-// overview canvas / host source-sync reconciliation.
-test.fixme("alt-dragging an element keeps every copy on the canvas, not just in state", async ({
+// The host source morph used to remove an optimistic alt-drag clone after the
+// persisted source update, leaving state and the live canvas out of sync.
+test("alt-dragging an element keeps every copy on the canvas, not just in state", async ({
   page,
   request,
 }) => {
@@ -132,6 +145,69 @@ test.fixme("alt-dragging an element keeps every copy on the canvas, not just in 
       await page.waitForTimeout(3500);
       expect(await paintedShapes(page)).toBe(copy + 2);
     }
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("alt-dragging an element onto another screen copies it without moving the source", async ({
+  page,
+  request,
+}) => {
+  const { designId, fileIds } = await createDesign(
+    request,
+    2,
+    SCREEN_HTML.replace("left:120px", "left:700px"),
+  );
+  try {
+    await page.goto(appPath(`/design/${designId}?view=overview&zoom=30`), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
+      timeout: 40_000,
+    });
+
+    const sourceFrame = page.locator(
+      `iframe[data-screen-iframe-id="${fileIds[0]}"]`,
+    );
+    const targetFrame = page.locator(
+      `iframe[data-screen-iframe-id="${fileIds[1]}"]`,
+    );
+    await expect(sourceFrame).toBeVisible();
+    await expect(targetFrame).toBeVisible();
+    const sourceElement = sourceFrame
+      .contentFrame()
+      .locator('[data-agent-native-node-id="rect-a"]');
+    await expect(sourceElement).toBeVisible();
+    const sourceBox = (await sourceElement.boundingBox())!;
+    const targetBox = (await targetFrame.boundingBox())!;
+    await page.mouse.dblclick(
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+    );
+    await page.mouse.click(
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+    );
+    await page.waitForTimeout(500);
+
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+    );
+    await page.keyboard.down("Alt");
+    await page.mouse.down();
+    await page.mouse.move(
+      targetBox.x + targetBox.width * 0.8,
+      targetBox.y + targetBox.height * 0.8,
+      { steps: 20 },
+    );
+    await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible();
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+
+    await expect.poll(() => paintedShapesInFrame(page, fileIds[0])).toBe(1);
+    await expect.poll(() => paintedShapesInFrame(page, fileIds[1])).toBe(2);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

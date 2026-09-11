@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -69,6 +70,21 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     expect(result!.nodeIdMap.get("input")).toBe(
       input.getAttribute("data-agent-native-node-id"),
     );
+  });
+
+  it("keeps clone names stable when authored ids are re-keyed", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
+      `<section id="runtime-panel" data-agent-native-node-id="root"><div>Panel</div></section>`,
+      `<div data-agent-native-node-id="unnamed"></div>`,
+    ]);
+
+    expect(result).not.toBeNull();
+    expect(
+      result!.htmlFragments.map(
+        (html) => buildCodeLayerProjection(html).nodes[0]?.layerName,
+      ),
+    ).toEqual(["Runtime Panel", "Copy"]);
+    expect(result!.htmlFragments[0]).not.toContain('id="runtime-panel"');
   });
 
   it("drops the Figma/Fusion source identity so deleting a copy cannot resolve to the original", () => {
