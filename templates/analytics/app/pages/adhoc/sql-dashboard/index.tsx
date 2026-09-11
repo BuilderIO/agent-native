@@ -1,4 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
@@ -1014,6 +1015,18 @@ function SqlDashboardPageContent({
     ) {
       viewedDashboardIdRef.current = dashboardId;
       incrementItemView("dashboard", dashboardId);
+      trackEvent("dashboard_viewed", {
+        app_name: "analytics",
+        template_name: "analytics",
+        dashboard_id: dashboardId,
+        output_id: dashboardId,
+        output_type: "dashboard",
+        is_owner: Boolean(
+          session?.email &&
+          fetched.createdBy &&
+          session.email.toLowerCase() === fetched.createdBy.toLowerCase(),
+        ),
+      });
     }
   }, [
     dashboardId,
@@ -1517,6 +1530,16 @@ function SqlDashboardPageContent({
       : {};
     return { ...(dashboard?.variables ?? {}), ...filterValues };
   }, [dashboard?.variables, dashboard?.filters, searchParams]);
+
+  const dashboardExtensionContext = useMemo<Record<string, unknown>>(
+    () => ({
+      dashboardId,
+      dashboardName: dashboard?.name ?? "",
+      dashboardDescription: dashboard?.description ?? null,
+      filters: vars,
+    }),
+    [dashboardId, dashboard?.name, dashboard?.description, vars],
+  );
 
   const currentReportFilters = useMemo<Record<string, string>>(() => {
     const out = dashboard?.filters
@@ -2554,13 +2577,9 @@ function SqlDashboardPageContent({
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}
-                                dashboardExtensionContext={{
-                                  dashboardId,
-                                  dashboardName: dashboard.name,
-                                  dashboardDescription:
-                                    dashboard.description ?? null,
-                                  filters: vars,
-                                }}
+                                dashboardExtensionContext={
+                                  dashboardExtensionContext
+                                }
                               />
                               <DashboardDropLine
                                 slot={{

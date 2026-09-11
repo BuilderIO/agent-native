@@ -7,6 +7,7 @@
 import {
   defineEventHandler,
   setResponseStatus,
+  setResponseHeader,
   getRouterParam,
   getQuery,
 } from "h3";
@@ -44,6 +45,7 @@ function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
  * Returns full Yjs document state as base64 for initial client load.
  */
 export const getCollabState = defineEventHandler(async (event: H3Event) => {
+  setResponseHeader(event, "Cache-Control", "private, no-store");
   const docId = getRouterParam(event, "docId");
   if (!docId) {
     setResponseStatus(event, 400);

@@ -537,9 +537,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     (labelsLoading && labels.length === 0) || (settingsLoading && !settings);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPinned, setSidebarPinned] = useState(() => {
-    if (typeof window === "undefined") return true;
-    const stored = localStorage.getItem("mail-sidebar-pinned");
-    return stored === null ? true : stored === "true";
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("mail-sidebar-pinned") === "true";
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;

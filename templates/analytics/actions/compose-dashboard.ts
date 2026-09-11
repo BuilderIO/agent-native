@@ -1,9 +1,11 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
@@ -159,7 +161,7 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async (args) => {
+  run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const ctx = { email, orgId: getRequestOrgId() || null };
@@ -340,6 +342,20 @@ export default defineAction({
 
     if (changed) {
       queueDashboardCollabSync(args.dashboardId, finalConfig, "agent");
+      track(
+        "dashboard_saved",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          output_id: args.dashboardId,
+          output_type: "dashboard",
+          dashboard_id: args.dashboardId,
+          panel_count: panelCount,
+          created_panel_count: createdMetrics.length,
+          refreshed_panel_count: refreshedExistingIds.length,
+        },
+        actionContext,
+      );
     }
 
     const parts: string[] = [];

@@ -7,6 +7,7 @@ export type NetlifyDeploymentTarget = "beta" | "preview" | "production";
 export type ResolvedNetlifyPrebuiltTarget = {
   functionsDirectory: string;
   host: string;
+  migrationSiteId: string;
   publishDirectory: string;
   siteId: string;
   siteName: string;
@@ -104,6 +105,19 @@ export function resolveNetlifyPrebuiltTarget(
     );
   }
 
+  const migrationSite =
+    target === "beta"
+      ? readJson<Record<string, ProductionSite>>(
+          "netlify-production-sites.json",
+          repoRoot,
+        )[canonicalSiteName("production", siteName)]
+      : site;
+  if (!migrationSite) {
+    throw new Error(
+      `No production migration site is configured for ${target} site: ${siteName}`,
+    );
+  }
+
   const project = sourceProject(siteName, repoRoot);
   if (
     !existsSync(path.join(project.packageDirectory, "package.json")) ||
@@ -117,6 +131,7 @@ export function resolveNetlifyPrebuiltTarget(
   return {
     functionsDirectory: project.functionsDirectory,
     host: site.host,
+    migrationSiteId: migrationSite.siteId,
     publishDirectory: project.publishDirectory,
     siteId: site.siteId,
     siteName,
@@ -133,6 +148,7 @@ export function writeGitHubOutputs(
   const outputs: Record<string, string> = {
     functions_directory: target.functionsDirectory,
     host: target.host,
+    migration_site_id: target.migrationSiteId,
     publish_directory: target.publishDirectory,
     site_id: target.siteId,
     site_name: target.siteName,

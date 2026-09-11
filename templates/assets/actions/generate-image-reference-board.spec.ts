@@ -11,6 +11,13 @@ const prepareInpaintMock = vi.hoisted(() => vi.fn());
 const libraryAccessMock = vi.hoisted(() =>
   vi.fn(async () => ({ role: "owner", canApprove: true })),
 );
+const draftProvenanceAccessMock = vi.hoisted(() =>
+  vi.fn((libraryId: string) => ({
+    resourceType: "asset-library",
+    resourceId: libraryId,
+    recordMinRole: "viewer" as const,
+  })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -26,6 +33,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: vi.fn(() => "designer@example.com"),
   getRequestOrgId: vi.fn(() => "org-1"),
 }));
@@ -47,6 +55,7 @@ vi.mock("../server/lib/library-access.js", () => ({
   assertCanApprove: libraryAccessMock,
   assertCanDraftAuthoredBy: libraryAccessMock,
   assertCanDeleteAsset: libraryAccessMock,
+  draftProvenanceAccess: draftProvenanceAccessMock,
   // The draft-input guards have their own tests; these specs exercise the
   // surrounding behavior with an approver's unrestricted scope.
   draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
@@ -318,6 +327,40 @@ describe("generate-image preset reference board", () => {
           prompt: "Post",
         }),
       ).resolves.toBeDefined();
+    }
+  });
+
+  it("records a kit viewer's provenance as draft work, not as editing the kit", async () => {
+    // A viewer may generate candidates, so every provenance write in this path
+    // must declare the draft role. Leaving the record at the `editor` default
+    // let the kit gate pass and then failed the turn with a bare
+    // `Requires editor role on asset-library <id> (have viewer)`.
+    const { recordGenerationCreativeContext } =
+      await import("@agent-native/creative-context/server");
+    libraryAccessMock.mockResolvedValue({ role: "viewer", canApprove: false });
+    getDbMock.mockReturnValue(
+      createDb([[library], [{ ...preset({}), libraryId: null }], []]),
+    );
+
+    await expect(
+      generateImage.run({
+        libraryId: "kit-1",
+        templateId: "preset-1",
+        prompt: "Post",
+      }),
+    ).resolves.toBeDefined();
+
+    expect(draftProvenanceAccessMock).toHaveBeenCalledWith("kit-1");
+    const recordCalls = vi.mocked(recordGenerationCreativeContext).mock.calls;
+    expect(recordCalls.length).toBeGreaterThan(0);
+    for (const [, options] of recordCalls) {
+      expect(options).toEqual({
+        artifactAccess: {
+          resourceType: "asset-library",
+          resourceId: "kit-1",
+          recordMinRole: "viewer",
+        },
+      });
     }
   });
 

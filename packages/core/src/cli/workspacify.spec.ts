@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { parseDocument } from "yaml";
 
-import { workspacifyApp } from "./workspacify.js";
+import { ensureNodePtyBuildDependency, workspacifyApp } from "./workspacify.js";
 
 const tmpRoots: string[] = [];
 
@@ -84,6 +85,109 @@ describe("workspacifyApp core pinning", () => {
       });
       expect(appCoreVersion(appDir)).toBe("0.131.4");
     }
+  });
+
+  it("adds node-gyp to workspaces that install node-pty on Linux", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n  - apps/*\n",
+    );
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify(
+        { name: "mail", dependencies: { "node-pty": "^1.1.0" } },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    const workspaceYaml = fs.readFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "utf8",
+    );
+    expect(workspaceYaml).toContain("node-pty@*:");
+    expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
+  });
+
+  it("detects optional node-pty dependencies", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n  - apps/*\n",
+    );
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify(
+        { name: "mail", optionalDependencies: { "node-pty": "^1.0.0" } },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    expect(
+      fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8"),
+    ).toContain("node-pty@*:");
+  });
+
+  it("merges existing packageExtensions YAML without duplicate keys", () => {
+    const sources = [
+      "packageExtensions:\n  'node-pty@*':\n    dependencies:\n      node-gyp: '^12.4.0'\n",
+      "packageExtensions: {}\n",
+      'packageExtensions: {"other@1": {dependencies: {dep: "^1"}}}\n',
+      "packageExtensions: # preserve this map\n  other@1:\n    dependencies:\n      dep: '^1'\n",
+    ];
+
+    for (const source of sources) {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspacify-"));
+      tmpRoots.push(root);
+      const workspacePath = path.join(root, "pnpm-workspace.yaml");
+      fs.writeFileSync(workspacePath, source);
+
+      ensureNodePtyBuildDependency(root);
+      ensureNodePtyBuildDependency(root);
+
+      const updated = fs.readFileSync(workspacePath, "utf8");
+      expect(updated.match(/node-pty@\*/g)).toHaveLength(1);
+      const document = parseDocument(updated);
+      expect(document.errors).toHaveLength(0);
+      expect(
+        document.getIn([
+          "packageExtensions",
+          "node-pty@*",
+          "dependencies",
+          "node-gyp",
+        ]),
+      ).toBe("^12.4.0");
+    }
+  });
+
+  it("surfaces malformed or missing workspace YAML", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspacify-"));
+    tmpRoots.push(root);
+
+    expect(() => ensureNodePtyBuildDependency(root)).toThrow(
+      "pnpm-workspace.yaml",
+    );
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "packageExtensions: [\n",
+    );
+    expect(() => ensureNodePtyBuildDependency(root)).toThrow("Cannot update");
   });
 
   it("links inherited skills and removes template copies while preserving app skills", () => {

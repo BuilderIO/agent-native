@@ -36,11 +36,11 @@ describe("Analytics layout sidebar route policy", () => {
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
     );
-    expect(source).toContain('className="flex min-w-0 flex-col space-y-0.5"');
     expect(source).toContain(
       'className="mt-3 shrink-0 min-w-0 space-y-0.5 border-t border-border/70 px-2 pt-3"',
     );
     expect(source).toContain("<AppSidebarHeader");
+    expect(source).toContain("<AppSidebarFooter");
     expect(source).not.toContain(
       'className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2"',
     );
@@ -89,7 +89,6 @@ describe("Analytics layout sidebar route policy", () => {
     expect(source).toContain(
       'className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3"',
     );
-    expect(source).toContain('<Icon className="size-4 text-primary" />');
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
     );

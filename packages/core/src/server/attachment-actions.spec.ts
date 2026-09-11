@@ -23,6 +23,8 @@ describe("isTextLikeMimeType", () => {
     expect(isTextLikeMimeType("application/json")).toBe(true);
     expect(isTextLikeMimeType("application/javascript")).toBe(true);
     expect(isTextLikeMimeType("application/typescript")).toBe(true);
+    expect(isTextLikeMimeType("application/x-yaml")).toBe(true);
+    expect(isTextLikeMimeType("message/rfc822")).toBe(true);
   });
 
   it("rejects binary types", () => {
@@ -42,6 +44,7 @@ describe("isTextLikeFilename", () => {
     expect(isTextLikeFilename("index.ts")).toBe(true);
     expect(isTextLikeFilename("query.sql")).toBe(true);
     expect(isTextLikeFilename("schema.graphql")).toBe(true);
+    expect(isTextLikeFilename("message.eml")).toBe(true);
   });
 
   it("rejects binary filenames", () => {
@@ -112,6 +115,45 @@ describe("persistTextAttachmentsAsResources", () => {
     expect(owner).toBe("user@example.com");
     expect(path).toBe("attachments/thread-1/0-data.csv");
     expect(content).toBe("id,name\n1,Alice");
+  });
+
+  it("keeps the tail of a large EML available for read-attachment", async () => {
+    const content =
+      "From: sender@example.com\n\n" + "A".repeat(200_000) + "TAIL";
+
+    const stored = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "message.eml",
+          contentType: "message/rfc822",
+          text: content,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(stored.get(0)?.totalChars).toBe(content.length);
+    resourceListMock.mockResolvedValue([
+      { id: "resource-message", path: "attachments/thread-1/0-message.eml" },
+    ]);
+    resourceGetMock.mockResolvedValue({ content });
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      {
+        name: "message.eml",
+        threadId: "thread-1",
+        offset: String(content.length - 4),
+        limit: "4",
+      },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("TAIL");
+    expect(result.totalChars).toBe(content.length);
   });
 
   it("skips attachments without text content", async () => {

@@ -174,6 +174,7 @@ export {
   type UseCollaborativeDocResult,
   type CollabInitializationErrorCategory,
   type CollabInitializationState,
+  type CollaborativeDocSyncResult,
   type CollabUser,
 } from "../collab/client.js";
 export { AGENT_CLIENT_ID } from "../collab/agent-identity.js";
@@ -243,6 +244,9 @@ export {
   useCreateReviewComment,
   useDeleteReviewComment,
   useReplyReviewComment,
+  useReactToReviewComment,
+  useSetReviewThreadUnread,
+  useSetReviewThreadMuted,
   useResolveReviewThread,
   useReviewComments,
   useReviewFeedback,
@@ -256,6 +260,9 @@ export {
   type ListReviewCommentsParams,
   type ListReviewCommentsResult,
   type ReplyReviewCommentInput,
+  type ReactToReviewCommentInput,
+  type SetReviewThreadUnreadInput,
+  type SetReviewThreadMutedInput,
   type ResolveReviewThreadInput,
   type ReviewStatusBadgeProps,
   type ReviewCommentComposerProps,

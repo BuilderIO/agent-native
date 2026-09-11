@@ -1,17 +1,29 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React, { act } from "react";
+import React, { act, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { WORKSPACE_SETTINGS_SECTIONS } from "./agent-settings-search.js";
 import {
   AgentSettingsContent,
   ConnectionsSettingsContent,
 } from "./SettingsPanel.js";
+
+// The integrations panel that owns the Builder row is behind
+// `<Suspense><lazy(IntegrationsPanel)/></Suspense>` — its dynamic import
+// needs real macrotask ticks to settle (more on a cold module cache), not
+// just queued microtasks.
+async function flushLazyImport(container: HTMLElement) {
+  for (let i = 0; i < 50; i++) {
+    if (container.textContent) return;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
 
 describe("ConnectionsSettingsContent", () => {
   afterEach(() => {
@@ -19,7 +31,7 @@ describe("ConnectionsSettingsContent", () => {
     document.body.innerHTML = "";
   });
 
-  it("leads with the integrations gallery before setup sections", () => {
+  it("leads with the merged integrations panel", () => {
     const content = ConnectionsSettingsContent({
       settingsPanelProps: {
         isDevMode: false,
@@ -27,18 +39,12 @@ describe("ConnectionsSettingsContent", () => {
         showDevToggle: false,
       },
     });
-    const children = React.Children.toArray(content.props.children) as Array<
-      React.ReactElement<Record<string, unknown>>
+    const child = content.props.children as React.ReactElement<
+      Record<string, unknown>
     >;
 
-    expect(content.props.className).toContain("w-full");
-    expect(children).toHaveLength(3);
-    expect(children[1]?.type).toBe(BuilderConnectCard);
-    expect(children[1]?.props.trackingSource).toBe("settings_connections");
-    expect(children[1]?.props.showManage).toBe(true);
-    expect(children[2]?.props.surface).toBe("page");
-    expect(children[2]?.props.showCapabilityStrip).toBe(false);
-    expect(children[2]?.props.builderConnectionOwnedExternally).toBe(true);
+    expect(content.props.className).toBe("w-full");
+    expect(child.type).toBe(Suspense);
   });
 
   it("has one Builder status owner and preserves its one-shot connect error", async () => {
@@ -125,6 +131,7 @@ describe("ConnectionsSettingsContent", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await flushLazyImport(container);
 
     expect(builderStatusRequests).toHaveLength(1);
     expect(container.textContent).toContain(
@@ -213,6 +220,7 @@ describe("ConnectionsSettingsContent", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await flushLazyImport(container);
 
     const connectButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Connect Builder"),

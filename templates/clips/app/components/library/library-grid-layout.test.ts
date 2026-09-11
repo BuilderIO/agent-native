@@ -88,6 +88,8 @@ describe("selected library actions layout", () => {
       'from "@/components/ui/breadcrumb"',
     );
     expect(layoutSource).toContain("<AppSidebarHeader");
+    expect(layoutSource).toContain("<AppSidebarFooter");
+    expect(layoutSource).toContain("animateDesktop={false}");
     expect(layoutSource).toContain("primaryNavItems.map");
     expect(layoutSource).toContain("lifecycleNavItems.map");
     expect(layoutSource).toContain(
@@ -140,7 +142,6 @@ describe("selected library actions layout", () => {
       "<SidebarFeedbackButton collapsed={showCollapsedSidebar} />",
     );
     expect(layoutSource).toContain("<AppSidebarFooter");
-    expect(layoutSource).toContain("collapsed={showCollapsedSidebar}");
     expect(layoutSource).toContain('"!size-9 !p-0 [&>svg]:!size-4"');
     expect(layoutSource).toContain("function isSidebarGroupActive(");
     expect(layoutSource).toContain(

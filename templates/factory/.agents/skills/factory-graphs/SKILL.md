@@ -29,9 +29,11 @@ optional `reaction` argument on `dispatch-factory-item`, not a job field. Inbox 
 (`status`, `source`, `risk`, `updatedAfter`) belong on `list-triage-items`, not
 on a client-side page of results. The PR babysitter lists the next GitHub PRs
 like Slack lists the next messages, then records inScope false so other authors
-leave the review window. The babysit action posts one hardcoded ask and parks
-waiting or quiet PRs out of needsReview until new human feedback or a real
-merge conflict. Selected automation is `automationId` on the factory
+leave the review window. `propose-pr-babysit-status` briefs the agent, which
+passes `decision` ping, already_asked, or stuck to the babysit action; that
+action posts one hardcoded ask, refuses a duplicate or unreadable-scan ping, and
+parks out of needsReview until new human feedback or a conflict that appeared
+after the branch was known clean. Selected automation is `automationId` on the factory
 view. Creating one is `createAutomation=1` on the Automations tab.
 
 ## Workflow
