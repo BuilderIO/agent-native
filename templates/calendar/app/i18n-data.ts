@@ -642,6 +642,7 @@ const enUS = {
       "Added. {{email}}'s booking links will now use your real working hours.",
     overlayRequestPageDismiss: "Not now",
     overlayRequestPageInvalidLink: "This link is invalid or has expired.",
+    overlayRequestPageAddFailed: "Couldn't add {{email}}. Please try again.",
     addOtherEmail: "Add another email",
     overlayHostsHint:
       "People from your calendar get working-hours-aware scheduling. Other emails are only checked for conflicts.",
@@ -9836,6 +9837,8 @@ const translatedBookingHostAvailability = {
         "Añadido. Los enlaces de reserva de {{email}} ahora usarán tu horario laboral real.",
       overlayRequestPageDismiss: "Ahora no",
       overlayRequestPageInvalidLink: "Este enlace no es válido o ha caducado.",
+      overlayRequestPageAddFailed:
+        "No se pudo añadir a {{email}}. Inténtalo de nuevo.",
       overlayRequestEmailNotConfigured:
         "El envío de correos aún no está configurado",
       overlayRequestInProgress:
@@ -9903,6 +9906,8 @@ const translatedBookingHostAvailability = {
         "Ajouté. Les liens de réservation de {{email}} utiliseront désormais vos horaires de travail réels.",
       overlayRequestPageDismiss: "Pas maintenant",
       overlayRequestPageInvalidLink: "Ce lien est invalide ou a expiré.",
+      overlayRequestPageAddFailed:
+        "Impossible d'ajouter {{email}}. Veuillez réessayer.",
       overlayRequestEmailNotConfigured:
         "L'envoi d'e-mails n'est pas encore configuré",
       overlayRequestInProgress:
@@ -9969,6 +9974,8 @@ const translatedBookingHostAvailability = {
         "Hinzugefügt. Die Buchungslinks von {{email}} verwenden jetzt deine tatsächlichen Arbeitszeiten.",
       overlayRequestPageDismiss: "Nicht jetzt",
       overlayRequestPageInvalidLink: "Dieser Link ist ungültig oder abgelaufen.",
+      overlayRequestPageAddFailed:
+        "{{email}} konnte nicht hinzugefügt werden. Bitte versuche es erneut.",
       overlayRequestEmailNotConfigured:
         "E-Mail-Versand ist noch nicht eingerichtet",
       overlayRequestInProgress:
@@ -10034,6 +10041,8 @@ const translatedBookingHostAvailability = {
         "Adicionado. Os links de agendamento de {{email}} agora usarão seu horário de trabalho real.",
       overlayRequestPageDismiss: "Agora não",
       overlayRequestPageInvalidLink: "Este link é inválido ou expirou.",
+      overlayRequestPageAddFailed:
+        "Não foi possível adicionar {{email}}. Tente novamente.",
       overlayRequestEmailNotConfigured:
         "O envio de e-mails ainda não foi configurado",
       overlayRequestInProgress:
@@ -10094,6 +10103,7 @@ const translatedBookingHostAvailability = {
         "已添加。{{email}} 的预订链接现在将使用你真实的工作时间。",
       overlayRequestPageDismiss: "暂不",
       overlayRequestPageInvalidLink: "此链接无效或已过期。",
+      overlayRequestPageAddFailed: "无法添加 {{email}}，请重试。",
       overlayRequestEmailNotConfigured: "邮件发送尚未配置",
       overlayRequestInProgress: "已经有一个针对该联系人的请求正在处理中",
       addOtherEmail: "添加其他邮箱",
@@ -10156,6 +10166,8 @@ const translatedBookingHostAvailability = {
         "追加しました。{{email}} の予約リンクは今後、あなたの実際の勤務時間を使用します。",
       overlayRequestPageDismiss: "今はしない",
       overlayRequestPageInvalidLink: "このリンクは無効か期限切れです。",
+      overlayRequestPageAddFailed:
+        "{{email}} を追加できませんでした。もう一度お試しください。",
       overlayRequestEmailNotConfigured: "メール送信がまだ設定されていません",
       overlayRequestInProgress: "この相手へのリクエストはすでに進行中です",
       addOtherEmail: "別のメールアドレスを追加",
@@ -10216,6 +10228,8 @@ const translatedBookingHostAvailability = {
         "추가되었습니다. 이제 {{email}}님의 예약 링크가 회원님의 실제 근무 시간을 사용합니다.",
       overlayRequestPageDismiss: "나중에",
       overlayRequestPageInvalidLink: "이 링크는 유효하지 않거나 만료되었습니다.",
+      overlayRequestPageAddFailed:
+        "{{email}}님을 추가하지 못했습니다. 다시 시도해 주세요.",
       overlayRequestEmailNotConfigured:
         "이메일 발송이 아직 설정되지 않았습니다",
       overlayRequestInProgress:
@@ -10279,6 +10293,8 @@ const translatedBookingHostAvailability = {
         "जोड़ा गया। {{email}} के बुकिंग लिंक अब आपके असली कार्य घंटों का उपयोग करेंगे।",
       overlayRequestPageDismiss: "अभी नहीं",
       overlayRequestPageInvalidLink: "यह लिंक अमान्य है या समाप्त हो गया है।",
+      overlayRequestPageAddFailed:
+        "{{email}} को जोड़ा नहीं जा सका। कृपया पुनः प्रयास करें।",
       overlayRequestEmailNotConfigured: "ईमेल भेजना अभी सेट नहीं है",
       overlayRequestInProgress: "इस व्यक्ति के लिए अनुरोध पहले से ही प्रगति पर है",
       addOtherEmail: "एक और ईमेल जोड़ें",
@@ -10337,6 +10353,8 @@ const translatedBookingHostAvailability = {
         "تمت الإضافة. ستستخدم روابط حجز {{email}} الآن ساعات عملك الفعلية.",
       overlayRequestPageDismiss: "ليس الآن",
       overlayRequestPageInvalidLink: "هذا الرابط غير صالح أو منتهي الصلاحية.",
+      overlayRequestPageAddFailed:
+        "تعذر إضافة {{email}}. يرجى المحاولة مرة أخرى.",
       overlayRequestEmailNotConfigured:
         "لم يتم إعداد إرسال البريد الإلكتروني بعد",
       overlayRequestInProgress:

@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconCalendarCheck, IconArrowLeft } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -83,7 +84,15 @@ export default function AddSharedAvailability() {
                   onClick={() =>
                     addPerson.mutate(
                       { email },
-                      { onSuccess: () => setJustAdded(true) },
+                      {
+                        onSuccess: () => setJustAdded(true),
+                        onError: () =>
+                          toast.error(
+                            t("bookingLinks.overlayRequestPageAddFailed", {
+                              email,
+                            }),
+                          ),
+                      },
                     )
                   }
                   disabled={addPerson.isPending || isLoading}

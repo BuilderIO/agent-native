@@ -604,6 +604,7 @@ const messages = {
       "已加入。{{email}} 的預約連結現在將使用你真實的工作時間。",
     overlayRequestPageDismiss: "暫不",
     overlayRequestPageInvalidLink: "此連結無效或已過期。",
+    overlayRequestPageAddFailed: "無法新增 {{email}}，請再試一次。",
     addOtherEmail: "新增其他電子郵件",
     overlayHostsHint:
       "來自你行事曆的聯絡人會依照他們的工作時間安排行程。其他電子郵件僅用於檢查衝突。",
