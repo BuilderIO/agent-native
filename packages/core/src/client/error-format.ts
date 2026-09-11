@@ -398,7 +398,7 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderAuthenticationError(text, errorCode)) {
+  if (isProviderAuthenticationError(text, code)) {
     return {
       message: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
       details: text,
