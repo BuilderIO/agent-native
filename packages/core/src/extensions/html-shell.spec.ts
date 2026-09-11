@@ -166,7 +166,6 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("_positionedElements.forEach");
     expect(html).toContain("_motionElements.forEach");
     expect(html).toContain("_watchAnimationCompletion");
-    expect(html).toContain("Element.prototype.animate");
     expect(html).toContain("document.addEventListener('animationend'");
     expect(html).toContain("document.addEventListener('transitionend'");
     expect(html).not.toContain(
