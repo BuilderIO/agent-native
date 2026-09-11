@@ -339,9 +339,7 @@ describe("createAgentKitProtocolAdapter", () => {
     const result = await drain(
       transport.subscribeToRun({ threadId: "thread-1", runId }),
     );
-    const message = result.find(
-      (event) => event.type === "message.created",
-    );
+    const message = result.find((event) => event.type === "message.created");
 
     expect(message).toMatchObject({
       type: "message.created",
@@ -362,7 +360,9 @@ describe("createAgentKitProtocolAdapter", () => {
         ],
       },
     });
-    result.forEach((event) => expect(() => parseAgentEvent(event)).not.toThrow());
+    result.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
+    );
   });
 
   it("translates Core turn events and supports in-process sequence replay", async () => {
