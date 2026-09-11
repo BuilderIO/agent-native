@@ -265,4 +265,19 @@ describe("authenticated recording route loading", () => {
     expect(agentPanel).toContain('type: "recording"');
     expect(agentPanel).toContain("id: recording.id");
   });
+
+  it("opens the comments panel on the public share page for ?panel=comments links", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // The signed-in recording route supports a ?panel=comments deep link
+    // (used by search results and the command menu); the public share route
+    // rendered the same param unread and always defaulted to "transcript".
+    expect(shareRoute).toContain(
+      'const panelParam = searchParams.get("panel")',
+    );
+    const effectStart = shareRoute.indexOf('if (panelParam !== "comments")');
+    expect(effectStart).toBeGreaterThan(-1);
+    const effect = shareRoute.slice(effectStart, effectStart + 200);
+    expect(effect).toContain("selectCommentsPanel();");
+  });
 });

@@ -399,6 +399,7 @@ export default function ShareRoute() {
   const [searchParams] = useSearchParams();
   const startAt = searchParams.get("at");
   const startMs = useMemo(() => parseTimeParam(startAt), [startAt]);
+  const panelParam = searchParams.get("panel");
 
   // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
   // share link) so we can fire funnel events and forward attribution into the
@@ -691,6 +692,11 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  useEffect(() => {
+    if (panelParam !== "comments") return;
+    if (recording && !recording.enableComments) return;
+    selectCommentsPanel();
+  }, [panelParam, recording?.enableComments, selectCommentsPanel]);
   const {
     dismiss: dismissProcessingToast,
     error: failProcessingToast,
