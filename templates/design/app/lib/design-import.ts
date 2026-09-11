@@ -1,3 +1,4 @@
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { parseFigmaFileKey } from "@shared/figma-url";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";
@@ -6,6 +7,10 @@ import {
   isValidDesignClipboardManagedStyleSnapshot,
   type DesignClipboardManagedStyleSnapshot,
 } from "./design-clipboard-managed-styles";
+
+/** Match FIGMA_IMPORT_ERROR_CODES.rateLimited / .providerQuotaCooldown. */
+const FIGMA_RATE_LIMITED_ERROR_CODE = "figma_rate_limited";
+const FIGMA_PROVIDER_QUOTA_ERROR_CODE = "figma_provider_quota_cooldown";
 
 export interface FigmaFidelityReport {
   exactCount: number;
@@ -42,6 +47,12 @@ export interface ImportResult {
   rateLimitPlanTier?: string;
   rateLimitType?: string;
   rateLimitUpgradeUrl?: string;
+  /**
+   * Who is throttling. Figma's own limit gets Figma copy and a plan link;
+   * `design` is our provider-API quota governor cooling down, which no Figma
+   * plan affects.
+   */
+  quotaSource?: "figma" | "design";
   fidelityReport?: FigmaFidelityReport;
   guidance?: string;
 }
@@ -52,14 +63,50 @@ export interface ImportResultNotification {
   description?: string;
 }
 
-export function isFigmaRateLimitImportError(
-  result: ImportResult | undefined,
-): boolean {
-  return (
-    (typeof result?.rateLimitRetryAfter === "number" &&
-      result.rateLimitRetryAfter > 0) ||
-    result?.rateLimitType === "low"
-  );
+/**
+ * Read a failed Figma import off an action error.
+ *
+ * `errorCode` and `details` are the only fields the action transport carries
+ * back from a `fail()`, so they are the only place these facts can be read.
+ * The panel used to read `rateLimitRetryAfter` and friends off the error
+ * object itself, which the transport had never put there: the retry countdown
+ * and upgrade link could not render, and rate limiting was recognized only by
+ * matching words in the message.
+ */
+export function readFigmaImportFailure(
+  error: unknown,
+  fallbackMessage: string,
+): { result: ImportResult; isRateLimited: boolean } {
+  const source = error as
+    | { errorCode?: unknown; details?: Record<string, unknown> }
+    | undefined;
+  const details = source?.details ?? {};
+  const numeric = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) && value > 0
+      ? value
+      : undefined;
+  const text = (value: unknown) =>
+    typeof value === "string" && value ? value : undefined;
+
+  return {
+    result: {
+      error:
+        actionErrorMessage(error) ??
+        (error instanceof Error ? error.message : undefined) ??
+        fallbackMessage,
+      rateLimitRetryAfter: numeric(details.retryAfterSeconds),
+      rateLimitPlanTier: text(details.planTier),
+      rateLimitType: text(details.rateLimitType),
+      rateLimitUpgradeUrl: text(details.upgradeUrl),
+      quotaSource:
+        source?.errorCode === FIGMA_PROVIDER_QUOTA_ERROR_CODE
+          ? "design"
+          : "figma",
+    },
+    isRateLimited:
+      source?.errorCode === FIGMA_RATE_LIMITED_ERROR_CODE ||
+      source?.errorCode === FIGMA_PROVIDER_QUOTA_ERROR_CODE,
+  };
 }
 
 export const VISUAL_EDIT_CONNECT_COMMAND =
