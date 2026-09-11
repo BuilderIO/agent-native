@@ -1,0 +1,330 @@
+import {
+  AgentSidebar,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
+} from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { InvitationBanner } from "@agent-native/core/client/org";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  HeaderActionsProvider,
+  usePersistentSidebarCollapsed,
+} from "@agent-native/toolkit/app-shell";
+import type { Document } from "@shared/api";
+import { IconMenu2 } from "@tabler/icons-react";
+import {
+  type CSSProperties,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useLocation, useNavigation } from "react-router";
+import { toast } from "sonner";
+
+import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
+import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useCreatePage } from "@/hooks/use-create-page";
+import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
+import {
+  applyRegisteredDocumentHistoryRestore,
+  prepareRegisteredDocumentHistoryRestore,
+} from "@/lib/document-history-restore-controller";
+
+import { Header } from "./Header";
+import { SidebarTriggerContext } from "./sidebar-trigger";
+
+const SIDEBAR_WIDTH_KEY = "sidebar-width";
+const SIDEBAR_COLLAPSED_KEY = "content.sidebar.collapsed";
+const DEFAULT_SIDEBAR_WIDTH = 240;
+const MIN_SIDEBAR_WIDTH = 240;
+const MAX_SIDEBAR_WIDTH = 480;
+export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)";
+
+// Routes whose page renders its own custom toolbar (with AgentToggleButton).
+// Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
+// there's no double-header.
+const NO_HEADER_PREFIXES = ["/page/", "/extensions"];
+
+function loadSidebarWidth(): number {
+  try {
+    const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (stored) {
+      const w = Number(stored);
+      if (w >= MIN_SIDEBAR_WIDTH && w <= MAX_SIDEBAR_WIDTH) return w;
+    }
+  } catch {}
+  return DEFAULT_SIDEBAR_WIDTH;
+}
+
+function useIsCompactLayout() {
+  const [isNarrow, setIsNarrow] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia(COMPACT_LAYOUT_QUERY).matches,
+  );
+  useEffect(() => {
+    const media = window.matchMedia(COMPACT_LAYOUT_QUERY);
+    const update = () => setIsNarrow(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return isNarrow;
+}
+
+export function documentPageIdFromPathname(pathname: string) {
+  return pathname.match(/^\/page\/(.+)/)?.[1] ?? null;
+}
+
+interface LayoutProps {
+  children: ReactNode;
+}
+
+export function Layout({ children }: LayoutProps) {
+  const location = useLocation();
+  const navigation = useNavigation();
+  const pendingPathname = navigation.location?.pathname ?? null;
+  const chromePathname = pendingPathname ?? location.pathname;
+  const t = useT();
+  const creativeContextEnabled = useCreativeContextExperiment();
+  const currentDocumentId = documentPageIdFromPathname(location.pathname);
+  const pendingDocumentId = pendingPathname
+    ? documentPageIdFromPathname(pendingPathname)
+    : null;
+  const activeDocumentId = pendingDocumentId ?? currentDocumentId;
+  const showPendingDocumentSkeleton =
+    !!pendingDocumentId && pendingDocumentId !== currentDocumentId;
+  // Bind chat to the currently-open document. Everywhere else (list view,
+  // settings) leaves scope null so general chats stay available.
+  const documentScope = useMemo(
+    () =>
+      activeDocumentId
+        ? { type: "document" as const, id: activeDocumentId }
+        : null,
+    [activeDocumentId],
+  );
+  const documentChatHistory = useMemo<
+    | AssistantChatHistoryConfig<unknown, AssistantChatHistoryVersion, Document>
+    | undefined
+  >(() => {
+    if (!documentScope) return undefined;
+    const documentId = documentScope.id;
+    return {
+      list: {
+        action: "list-document-versions",
+        args: { documentId, includeContent: false, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-document-version",
+        args: async (version: AssistantChatHistoryVersion) => ({
+          documentId,
+          versionId: version.id,
+          expectedUpdatedAt: await prepareRegisteredDocumentHistoryRestore(
+            documentId,
+            t("editor.historySaveBeforeRestoreFailed"),
+          ),
+        }),
+        onRestored: async (restored) => {
+          if (restored.id !== documentId) {
+            toast.error(t("editor.historyRestoreAppliedRefreshFailed"));
+            return;
+          }
+          try {
+            const applied = await applyRegisteredDocumentHistoryRestore(
+              documentId,
+              restored,
+            );
+            if (applied) return;
+          } catch (error) {
+            console.warn(
+              "Could not apply the committed chat history restore",
+              error,
+            );
+          }
+          toast.error(t("editor.historyRestoreAppliedRefreshFailed"));
+        },
+      },
+    };
+  }, [documentScope, t]);
+  const isCompactLayout = useIsCompactLayout();
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
+    usePersistentSidebarCollapsed({
+      storageKey: SIDEBAR_COLLAPSED_KEY,
+      defaultCollapsed: false,
+    });
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+
+  const handleSidebarResize = useCallback((width: number) => {
+    const clamped = Math.max(
+      MIN_SIDEBAR_WIDTH,
+      Math.min(MAX_SIDEBAR_WIDTH, width),
+    );
+    setSidebarWidth(clamped);
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(clamped));
+  }, []);
+
+  const showHeader = !NO_HEADER_PREFIXES.some((prefix) =>
+    chromePathname.startsWith(prefix),
+  );
+
+  const createPage = useCreatePage({ awaitPersist: false });
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (e.key !== "n" && e.key !== "N") return;
+      const target = e.target as HTMLElement | null;
+      if (target?.isContentEditable) return;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      void createPage();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [createPage]);
+
+  useEffect(() => {
+    if (isCompactLayout) {
+      window.dispatchEvent(new Event("agent-panel:close"));
+    }
+  }, [isCompactLayout]);
+
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [location.key]);
+
+  const mobileSidebarTrigger = isCompactLayout ? (
+    <Button
+      ref={sidebarTriggerRef}
+      type="button"
+      variant="ghost"
+      size="icon"
+      aria-label={t("navigation.openSidebar")}
+      aria-expanded={mobileSidebarOpen}
+      aria-haspopup="dialog"
+      className="size-10 shrink-0 rounded-lg text-muted-foreground"
+      onClick={() => setMobileSidebarOpen(true)}
+    >
+      <IconMenu2 size={18} />
+    </Button>
+  ) : null;
+  const contentSidebarWidth = isCompactLayout
+    ? 0
+    : sidebarCollapsed
+      ? 48
+      : sidebarWidth;
+
+  return (
+    <HeaderActionsProvider>
+      <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
+        {isCompactLayout ? (
+          <>
+            <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+              <SheetContent
+                side="left"
+                showClose={false}
+                className="w-[85vw] max-w-80 p-0"
+                onCloseAutoFocus={(event) => {
+                  if (sidebarTriggerRef.current) {
+                    event.preventDefault();
+                    sidebarTriggerRef.current.focus();
+                  }
+                }}
+              >
+                <SheetTitle className="sr-only">
+                  {t("navigation.openSidebar")}
+                </SheetTitle>
+                <DocumentSidebar
+                  activeDocumentId={activeDocumentId}
+                  collapsed={false}
+                  onToggleCollapsed={() => setMobileSidebarOpen(false)}
+                  onNavigate={() => setMobileSidebarOpen(false)}
+                />
+              </SheetContent>
+            </Sheet>
+            {showHeader || documentPageIdFromPathname(chromePathname) ? null : (
+              <button
+                type="button"
+                aria-label={t("navigation.openSidebar")}
+                className="fixed start-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => setMobileSidebarOpen(true)}
+              >
+                <IconMenu2 size={18} />
+              </button>
+            )}
+          </>
+        ) : (
+          <div className="agent-layout-left-drawer flex shrink-0">
+            <DocumentSidebar
+              activeDocumentId={activeDocumentId}
+              collapsed={sidebarCollapsed}
+              onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+              width={sidebarWidth}
+              minWidth={MIN_SIDEBAR_WIDTH}
+              maxWidth={MAX_SIDEBAR_WIDTH}
+              onResize={handleSidebarResize}
+            />
+          </div>
+        )}
+        <AgentSidebar
+          position="right"
+          defaultOpen={false}
+          agentPageHref="/settings/agent"
+          emptyStateText={t("chat.emptyState")}
+          suggestions={[
+            t("chat.suggestionPrd"),
+            t("chat.suggestionSummary"),
+            t("chat.suggestionNotion"),
+          ]}
+          scope={documentScope}
+          chatHistory={documentChatHistory}
+          browserTabId={getBrowserTabId()}
+          composerSlot={
+            creativeContextEnabled ? <CreativeContextComposerChip /> : undefined
+          }
+        >
+          <main
+            className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
+            style={
+              {
+                "--content-sidebar-width": `${contentSidebarWidth}px`,
+              } as CSSProperties
+            }
+          >
+            {showHeader ? (
+              <Header sidebarTrigger={mobileSidebarTrigger} />
+            ) : null}
+            <InvitationBanner
+              className={`${showHeader ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+            />
+            <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
+              {showPendingDocumentSkeleton ? (
+                <DocumentEditorSkeleton />
+              ) : (
+                children
+              )}
+            </SidebarTriggerContext.Provider>
+          </main>
+        </AgentSidebar>
+      </div>
+    </HeaderActionsProvider>
+  );
+}

@@ -1,0 +1,14 @@
+---
+title: Doctor
+description: 安全與遷移檢查。
+---
+
+# Doctor
+
+產生的應用程式與 workspace 包含可透過儲存庫開發工作流程變更的原始碼，也可由被有意授予工作區與寫入工具的代理 frame 變更。`agent-native doctor` 會掃描原始碼中的關鍵程式碼安全不變條件。它是唯讀的：doctor 從不編輯程式碼，只回報結果。
+
+`agent-native doctor` 會執行 9 個 guard：8 個安全 guard 與 `migration-manifest`。後者會找出已安裝 `migration-manifest.json` 的 import，且沒有 opt-out。執行 `agent-native doctor --only migration-manifest`，以 `npx @agent-native/core@latest upgrade --codemods` 預覽，再用 `--yes` 套用。JSON 的 `guardsRun` 會列出全部 9 項。
+
+CLI 會為每個新建的 app 與 workspace 加入 `pnpm doctor` 及 `pnpm agent-native:doctor` 指令。從 workspace 根目錄執行時，會檢查 `apps/<name>` 下的每個 app。發現問題時，build 預設會失敗；只有經過審查的例外才應使用 `failOnBuild: false`。
+
+標記為 `planned` 的項目只會顯示為警告，不會被重寫。active 項目會列為問題；codemod 只有在目標 export 已安裝時才會重寫。

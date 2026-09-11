@@ -1,0 +1,109 @@
+---
+title: "Analytics: Monitoring, Errors, and Session Replay"
+description: "Uptime checks with a public status page, Sentry-style error triage, full session replay with a Dev Tools panel, and traffic/SEO reporting in Analytics."
+---
+
+# Monitoring, Errors, and Session Replay
+
+Analytics doesn't just chart your data — it watches your product. This page covers the Monitoring tab (uptime checks and error triage), session replay, and traffic/SEO reporting. It's useful to anyone using [Analytics](/docs/template-analytics), though a few sections get more technical toward the end.
+
+<WireframeBlock id="doc-block-analytics2">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:480px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Monitoring</strong><div style='flex:1'></div><span class='wf-pill accent'>Uptime</span><span class='wf-pill'>Errors</span><button class='primary'>Add monitor</button></div><div style='display:flex;flex-direction:column;gap:8px;padding:14px 16px'><div class='wf-card' style='display:grid;grid-template-columns:16px 1fr auto auto;gap:12px;align-items:center'><span style='width:9px;height:9px;border-radius:50%;background:#3fb950'></span><span><strong>Production API</strong><br/><span class='wf-muted' style='font-size:11px'>api.example.com/health</span></span><span class='wf-muted' style='font-size:11px'>99.98% · 30d</span><span class='wf-pill accent'>up</span></div><div class='wf-card' style='display:grid;grid-template-columns:16px 1fr auto auto;gap:12px;align-items:center'><span style='width:9px;height:9px;border-radius:50%;background:#e5534b'></span><span><strong>Checkout webhook</strong><br/><span class='wf-muted' style='font-size:11px'>api.example.com/webhooks/checkout</span></span><span class='wf-muted' style='font-size:11px'>96.2% · 30d</span><span class='wf-pill'>down</span></div><div class='wf-card' style='display:grid;grid-template-columns:16px 1fr auto auto;gap:12px;align-items:center'><span style='width:9px;height:9px;border-radius:50%;background:#3fb950'></span><span><strong>Marketing site</strong><br/><span class='wf-muted' style='font-size:11px'>example.com</span></span><span class='wf-muted' style='font-size:11px'>100% · 30d</span><span class='wf-pill accent'>up</span></div></div><div class='wf-card' style='margin:0 16px 16px;display:flex;flex-direction:column;gap:8px'><strong>Recent error issues</strong><div style='display:flex;justify-content:space-between;gap:8px'><span>TypeError: cannot read 'id' of undefined</span><span class='wf-muted' style='font-size:11px'>42 events · 3 users</span></div><div style='display:flex;justify-content:space-between;gap:8px'><span>NetworkError: fetch failed (checkout)</span><span class='wf-muted' style='font-size:11px'>8 events · 1 user</span></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## Uptime monitoring
+
+Add a monitor for any URL: pick the HTTP method, an interval (checked every few minutes), an expected status range or exact codes, and optional assertions (response body contains X, a header matches, latency stays under a threshold). When a check fails, Analytics opens an incident, applies a cooldown so it doesn't spam you on every retry, and notifies you through the inbox, email, Slack, or a webhook — configurable per monitor.
+
+Ask the agent directly: "add an uptime check for api.example.com/health every 5 minutes, alert Slack if it goes down" — no dashboard-building required.
+
+**Public status pages.** Bundle a set of your monitors under a public page at `/status/<your-slug>` — anyone with the link sees color-coded uptime bars and overall uptime percentages, never the underlying URLs, headers, or alert configuration, unless you explicitly opt a monitor in to show its URL. You control the layout: which of uptime bars, overall uptime, and response time show, plus a comfortable or compact density.
+
+## Error issue triage
+
+Browser exceptions captured from your app (or from Analytics itself) get grouped into **issues** by a stable fingerprint — one row per distinct error, not one row per occurrence. Each issue tracks its type, a human-readable title, severity (fatal down to debug), first-seen and last-seen times, a lifetime occurrence count, and roughly how many distinct users hit it.
+
+Open an issue to see recent frequency, a parsed stack trace (with source snippets where available), breadcrumbs leading up to the error, tags, and — when one exists — a link to the session recording where it happened. Mark an issue **resolved** or **ignored** once you've dealt with it; it reopens automatically if it recurs.
+
+<Diagram id="doc-block-analytics3" title="From a thrown error to a linked replay" summary={"An exception in the browser becomes a grouped issue, and the session it happened in is one click away."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-box">
+    Browser throws<br /><small class="diagram-muted"
+      >console.error, unhandled rejection</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Grouped by fingerprint</span
+    ><small class="diagram-muted">type + top stack frame</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Error issue<br /><small class="diagram-muted"
+      >stack, breadcrumbs, tags</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    Session replay<br /><small class="diagram-muted"
+      >watch what the user did</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Session replay
+
+Every recorded session captures the page, a masked/privacy-aware view of user interactions, console output, and network activity, then plays it back frame by frame. Inputs are masked by default; mark any element `.an-mask` (hide the text) or `.an-block` (skip capture entirely) for anything more sensitive.
+
+The replay player has a **Dev Tools** toggle with Console and Network tabs — filter chips, search, an error-count badge, and click-to-jump so you can seek the playhead straight to the moment a request failed or an error logged. It's built for the exact workflow of debugging a user-reported bug: search their email on the Sessions list, open their recording, and jump straight to the failure.
+
+**Sharing a replay with an external agent.** Recordings stay private — Analytics never makes one public just so an agent can look at it. Instead, open the session and click **Copy for agent** to mint a two-hour tokenized link. Paste that link to any agent and it can read a bounded, redacted diagnostics feed (console and network entries, errors first) without ever seeing raw replay storage:
+
+```text
+GET /api/session-replay/agent-context.json?id=<recordingId>&agent_access=<token>
+GET /api/session-replay/agent-diagnostics.json?id=<recordingId>&agent_access=<token>&kind=console|network|all
+GET /api/session-replay/agent-events.json?id=<recordingId>&agent_access=<token>
+```
+
+## Traffic and SEO
+
+Two more read-only data surfaces round out this tab:
+
+- **SEO metrics**, once a DataForSEO connection is configured — top-ranked keywords across your blog, and ranked keywords for one page by slug.
+- **First-party marketing dashboards** built from the same event stream everything else in Analytics uses — signups, template/feature clicks, referral sources, and viral coefficient. Analytics ships a worked example dashboard demonstrating this pattern that you can open directly or copy as a starting point for your own.
+
+## What's next
+
+- [**Dashboards, Analyses, and the Data Dictionary**](/docs/template-analytics-dashboards) — the other place you'll spend time day to day
+- [**Connecting and Extending Data Sources**](/docs/template-analytics-connectors) — connecting DataForSEO and the rest of your stack
+- [**Extending Analytics**](/docs/template-analytics-developers) — the monitoring/error/session schema and action reference
+- [**Analytics overview**](/docs/template-analytics) — back to the app summary

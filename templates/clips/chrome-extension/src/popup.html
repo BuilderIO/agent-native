@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Record with Clips</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="popup-page">
+    <main class="recorder-card">
+      <header class="popup-header desktop-header">
+        <button
+          id="feedback"
+          class="header-feedback"
+          type="button"
+          aria-expanded="false"
+          aria-controls="feedback-popover"
+        >
+          Feedback
+        </button>
+        <div id="feedback-popover" class="feedback-popover-content" hidden>
+          <div id="feedback-success" class="feedback-success" hidden>
+            <div class="feedback-success-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M5 12.5l4.2 4.2L19 7"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <div class="feedback-success-title">Thanks for the feedback!</div>
+          </div>
+          <form id="feedback-form" class="feedback-form">
+            <textarea
+              id="feedback-textarea"
+              class="feedback-textarea"
+              rows="5"
+              maxlength="10000"
+              placeholder="Tell us what's on your mind..."
+            ></textarea>
+            <input
+              id="feedback-honeypot"
+              class="feedback-honeypot"
+              type="text"
+              tabindex="-1"
+              autocomplete="off"
+              aria-hidden="true"
+            />
+            <div class="feedback-form-footer">
+              <div id="feedback-hint" class="feedback-hint">
+                Ctrl+Enter to send
+              </div>
+              <button
+                id="feedback-submit"
+                class="feedback-submit"
+                type="submit"
+                disabled
+              >
+                Send feedback
+              </button>
+            </div>
+          </form>
+        </div>
+        <div class="mode-toggle" role="radiogroup" aria-label="Recording mode">
+          <button
+            class="mode-option"
+            type="button"
+            role="radio"
+            aria-checked="false"
+            data-mode="screen"
+            aria-label="Screen only"
+            data-tooltip="Screen only"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect
+                x="3"
+                y="4"
+                width="18"
+                height="12"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.75"
+              />
+              <path
+                d="M8 20h8M12 16v4"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+          <button
+            class="mode-option"
+            type="button"
+            role="radio"
+            aria-checked="true"
+            data-mode="screen-camera"
+            aria-label="Screen and camera"
+            data-tooltip="Screen and camera"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect
+                x="3"
+                y="4"
+                width="14"
+                height="10"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.75"
+              />
+              <circle
+                cx="17.5"
+                cy="15.5"
+                r="4.5"
+                stroke="currentColor"
+                stroke-width="1.75"
+              />
+              <circle cx="17.5" cy="15.5" r="1.5" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            class="mode-option"
+            type="button"
+            role="radio"
+            aria-checked="false"
+            data-mode="camera"
+            aria-label="Camera only"
+            data-tooltip="Camera only"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect
+                x="3"
+                y="7"
+                width="14"
+                height="10"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.75"
+              />
+              <path
+                d="M17 10l4-2v8l-4-2z"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+        <button id="close" class="icon-button header-close" type="button">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M6 6l12 12M18 6L6 18"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </header>
+
+      <div id="idle-content">
+        <div id="unsupported-notice" class="notice" role="alert" hidden>
+          <svg
+            class="notice-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <div class="notice-body">
+            <div class="notice-title">Clips can't draw controls here</div>
+            <div class="notice-text">
+              This is a browser page (like New&nbsp;Tab), so the countdown and
+              on-screen controls won't appear. You can still record a window or
+              full screen — stop from the Clips icon — or open a website for the
+              full experience.
+            </div>
+          </div>
+        </div>
+        <section class="panel" aria-label="Recorder setup">
+          <div id="source-row" class="row row-on">
+            <span class="row-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect
+                  x="3"
+                  y="4"
+                  width="18"
+                  height="12"
+                  rx="2"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                />
+                <path
+                  d="M8 20h8M12 16v4"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <button id="source-button" type="button" class="row-button">
+              <span id="source-label" class="row-label">Current tab</span>
+              <span class="row-flex" aria-hidden="true"></span>
+              <span class="row-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M6 9l6 6 6-6"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </button>
+            <div id="source-menu" class="row-menu" hidden>
+              <button
+                class="row-menu-item"
+                type="button"
+                data-surface="browser"
+              >
+                <span class="row-menu-check" aria-hidden="true"></span>
+                <span class="row-menu-label">Current tab</span>
+              </button>
+              <button class="row-menu-item" type="button" data-surface="window">
+                <span class="row-menu-check" aria-hidden="true"></span>
+                <span class="row-menu-label">Window</span>
+              </button>
+              <button
+                class="row-menu-item"
+                type="button"
+                data-surface="monitor"
+              >
+                <span class="row-menu-check" aria-hidden="true"></span>
+                <span class="row-menu-label">Full screen</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="camera-row" class="row row-on">
+            <span class="row-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect
+                  x="3"
+                  y="7"
+                  width="14"
+                  height="10"
+                  rx="2"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                />
+                <path
+                  d="M17 10l4-2v8l-4-2z"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <button id="camera-device-button" type="button" class="row-button">
+              <span id="camera-device-label" class="row-label"
+                >Default camera</span
+              >
+              <span class="row-flex" aria-hidden="true"></span>
+              <span class="row-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M6 9l6 6 6-6"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </button>
+            <div id="camera-device-menu" class="row-menu" hidden></div>
+            <button
+              id="include-camera"
+              class="toggle toggle-on"
+              role="switch"
+              aria-checked="true"
+              type="button"
+            >
+              On
+            </button>
+          </div>
+
+          <div id="microphone-row" class="row row-on">
+            <span class="row-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect
+                  x="9"
+                  y="3"
+                  width="6"
+                  height="12"
+                  rx="3"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                />
+                <path
+                  d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <button
+              id="microphone-device-button"
+              type="button"
+              class="row-button"
+            >
+              <span id="microphone-device-label" class="row-label"
+                >Default mic</span
+              >
+              <span class="row-flex" aria-hidden="true"></span>
+              <span class="row-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M6 9l6 6 6-6"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </button>
+            <div id="microphone-device-menu" class="row-menu" hidden></div>
+            <button
+              id="include-microphone"
+              class="toggle toggle-on"
+              role="switch"
+              aria-checked="true"
+              type="button"
+            >
+              On
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div id="active-content" class="active-content" hidden>
+        <div class="recording-dot" aria-hidden="true"></div>
+        <div class="row-copy">
+          <div id="recording-title" class="row-title">Current recording</div>
+          <div id="recording-url" class="row-subtitle"></div>
+          <div id="recording-status" class="status">Recording 0:00</div>
+        </div>
+        <button
+          id="open-recording"
+          class="icon-button"
+          type="button"
+          title="Open clip"
+        >
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M14 5H19V10"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M19 5L11 13"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+            <path
+              d="M10 7H7.75A2.75 2.75 0 0 0 5 9.75V16.25A2.75 2.75 0 0 0 7.75 19H14.25A2.75 2.75 0 0 0 17 16.25V14"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <button id="start" class="primary start" type="button">
+        Start recording
+      </button>
+      <button id="sign-in" class="primary start" type="button" hidden>
+        Sign in to Clips
+      </button>
+      <div class="recording-actions" hidden>
+        <button id="discard" class="secondary-action" type="button">
+          Discard
+        </button>
+        <button id="stop" class="primary start" type="button">
+          Stop and save
+        </button>
+      </div>
+
+      <span id="status" class="status" role="status" aria-live="polite"></span>
+
+      <div id="storage-help" class="storage-help" hidden>
+        <button id="storage-help-open" class="storage-help-open" type="button">
+          Use Builder.io (free)
+        </button>
+        <span aria-hidden="true">·</span>
+        <span class="storage-help-why" tabindex="0">
+          Why am I seeing this?
+          <span class="storage-help-details" role="tooltip">
+            Clips is 100% free and open source, so you need to hook up a way to
+            store your clips. Connect storage with Builder.io for free-tier
+            storage and AI, or use S3-compatible object storage and your own LLM
+            keys.
+          </span>
+        </span>
+      </div>
+
+      <nav class="bottom-row" aria-label="Clips shortcuts">
+        <button id="open-library" class="bottom-button" type="button">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect
+              x="3.5"
+              y="3.5"
+              width="7"
+              height="7"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.75"
+            />
+            <rect
+              x="13.5"
+              y="3.5"
+              width="7"
+              height="7"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.75"
+            />
+            <rect
+              x="3.5"
+              y="13.5"
+              width="7"
+              height="7"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.75"
+            />
+            <rect
+              x="13.5"
+              y="13.5"
+              width="7"
+              height="7"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.75"
+            />
+          </svg>
+          <span>Library</span>
+        </button>
+        <button id="open-settings" class="bottom-button" type="button">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M4 7h10M18 7h2M4 17h2M10 17h10"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
+            <circle
+              cx="16"
+              cy="7"
+              r="2.25"
+              stroke="currentColor"
+              stroke-width="1.75"
+            />
+            <circle
+              cx="8"
+              cy="17"
+              r="2.25"
+              stroke="currentColor"
+              stroke-width="1.75"
+            />
+          </svg>
+          <span>Settings</span>
+        </button>
+        <button id="open-recent" class="bottom-button" type="button">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M4 9a8 8 0 1 1 .5 6"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M4 15v-5h5M12 7v5l3 2"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span>Recent</span>
+        </button>
+      </nav>
+
+      <script type="module" src="./popup.ts"></script>
+    </main>
+  </body>
+</html>

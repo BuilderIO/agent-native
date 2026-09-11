@@ -1,0 +1,98 @@
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+import {
+  publicDocumentExtraContext,
+  resolvePublicViewerOwner,
+} from "../lib/public-documents.js";
+
+// These tools are injected by the framework/provider layer, so they cannot
+// declare `deferLoading` beside a Content action. Content-owned starter tools
+// carry `deferLoading: false` in their own definitions.
+const INJECTED_INITIAL_TOOL_NAMES = [
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "query-staged-dataset",
+];
+
+export default createAgentChatPlugin({
+  appId: "content",
+  durableBackgroundRuns: true,
+  selectedA2AReceiverOwnsObjective: true,
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
+  mcp: {
+    externalAgents: { writes: "allowlisted" },
+    instructions:
+      "Find documents with list-documents or search-documents; read one with get-document (pull-document for the raw markdown you will edit). Author content yourself and persist it with create-document, or edit-document for a targeted change and update-document for a full replace. For Notion or other provider data use provider-api-catalog → provider-api-docs → provider-api-request instead of guessing endpoints.",
+  },
+  anonymousOwner: resolvePublicViewerOwner,
+  extraContext: publicDocumentExtraContext,
+  // Enable sandboxed JavaScript execution so Content agents can fetch,
+  // paginate, and reduce provider data through providerFetch() without us
+  // hardcoding one action per Notion endpoint.
+  codeExecution: { production: "sandboxed" },
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are an AI document assistant. You manage documents, comments, media blocks, sharing, and connected Notion content through actions and shared application state.
+
+The current screen is already included as bounded context on every message. Do not call view-screen at the start of a turn or repeatedly; call it only when that context is stale. Its document body is a preview, so call get-document when the full page content is required.
+
+Some less-common tool schemas are loaded on demand. Use tool-search with a specific query when you need a capability that is not already available as a direct tool.
+
+Provider-specific Content actions are shortcuts, not limits. If a first-class action cannot express the exact Notion endpoint, page/database/comment object, filter, request body, pagination mode, markdown endpoint, payload shape, or API version needed, call provider-api-catalog and provider-api-docs as needed, then call provider-api-request against the real Notion API. Use the raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Content cannot do something the underlying Notion API can do.
+
+Content's Notion access is per-user OAuth only. Never ask for or use NOTION_API_KEY. provider-api-request resolves Notion auth from the user's connected Notion OAuth account. For large Notion searches or database queries, pass stageAs and pagination options to provider-api-request, then use query-staged-dataset to count, filter, group, or project the staged rows.`,
+  mentionProviders: async () => {
+    const { getDb } = await import("../db/index.js");
+    const { documents } = await import("../db/schema.js");
+    const { and, desc, eq, like } = await import("drizzle-orm");
+    const { getCurrentOwnerEmail } = await import("../lib/documents.js");
+    return {
+      documents: {
+        label: "Documents",
+        icon: "document",
+        search: async (query: string) => {
+          const db = getDb();
+          const ownerEmail = getCurrentOwnerEmail();
+          // Project only id/title/parentId — documents.content is the full
+          // page body and must not be pulled into this per-keystroke search.
+          const mentionColumns = {
+            id: documents.id,
+            title: documents.title,
+            parentId: documents.parentId,
+          };
+          const rows = query
+            ? await db
+                .select(mentionColumns)
+                .from(documents)
+                .where(
+                  and(
+                    eq(documents.ownerEmail, ownerEmail),
+                    like(documents.title, `%${query}%`),
+                  ),
+                )
+                .limit(15)
+            : await db
+                .select(mentionColumns)
+                .from(documents)
+                .where(eq(documents.ownerEmail, ownerEmail))
+                .orderBy(desc(documents.updatedAt))
+                .limit(15);
+          return rows.map((doc) => ({
+            id: doc.id,
+            label: doc.title,
+            description: doc.parentId ? "Sub-page" : undefined,
+            icon: "document" as const,
+            refType: "document",
+            refId: doc.id,
+          }));
+        },
+      },
+    };
+  },
+});

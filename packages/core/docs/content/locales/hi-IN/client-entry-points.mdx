@@ -1,0 +1,27 @@
+---
+title: "एंट्री पॉइंट्स"
+description: "app/entry.client.tsx और app/entry.server.tsx: पतले हाइड्रेशन और SSR बूटस्ट्रैप रैपर, और स्ट्रीमिंग बिहेवियर को कब कस्टमाइज़ करें।"
+---
+
+# एंट्री पॉइंट्स
+
+`app/entry.client.tsx` सर्वर-रेंडर किए गए HTML को ब्राउज़र में हाइड्रेट करता है, और `app/entry.server.tsx` वह HTML सर्वर पर रेंडर करता है। दोनों React Router द्वारा जनरेट किए गए पतले रैपर हैं। आपको इन्हें एडिट करने की शायद ही कभी आवश्यकता होती है।
+
+```ts filename="app/entry.server.tsx"
+import {
+  createDocumentRequestHandler,
+  streamTimeout,
+} from "@agent-native/core/server/entry-server";
+import { ServerRouter } from "react-router";
+
+export default createDocumentRequestHandler(ServerRouter);
+export { streamTimeout };
+```
+
+इन्हें केवल एडवांस्ड SSR कस्टमाइज़ेशन के लिए एक्सेस करें, उदाहरण के लिए स्ट्रीमिंग बिहेवियर बदलने के लिए। सामान्य पेज, लेआउट, और डेटा को यहां किसी बदलाव की आवश्यकता नहीं है। इसके बजाय पेज जोड़ने के लिए [रूटिंग](/docs/client-routing) देखें।
+
+## आगे क्या
+
+- [**अवलोकन**](/docs/client-overview) - `app/` में ये फ़ाइलें कहां बैठती हैं
+- [**रूटिंग**](/docs/client-routing) - पेज जोड़ना, `app/` को बढ़ाने का सामान्य तरीका
+- [**उन्नत**](/docs/client-advanced) - अन्य लोअर-लेवल क्लाइंट प्रिमिटिव और एस्केप हैच

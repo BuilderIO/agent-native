@@ -1,0 +1,75 @@
+---
+title: "إضافة صفحة"
+description: "أنشئ مسار React يستدعي الإجراء ويعرض نتيجته."
+---
+
+# إضافة صفحة
+
+هذا هو الجزء الثالث من سلسلة الخطوات الأولى. في [إضافة إجراء](/docs/getting-started-actions)
+أنشأت `analyze-text`. ستستدعي هنا الإجراء نفسه من مسار. لا يحتاج هذا المثال إلى
+جدول قاعدة بيانات جديد. يخزّن Chat بالفعل سجل المحادثات في SQL؛ أضف جداولك
+الخاصة عندما تحتاج إلى حفظ بيانات المجال.
+
+## إنشاء المسار {#add-a-page}
+
+يقرأ خادم التطوير ملفات المسارات عند بدء تشغيله. أنشئ
+`app/routes/text-analyses.tsx`، وأعد تشغيل `pnpm dev` إذا كان قيد التشغيل بالفعل.
+سيصبح المسار متاحاً على
+`http://localhost:8080/text-analyses`.
+
+```tsx filename="app/routes/text-analyses.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+type TextAnalysis = {
+  summary: {
+    characters: number;
+    words: number;
+    sentences: number;
+    paragraphs: number;
+  };
+};
+
+export default function TextAnalysesRoute() {
+  const { data: analysis, isLoading } = useActionQuery<TextAnalysis>(
+    "analyze-text",
+    { text: "Hello world. How are you today?" },
+  );
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">The same action, on a page.</p>
+      </header>
+      <section className="grid gap-3 sm:grid-cols-2">
+        {isLoading && <p className="text-muted-foreground">Analyzing...</p>}
+        {analysis &&
+          Object.entries(analysis.summary).map(([label, value]) => (
+            <article key={label} className="rounded-lg border p-4">
+              <p className="text-sm capitalize text-muted-foreground">
+                {label}
+              </p>
+              <p className="text-2xl font-semibold">{value}</p>
+            </article>
+          ))}
+      </section>
+    </main>
+  );
+}
+```
+
+يستدعي `useActionQuery` الإجراء نفسه للقراءة فقط الذي يستخدمه الوكيل. لا تحتاج
+الصفحة إلى مسار API مخصص أو طبقة بيانات ثانية أو SQL في هذه المرحلة.
+
+افتح `http://localhost:8080/text-analyses`، أو اطلب من الوكيل:
+
+> Navigate to `/text-analyses`.
+
+يكفي المسار لهذا الدليل. أضف إدخالاً في الشريط الجانبي لاحقاً إذا أصبح هذا
+التدفق رئيسياً. للاطلاع على أنماط `view-screen` و`navigate` وحالة التطبيق
+الكاملة، راجع [الوعي بالسياق](/docs/context-awareness).
+
+## المتابعة
+
+لقد أنشأت تطبيق محادثة يضم إجراءً وصفحة تستدعي مصدر الحقيقة نفسه. تابع إلى
+استكشف [المفاهيم الأساسية](/docs/key-concepts) و[أسطح الوكيل](/docs/agent-surfaces).

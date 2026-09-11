@@ -1,0 +1,239 @@
+/**
+ * Migration definitions for the org module. Versions are namespaced into a high
+ * range (1000+) so they don't collide with template-owned migrations sharing
+ * the same `_migrations` table.
+ */
+export const ORG_MIGRATIONS = [
+  {
+    version: 1001,
+    sql: `CREATE TABLE IF NOT EXISTS organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    )`,
+  },
+  {
+    version: 1002,
+    sql: `CREATE TABLE IF NOT EXISTS org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at BIGINT NOT NULL,
+      UNIQUE(org_id, email)
+    )`,
+  },
+  {
+    version: 1003,
+    sql: `CREATE TABLE IF NOT EXISTS org_invitations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      invited_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      status TEXT NOT NULL
+    )`,
+  },
+  {
+    version: 1004,
+    sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS allowed_domain TEXT`,
+  },
+  {
+    version: 1005,
+    sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS a2a_secret TEXT`,
+  },
+  {
+    version: 1006,
+    sql: `ALTER TABLE org_invitations ADD COLUMN IF NOT EXISTS role TEXT`,
+  },
+  {
+    // Every authenticated request calls `getOrgContext` which queries
+    // `WHERE LOWER(m.email) = ?`. Without a supporting index this is a
+    // full table scan on every request. A LOWER(email) expression index
+    // lets the planner use an index seek instead.
+    version: 1007,
+    sql: `CREATE INDEX IF NOT EXISTS org_members_lower_email_idx ON org_members (LOWER(email))`,
+  },
+  {
+    // Domain join and org resolution query `LOWER(allowed_domain)`.
+    // Keep that opt-in lookup indexed before it appears on any request path.
+    version: 1008,
+    sql: `CREATE INDEX IF NOT EXISTS organizations_lower_allowed_domain_idx ON organizations (LOWER(allowed_domain))`,
+  },
+  {
+    // De-dup pass ahead of the unique index below. `org_members` has always
+    // had a `UNIQUE(org_id, email)` constraint (see v1002), but that's an
+    // exact-string match — callers that insert a session's raw-case email
+    // (e.g. handlers.ts's acceptInvitationHandler) can still create a
+    // second row for the same person under a different case, and every
+    // membership *read* in this module already matches case-insensitively
+    // via `LOWER(email)`. This keeps exactly one row per (org_id,
+    // LOWER(email)) — the row with the oldest `joined_at` (ties broken by
+    // `id` for determinism) — by deleting any row for which a strictly
+    // "older" row exists in the same group. The correlated EXISTS subquery
+    // avoids window functions.
+    // Must run before the unique index below or that CREATE would fail on
+    // any database that already has case-variant duplicates.
+    version: 1009,
+    name: "org-members-dedupe-lower-email",
+    sql: `DELETE FROM org_members
+      WHERE EXISTS (
+        SELECT 1 FROM org_members older
+        WHERE older.org_id = org_members.org_id
+          AND LOWER(older.email) = LOWER(org_members.email)
+          AND (
+            older.joined_at < org_members.joined_at
+            OR (older.joined_at = org_members.joined_at AND older.id < org_members.id)
+          )
+      )`,
+  },
+  {
+    // Closes the TOCTOU window in `acceptPendingInvitationsForEmail`
+    // (org/accept-pending.ts): a SELECT-then-INSERT check with no unique
+    // constraint standing behind the case-insensitive comparison every
+    // reader uses. Without this, two concurrent acceptances (e.g. a
+    // retried signup hook) can both pass the SELECT and both INSERT,
+    // producing duplicate membership rows. This expression index makes
+    // (org_id, LOWER(email)) unique at the database level so an
+    // `ON CONFLICT` insert (or a raw duplicate insert) is rejected
+    // instead of silently creating a second row.
+    version: 1010,
+    name: "org-members-unique-lower-email-idx",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS org_members_org_lower_email_uidx ON org_members (org_id, LOWER(email))`,
+  },
+  {
+    version: 1011,
+    sql: `CREATE TABLE IF NOT EXISTS app_member_roles (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      app_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      updated_by TEXT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+  },
+  {
+    // Every guarded action resolves (org_id, app_id, LOWER(email)) on the
+    // request path, and the assignment write upserts on the same key. Unique
+    // rather than plain so a concurrent double-assign is rejected by the
+    // database instead of leaving two rows whose winner depends on read order.
+    version: 1012,
+    name: "app-member-roles-unique-org-app-lower-email-idx",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS app_member_roles_org_app_lower_email_uidx
+          ON app_member_roles (org_id, app_id, LOWER(email))`,
+  },
+  {
+    version: 1013,
+    sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS workspace_url TEXT`,
+  },
+  {
+    version: 1014,
+    sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS required_auth_provider TEXT`,
+  },
+  {
+    version: 1015,
+    sql: `CREATE TABLE IF NOT EXISTS workspace_apps (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'org',
+      name TEXT NOT NULL,
+      description TEXT,
+      path TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+  },
+  {
+    version: 1016,
+    sql: `CREATE TABLE IF NOT EXISTS workspace_app_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      UNIQUE(resource_id, principal_type, principal_id)
+    )`,
+  },
+  {
+    version: 1017,
+    name: "workspace-app-access-indexes",
+    sql: `CREATE INDEX IF NOT EXISTS workspace_apps_org_visibility_idx
+          ON workspace_apps (org_id, visibility)`,
+  },
+  {
+    // Legacy manifest discovery has no trusted creator and no explicit share
+    // provenance. Restore organization visibility only for that population;
+    // owned or explicitly shared private apps remain private.
+    version: 1018,
+    name: "workspace-apps-restore-ownerless-legacy-visibility",
+    sql: `UPDATE workspace_apps
+          SET visibility = 'org'
+          WHERE visibility = 'private'
+            AND TRIM(owner_email) = ''
+            AND NOT EXISTS (
+              SELECT 1
+              FROM workspace_app_shares
+              WHERE workspace_app_shares.resource_id = workspace_apps.id
+            )`,
+  },
+  {
+    version: 1019,
+    name: "organization-identity-federation",
+    sql: `
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_authority TEXT;
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS organizations_identity_uidx
+        ON organizations (identity_authority, identity_id);
+    `,
+  },
+  {
+    version: 1020,
+    name: "organization-federation-removal-pending",
+    sql: `ALTER TABLE org_members
+          ADD COLUMN IF NOT EXISTS federation_removal_pending_at BIGINT`,
+  },
+  {
+    version: 1021,
+    name: "organization-federation-roster-initialized",
+    sql: `ALTER TABLE organizations
+          ADD COLUMN IF NOT EXISTS federation_roster_initialized_at BIGINT`,
+  },
+  {
+    // Widening only. Every column below stores a JS `Date.now()`
+    // millisecond epoch (13 digits) but was declared `INTEGER` — Postgres
+    // int4, max 2,147,483,647 — so the very first org-creation INSERT
+    // (`organizations.created_at`, `org_members.joined_at`) fails with
+    // `value "<ms epoch>" is out of range for type integer`. BIGINT matches
+    // every other millisecond-timestamp column in the framework.
+    version: 1022,
+    name: "org-tables-timestamps-bigint",
+    sql: `
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE organizations ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE organizations ALTER COLUMN federation_roster_initialized_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE org_members ALTER COLUMN joined_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE org_members ALTER COLUMN federation_removal_pending_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE org_invitations ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE app_member_roles ALTER COLUMN updated_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE workspace_apps ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE workspace_apps ALTER COLUMN updated_at TYPE BIGINT;
+    `,
+  },
+  {
+    version: 1023,
+    name: "workspace-app-shares-notified-at",
+    sql: `ALTER TABLE IF EXISTS workspace_app_shares ADD COLUMN IF NOT EXISTS notified_at TEXT`,
+  },
+];
