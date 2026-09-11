@@ -700,10 +700,19 @@ export function buildExtensionHtml(
 	    if (new URLSearchParams(location.search).get('slot') || window.parent !== window) {
 	      var _lastH = 0;
 	      var _reportHeight = function() {
-	        var h = Math.max(
-	          document.documentElement.scrollHeight,
-	          document.body ? document.body.scrollHeight : 0,
-	        );
+	        var body = document.body;
+	        if (!body) return;
+	        var bodyRect = body.getBoundingClientRect();
+	        var bodyTop = bodyRect.top;
+	        var bodyStyle = window.getComputedStyle(body);
+	        var paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+	        var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+	        var contentBottom = paddingTop;
+	        Array.prototype.forEach.call(body.querySelectorAll('*'), function(element) {
+	          var rect = element.getBoundingClientRect();
+	          contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+	        });
+	        var h = Math.ceil(contentBottom + paddingBottom);
 	        if (h !== _lastH) {
 	          _lastH = h;
 	          window.parent.postMessage({ type: 'agent-native-extension-resize', height: h }, '*');
