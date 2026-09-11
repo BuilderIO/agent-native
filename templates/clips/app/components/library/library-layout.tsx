@@ -3,9 +3,9 @@ import {
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useLab } from "@agent-native/core/client/labs";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   InvitationBanner,
   OrgSwitcher,

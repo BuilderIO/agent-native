@@ -683,8 +683,7 @@ const messages = {
     title: "设置",
     pageTitle: "设置 · Clips",
     labs: "Labs",
-    labsIntro:
-      "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
+    labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
     labVideoEditing: "视频编辑",
     labVideoEditingDescription: "试用新的视频编辑器。",
     labMeetings: "会议和转录",

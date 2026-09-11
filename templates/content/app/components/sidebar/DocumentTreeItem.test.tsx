@@ -15,19 +15,17 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { DocumentTreeItem } from "./DocumentTreeItem";
 
-const { useSortableMock, useCreativeContextLabMock } = vi.hoisted(
-  () => ({
-    useSortableMock: vi.fn(() => ({
-      attributes: {},
-      listeners: {},
-      setNodeRef: vi.fn(),
-      transform: null,
-      transition: undefined,
-      isDragging: false,
-    })),
-    useCreativeContextLabMock: vi.fn(() => true),
-  }),
-);
+const { useSortableMock, useCreativeContextLabMock } = vi.hoisted(() => ({
+  useSortableMock: vi.fn(() => ({
+    attributes: {},
+    listeners: {},
+    setNodeRef: vi.fn(),
+    transform: null,
+    transition: undefined,
+    isDragging: false,
+  })),
+  useCreativeContextLabMock: vi.fn(() => true),
+}));
 
 vi.mock("@dnd-kit/sortable", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@dnd-kit/sortable")>()),

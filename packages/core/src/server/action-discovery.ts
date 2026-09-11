@@ -718,14 +718,8 @@ export async function mergeCoreSharingActions(
       "set-feature-flag",
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
-    [
-      "get-labs",
-      () => import("../labs/actions/get-labs.js"),
-    ],
-    [
-      "set-lab",
-      () => import("../labs/actions/set-lab.js"),
-    ],
+    ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["set-lab", () => import("../labs/actions/set-lab.js")],
     // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
     // recurring jobs and personal automations. The agent-facing native tools
     // remain the canonical conversational surface.

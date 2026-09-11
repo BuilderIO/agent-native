@@ -1,7 +1,7 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { useLabState } from "@agent-native/core/client/labs";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabState } from "@agent-native/core/client/labs";
 import { CLIPS_MEETINGS } from "@shared/labs";
 import {
   IconAlertTriangle,

@@ -21,9 +21,7 @@ export function LabsSettings({
   title = "Labs",
   intro = "These new, unstable features may have bugs. Your feedback helps us improve them.",
 }: LabsSettingsProps) {
-  const valuesQuery = useActionQuery<LabValues>(
-    "get-labs" as never,
-  );
+  const valuesQuery = useActionQuery<LabValues>("get-labs" as never);
   const setLab = useActionMutation<
     { key: string; enabled: boolean; values: LabValues },
     { key: string; enabled: boolean }
@@ -59,8 +57,7 @@ export function LabsSettings({
         </div>
         {labs.map((lab) => {
           const enabled =
-            overrides[lab.key] ??
-            valuesQuery.data?.[lab.key] === true;
+            overrides[lab.key] ?? valuesQuery.data?.[lab.key] === true;
           const label = lab.displayName ?? lab.key;
           return (
             <SettingsRow

@@ -734,8 +734,7 @@ const messages = {
     labMeetingsDescription:
       "Experimente a captura e a transcrição automáticas de reuniões.",
     labWisprFlow: "Ditado por voz",
-    labWisprFlowDescription:
-      "Experimente o novo recurso de ditado por voz.",
+    labWisprFlowDescription: "Experimente o novo recurso de ditado por voz.",
     intro: "Preferências e serviços conectados para este espaço do Clips.",
     preferencesTitle: "Preferências",
     languageTitle: "Idioma",

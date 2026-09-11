@@ -1293,9 +1293,7 @@ export function App({
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
-  const [labValues, setLabValues] = useState<
-    Record<string, boolean>
-  >({});
+  const [labValues, setLabValues] = useState<Record<string, boolean>>({});
   // "Could not reach the server" is not the same state as "signed out", and the
   // fix is different: one needs a correct server URL, the other needs sign-in.
   const [serverReachable, setServerReachable] = useState(true);
@@ -1356,10 +1354,8 @@ export function App({
     setCameraError,
     setRecError,
   });
-  const meetingsLabEnabled =
-    labValues[CLIPS_MEETINGS.key] === true;
-  const wisprFlowLabEnabled =
-    labValues[CLIPS_WISPRFLOW.key] === true;
+  const meetingsLabEnabled = labValues[CLIPS_MEETINGS.key] === true;
+  const wisprFlowLabEnabled = labValues[CLIPS_WISPRFLOW.key] === true;
   const voiceDictationEnabled =
     wisprFlowLabEnabled && featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =

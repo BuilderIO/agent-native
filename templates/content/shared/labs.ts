@@ -1,7 +1,4 @@
-import {
-  defineLab,
-  defineLabs,
-} from "@agent-native/core/labs/registry";
+import { defineLab, defineLabs } from "@agent-native/core/labs/registry";
 
 export const CONTENT_CREATIVE_CONTEXT = defineLab({
   key: "content.creative-context",
@@ -10,6 +7,4 @@ export const CONTENT_CREATIVE_CONTEXT = defineLab({
   keywords: "context creative library reference packs sources",
 });
 
-export const CONTENT_LABS = defineLabs([
-  CONTENT_CREATIVE_CONTEXT,
-]);
+export const CONTENT_LABS = defineLabs([CONTENT_CREATIVE_CONTEXT]);

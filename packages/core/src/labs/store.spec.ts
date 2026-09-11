@@ -7,15 +7,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../settings/user-settings.js", () => mocks);
 
-import {
-  _resetLabRegistryForTests,
-  registerLabs,
-} from "./registry.js";
-import {
-  getUserLabs,
-  normalizeLabValues,
-  setUserLab,
-} from "./store.js";
+import { _resetLabRegistryForTests, registerLabs } from "./registry.js";
+import { getUserLabs, normalizeLabValues, setUserLab } from "./store.js";
 
 beforeEach(() => {
   _resetLabRegistryForTests();

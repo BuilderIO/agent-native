@@ -714,8 +714,7 @@ const messages = {
     labVideoEditing: "Video editing",
     labVideoEditingDescription: "Try the new video editor.",
     labMeetings: "Meetings and transcription",
-    labMeetingsDescription:
-      "Try automatic meeting capture and transcription.",
+    labMeetingsDescription: "Try automatic meeting capture and transcription.",
     labWisprFlow: "Voice dictation",
     labWisprFlowDescription: "Try the new voice dictation feature.",
     intro: "Preferences and connected services for this Clips workspace.",

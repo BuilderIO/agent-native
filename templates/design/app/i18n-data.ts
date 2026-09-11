@@ -16111,8 +16111,7 @@ export const messagesByLocale = {
           languageDescription: "选择 Design 的界面语言。",
           languageLabel: "界面语言",
           labs: "Labs",
-          labsIntro:
-            "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
+          labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
           labTweaks: "设计微调",
           labTweaksDescription: "试用 AI 设计微调功能。",
         },
@@ -16285,8 +16284,7 @@ export const messagesByLocale = {
           labsIntro:
             "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
           labTweaks: "Ajustements de design",
-          labTweaksDescription:
-            "Essayez les ajustements de design avec l’IA.",
+          labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
         },
         designEditor: {
           toasts: {
@@ -16460,8 +16458,7 @@ export const messagesByLocale = {
           labsIntro:
             "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
           labTweaks: "デザインの調整",
-          labTweaksDescription:
-            "AI によるデザイン調整をお試しください。",
+          labTweaksDescription: "AI によるデザイン調整をお試しください。",
         },
         designEditor: {
           toasts: {
@@ -16809,8 +16806,7 @@ export const messagesByLocale = {
           labsIntro:
             "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
           labTweaks: "تعديلات التصميم",
-          labTweaksDescription:
-            "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
+          labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
         },
         designEditor: {
           toasts: {

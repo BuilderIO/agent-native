@@ -10811,8 +10811,7 @@ export const messagesByLocale = {
         "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
       openAgentSettings: "Gestionar agente",
       labs: "Labs",
-      labsIntro:
-        "Prueba funciones experimentales antes de su lanzamiento.",
+      labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
       labCreativeContext: "Contexto creativo",
       labCreativeContextDescription:
         "Conecta y reutiliza contexto de referencia regulado en Content.",
@@ -11838,8 +11837,7 @@ export const messagesByLocale = {
         "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
       openAgentSettings: "Gerenciar agente",
       labs: "Labs",
-      labsIntro:
-        "Experimente recursos experimentais antes do lançamento.",
+      labsIntro: "Experimente recursos experimentais antes do lançamento.",
       labCreativeContext: "Contexto criativo",
       labCreativeContextDescription:
         "Conecte e reutilize contexto de referência regulado no Content.",

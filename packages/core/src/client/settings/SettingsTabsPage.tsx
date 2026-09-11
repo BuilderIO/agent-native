@@ -367,11 +367,7 @@ function SettingsTabsPageContent({
         icon: IconFlask,
         keywords: "experimental unstable beta bugs feedback",
         content: (
-          <LabsSettings
-            labs={labs}
-            title={labsLabel}
-            intro={labsIntro}
-          />
+          <LabsSettings labs={labs} title={labsLabel} intro={labsIntro} />
         ),
         searchEntries: labs.map((lab) => ({
           id: `lab:${lab.key}`,

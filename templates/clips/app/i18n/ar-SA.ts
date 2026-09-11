@@ -720,8 +720,7 @@ const messages = {
     labVideoEditing: "تحرير الفيديو",
     labVideoEditingDescription: "جرّب محرر الفيديو الجديد.",
     labMeetings: "الاجتماعات والنسخ النصي",
-    labMeetingsDescription:
-      "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات.",
+    labMeetingsDescription: "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات.",
     labWisprFlow: "الإملاء الصوتي",
     labWisprFlowDescription: "جرّب ميزة الإملاء الصوتي الجديدة.",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",

@@ -1,7 +1,4 @@
-import {
-  defineLab,
-  defineLabs,
-} from "@agent-native/core/labs/registry";
+import { defineLab, defineLabs } from "@agent-native/core/labs/registry";
 
 export const DESIGN_TWEAKS = defineLab({
   key: "design.tweaks",

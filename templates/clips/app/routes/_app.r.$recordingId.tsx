@@ -9,7 +9,6 @@ import {
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import { useLab } from "@agent-native/core/client/labs";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -21,6 +20,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -34,8 +34,8 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
-import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
+import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,

@@ -12,9 +12,7 @@ export interface LabDefinition {
 
 const registry = new Map<string, LabDefinition>();
 
-function normalizeDefinition(
-  definition: LabDefinition,
-): LabDefinition {
+function normalizeDefinition(definition: LabDefinition): LabDefinition {
   const key = definition.key.trim();
   if (!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(key)) {
     throw new Error(
@@ -36,9 +34,7 @@ function normalizeDefinition(
 }
 
 /** Define one app-owned lab for registration at server startup. */
-export function defineLab(
-  definition: LabDefinition,
-): LabDefinition {
+export function defineLab(definition: LabDefinition): LabDefinition {
   return Object.freeze(normalizeDefinition(definition));
 }
 
@@ -60,9 +56,7 @@ export function defineLabs(
 }
 
 /** Register definitions once at Nitro startup. Re-registering identical data is safe for HMR. */
-export function registerLabs(
-  definitions: readonly LabDefinition[],
-): void {
+export function registerLabs(definitions: readonly LabDefinition[]): void {
   for (const rawDefinition of definitions) {
     const definition = defineLab(rawDefinition);
     const existing = registry.get(definition.key);
@@ -86,9 +80,7 @@ export function listLabs(): readonly LabDefinition[] {
   return [...registry.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-export function getLabDefinition(
-  key: string,
-): LabDefinition | null {
+export function getLabDefinition(key: string): LabDefinition | null {
   return registry.get(key) ?? null;
 }
 

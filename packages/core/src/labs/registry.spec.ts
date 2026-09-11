@@ -52,9 +52,7 @@ describe("lab registry", () => {
     registerLabs([definition]);
     expect(() => registerLabs([definition])).not.toThrow();
     expect(() =>
-      registerLabs([
-        { key: "clips.tweaks", displayName: "Different tweaks" },
-      ]),
+      registerLabs([{ key: "clips.tweaks", displayName: "Different tweaks" }]),
     ).toThrow(/registered with conflicting metadata/);
   });
 });

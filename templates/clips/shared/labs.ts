@@ -1,7 +1,4 @@
-import {
-  defineLab,
-  defineLabs,
-} from "@agent-native/core/labs/registry";
+import { defineLab, defineLabs } from "@agent-native/core/labs/registry";
 
 export const CLIPS_VIDEO_EDITING = defineLab({
   key: "clips.video-editing",
