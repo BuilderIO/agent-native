@@ -39,6 +39,7 @@ export default function ChatRoute() {
   const t = useT();
   const trackedMessageCount = useRef(0);
   const hasObservedMessageCount = useRef(false);
+  const pendingThreadCreationRef = useRef(false);
   const suppressNextResumeRef = useRef(false);
   const threadUrlSync = threadId
     ? {
@@ -52,7 +53,14 @@ export default function ChatRoute() {
     trackedMessageCount.current = 0;
     hasObservedMessageCount.current = false;
     if (threadId) {
-      if (suppressNextResumeRef.current) {
+      if (pendingThreadCreationRef.current) {
+        pendingThreadCreationRef.current = false;
+        suppressNextResumeRef.current = false;
+        trackEvent("thread_created", {
+          output_id: threadId,
+          output_type: "thread",
+        });
+      } else if (suppressNextResumeRef.current) {
         suppressNextResumeRef.current = false;
       } else {
         trackEvent("thread_resumed", { thread_id: threadId });
@@ -99,15 +107,10 @@ export default function ChatRoute() {
           const initialObservation = !hasObservedMessageCount.current;
           hasObservedMessageCount.current = true;
           if (count > previousCount && previousCount === 0 && !threadId) {
+            pendingThreadCreationRef.current = true;
             suppressNextResumeRef.current = true;
           }
           if (count > previousCount && !(threadId && initialObservation)) {
-            if (previousCount === 0 && !threadId) {
-              trackEvent("thread_created", {
-                ...(threadId ? { output_id: threadId } : {}),
-                output_type: "thread",
-              });
-            }
             trackEvent("message_exchanged", {
               ...(threadId ? { thread_id: threadId } : {}),
               msg_count: count,

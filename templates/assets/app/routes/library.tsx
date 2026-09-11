@@ -116,7 +116,11 @@ import type {
   ImageQualityTier,
   StyleStrength,
 } from "../../shared/api";
-import { MODEL_ASPECT_RATIOS, type AssetAccessRole } from "../../shared/api";
+import {
+  MODEL_ASPECT_RATIOS,
+  normalizeCallerAppId,
+  type AssetAccessRole,
+} from "../../shared/api";
 import {
   DEFAULT_LIBRARY_PRESETS,
   LibraryPreset,
@@ -2872,13 +2876,14 @@ export function AssetPickerSurface() {
       library_id: asset.libraryId,
       selection_surface: "picker",
     });
-    if (hostConfig.callerAppId) {
+    const callerAppId = normalizeCallerAppId(hostConfig.callerAppId);
+    if (callerAppId) {
       trackEvent("pulled_by_app", {
         asset_id: asset.id,
         output_id: asset.id,
         output_type: asset.mediaType,
         source_app: "assets",
-        target_app: hostConfig.callerAppId.replace(/^agent-native-/, ""),
+        target_app: callerAppId,
       });
     }
     if (embedded) {

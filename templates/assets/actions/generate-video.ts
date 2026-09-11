@@ -29,6 +29,7 @@ import {
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import {
   IMAGE_CATEGORIES,
+  normalizeCallerAppId,
   VIDEO_ASPECT_RATIOS,
   VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
@@ -88,6 +89,7 @@ export default defineAction({
       ...input,
       libraryId,
     };
+    const callerAppId = normalizeCallerAppId(args.callerAppId);
     const draftAccess = await assertCanDraft(args.libraryId);
     // Inputs answer to the same author rule as reads: another drafter's
     // candidate must not reach the provider as a source or a reference.
@@ -231,7 +233,7 @@ export default defineAction({
       referenceAssetIds: stringifyJson(referenceAssetIds),
       status: "pending",
       source: args.source,
-      callerAppId: args.callerAppId ?? null,
+      callerAppId: callerAppId ?? null,
       ownerEmail,
       orgId,
       metadata: stringifyJson(baseMetadata),
@@ -279,7 +281,7 @@ export default defineAction({
       createdAt: now,
       completedAt: null,
       source: args.source,
-      callerAppId: args.callerAppId ?? null,
+      callerAppId: callerAppId ?? null,
       ownerEmail,
       orgId,
     };
@@ -296,7 +298,7 @@ export default defineAction({
         output_id: runId,
         output_type: "asset",
         media_type: "video",
-        source_app: args.callerAppId,
+        source_app: callerAppId,
       },
       context,
     );
@@ -314,7 +316,7 @@ export default defineAction({
             output_type: "asset",
             media_type: "video",
             library_id: args.libraryId,
-            source_app: args.callerAppId,
+            source_app: callerAppId,
           },
           context,
         );

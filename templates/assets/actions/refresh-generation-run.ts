@@ -9,6 +9,7 @@ import { notifyGenerationRunFinished } from "../server/lib/generation-run-notifi
 import { nowIso, parseJson } from "../server/lib/json.js";
 import { assertCanDraftAuthoredBy } from "../server/lib/library-access.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
+import { normalizeCallerAppId } from "../shared/api.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
 import { upsertVariantSlot } from "./variant-slots.js";
 
@@ -178,7 +179,7 @@ export default defineAction({
             output_type: "asset",
             media_type: "image",
             library_id: run.libraryId,
-            source_app: run.callerAppId,
+            source_app: normalizeCallerAppId(run.callerAppId),
           },
           ctx,
         );
@@ -211,7 +212,7 @@ export default defineAction({
           output_type: "asset",
           media_type: "video",
           library_id: run.libraryId,
-          source_app: run.callerAppId,
+          source_app: normalizeCallerAppId(run.callerAppId),
         },
         ctx,
       );
