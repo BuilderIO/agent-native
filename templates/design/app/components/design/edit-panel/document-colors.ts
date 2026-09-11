@@ -8,10 +8,8 @@ export interface DocumentColorSourceFile {
   content: string;
 }
 
-// Matches hex (#rgb/#rgba/#rrggbb/#rrggbbaa), legacy comma rgb()/rgba(), and
-// hsl()/hsla() color literals appearing anywhere in raw HTML/CSS text (inline
-// `style="..."` attributes and `<style>` blocks alike — both are plain
-// substrings of `content`, so a single text scan covers both). Modern
+// Matches hex (#rgb/#rgba/#rrggbb/#rrggbbaa), legacy comma-separated RGB and
+// HSL function color literals in CSS declaration values. Modern
 // space-separated `rgb(R G B [/ A])` and DOM-resolved formats (oklch,
 // color(display-p3 ...)) are intentionally out of scope: `parseCssColor` (the
 // non-DOM parser, safe to run in a plain Node/vitest environment) doesn't
@@ -20,10 +18,196 @@ export interface DocumentColorSourceFile {
 const CSS_COLOR_TOKEN_PATTERN =
   /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b|(?:rgb|hsl)a?\([^)]*\)/gi;
 
+interface ColorTokenSpan {
+  value: string;
+  start: number;
+  end: number;
+}
+
+interface DeclarationValueSpan {
+  value: string;
+  start: number;
+}
+
+const HTML_TAG_PATTERN = /<[^>]*>/g;
+const STYLE_BLOCK_PATTERN = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
+const STYLE_ATTRIBUTE_PATTERN =
+  /\sstyle\s*=\s*(?:"([\s\S]*?)"|'([\s\S]*?)'|([^\s>]+))/gi;
+const NON_RENDERED_HTML_PATTERN =
+  /<!--[\s\S]*?-->|<script\b[\s\S]*?<\/script\s*>|<noscript\b[\s\S]*?<\/noscript\s*>/gi;
+
+function maskNonRenderedHtml(content: string): string {
+  return content.replace(NON_RENDERED_HTML_PATTERN, (match) =>
+    match.replace(/[^\r\n]/g, " "),
+  );
+}
+
+function cssPropertyName(property: string): string {
+  return property
+    .replace(/^\s*\/\*[\s\S]*?\*\//g, "")
+    .trim()
+    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    .toLowerCase();
+}
+
+function isColorDeclaration(property: string): boolean {
+  const normalized = cssPropertyName(property);
+  if (normalized.startsWith("--")) return true;
+  return (
+    COLOR_STYLE_PROPERTIES.has(normalized) ||
+    /^border(?:-(?:top|right|bottom|left))?(?:-color)?$/.test(normalized) ||
+    /^-webkit-text-stroke(?:-color)?$/.test(normalized)
+  );
+}
+
+function topLevelColon(value: string): number {
+  let quote: string | null = null;
+  let escaped = false;
+  let parentheses = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      parentheses += 1;
+      continue;
+    }
+    if (character === ")") {
+      parentheses = Math.max(0, parentheses - 1);
+      continue;
+    }
+    if (character === ":" && parentheses === 0) return index;
+  }
+  return -1;
+}
+
+function declarationValueSpans(
+  css: string,
+  offset = 0,
+): DeclarationValueSpan[] {
+  const declarations: DeclarationValueSpan[] = [];
+  let segmentStart = 0;
+  let quote: string | null = null;
+  let escaped = false;
+  let parentheses = 0;
+
+  const addSegment = (segmentEnd: number) => {
+    const segment = css.slice(segmentStart, segmentEnd);
+    const colon = topLevelColon(segment);
+    if (colon < 0 || !isColorDeclaration(segment.slice(0, colon))) return;
+    const rawValueStart = segmentStart + colon + 1;
+    const value = css.slice(rawValueStart, segmentEnd);
+    const leadingWhitespace = value.search(/\S|$/);
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    declarations.push({
+      value: trimmed,
+      start: offset + rawValueStart + leadingWhitespace,
+    });
+  };
+
+  for (let index = 0; index < css.length; index += 1) {
+    const character = css[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      parentheses += 1;
+      continue;
+    }
+    if (character === ")") {
+      parentheses = Math.max(0, parentheses - 1);
+      continue;
+    }
+    if (parentheses > 0) continue;
+    if (character === ";" || character === "{" || character === "}") {
+      addSegment(index);
+      segmentStart = index + 1;
+    }
+  }
+  addSegment(css.length);
+  return declarations;
+}
+
+function isInsideUrl(value: string, index: number): boolean {
+  const before = value.slice(0, index).toLowerCase();
+  return before.lastIndexOf("url(") > before.lastIndexOf(")");
+}
+
+function colorTokenSpansInCss(css: string, offset = 0): ColorTokenSpan[] {
+  const tokens: ColorTokenSpan[] = [];
+  declarationValueSpans(css, offset).forEach(({ value, start }) => {
+    const matcher = new RegExp(CSS_COLOR_TOKEN_PATTERN.source, "gi");
+    for (const match of value.matchAll(matcher)) {
+      const token = match[0];
+      const relativeStart = match.index ?? 0;
+      if (isInsideUrl(value, relativeStart)) continue;
+      tokens.push({
+        value: token,
+        start: start + relativeStart,
+        end: start + relativeStart + token.length,
+      });
+    }
+  });
+  return tokens;
+}
+
+function colorTokenSpansInHtml(content: string): ColorTokenSpan[] {
+  const maskedContent = maskNonRenderedHtml(content);
+  const tokens: ColorTokenSpan[] = [];
+
+  for (const match of maskedContent.matchAll(HTML_TAG_PATTERN)) {
+    const tag = match[0];
+    if (/^<\/?(?:script|noscript|style)\b/i.test(tag)) continue;
+    const tagOffset = match.index ?? 0;
+    for (const attribute of tag.matchAll(STYLE_ATTRIBUTE_PATTERN)) {
+      const value = attribute[1] ?? attribute[2] ?? attribute[3] ?? "";
+      const valueOffset =
+        tagOffset + (attribute.index ?? 0) + attribute[0].indexOf(value);
+      tokens.push(...colorTokenSpansInCss(value, valueOffset));
+    }
+  }
+
+  for (const match of maskedContent.matchAll(STYLE_BLOCK_PATTERN)) {
+    const css = match[1] ?? "";
+    const cssOffset = (match.index ?? 0) + match[0].indexOf(css);
+    tokens.push(...colorTokenSpansInCss(css, cssOffset));
+  }
+
+  return tokens.sort((left, right) => left.start - right.start);
+}
+
 /**
  * Extracts a document-wide color palette from raw file contents: every
- * distinct color literal (hex/rgb/hsl) found anywhere in the given files'
- * HTML/CSS text, normalized to uppercase hex, deduped, and ordered by
+ * distinct color literal (hex/rgb/hsl) found in CSS declarations in the
+ * given files, normalized to uppercase hex, deduped, and ordered by
  * descending frequency (most-used colors first) so the most relevant swatches
  * lead the grid. Capped at `limit` entries — real designs can reference many
  * more distinct color strings than are useful to show as quick-pick swatches.
@@ -38,9 +222,7 @@ export function extractDocumentColorPalette(
   const countByHex = new Map<string, number>();
   for (const file of files) {
     if (!file.content) continue;
-    const matches = file.content.match(CSS_COLOR_TOKEN_PATTERN);
-    if (!matches) continue;
-    for (const token of matches) {
+    for (const { value: token } of colorTokenSpansInHtml(file.content)) {
       const parsed = parseCssColor(token);
       if (!parsed) continue;
       // Skip fully transparent tokens — not a meaningful "document color"
@@ -79,31 +261,29 @@ const COLOR_STYLE_PROPERTIES = new Set([
   "color",
   "background",
   "background-color",
-  "backgroundColor",
-  "backgroundImage",
   "background-image",
   "border",
   "border-color",
-  "borderColor",
   "outline",
   "outline-color",
-  "outlineColor",
   "fill",
   "stroke",
   "box-shadow",
-  "boxShadow",
   "text-shadow",
-  "textShadow",
   "text-decoration-color",
-  "textDecorationColor",
   "-webkit-text-stroke-color",
-  "webkitTextStrokeColor",
+  "accent-color",
+  "caret-color",
+  "column-rule",
+  "column-rule-color",
+  "filter",
+  "flood-color",
+  "lighting-color",
+  "stop-color",
 ]);
 
 function cssColorTokens(value: string): string[] {
-  const matches = value.match(CSS_COLOR_TOKEN_PATTERN) ?? [];
-  if (matches.length > 0) return matches;
-  return parseCssColor(value) ? [value] : [];
+  return value.match(CSS_COLOR_TOKEN_PATTERN) ?? [];
 }
 
 function colorKey(value: string): string {
@@ -144,7 +324,7 @@ function addStyleColors(
   increment: boolean,
 ) {
   Object.entries(styles).forEach(([property, value]) => {
-    if (!COLOR_STYLE_PROPERTIES.has(property) && !value.includes("(")) {
+    if (!isColorDeclaration(property)) {
       return;
     }
     const tokens = cssColorTokens(value);
@@ -154,17 +334,7 @@ function addStyleColors(
       );
       return;
     }
-    if (
-      [
-        "color",
-        "backgroundColor",
-        "background-color",
-        "borderColor",
-        "border-color",
-        "outlineColor",
-        "outline-color",
-      ].includes(property)
-    ) {
+    if (value.trim() === "Mixed") {
       addColorValue(values, property, value, increment);
     }
   });
@@ -246,11 +416,13 @@ export function replaceSelectionColorsInHtml(
   for (let index = ranges.length - 1; index >= 0; index -= 1) {
     const range = ranges[index];
     if (!range) continue;
-    const segment = content
-      .slice(range.start, range.end)
-      .replace(CSS_COLOR_TOKEN_PATTERN, (token) =>
-        colorKey(token) === target ? to : token,
-      );
+    let segment = content.slice(range.start, range.end);
+    const tokens = colorTokenSpansInHtml(segment);
+    for (let tokenIndex = tokens.length - 1; tokenIndex >= 0; tokenIndex -= 1) {
+      const token = tokens[tokenIndex];
+      if (!token || colorKey(token.value) !== target) continue;
+      segment = `${segment.slice(0, token.start)}${to}${segment.slice(token.end)}`;
+    }
     next = `${next.slice(0, range.start)}${segment}${next.slice(range.end)}`;
   }
   return next;
@@ -272,21 +444,23 @@ export function selectionColorValues(
     if (!scope) continue;
     for (const range of ranges) {
       const content = scope.content.slice(range.start, range.end);
-      cssColorTokens(content).forEach((token) =>
+      colorTokenSpansInHtml(content).forEach(({ value: token }) =>
         addColorValue(values, "color", token),
       );
     }
   }
 
   for (const current of elements) {
-    addStyleColors(values, current.computedStyles, scopes.length === 0);
-    current.portableStyleSnapshot?.nodes.forEach((node) =>
-      addStyleColors(values, node.styles, scopes.length === 0),
-    );
-    if (scopes.length === 0 && current.htmlContent) {
-      cssColorTokens(current.htmlContent).forEach((token) =>
-        addColorValue(values, "color", token),
+    if (scopes.length === 0) {
+      addStyleColors(values, current.computedStyles, true);
+      current.portableStyleSnapshot?.nodes.forEach((node) =>
+        addStyleColors(values, node.styles, true),
       );
+      if (current.htmlContent) {
+        colorTokenSpansInHtml(current.htmlContent).forEach(({ value: token }) =>
+          addColorValue(values, "color", token),
+        );
+      }
     }
   }
 

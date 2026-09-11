@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { runSelectionColorChange } from "../../pages/design-editor/commands/selection-color-change";
 import {
   replaceSelectionColorsInHtml,
   selectionColorValues,
@@ -132,6 +133,29 @@ describe("extractDocumentColorPalette", () => {
       ]),
     ).not.toThrow();
   });
+
+  it("only scans color declarations, not attributes, text, URLs, or scripts", () => {
+    const content =
+      '<div id="color-#0066ff" data-value="#0066ff" style="color:#0066ff">#0066ff</div>' +
+      '<script>const color = "#0066ff";</script>' +
+      "<style>.card { background:#0066ff; background-image:url(#0066ff); }</style>";
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<div id="color-#0066ff" data-value="#0066ff" style="color:#ff0000">#0066ff</div>' +
+        '<script>const color = "#0066ff";</script>' +
+        "<style>.card { background:#ff0000; background-image:url(#0066ff); }</style>",
+    );
+  });
 });
 
 describe("selectionColorValues", () => {
@@ -207,6 +231,24 @@ describe("selectionColorValues", () => {
     expect(values).toEqual([{ property: "color", value: "Mixed" }]);
   });
 
+  it("omits named computed colors without an authored token to replace", () => {
+    expect(
+      selectionColorValues(
+        fakeElement({ color: "red", backgroundColor: "#ffffff" }),
+      ),
+    ).toEqual([{ property: "backgroundColor", value: "#ffffff" }]);
+  });
+
+  it("uses scoped source colors instead of unrelated computed colors", () => {
+    const content =
+      '<div data-agent-native-node-id="root" style="color:#0066ff"></div>';
+    expect(
+      selectionColorValues(fakeElement({ color: "#123456" }), [
+        { fileId: "screen", content, sourceId: "root" },
+      ]),
+    ).toEqual([{ property: "color", value: "#0066ff" }]);
+  });
+
   it("scans every descendant in a selected source range and counts reuse", () => {
     const content = [
       '<section data-agent-native-node-id="root" style="color:#0066ff">',
@@ -275,5 +317,43 @@ describe("selectionColorValues", () => {
         '<div data-agent-native-node-id="second" style="background:#00aa00"></div>',
       ].join(""),
     );
+  });
+
+  it("records the pre-preview source as the picker commit history baseline", () => {
+    const before =
+      '<div data-agent-native-node-id="root" style="color:#0066ff"></div>';
+    const preview = before.replace("#0066ff", "#ff0000");
+    const scopes = [{ fileId: "screen", content: before, sourceId: "root" }];
+    const updates: Array<{
+      content: string;
+      options?: Record<string, unknown>;
+    }> = [];
+    const args = {
+      activeFileId: "screen",
+      applyFileContentUpdate: (
+        _fileId: string,
+        content: string,
+        options?: Record<string, unknown>,
+      ) => updates.push({ content, options }),
+      canEditDesign: true,
+      previewHistoryRef: { current: new Map<string, string>() },
+      scopes,
+    };
+
+    runSelectionColorChange(args, "#0066ff", "#ff0000", {
+      phase: "preview",
+    });
+    args.scopes = [{ fileId: "screen", content: preview, sourceId: "root" }];
+    runSelectionColorChange(args, "#0066ff", "#ff0000", {
+      phase: "commit",
+    });
+
+    expect(updates).toHaveLength(2);
+    expect(updates[1]?.content).toBe(preview);
+    expect(updates[1]?.options).toMatchObject({
+      historyBeforeContent: before,
+      persist: true,
+      recordHistory: true,
+    });
   });
 });

@@ -13,9 +13,11 @@ export interface SelectionColorChangeArgs {
       forcePreviewFullDocument?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
     },
   ) => void;
   canEditDesign: boolean;
+  previewHistoryRef: { current: Map<string, string> };
   scopes: SelectionColorScope[];
 }
 
@@ -37,6 +39,12 @@ export function runSelectionColorChange(
   scopesByFile.forEach((scopes, fileId) => {
     const content = scopes[0]?.content;
     if (!content) return;
+    if (previewOnly && !args.previewHistoryRef.current.has(fileId)) {
+      args.previewHistoryRef.current.set(fileId, content);
+    }
+    const historyBeforeContent = previewOnly
+      ? undefined
+      : args.previewHistoryRef.current.get(fileId);
     const nextContent = replaceSelectionColorsInHtml(content, scopes, from, to);
     if (nextContent === content) {
       // A picker commit can repeat its final preview value. Still route that
@@ -46,7 +54,9 @@ export function runSelectionColorChange(
           forcePreviewFullDocument: fileId === args.activeFileId,
           persist: true,
           recordHistory: true,
+          historyBeforeContent,
         });
+        args.previewHistoryRef.current.delete(fileId);
       }
       return;
     }
@@ -54,6 +64,8 @@ export function runSelectionColorChange(
       forcePreviewFullDocument: fileId === args.activeFileId,
       persist: !previewOnly,
       recordHistory: !previewOnly,
+      historyBeforeContent,
     });
+    if (!previewOnly) args.previewHistoryRef.current.delete(fileId);
   });
 }

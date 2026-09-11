@@ -7667,6 +7667,7 @@ function DesignEditor() {
         forcePreviewFullDocument?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
+        historyBeforeContent?: string;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
@@ -16530,6 +16531,8 @@ function DesignEditor() {
     selectedScreenOwnsItsMarkup,
   ]);
 
+  const selectionColorPreviewHistoryRef = useRef(new Map<string, string>());
+
   const selectionColorScopes = useMemo<SelectionColorScope[]>(() => {
     if (selectedLayerTargets.length > 0) {
       return selectedLayerTargets.map((target) => ({
@@ -16578,6 +16581,7 @@ function DesignEditor() {
           applyFileContentUpdate,
           canEditDesign,
           scopes: selectionColorScopes,
+          previewHistoryRef: selectionColorPreviewHistoryRef,
         },
         from,
         to,

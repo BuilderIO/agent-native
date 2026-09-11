@@ -2394,7 +2394,9 @@ export const EditPanel = memo(function EditPanel({
                         elements={[selectedScreenElement]}
                         scopes={selectionColorScopes}
                         onColorChange={
-                          readOnly ? undefined : onSelectionColorChange
+                          readOnly || interactionState
+                            ? undefined
+                            : onSelectionColorChange
                         }
                       />
                     </>
@@ -2408,7 +2410,11 @@ export const EditPanel = memo(function EditPanel({
                 <SelectionColorsProperties
                   elements={[]}
                   scopes={selectionColorScopes}
-                  onColorChange={readOnly ? undefined : onSelectionColorChange}
+                  onColorChange={
+                    readOnly || interactionState
+                      ? undefined
+                      : onSelectionColorChange
+                  }
                 />
               ) : null}
 
@@ -2498,7 +2504,9 @@ export const EditPanel = memo(function EditPanel({
                     elements={effectiveSelectedElements}
                     scopes={selectionColorScopes}
                     onColorChange={
-                      readOnly ? undefined : onSelectionColorChange
+                      readOnly || interactionState
+                        ? undefined
+                        : onSelectionColorChange
                     }
                   />
                   {selectionHasContainerElement ? (
