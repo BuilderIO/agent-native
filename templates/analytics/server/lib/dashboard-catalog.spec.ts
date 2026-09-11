@@ -30,7 +30,11 @@ import {
   LEGACY_V0_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
   LEGACY_WAU_BY_TEMPLATE_SQL,
   MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+  PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
+  LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
+  PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
   repairFirstPartyObservedRetentionPanels,
+  scopeFirstPartyPanelSql,
 } from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
 
@@ -263,10 +267,20 @@ describe("dashboard catalog", () => {
     ]) {
       const catalogPanel = requiredFirstPartyPanel(id);
       const seedPanel = seedPanels.find((panel) => panel.id === id);
-      expect(seedPanel?.sql).toContain(
-        "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')",
-      );
-      expect(seedPanel?.config?.description).toContain("previous 365 days");
+      // retention-over-time's spine reaches 365 days back and each anchor
+      // needs the six first-seen days before it, so its base looks back 371.
+      const lookbackFilter =
+        id === "retention-over-time"
+          ? "event_date >= to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD')"
+          : "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
+      expect(seedPanel?.sql).toContain(lookbackFilter);
+      // retention-over-time's description dropped the "previous 365 days"
+      // wording when it switched to describing per-row return-window
+      // maturity instead of the cohort lookback; the other two panels are
+      // unaffected by that copy change.
+      if (id !== "retention-over-time") {
+        expect(seedPanel?.config?.description).toContain("previous 365 days");
+      }
       const sql = catalogPanel.sql;
       const baseEnd = sql.indexOf(
         id === "retention-over-time"
@@ -275,13 +289,33 @@ describe("dashboard catalog", () => {
             ? "), observed"
             : "), ranked_first_seen",
       );
-      const lookback = sql.indexOf(
-        "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')",
-      );
+      const lookback = sql.indexOf(lookbackFilter);
       expect(lookback).toBeGreaterThan(sql.indexOf("WITH base AS"));
       expect(lookback).toBeLessThan(baseEnd);
-      expect(catalogPanel.config?.description).toContain("previous 365 days");
+      if (id !== "retention-over-time") {
+        expect(catalogPanel.config?.description).toContain("previous 365 days");
+      }
     }
+  });
+
+  it("replaces the original retention-over-time description alongside its legacy SQL", () => {
+    const current = requiredFirstPartyPanel("retention-over-time");
+    const repaired = repairFirstPartyObservedRetentionPanels({
+      panels: [
+        {
+          ...current,
+          sql: LEGACY_V0_RETENTION_OVER_TIME_SQL,
+          config: {
+            ...(current.config ?? {}),
+            description: LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
+          },
+        },
+      ],
+    });
+    const panel = (repaired.config.panels as Array<typeof current>)[0]!;
+    expect(repaired.changed).toBe(true);
+    expect(panel.sql).toBe(current.sql);
+    expect(panel.config?.description).toBe(current.config?.description);
   });
 
   it("repairs the materialized one-day retention self-join to one analytics scan", () => {
@@ -363,8 +397,7 @@ describe("dashboard catalog", () => {
           sql: LEGACY_V0_RETENTION_OVER_TIME_SQL,
           config: {
             ...(legacyRetention.config ?? {}),
-            description:
-              "Trailing 7-day first-seen signed-in app session cohorts, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.",
+            description: PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
           },
         },
         {
@@ -487,6 +520,42 @@ describe("dashboard catalog", () => {
         config: { description: "Custom SQL" },
       },
     ]);
+  });
+
+  it("repairs a retention panel persisted with the app-filter scope already injected", () => {
+    // Persisted panels store SQL after scopeFirstPartyPanelSql injects the
+    // {{appFilter}} predicate, so the registered legacySql (unscoped) must
+    // still match already-deployed (scoped) panels.
+    const deployedScopedRetention = scopeFirstPartyPanelSql(
+      PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
+    );
+    expect(deployedScopedRetention).toContain("{{appFilter}}");
+    expect(deployedScopedRetention).not.toBe(
+      PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
+    );
+
+    const repaired = repairFirstPartyObservedRetentionPanels({
+      panels: [
+        {
+          id: "retention-over-time",
+          sql: deployedScopedRetention,
+          config: {
+            description: PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
+          },
+        },
+      ],
+    });
+
+    expect(repaired.changed).toBe(true);
+    const canonical = requiredFirstPartyPanel("retention-over-time");
+    const panel = (
+      repaired.config.panels as Array<{
+        sql: string;
+        config?: { description?: string };
+      }>
+    )[0];
+    expect(panel?.sql).toBe(canonical.sql);
+    expect(panel?.config?.description).toBe(canonical.config?.description);
   });
 
   it("repairs the deployed bounded monolithic recurring SQL exactly", () => {

@@ -4090,6 +4090,48 @@ const PERMANENT_PRECONDITION_LINE_PATTERNS: readonly RegExp[] = [
   /^(?!\s)[^\n]*\(errorCode:\s*permanent_precondition\)\s*$/m,
 ];
 
+const PERMANENT_PRECONDITION_REASON_MAX_CHARS = 240;
+
+/**
+ * The concrete "what's actually missing" for a permanent-precondition stop,
+ * pulled out of the tool error so the headline can lead with it instead of
+ * the generic "needs a setup step" sentence. `runToolCall` always wraps a
+ * thrown error as `Error running <tool>: <message>`; a nested
+ * `AgentActionStopError` (see the catch above) skips that wrapper and starts
+ * with the message itself. Both prefixes are stripped so the reason starts
+ * at the actual sentence ("Requires editor role on …"), not the tool name.
+ */
+export function permanentPreconditionReason(
+  toolName: string,
+  message: string,
+): string | null {
+  const escapedName = toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const reason = message
+    .replace(new RegExp(`^Error running ${escapedName}:\\s*`), "")
+    .replace(new RegExp(`^${escapedName}:\\s*`), "")
+    // `runToolCall` suffixes a contract error's own code; it is the marker
+    // that classified this stop, not part of the reason.
+    .replace(/\s*\(errorCode: permanent_precondition\)\s*$/i, "")
+    .trim()
+    // The headline appends its own sentence punctuation.
+    .replace(/[.。]+$/, "");
+  if (!reason) return null;
+  // A nested A2A/ask_app delegation's error text can itself be a terminal
+  // stop narrative (its own "I stopped because …" headline plus the
+  // `permanent_precondition` marker). Embedding that whole payload as "the
+  // concrete reason" doubles the narrative instead of naming what's missing,
+  // so fall back to the generic headline instead.
+  if (
+    /\bI stopped because\b/i.test(reason) ||
+    /permanent_precondition/i.test(reason)
+  ) {
+    return null;
+  }
+  return reason.length > PERMANENT_PRECONDITION_REASON_MAX_CHARS
+    ? `${reason.slice(0, PERMANENT_PRECONDITION_REASON_MAX_CHARS).trim()}…`
+    : reason;
+}
+
 const SOURCE_SWEEP_TOOL_NAME =
   /\b(?:api|calls?|deals?|docs?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|source|tickets?|transcripts?)\b/i;
 
@@ -6218,25 +6260,39 @@ export async function runAgentLoop(opts: {
           ...(artifacts?.length ? { artifacts } : {}),
         });
       };
+      // An action that stops itself (AgentActionStopError) is classified on
+      // its user-facing `message`, not on the model-facing `toolResult` that
+      // becomes the tool result; an explicit `permanent_precondition` code is
+      // the classification and need not match the text heuristics.
+      let directStop: { message: string; explicit: boolean } | null = null;
       const finalizeToolErrorResult = (rawResult: string): string => {
         const sanitizedResult = sanitizeToolErrorText(rawResult);
         // Counting is the wrong instrument for a precondition the turn cannot
         // satisfy: six identical round-trips through a missing API key cost the
         // user minutes and end where the first one did. Classified first so the
         // remedy reaches them on attempt one.
-        const permanentRemedy = permanentPreconditionRemedy(sanitizedResult);
+        const permanentRemedy = directStop?.explicit
+          ? directStop.message
+          : permanentPreconditionRemedy(directStop?.message ?? sanitizedResult);
         if (permanentRemedy) {
+          const reason = permanentPreconditionReason(
+            toolCall.name,
+            permanentRemedy,
+          );
           requestedActionStop ??= {
-            message:
-              `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
-              "Retrying would not have changed it, and anything completed before this is saved.",
+            message: reason
+              ? `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
+                "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
+              : `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
+                "Retrying would not have changed it, and anything completed before this is saved.",
             errorCode: "permanent_precondition",
             details: sanitizedResult,
           };
-          return (
-            `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
-            `Do not retry it with different arguments. ${sanitizedResult}`
-          );
+          return reason
+            ? `Stopped: ${toolCall.name} can't run yet: ${reason}. ` +
+                `Do not retry it with different arguments. ${sanitizedResult}`
+            : `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
+                `Do not retry it with different arguments. ${sanitizedResult}`;
         }
         const errorKey = `${toolCallCacheKey(
           toolCall.name,
@@ -7117,10 +7173,19 @@ export async function runAgentLoop(opts: {
               sanitizeToolErrorValue(err.message) ||
               `Stopped after ${toolCall.name} failed.`;
             result = sanitizeToolErrorValue(err.toolResult || message);
-            requestedActionStop ??= {
+            // A stop that is itself a permanent precondition gets its
+            // reason-led headline from `finalizeToolErrorResult`; seeding the
+            // raw message here would win its `??=` and hide that headline.
+            directStop = {
               message,
-              ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+              explicit: err.errorCode === "permanent_precondition",
             };
+            if (!directStop.explicit && !permanentPreconditionRemedy(message)) {
+              requestedActionStop ??= {
+                message,
+                ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+              };
+            }
           } else {
             const message = sanitizeToolErrorValue(err);
             // A code the action chose is worth more to the model than the

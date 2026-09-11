@@ -71,6 +71,7 @@ import {
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   permanentPreconditionRemedy,
+  permanentPreconditionReason,
   normalizeToolErrorForBreaker,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
@@ -6463,6 +6464,64 @@ describe("runAgentLoop", () => {
     }
   });
 
+  it("derives the concrete permanent-precondition reason from the tool error, stripping the tool-name prefix", () => {
+    expect(
+      permanentPreconditionReason(
+        "mutate-dashboard",
+        "Error running mutate-dashboard: Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+      ),
+    ).toBe(
+      "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    );
+    // The nested-AgentActionStopError shape has no "Error running <tool>:"
+    // wrapper — just "<tool>: <message>" — and must be stripped the same way.
+    expect(
+      permanentPreconditionReason(
+        "connect-google-calendar",
+        "connect-google-calendar: Connect Google Calendar in settings first.",
+      ),
+    ).toBe("Connect Google Calendar in settings first");
+    // The ordinary contract-error shape carries its own code suffix; that is
+    // the marker, not a nested stop narrative, so the reason survives.
+    expect(
+      permanentPreconditionReason(
+        "mutate-dashboard",
+        "Error running mutate-dashboard: Requires editor role on dashboard d1 (have viewer) (errorCode: permanent_precondition)",
+      ),
+    ).toBe("Requires editor role on dashboard d1 (have viewer)");
+    // Capped at ~240 chars so a verbose nested-stop message doesn't blow up
+    // the headline.
+    const long = "x".repeat(300);
+    expect(
+      permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
+    ).toBeLessThanOrEqual(241); // 240 chars + the truncation ellipsis
+    // Nothing left after stripping the prefix: no usable reason text, so the
+    // caller must fall back to the generic sentence instead of an empty or
+    // meaningless headline.
+    expect(
+      permanentPreconditionReason(
+        "mutate-dashboard",
+        "Error running mutate-dashboard:   ",
+      ),
+    ).toBeNull();
+    // A nested A2A/Assets delegation's error text is itself a terminal stop
+    // narrative (its own "I stopped because …" headline plus the
+    // `permanent_precondition` marker). Embedding that whole payload as "the
+    // concrete reason" would double the narrative, so this must fall back to
+    // null (the generic headline) instead of surfacing it verbatim.
+    expect(
+      permanentPreconditionReason(
+        "generate-image-api",
+        "Error running generate-image-api: Assets could not generate this " +
+          "image (failed): I stopped because generate-image-batch needs a " +
+          "setup step outside this turn — a credential, a role, a " +
+          "connected account, or an approval — before it can run. " +
+          "Retrying would not have changed it, and anything completed " +
+          "before this is saved.\ncode: permanent_precondition",
+      ),
+    ).toBeNull();
+  });
+
   // Echoed candidate/ambiguous-match text an edit tool quotes back from the
   // user's own content is fenced with `<<<diagnostic-snippet` /
   // `>>>end-diagnostic-snippet` (diagnostic-snippet.ts) precisely so it can
@@ -6561,9 +6620,208 @@ describe("runAgentLoop", () => {
     expect((stop as { details: string }).details).toContain(
       "Save GEMINI_API_KEY in settings",
     );
-    expect((stop as { error: string }).error).not.toContain("GEMINI_API_KEY");
+    // The headline now leads with the concrete reason instead of a generic
+    // "needs a setup step" sentence, so it names the actual missing key.
     expect((stop as { error: string }).error).toContain(
-      "needs a setup step outside this turn",
+      "generate-slides-ai can't run yet: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
+    );
+    expect((stop as { error: string }).error).toContain(
+      "needs to be fixed outside this chat",
+    );
+  });
+
+  // Prod report: a user asked the agent to fix a dashboard panel and the
+  // headline read as a generic "needs a setup step" with the real reason
+  // (missing editor role) buried in `details`. The headline must lead with
+  // the concrete reason so the user doesn't have to dig for it.
+  it("leads the headline with the concrete reason when the tool error has one", async () => {
+    const run = vi.fn(async () => {
+      throw new Error(
+        "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "mutate-1",
+              name: "mutate-dashboard",
+              input: { panelId: "p1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "mutate-dashboard": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "mutate-dashboard can't run yet: Requires editor role on dashboard " +
+        "agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    );
+  });
+
+  // An action that stops itself (AgentActionStopError) with a permanent
+  // precondition must get the same reason-led headline as a thrown error:
+  // the catch used to seed the raw message first, so the classifier's
+  // headline lost the `??=`.
+  it("leads the headline with the concrete reason when the action stops itself", async () => {
+    const run = vi.fn(async () => {
+      throw new AgentActionStopError(
+        "connect-google-calendar: Connect Google Calendar in settings first.",
+        { errorCode: "not_connected" },
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "cal-1",
+              name: "connect-google-calendar",
+              input: {},
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "connect-google-calendar": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "connect-google-calendar can't run yet: Connect Google Calendar in settings first",
+    );
+  });
+
+  // The explicit code is the classification; the message need not match
+  // the text heuristics to get the reason-led headline.
+  it("honors an explicit permanent_precondition code on a direct action stop", async () => {
+    const run = vi.fn(async () => {
+      throw new AgentActionStopError("mutate-dashboard: Dashboard is locked.", {
+        errorCode: "permanent_precondition",
+        // Model-facing payload: must reach the tool result, never the headline.
+        toolResult: '{"status":"locked","dashboardId":"d1"}',
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "mutate-2",
+              name: "mutate-dashboard",
+              input: { panelId: "p1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "mutate-dashboard": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "mutate-dashboard can't run yet: Dashboard is locked",
+    );
+    expect((stop as { error: string }).error).not.toContain('"status"');
+    expect((stop as { details: string }).details).toContain(
+      '"status":"locked"',
     );
   });
 
@@ -6635,8 +6893,15 @@ describe("runAgentLoop", () => {
       errorCode: "permanent_precondition",
       recoverable: false,
     });
-    expect((stop as { error: string }).error).toContain(
-      "needs a setup step outside this turn",
+    // Generic fallback headline: the nested delegation's own "I stopped
+    // because …" narrative is a stop message, not a usable "concrete reason",
+    // so it must not be embedded (doubled) into this outer headline.
+    expect((stop as { error: string }).error).toBe(
+      "I stopped because generate-image-api needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. " +
+        "Retrying would not have changed it, and anything completed before this is saved.",
+    );
+    expect((stop as { error: string }).error).not.toContain(
+      "Assets could not generate",
     );
     // Not the scarier, less specific repeated-failure message the incident
     // actually produced.
