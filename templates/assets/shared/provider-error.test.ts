@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  describeProviderPayloadShape,
   isModelUnavailableDetail,
   looksLikeMachinePayload,
   readableProviderErrorDetail,
@@ -44,6 +45,25 @@ describe("readableProviderErrorDetail", () => {
     expect(
       readableProviderErrorDetail('{"code":"provider_error","message":"{\\"er'),
     ).toBe("");
+  });
+
+  it("does not pass a provider status enum off as a readable detail", () => {
+    expect(
+      readableProviderErrorDetail({
+        error: { code: 404, status: "NOT_FOUND" },
+      }),
+    ).toBe("");
+    expect(readableProviderErrorDetail({ status: "PERMISSION_DENIED" })).toBe(
+      "",
+    );
+  });
+
+  it("still prefers a real message over a sibling status enum", () => {
+    expect(
+      readableProviderErrorDetail({
+        error: { message: "Quota exhausted", status: "RESOURCE_EXHAUSTED" },
+      }),
+    ).toBe("Quota exhausted");
   });
 
   it("reads a plain nested message", () => {
@@ -105,5 +125,39 @@ describe("isModelUnavailableDetail", () => {
     expect(isModelUnavailableDetail("Rate limited. Retry shortly.")).toBe(
       false,
     );
+  });
+});
+
+describe("describeProviderPayloadShape", () => {
+  it("names the key path of a re-encoded payload without any values", () => {
+    const shape = describeProviderPayloadShape(NESTED_VERTEX_404);
+    expect(shape).toBe(
+      "{code,message{error{message{error{code,message,status}}}}}",
+    );
+    expect(shape).not.toContain("provider_error");
+    expect(shape).not.toContain("publishers/google");
+    expect(shape).not.toContain("NOT_FOUND");
+  });
+
+  it("does not echo prompt-derived provider prose", () => {
+    expect(
+      describeProviderPayloadShape({
+        error: { message: "Blocked prompt: a picture of Acme Corp roadmap" },
+      }),
+    ).toBe("{error{message}}");
+  });
+
+  it("marks a body it could not parse", () => {
+    expect(describeProviderPayloadShape('{"code":"provider_error","mess')).toBe(
+      "unparsed",
+    );
+    expect(describeProviderPayloadShape("gateway timeout")).toBe("string");
+  });
+
+  it("describes arrays and empty objects", () => {
+    expect(
+      describeProviderPayloadShape({ error: { details: [{ reason: "x" }] } }),
+    ).toBe("{error{details[{reason}]}}");
+    expect(describeProviderPayloadShape({})).toBe("{}");
   });
 });

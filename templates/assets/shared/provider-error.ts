@@ -1,10 +1,8 @@
-const DETAIL_KEYS = [
-  "message",
-  "error",
-  "detail",
-  "details",
-  "status",
-] as const;
+// `status` is deliberately absent. Providers put a machine enum there
+// ("NOT_FOUND", "PERMISSION_DENIED"), never prose, so reading it would hand
+// callers an implementation constant instead of the generic fallback this
+// module promises.
+const DETAIL_KEYS = ["message", "error", "detail", "details"] as const;
 
 const MODEL_UNAVAILABLE_MARKERS = [
   "publisher model",
@@ -16,6 +14,8 @@ const MODEL_UNAVAILABLE_MARKERS = [
 ] as const;
 
 const MAX_UNWRAP_DEPTH = 8;
+
+const MAX_SHAPE_DEPTH = 10;
 
 const ESCAPED_QUOTE = '\\"';
 
@@ -60,6 +60,49 @@ export function readableProviderErrorDetail(
 export function isModelUnavailableDetail(detail: string): boolean {
   const text = detail.toLowerCase();
   return MODEL_UNAVAILABLE_MARKERS.some((marker) => text.includes(marker));
+}
+
+/**
+ * Name the envelope of a provider failure without emitting any of its values.
+ *
+ * An unreadable body means the service changed its shape, and the key path is
+ * enough to see where the unwrap stopped. The values are not logged because a
+ * provider error can echo prompt-derived content, reference URLs, or signed
+ * links back to us.
+ */
+export function describeProviderPayloadShape(
+  value: unknown,
+  maxLength = 300,
+): string {
+  const shape = describeShape(value, 0);
+  return shape.length > maxLength ? `${shape.slice(0, maxLength)}...` : shape;
+}
+
+function describeShape(value: unknown, depth: number): string {
+  // Braced so a truncated branch still reads as "there was more here" rather
+  // than as a plain scalar key.
+  if (depth > MAX_SHAPE_DEPTH) return "{...}";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!looksLikeMachinePayload(trimmed)) return "string";
+    const parsed = tryParseJson(trimmed);
+    return parsed === undefined ? "unparsed" : describeShape(parsed, depth + 1);
+  }
+  if (Array.isArray(value)) {
+    return value.length ? `[${describeShape(value[0], depth + 1)}]` : "[]";
+  }
+  if (value === null) return "null";
+  if (typeof value !== "object") return typeof value;
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  if (!keys.length) return "{}";
+  const record = value as Record<string, unknown>;
+  const parts = keys.map((key) => {
+    const inner = describeShape(record[key], depth + 1);
+    return inner.startsWith("{") || inner.startsWith("[")
+      ? `${key}${inner}`
+      : key;
+  });
+  return `{${parts.join(",")}}`;
 }
 
 function walk(value: unknown, depth: number): string {

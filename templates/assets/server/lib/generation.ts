@@ -21,6 +21,7 @@ import type {
   StyleBrief,
 } from "../../shared/api.js";
 import {
+  describeProviderPayloadShape,
   isModelUnavailableDetail,
   readableProviderErrorDetail,
 } from "../../shared/provider-error.js";
@@ -391,13 +392,18 @@ export async function generateWithBuilderImageApi(
     const text = await response.text().catch(() => "");
     const detail = builderErrorDetailForUser(text, input.model);
     const code = extractBuilderErrorCode(text);
+    // Shape, not values: the rest of this file already logs `promptChars` and
+    // hashed reference data rather than the payloads themselves, and a
+    // provider error can echo prompt-derived content back to us. `detail` is
+    // the string the user is about to see anyway.
     logGeneration("builder.error", {
       model: requestModel,
       requestedModel: input.model,
       status: response.status,
       code,
       detail,
-      rawBody: text.slice(0, 2000),
+      bodyShape: describeProviderPayloadShape(text),
+      bodyChars: text.length,
       runId: input.runId,
     });
     throw new BuilderImageGenerationError(

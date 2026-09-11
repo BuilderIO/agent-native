@@ -6,6 +6,7 @@ import type {
   VideoResolution,
 } from "../../shared/api.js";
 import {
+  describeProviderPayloadShape,
   isModelUnavailableDetail,
   readableProviderErrorDetail,
 } from "../../shared/provider-error.js";
@@ -122,7 +123,7 @@ export async function startGeminiVideoGeneration(input: {
     // detail, and the thrown error still carries the status.
     const errorBody = await response.text().catch(() => "");
     console.error(
-      `[assets] video-gen provider error status=${response.status} model=${input.model} body=${errorBody.slice(0, 2000)}`,
+      `[assets] video-gen provider error status=${response.status} model=${input.model} bodyShape=${describeProviderPayloadShape(errorBody)} bodyChars=${errorBody.length}`,
     );
     const detail = videoErrorDetailForUser(errorBody, input.model);
     throw new Error(
@@ -155,7 +156,7 @@ export async function pollGeminiVideoGeneration(
     // detail, and the thrown error still carries the status.
     const body = await response.text().catch(() => "");
     console.error(
-      `[assets] video-gen poll error status=${response.status} body=${body.slice(0, 2000)}`,
+      `[assets] video-gen poll error status=${response.status} bodyShape=${describeProviderPayloadShape(body)} bodyChars=${body.length}`,
     );
     const detail = videoErrorDetailForUser(body);
     throw new Error(
@@ -165,7 +166,7 @@ export async function pollGeminiVideoGeneration(
   const operation = (await response.json()) as Record<string, unknown>;
   if (operation.error) {
     console.error(
-      `[assets] video-gen operation error ${JSON.stringify(operation.error).slice(0, 2000)}`,
+      `[assets] video-gen operation error shape=${describeProviderPayloadShape(operation.error)}`,
     );
     const detail = videoErrorDetailForUser(operation.error);
     throw new Error(
