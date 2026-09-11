@@ -63,10 +63,10 @@ const messages = {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",
-    experiments: "實驗功能",
-    experimentsIntro: "在正式發布前預覽實驗性功能。",
-    experimentCreativeContext: "創意上下文",
-    experimentCreativeContextDescription:
+    labs: "Labs",
+    labsIntro: "在正式發布前預覽實驗性功能。",
+    labCreativeContext: "創意上下文",
+    labCreativeContextDescription:
       "在 Content 中連接並重複使用受管治的參考上下文。",
   },
   chat: {

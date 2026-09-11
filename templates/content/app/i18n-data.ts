@@ -3204,10 +3204,10 @@ const enUS = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
-    experiments: "Experiments",
-    experimentsIntro: "Preview experimental features before they ship.",
-    experimentCreativeContext: "Creative Context",
-    experimentCreativeContextDescription:
+    labs: "Labs",
+    labsIntro: "Preview experimental features before they ship.",
+    labCreativeContext: "Creative Context",
+    labCreativeContextDescription:
       "Connect and reuse governed reference context in Content.",
   },
   chat: {
@@ -10605,10 +10605,10 @@ export const messagesByLocale = {
       agentTitle: "管理代理",
       agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
       openAgentSettings: "管理代理",
-      experiments: "实验功能",
-      experimentsIntro: "在正式发布前预览实验性功能。",
-      experimentCreativeContext: "创意上下文",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "在正式发布前预览实验性功能。",
+      labCreativeContext: "创意上下文",
+      labCreativeContextDescription:
         "在 Content 中连接并复用受管控的参考上下文。",
     },
     chat: {
@@ -10810,11 +10810,11 @@ export const messagesByLocale = {
       agentDescription:
         "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
       openAgentSettings: "Gestionar agente",
-      experiments: "Experimentos",
-      experimentsIntro:
+      labs: "Labs",
+      labsIntro:
         "Prueba funciones experimentales antes de su lanzamiento.",
-      experimentCreativeContext: "Contexto creativo",
-      experimentCreativeContextDescription:
+      labCreativeContext: "Contexto creativo",
+      labCreativeContextDescription:
         "Conecta y reutiliza contexto de referencia regulado en Content.",
     },
     chat: {
@@ -11020,11 +11020,11 @@ export const messagesByLocale = {
       agentDescription:
         "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
       openAgentSettings: "Gérer l’agent",
-      experiments: "Expériences",
-      experimentsIntro:
+      labs: "Labs",
+      labsIntro:
         "Prévisualisez les fonctionnalités expérimentales avant leur déploiement.",
-      experimentCreativeContext: "Contexte créatif",
-      experimentCreativeContextDescription:
+      labCreativeContext: "Contexte créatif",
+      labCreativeContextDescription:
         "Connectez et réutilisez un contexte de référence gouverné dans Content.",
     },
     chat: {
@@ -11228,11 +11228,11 @@ export const messagesByLocale = {
       agentDescription:
         "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
       openAgentSettings: "Agent verwalten",
-      experiments: "Experimente",
-      experimentsIntro:
+      labs: "Labs",
+      labsIntro:
         "Testen Sie experimentelle Funktionen vor ihrer Veröffentlichung.",
-      experimentCreativeContext: "Kreativer Kontext",
-      experimentCreativeContextDescription:
+      labCreativeContext: "Kreativer Kontext",
+      labCreativeContextDescription:
         "Verbinden und Wiederverwenden von geregeltem Referenzkontext in Content.",
     },
     chat: {
@@ -11435,10 +11435,10 @@ export const messagesByLocale = {
       agentDescription:
         "エージェントのモデル、API キー、自動化、音声などを管理します。",
       openAgentSettings: "エージェントを管理",
-      experiments: "実験機能",
-      experimentsIntro: "正式リリース前の試験的な機能をお試しいただけます。",
-      experimentCreativeContext: "クリエイティブコンテキスト",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "正式リリース前の試験的な機能をお試しいただけます。",
+      labCreativeContext: "クリエイティブコンテキスト",
+      labCreativeContextDescription:
         "Content 内で管理された参照コンテキストを接続して再利用します。",
     },
     chat: {
@@ -11632,10 +11632,10 @@ export const messagesByLocale = {
       agentDescription:
         "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
       openAgentSettings: "에이전트 관리",
-      experiments: "실험 기능",
-      experimentsIntro: "출시 전 실험적인 기능을 미리 사용해 보세요.",
-      experimentCreativeContext: "크리에이티브 컨텍스트",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "출시 전 실험적인 기능을 미리 사용해 보세요.",
+      labCreativeContext: "크리에이티브 컨텍스트",
+      labCreativeContextDescription:
         "Content에서 제어된 참조 컨텍스트를 연결하고 재사용합니다.",
     },
     chat: {
@@ -11837,11 +11837,11 @@ export const messagesByLocale = {
       agentDescription:
         "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
       openAgentSettings: "Gerenciar agente",
-      experiments: "Experimentos",
-      experimentsIntro:
+      labs: "Labs",
+      labsIntro:
         "Experimente recursos experimentais antes do lançamento.",
-      experimentCreativeContext: "Contexto criativo",
-      experimentCreativeContextDescription:
+      labCreativeContext: "Contexto criativo",
+      labCreativeContextDescription:
         "Conecte e reutilize contexto de referência regulado no Content.",
     },
     chat: {
@@ -12033,10 +12033,10 @@ export const messagesByLocale = {
       agentDescription:
         "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
       openAgentSettings: "एजेंट प्रबंधित करें",
-      experiments: "प्रयोग",
-      experimentsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
-      experimentCreativeContext: "क्रिएटिव संदर्भ",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
+      labCreativeContext: "क्रिएटिव संदर्भ",
+      labCreativeContextDescription:
         "Content में प्रबंधित संदर्भ संदर्भ को कनेक्ट और पुन: उपयोग करें।",
     },
     chat: {
@@ -12229,10 +12229,10 @@ export const messagesByLocale = {
       agentDescription:
         "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
       openAgentSettings: "إدارة الوكيل",
-      experiments: "التجارب",
-      experimentsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
-      experimentCreativeContext: "السياق الإبداعي",
-      experimentCreativeContextDescription:
+      labs: "Labs",
+      labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
+      labCreativeContext: "السياق الإبداعي",
+      labCreativeContextDescription:
         "ربط سياق المرجع الخاضع للإدارة وإعادة استخدامه في Content.",
     },
     chat: {

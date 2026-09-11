@@ -2,38 +2,38 @@ import { Switch } from "@agent-native/toolkit/design-system";
 import { IconFlask } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 
-import type { ExperimentDefinition } from "../../experiments/registry.js";
+import type { LabDefinition } from "../../labs/registry.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 
-interface ExperimentValues {
+interface LabValues {
   [key: string]: boolean;
 }
 
-export interface ExperimentsSettingsProps {
-  experiments: readonly ExperimentDefinition[];
+export interface LabsSettingsProps {
+  labs: readonly LabDefinition[];
   title?: string;
   intro?: string;
 }
 
-export function ExperimentsSettings({
-  experiments,
-  title = "Experiments",
+export function LabsSettings({
+  labs,
+  title = "Labs",
   intro = "These new, unstable features may have bugs. Your feedback helps us improve them.",
-}: ExperimentsSettingsProps) {
-  const valuesQuery = useActionQuery<ExperimentValues>(
-    "get-experiments" as never,
+}: LabsSettingsProps) {
+  const valuesQuery = useActionQuery<LabValues>(
+    "get-labs" as never,
   );
-  const setExperiment = useActionMutation<
-    { key: string; enabled: boolean; values: ExperimentValues },
+  const setLab = useActionMutation<
+    { key: string; enabled: boolean; values: LabValues },
     { key: string; enabled: boolean }
-  >("set-experiment" as never);
+  >("set-lab" as never);
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
 
   const toggle = useCallback(
     (key: string, enabled: boolean) => {
       setOverrides((current) => ({ ...current, [key]: enabled }));
-      setExperiment.mutate(
+      setLab.mutate(
         { key, enabled },
         {
           onError: () => {
@@ -47,7 +47,7 @@ export function ExperimentsSettings({
         },
       );
     },
-    [setExperiment],
+    [setLab],
   );
 
   return (
@@ -57,22 +57,22 @@ export function ExperimentsSettings({
           <IconFlask className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <p>{intro}</p>
         </div>
-        {experiments.map((experiment) => {
+        {labs.map((lab) => {
           const enabled =
-            overrides[experiment.key] ??
-            valuesQuery.data?.[experiment.key] === true;
-          const label = experiment.displayName ?? experiment.key;
+            overrides[lab.key] ??
+            valuesQuery.data?.[lab.key] === true;
+          const label = lab.displayName ?? lab.key;
           return (
             <SettingsRow
-              key={experiment.key}
-              id={`experiment-${experiment.key}`}
+              key={lab.key}
+              id={`lab-${lab.key}`}
               label={label}
-              description={experiment.description}
+              description={lab.description}
               control={
                 <Switch
                   checked={enabled}
-                  onChange={(next) => toggle(experiment.key, next)}
-                  disabled={valuesQuery.isLoading || setExperiment.isPending}
+                  onChange={(next) => toggle(lab.key, next)}
+                  disabled={valuesQuery.isLoading || setLab.isPending}
                   aria-label={label}
                   className="shrink-0"
                 />

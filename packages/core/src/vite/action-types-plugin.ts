@@ -59,12 +59,12 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/feature-flags/actions/set-feature-flag",
   },
   {
-    name: "get-experiments",
-    specifier: "@agent-native/core/experiments/actions/get-experiments",
+    name: "get-labs",
+    specifier: "@agent-native/core/labs/actions/get-labs",
   },
   {
-    name: "set-experiment",
-    specifier: "@agent-native/core/experiments/actions/set-experiment",
+    name: "set-lab",
+    specifier: "@agent-native/core/labs/actions/set-lab",
   },
   {
     name: "get-hosted-harness-config",

@@ -1,12 +1,12 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import { useExperimentState } from "@agent-native/core/client/experiments";
+import { useLabState } from "@agent-native/core/client/labs";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { CLIPS_MEETINGS } from "@shared/experiments";
+import { CLIPS_MEETINGS } from "@shared/labs";
 import {
   IconArrowLeft,
   IconCheck,
@@ -460,7 +460,7 @@ function ActionItemTextEditor({
 
 export default function MeetingDetailRoute() {
   const t = useT();
-  const experiment = useExperimentState(CLIPS_MEETINGS.key);
+  const lab = useLabState(CLIPS_MEETINGS.key);
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -1032,7 +1032,7 @@ export default function MeetingDetailRoute() {
   // never retries, so collapsing any of them into the skeleton pins it forever.
   // A failed live-poll on top of an already-loaded meeting is none of them —
   // keep showing the meeting.
-  if (experiment.isSuccess && !experiment.enabled) {
+  if (lab.isSuccess && !lab.enabled) {
     return <Navigate replace to="/library" />;
   }
 

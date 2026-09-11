@@ -17,7 +17,7 @@ import {
   DEFAULT_CLIPS_RECORDING_VISIBILITY,
   type ClipsDefaultVisibility,
 } from "@shared/clips-ai-prefs";
-import { CLIPS_EXPERIMENTS } from "@shared/experiments";
+import { CLIPS_LABS } from "@shared/labs";
 import { IconBell } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -82,27 +82,27 @@ async function saveSettings(value: ClipsUserSettings): Promise<void> {
 
 export default function SettingsIndexRoute() {
   const t = useT();
-  const experiments = useMemo(
+  const labs = useMemo(
     () =>
-      CLIPS_EXPERIMENTS.map((experiment) => {
-        if (experiment.key === "clips.video-editing") {
+      CLIPS_LABS.map((lab) => {
+        if (lab.key === "clips.video-editing") {
           return {
-            ...experiment,
-            displayName: t("settings.experimentVideoEditing"),
-            description: t("settings.experimentVideoEditingDescription"),
+            ...lab,
+            displayName: t("settings.labVideoEditing"),
+            description: t("settings.labVideoEditingDescription"),
           };
         }
-        if (experiment.key === "clips.meetings") {
+        if (lab.key === "clips.meetings") {
           return {
-            ...experiment,
-            displayName: t("settings.experimentMeetings"),
-            description: t("settings.experimentMeetingsDescription"),
+            ...lab,
+            displayName: t("settings.labMeetings"),
+            description: t("settings.labMeetingsDescription"),
           };
         }
         return {
-          ...experiment,
-          displayName: t("settings.experimentWisprFlow"),
-          description: t("settings.experimentWisprFlowDescription"),
+          ...lab,
+          displayName: t("settings.labWisprFlow"),
+          description: t("settings.labWisprFlowDescription"),
         };
       }),
     [t],
@@ -303,9 +303,9 @@ export default function SettingsIndexRoute() {
       </PageHeader>
       <SettingsTabsPage
         account={<AccountSettingsCard />}
-        experiments={experiments}
-        experimentsIntro={t("settings.experimentsIntro")}
-        experimentsLabel={t("settings.experiments")}
+        labs={labs}
+        labsIntro={t("settings.labsIntro")}
+        labsLabel={t("settings.labs")}
         whatsNewLabel={t("settings.whatsNew")}
         extraTabs={settingsTabs}
         generalSearchEntries={generalSearchEntries}

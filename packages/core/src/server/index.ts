@@ -233,7 +233,7 @@ export {
   createFeatureFlagA2AActionRouteAuth,
   createFeatureFlagsPlugin,
 } from "../feature-flags/server.js";
-export { createExperimentsPlugin } from "../experiments/server.js";
+export { createLabsPlugin } from "../labs/server.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,

@@ -1,8 +1,8 @@
 /**
- * App-owned user experiments. Unlike feature flags, experiments are
+ * App-owned user labs. Unlike feature flags, labs are
  * user-controlled preferences and default to off until the user opts in.
  */
-export interface ExperimentDefinition {
+export interface LabDefinition {
   key: string;
   displayName?: string;
   description?: string;
@@ -10,15 +10,15 @@ export interface ExperimentDefinition {
   keywords?: string;
 }
 
-const registry = new Map<string, ExperimentDefinition>();
+const registry = new Map<string, LabDefinition>();
 
 function normalizeDefinition(
-  definition: ExperimentDefinition,
-): ExperimentDefinition {
+  definition: LabDefinition,
+): LabDefinition {
   const key = definition.key.trim();
   if (!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(key)) {
     throw new Error(
-      "Experiment keys must be stable strings containing only letters, numbers, dots, underscores, or hyphens (1-64 characters).",
+      "Lab keys must be stable strings containing only letters, numbers, dots, underscores, or hyphens (1-64 characters).",
     );
   }
   return {
@@ -35,23 +35,23 @@ function normalizeDefinition(
   };
 }
 
-/** Define one app-owned experiment for registration at server startup. */
-export function defineExperiment(
-  definition: ExperimentDefinition,
-): ExperimentDefinition {
+/** Define one app-owned lab for registration at server startup. */
+export function defineLab(
+  definition: LabDefinition,
+): LabDefinition {
   return Object.freeze(normalizeDefinition(definition));
 }
 
-/** Define a small app-owned experiment registry. */
-export function defineExperiments(
-  definitions: readonly ExperimentDefinition[],
-): readonly ExperimentDefinition[] {
+/** Define a small app-owned lab registry. */
+export function defineLabs(
+  definitions: readonly LabDefinition[],
+): readonly LabDefinition[] {
   const seen = new Set<string>();
   return Object.freeze(
     definitions.map((definition) => {
-      const normalized = defineExperiment(definition);
+      const normalized = defineLab(definition);
       if (seen.has(normalized.key)) {
-        throw new Error(`Duplicate experiment key: ${normalized.key}`);
+        throw new Error(`Duplicate lab key: ${normalized.key}`);
       }
       seen.add(normalized.key);
       return normalized;
@@ -60,11 +60,11 @@ export function defineExperiments(
 }
 
 /** Register definitions once at Nitro startup. Re-registering identical data is safe for HMR. */
-export function registerExperiments(
-  definitions: readonly ExperimentDefinition[],
+export function registerLabs(
+  definitions: readonly LabDefinition[],
 ): void {
   for (const rawDefinition of definitions) {
-    const definition = defineExperiment(rawDefinition);
+    const definition = defineLab(rawDefinition);
     const existing = registry.get(definition.key);
     if (!existing) {
       registry.set(definition.key, definition);
@@ -76,23 +76,23 @@ export function registerExperiments(
       existing.keywords !== definition.keywords
     ) {
       throw new Error(
-        `Experiment ${definition.key} was registered with conflicting metadata.`,
+        `Lab ${definition.key} was registered with conflicting metadata.`,
       );
     }
   }
 }
 
-export function listExperiments(): readonly ExperimentDefinition[] {
+export function listLabs(): readonly LabDefinition[] {
   return [...registry.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-export function getExperimentDefinition(
+export function getLabDefinition(
   key: string,
-): ExperimentDefinition | null {
+): LabDefinition | null {
   return registry.get(key) ?? null;
 }
 
 /** Test-only registry reset; not exported from package entrypoints. */
-export function _resetExperimentRegistryForTests(): void {
+export function _resetLabRegistryForTests(): void {
   registry.clear();
 }

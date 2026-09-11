@@ -8,17 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
 import { useSettingsPanelController } from "./useSettingsPanelController.js";
 
-vi.mock("../experiments/ExperimentsSettings.js", () => ({
-  ExperimentsSettings: ({
-    experiments,
+vi.mock("../labs/LabsSettings.js", () => ({
+  LabsSettings: ({
+    labs,
   }: {
-    experiments: readonly { key: string; displayName?: string }[];
+    labs: readonly { key: string; displayName?: string }[];
   }) => (
-    <div data-testid="experiments-content">
-      {experiments.map((experiment) => (
-        <span key={experiment.key}>
-          {experiment.displayName ?? experiment.key}
-        </span>
+    <div data-testid="labs-content">
+      {labs.map((lab) => (
+        <span key={lab.key}>{lab.displayName ?? lab.key}</span>
       ))}
     </div>
   ),
@@ -215,13 +213,13 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Integration content");
   });
 
-  it("only adds experiments when definitions exist and indexes each experiment", async () => {
+  it("only adds labs when definitions exist and indexes each lab", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
           <SettingsTabsPage
             general={<div>General content</div>}
-            experiments={[
+            labs={[
               {
                 key: "clips.meetings",
                 displayName: "Meetings and transcription",
@@ -233,7 +231,7 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    expect(container.querySelector("#settings-tab-experiments")).not.toBeNull();
+    expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
 
     const searchInput = container.querySelector<HTMLInputElement>(
       'input[type="search"]',
@@ -255,11 +253,9 @@ describe("SettingsTabsPage", () => {
       result?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
     );
 
-    expect(window.location.pathname).toBe(
-      "/settings/experiments/experiment-clips.meetings",
-    );
+    expect(window.location.pathname).toBe("/settings/labs/lab-clips.meetings");
     expect(
-      container.querySelector("[data-testid=experiments-content]")?.textContent,
+      container.querySelector("[data-testid=labs-content]")?.textContent,
     ).toContain("Meetings and transcription");
 
     await act(async () => {
@@ -271,10 +267,10 @@ describe("SettingsTabsPage", () => {
         </MemoryRouter>,
       );
     });
-    expect(container.querySelector("#settings-tab-experiments")).toBeNull();
+    expect(container.querySelector("#settings-tab-labs")).toBeNull();
   });
 
-  it("places experiments after app-specific tabs such as notifications", () => {
+  it("places labs after app-specific tabs such as notifications", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -286,7 +282,7 @@ describe("SettingsTabsPage", () => {
               content: <div>Notifications content</div>,
             },
           ]}
-          experiments={[{ key: "clips.meetings", displayName: "Meetings" }]}
+          labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
         />,
       );
     });
@@ -295,8 +291,29 @@ describe("SettingsTabsPage", () => {
       container.querySelectorAll<HTMLElement>("[id^='settings-tab-']"),
     ).map((tab) => tab.id);
     expect(tabs.indexOf("settings-tab-notifications")).toBeLessThan(
-      tabs.indexOf("settings-tab-experiments"),
+      tabs.indexOf("settings-tab-labs"),
     );
+  });
+
+  it("resolves legacy experiment routes to Labs", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={["/settings/experiments/experiment-clips.meetings"]}
+        >
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("#settings-tab-labs")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
   });
 
   it("restores a connections tab from its canonical route after a remount", () => {

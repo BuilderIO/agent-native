@@ -75,7 +75,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "../../shared/experiments";
+import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "../../shared/labs";
 import {
   CamIcon,
   GoogleIcon,
@@ -1293,7 +1293,7 @@ export function App({
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
-  const [experimentValues, setExperimentValues] = useState<
+  const [labValues, setLabValues] = useState<
     Record<string, boolean>
   >({});
   // "Could not reach the server" is not the same state as "signed out", and the
@@ -1356,24 +1356,24 @@ export function App({
     setCameraError,
     setRecError,
   });
-  const meetingsExperimentEnabled =
-    experimentValues[CLIPS_MEETINGS.key] === true;
-  const wisprFlowExperimentEnabled =
-    experimentValues[CLIPS_WISPRFLOW.key] === true;
+  const meetingsLabEnabled =
+    labValues[CLIPS_MEETINGS.key] === true;
+  const wisprFlowLabEnabled =
+    labValues[CLIPS_WISPRFLOW.key] === true;
   const voiceDictationEnabled =
-    wisprFlowExperimentEnabled && featureConfig?.voiceEnabled !== false;
+    wisprFlowLabEnabled && featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =
     voiceDictationEnabled &&
     (voiceShortcut === "fn" || voiceShortcut === "both");
 
   useEffect(() => {
-    if (!meetingsExperimentEnabled && popoverView === "meetings") {
+    if (!meetingsLabEnabled && popoverView === "meetings") {
       setPopoverView("recorder");
     }
-    if (!wisprFlowExperimentEnabled && popoverView === "dictation") {
+    if (!wisprFlowLabEnabled && popoverView === "dictation") {
       setPopoverView("recorder");
     }
-  }, [meetingsExperimentEnabled, popoverView, wisprFlowExperimentEnabled]);
+  }, [meetingsLabEnabled, popoverView, wisprFlowLabEnabled]);
   const updateVoiceShortcut = useCallback((value: VoiceShortcutPreference) => {
     saveBool(VOICE_SHORTCUT_CONFIGURED_KEY, true);
     setVoiceShortcut(value);
@@ -1786,30 +1786,30 @@ export function App({
 
   useEffect(() => {
     let cancelled = false;
-    const refreshExperiments = async () => {
+    const refreshLabs = async () => {
       if (authStatus !== "authed") {
-        setExperimentValues({});
-        emit("clips:experiments-updated", { values: {} }).catch(() => {});
+        setLabValues({});
+        emit("clips:labs-updated", { values: {} }).catch(() => {});
         return;
       }
 
       try {
         const values = await callClipsAction<Record<string, boolean>>(
-          "get-experiments",
+          "get-labs",
           {},
           { method: "GET" },
         );
         if (!cancelled) {
-          setExperimentValues(values);
-          emit("clips:experiments-updated", { values }).catch(() => {});
+          setLabValues(values);
+          emit("clips:labs-updated", { values }).catch(() => {});
         }
       } catch (error) {
         // Keep the last known-good values. A failed read is not an opt-out.
-        console.warn("[clips-tray] experiment refresh failed:", error);
+        console.warn("[clips-tray] lab refresh failed:", error);
       }
     };
 
-    void refreshExperiments();
+    void refreshLabs();
     if (authStatus !== "authed") {
       return () => {
         cancelled = true;
@@ -1817,7 +1817,7 @@ export function App({
     }
 
     const refreshInterval = window.setInterval(() => {
-      void refreshExperiments();
+      void refreshLabs();
     }, 30_000);
     return () => {
       cancelled = true;
@@ -1826,18 +1826,18 @@ export function App({
   }, [authStatus, callClipsAction]);
 
   useEffect(() => {
-    invoke("meetings_watcher_set_experiment_enabled", {
-      enabled: authStatus === "authed" && meetingsExperimentEnabled,
+    invoke("meetings_watcher_set_lab_enabled", {
+      enabled: authStatus === "authed" && meetingsLabEnabled,
     }).catch((error) => {
-      console.warn("[clips-tray] meetings experiment sync failed:", error);
+      console.warn("[clips-tray] meetings lab sync failed:", error);
     });
-  }, [authStatus, meetingsExperimentEnabled]);
+  }, [authStatus, meetingsLabEnabled]);
 
   useEffect(() => {
-    if (meetingsExperimentEnabled) return;
+    if (meetingsLabEnabled) return;
     setActiveMeetingId(null);
     setMeetingStartMessage(null);
-  }, [meetingsExperimentEnabled]);
+  }, [meetingsLabEnabled]);
 
   const updateAgentHandoff = useCallback(
     async (
@@ -2208,7 +2208,7 @@ export function App({
   }, [callClipsAction, featureConfig?.screenMemory?.enabled]);
 
   const fetchUpcomingMeetings = useCallback(async () => {
-    if (authStatus !== "authed" || !meetingsExperimentEnabled) {
+    if (authStatus !== "authed" || !meetingsLabEnabled) {
       setMeetings([]);
       setMeetingsError(null);
       setMeetingsCalendarNeedsReauth(false);
@@ -2258,12 +2258,12 @@ export function App({
     } finally {
       setMeetingsLoading(false);
     }
-  }, [authStatus, callClipsAction, meetingsExperimentEnabled]);
+  }, [authStatus, callClipsAction, meetingsLabEnabled]);
 
   useEffect(() => {
     let cancelled = false;
     if (
-      !meetingsExperimentEnabled ||
+      !meetingsLabEnabled ||
       popoverView !== "meetings" ||
       meetings.length === 0
     ) {
@@ -2302,11 +2302,11 @@ export function App({
     return () => {
       cancelled = true;
     };
-  }, [meetings, meetingsExperimentEnabled, popoverView]);
+  }, [meetings, meetingsLabEnabled, popoverView]);
 
   const startMeetingNotes = useCallback(
     (meeting: PopoverMeeting, includeFromMeetingStart = false) => {
-      if (!meetingsExperimentEnabled) return;
+      if (!meetingsLabEnabled) return;
       setActiveMeetingId(meeting.id);
       setMeetingStartMessage(
         includeFromMeetingStart
@@ -2327,12 +2327,12 @@ export function App({
         );
       });
     },
-    [meetingsExperimentEnabled],
+    [meetingsLabEnabled],
   );
 
   const startMeetingNotesAndJoin = useCallback(
     (meeting: PopoverMeeting, includeFromMeetingStart = false) => {
-      if (!meetingsExperimentEnabled) return;
+      if (!meetingsLabEnabled) return;
       if (meeting.joinUrl) {
         openMeetingJoinUrl(meeting.joinUrl).catch((err) => {
           console.error("[clips-popover] open meeting join url failed:", err);
@@ -2354,7 +2354,7 @@ export function App({
   }, []);
 
   useEffect(() => {
-    if (!meetingsExperimentEnabled) return;
+    if (!meetingsLabEnabled) return;
     invoke<string | null>("get_active_meeting_id")
       .then((meetingId) => {
         if (meetingId) setActiveMeetingId((current) => current ?? meetingId);
@@ -2429,16 +2429,16 @@ export function App({
       unlistens.forEach((unlisten) => unlisten());
       unlistens.length = 0;
     };
-  }, [meetingsExperimentEnabled]);
+  }, [meetingsLabEnabled]);
 
   useEffect(() => {
-    if (!meetingsExperimentEnabled || !popoverVisible || !activeMeetingId) {
+    if (!meetingsLabEnabled || !popoverVisible || !activeMeetingId) {
       return;
     }
     showActiveMeetingPill(activeMeetingId);
   }, [
     activeMeetingId,
-    meetingsExperimentEnabled,
+    meetingsLabEnabled,
     popoverVisible,
     showActiveMeetingPill,
   ]);
@@ -2448,7 +2448,7 @@ export function App({
     serverUrl,
     selectedMicId,
     selectedMicLabel,
-    enabled: meetingsExperimentEnabled,
+    enabled: meetingsLabEnabled,
   });
 
   type DesktopAuthKind = "google" | "magic-link";
@@ -4487,8 +4487,8 @@ export function App({
         {isRecording ? <ActiveRecordingBanner /> : null}
         <Setup
           surface="memory"
-          meetingsExperimentEnabled={meetingsExperimentEnabled}
-          wisprFlowExperimentEnabled={wisprFlowExperimentEnabled}
+          meetingsLabEnabled={meetingsLabEnabled}
+          wisprFlowLabEnabled={wisprFlowLabEnabled}
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -4530,8 +4530,8 @@ export function App({
         {isRecording ? <ActiveRecordingBanner /> : null}
         <Setup
           initialSettingsTab={initialSettingsTab}
-          meetingsExperimentEnabled={meetingsExperimentEnabled}
-          wisprFlowExperimentEnabled={wisprFlowExperimentEnabled}
+          meetingsLabEnabled={meetingsLabEnabled}
+          wisprFlowLabEnabled={wisprFlowLabEnabled}
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -4567,7 +4567,7 @@ export function App({
     );
   }
 
-  if (popoverView === "meetings" && meetingsExperimentEnabled) {
+  if (popoverView === "meetings" && meetingsLabEnabled) {
     return (
       <div className="app app-popover-view" ref={appRef}>
         {pendingUploadBanner}
@@ -4596,7 +4596,7 @@ export function App({
     );
   }
 
-  if (popoverView === "dictation" && wisprFlowExperimentEnabled) {
+  if (popoverView === "dictation" && wisprFlowLabEnabled) {
     return (
       <div className="app app-popover-view" ref={appRef}>
         {pendingUploadBanner}
@@ -4720,7 +4720,7 @@ export function App({
         <Header mode={mode} onModeChange={selectCaptureMode} />
         <UpdateBanner />
 
-        {meetingsExperimentEnabled && imminentMeeting ? (
+        {meetingsLabEnabled && imminentMeeting ? (
           <ImminentMeetingRow
             meeting={imminentMeeting}
             onStartNotes={() => startMeetingNotes(imminentMeeting)}
@@ -4882,7 +4882,7 @@ export function App({
       </div>
 
       <div className="bottom-row">
-        {wisprFlowExperimentEnabled ? (
+        {wisprFlowLabEnabled ? (
           <BottomButton
             icon="dictation"
             label="Dictate"
@@ -6246,8 +6246,8 @@ function formatStorageBytes(bytes: number): string {
 function Setup({
   surface = "settings",
   initialSettingsTab,
-  meetingsExperimentEnabled,
-  wisprFlowExperimentEnabled,
+  meetingsLabEnabled,
+  wisprFlowLabEnabled,
   recordingActive = false,
   initial,
   serverUrl,
@@ -6277,8 +6277,8 @@ function Setup({
 }: {
   surface?: "settings" | "memory";
   initialSettingsTab?: SettingsTabId;
-  meetingsExperimentEnabled: boolean;
-  wisprFlowExperimentEnabled: boolean;
+  meetingsLabEnabled: boolean;
+  wisprFlowLabEnabled: boolean;
   recordingActive?: boolean;
   initial?: string | null;
   serverUrl?: string;
@@ -7151,8 +7151,8 @@ function Setup({
     settingsTab === "recording" ||
     settingsTab === "rewind" ||
     settingsTab === "advanced" ||
-    (settingsTab === "meetings" && meetingsExperimentEnabled) ||
-    (settingsTab === "dictation" && wisprFlowExperimentEnabled);
+    (settingsTab === "meetings" && meetingsLabEnabled) ||
+    (settingsTab === "dictation" && wisprFlowLabEnabled);
 
   useEffect(() => {
     if (surface !== "settings" || settingsTabIsAvailable) return;
@@ -8422,7 +8422,7 @@ function Setup({
       label: "Rewind",
       icon: <IconHistory size={16} stroke={1.7} aria-hidden="true" />,
     },
-    ...(meetingsExperimentEnabled
+    ...(meetingsLabEnabled
       ? [
           {
             id: "meetings" as const,
@@ -8433,7 +8433,7 @@ function Setup({
       : []),
     // A microphone, not a keyboard: dictation is the surface you talk into, and
     // a keyboard icon read as "keyboard shortcuts" instead.
-    ...(wisprFlowExperimentEnabled
+    ...(wisprFlowLabEnabled
       ? [
           {
             id: "dictation" as const,

@@ -31,7 +31,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { cn } from "@/lib/utils";
 
 import { documentSidebarActionAvailability } from "./document-sidebar-actions";
@@ -103,7 +103,7 @@ export function DocumentTreeItem({
   const { canEdit, canManage, canFavorite, hasMenuActions } =
     documentSidebarActionAvailability(node, { favoriteAvailable: true });
   const canCreateChild = canEdit && !isLocalFileNode;
-  const creativeContextEnabled = useCreativeContextExperiment();
+  const creativeContextEnabled = useCreativeContextLab();
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const indent = depth * 12 + 12;
   const rowWidth =

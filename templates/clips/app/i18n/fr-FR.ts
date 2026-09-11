@@ -727,16 +727,16 @@ const messages = {
     agentTitle: "Gérer l’agent",
     title: "Paramètres",
     pageTitle: "Paramètres · Clips",
-    experiments: "Expériences",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
-    experimentVideoEditing: "Montage vidéo",
-    experimentVideoEditingDescription: "Essayez le nouvel éditeur vidéo.",
-    experimentMeetings: "Réunions et transcription",
-    experimentMeetingsDescription:
+    labVideoEditing: "Montage vidéo",
+    labVideoEditingDescription: "Essayez le nouvel éditeur vidéo.",
+    labMeetings: "Réunions et transcription",
+    labMeetingsDescription:
       "Essayez la capture et la transcription automatiques des réunions.",
-    experimentWisprFlow: "Dictée vocale",
-    experimentWisprFlowDescription:
+    labWisprFlow: "Dictée vocale",
+    labWisprFlowDescription:
       "Essayez la nouvelle fonction de dictée vocale.",
     intro: "Préférences et services connectés pour cet espace Clips.",
     preferencesTitle: "Préférences",

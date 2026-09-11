@@ -1,8 +1,8 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { useExperimentState } from "@agent-native/core/client/experiments";
+import { useLabState } from "@agent-native/core/client/labs";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { CLIPS_MEETINGS } from "@shared/experiments";
+import { CLIPS_MEETINGS } from "@shared/labs";
 import {
   IconAlertTriangle,
   IconCalendar,
@@ -666,7 +666,7 @@ function MeetingsHeader({
 
 export default function MeetingsIndexRoute() {
   const t = useT();
-  const experiment = useExperimentState(CLIPS_MEETINGS.key);
+  const lab = useLabState(CLIPS_MEETINGS.key);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQ = searchParams.get("q") ?? "";
   const [query, setQuery] = useState(initialQ);
@@ -889,7 +889,7 @@ export default function MeetingsIndexRoute() {
   const nothingAtAll =
     historyMeetings.length === 0 && agendaMeetings.length === 0;
 
-  if (experiment.isSuccess && !experiment.enabled) {
+  if (lab.isSuccess && !lab.enabled) {
     return <Navigate replace to="/library" />;
   }
 

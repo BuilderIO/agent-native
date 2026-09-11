@@ -708,16 +708,16 @@ const messages = {
     agentTitle: "Manage agent",
     title: "Settings",
     pageTitle: "Settings · Clips",
-    experiments: "Experiments",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "These are new, unstable features and may have bugs. We value your feedback.",
-    experimentVideoEditing: "Video editing",
-    experimentVideoEditingDescription: "Try the new video editor.",
-    experimentMeetings: "Meetings and transcription",
-    experimentMeetingsDescription:
+    labVideoEditing: "Video editing",
+    labVideoEditingDescription: "Try the new video editor.",
+    labMeetings: "Meetings and transcription",
+    labMeetingsDescription:
       "Try automatic meeting capture and transcription.",
-    experimentWisprFlow: "Voice dictation",
-    experimentWisprFlowDescription: "Try the new voice dictation feature.",
+    labWisprFlow: "Voice dictation",
+    labWisprFlowDescription: "Try the new voice dictation feature.",
     intro: "Preferences and connected services for this Clips workspace.",
     preferencesTitle: "Preferences",
     languageTitle: "Language",

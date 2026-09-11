@@ -723,16 +723,16 @@ const messages = {
     agentTitle: "エージェントを管理",
     title: "設定",
     pageTitle: "設定 · Clips",
-    experiments: "実験機能",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
-    experimentVideoEditing: "動画編集",
-    experimentVideoEditingDescription: "新しい動画エディターをお試しください。",
-    experimentMeetings: "会議と文字起こし",
-    experimentMeetingsDescription:
+    labVideoEditing: "動画編集",
+    labVideoEditingDescription: "新しい動画エディターをお試しください。",
+    labMeetings: "会議と文字起こし",
+    labMeetingsDescription:
       "会議の自動キャプチャと文字起こしをお試しください。",
-    experimentWisprFlow: "音声入力",
-    experimentWisprFlowDescription: "新しい音声入力機能をお試しください。",
+    labWisprFlow: "音声入力",
+    labWisprFlowDescription: "新しい音声入力機能をお試しください。",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
     preferencesTitle: "環境設定",
     languageTitle: "言語",

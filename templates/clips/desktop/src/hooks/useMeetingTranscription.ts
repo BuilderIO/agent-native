@@ -295,7 +295,7 @@ export function useMeetingTranscription({
 
   useEffect(() => {
     if (enabled) return;
-    stopTranscription("experiment-disabled").catch(() => {});
+    stopTranscription("lab-disabled").catch(() => {});
   }, [enabled, stopTranscription]);
 
   // -------------------------------------------------------------------------

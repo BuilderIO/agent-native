@@ -1,20 +1,20 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
-  _resetExperimentRegistryForTests,
-  defineExperiment,
-  defineExperiments,
-  listExperiments,
-  registerExperiments,
+  _resetLabRegistryForTests,
+  defineLab,
+  defineLabs,
+  listLabs,
+  registerLabs,
 } from "./registry.js";
 
 beforeEach(() => {
-  _resetExperimentRegistryForTests();
+  _resetLabRegistryForTests();
 });
 
-describe("experiment registry", () => {
+describe("lab registry", () => {
   it("normalizes metadata, sorts definitions, and rejects unstable keys", () => {
-    const definitions = defineExperiments([
+    const definitions = defineLabs([
       {
         key: " clips.meetings ",
         displayName: " Meetings ",
@@ -24,9 +24,9 @@ describe("experiment registry", () => {
       { key: "clips.editor", displayName: "Editor" },
     ]);
 
-    registerExperiments(definitions);
+    registerLabs(definitions);
 
-    expect(listExperiments()).toEqual([
+    expect(listLabs()).toEqual([
       {
         key: "clips.editor",
         displayName: "Editor",
@@ -38,21 +38,21 @@ describe("experiment registry", () => {
         keywords: "notes",
       },
     ]);
-    expect(() => defineExperiment({ key: "not stable" })).toThrow(
+    expect(() => defineLab({ key: "not stable" })).toThrow(
       /only letters, numbers, dots, underscores, or hyphens/,
     );
   });
 
   it("allows identical HMR registration but rejects conflicting metadata", () => {
-    const definition = defineExperiment({
+    const definition = defineLab({
       key: "clips.tweaks",
       displayName: "Tweaks",
     });
 
-    registerExperiments([definition]);
-    expect(() => registerExperiments([definition])).not.toThrow();
+    registerLabs([definition]);
+    expect(() => registerLabs([definition])).not.toThrow();
     expect(() =>
-      registerExperiments([
+      registerLabs([
         { key: "clips.tweaks", displayName: "Different tweaks" },
       ]),
     ).toThrow(/registered with conflicting metadata/);

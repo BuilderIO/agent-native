@@ -75,13 +75,13 @@ export {
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
 export {
-  ExperimentsSettings,
-  useExperiment,
-  useExperimentState,
-  useExperiments,
-  type ExperimentValues,
-  type ExperimentsSettingsProps,
-} from "./experiments/index.js";
+  LabsSettings,
+  useLab,
+  useLabState,
+  useLabs,
+  type LabValues,
+  type LabsSettingsProps,
+} from "./labs/index.js";
 export { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 export {
   SettingsPanel,

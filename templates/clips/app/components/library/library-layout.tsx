@@ -3,7 +3,7 @@ import {
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useExperiment } from "@agent-native/core/client/experiments";
+import { useLab } from "@agent-native/core/client/labs";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -15,7 +15,7 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/core/client/ui";
-import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/experiments";
+import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconInbox,
   IconArchive,
@@ -192,8 +192,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const meetingsExperimentEnabled = useExperiment(CLIPS_MEETINGS.key);
-  const wisprFlowExperimentEnabled = useExperiment(CLIPS_WISPRFLOW.key);
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
+  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW.key);
   // Bind chat to the currently-open recording (`/r/:id`). Library, spaces,
   // meetings, dictate, and settings stay unscoped — those are list-y views
   // where deck-style "this recording" framing doesn't apply.
@@ -439,7 +439,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       icon: IconUsersGroup,
       match: (p) => p === "/spaces" || p.startsWith("/spaces/"),
     },
-    ...(meetingsExperimentEnabled
+    ...(meetingsLabEnabled
       ? [
           {
             to: "/meetings",
@@ -449,7 +449,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           },
         ]
       : []),
-    ...(wisprFlowExperimentEnabled
+    ...(wisprFlowLabEnabled
       ? [
           {
             to: "/dictate",

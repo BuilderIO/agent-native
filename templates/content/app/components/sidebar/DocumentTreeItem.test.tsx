@@ -15,7 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { DocumentTreeItem } from "./DocumentTreeItem";
 
-const { useSortableMock, useCreativeContextExperimentMock } = vi.hoisted(
+const { useSortableMock, useCreativeContextLabMock } = vi.hoisted(
   () => ({
     useSortableMock: vi.fn(() => ({
       attributes: {},
@@ -25,7 +25,7 @@ const { useSortableMock, useCreativeContextExperimentMock } = vi.hoisted(
       transition: undefined,
       isDragging: false,
     })),
-    useCreativeContextExperimentMock: vi.fn(() => true),
+    useCreativeContextLabMock: vi.fn(() => true),
   }),
 );
 
@@ -34,8 +34,8 @@ vi.mock("@dnd-kit/sortable", async (importOriginal) => ({
   useSortable: useSortableMock,
 }));
 
-vi.mock("@/hooks/use-creative-context-experiment", () => ({
-  useCreativeContextExperiment: () => useCreativeContextExperimentMock(),
+vi.mock("@/hooks/use-creative-context-lab", () => ({
+  useCreativeContextLab: () => useCreativeContextLabMock(),
 }));
 
 vi.mock("@agent-native/creative-context/client", () => ({
@@ -252,8 +252,8 @@ describe("sidebar document permission menus", () => {
     },
   );
 
-  it("omits Add to context when creative context experiment is disabled", async () => {
-    useCreativeContextExperimentMock.mockReturnValue(false);
+  it("omits Add to context when creative context lab is disabled", async () => {
+    useCreativeContextLabMock.mockReturnValue(false);
     try {
       const { container, root } = await render(
         treeItem(documentForRole("editor")),
@@ -266,7 +266,7 @@ describe("sidebar document permission menus", () => {
 
       cleanup(root, container);
     } finally {
-      useCreativeContextExperimentMock.mockReturnValue(true);
+      useCreativeContextLabMock.mockReturnValue(true);
     }
   });
 });

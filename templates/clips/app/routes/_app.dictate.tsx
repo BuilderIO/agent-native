@@ -1,10 +1,10 @@
-import { useExperimentState } from "@agent-native/core/client/experiments";
+import { useLabState } from "@agent-native/core/client/labs";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { CLIPS_WISPRFLOW } from "@shared/experiments";
+import { CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconArrowsExchange,
   IconChevronDown,
@@ -733,7 +733,7 @@ function DictateEmptyState({
 }
 
 export default function DictateRoute() {
-  const experiment = useExperimentState(CLIPS_WISPRFLOW.key);
+  const lab = useLabState(CLIPS_WISPRFLOW.key);
   const t = useT();
   const [searchParams] = useSearchParams();
   const selectedDictationId = searchParams.get("dictationId");
@@ -984,7 +984,7 @@ export default function DictateRoute() {
     draftText.trim().length > 0 ||
     interimText.trim().length > 0;
 
-  if (experiment.isSuccess && !experiment.enabled) {
+  if (lab.isSuccess && !lab.enabled) {
     return <Navigate replace to="/library" />;
   }
 

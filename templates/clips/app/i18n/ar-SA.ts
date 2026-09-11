@@ -714,16 +714,16 @@ const messages = {
     agentTitle: "إدارة الوكيل",
     title: "الإعدادات",
     pageTitle: "الإعدادات · Clips",
-    experiments: "التجارب",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
-    experimentVideoEditing: "تحرير الفيديو",
-    experimentVideoEditingDescription: "جرّب محرر الفيديو الجديد.",
-    experimentMeetings: "الاجتماعات والنسخ النصي",
-    experimentMeetingsDescription:
+    labVideoEditing: "تحرير الفيديو",
+    labVideoEditingDescription: "جرّب محرر الفيديو الجديد.",
+    labMeetings: "الاجتماعات والنسخ النصي",
+    labMeetingsDescription:
       "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات.",
-    experimentWisprFlow: "الإملاء الصوتي",
-    experimentWisprFlowDescription: "جرّب ميزة الإملاء الصوتي الجديدة.",
+    labWisprFlow: "الإملاء الصوتي",
+    labWisprFlowDescription: "جرّب ميزة الإملاء الصوتي الجديدة.",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
     preferencesTitle: "التفضيلات",
     languageTitle: "اللغة",
