@@ -408,8 +408,21 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} must pass a PR number and stable preview alias`,
     );
   }
-  if (!asRecord(jobs?.cleanup)) {
+  const cleanup = asRecord(jobs?.cleanup);
+  if (!cleanup) {
     issues.push(`${pullRequestPath} must define closed-PR preview cleanup`);
+  } else if (cleanup["timeout-minutes"] !== 15) {
+    issues.push(
+      `${pullRequestPath} cleanup job must declare a 15-minute timeout`,
+    );
+  }
+  if (
+    !source.includes("cleanup-netlify-pr-previews.ts") ||
+    source.includes("listSiteDeploys")
+  ) {
+    issues.push(
+      `${pullRequestPath} closed-PR cleanup must use the targeted cleanup script instead of scanning full Netlify deploy history`,
+    );
   }
   return issues;
 }
