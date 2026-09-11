@@ -2720,6 +2720,11 @@ export default function DeckEditor() {
             }}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
+              trackEvent("slide_panel_opened", {
+                app_name: "slides",
+                template_name: "slides",
+                panel: "asset_library",
+              });
               setReplaceImageSrc(src);
               setAssetLibraryOpen(true);
             }}
@@ -2748,6 +2753,11 @@ export default function DeckEditor() {
             recentEdits={deckRecentEdits}
             onComment={(quotedText) => {
               if (!canComment) return;
+              trackEvent("slide_panel_opened", {
+                app_name: "slides",
+                template_name: "slides",
+                panel: "comments",
+              });
               setPendingComment({ quotedText });
               setSidePanel("comments");
             }}

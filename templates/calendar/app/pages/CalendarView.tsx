@@ -437,6 +437,14 @@ export default function CalendarView() {
     new Map(),
   );
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const openCommandPalette = useCallback(() => {
+    trackEvent("calendar_search_opened", {
+      app_name: "calendar",
+      template_name: "calendar",
+      surface: "calendar_view",
+    });
+    setCommandPaletteOpen(true);
+  }, []);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
 
@@ -1728,7 +1736,7 @@ export default function CalendarView() {
       // Cmd+K / Ctrl+K — always open command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setCommandPaletteOpen(true);
+        openCommandPalette();
         return;
       }
 
@@ -1821,7 +1829,7 @@ export default function CalendarView() {
           break;
         case "/":
           e.preventDefault();
-          setCommandPaletteOpen(true);
+          openCommandPalette();
           break;
       }
     }
@@ -1832,6 +1840,7 @@ export default function CalendarView() {
     createDialogOpen,
     deleteDialogEvent,
     isTypingInInput,
+    openCommandPalette,
     viewMode,
     selectedDate,
     sidebarEvent,
@@ -2007,14 +2016,7 @@ export default function CalendarView() {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 sm:h-7 sm:w-7"
-                    onClick={() => {
-                      trackEvent("calendar_search_opened", {
-                        app_name: "calendar",
-                        template_name: "calendar",
-                        surface: "calendar_view",
-                      });
-                      setCommandPaletteOpen(true);
-                    }}
+                    onClick={openCommandPalette}
                   >
                     <IconSearch className="h-4 w-4" />
                   </Button>

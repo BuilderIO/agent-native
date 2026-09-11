@@ -202,16 +202,26 @@ function PrivateAppShell() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
-  const handleCommandMenuOpenChange = useCallback((open: boolean) => {
-    if (open) {
+  const commandMenuOpenRef = useRef(false);
+  const openCommandMenu = useCallback(() => {
+    if (!commandMenuOpenRef.current) {
       trackEvent("dispatch_command_menu_opened", {
         app_name: "dispatch",
         template_name: "dispatch",
       });
+      commandMenuOpenRef.current = true;
     }
-    setCmdkOpen(open);
+    setCmdkOpen(true);
   }, []);
+  useCommandMenuShortcut(openCommandMenu);
+  const handleCommandMenuOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) openCommandMenu();
+      else commandMenuOpenRef.current = false;
+      setCmdkOpen(open);
+    },
+    [openCommandMenu],
+  );
   return (
     <>
       <DbSyncSetup />
