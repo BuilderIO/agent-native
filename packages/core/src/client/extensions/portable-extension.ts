@@ -677,7 +677,9 @@ export function buildAgentNativeExtensionHtml({
 
       var resizeObserver = null;
       var isExcludedFromHeight = function(element, body) {
-        var current = element;
+        if (!element) return false;
+        if (window.getComputedStyle(element).position === 'fixed') return true;
+        var current = element.parentElement;
         while (current && current !== body) {
           var style = window.getComputedStyle(current);
           if (

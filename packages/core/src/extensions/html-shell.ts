@@ -700,8 +700,10 @@ export function buildExtensionHtml(
 	    if (new URLSearchParams(location.search).get('slot') || window.parent !== window) {
 	      var _ro = null;
 	      var _isExcludedFromHeight = function(element, body) {
-	        var current = element;
-	        while (current && current !== body) {
+	        if (!element) return false;
+	        if (window.getComputedStyle(element).position === 'fixed') return true;
+	        var current = element.parentElement;
+        while (current && current !== body) {
 	          var style = window.getComputedStyle(current);
 	          if (
 	            style.position === 'fixed' ||
