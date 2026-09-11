@@ -83,7 +83,7 @@ const messages = {
   empty: {
     library: {
       title: "Your library is empty",
-      body: "Capture your first screen recording and it'll land here, ready to share.",
+      body: "Capture your first screen recording to share with people or agents.",
       cta: "Record your first Clip",
     },
     shared: {
@@ -1341,6 +1341,12 @@ const messages = {
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
     openDesktopApp: "Open desktop app",
+    chromeHoverTitle: "Chrome Extension",
+    chromeHoverDescription:
+      "Captures console and network details from the page, with private info hidden.",
+    desktopHoverTitle: "Desktop App",
+    desktopHoverDescription:
+      "Starts instantly with a shortcut or from the menu bar — perfect for meetings and repeat recordings.",
   },
   editableTitle: {
     untitled: "Untitled Clip",
@@ -1538,6 +1544,7 @@ const messages = {
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.",
     downloadDesktopApp: "Download desktop app",
+    downloadLabel: "Download",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
     downloadRecording: "Download",

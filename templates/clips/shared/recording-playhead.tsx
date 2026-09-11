@@ -71,6 +71,9 @@ export interface RecordingPlayheadProps {
   paused: boolean;
   orientation?: RecordingPlayheadOrientation;
   enabled?: boolean;
+  /** While true, the stop control shows a spinner in place and every control
+   * is inert — the recording is being saved and no further action applies. */
+  saving?: boolean;
   pendingAction?: RecordingPlayheadIntent | "cancel" | null;
   /** Capture-specific level transport; the visual slot remains shared. */
   meter: ReactNode;
@@ -115,6 +118,7 @@ export function RecordingPlayhead({
   paused,
   orientation = "horizontal",
   enabled = true,
+  saving = false,
   pendingAction = null,
   meter,
   labels,
@@ -465,7 +469,8 @@ export function RecordingPlayhead({
   const isConfirming = confirmIntent !== null;
   const displayedConfirmIntent =
     confirmIntent ?? displayedConfirmIntentRef.current;
-  const controlsDisabled = !enabled || isConfirming || pendingAction !== null;
+  const controlsDisabled =
+    !enabled || isConfirming || pendingAction !== null || saving;
   const classNames = ["recording-playhead", className]
     .filter(Boolean)
     .join(" ");
@@ -493,15 +498,27 @@ export function RecordingPlayhead({
       <button
         type="button"
         data-recording-playhead-button
-        className="recording-playhead__button recording-playhead__stop"
+        className={
+          saving
+            ? "recording-playhead__button recording-playhead__stop recording-playhead__button--saving"
+            : "recording-playhead__button recording-playhead__stop"
+        }
         onClick={onStop}
         disabled={controlsDisabled}
         aria-label={labels.stop}
+        aria-busy={saving || undefined}
         style={{
           color: paused ? "var(--playhead-ghost-ink)" : "var(--playhead-rec)",
         }}
       >
-        <span aria-hidden className="recording-playhead__stop-icon" />
+        <span
+          aria-hidden
+          className={
+            saving
+              ? "recording-playhead__stop-spinner"
+              : "recording-playhead__stop-icon"
+          }
+        />
       </button>
       <span
         aria-live="off"

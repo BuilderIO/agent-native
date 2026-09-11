@@ -84,7 +84,7 @@ const messages = {
   empty: {
     library: {
       title: "ライブラリは空です",
-      body: "最初の画面録画を作成すると、共有できる状態でここに表示されます。",
+      body: "最初の画面録画を作成して、人やエージェントと共有しましょう。",
       cta: "最初の Clip を録画",
     },
     shared: {
@@ -1362,6 +1362,12 @@ const messages = {
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (ローカライズ済み)",
     openDesktopApp: "Open desktop app (ローカライズ済み)",
+    chromeHoverTitle: "Chrome拡張機能",
+    chromeHoverDescription:
+      "ページのコンソールとネットワークの詳細を取得し、個人情報は非表示にします。",
+    desktopHoverTitle: "デスクトップアプリ",
+    desktopHoverDescription:
+      "ショートカットやメニューバーからすぐに起動——会議や繰り返しの録画に最適です。",
   },
   editableTitle: {
     untitled: "Untitled Clip (ローカライズ済み)",
@@ -1568,6 +1574,7 @@ const messages = {
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (ローカライズ済み)",
     downloadDesktopApp: "Download desktop app (ローカライズ済み)",
+    downloadLabel: "ダウンロード",
     technicalDetails: "Technical details (ローカライズ済み)",
     whatToCheck: "What to check (ローカライズ済み)",
     downloadRecording: "Download (ローカライズ済み)",

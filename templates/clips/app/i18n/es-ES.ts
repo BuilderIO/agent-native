@@ -84,7 +84,7 @@ const messages = {
   empty: {
     library: {
       title: "Tu biblioteca está vacía",
-      body: "Captura tu primera grabación de pantalla y aparecerá aquí, lista para compartir.",
+      body: "Captura tu primera grabación de pantalla para compartirla con personas o agentes.",
       cta: "Grabar tu primer Clip",
     },
     shared: {
@@ -1381,6 +1381,12 @@ const messages = {
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
     openDesktopApp: "Open desktop app",
+    chromeHoverTitle: "Extensión de Chrome",
+    chromeHoverDescription:
+      "Captura detalles de la consola y la red de la página, con la información privada oculta.",
+    desktopHoverTitle: "Aplicación de escritorio",
+    desktopHoverDescription:
+      "Se inicia al instante con un acceso directo o desde la barra de menús: perfecta para reuniones y grabaciones repetidas.",
   },
   editableTitle: {
     untitled: "Untitled Clip",
@@ -1578,6 +1584,7 @@ const messages = {
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.",
     downloadDesktopApp: "Download desktop app",
+    downloadLabel: "Descargar",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
     downloadRecording: "Download",

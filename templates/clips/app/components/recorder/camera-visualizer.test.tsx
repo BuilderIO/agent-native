@@ -110,42 +110,22 @@ describe("CameraVisualizer", () => {
     await act(async () => {
       root.render(<CameraVisualizer deviceId={null} {...props} />);
       await Promise.resolve();
-    });
-  }
-
-  async function startTest() {
-    const button = Array.from(container.querySelectorAll("button")).find(
-      (candidate) => candidate.textContent === "translated:camera-test",
-    );
-    if (!button) throw new Error("Expected translated camera test button");
-    await act(async () => {
-      button.click();
-      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
   }
 
-  it("keeps the disabled state explicit without requesting a device", async () => {
+  it("never requests a device while disabled, and shows no bubble or test control", async () => {
     await renderVisualizer({ disabled: true });
 
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "translated:camera-off",
-    );
-    expect(
-      Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "translated:camera-test",
-      )?.disabled,
-    ).toBe(true);
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(
-      Array.from(container.querySelectorAll("button")).some((button) =>
-        ["S", "M", "L"].includes(button.textContent ?? ""),
-      ),
-    ).toBe(false);
+      container.querySelector('[data-testid="camera-preview-container"]'),
+    ).toBeNull();
+    expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
-  it("shows stable loading and live-preview states", async () => {
+  it("starts the camera automatically and shows the bubble preview with no test button", async () => {
     let resolveStream: ((stream: MediaStream) => void) | undefined;
     getUserMedia.mockReturnValue(
       new Promise<MediaStream>((resolve) => {
@@ -154,132 +134,88 @@ describe("CameraVisualizer", () => {
     );
     await renderVisualizer();
 
-    const testButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "translated:camera-test",
-    );
-    await act(async () => {
-      testButton?.click();
-      await Promise.resolve();
-    });
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "translated:camera-opening",
-    );
-    expect(testButton?.disabled).toBe(true);
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+    expect(
+      container.querySelector('[role="status"] .sr-only')?.textContent,
+    ).toBe("translated:camera-opening");
 
     await act(async () => {
       resolveStream?.(createStream(track));
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "translated:camera-waiting",
-    );
+    expect(
+      container.querySelector('[role="status"] .sr-only')?.textContent,
+    ).toBe("translated:camera-waiting");
+    expect(
+      container.querySelector('[data-testid="camera-preview-container"]'),
+    ).not.toBeNull();
 
     const video = container.querySelector("video");
     await act(async () => video?.dispatchEvent(new Event("loadeddata")));
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "translated:camera-live",
-    );
+    expect(
+      container.querySelector('[role="status"] .sr-only')?.textContent,
+    ).toBe("translated:camera-live");
+    expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
-  it("turns a camera that never supplies a frame into a compact error", async () => {
+  it("turns a camera that never supplies a frame into a compact error with no test button", async () => {
     await renderVisualizer();
-    await startTest();
 
     await act(async () => vi.advanceTimersByTime(5_000));
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "translated:camera-no-video",
     );
-    expect(
-      container.querySelector('[role="status"]')?.querySelector("svg"),
-    ).not.toBeNull();
     expect(track.stop).toHaveBeenCalled();
-    expect(
-      Array.from(container.querySelectorAll("button")).some(
-        (button) => button.textContent === "translated:camera-test",
-      ),
-    ).toBe(true);
+    expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
-  it("turns playback rejection into a retryable no-video error", async () => {
+  it("turns playback rejection into a no-video error", async () => {
     vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(
       new DOMException("Unable to play media", "NotSupportedError"),
     );
     await renderVisualizer();
-    await startTest();
 
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "translated:check-camera",
-    );
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "translated:camera-no-video",
     );
     expect(track.stop).toHaveBeenCalled();
-    expect(
-      Array.from(container.querySelectorAll("button")).some(
-        (button) => button.textContent === "translated:camera-test",
-      ),
-    ).toBe(true);
   });
 
-  it("turns a media error into the same retryable no-video state", async () => {
+  it("turns a media error into the same no-video state", async () => {
     await renderVisualizer();
-    await startTest();
 
     await act(async () => {
       container.querySelector("video")?.dispatchEvent(new Event("error"));
     });
 
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "translated:check-camera",
-    );
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "translated:camera-no-video",
     );
     expect(track.stop).toHaveBeenCalled();
-    expect(
-      Array.from(container.querySelectorAll("button")).some(
-        (button) => button.textContent === "translated:camera-test",
-      ),
-    ).toBe(true);
   });
 
-  it("makes denied and missing-device failures actionable", async () => {
+  it("makes denied and missing-device failures visible without a retry control", async () => {
     permissionState = "denied";
     await renderVisualizer();
-    await startTest();
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "translated:camera-permission-blocked",
     );
-
-    permissionState = "granted";
-    getUserMedia.mockRejectedValue(
-      Object.assign(new Error("No devices found"), { name: "NotFoundError" }),
-    );
-    await startTest();
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "translated:camera-not-found",
-    );
+    expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
   it("reports a camera that disconnects during a live check", async () => {
     await renderVisualizer();
-    await startTest();
 
     await act(async () => track.dispatchEvent(new Event("ended")));
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "translated:camera-disconnected",
     );
-    expect(
-      Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "translated:camera-test",
-      ),
-    ).toBeDefined();
   });
 
   it("keeps one preview inline when narrow and fixed at roomy widths", async () => {
     await renderVisualizer({ size: "lg" });
-    await startTest();
 
     const preview = container.querySelector<HTMLElement>(
       '[data-testid="camera-preview-container"]',
@@ -299,10 +235,5 @@ describe("CameraVisualizer", () => {
         '[data-testid="camera-preview-container"] video',
       ),
     ).toHaveLength(1);
-    expect(
-      Array.from(container.querySelectorAll("button")).some(
-        (button) => button.textContent === "translated:camera-stop",
-      ),
-    ).toBe(true);
   });
 });

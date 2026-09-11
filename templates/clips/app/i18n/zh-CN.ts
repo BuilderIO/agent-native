@@ -81,7 +81,7 @@ const messages = {
   empty: {
     library: {
       title: "你的资料库还是空的",
-      body: "录制第一个屏幕视频后，它会出现在这里，随时可以分享。",
+      body: "录制你的第一个屏幕视频，与他人或智能体分享。",
       cta: "录制第一个 Clip",
     },
     shared: {
@@ -1291,6 +1291,10 @@ const messages = {
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (已本地化)",
     openDesktopApp: "Open desktop app (已本地化)",
+    chromeHoverTitle: "Chrome 扩展程序",
+    chromeHoverDescription: "捕获页面的控制台和网络详细信息，并隐藏隐私信息。",
+    desktopHoverTitle: "桌面应用程序",
+    desktopHoverDescription: "通过快捷键或菜单栏立即启动——非常适合会议和重复录制。",
   },
   editableTitle: {
     untitled: "Untitled Clip (已本地化)",
@@ -1493,6 +1497,7 @@ const messages = {
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (已本地化)",
     downloadDesktopApp: "Download desktop app (已本地化)",
+    downloadLabel: "下载",
     technicalDetails: "Technical details (已本地化)",
     whatToCheck: "What to check (已本地化)",
     downloadRecording: "Download (已本地化)",

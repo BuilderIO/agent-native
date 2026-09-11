@@ -83,7 +83,7 @@ const messages = {
   empty: {
     library: {
       title: "आपकी लाइब्रेरी खाली है",
-      body: "अपनी पहली स्क्रीन रिकॉर्डिंग कैप्चर करें और वह यहाँ शेयर करने के लिए तैयार मिलेगी।",
+      body: "लोगों या एजेंट के साथ शेयर करने के लिए अपनी पहली स्क्रीन रिकॉर्डिंग कैप्चर करें।",
       cta: "अपना पहला Clip रिकॉर्ड करें",
     },
     shared: {
@@ -1329,6 +1329,12 @@ const messages = {
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (स्थानीयकृत)",
     openDesktopApp: "Open desktop app (स्थानीयकृत)",
+    chromeHoverTitle: "क्रोम एक्सटेंशन",
+    chromeHoverDescription:
+      "पेज से कंसोल और नेटवर्क विवरण कैप्चर करता है, निजी जानकारी छिपी रहती है।",
+    desktopHoverTitle: "डेस्कटॉप ऐप",
+    desktopHoverDescription:
+      "शॉर्टकट या मेनू बार से तुरंत शुरू होता है — मीटिंग और बार-बार रिकॉर्डिंग के लिए एकदम सही।",
   },
   editableTitle: {
     untitled: "Untitled Clip (स्थानीयकृत)",
@@ -1531,6 +1537,7 @@ const messages = {
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (स्थानीयकृत)",
     downloadDesktopApp: "Download desktop app (स्थानीयकृत)",
+    downloadLabel: "डाउनलोड",
     technicalDetails: "Technical details (स्थानीयकृत)",
     whatToCheck: "What to check (स्थानीयकृत)",
     downloadRecording: "Download (स्थानीयकृत)",

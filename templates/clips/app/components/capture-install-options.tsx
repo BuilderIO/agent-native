@@ -8,7 +8,7 @@ import {
   IconDeviceDesktop,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { type ReactNode, useSyncExternalStore } from "react";
+import { type ReactNode, useState, useSyncExternalStore } from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
@@ -223,5 +223,116 @@ export function CaptureInstallInlineLink({
         <InstallOptionsContent desktopHref={desktopHref} />
       </PopoverContent>
     </Popover>
+  );
+}
+
+export interface CaptureInstallIconLinksProps {
+  desktopHref?: string;
+  className?: string;
+  label?: ReactNode;
+}
+
+type HoveredInstallOption = "chrome" | "desktop" | null;
+
+const ICON_LINK_CLASS =
+  "flex size-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground";
+
+/**
+ * Compact "Download <Chrome> <Desktop>" install affordance, all on one line.
+ * Hovering (or focusing) an icon reveals its description on a line of its
+ * own, absolutely positioned below the row so it never pushes or jitters
+ * the row itself (or anything above it) as it appears/disappears. Both
+ * icons open their destination in a new tab — this control never navigates
+ * the current recorder tab away from the in-progress setup.
+ */
+export function CaptureInstallIconLinks({
+  desktopHref = "/download",
+  className,
+  label,
+}: CaptureInstallIconLinksProps) {
+  const t = useT();
+  const downloaded = useHasDownloadedDesktopApp();
+  const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
+  const DesktopIcon = desktopOsIcon();
+  const [hovered, setHovered] = useState<HoveredInstallOption>(null);
+  const desktopLabel = downloaded
+    ? t("captureInstall.openDesktopApp")
+    : t("captureInstall.desktopTitle");
+  const hoverTitle =
+    hovered === "chrome"
+      ? t("captureInstall.chromeHoverTitle")
+      : hovered === "desktop"
+        ? t("captureInstall.desktopHoverTitle")
+        : null;
+  const hoverDescription =
+    hovered === "chrome"
+      ? t("captureInstall.chromeHoverDescription")
+      : hovered === "desktop"
+        ? t("captureInstall.desktopHoverDescription")
+        : null;
+
+  return (
+    <div
+      className={cn(
+        "relative flex w-full items-center justify-center gap-1.5 text-xs text-muted-foreground",
+        className,
+      )}
+    >
+      <span>{label ?? t("recordRoute.downloadLabel")}</span>
+      {chromeExtensionEnabled && clipsChromeExtensionUrl ? (
+        <a
+          href={clipsChromeExtensionUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={t("captureInstall.chromeTitle")}
+          className={ICON_LINK_CLASS}
+          onMouseEnter={() => setHovered("chrome")}
+          onMouseLeave={() => setHovered(null)}
+          onFocus={() => setHovered("chrome")}
+          onBlur={() => setHovered(null)}
+        >
+          <IconBrandChrome className="h-4 w-4" />
+        </a>
+      ) : null}
+      {downloaded ? (
+        <button
+          type="button"
+          onClick={() => attemptOpenDesktopApp(desktopHref)}
+          aria-label={desktopLabel}
+          className={ICON_LINK_CLASS}
+          onMouseEnter={() => setHovered("desktop")}
+          onMouseLeave={() => setHovered(null)}
+          onFocus={() => setHovered("desktop")}
+          onBlur={() => setHovered(null)}
+        >
+          <DesktopIcon className="h-4 w-4" />
+        </button>
+      ) : (
+        <a
+          href={appPath(desktopHref)}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={desktopLabel}
+          className={ICON_LINK_CLASS}
+          onMouseEnter={() => setHovered("desktop")}
+          onMouseLeave={() => setHovered(null)}
+          onFocus={() => setHovered("desktop")}
+          onBlur={() => setHovered(null)}
+        >
+          <DesktopIcon className="h-4 w-4" />
+        </a>
+      )}
+      {hoverTitle && hoverDescription ? (
+        <div
+          role="status"
+          className="absolute inset-x-0 top-full mt-1.5 text-center leading-snug"
+        >
+          <p className="text-[11px] font-medium text-foreground">
+            {hoverTitle}
+          </p>
+          <p className="text-[11px]">{hoverDescription}</p>
+        </div>
+      ) : null}
+    </div>
   );
 }

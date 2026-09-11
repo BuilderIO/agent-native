@@ -84,7 +84,7 @@ const messages = {
   empty: {
     library: {
       title: "Deine Bibliothek ist leer",
-      body: "Nimm deine erste Bildschirmaufnahme auf; sie erscheint hier und ist bereit zum Teilen.",
+      body: "Nimm deine erste Bildschirmaufnahme auf, um sie mit Personen oder Agenten zu teilen.",
       cta: "Ersten Clip aufnehmen",
     },
     shared: {
@@ -1383,6 +1383,12 @@ const messages = {
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Lokalisiert)",
     openDesktopApp: "Open desktop app (Lokalisiert)",
+    chromeHoverTitle: "Chrome-Erweiterung",
+    chromeHoverDescription:
+      "Erfasst Konsolen- und Netzwerkdetails von der Seite, wobei private Informationen ausgeblendet werden.",
+    desktopHoverTitle: "Desktop-App",
+    desktopHoverDescription:
+      "Startet sofort per Tastenkürzel oder über die Menüleiste — perfekt für Meetings und wiederkehrende Aufnahmen.",
   },
   editableTitle: {
     untitled: "Untitled Clip (Lokalisiert)",
@@ -1587,6 +1593,7 @@ const messages = {
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (Lokalisiert)",
     downloadDesktopApp: "Download desktop app (Lokalisiert)",
+    downloadLabel: "Download",
     technicalDetails: "Technical details (Lokalisiert)",
     whatToCheck: "What to check (Lokalisiert)",
     downloadRecording: "Download (Lokalisiert)",

@@ -82,7 +82,7 @@ const messages = {
   empty: {
     library: {
       title: "مكتبتك فارغة",
-      body: "التقط أول تسجيل شاشة وسيظهر هنا جاهزًا للمشاركة.",
+      body: "التقط أول تسجيل شاشة لمشاركته مع الأشخاص أو الوكلاء.",
       cta: "سجّل أول Clip لك",
     },
     shared: {
@@ -1353,6 +1353,12 @@ const messages = {
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (مترجم)",
     openDesktopApp: "Open desktop app (مترجم)",
+    chromeHoverTitle: "إضافة Chrome",
+    chromeHoverDescription:
+      "تلتقط تفاصيل وحدة التحكم والشبكة من الصفحة، مع إخفاء المعلومات الخاصة.",
+    desktopHoverTitle: "تطبيق سطح المكتب",
+    desktopHoverDescription:
+      "يبدأ فورًا باختصار أو من شريط القوائم — مثالي للاجتماعات والتسجيلات المتكررة.",
   },
   editableTitle: {
     untitled: "Untitled Clip (مترجم)",
@@ -1556,6 +1562,7 @@ const messages = {
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (مترجم)",
     downloadDesktopApp: "Download desktop app (مترجم)",
+    downloadLabel: "تنزيل",
     technicalDetails: "Technical details (مترجم)",
     whatToCheck: "What to check (مترجم)",
     downloadRecording: "Download (مترجم)",

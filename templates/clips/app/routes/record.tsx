@@ -93,6 +93,10 @@ import {
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import { cn } from "@/lib/utils";
+import {
+  probeVideoMetadata,
+  resolveVideoMimeType,
+} from "@/lib/video-metadata";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -121,7 +125,7 @@ import {
 } from "@shared/clip-intake";
 import { toast } from "sonner";
 
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import { CaptureInstallIconLinks } from "@/components/capture-install-options";
 import { CameraBubble } from "@/components/recorder/camera-bubble";
 import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
 import {
@@ -649,17 +653,9 @@ function PreRecordPanelSkeleton() {
 }
 
 function DesktopRecorderCallout() {
-  const t = useT();
   return (
     <aside className="flex justify-center">
-      <CaptureInstallButton
-        size="sm"
-        variant="ghost"
-        className="h-8 text-xs font-normal text-muted-foreground hover:text-foreground"
-        downloadedChildren={t("captureInstall.openDesktopApp")}
-      >
-        {t("recordRoute.downloadDesktopApp")}
-      </CaptureInstallButton>
+      <CaptureInstallIconLinks />
     </aside>
   );
 }
@@ -941,6 +937,12 @@ export default function RecordRoute() {
     [completeUploadToast, t],
   );
   const [uiState, setUiState] = useState<UiState>("idle");
+  // Which flow drove us into the "uploading"/"complete" states. A stopped
+  // recording saves through the in-place toolbar spinner; a picked/pending
+  // file upload has no recording toolbar, so it keeps its own saving overlay.
+  const [savingKind, setSavingKind] = useState<"recording" | "upload" | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
@@ -1519,48 +1521,6 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   const UPLOAD_PARALLELISM = 4;
 
-  const probeVideoMetadata = useCallback(
-    (
-      file: File,
-    ): Promise<{ durationMs: number; width: number; height: number }> => {
-      return new Promise((resolve) => {
-        const url = URL.createObjectURL(file);
-        const video = document.createElement("video");
-        video.preload = "metadata";
-        video.muted = true;
-        const cleanup = () => {
-          URL.revokeObjectURL(url);
-        };
-        video.onloadedmetadata = () => {
-          const durationMs =
-            Number.isFinite(video.duration) && video.duration > 0
-              ? Math.round(video.duration * 1000)
-              : 0;
-          const width =
-            Number.isFinite(video.videoWidth) && video.videoWidth > 0
-              ? Math.round(video.videoWidth)
-              : 0;
-          const height =
-            Number.isFinite(video.videoHeight) && video.videoHeight > 0
-              ? Math.round(video.videoHeight)
-              : 0;
-          resolve({
-            durationMs,
-            width,
-            height,
-          });
-          cleanup();
-        };
-        video.onerror = () => {
-          resolve({ durationMs: 0, width: 0, height: 0 });
-          cleanup();
-        };
-        video.src = url;
-      });
-    },
-    [],
-  );
-
   const uploadFile = useCallback(
     async (file: File) => {
       const session = startSessionRef.current + 1;
@@ -1571,26 +1531,13 @@ export default function RecordRoute() {
       fileUploadAbortRef.current = abort;
 
       setError(null);
+      setSavingKind("upload");
       setUiState("uploading");
       setCompressionProgress(null);
       setUploadProgress(null);
       startUploadToast(t("recordRoute.savingRecording"));
 
-      const acceptedMime = new Set([
-        "video/mp4",
-        "video/webm",
-        "video/quicktime",
-      ]);
-      const baseType = (file.type || "").split(";")[0]?.trim().toLowerCase();
-      let mimeType = baseType && acceptedMime.has(baseType) ? baseType : null;
-      // Fallback by extension when the browser doesn't provide a type
-      // (rare on macOS .mov files dragged from Finder).
-      if (!mimeType) {
-        const lower = file.name.toLowerCase();
-        if (lower.endsWith(".mp4")) mimeType = "video/mp4";
-        else if (lower.endsWith(".webm")) mimeType = "video/webm";
-        else if (lower.endsWith(".mov")) mimeType = "video/quicktime";
-      }
+      const mimeType = resolveVideoMimeType(file);
       if (!mimeType) {
         const message =
           "That file type isn't supported. Try MP4, WebM, or MOV.";
@@ -2293,6 +2240,7 @@ export default function RecordRoute() {
     ) {
       return;
     }
+    setSavingKind("recording");
     setUiState("uploading");
     startUploadToast(t("recordRoute.savingRecording"));
     // End diagnostics at the stop gesture. Transcript writes and media
@@ -2426,6 +2374,7 @@ export default function RecordRoute() {
     setError(null);
     setCompressionProgress(null);
     setUploadProgress(null);
+    setSavingKind("recording");
     setUiState("uploading");
     startUploadToast(t("recordRoute.savingRecording"));
     try {
@@ -2902,6 +2851,19 @@ export default function RecordRoute() {
   // Render.
   // -------------------------------------------------------------------------
   const showRecordingUi = uiState === "recording";
+  // The quick save window for a stopped recording (buffered/streaming upload +
+  // finalize, then the brief "complete" tick before navigation). The toolbar
+  // stays mounted and shows an in-place spinner across it so the user goes
+  // straight from the recording surface to the clip page. Compression is
+  // excluded — it can run for minutes and keeps its own explanatory overlay.
+  // A picked-file upload has no recording toolbar, so it keeps the full-screen
+  // saving overlay below instead.
+  const showSavingUi =
+    (uiState === "uploading" || uiState === "complete") &&
+    savingKind === "recording";
+  const showUploadOverlay =
+    (uiState === "uploading" || uiState === "complete") &&
+    savingKind !== "recording";
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
   const rememberedRecorderOptions = pendingStartOptsRef.current;
@@ -2924,13 +2886,12 @@ export default function RecordRoute() {
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
   // sidebar back-affordance. Source picking gets its own explicit Cancel
   // action; in-flight recording and saving states use their dedicated controls.
-  const showBackButton =
-    uiState === "idle" || uiState === "error" || uiState === "complete";
+  const showBackButton = uiState === "idle" || uiState === "error";
 
   return (
     <div className="relative min-h-[100dvh] overflow-x-clip bg-background text-foreground">
       {showBackButton && (
-        <TooltipProvider delayDuration={300}>
+        <TooltipProvider delayDuration={0}>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -2985,7 +2946,9 @@ export default function RecordRoute() {
                 />
               )}
             </div>
-            {!isDesktopApp && <DesktopRecorderCallout />}
+            {!isDesktopApp && storageConfigured !== false ? (
+              <DesktopRecorderCallout />
+            ) : null}
           </div>
         </RecorderRouteViewport>
       )}
@@ -3038,10 +3001,10 @@ export default function RecordRoute() {
         )}
 
       {recordingMode !== "camera" && showRecordingUi && (
-        <div className="pointer-events-none fixed inset-0 bg-foreground">
+        <div className="pointer-events-none fixed inset-0 bg-background">
           <div
             aria-live="polite"
-            className="absolute inset-0 flex items-center justify-center px-6 text-center text-background/70"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-6 text-center text-foreground/70"
           >
             <div className="flex items-center gap-2 text-sm">
               <span
@@ -3057,9 +3020,9 @@ export default function RecordRoute() {
                 : t("recordRoute.recordingScreen")}
             </div>
             {!isPaused && (
-              <div className="text-[11px] text-background/50">
+              <div className="text-[11px] text-foreground/50">
                 Press{" "}
-                <Kbd className="h-auto min-w-0 rounded bg-background/10 px-1.5 py-0.5 text-background">
+                <Kbd className="h-auto min-w-0 rounded bg-muted px-1.5 py-0.5 text-foreground">
                   Esc
                 </Kbd>{" "}
                 to stop
@@ -3095,10 +3058,13 @@ export default function RecordRoute() {
       {/* Confetti */}
       <ConfettiCanvas ref={confettiRef} />
 
-      {/* Floating toolbar */}
-      {showRecordingUi && (
+      {/* Floating toolbar — stays put through the save so the stop control can
+          become an in-place spinner until we navigate to the saved clip,
+          instead of swapping in a separate full-screen "saving" surface. */}
+      {(showRecordingUi || showSavingUi) && (
         <RecordingToolbar
           active={uiState === "recording"}
+          saving={showSavingUi}
           getElapsedMs={() => engineRef.current?.getElapsedMs() ?? 0}
           getMicrophoneTrack={() =>
             engineRef.current?.getMicrophoneTrack() ?? null
@@ -3175,10 +3141,12 @@ export default function RecordRoute() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Uploading overlay (also covers the compressing pass which can run
-          for several minutes on long recordings — without a distinct copy
-          users wonder if the app froze). */}
-      {(uiState === "uploading" || uiState === "compressing") && (
+      {/* Full-screen saving overlay for the compressing pass (which can run for
+          several minutes) and for picked-file uploads (which have no recording
+          toolbar). A stopped recording instead shows the in-place toolbar
+          spinner (see showSavingUi), so it is excluded here. */}
+      {(uiState === "compressing" ||
+        (showUploadOverlay && uiState === "uploading")) && (
         <div className="fixed inset-0 z-[120] overflow-y-auto bg-background/90 backdrop-blur-sm">
           <div className="flex min-h-full items-center justify-center p-3 sm:p-6">
             <RecorderRouteStatus
@@ -3206,7 +3174,7 @@ export default function RecordRoute() {
         </div>
       )}
 
-      {uiState === "complete" && (
+      {showUploadOverlay && uiState === "complete" && (
         <RecorderRouteViewport>
           <RecorderRouteStatus
             icon={<IconCircleCheck className="size-4 text-primary" />}

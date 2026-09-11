@@ -1,10 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconAlertTriangle,
-  IconCamera,
-  IconCameraOff,
-  IconLoader2,
-} from "@tabler/icons-react";
+import { IconAlertTriangle } from "@tabler/icons-react";
 import {
   type CSSProperties,
   useCallback,
@@ -13,7 +8,6 @@ import {
   useState,
 } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
   createBackgroundBlurStream,
   DEFAULT_BLUR_PX,
@@ -400,24 +394,17 @@ export function CameraVisualizer({
     t,
   ]);
 
+  // Show the bubble preview as soon as the camera is on, mirroring
+  // MicrophoneVisualizer's auto-start instead of requiring a manual test.
   useEffect(() => {
+    const deviceChanged = previousDeviceIdRef.current !== deviceId;
+    previousDeviceIdRef.current = deviceId;
     if (disabled) {
-      previousDeviceIdRef.current = deviceId;
-      if (status !== "idle") {
-        stopTest();
-      } else {
-        clearVideo();
-      }
+      if (status !== "idle") stopTest();
       return;
     }
-    if (previousDeviceIdRef.current === deviceId) return;
-    previousDeviceIdRef.current = deviceId;
-    if (status === "live" || status === "starting") {
-      void startTest();
-    } else {
-      clearVideo();
-    }
-  }, [clearVideo, deviceId, disabled, startTest, status, stopTest]);
+    if (deviceChanged || status === "idle") void startTest();
+  }, [deviceId, disabled, startTest, status, stopTest]);
 
   useEffect(() => {
     return () => {
@@ -468,77 +455,25 @@ export function CameraVisualizer({
   const starting = status === "starting";
   const showBubble = live || starting;
   const sizePx = CAMERA_BUBBLE_SIZE_PX[size];
-  const statusLabel = disabled
-    ? t("preRecord.cameraOff")
-    : error
-      ? t("cameraVisualizer.needsAttention")
-      : starting
-        ? t("cameraVisualizer.opening")
-        : live
-          ? hasFrame
-            ? t("cameraVisualizer.live")
-            : t("cameraVisualizer.waiting")
-          : t("cameraVisualizer.bubble");
+  const statusLabel = error
+    ? t("cameraVisualizer.needsAttention")
+    : starting
+      ? t("cameraVisualizer.opening")
+      : hasFrame
+        ? t("cameraVisualizer.live")
+        : t("cameraVisualizer.waiting");
   return (
     <div className={cn("grid gap-2", className)}>
-      <div className="flex items-center justify-between gap-2">
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          className={cn(
-            "flex h-7 min-w-0 flex-1 items-center gap-1 rounded-full border border-border bg-muted/20 px-1.5 text-[10px] font-medium text-muted-foreground",
-            error && "border-destructive/40 bg-destructive/10 text-destructive",
-          )}
-        >
-          {disabled ? (
-            <IconCameraOff
-              className="size-3.5 shrink-0"
-              stroke={2}
-              aria-hidden="true"
-            />
-          ) : error ? (
-            <IconAlertTriangle
-              className="size-3.5 shrink-0"
-              stroke={2}
-              aria-hidden="true"
-            />
-          ) : starting ? (
-            <IconLoader2
-              className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
-              stroke={2}
-              aria-hidden="true"
-            />
-          ) : (
-            <IconCamera
-              className="size-3.5 shrink-0"
-              stroke={2}
-              aria-hidden="true"
-            />
-          )}
-          <span className="truncate">{statusLabel}</span>
-        </div>
-        <Button
-          type="button"
-          variant={live ? "outline" : "secondary"}
-          size="sm"
-          disabled={disabled || starting}
-          onClick={live ? stopTest : startTest}
-          className="h-7 w-16 shrink-0 px-2 text-xs"
-        >
-          {live
-            ? t("cameraVisualizer.stop")
-            : starting
-              ? t("cameraVisualizer.opening")
-              : t("cameraVisualizer.test")}
-        </Button>
-      </div>
       {showBubble && (
         <div
           data-testid="camera-preview-container"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
           className="relative mx-auto flex w-full max-w-[var(--camera-preview-size)] flex-col items-center gap-2 min-[900px]:fixed min-[900px]:bottom-4 min-[900px]:start-4 min-[900px]:z-40 min-[900px]:mx-0"
           style={{ "--camera-preview-size": `${sizePx}px` } as CSSProperties}
         >
+          <span className="sr-only">{statusLabel}</span>
           <div
             className={cn(
               "relative aspect-square w-full overflow-hidden rounded-full border-4 border-background/80 bg-foreground shadow-2xl ring-1",
