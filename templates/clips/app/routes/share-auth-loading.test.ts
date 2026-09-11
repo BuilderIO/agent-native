@@ -50,7 +50,7 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("accessDeniedStatus");
     expect(route).toContain('const startAt = searchParams.get("at")');
     expect(route).toContain(
-      "buildShareContinuationQuery(attribution, startAt)",
+      "buildShareContinuationQuery(attribution, startAt, panelParam)",
     );
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
@@ -289,5 +289,42 @@ describe("authenticated recording route loading", () => {
     // conditionally rendered on recording.enableComments, so leaving `panel`
     // set to "comments" here would strand the Tabs value on nothing.
     expect(effect).toContain('setPanel("transcript");');
+  });
+
+  it("re-runs the comments deep link when navigating between shares", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // Without `shareId` in the effect's dependency array, navigating from
+    // /share/A?panel=comments to /share/B?panel=comments would not re-run the
+    // effect when both recordings have the same enableComments value, leaving
+    // the new share on whatever `panel` the previous share was left at.
+    const effectStart = shareRoute.indexOf(
+      "if (recording && !recording.enableComments) {",
+    );
+    expect(effectStart).toBeGreaterThan(-1);
+    const depsStart = shareRoute.indexOf("}, [", effectStart);
+    const depsEnd = shareRoute.indexOf("]);", depsStart);
+    const deps = shareRoute.slice(depsStart, depsEnd);
+
+    expect(deps).toContain("panelParam");
+    expect(deps).toContain("recording?.enableComments");
+    expect(deps).toContain("shareId");
+  });
+
+  it("preserves ?panel in the sign-in continuation URL for public shares", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // Anonymous viewers who open a ?panel=comments share and then sign in
+    // must return to the comments panel, not lose it because shareReturnTo
+    // only forwarded attribution and `at`.
+    expect(shareRoute).toContain(
+      "buildShareContinuationQuery(attribution, startAt, panelParam)",
+    );
+
+    const attributionSrc = readFileSync(
+      resolve(process.cwd(), "shared/share-attribution.ts"),
+      "utf8",
+    );
+    expect(attributionSrc).toContain('if (panel) params.set("panel", panel);');
   });
 });

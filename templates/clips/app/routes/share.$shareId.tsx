@@ -555,9 +555,9 @@ export default function ShareRoute() {
   const shareReturnTo = useMemo(() => {
     const path = `/share/${encodeURIComponent(recordingId)}`;
     if (typeof window === "undefined") return path;
-    const query = buildShareContinuationQuery(attribution, startAt);
+    const query = buildShareContinuationQuery(attribution, startAt, panelParam);
     return query ? `${path}?${query}` : path;
-  }, [attribution, recordingId, startAt]);
+  }, [attribution, recordingId, startAt, panelParam]);
   const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
 
   const submitAccessRequest = useCallback(
@@ -702,7 +702,17 @@ export default function ShareRoute() {
     if (panelParam === "comments") {
       selectCommentsPanel();
     }
-  }, [panel, panelParam, recording?.enableComments, selectCommentsPanel]);
+    // `shareId` is a dependency (not just used inside) so navigating between
+    // shares with the same `panelParam`/`enableComments` values still re-runs
+    // this effect instead of leaving `panel` on whatever the previous share
+    // left it at.
+  }, [
+    panel,
+    panelParam,
+    recording?.enableComments,
+    selectCommentsPanel,
+    shareId,
+  ]);
   const {
     dismiss: dismissProcessingToast,
     error: failProcessingToast,
