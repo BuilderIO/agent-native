@@ -5522,7 +5522,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       refreshOverlays();
       postNodeHtmlPreviewApplied(proposalId);
     }
-    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId) {
+    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId, allowDocumentBody = false) {
       var matches = /* @__PURE__ */ new Set();
       if (typeof pendingId === "string" && pendingId) {
         try {
@@ -5531,7 +5531,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           if (pendingMatches.length === 1) {
             var pendingMatch = pendingMatches[0];
-            if (pendingMatch !== document.body && pendingMatch !== document.documentElement && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
+            if (pendingMatch !== document.documentElement && (allowDocumentBody || pendingMatch !== document.body) && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
               return pendingMatch;
             }
           }
@@ -5561,15 +5561,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (matches.size > 1) return null;
         if (matches.size === 1) {
           var sourceMatch = Array.from(matches)[0];
-          return sourceMatch && sourceMatch !== document.body && sourceMatch !== document.documentElement && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
+          return sourceMatch && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
         }
       }
-      if (typeof selector !== "string" || !selector) return null;
+      if (typeof selector !== "string" || !selector) {
+        return allowDocumentBody && !(typeof sourceId === "string" && sourceId) && !(typeof pendingId === "string" && pendingId) ? document.body : null;
+      }
       try {
         var selectorMatches = document.querySelectorAll(selector);
         if (selectorMatches.length !== 1) return null;
         var selectorMatch = selectorMatches[0];
-        return selectorMatch !== document.body && selectorMatch !== document.documentElement && !isOverlayElement(selectorMatch) && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
+        return selectorMatch !== document.documentElement && (allowDocumentBody || selectorMatch !== document.body) && !isOverlayElement(selectorMatch) && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
       } catch (_err) {
         return null;
       }
@@ -6614,7 +6616,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
-    function postCrossScreenDrag(phase, el, ev) {
+    function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
         activeCrossScreenStyleSnapshot = void 0;
@@ -6625,13 +6627,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (phase === "start") {
-        activeCrossScreenStyleSnapshot = collectPortableStyleSnapshot(el ?? null);
+        activeCrossScreenStyleSnapshot = options?.styleSnapshot ?? collectPortableStyleSnapshot(el ?? null);
       }
-      var rect = el ? el.getBoundingClientRect() : null;
-      var pointerOffset = rect && ev?.clientX !== void 0 && ev.clientY !== void 0 ? {
+      var rect = options?.elementRect ?? (el ? el.getBoundingClientRect() : null);
+      var pointerOffset = options?.pointerOffset ?? (rect && ev?.clientX !== void 0 && ev.clientY !== void 0 ? {
         x: ev.clientX - rect.left,
         y: ev.clientY - rect.top
-      } : void 0;
+      } : void 0);
       window.parent.postMessage(
         {
           type: "agent-native:cross-screen-drag",
@@ -6651,7 +6653,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             height: rect.height
           } : void 0,
           pointerOffset,
-          styleSnapshot: activeCrossScreenStyleSnapshot
+          styleSnapshot: activeCrossScreenStyleSnapshot,
+          duplicate: options?.duplicate === true ? true : void 0,
+          sourceCloneHtml: options?.duplicate && el ? el.outerHTML : void 0
         },
         "*"
       );
@@ -7409,6 +7413,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function postVisualDuplicateChange(originalEl, cloneEl, target) {
       if (!originalEl || !cloneEl) return;
+      recordSourceSubtree(cloneEl);
       window.parent.postMessage(
         {
           type: "visual-duplicate-change",
@@ -8386,28 +8391,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           var dy = cy - reorderPointerStart.clientY;
           var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
           if (!isGroupDrag) {
-            window.parent.postMessage(
+            postCrossScreenDrag(
+              "move",
+              reorderEl,
+              { clientX: cx, clientY: cy },
               {
-                type: "agent-native:cross-screen-drag",
-                phase: "move",
-                selector: reorderSelector,
-                sourceId: reorderSourceId,
-                iframeX: cx,
-                iframeY: cy,
-                viewportW: vw,
-                viewportH: vh,
-                // Without a size the host can only draw a 16px cursor dot, so
-                // the element being dragged is invisible once it leaves here.
-                elementRect: {
-                  left: reorderRect.left,
-                  top: reorderRect.top,
-                  width: reorderRect.width,
-                  height: reorderRect.height
-                },
+                duplicate: duplicatedForDrag,
+                elementRect: reorderRect,
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
-              },
-              "*"
+              }
             );
           }
           if (outside && !isGroupDrag) {
@@ -8460,10 +8453,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           cleanupReorderDrag2();
           hideTransformBadge();
           hideInsertionGuide();
-          window.parent.postMessage(
-            { type: "agent-native:cross-screen-drag", phase: "cancel" },
-            "*"
-          );
+          if (!isGroupDrag) postCrossScreenDrag("cancel");
           if (duplicatedForDrag && reorderEl && reorderEl !== originalSelectedEl) {
             if (reorderEl.parentElement)
               reorderEl.parentElement.removeChild(reorderEl);
@@ -8503,31 +8493,28 @@ export const editorChromeBridgeScript: string = `"use strict";
           // twice, from two different ideas of where it landed.
           crossScreenClaimedByHost;
           if (!isGroupDrag) {
-            window.parent.postMessage(
+            postCrossScreenDrag(
+              "end",
+              reorderEl,
+              { clientX: cx, clientY: cy },
               {
-                type: "agent-native:cross-screen-drag",
-                phase: "end",
-                selector: reorderSelector,
-                sourceId: reorderSourceId,
-                iframeX: cx,
-                iframeY: cy,
-                viewportW: vw,
-                viewportH: vh,
-                // Without a size the host can only draw a 16px cursor dot, so
-                // the element being dragged is invisible once it leaves here.
-                elementRect: {
-                  left: reorderRect.left,
-                  top: reorderRect.top,
-                  width: reorderRect.width,
-                  height: reorderRect.height
-                },
+                duplicate: duplicatedForDrag,
+                elementRect: reorderRect,
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
-              },
-              "*"
+              }
             );
           }
-          if (outsideOnDrop) return;
+          if (outsideOnDrop) {
+            if (duplicatedForDrag) {
+              if (reorderEl.parentElement)
+                reorderEl.parentElement.removeChild(reorderEl);
+              selectedEl = originalSelectedEl;
+              positionOverlay(selectionOverlay, selectedEl);
+              postElementSelect(selectedEl);
+            }
+            return;
+          }
           var finalRaw = resolveReorderOrFreeTarget2(cx, cy, Boolean(ev?.ctrlKey));
           currentTarget = liveReflowEnabled ? stabilizeReorderTarget2(
             applyReorderSizeGuard2(finalRaw, ev),
@@ -8569,6 +8556,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               reorderEl,
               currentTarget
             );
+            postCrossScreenDrag("cancel");
           } else if (isGroupDrag) {
             applyGroupStructureDrop(
               groupEls,
@@ -8635,8 +8623,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           ctrl: Boolean(e.ctrlKey),
           target: dndTarget(currentTarget)
         });
-        var reorderSelector = getSelector(reorderEl);
-        var reorderSourceId = getSourceId(reorderEl);
         crossScreenClaimedByHost = false;
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
         var reorderRect = reorderEl.getBoundingClientRect();
@@ -8645,6 +8631,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           x: reorderPointerStart.clientX - reorderRect.left,
           y: reorderPointerStart.clientY - reorderRect.top
         };
+        if (!isGroupDrag) {
+          postCrossScreenDrag("start", reorderEl, reorderPointerStart, {
+            duplicate: duplicatedForDrag,
+            elementRect: {
+              left: reorderRect.left,
+              top: reorderRect.top,
+              width: reorderRect.width,
+              height: reorderRect.height
+            },
+            pointerOffset: reorderPointerOffset,
+            styleSnapshot: reorderStyleSnapshot
+          });
+        }
         var reorderLiftedMembers = [];
         var reorderCommittedTarget = null;
         var reorderCommittedSlot = null;
@@ -8747,8 +8746,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var dragElOffsetScaleX = ancestorScale(dragEl, "x");
       var dragElOffsetScaleY = ancestorScale(dragEl, "y");
-      if (!duplicatedForDrag && !isGroupDrag) {
-        postCrossScreenDrag("start", dragEl, e);
+      if (!isGroupDrag) {
+        postCrossScreenDrag("start", dragEl, e, {
+          duplicate: duplicatedForDrag
+        });
       }
       var crossScreenDragMoveScheduled = false;
       var crossScreenDragMovePendingEv = null;
@@ -8756,7 +8757,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         crossScreenDragMoveScheduled = false;
         var pendingEv = crossScreenDragMovePendingEv;
         crossScreenDragMovePendingEv = null;
-        if (pendingEv) postCrossScreenDrag("move", dragEl, pendingEv);
+        if (pendingEv) {
+          postCrossScreenDrag("move", dragEl, pendingEv, {
+            duplicate: duplicatedForDrag
+          });
+        }
       }
       function scheduleCrossScreenDragMove(ev) {
         crossScreenDragMovePendingEv = {
@@ -8815,10 +8820,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           state.el.style.left = quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
           state.el.style.top = quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
         });
-        if (!duplicatedForDrag && !isGroupDrag) {
+        if (!isGroupDrag) {
           scheduleCrossScreenDragMove(ev);
         }
-        if (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
         } else {
@@ -8841,7 +8846,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
         var flowInsertPending = !!currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode !== "absolute-container";
-        if (flowInsertPending || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        if (flowInsertPending || !isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           hideSnapGuides();
           dragChromeSuppressed = true;
           hideSizeBadge();
@@ -8896,6 +8901,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           selectedEl = originalSelectedEl;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
+          postCrossScreenDrag("cancel");
         } else if (dragEl && document.documentElement.contains(dragEl)) {
           restoreSourceDragPosition();
           if (!isGroupDrag) postCrossScreenDrag("cancel");
@@ -8920,6 +8926,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideSnapGuides();
           hideSizeBadge();
           hideConstraintGuides();
+          if (duplicatedForDrag) {
+            if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+            postCrossScreenDrag("cancel");
+          }
           return;
         }
         cleanupMoveDrag();
@@ -8930,11 +8943,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideConstraintGuides();
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
-        if (ev && !duplicatedForDrag && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-          postCrossScreenDrag("end", dragEl, ev);
+        if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
+          postCrossScreenDrag("end", dragEl, ev, {
+            duplicate: duplicatedForDrag
+          });
         }
-        if (ev && !duplicatedForDrag && outsideOnDrop) {
-          restoreSourceDragPosition();
+        if (ev && !isGroupDrag && outsideOnDrop) {
+          if (duplicatedForDrag) {
+            if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+          } else {
+            restoreSourceDragPosition();
+          }
           return;
         }
         if (ev && !duplicatedForDrag && !outsideOnDrop && !bridgeSpaceKeyPressed) {
@@ -8960,10 +8982,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           selectedEl = originalSelectedEl;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
+          postCrossScreenDrag("cancel");
           return;
         }
         if (duplicatedForDrag) {
           postVisualDuplicateChange(originalSelectedEl, dragEl);
+          postCrossScreenDrag("cancel");
         } else if (currentAutoLayoutTarget) {
           if (isGroupDrag) {
             applyGroupStructureDrop(
@@ -11151,7 +11175,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var insertAnchor = findUniqueRuntimeStructureTarget(
           String(e.data.anchorSelector || ""),
           typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
-          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : ""
+          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : "",
+          true
         );
         if (!insertAnchor) {
           rejectInsert("anchor-unresolved");

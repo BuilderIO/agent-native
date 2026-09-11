@@ -12338,6 +12338,8 @@ function DesignEditor() {
       targetLocalPoint?: { x: number; y: number };
       sourcePointerOffset?: { x: number; y: number };
       sourceHtmlSnapshot?: string;
+      duplicate?: boolean;
+      sourceCloneHtml?: string;
       styleSnapshot?: PortableStyleSnapshot;
     }) =>
       runCrossScreenElementDrop(
@@ -21222,6 +21224,7 @@ function DesignEditor() {
                         statePreviewTarget={statePreviewTarget}
                         editMode={mode === "edit"}
                         interactMode={mode === "interact"}
+                        centerInteractPreview={responsiveInteractActive}
                         readOnly={!canEditDesign}
                         scaleMode={activeTool === "scale"}
                         handToolActive={activeTool === "hand"}
@@ -21453,7 +21456,7 @@ function DesignEditor() {
                   {rightSidebarActions}
                 </div>
               ) : (
-                <div aria-hidden="true" />
+                <div aria-hidden="true" style={{ width: rightSidebarWidth }} />
               )}
             </div>
           </div>

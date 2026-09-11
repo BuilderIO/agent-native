@@ -1026,6 +1026,14 @@ export interface UnclaimedBackgroundRunRow {
 }
 
 /**
+ * Maximum rows a single redispatch sweep may attempt. Each dispatch waits up
+ * to 15s for its handoff response, so four sequential attempts stay below the
+ * in-process poll timeout while an unbounded backlog cannot starve the
+ * durable scheduler's recurring-job work.
+ */
+export const UNCLAIMED_BACKGROUND_RUN_SWEEP_BATCH_LIMIT = 4;
+
+/**
  * Same eligibility as `listUnclaimedBackgroundRunIds`, but also returns each
  * row's original `started_at` so a caller can bound total redispatch time
  * (see `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`) independent of the
@@ -1033,12 +1041,17 @@ export interface UnclaimedBackgroundRunRow {
  * unclaimed-background-run sweep's redispatch pass; `listUnclaimedBackgroundRunIds`
  * is kept as the simpler, pre-existing surface for callers that only need ids.
  */
-export async function listUnclaimedBackgroundRunRows(): Promise<
-  UnclaimedBackgroundRunRow[]
-> {
+export async function listUnclaimedBackgroundRunRows(options?: {
+  limit?: number;
+}): Promise<UnclaimedBackgroundRunRow[]> {
   await ensureRunTables();
   if (!(await hasRunningRuns())) return [];
   const client = getDbExec();
+  const requestedLimit =
+    options?.limit ?? UNCLAIMED_BACKGROUND_RUN_SWEEP_BATCH_LIMIT;
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.floor(requestedLimit))
+    : UNCLAIMED_BACKGROUND_RUN_SWEEP_BATCH_LIMIT;
   const { rows } = await client.execute({
     // CAST keeps the ms-epoch param 64-bit on Postgres (see
     // backgroundAwareStaleCutoffSql for the int4-inference failure mode).
@@ -1048,7 +1061,9 @@ export async function listUnclaimedBackgroundRunRows(): Promise<
     sql: `SELECT id, started_at, (dispatch_payload IS NOT NULL) AS has_dispatch_payload FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
-            AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})`,
+            AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})
+          ORDER BY COALESCE(heartbeat_at, started_at) ASC, started_at ASC
+          LIMIT ${limit}`,
     args: [Date.now()],
   });
   const result: UnclaimedBackgroundRunRow[] = [];
