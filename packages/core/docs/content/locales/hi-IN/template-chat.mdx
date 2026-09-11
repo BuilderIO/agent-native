@@ -35,14 +35,26 @@ ChatGPT-शैली शेल, एक थ्रेड सूची, ऑथ, औ
   loop={true}
 />
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>मैं कैसे मदद कर सकता हूं?</h1><p class='wf-muted' style='margin:10px 0 0'>किसी भी चीज़ पर चैट करें। actions, components, pages, jobs, या अपना खुद का backend जोड़ें।</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>एजेंट को संदेश भेजें...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · उच्च</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+## शुरुआत करें {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+install, पहला रन, और एक LLM कनेक्ट करने के लिए
+[चैट: डेवलपर गाइड](/docs/template-chat-developers#quick-start) देखें। बिना
+किसी browser UI वाले automation-first काम के लिए, इसके बजाय `--headless`
+के साथ स्कैफ़ोल्ड करें:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+इसका उपयोग scheduled jobs, queues, CLI loops, या external-agent workflows
+के लिए करें जहां चैट और ऐप पेज अभी उपयोगी नहीं हैं। मुख्य invariant वही
+रहता है: actions चैट, UI, HTTP, MCP, A2A, और CLI के लिए साझा सतह हैं। उस
+पाथ को गहराई से समझने के लिए [Automation-First Apps](/docs/pure-agent-apps)
+देखें।
 
 ## क्या शामिल है {#what-ships}
 
@@ -77,7 +89,7 @@ ChatGPT-शैली शेल, एक थ्रेड सूची, ऑथ, औ
 
 </Comparison>
 
-यही बात है। चैट आपके अपने एजेंट के लिए एक पतला, उपयोगी डिफ़ॉल्ट शेल है,
+चैट आपके अपने एजेंट के लिए एक पतला, उपयोगी डिफ़ॉल्ट शेल है,
 सामान्य होने का दिखावा करने वाला कोई डोमेन प्रोडक्ट नहीं।
 
 <Diagram id="doc-block-chat2" title="चैट शेल में क्या शामिल है" summary={"फ़्रेमवर्क के मानक रनटाइम पर एक पतली चैट सतह — actions, टिकाऊ थ्रेड्स, लाइव सिंक, और ऑथ — जिसमें अपना UI जोड़ने के लिए जगह है।"}>
@@ -153,44 +165,3 @@ ChatGPT-शैली शेल, एक थ्रेड सूची, ऑथ, औ
   शेप को बनाए रखते हैं।
 - **आप एक कस्टम इंटरनल टूल प्रोटोटाइप कर रहे हैं** जो किसी डोमेन टेम्पलेट
   से मेल नहीं खाता।
-
-## शुरुआत करें {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-install, पहला रन, और एक LLM कनेक्ट करने के लिए
-[चैट: डेवलपर गाइड](/docs/template-chat-developers#quick-start) देखें। बिना
-किसी browser UI वाले automation-first काम के लिए, इसके बजाय `--headless`
-के साथ स्कैफ़ोल्ड करें:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-इसका उपयोग scheduled jobs, queues, CLI loops, या external-agent workflows
-के लिए करें जहां चैट और ऐप पेज अभी उपयोगी नहीं हैं। मुख्य invariant वही
-रहता है: actions चैट, UI, HTTP, MCP, A2A, और CLI के लिए साझा सतह हैं। उस
-पाथ को गहराई से समझने के लिए [Automation-First Apps](/docs/pure-agent-apps)
-देखें।
-
-## आगे क्या
-
-- [**चैट में आपकी पहली सुविधा**](/docs/template-chat-first-edits) —
-  एनोटेट किया गया स्टार्टर चैट रूट, साथ ही एक असली सुविधा जोड़ने का पूरा
-  वॉकथ्रू
-- [**चैट: डेवलपर गाइड**](/docs/template-chat-developers) — क्विक स्टार्ट,
-  actions, मुख्य तालिकाएं, ऑथ, और डिफ़ॉल्ट रूप से शामिल एडमिन पेज
-- [**शुरुआत करें**](/docs/getting-started) — action से इनलाइन नतीजे से
-  ऐप पेज तक का चैट-फर्स्ट पाथ बनाएं
-- [**टेम्पलेट्स**](/docs/cloneable-saas) — Cloneable SaaS मॉडल, और शुरुआत
-  करने के लिए हर डोमेन टेम्पलेट
-- [**Agent Surfaces**](/docs/agent-surfaces) — चैट, इनलाइन UI, ऐप पेज,
-  एम्बेडेड, ऑटोमेशन, और external-agent पैटर्न
-- [**Actions**](/docs/actions-overview) — action सिस्टम जिसे चैट और UI
-  दोनों कॉल करते हैं
-- [**Native चैट UI**](/docs/native-chat-ui) — चैट सतह प्रिमिटिव्स और
-  रनटाइम विकल्प
-- [**Automation-First Apps**](/docs/pure-agent-apps) — jobs, queues,
-  scripts, और external agents के लिए बिना-ब्राउज़र workflows

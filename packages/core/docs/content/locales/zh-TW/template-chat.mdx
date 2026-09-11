@@ -25,14 +25,19 @@ description: "一款極簡的聊天優先 Agent-Native 應用程式：持久的�
   loop={true}
 />
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>我能幫什麼？</h1><p class='wf-muted' style='margin:10px 0 0'>聊任何事情。新增 actions、元件、頁面、工作，或您自己的後端。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>傳訊息給代理…</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 高</span><span class='wf-pill'>執行</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+## 開始使用 {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+如需安裝、首次執行和連線 LLM 的說明，請參閱 [聊天：開發者指南](/docs/template-chat-developers#quick-start)。若是完全沒有瀏覽器 UI 的自動化優先工作，請改用 `--headless` 建立鷹架：
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+用於排程工作、佇列、CLI 迴圈，或聊天和應用程式頁面尚無用處的外部代理工作流程。關鍵不變數保持不變：actions 是聊天、UI、HTTP、MCP、A2A 和 CLI 共用的介面。深入了解這條路徑，請參閱 [自動化優先應用程式](/docs/pure-agent-apps)。
 
 ## 隨附內容 {#what-ships}
 
@@ -58,7 +63,7 @@ description: "一款極簡的聊天優先 Agent-Native 應用程式：持久的�
 
 </Comparison>
 
-這正是重點。聊天是您自己代理的一個輕薄、實用的預設外殼，而不是一個假裝通用的領域產品。
+聊天是您自己代理的一個輕薄、實用的預設外殼，而不是一個假裝通用的領域產品。
 
 <Diagram id="doc-block-chat2" title="聊天外殼中包含哪些內容" summary={"在框架標準執行時之上的一個輕薄聊天介面 — actions、持久對話串、即時同步和驗證 — 並保留新增您自己 UI 的空間。"}>
 
@@ -128,28 +133,3 @@ description: "一款極簡的聊天優先 Agent-Native 應用程式：持久的�
 - **您想要預設的 Agent-Native 入門路徑**：先聊天，然後是 actions、原生結果和應用程式頁面。
 - **您想要將自己的代理後端接入熟悉的聊天 UI**，同時保留 Agent-Native 的 actions、狀態、驗證和部署形態。
 - **您正在為自訂內部工具製作原型**，該工具與任何領域範本都不吻合。
-
-## 開始使用 {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-如需安裝、首次執行和連線 LLM 的說明，請參閱 [聊天：開發者指南](/docs/template-chat-developers#quick-start)。若是完全沒有瀏覽器 UI 的自動化優先工作，請改用 `--headless` 建立鷹架：
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-用於排程工作、佇列、CLI 迴圈，或聊天和應用程式頁面尚無用處的外部代理工作流程。關鍵不變數保持不變：actions 是聊天、UI、HTTP、MCP、A2A 和 CLI 共用的介面。深入了解這條路徑，請參閱 [自動化優先應用程式](/docs/pure-agent-apps)。
-
-## 下一步是什麼
-
-- [**在聊天中新增你的第一項功能**](/docs/template-chat-first-edits) — 已加註解的入門聊天路由，以及新增一項真實功能的完整演練
-- [**聊天：開發者指南**](/docs/template-chat-developers) — 快速入門、actions、核心資料表、驗證，以及預設隨附的管理頁面
-- [**開始使用**](/docs/getting-started) — 從 action 到行內結果再到應用程式頁面，建置聊天優先路徑
-- [**範本**](/docs/cloneable-saas) — Cloneable SaaS 模型，以及可作為起點的所有領域範本
-- [**Agent Surfaces**](/docs/agent-surfaces) — 聊天、行內 UI、應用程式頁面、嵌入式、自動化和外部代理模式
-- [**Actions**](/docs/actions-overview) — 聊天和 UI 都會呼叫的 action 系統
-- [**Native 聊天介面**](/docs/native-chat-ui) — 聊天介面基元和執行時選項
-- [**自動化優先應用程式**](/docs/pure-agent-apps) — 適用於工作、佇列、腳本和外部代理的無瀏覽器工作流程

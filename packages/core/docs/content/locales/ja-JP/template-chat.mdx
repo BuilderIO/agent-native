@@ -25,14 +25,26 @@ description: "最小限のチャットファーストのエージェントネイ
   loop={true}
 />
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。action、コンポーネント、ページ、ジョブ、または独自のバックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 高</span><span class='wf-pill'>実行</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+## 使い始める {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+インストール、初回起動、LLM への接続については
+[チャット: 開発者ガイド](/docs/template-chat-developers#quick-start) を
+参照してください。ブラウザ UI を一切使わないオートメーション優先の作業には、
+代わりに `--headless` でスキャフォールドしてください。
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+チャットやアプリ ページがまだ役に立たない、スケジュールされたジョブ、キュー、
+CLI ループ、外部エージェント ワークフローに使ってください。重要な不変条件は
+変わりません。action は チャット、UI、HTTP、MCP、A2A、CLI の共有サーフェスです。
+このパスの詳細については [Automation-First Apps](/docs/pure-agent-apps) を
+参照してください。
 
 ## 同梱内容 {#what-ships}
 
@@ -66,7 +78,7 @@ description: "最小限のチャットファーストのエージェントネイ
 
 </Comparison>
 
-それがポイントです。チャットは、汎用のふりをしたドメイン プロダクトではなく、独自のエージェントのための薄くて便利なデフォルト シェルです。
+チャットは、汎用のふりをしたドメイン プロダクトではなく、独自のエージェントのための薄くて便利なデフォルト シェルです。
 
 <Diagram id="doc-block-chat2" title="Chat シェルに同梱されるもの" summary={"フレームワークの標準ランタイム — action、耐久性のあるスレッド、ライブ同期、認証 — の上に構築された薄いチャット サーフェス。独自の UI を追加する余地があります。"}>
 
@@ -142,44 +154,3 @@ description: "最小限のチャットファーストのエージェントネイ
   一方で、Agent-Native の action、状態、認証、デプロイの形は維持したい。
 - **ドメイン テンプレートに当てはまらないカスタムの社内ツール**を
   プロトタイピングしている。
-
-## 使い始める {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-インストール、初回起動、LLM への接続については
-[チャット: 開発者ガイド](/docs/template-chat-developers#quick-start) を
-参照してください。ブラウザ UI を一切使わないオートメーション優先の作業には、
-代わりに `--headless` でスキャフォールドしてください。
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-チャットやアプリ ページがまだ役に立たない、スケジュールされたジョブ、キュー、
-CLI ループ、外部エージェント ワークフローに使ってください。重要な不変条件は
-変わりません。action は チャット、UI、HTTP、MCP、A2A、CLI の共有サーフェスです。
-このパスの詳細については [Automation-First Apps](/docs/pure-agent-apps) を
-参照してください。
-
-## 次は何ですか
-
-- [**チャットで最初の機能を追加する**](/docs/template-chat-first-edits) —
-  注釈付きのスターター チャット ルートと、実際の機能を追加する完全な
-  ウォークスルー
-- [**チャット: 開発者ガイド**](/docs/template-chat-developers) —
-  クイックスタート、action、コアテーブル、認証、そして既定で同梱される管理ページ
-- [**はじめに**](/docs/getting-started) — action からインライン結果、アプリ
-  ページへと進む、チャットファーストのパスを構築します
-- [**テンプレート**](/docs/cloneable-saas) — Cloneable SaaS モデルと、代わりに
-  始められるすべてのドメイン テンプレート
-- [**エージェント サーフェス**](/docs/agent-surfaces) — チャット、インライン
-  UI、アプリ ページ、埋め込み、オートメーション、外部エージェントのパターン
-- [**Actions**](/docs/actions-overview) — チャットと UI の両方が呼び出す
-  action システム
-- [**Native チャット UI**](/docs/native-chat-ui) — チャット サーフェスの
-  プリミティブとランタイム オプション
-- [**Automation-First Apps**](/docs/pure-agent-apps) — ジョブ、キュー、
-  スクリプト、外部エージェント向けの、ブラウザを使わないワークフロー
