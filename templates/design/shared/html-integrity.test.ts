@@ -86,6 +86,27 @@ describe("Design HTML integrity", () => {
     });
   });
 
+  it("accepts an empty scope that binds nothing, since a dead runtime changes nothing", () => {
+    const document = `<!doctype html><html><head><title>Plain</title></head><body x-data="{}"><ul><li>a</li></ul></body></html>`;
+    expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("still rejects an empty scope once anything in the document binds to it", () => {
+    const document = `<!doctype html><html><head><title>Plain</title></head><body x-data="{}"><button @click="$el.remove()">Go</button></body></html>`;
+    const result = inspectDesignHtmlDocumentIntegrity(document);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("runtime-alpine-missing");
+  });
+
+  it("still rejects a populated scope even with no directive spelled x-*", () => {
+    const document = `<!doctype html><html><head><title>Plain</title></head><body x-data="{ open: false }"><div>Panel</div></body></html>`;
+    const result = inspectDesignHtmlDocumentIntegrity(document);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("runtime-alpine-missing");
+  });
+
   it("says nothing about Alpine for a document that uses none", () => {
     const document = `<!doctype html><html><head><title>Static</title></head><body><ul><li>a</li></ul></body></html>`;
     expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({

@@ -207,6 +207,7 @@ import type {
   IframeImagePastePayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
+import { previewReplacersFor } from "@/components/design/design-canvas/preview-fanout";
 import { trace } from "@/components/design/design-trace";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
@@ -547,10 +548,6 @@ import { runGroupSelection } from "./design-editor/commands/group-selection";
 import { runIframeContextMenu } from "./design-editor/commands/iframe-context-menu";
 import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
 import { runLayerMarqueeSelectionChange } from "./design-editor/commands/layer-marquee-selection-change";
-import { previewReplacersFor } from "@/components/design/design-canvas/preview-fanout";
-
-import { styleWriteTarget } from "./design-editor/commands/style-write-target";
-
 import { runLayerMove } from "./design-editor/commands/layer-move";
 import { runLayerMoveToScreen } from "./design-editor/commands/layer-move-to-screen";
 import { runLayerRename } from "./design-editor/commands/layer-rename";
@@ -586,6 +583,7 @@ import { runSetLayoutGrid } from "./design-editor/commands/set-layout-grid";
 import { runStartRetryGeneration } from "./design-editor/commands/start-retry-generation";
 import { runStartSidebarResize } from "./design-editor/commands/start-sidebar-resize";
 import { runStyleChange } from "./design-editor/commands/style-change";
+import { styleWriteTarget } from "./design-editor/commands/style-write-target";
 import { runStylesChange } from "./design-editor/commands/styles-change";
 import { runSuggestAutoLayout } from "./design-editor/commands/suggest-auto-layout";
 import { runTextContentChange } from "./design-editor/commands/text-content-change";

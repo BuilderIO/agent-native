@@ -1127,6 +1127,40 @@ const INLINE_PRE_HIDE = /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i;
  */
 type RuntimeOwner = "document" | "host";
 
+const EMPTY_X_DATA = /^\s*(?:\{\s*\})?\s*$/;
+
+/** An Alpine attribute that drives behaviour, so a dead runtime is visible.
+ *  `:`/`@` are included because Alpine owns them here even though other
+ *  frameworks reuse the spelling — only reached once `x-data` is present. */
+function bindsAnything(name: string): boolean {
+  return (
+    (name.startsWith("x-") && name !== "x-data") ||
+    name.startsWith(":") ||
+    name.startsWith("@")
+  );
+}
+
+/**
+ * True when the document declares a scope that holds nothing and binds
+ * nothing — `<body x-data="{}">` on an otherwise plain page. Loading Alpine
+ * would change how it renders in no way at all.
+ */
+function declaresNoAlpineBehaviour(
+  declared: DefaultTreeAdapterTypes.Element,
+  parsed: ParsedDocument,
+): boolean {
+  const value =
+    declared.attrs.find(
+      (attribute) => attribute.name.toLowerCase() === "x-data",
+    )?.value ?? "";
+  if (!EMPTY_X_DATA.test(value)) return false;
+  return !parsed.elements.some((element) =>
+    element.attrs.some((attribute) =>
+      bindsAnything(attribute.name.toLowerCase()),
+    ),
+  );
+}
+
 /**
  * Two independent traps. Without the runtime script every Alpine directive is
  * inert, so a repeat renders nothing and the screen reads as empty rather
@@ -1145,8 +1179,14 @@ function collectInteractiveRuntimeIssues(
     );
   // `x-data` is the one directive Alpine cannot work without, and it has no
   // meaning outside Alpine — so it anchors the runtime check without
-  // misreading a `:`/`@` attribute from another framework as Alpine.
-  const scoped = runtimeOwner === "document" ? ownerOf("x-data") : undefined;
+  // misreading a `:`/`@` attribute from another framework as Alpine. An EMPTY
+  // scope with no bindings anywhere is the exception: there is no state, so
+  // the absent runtime leaves nothing inert and a hard refusal is wrong.
+  const declared = runtimeOwner === "document" ? ownerOf("x-data") : undefined;
+  const scoped =
+    declared && !declaresNoAlpineBehaviour(declared, parsed)
+      ? declared
+      : undefined;
   const cloaked = ownerOf("x-cloak");
   if (!scoped && !cloaked) return [];
 

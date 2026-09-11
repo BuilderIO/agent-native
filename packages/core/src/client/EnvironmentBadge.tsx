@@ -281,7 +281,9 @@ function LocalEnvironmentBadge({
       aria-label="Local development environment"
       className={cn(
         environmentBadgePlacementClasses[placement],
-        "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
+        // Fixed placement parks this over app chrome; without this the pill
+        // silently swallows clicks on whatever sits beneath it.
+        "pointer-events-none inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
       )}
       role="status"
     >

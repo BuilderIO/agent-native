@@ -322,9 +322,7 @@ it(
         return {
           passive: shown("multi-selection").length,
           selectionTop: Math.round(selection.getBoundingClientRect().top),
-          selectionHeight: Math.round(
-            selection.getBoundingClientRect().height,
-          ),
+          selectionHeight: Math.round(selection.getBoundingClientRect().height),
         };
       });
 
@@ -363,30 +361,36 @@ it(
   "lets a data-bound repeated row be text-edited instead of refusing",
   { timeout: 60_000 },
   async () => {
-    await withPage(async (page) => {
-      const label = page.locator('ul > li:nth-of-type(2) span');
-      const box = (await label.boundingBox())!;
-      await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
-      await page.waitForTimeout(200);
-
-      const state = await page.evaluate(() => {
-        const badge = document.querySelector<HTMLElement>(
-          "[data-agent-native-transform-badge]",
+    await withPage(
+      async (page) => {
+        const label = page.locator("ul > li:nth-of-type(2) span");
+        const box = (await label.boundingBox())!;
+        await page.mouse.dblclick(
+          box.x + box.width / 2,
+          box.y + box.height / 2,
         );
-        return {
-          refused:
-            badge && window.getComputedStyle(badge).display !== "none"
-              ? badge.textContent
-              : null,
-          editing: Boolean(
-            document.querySelector("[data-agent-native-text-editing]"),
-          ),
-        };
-      });
+        await page.waitForTimeout(200);
 
-      expect(state.refused).toBeNull();
-      expect(state.editing).toBe(true);
-    }, { textEditing: true });
+        const state = await page.evaluate(() => {
+          const badge = document.querySelector<HTMLElement>(
+            "[data-agent-native-transform-badge]",
+          );
+          return {
+            refused:
+              badge && window.getComputedStyle(badge).display !== "none"
+                ? badge.textContent
+                : null,
+            editing: Boolean(
+              document.querySelector("[data-agent-native-text-editing]"),
+            ),
+          };
+        });
+
+        expect(state.refused).toBeNull();
+        expect(state.editing).toBe(true);
+      },
+      { textEditing: true },
+    );
   },
 );
 

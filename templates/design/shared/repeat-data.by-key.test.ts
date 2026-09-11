@@ -31,9 +31,9 @@ describe("finding a row's item when the collection is derived", () => {
     expect(found.status).toBe("found");
     if (found.status !== "found") return;
     expect(found.field.value).toBe("This one is already done");
-    expect(APP.slice(found.field.valueSpan.start, found.field.valueSpan.end)).toBe(
-      "'This one is already done'",
-    );
+    expect(
+      APP.slice(found.field.valueSpan.start, found.field.valueSpan.end),
+    ).toBe("'This one is already done'");
   });
 
   it("finds the first item too, so index 0 is not special", () => {

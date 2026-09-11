@@ -1883,6 +1883,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // layout box.
     var svgRoot = outermostSvgAncestor(hit);
     if (svgRoot) return svgRoot;
+    // `data-an-text` is the editor's own wrapper around a painted leaf's bare
+    // text. Selecting it hands the inspector a bare inline span, so a button's
+    // radius, fill and component props all read as absent.
+    if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
+      var textOwner = hit.parentElement;
+      if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+    }
     // Select the deepest element under the pointer on the first click. The
     // bridge can mint a pending node id and build a source-equivalent selector
     // for id-less descendants, so climbing to the nearest tagged ancestor is
@@ -12686,9 +12693,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       kind: "move",
       objectIds: [getSelector(gestureEl)],
       // `e` is deliberately the event that actually began the legacy move
-      // lifecycle. `pointerStartParam` is only Design's outer shield
-      // disambiguation origin; using it here would apply that first
-      // threshold-crossing delta twice.
+      // lifecycle, not `pointerStartParam`: anchoring the controller at the
+      // pointerdown moves the element the extra threshold-crossing distance,
+      // which breaks the cross-screen drop's target resolution.
       pointer: bridgeGesturePointer(e),
       viewport: gestureViewport,
       canvas: { width: gestureViewport.width, height: gestureViewport.height },

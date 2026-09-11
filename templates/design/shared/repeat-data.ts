@@ -404,7 +404,8 @@ export function findRepeatItemFieldByKey(
   field: string,
 ): RepeatKeyLookup {
   const matches: RepeatDataField[] = [];
-  const arrayStart = /(?:^|[^A-Za-z0-9_$.])[A-Za-z_$][A-Za-z0-9_$]*\s*[:=]\s*\[/g;
+  const arrayStart =
+    /(?:^|[^A-Za-z0-9_$.])[A-Za-z_$][A-Za-z0-9_$]*\s*[:=]\s*\[/g;
   for (const region of scriptRegions(html)) {
     const body = html.slice(region.start, region.end);
     arrayStart.lastIndex = 0;

@@ -158,7 +158,11 @@ function writeByKey(
       ? repeatBindingTarget(target.keyExpression, itemVariable)
       : null;
   if (!target.itemKey || keyTarget?.kind !== "field") {
-    return { status: "refused", refusal: "unwritable", reason: collectionReason };
+    return {
+      status: "refused",
+      refusal: "unwritable",
+      reason: collectionReason,
+    };
   }
   if (bindingTarget.kind !== "field") {
     return {

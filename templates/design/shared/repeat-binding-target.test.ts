@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { repeatBindingTarget, repeatItemVariable } from "./repeat-data";
 
 describe("which part of an item a binding writes", () => {

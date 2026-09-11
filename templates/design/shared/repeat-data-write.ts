@@ -119,7 +119,11 @@ export function writeRepeatValueByKey(args: {
   );
   return {
     status: "written",
-    html: splice(args.html, found.field.valueSpan, literalFor(args.value, existing)),
+    html: splice(
+      args.html,
+      found.field.valueSpan,
+      literalFor(args.value, existing),
+    ),
   };
 }
 

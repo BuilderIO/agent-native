@@ -1612,6 +1612,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
       if (svgRoot) return svgRoot;
+      if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
+        var textOwner = hit.parentElement;
+        if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+      }
       return hit;
     }
     function freshRuntimeNodeId(prefix) {
@@ -8717,9 +8721,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         kind: "move",
         objectIds: [getSelector(gestureEl)],
         // \`e\` is deliberately the event that actually began the legacy move
-        // lifecycle. \`pointerStartParam\` is only Design's outer shield
-        // disambiguation origin; using it here would apply that first
-        // threshold-crossing delta twice.
+        // lifecycle, not \`pointerStartParam\`: anchoring the controller at the
+        // pointerdown moves the element the extra threshold-crossing distance,
+        // which breaks the cross-screen drop's target resolution.
         pointer: bridgeGesturePointer(e),
         viewport: gestureViewport,
         canvas: { width: gestureViewport.width, height: gestureViewport.height }

@@ -7,9 +7,6 @@ import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
-
-import { runRepeatItemEdit } from "./repeat-item-edit";
-
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -27,6 +24,8 @@ import type {
   DesignTool,
   EditorMode,
 } from "@/pages/design-editor/types";
+
+import { runRepeatItemEdit } from "./repeat-item-edit";
 
 export interface TextContentChangeArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
