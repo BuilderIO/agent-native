@@ -708,14 +708,22 @@ export function buildAgentNativeExtensionHtml({
         }
       };
       var resizeWorkScheduled = false;
+      var positionObservationScheduled = false;
       var positionMonitorScheduled = false;
       var scheduleResizeWork = function() {
         if (resizeWorkScheduled) return;
         resizeWorkScheduled = true;
         enqueueResizeWork(function() {
           resizeWorkScheduled = false;
-          observePositioned();
           reportHeight();
+        });
+      };
+      var schedulePositionObservation = function() {
+        if (positionObservationScheduled) return;
+        positionObservationScheduled = true;
+        enqueueResizeWork(function() {
+          positionObservationScheduled = false;
+          observePositioned();
         });
       };
       var schedulePositionMonitor = function() {
@@ -787,6 +795,7 @@ export function buildAgentNativeExtensionHtml({
           observePositioned();
           if (typeof MutationObserver !== 'undefined' && document.body) {
             new MutationObserver(function() {
+              schedulePositionObservation();
               scheduleResizeWork();
               schedulePositionMonitor();
             }).observe(document.body, {

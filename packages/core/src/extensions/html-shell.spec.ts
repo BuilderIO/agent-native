@@ -161,6 +161,8 @@ describe("buildExtensionHtml", () => {
       "window.getComputedStyle(element).position === 'absolute'",
     );
     expect(html).toContain("requestAnimationFrame");
+    expect(html).toContain("_positionObservationScheduled");
+    expect(html).toContain("_schedulePositionObservation");
     expect(html).toContain("document.getAnimations()");
     expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");

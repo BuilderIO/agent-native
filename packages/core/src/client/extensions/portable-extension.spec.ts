@@ -44,6 +44,8 @@ describe("portable extension runtime", () => {
       "window.getComputedStyle(element).position === 'absolute'",
     );
     expect(html).toContain("requestAnimationFrame");
+    expect(html).toContain("positionObservationScheduled");
+    expect(html).toContain("schedulePositionObservation");
     expect(html).toContain("document.getAnimations()");
     expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");

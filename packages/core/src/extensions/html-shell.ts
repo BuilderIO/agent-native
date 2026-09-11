@@ -731,14 +731,22 @@ export function buildExtensionHtml(
 	        }
 	      };
 	      var _resizeWorkScheduled = false;
+	      var _positionObservationScheduled = false;
 	      var _positionMonitorScheduled = false;
 	      var _scheduleResizeWork = function() {
 	        if (_resizeWorkScheduled) return;
 	        _resizeWorkScheduled = true;
 	        _enqueueResizeWork(function() {
 	          _resizeWorkScheduled = false;
-	          _observePositioned();
 	          _reportHeight();
+	        });
+	      };
+	      var _schedulePositionObservation = function() {
+	        if (_positionObservationScheduled) return;
+	        _positionObservationScheduled = true;
+	        _enqueueResizeWork(function() {
+	          _positionObservationScheduled = false;
+	          _observePositioned();
 	        });
 	      };
 	      var _schedulePositionMonitor = function() {
@@ -804,6 +812,7 @@ export function buildExtensionHtml(
 	          _observePositioned();
 	          if (typeof MutationObserver !== 'undefined' && document.body) {
 	            new MutationObserver(function() {
+	              _schedulePositionObservation();
 	              _scheduleResizeWork();
 	              _schedulePositionMonitor();
 	            }).observe(document.body, {
