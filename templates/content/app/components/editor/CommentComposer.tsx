@@ -64,6 +64,7 @@ export const CommentComposer = forwardRef<
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
   const [query, setQuery] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
+  const consumedKeys = useRef(new Set<string>());
 
   const setRefs = (el: HTMLTextAreaElement | null) => {
     innerRef.current = el;
@@ -96,8 +97,9 @@ export const CommentComposer = forwardRef<
     const caret = el.selectionStart ?? el.value.length;
     const before = el.value.slice(0, caret);
     const match = before.match(/(?:^|\s)@([^\s@]*)$/);
-    setQuery(match ? match[1] : null);
-    setHighlight(0);
+    const nextQuery = match ? match[1] : null;
+    setQuery(nextQuery);
+    if (nextQuery !== query) setHighlight(0);
   };
 
   const selectMember = (member: MentionMember) => {
@@ -127,46 +129,52 @@ export const CommentComposer = forwardRef<
   const menuOpen = query !== null && filtered.length > 0;
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      e.key === "Escape" &&
+      (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+    ) {
+      e.stopPropagation();
+      return true;
+    }
     if (menuOpen) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setHighlight((h) => (h + 1) % filtered.length);
-        return;
+        return true;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
         setHighlight((h) => (h - 1 + filtered.length) % filtered.length);
-        return;
+        return true;
       }
       if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
         selectMember(filtered[highlight]);
-        return;
+        return true;
       }
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
         setQuery(null);
-        return;
+        return true;
       }
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSubmit();
-      return;
+      return true;
     }
     if (e.key === "Escape" && onEscape) {
-      e.preventDefault();
-      e.stopPropagation();
       onEscape();
+      return true;
     }
+    return false;
   };
 
   return (
     <div className="relative">
       <textarea
         ref={setRefs}
-        aria-label={ariaLabel}
         value={value}
         disabled={disabled}
         rows={rows}
@@ -174,19 +182,26 @@ export const CommentComposer = forwardRef<
           onChange(e.target.value);
           refreshQuery(e.target);
         }}
-        onKeyUp={(e) => refreshQuery(e.currentTarget)}
+        onKeyUp={(e) => {
+          if (!consumedKeys.current.delete(e.key))
+            refreshQuery(e.currentTarget);
+        }}
         onClick={(e) => refreshQuery(e.currentTarget)}
-        onKeyDown={handleKeyDown}
+        onKeyDown={(e) => {
+          if (handleKeyDown(e)) consumedKeys.current.add(e.key);
+        }}
         onBlur={() => {
+          consumedKeys.current.clear();
           // Defer so a mention click registers before the menu unmounts.
           setTimeout(() => setQuery(null), 120);
           onBlur?.();
         }}
         placeholder={placeholder}
-        className={
+        aria-label={ariaLabel}
+        className={`[field-sizing:content] max-h-48 ${
           className ??
           "w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
-        }
+        }`}
       />
       {!disabled && menuOpen && (
         <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md">

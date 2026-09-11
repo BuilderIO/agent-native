@@ -23,12 +23,16 @@
 import fs from "fs";
 import path from "path";
 
+import { isMap, parseDocument } from "yaml";
+
 import {
   DEFAULT_WORKSPACE_SKILLS,
   FRAMEWORK_TEMPLATE_SHARED_SKILLS,
 } from "./workspace-skill-policy.js";
 
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const NODE_PTY_BUILD_DEPENDENCY = "^12.4.0";
+const NODE_PTY_PACKAGE_SELECTOR = "node-pty@*";
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
   "@react-router/fs-routes",
@@ -55,6 +59,63 @@ export interface WorkspacifyOptions {
   toolkitDependencyVersion?: string;
 }
 
+/**
+ * node-pty ships no Linux prebuild, so its install script falls back to
+ * `node-gyp rebuild`. The dependency is missing from node-pty's manifest;
+ * attach it where pnpm runs that script so every workspace gets the same fix.
+ */
+export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
+  const workspacePath = path.join(workspaceRoot, "pnpm-workspace.yaml");
+  if (!fs.existsSync(workspacePath)) {
+    throw new Error(
+      `Cannot add the node-pty build dependency: ${workspacePath} does not exist`,
+    );
+  }
+
+  const current = fs.readFileSync(workspacePath, "utf-8");
+  const document = parseDocument(current);
+  if (document.errors.length > 0) {
+    throw new Error(
+      `Cannot update ${workspacePath}: ${document.errors
+        .map((error) => error.message)
+        .join("; ")}`,
+    );
+  }
+
+  const packageExtensions = document.getIn(["packageExtensions"]);
+  if (document.has("packageExtensions") && packageExtensions === null) {
+    document.set("packageExtensions", {});
+  } else if (packageExtensions !== undefined && !isMap(packageExtensions)) {
+    throw new Error(
+      `Cannot update ${workspacePath}: packageExtensions must be a mapping`,
+    );
+  }
+
+  if (
+    document.getIn([
+      "packageExtensions",
+      NODE_PTY_PACKAGE_SELECTOR,
+      "dependencies",
+      "node-gyp",
+    ]) === NODE_PTY_BUILD_DEPENDENCY
+  ) {
+    return;
+  }
+
+  document.setIn(
+    [
+      "packageExtensions",
+      NODE_PTY_PACKAGE_SELECTOR,
+      "dependencies",
+      "node-gyp",
+    ],
+    NODE_PTY_BUILD_DEPENDENCY,
+  );
+  const updated = document.toString();
+
+  if (updated !== current) fs.writeFileSync(workspacePath, updated);
+}
+
 export function workspacifyApp(opts: WorkspacifyOptions): void {
   const { appDir, workspaceCoreName } = opts;
   const pinnedByWorkspace = (name: string, fallback: string | undefined) =>
@@ -78,6 +139,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   //    they resolve within the
   //    workspace because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");
+  let hasNodePty = false;
   if (fs.existsSync(pkgPath)) {
     try {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
@@ -110,6 +172,12 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       // not fail only after a hosted Postgres database is configured.
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
+      hasNodePty = [
+        pkg.dependencies,
+        pkg.devDependencies,
+        pkg.peerDependencies,
+        pkg.optionalDependencies,
+      ].some((deps) => Boolean(deps?.["node-pty"]));
       // pnpm build-script approvals belong at the workspace root. Leaving the
       // template's per-app setting in place makes pnpm warn on every install.
       if (pkg.pnpm && typeof pkg.pnpm === "object") {
@@ -130,6 +198,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       // Non-fatal: leave package.json unchanged.
     }
   }
+  if (hasNodePty) ensureNodePtyBuildDependency(opts.workspaceRoot);
 
   // 2) Remove standalone-only files that would confuse the workspace layout.
   for (const f of [

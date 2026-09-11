@@ -62,6 +62,8 @@ export interface BuilderConnectionMenuProps {
   credentialSource?: BuilderStatus["credentialSource"] | null;
   trackingSource?: string;
   trackingFlow?: string;
+  /** "icon" (default) matches the compact card; "text" shows a labeled "Manage" button for row layouts. */
+  variant?: "icon" | "text";
 }
 
 function DisconnectBuilderButton({
@@ -200,6 +202,7 @@ export function BuilderConnectionMenu({
   credentialSource,
   trackingSource = "builder_connection_menu",
   trackingFlow = "connect_llm",
+  variant = "icon",
 }: BuilderConnectionMenuProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -221,16 +224,26 @@ export function BuilderConnectionMenu({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={manageLabel}
-          title={manageLabel}
-          className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-        >
-          <IconDotsVertical size={16} />
-        </Button>
+        {variant === "text" ? (
+          <button
+            type="button"
+            aria-label={manageLabel}
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            Manage
+          </button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={manageLabel}
+            title={manageLabel}
+            className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <IconDotsVertical size={16} />
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent
         align="end"

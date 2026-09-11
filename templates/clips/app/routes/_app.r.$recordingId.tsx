@@ -3,6 +3,7 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
@@ -609,8 +610,18 @@ export default function RecordingPage() {
     }
   }, [isCompactLayout, searchParams, setSearchParams]);
   const openAgentPanel = useCallback(() => {
+    if (recordingId) {
+      trackEvent("builtin_agent_used", {
+        app_name: "clips",
+        template_name: "clips",
+        output_id: recordingId,
+        output_type: "clip",
+        query_type: "clip",
+        surface: "recording_page",
+      });
+    }
     requestAgentSidebarOpen();
-  }, []);
+  }, [recordingId]);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -837,6 +848,20 @@ export default function RecordingPage() {
     | "commenter"
     | "viewer"
     | undefined;
+  const clipViewFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!recording?.id || role === undefined) return;
+    if (clipViewFiredRef.current === recording.id) return;
+    clipViewFiredRef.current = recording.id;
+    trackEvent("clip_viewed", {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: recording.id,
+      output_type: "clip",
+      is_owner: role === "owner",
+      view_type: "recording_page",
+    });
+  }, [recording?.id, role]);
   const directAgentContextUrl = useMemo(() => {
     if (
       typeof window === "undefined" ||

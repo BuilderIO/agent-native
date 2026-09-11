@@ -49,9 +49,15 @@ export const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
 export const REALTIME_VOICE_TOOL_GRANT_TTL_MS = 75 * 60 * 1_000;
 export const REALTIME_VOICE_CAPABILITY_HEADER =
   "X-Agent-Native-Realtime-Capability";
+export const REALTIME_VOICE_PROTOCOL_HEADER =
+  "X-Agent-Native-Realtime-Protocol";
+export const REALTIME_VOICE_MODEL_HEADER = "X-Agent-Native-Realtime-Model";
 
+const OPENAI_LIVE_SESSIONS_URL = "https://api.openai.com/v1/live/sessions";
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
-const DEFAULT_MODEL = "gpt-realtime-2.1";
+const DEFAULT_MODEL = "gpt-live-1";
+const LEGACY_MODEL = "gpt-realtime-2.1";
+const DEFAULT_DELEGATED_MODEL = "gpt-5.6-luna";
 const DEFAULT_VOICE = "marin";
 const DEFAULT_INSTRUCTIONS =
   "You are the live voice interface for this Agent-Native app. Speak naturally, briefly, and conversationally. Use the available function tools when the user asks you to navigate or take an action. When the user asks about a previous conversation, saved chat details, or something they told you before, search with the `chat-history` tool before saying you cannot access it. Summarize a matching result and open a thread only when the user asks. If the user repeats a request, acknowledge the prior attempt and finish or correct the missing part instead of restarting from scratch or asking the same clarification again. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";
@@ -116,7 +122,7 @@ export interface RealtimeVoiceToolExecutionResult {
 }
 
 export interface MountRealtimeVoiceRoutesOptions {
-  /** Server-controlled model. Defaults to gpt-realtime-2.1. */
+  /** Server-controlled model. Defaults to gpt-live-1. */
   model?: string;
   /** Server-controlled output voice. Defaults to marin. */
   voice?: string;
@@ -335,6 +341,33 @@ function buildRealtimeTools(
     .map(({ tool }) => tool);
 }
 
+function realtimeSessionWithTools(
+  session: Record<string, unknown>,
+  tools: RealtimeFunctionTool[],
+): Record<string, unknown> {
+  if (session.model === "gpt-live-1") {
+    const delegation = isRecord(session.delegation)
+      ? session.delegation
+      : { type: "responses" };
+    const responses = isRecord(delegation.responses)
+      ? delegation.responses
+      : { model: DEFAULT_DELEGATED_MODEL };
+    return {
+      ...session,
+      delegation: {
+        ...delegation,
+        type: "responses",
+        responses: {
+          ...responses,
+          tools,
+          tool_choice: "auto",
+        },
+      },
+    };
+  }
+  return { ...session, tools, tool_choice: "auto" };
+}
+
 function packRealtimeTools(
   session: Record<string, unknown>,
   eligibleTools: RealtimeFunctionTool[],
@@ -342,11 +375,7 @@ function packRealtimeTools(
   const packed: RealtimeFunctionTool[] = [];
   for (const tool of eligibleTools.slice(0, REALTIME_VOICE_MAX_TOOLS)) {
     const candidate = [...packed, tool];
-    const candidateSession = {
-      ...session,
-      tools: candidate,
-      tool_choice: "auto",
-    };
+    const candidateSession = realtimeSessionWithTools(session, candidate);
     if (
       Buffer.byteLength(JSON.stringify(candidateSession), "utf8") <=
       REALTIME_VOICE_MAX_SESSION_BYTES
@@ -606,37 +635,58 @@ function createSessionHandler(
           readSafeHeader(event, "x-agent-native-realtime-voice"),
           configuredIdentifier(options.voice, DEFAULT_VOICE),
         );
-        const sessionBase = {
-          type: "realtime",
-          model: configuredIdentifier(options.model, DEFAULT_MODEL),
-          instructions,
-          parallel_tool_calls: false,
-          reasoning: { effort: reasoningEffort },
-          output_modalities: ["audio"],
-          audio: {
-            input: {
-              transcription: {
-                model: "gpt-4o-mini-transcribe",
-                language: transcriptionLanguage,
-              },
-              turn_detection: {
-                type: "semantic_vad",
-                create_response: false,
-                interrupt_response: true,
-                eagerness: "auto",
-              },
-            },
-            output: {
-              voice,
-            },
-          },
-        };
+        const configuredModel = configuredIdentifier(
+          options.model,
+          DEFAULT_MODEL,
+        );
+        const model =
+          readSafeHeader(event, REALTIME_VOICE_PROTOCOL_HEADER) ===
+            "realtime" && configuredModel === DEFAULT_MODEL
+            ? LEGACY_MODEL
+            : configuredModel;
+        const sessionBase =
+          model === DEFAULT_MODEL
+            ? {
+                model,
+                instructions: `${instructions}\n\nSpeak in ${transcriptionLanguage} unless the user asks to switch languages.`,
+                audio: { output: { voice } },
+                delegation: {
+                  type: "responses",
+                  responses: {
+                    model: DEFAULT_DELEGATED_MODEL,
+                    instructions,
+                    parallel_tool_calls: false,
+                    reasoning: { effort: reasoningEffort },
+                  },
+                },
+              }
+            : {
+                type: "realtime",
+                model: model === LEGACY_MODEL ? LEGACY_MODEL : model,
+                instructions,
+                parallel_tool_calls: false,
+                reasoning: { effort: reasoningEffort },
+                output_modalities: ["audio"],
+                audio: {
+                  input: {
+                    transcription: {
+                      model: "gpt-4o-mini-transcribe",
+                      language: transcriptionLanguage,
+                    },
+                    turn_detection: {
+                      type: "semantic_vad",
+                      create_response: false,
+                      interrupt_response: true,
+                      eagerness: "auto",
+                    },
+                  },
+                  output: {
+                    voice,
+                  },
+                },
+              };
         const packedTools = packRealtimeTools(sessionBase, tools);
-        const session = {
-          ...sessionBase,
-          tools: packedTools,
-          tool_choice: "auto",
-        };
+        const session = realtimeSessionWithTools(sessionBase, packedTools);
 
         let upstream: Response;
         try {
@@ -666,19 +716,34 @@ function createSessionHandler(
               body: JSON.stringify({ sdp, session }),
             });
           } else {
-            const form = new FormData();
-            form.set("sdp", sdp);
-            form.set("session", JSON.stringify(session));
-            upstream = await fetch(OPENAI_REALTIME_CALLS_URL, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "OpenAI-Safety-Identifier": await realtimeVoiceSafetyIdentifier(
-                  auth.userEmail,
-                ),
-              },
-              body: form,
-            });
+            if (model === DEFAULT_MODEL) {
+              upstream = await fetch(OPENAI_LIVE_SESSIONS_URL, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${apiKey}`,
+                  "Content-Type": "application/json",
+                  "OpenAI-Safety-Identifier":
+                    await realtimeVoiceSafetyIdentifier(auth.userEmail),
+                },
+                body: JSON.stringify({
+                  session,
+                  transport: { type: "webrtc", sdp },
+                }),
+              });
+            } else {
+              const form = new FormData();
+              form.set("sdp", sdp);
+              form.set("session", JSON.stringify(session));
+              upstream = await fetch(OPENAI_REALTIME_CALLS_URL, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${apiKey}`,
+                  "OpenAI-Safety-Identifier":
+                    await realtimeVoiceSafetyIdentifier(auth.userEmail),
+                },
+                body: form,
+              });
+            }
           }
         } catch {
           setResponseStatus(event, 502);
@@ -707,7 +772,40 @@ function createSessionHandler(
           };
         }
 
-        const answerSdp = await upstream.text().catch(() => "");
+        let upstreamBody: string;
+        try {
+          upstreamBody = await upstream.text();
+        } catch {
+          setResponseStatus(event, 502);
+          return {
+            error: builderConfigured
+              ? gatewayLaneUnavailableMessage(
+                  "Could not read the Builder realtime voice response",
+                )
+              : "Could not read the OpenAI Realtime API response",
+          };
+        }
+        let answerSdp = upstreamBody;
+        if (model === DEFAULT_MODEL && !builderConfigured) {
+          try {
+            const payload = JSON.parse(upstreamBody) as {
+              id?: unknown;
+              session?: { id?: unknown };
+              transport?: { sdp?: unknown };
+            };
+            const sessionId =
+              typeof payload.session?.id === "string"
+                ? payload.session.id
+                : payload.id;
+            answerSdp =
+              typeof sessionId === "string" &&
+              typeof payload.transport?.sdp === "string"
+                ? payload.transport.sdp
+                : "";
+          } catch {
+            answerSdp = "";
+          }
+        }
         if (!answerSdp.trim()) {
           setResponseStatus(event, 502);
           const emptyAnswer = `${builderConfigured ? "Builder" : "OpenAI"} returned an empty realtime session answer`;
@@ -728,6 +826,12 @@ function createSessionHandler(
             names: new Set(),
           }),
         );
+        setResponseHeader(
+          event,
+          REALTIME_VOICE_PROTOCOL_HEADER,
+          model === DEFAULT_MODEL ? "live" : "realtime",
+        );
+        setResponseHeader(event, REALTIME_VOICE_MODEL_HEADER, model);
         return answerSdp;
       },
     );

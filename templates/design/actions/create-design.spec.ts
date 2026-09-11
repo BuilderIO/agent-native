@@ -12,6 +12,7 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => testState.currentOrgId,
 }));

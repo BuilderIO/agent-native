@@ -57,7 +57,7 @@ describe("EnvironmentBadge render", () => {
     vi.clearAllMocks();
   });
 
-  it("renders a non-navigating dev pill for configured local development", () => {
+  it("renders a non-navigating alpha pill for configured local development", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -77,7 +77,7 @@ describe("EnvironmentBadge render", () => {
     act(() => root.render(<EnvironmentBadge />));
 
     const badge = container.querySelector('[role="status"]');
-    expect(badge?.textContent).toBe("dev");
+    expect(badge?.textContent).toBe("alpha");
     expect(badge?.getAttribute("aria-label")).toBe(
       "Local development environment",
     );
@@ -88,7 +88,7 @@ describe("EnvironmentBadge render", () => {
     expect(container.querySelector("a")).toBeNull();
   });
 
-  it("supports an inline dev pill for app-owned brand slots", () => {
+  it("supports an inline alpha pill for app-owned brand slots", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -108,14 +108,14 @@ describe("EnvironmentBadge render", () => {
     act(() => root.render(<EnvironmentBadge placement="inline" />));
 
     const badge = container.querySelector('[role="status"]');
-    expect(badge?.textContent).toBe("dev");
+    expect(badge?.textContent).toBe("alpha");
     expect(badge?.className).toContain("inline-flex");
     expect(badge?.className).toContain("h-5");
     expect(badge?.className).not.toContain("fixed");
     expect(badge?.className).not.toContain("bottom-3");
   });
 
-  it("defers the dev pill to a post-mount effect so the first client commit matches SSR's null output", async () => {
+  it("defers the alpha pill to a post-mount effect so the first client commit matches SSR's null output", async () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -142,7 +142,9 @@ describe("EnvironmentBadge render", () => {
 
     await act(async () => {});
 
-    expect(container.querySelector('[role="status"]')?.textContent).toBe("dev");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "alpha",
+    );
   });
 
   it.each([
@@ -163,7 +165,7 @@ describe("EnvironmentBadge render", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("renders the beta chip for signed-out visitors", () => {
+  it("renders the badge for signed-out visitors without interaction", () => {
     useSessionMock.mockReturnValue({
       session: null,
       status: "unauthenticated",
@@ -171,18 +173,16 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    const trigger = container.querySelector("button");
-    expect(trigger?.textContent).toContain("beta");
-    expect(trigger?.className).toContain("border-primary/80");
-    expect(trigger?.className).toContain("bottom-3");
-    expect(trigger?.className).toContain("left-3");
-    expect(trigger?.className).not.toContain("top-3");
-    expect(trigger?.className).not.toContain("right-3");
-    expect(trigger?.className).not.toContain("bg-background/95");
-    expect(container.textContent).toContain("beta");
+    const badge = container.querySelector('[role="status"]');
+    expect(badge?.textContent).toBe("alpha");
+    expect(badge?.className).toContain("border-primary/80");
+    expect(badge?.className).toContain("bottom-3");
+    expect(badge?.className).toContain("left-3");
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).toContain("alpha");
   });
 
-  it("renders the beta chip for non-builder users", () => {
+  it("renders the badge for non-builder users without interaction", () => {
     useSessionMock.mockReturnValue({
       session: { email: "person@example.com" },
       status: "authenticated",
@@ -190,20 +190,22 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    expect(container.querySelector("button")?.textContent).toContain("beta");
-    expect(container.textContent).toContain("beta");
+    expect(container.querySelector("button")).toBeNull();
+    const badge = container.querySelector('[role="status"]');
+    expect(badge?.textContent).toBe("alpha");
+    expect(container.textContent).toContain("alpha");
   });
 
-  it("opens an inline beta chip below an app-owned brand slot", () => {
+  it("opens an inline chip popover for @builder.io employees", () => {
     useSessionMock.mockReturnValue({
-      session: null,
-      status: "unauthenticated",
+      session: { email: "shawn@builder.io" },
+      status: "authenticated",
     });
 
     act(() => root.render(<EnvironmentBadge placement="inline" />));
 
     const trigger = container.querySelector("button");
-    expect(trigger?.textContent).toContain("beta");
+    expect(trigger?.textContent).toBe("alpha");
     expect(trigger?.className).toContain("inline-flex");
     expect(trigger?.className).not.toContain("fixed");
 
@@ -217,10 +219,10 @@ describe("EnvironmentBadge render", () => {
     expect(document.body.querySelector('[data-side="bottom"]')).not.toBeNull();
   });
 
-  it("keeps the beta chip linked to production for every visitor", () => {
+  it("keeps the chip linked to production for builder visitors", () => {
     useSessionMock.mockReturnValue({
-      session: null,
-      status: "unauthenticated",
+      session: { email: "steve@builder.io" },
+      status: "authenticated",
     });
 
     act(() => root.render(<EnvironmentBadge />));
@@ -252,8 +254,8 @@ describe("EnvironmentBadge render", () => {
 
   it("hides the badge for the current page without persisting the choice", () => {
     useSessionMock.mockReturnValue({
-      session: null,
-      status: "unauthenticated",
+      session: { email: "steve@builder.io" },
+      status: "authenticated",
     });
 
     act(() => root.render(<EnvironmentBadge />));
@@ -279,13 +281,28 @@ describe("EnvironmentBadge render", () => {
     act(() => hideButton?.click());
 
     expect(container.innerHTML).toBe("");
-    expect(document.body.querySelector('[data-side="top"]')).toBeNull();
-    expect(window.sessionStorage.getItem("agent-native:force-production")).toBe(
-      null,
-    );
+    expect(
+      window.localStorage?.getItem("agent-native:beta-opt-out-until"),
+    ).toBeNull();
   });
 
-  it("hides the production chip for non-employee sessions", () => {
+  it("supports configurable badgeText prop and config", () => {
+    useSessionMock.mockReturnValue({
+      session: { email: "steve@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge badgeText="beta" />));
+    expect(container.querySelector("button")?.textContent).toBe("beta");
+
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { badgeText: "custom" },
+    });
+    act(() => root.render(<EnvironmentBadge key="custom" />));
+    expect(container.querySelector("button")?.textContent).toBe("custom");
+  });
+
+  it("renders non-interactive chip on production for non-employee sessions", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {

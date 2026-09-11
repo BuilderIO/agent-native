@@ -196,12 +196,18 @@ function EnvironmentBadgeContent({
   environment,
   placement,
   targets,
+  badgeText,
+  className,
 }: {
   environment: "beta" | "production";
   placement: EnvironmentBadgePlacement;
   targets: EnvironmentBadgeTargets;
+  badgeText?: string;
+  className?: string;
 }) {
   const [isHidden, setIsHidden] = useState(false);
+  const { session } = useSession();
+  const isBuilder = isBuilderIoEmployee(session?.email);
 
   if (typeof window === "undefined") return null;
   if (isHidden) return null;
@@ -214,23 +220,44 @@ function EnvironmentBadgeContent({
   );
   if (environment === "beta" ? !productionHref : !betaHref) return null;
 
-  const label = environment === "beta" ? "beta" : "prod";
+  const label = badgeText ?? "alpha";
   const title =
     environment === "beta"
-      ? "You're on Agent-Native Beta"
+      ? `You're on Agent-Native ${label.charAt(0).toUpperCase() + label.slice(1)}`
       : "You're on Agent-Native Production";
+
+  const badgeClasses = cn(
+    environmentBadgePlacementClasses[placement],
+    environment === "beta"
+      ? "border-primary/80"
+      : "border-border/80 bg-background/95 text-foreground",
+    className,
+  );
+
+  if (!isBuilder) {
+    return (
+      <div
+        aria-label={title}
+        className={cn(
+          badgeClasses,
+          "inline-flex items-center justify-center select-none",
+          environment === "beta"
+            ? "border-primary/80 bg-primary text-primary-foreground"
+            : "border-border/80 bg-background/95 text-foreground",
+        )}
+        role="status"
+      >
+        {label}
+      </div>
+    );
+  }
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button
           aria-label={`Open ${title.toLowerCase()} switcher`}
-          className={cn(
-            environmentBadgePlacementClasses[placement],
-            environment === "beta"
-              ? "border-primary/80"
-              : "border-border/80 bg-background/95 text-foreground",
-          )}
+          className={badgeClasses}
           size="sm"
           variant={environment === "beta" ? "default" : "outline"}
         >
@@ -273,8 +300,12 @@ function EnvironmentBadgeContent({
 
 function LocalEnvironmentBadge({
   placement,
+  badgeText = "alpha",
+  className,
 }: {
   placement: EnvironmentBadgePlacement;
+  badgeText?: string;
+  className?: string;
 }) {
   return (
     <div
@@ -283,11 +314,12 @@ function LocalEnvironmentBadge({
         environmentBadgePlacementClasses[placement],
         // Fixed placement parks this over app chrome; without this the pill
         // silently swallows clicks on whatever sits beneath it.
-        "pointer-events-none inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
+        "pointer-events-none inline-flex select-none items-center justify-center border border-border/80 bg-background/95 text-foreground",
+        className,
       )}
       role="status"
     >
-      dev
+      {badgeText}
     </div>
   );
 }
@@ -295,9 +327,13 @@ function LocalEnvironmentBadge({
 function ProductionEnvironmentBadge({
   placement,
   targets,
+  badgeText,
+  className,
 }: {
   placement: EnvironmentBadgePlacement;
   targets: EnvironmentBadgeTargets;
+  badgeText?: string;
+  className?: string;
 }) {
   const { session, status } = useSession();
   const isEligible =
@@ -337,14 +373,22 @@ function ProductionEnvironmentBadge({
     window.location.replace(betaHref);
   }, [isEligible, session?.email, status, targets.betaHost]);
 
-  if (!isEligible) return null;
   return (
     <EnvironmentBadgeContent
       environment="production"
       placement={placement}
       targets={targets}
+      badgeText={badgeText}
+      className={className}
     />
   );
+}
+
+export interface EnvironmentBadgeProps {
+  placement?: EnvironmentBadgePlacement;
+  showProduction?: boolean;
+  badgeText?: string;
+  className?: string;
 }
 
 /**
@@ -356,16 +400,17 @@ function ProductionEnvironmentBadge({
 export function EnvironmentBadge({
   placement = "fixed",
   showProduction = true,
-}: {
-  placement?: EnvironmentBadgePlacement;
-  showProduction?: boolean;
-} = {}) {
+  badgeText,
+  className,
+}: EnvironmentBadgeProps = {}) {
   const [hydrated, setHydrated] = useState(false);
   const config = useMemo(injectedAgentNativeConfig, []);
   const hostname =
     typeof window === "undefined" ? undefined : window.location.hostname;
   const environment = resolveEnvironmentChannel(config, hostname);
   const targets = resolveEnvironmentTargets(hostname);
+  const resolvedBadgeText =
+    badgeText ?? config.deployment?.badgeText ?? config.badgeText ?? "alpha";
 
   useEffect(() => {
     setHydrated(true);
@@ -381,10 +426,30 @@ export function EnvironmentBadge({
   }
 
   if (environment === "local") {
-    return <LocalEnvironmentBadge placement={placement} />;
+    return (
+      <LocalEnvironmentBadge
+        placement={placement}
+        badgeText={resolvedBadgeText}
+        className={className}
+      />
+    );
   }
 
-  if (!targets) return null;
+  if (!targets) {
+    return (
+      <div
+        aria-label="Development environment"
+        className={cn(
+          environmentBadgePlacementClasses[placement],
+          "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground select-none",
+          className,
+        )}
+        role="status"
+      >
+        {resolvedBadgeText}
+      </div>
+    );
+  }
 
   if (environment === "beta") {
     return (
@@ -392,10 +457,19 @@ export function EnvironmentBadge({
         environment="beta"
         placement={placement}
         targets={targets}
+        badgeText={resolvedBadgeText}
+        className={className}
       />
     );
   }
 
   if (!showProduction) return null;
-  return <ProductionEnvironmentBadge placement={placement} targets={targets} />;
+  return (
+    <ProductionEnvironmentBadge
+      placement={placement}
+      targets={targets}
+      badgeText={resolvedBadgeText}
+      className={className}
+    />
+  );
 }

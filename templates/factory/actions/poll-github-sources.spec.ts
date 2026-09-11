@@ -27,10 +27,6 @@ vi.mock("../server/db/index.js", () => ({
   getDb: getDbMock,
 }));
 
-vi.mock("../server/lib/factory-automation-repair.js", () => ({
-  repairFactoryAutomationsFromConfig: vi.fn(),
-}));
-
 vi.mock("../server/lib/factory-automation-caller.js", () => ({
   readCallingFactoryAutomation: readCallingFactoryAutomationMock,
 }));
@@ -86,27 +82,27 @@ describe("selectParkedRowsForRecheck", () => {
       {
         pullRequestNumber: 1,
         repository: "acme/current",
-        updatedAt: "2026-09-01T00:00:00.000Z",
+        metadataJson: "{}",
       },
       {
         pullRequestNumber: 2,
         repository: "acme/old",
-        updatedAt: "2026-09-02T00:00:00.000Z",
+        metadataJson: "{}",
       },
       {
         pullRequestNumber: 3,
         repository: "acme/current",
-        updatedAt: "2026-09-03T00:00:00.000Z",
+        metadataJson: '{"prBabysitLastCheckedAt":"2026-09-03T00:00:00.000Z"}',
       },
       {
         pullRequestNumber: 4,
         repository: "acme/current",
-        updatedAt: "2026-09-04T00:00:00.000Z",
+        metadataJson: '{"prBabysitLastCheckedAt":"2026-09-02T00:00:00.000Z"}',
       },
       {
         pullRequestNumber: 5,
         repository: "acme/current",
-        updatedAt: "2026-09-05T00:00:00.000Z",
+        metadataJson: '{"prBabysitLastCheckedAt":"2026-09-05T00:00:00.000Z"}',
       },
     ];
     expect(
@@ -115,7 +111,7 @@ describe("selectParkedRowsForRecheck", () => {
         listedOpenPrNumbers: new Set([1]),
         extraLimit: 2,
       }).map((row) => row.pullRequestNumber),
-    ).toEqual([1, 5, 4]);
+    ).toEqual([1, 4, 3]);
   });
 
   it("drops parked rows from another repository", async () => {
@@ -127,7 +123,7 @@ describe("selectParkedRowsForRecheck", () => {
           {
             pullRequestNumber: 9,
             repository: "acme/old",
-            updatedAt: "2026-09-02T00:00:00.000Z",
+            metadataJson: "{}",
           },
         ],
         {
@@ -136,6 +132,156 @@ describe("selectParkedRowsForRecheck", () => {
         },
       ),
     ).toEqual([]);
+  });
+
+  // `/pulls?state=open` sorts by creation, so a long-parked pull request that
+  // later gets human feedback is only reachable through this extra set. Raise
+  // the limit if real inventory outgrows it; do not park items in `active` to
+  // keep them on the listed page.
+  it("rotates through the oldest rechecks up to the default limit", async () => {
+    const { selectParkedRowsForRecheck, PARKED_PR_RECHECK_EXTRA_LIMIT } =
+      await import("./poll-github-sources.js");
+    const rows = Array.from(
+      { length: PARKED_PR_RECHECK_EXTRA_LIMIT + 5 },
+      (_, index) => ({
+        pullRequestNumber: index + 1,
+        repository: "acme/current",
+        metadataJson: JSON.stringify({
+          prBabysitLastCheckedAt: `2026-09-${String((index % 28) + 1).padStart(2, "0")}T00:00:00.000Z`,
+        }),
+      }),
+    );
+    const selected = selectParkedRowsForRecheck(rows, {
+      configuredRepository: "acme/current",
+      listedOpenPrNumbers: new Set(),
+    });
+    expect(selected).toHaveLength(PARKED_PR_RECHECK_EXTRA_LIMIT);
+    expect(
+      JSON.parse(selected[0]?.metadataJson ?? "{}").prBabysitLastCheckedAt,
+    ).toBe(
+      rows
+        .map(
+          (row) =>
+            JSON.parse(row.metadataJson).prBabysitLastCheckedAt as string,
+        )
+        .sort()[0],
+    );
+  });
+});
+
+describe("parkedRecheckEvidencePatch", () => {
+  const recheck = {
+    humanReviewCommentCount: 1,
+    humanReviewBodyCount: 0,
+    commentsTruncated: false,
+    reviewsTruncated: false,
+    changesRequested: false,
+    mergeable: null,
+    mergeableState: "unknown",
+  };
+
+  it("keeps a stored conflict when GitHub has not recomputed mergeability", async () => {
+    const { parkedRecheckEvidencePatch } =
+      await import("./poll-github-sources.js");
+    expect(
+      parkedRecheckEvidencePatch(
+        { prBabysitMergeConflict: true, prBabysitMergeabilityComputed: true },
+        { ...recheck, mergeable: null, mergeableState: "unknown" },
+      ),
+    ).toMatchObject({
+      prBabysitMergeConflict: true,
+      prBabysitMergeabilityComputed: true,
+    });
+  });
+
+  it("adopts a definite reading and records that it was definite", async () => {
+    const { parkedRecheckEvidencePatch } =
+      await import("./poll-github-sources.js");
+    expect(
+      parkedRecheckEvidencePatch(
+        {},
+        { ...recheck, mergeable: true, mergeableState: "unstable" },
+      ),
+    ).toMatchObject({
+      prBabysitMergeConflict: false,
+      prBabysitMergeabilityComputed: true,
+    });
+  });
+
+  it("does not invent a definite reading for a row that never had one", async () => {
+    const { parkedRecheckEvidencePatch } =
+      await import("./poll-github-sources.js");
+    expect(
+      parkedRecheckEvidencePatch(
+        {},
+        { ...recheck, mergeable: null, mergeableState: "unknown" },
+      ),
+    ).toMatchObject({
+      prBabysitMergeConflict: false,
+      prBabysitMergeabilityComputed: false,
+    });
+  });
+
+  it("defers human review counters when poll reopens on new human work", async () => {
+    const { parkedRecheckEvidencePatch } =
+      await import("./poll-github-sources.js");
+    expect(
+      parkedRecheckEvidencePatch(
+        { prBabysitHumanReviewCommentCount: 1 },
+        recheck,
+        {
+          deferHumanReviewCounters: true,
+          checkedAt: "2026-09-10T00:00:00.000Z",
+        },
+      ),
+    ).toEqual({
+      prBabysitMergeConflict: false,
+      prBabysitMergeabilityComputed: false,
+      prBabysitLastCheckedAt: "2026-09-10T00:00:00.000Z",
+    });
+  });
+});
+
+describe("buildPullRequestPollMetadataJson", () => {
+  const pullRequest = {
+    number: 42,
+    userLogin: "builder-io-bot",
+    userId: 1,
+    headRef: "head",
+    baseRef: "main",
+    draft: false,
+    updatedAt: "2026-09-10T12:00:00.000Z",
+    htmlUrl: "https://github.com/acme/repo/pull/42",
+    title: "PR 42",
+    body: "",
+    headSha: "sha-42",
+  };
+
+  it("preserves babysit post fields when merging poll-owned metadata", async () => {
+    const { buildPullRequestPollMetadataJson } =
+      await import("./poll-github-sources.js");
+    const current = JSON.stringify({
+      prBabysitState: "waiting",
+      prBabysitLastCommentAt: "2026-09-10T11:00:00.000Z",
+      prBabysitLastCommentUrl:
+        "https://github.com/acme/repo/pull/42#issuecomment-1",
+    });
+    const merged = JSON.parse(
+      buildPullRequestPollMetadataJson(
+        current,
+        pullRequest,
+        undefined,
+        false,
+        "2026-09-10T12:00:00.000Z",
+      ),
+    );
+    expect(merged).toMatchObject({
+      prBabysitState: "waiting",
+      prBabysitLastCommentAt: "2026-09-10T11:00:00.000Z",
+      prBabysitLastCommentUrl:
+        "https://github.com/acme/repo/pull/42#issuecomment-1",
+      author: "builder-io-bot",
+    });
   });
 });
 

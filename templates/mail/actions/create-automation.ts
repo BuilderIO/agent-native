@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { createAutomationRule } from "../server/lib/automations.js";
@@ -18,12 +19,24 @@ export default defineAction({
     enabled: z.boolean().optional().describe("Whether the rule starts enabled"),
   }),
   agentTool: false,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Unauthenticated");
     if (!args.name || !args.condition || !args.actions) {
       throw new Error("name, condition, and actions are required");
     }
-    return createAutomationRule(ownerEmail, args);
+    const result = await createAutomationRule(ownerEmail, args);
+    track(
+      "automation_created",
+      {
+        app_name: "mail",
+        template_name: "mail",
+        output_type: "automation",
+        automation_type: args.kind ?? "automation",
+        action_count: args.actions.length,
+      },
+      ctx,
+    );
+    return result;
   },
 });

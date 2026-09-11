@@ -71,6 +71,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => mocks.state.userEmail,
   getRequestOrgId: () => mocks.state.orgId,
 }));

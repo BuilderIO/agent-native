@@ -169,6 +169,15 @@ const messages: AgentChatTranslation = {
   "history.searching": "Buscando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ayer",
+  "integrations.availableSection": "Integraciones disponibles",
+  "integrations.connectedSection": "Conectado",
+  "integrations.goToApiKeys": "Ir a claves de API",
+  "integrations.goToIntegrations": "Ir a integraciones",
+  "integrations.lookingForApiKeys": "¿Buscas una clave de API en su lugar?",
+  "integrations.lookingForProviders": "¿Buscas proveedores de OAuth o MCP?",
+  "integrations.manage": "Administrar",
+  "integrations.recommended": "Recomendado",
+  "integrations.subtitle": "Conecta las herramientas que tu agente puede usar.",
   "limit.account": "tu cuenta",
   "limit.descriptionAll":
     "El agente ha utilizado todos los pasos disponibles. Continúa en una interacción nueva o aumenta primero el límite de {{scope}}.",
@@ -239,12 +248,19 @@ const messages: AgentChatTranslation = {
     "El flujo anterior del agente terminó durante la recuperación. Continúa o reintenta para volver a conectar con la ejecución.",
   "recovery.reconnectBuilder": "Volver a conectar Builder.io",
   "secrets.addCustomKeyNamed": 'Agregar "{{name}}" como clave personalizada',
+  "secrets.chooseKey": "Elige una clave",
   "secrets.customKey": "Clave personalizada",
   "secrets.customKeyHint": "Agrega cualquier clave por nombre",
+  "secrets.emptyHint": "Agrega una clave para usar tus propias cuentas.",
+  "secrets.emptyMore":
+    "y {{count}} más en Nuevo, o agrega cualquier clave personalizada",
+  "secrets.emptyTitle": "Aún no hay claves.",
   "secrets.fromEnvironment": "Proporcionado por el entorno de implementación.",
   "secrets.managedInVault":
     "Se administra en el Vault del espacio de trabajo. Todas las apps de este espacio de trabajo usan este valor.",
   "secrets.openVault": "Abrir Vault",
+  "secrets.newKey": "Nuevo",
+  "secrets.noKeysFound": "No se encontraron claves.",
   "secrets.overridesVault":
     "Esta clave personal reemplaza el valor del Vault del espacio de trabajo. Elimínala para usar la clave del Vault.",
   "secrets.overridesWorkspace":
@@ -255,6 +271,8 @@ const messages: AgentChatTranslation = {
   "secrets.sourceVault": "Vault",
   "secrets.sourceWorkspace": "Espacio de trabajo",
   "secrets.statusUnavailable": "No disponible",
+  "secrets.required": "Obligatorio",
+  "secrets.searchKeys": "Buscar claves...",
   "secrets.usePersonalKey": "Usar una clave personal en su lugar",
   "selection.attached":
     "{{formattedCount}} caracteres de la selección adjuntados",

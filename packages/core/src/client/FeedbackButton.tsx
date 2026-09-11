@@ -1,6 +1,6 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { IconMessage2, IconCheck } from "@tabler/icons-react";
+import { IconCheck, IconMessageCircle } from "@tabler/icons-react";
 import {
   useState,
   useEffect,
@@ -53,7 +53,7 @@ const FEEDBACK_COPY: Record<
   }
 > = {
   "en-US": {
-    label: "Feedback",
+    label: "Send feedback",
     placeholder: "What's working, what's broken, or what would you change?",
     submit: "Send feedback",
     submitting: "Sending...",
@@ -374,10 +374,23 @@ function clientHostname(): string | undefined {
 }
 
 function isFirstPartyHostname(hostname: string | null | undefined): boolean {
-  const normalized = hostname?.trim().toLowerCase();
+  const normalized = hostname?.trim().toLowerCase().split(":")[0];
   return (
     normalized === FIRST_PARTY_HOSTNAME ||
-    normalized?.endsWith(`.${FIRST_PARTY_HOSTNAME}`) === true
+    normalized?.endsWith(`.${FIRST_PARTY_HOSTNAME}`) === true ||
+    normalized?.endsWith(".netlify.app") === true ||
+    normalized?.endsWith(".builder.io") === true
+  );
+}
+
+function isLocalDevHostname(hostname: string | null | undefined): boolean {
+  const normalized = hostname?.trim().toLowerCase().split(":")[0];
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "[::1]" ||
+    normalized === "0.0.0.0" ||
+    normalized?.endsWith(".local") === true
   );
 }
 
@@ -408,7 +421,11 @@ export function resolveFeedbackUrl(
     return parseTarget(normalized) ? normalized : null;
   }
   if (url !== undefined) return null;
-  return isFirstPartyHostname(hostname) ? FIRST_PARTY_FEEDBACK_URL : null;
+  // Local template/dev hosts are first-party too — otherwise the sidebar
+  // feedback row vanishes on 127.0.0.1 even though every app wires it.
+  return isFirstPartyHostname(hostname) || isLocalDevHostname(hostname)
+    ? FIRST_PARTY_FEEDBACK_URL
+    : null;
 }
 
 export function FeedbackButton(props: FeedbackButtonProps) {
@@ -551,11 +568,11 @@ function FeedbackPopoverButton({
                 type="button"
                 aria-label={resolvedLabel}
                 className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                  "flex size-9 items-center justify-center rounded-md bg-transparent text-primary hover:bg-accent/60 hover:text-primary",
                   className,
                 )}
               >
-                <IconMessage2 size={14} />
+                <IconMessageCircle className="size-4 shrink-0 text-primary" />
               </button>
             </PopoverPrimitive.Trigger>
           </TooltipPrimitive.Trigger>
@@ -581,22 +598,23 @@ function FeedbackPopoverButton({
             className,
           )}
         >
-          <IconMessage2 size={14} stroke={1.5} />
+          <IconMessageCircle size={14} stroke={1.5} />
           <span>{resolvedLabel}</span>
         </button>
       </PopoverPrimitive.Trigger>
     );
   } else {
+    // Sidebar variant matches Clips footer feedback row spacing/density.
     trigger = (
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
           className={cn(
-            "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+            "flex h-auto w-full items-center justify-start gap-2 rounded bg-transparent px-2 py-1.5 text-xs font-normal text-primary hover:bg-accent/60 hover:text-primary",
             className,
           )}
         >
-          <IconMessage2 className="h-4 w-4" />
+          <IconMessageCircle className="size-4 shrink-0 text-primary" />
           <span>{resolvedLabel}</span>
         </button>
       </PopoverPrimitive.Trigger>

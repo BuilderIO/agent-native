@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { pushDocumentToNotion } from "../server/lib/notion-sync.js";
@@ -21,12 +22,36 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const documentId = resolveDocumentId(args);
     const owner = await getNotionDocumentOwner(documentId);
     if (args.flushOpenEditor) {
       await flushNotionDocumentEditor(documentId, owner);
     }
-    return pushDocumentToNotion(owner, documentId);
+    const result = await pushDocumentToNotion(owner, documentId);
+    track(
+      "notion_synced",
+      {
+        app_name: "content",
+        template_name: "content",
+        output_id: documentId,
+        output_type: "document",
+        sync_direction: "push",
+        page_count: 1,
+      },
+      ctx,
+    );
+    track(
+      "published",
+      {
+        app_name: "content",
+        template_name: "content",
+        output_id: documentId,
+        output_type: "document",
+        destination: "notion",
+      },
+      ctx,
+    );
+    return result;
   },
 });

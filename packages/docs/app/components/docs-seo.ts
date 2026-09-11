@@ -78,7 +78,12 @@ export function docsAlternateLinksForPath(
 
   for (const locale of DOCS_LOCALES) {
     if (locale === DEFAULT_DOCS_LOCALE) continue;
-    if (!hasAvailableDoc(locale, slug)) continue;
+    // Every locale route resolves and is indexable even without a
+    // translation — `loadDocRespectingDraftVisibility` falls back to the
+    // canonical English doc rather than 404ing (see docs-localization.test).
+    // Skipping untranslated locales here left those pages with no
+    // self-referencing hreflang, which Ahrefs flagged as a broken hreflang
+    // annotation on every fallback page.
     links.push({
       hrefLang: locale,
       path: canonicalDocsPathForSlug(slug, locale),

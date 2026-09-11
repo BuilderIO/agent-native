@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { afterBodyPointerUnlock } from "@/components/ui/pointer-lock";
 import {
   Sheet,
   SheetContent,
@@ -773,7 +774,11 @@ export default function DesignSystems() {
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
                                     <DropdownMenuItem
-                                      onClick={() => setDeleteId(ds.id)}
+                                      onClick={() =>
+                                        afterBodyPointerUnlock(() =>
+                                          setDeleteId(ds.id),
+                                        )
+                                      }
                                       className="text-red-400 focus:text-red-400 cursor-pointer"
                                     >
                                       <IconTrash className="w-3.5 h-3.5 me-2" />

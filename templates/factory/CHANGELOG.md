@@ -3,6 +3,23 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-10
+
+### Improved
+
+- Slack feedback marks clear bugs with 👀 again and requires that reaction before dispatching Builder.
+
+## 2026-09-09
+
+### Improved
+
+- Slack feedback jobs skip threads whose parent already has 👀 or 🤖, instead of tagging Builder again.
+
+### Fixed
+
+- Slack feedback keeps a claimed 👀/🤖 marker after polling, so those threads stay out of the review queue.
+- Slack feedback no longer moves an already-started thread to needs-manual just because the parent already has 👀 or 🤖.
+
 ## 2026-09-08
 
 ### Fixed

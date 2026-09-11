@@ -30,9 +30,16 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          # pull_request_target may run for a branch that predates this helper.
+          # Load the discovery code from the trusted workflow base instead.
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Fetch the PR head for the path diff
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags origin "$HEAD_SHA"
 
       - name: Build the changed app site matrix
         id: targets
@@ -100,8 +107,8 @@ jobs:
       preview_alias: pr-${{ github.event.pull_request.number }}
     secrets: inherit
 
-  comment:
-    name: ${{ matrix.site }} PR preview comment
+  deployment:
+    name: ${{ matrix.site }} PR preview deployment
     if: >-
       always() &&
       github.event.action != 'closed' &&
@@ -112,8 +119,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-      issues: write
-      pull-requests: write
+      deployments: write
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -144,7 +150,7 @@ jobs:
             );
             const deployStartedAt = Date.parse(deployJob?.started_at ?? '');
             if (!Number.isFinite(deployStartedAt)) {
-              core.notice(`No successful deploy job for ${siteName}; skipping its preview comment.`);
+              core.notice(`No successful deploy job for ${siteName}; skipping its preview deployment.`);
               return;
             }
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
@@ -166,7 +172,7 @@ jobs:
               );
             const artifact = trustedArtifacts[0];
             if (!artifact) {
-              core.notice(`No trusted deploy record for ${siteName}; skipping its preview comment.`);
+              core.notice(`No trusted deploy record for ${siteName}; skipping its preview deployment.`);
               return;
             }
             core.setOutput('artifact_id', String(artifact.id));
@@ -179,7 +185,7 @@ jobs:
           artifact-ids: ${{ steps.find_record.outputs.artifact_id }}
           path: ${{ runner.temp }}/netlify-pr-preview-record
 
-      - name: Comment the PR preview URL
+      - name: Create the PR preview deployment
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -191,7 +197,7 @@ jobs:
           script: |
             const { existsSync, readFileSync } = require('node:fs');
             if (!existsSync(process.env.RECORD_FILE)) {
-              core.notice(`No successful deploy record for ${process.env.SITE_NAME}; skipping its preview comment.`);
+              core.notice(`No successful deploy record for ${process.env.SITE_NAME}; skipping its preview deployment.`);
               return;
             }
             const record = JSON.parse(readFileSync(process.env.RECORD_FILE, 'utf8'));
@@ -205,35 +211,26 @@ jobs:
               core.setFailed('PR preview upload did not return a complete deploy record.');
               return;
             }
-            const marker = `<!-- agent-native-netlify-preview:${record.siteName} -->`;
-            const body = [
-              marker,
-              `**${record.siteName} preview:** [Open preview](${record.deployUrl})`,
-              '',
-              `Built by GitHub Actions from \`${record.sourceRef}\`; Netlify is serving the uploaded artifact.`,
-            ].join('\n');
-            const comments = await github.paginate(github.rest.issues.listComments, {
+            const environment = `pr-${context.issue.number}-${record.siteName}`;
+            const deployment = await github.rest.repos.createDeployment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
-              per_page: 100,
+              ref: process.env.SOURCE_REF,
+              environment,
+              auto_merge: false,
+              required_contexts: [],
+              description: `${record.siteName} PR preview`,
+              transient_environment: true,
+              production_environment: false,
             });
-            const existing = comments.find((comment) => comment.body?.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deployment.data.id,
+              state: 'success',
+              environment_url: record.deployUrl,
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
 
   fork:
     name: Fork preview policy
@@ -250,6 +247,9 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -291,3 +291,32 @@ jobs:
             echo "Deleting ${site_name} PR preview deploy ${deploy_id}."
             netlify api deleteSiteDeploy --data "{\"site_id\":\"$site_id\",\"deploy_id\":\"$deploy_id\"}" >/dev/null
           done < <(sort -u "$matching_deploys_file")
+
+      - name: Deactivate GitHub PR preview deployments
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { readFileSync } = require('node:fs');
+            const sites = JSON.parse(readFileSync('scripts/netlify-production-sites.json', 'utf8'));
+            for (const siteName of Object.keys(sites)) {
+              if (siteName === 'workspace') continue;
+              const environment = `pr-${process.env.PR_NUMBER}-${siteName}`;
+              const deployments = await github.paginate(github.rest.repos.listDeployments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                environment,
+                per_page: 100,
+              });
+              for (const deployment of deployments) {
+                await github.rest.repos.createDeploymentStatus({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  deployment_id: deployment.id,
+                  state: 'inactive',
+                });
+              }
+            }

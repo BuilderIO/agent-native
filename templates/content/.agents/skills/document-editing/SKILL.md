@@ -85,6 +85,31 @@ pnpm action update-document --id abc123 --title "New Title" --content "New conte
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 
+### Suggested edits
+
+When the user asks to **suggest**, **propose**, or **leave changes for review**,
+do not call `edit-document` or `update-document`. Read the current Page and use
+`create-resource-suggestion` with `resourceType: "document"`, adapter kind
+`content.document-markdown`, the Page's exact `updatedAt` as `baseRevision`, a
+fresh `idempotencyKey`, and one typed Page-body operation. Preserve both the
+complete current and proposed Markdown in `before.markdown` and
+`after.markdown`; include the narrow changed material and anchor when known.
+
+Use `list-resource-suggestions` to inspect pending and historical proposals.
+Only accept or reject when the user has asked for that decision and the caller
+has editor authority; call `decide-resource-suggestion` with a fresh
+idempotency key and the suggestion's `baseRevision` as `observedBase`. A stale
+result means canonical Content was not overwritten. Suggested edits are
+unavailable for local-file, source-owned, externally linked, database-item, or
+trashed Pages in this release.
+
+```bash
+pnpm action create-resource-suggestion --resourceType document --resourceId abc123 \
+  --adapterKind content.document-markdown --baseRevision '<updatedAt>' \
+  --idempotencyKey '<uuid>' --summary 'Suggest edits' \
+  --operations '[{"ordinal":0,"kind":"replace_text","targetId":"body","before":{"markdown":"Before","changedText":"Before"},"after":{"markdown":"After","changedText":"After"},"anchor":{"from":0,"to":6,"prefix":"","suffix":""},"schemaVersion":1}]'
+```
+
 ### delete-document
 
 Move a document and all its children to Trash. IDs, bodies, hierarchy, and

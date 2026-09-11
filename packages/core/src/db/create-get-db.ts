@@ -1,6 +1,7 @@
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
+  getActivePgliteTransactionClient,
   getRuntimeDatabaseUrl,
   isPgliteUrl,
   isConnectionError,
@@ -367,6 +368,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       _dbReady = loadPgliteDrizzle().then(async ({ drizzle }) => {
         const client = await getPgliteClient(url);
         _db = drizzle({ client, schema });
+        return _db;
       });
       return _dbReady;
     }
@@ -389,6 +391,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         // acquire-timeout (pre-send) errors to avoid double-execution.
         const pool = buildResilientNeonPool(rawPool);
         _db = drizzle(pool, { schema });
+        return _db;
       });
     } else {
       _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
@@ -401,6 +404,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           postgres(url, pgPoolOptions(url)),
         );
         _db = drizzle(buildResilientPostgresJsClient(client), { schema });
+        return _db;
       });
     }
     return _dbReady;
@@ -422,8 +426,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       get(_target, prop) {
         // When awaited, replay the chain on the real db
         if (prop === "then" || prop === "catch" || prop === "finally") {
-          const promise = ready.then(() => {
-            let result: any = _db;
+          const promise = ready.then((readyDb) => {
+            let result: any = readyDb;
             for (const step of chain) {
               const val = result[step.prop];
               result =
@@ -476,6 +480,19 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
    * the final result, the proxy is transparent.
    */
   function getDb(): PgDatabase<PgQueryResultHKT, T> {
+    const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
+    const activePgliteClient = isPgliteUrl(url)
+      ? getActivePgliteTransactionClient(url)
+      : undefined;
+    if (activePgliteClient) {
+      const transactionDb = loadPgliteDrizzle().then(({ drizzle }) =>
+        drizzle({ client: activePgliteClient, schema }),
+      );
+      return createLazyProxy(transactionDb, []) as PgDatabase<
+        PgQueryResultHKT,
+        T
+      >;
+    }
     if (_db) return _db;
     void startInit();
     if (_db) return _db;

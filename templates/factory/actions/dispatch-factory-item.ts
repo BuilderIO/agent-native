@@ -145,6 +145,19 @@ export function dispatchRepositoryConflictReason(
   return `Factory item belongs to ${repositoryRef}, but this factory is configured for ${authorizedRepository}.`;
 }
 
+export function slackClearBugReactionRequirement(input: {
+  source: string;
+  clearBug: boolean;
+  alreadyClaimed: boolean;
+  blocked: boolean;
+  reactionName: string | null;
+}): string | null {
+  if (input.blocked || input.source !== "slack") return null;
+  if (!input.clearBug || input.alreadyClaimed) return null;
+  if (input.reactionName === "eyes") return null;
+  return "Slack clear bugs must pass reaction eyes before Builder is dispatched.";
+}
+
 export function relatedDispatchConflictReason(
   item: Pick<RelatedFeedbackItem, "id">,
   metadata: Record<string, unknown>,
@@ -324,14 +337,14 @@ export async function recordAutomaticBuilderDecision(input: {
 
 export default defineAction({
   description:
-    "Tag Builder for a Factory item, or record a skip when clearBug is false or alreadyClaimed is true. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Pass optional reaction (an emoji name such as robot_face) to mark the item source when that provider can; omit it to add no reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository. Owner-managed Clips, Design, and Content items are always left for their owner.",
+    "Tag Builder for a Factory item, or record a skip when clearBug is false or alreadyClaimed is true. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Slack clear bugs require reaction eyes; skips omit reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository. Owner-managed Clips, Design, and Content items are always left for their owner.",
   schema: z.object({
     itemId: z.string().min(1),
     alreadyClaimed: z
       .boolean()
       .default(false)
       .describe(
-        "True when the Slack parent already has eyes or robot_face. Records the skip without starting Builder work: received items become needs_manual so they leave needsReview; items that already started keep their status. clearBug may be omitted or false.",
+        "True when the Slack parent already has eyes. Records the skip without starting Builder work: received items become needs_manual so they leave needsReview; items that already started keep their status. clearBug may be omitted or false.",
       ),
     clearBug: z
       .boolean()
@@ -353,7 +366,7 @@ export default defineAction({
       .max(50)
       .optional()
       .describe(
-        "Emoji name to add on the item source when that provider can, for example robot_face. Omit to add no reaction.",
+        "Emoji name to add on the item source when that provider can. Slack clear bugs require eyes; omit on skips.",
       ),
     relatedItemIds: z
       .array(z.string().trim().min(1))
@@ -505,6 +518,16 @@ export default defineAction({
     ];
     const blocked =
       alreadyClaimed || guardResults.some((guard) => !guard.passed);
+    const reactionRequirement = slackClearBugReactionRequirement({
+      source: item.source,
+      clearBug,
+      alreadyClaimed,
+      blocked,
+      reactionName,
+    });
+    if (reactionRequirement) {
+      throw new Error(reactionRequirement);
+    }
     const skipStatus = dispatchSkipStatusWrite(item.status);
     const decisionId = await recordAutomaticBuilderDecision({
       itemId,

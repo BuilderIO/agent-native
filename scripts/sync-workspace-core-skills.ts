@@ -6,10 +6,12 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
+  readlinkSync,
   rmSync,
   statSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -21,6 +23,11 @@ import { isRetiredCompatibilityTemplate } from "./template-standard/manifest.ts"
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
 const sourceDir = join(rootDir, ".agents", "skills");
+const allowedSourceRoots = [
+  realpathSync(sourceDir),
+  realpathSync(join(rootDir, "skills")),
+  realpathSync(join(rootDir, "templates", "content", ".agents", "skills")),
+];
 const targetDir = join(
   rootDir,
   "packages",
@@ -659,16 +666,51 @@ function checkNoStaleTemplateSharedSkills() {
   }
 }
 
+function isWithin(root, candidate) {
+  const pathFromRoot = relative(root, candidate);
+  return (
+    pathFromRoot === "" ||
+    (pathFromRoot !== ".." &&
+      !pathFromRoot.startsWith(`..${sep}`) &&
+      !isAbsolute(pathFromRoot))
+  );
+}
+
+function isAbsoluteLinkTarget(target) {
+  return isAbsolute(target) || win32.isAbsolute(target);
+}
+
+function resolveSourceSkill(skill) {
+  const sourceSkillDir = realpathSync(join(sourceDir, skill));
+  if (!allowedSourceRoots.some((root) => isWithin(root, sourceSkillDir))) {
+    throw new Error(
+      `Refusing to copy ${skill}: resolved source is outside approved skill roots (${sourceSkillDir})`,
+    );
+  }
+  return sourceSkillDir;
+}
+
+function validateSourceSkills() {
+  for (const skill of new Set([
+    ...workspaceSkillIncludes,
+    ...templateSharedSkillIncludes,
+  ])) {
+    resolveSourceSkill(skill);
+  }
+}
+
 function copySkill(skill, targetSkillDir) {
+  const sourceSkillDir = resolveSourceSkill(skill);
   if (
     existsSync(targetSkillDir) &&
-    lstatSync(targetSkillDir).isSymbolicLink()
+    lstatSync(targetSkillDir).isSymbolicLink() &&
+    !isAbsoluteLinkTarget(readlinkSync(targetSkillDir))
   ) {
     return;
   }
   rmSync(targetSkillDir, { recursive: true, force: true });
   mkdirSync(dirname(targetSkillDir), { recursive: true });
-  cpSync(join(sourceDir, skill), targetSkillDir, { recursive: true });
+  cpSync(sourceSkillDir, targetSkillDir, { recursive: true });
 }
 
 function syncWorkspaceCoreSkills() {
@@ -692,6 +734,7 @@ function syncTemplateSharedSkills() {
 
 try {
   assertCategorized();
+  validateSourceSkills();
   if (check) {
     checkInSync();
     checkTemplateSharedSkillsInSync();

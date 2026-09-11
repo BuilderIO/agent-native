@@ -8,6 +8,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import {
   delimitUntrustedReference,
   getGenerationCreativeContext,
@@ -43,6 +44,7 @@ import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import {
   assertCanDraft,
   assertCanUseAssets,
+  draftProvenanceAccess,
   draftScopeForLibrary,
 } from "../server/lib/library-access.js";
 import {
@@ -65,6 +67,7 @@ import {
   IMAGE_QUALITY_TIERS,
   IMAGE_SIZES,
   STYLE_STRENGTHS,
+  normalizeCallerAppId,
   supportedAspectRatiosForModel,
   type AspectRatio,
   type ImageCategory,
@@ -262,6 +265,7 @@ export default defineAction({
       ...input,
       libraryId,
     };
+    const callerAppId = normalizeCallerAppId(args.callerAppId);
     const draftAccess = await assertCanDraft(args.libraryId);
     // Inputs answer to the same author rule as reads: another drafter's
     // candidate must not reach the provider as a reference or a source.
@@ -886,7 +890,7 @@ export default defineAction({
       referenceAssetIds: stringifyJson(references.map((ref) => ref.id)),
       status: "pending",
       source: args.source,
-      callerAppId: args.callerAppId ?? null,
+      callerAppId: callerAppId ?? null,
       ownerEmail,
       orgId,
       metadata: stringifyJson(baseMetadata),
@@ -900,12 +904,7 @@ export default defineAction({
         ...creativeContextProvenance,
         elementProvenance: elementProvenanceFor(runId),
       },
-      {
-        artifactAccess: {
-          resourceType: "asset-library",
-          resourceId: args.libraryId,
-        },
-      },
+      { artifactAccess: draftProvenanceAccess(args.libraryId) },
     );
 
     await upsertVariantSlot({
@@ -955,7 +954,7 @@ export default defineAction({
             libraryId: args.libraryId,
             collectionId: resolvedCollectionId ?? null,
             source: args.source,
-            callerAppId: args.callerAppId,
+            callerAppId,
             hasBoardReferences: boardRefs.length > 0,
           }),
       );
@@ -1074,12 +1073,7 @@ export default defineAction({
           ...creativeContextProvenance,
           elementProvenance: elementProvenanceFor(asset.id),
         },
-        {
-          artifactAccess: {
-            resourceType: "asset-library",
-            resourceId: args.libraryId,
-          },
-        },
+        { artifactAccess: draftProvenanceAccess(args.libraryId) },
       );
       if (session) {
         const itemCreatedAt = nowIso();
@@ -1132,6 +1126,33 @@ export default defineAction({
         .where(eq(schema.assetGenerationRuns.id, runId));
       const serialized = serializeAssetSummary(asset);
       const urls = assetUrls(asset);
+      track(
+        "media_generated",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: asset.id,
+          output_type: "asset",
+          media_type: "image",
+          library_id: args.libraryId,
+          source_app: callerAppId,
+        },
+        context,
+      );
+      if (callerAppId) {
+        track(
+          "cross_app_used",
+          {
+            app_name: "assets",
+            template_name: "assets",
+            source_app: callerAppId,
+            target_app: "assets",
+            output_id: asset.id,
+            output_type: "asset",
+          },
+          context,
+        );
+      }
       await upsertVariantSlot({
         runId,
         batchId: args.variantBatchId ?? null,

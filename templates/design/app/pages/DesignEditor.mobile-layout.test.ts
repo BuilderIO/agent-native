@@ -28,8 +28,25 @@ describe("Design editor mobile layout", () => {
       "flex max-w-[calc(100%-1rem)] -translate-x-1/2",
     );
     expect(bottomToolbarSource).toContain("overflow-x-auto rounded-xl");
+    // Sidebars overlay the full-bleed canvas so opening/closing chrome does
+    // not reflow pan/centering. Absolute left/right shells are required.
     expect(editorSource).toContain(
-      "relative hidden h-full min-h-0 shrink-0 flex-col",
+      "absolute inset-y-0 left-0 z-[70] flex min-h-0",
+    );
+    // Right inspector classnames live in minimal-inspector.ts so minimal mode
+    // can swap the docked rail for a floating card without duplicating shells.
+    expect(editorSource).toContain(
+      "className={rightInspectorPanelClassName(minimalUi)}",
+    );
+    const inspectorSource = readFileSync(
+      "app/pages/design-editor/minimal-inspector.ts",
+      "utf8",
+    );
+    expect(inspectorSource).toContain(
+      "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col",
+    );
+    expect(inspectorSource).toContain(
+      "absolute top-14 right-3 bottom-3 z-[70] hidden min-h-0 flex-col overflow-hidden rounded-2xl",
     );
     expect(editorSource).toContain(
       "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
@@ -49,7 +66,14 @@ describe("Design editor mobile layout", () => {
     expect(layoutSource).toContain(
       "!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p))",
     );
+    expect(layoutSource).toContain("input.embedChromeRequested");
     expect(layoutSource).toContain("{!standaloneEditor && (\n");
+  });
+
+  it("keeps the standard rails in the visual-edit embed", () => {
+    expect(editorSource).toContain(
+      "embedded && !hostOwnsChrome && !embedChromeRequested",
+    );
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {
