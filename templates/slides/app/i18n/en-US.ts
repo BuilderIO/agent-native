@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Settings",
     description: "Language and workspace preferences for this app.",
+    labs: "Labs",
+    labsIntro: "Preview experimental features before they ship.",
+    labLayoutOverflowWarningDescription:
+      "Show the layout overflow warning in the editor.",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:
       "Get an email when someone comments on or replies in your deck.",

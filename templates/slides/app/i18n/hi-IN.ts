@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "सेटिंग्स",
     description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
+    labs: "लैब्स",
+    labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
+    labLayoutOverflowWarningDescription: "एडिटर में लेआउट ओवरफ्लो चेतावनी दिखाएँ।",
     emailNotifications: "ईमेल सूचनाएँ",
     emailNotificationsDescription:
       "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",

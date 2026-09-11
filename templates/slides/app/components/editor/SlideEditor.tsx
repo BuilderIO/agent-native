@@ -11,8 +11,10 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabState } from "@agent-native/core/client/labs";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { SLIDES_LAYOUT_OVERFLOW_WARNING } from "@shared/labs";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
@@ -1371,6 +1373,9 @@ export default function SlideEditor({
   recentEdits = [],
 }: SlideEditorProps) {
   const t = useT();
+  const layoutOverflowWarningEnabled = useLabState(
+    SLIDES_LAYOUT_OVERFLOW_WARNING.key,
+  ).enabled;
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
     content.includes('class="fmd-slide"') ||
@@ -7493,7 +7498,8 @@ export default function SlideEditor({
                               />
                             </div>
                           )}
-                          {overflowInfo &&
+                          {layoutOverflowWarningEnabled &&
+                            overflowInfo &&
                             !readOnly &&
                             !agentActive &&
                             warningVisible && (

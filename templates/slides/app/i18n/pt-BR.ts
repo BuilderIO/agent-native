@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Configurações",
     description: "Preferências de idioma e espaço de trabalho deste app.",
+    labs: "Labs",
+    labsIntro: "Confira recursos experimentais antes do lançamento.",
+    labLayoutOverflowWarningDescription:
+      "Mostrar o aviso de estouro do layout no editor.",
     emailNotifications: "Notificações por e-mail",
     emailNotificationsDescription:
       "Receba um e-mail quando alguém comentar ou responder na sua apresentação.",

@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
+    labs: "Labs",
+    labsIntro: "출시 전에 실험적인 기능을 미리 사용해 보세요.",
+    labLayoutOverflowWarningDescription:
+      "편집기에서 레이아웃 오버플로 경고를 표시합니다.",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription:
       "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
