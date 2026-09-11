@@ -84,6 +84,39 @@ export function extractFontFaceRules(
   return rules;
 }
 
+/** Elements that hold text nodes but paint nothing. */
+const NON_RENDERED_TAGS = new Set([
+  "STYLE",
+  "SCRIPT",
+  "TITLE",
+  "META",
+  "LINK",
+  "HEAD",
+  "NOSCRIPT",
+  "TEMPLATE",
+]);
+
+/**
+ * html2canvas resolves `::before` / `::after` into real painted elements
+ * (`DocumentCloner.resolvePseudoContent`), so their fonts need requesting too.
+ * An icon `<i class="icon"></i>` carries no direct text at all, so without
+ * this its family was never requested and the glyph rasterized as fallback.
+ */
+function pseudoContentIsPainted(content: string | null | undefined): boolean {
+  if (!content) return false;
+  const value = content.trim();
+  return value !== "" && value !== "none" && value !== "normal";
+}
+
+function fontSpecFrom(style: CSSStyleDeclaration): string | null {
+  const family = style.fontFamily;
+  const size = style.fontSize;
+  if (!family || !size) return null;
+  const weight = style.fontWeight || "400";
+  const fontStyle = style.fontStyle || "normal";
+  return `${fontStyle} ${weight} ${size} ${family}`;
+}
+
 /**
  * The CSS `font` shorthands actually painted in the preview. `fonts.ready`
  * alone is not enough in the editor document: nothing there uses these
@@ -95,17 +128,25 @@ export function collectUsedFontSpecs(doc: Document): string[] {
   if (!view) return [];
   const specs = new Set<string>();
   for (const element of Array.from(doc.querySelectorAll<HTMLElement>("*"))) {
+    if (NON_RENDERED_TAGS.has(element.tagName)) continue;
     const hasText = Array.from(element.childNodes).some(
       (node) => node.nodeType === 3 && (node.textContent ?? "").trim() !== "",
     );
-    if (!hasText) continue;
-    const style = view.getComputedStyle(element);
-    const family = style.fontFamily;
-    const size = style.fontSize;
-    if (!family || !size) continue;
-    const weight = style.fontWeight || "400";
-    const fontStyle = style.fontStyle || "normal";
-    specs.add(`${fontStyle} ${weight} ${size} ${family}`);
+    if (hasText) {
+      const spec = fontSpecFrom(view.getComputedStyle(element));
+      if (spec) specs.add(spec);
+    }
+    for (const pseudo of ["::before", "::after"]) {
+      let style: CSSStyleDeclaration | null = null;
+      try {
+        style = view.getComputedStyle(element, pseudo);
+      } catch {
+        continue;
+      }
+      if (!pseudoContentIsPainted(style?.content)) continue;
+      const spec = style ? fontSpecFrom(style) : null;
+      if (spec) specs.add(spec);
+    }
   }
   return Array.from(specs);
 }
@@ -117,6 +158,49 @@ const IMPORT_RULE = 3;
 interface FontFaceHarvest {
   rules: string[];
   unreadable: string[];
+  /** Preview window, used to evaluate grouping conditions where they apply. */
+  view: Window | null;
+}
+
+/**
+ * Does a grouping rule (`@media`, `@supports`, `@layer`) apply in the preview?
+ *
+ * Faces are mirrored unconditionally, so a face nested in a non-matching
+ * `@media` would become active in the editor document while the preview laid
+ * out without it - the same metric mismatch this module exists to remove, just
+ * inverted. Re-emitting the condition instead would be worse: it would be
+ * evaluated against the editor window, whose width and features differ from
+ * the artboard-sized preview iframe. Resolve the question where the layout
+ * actually happened, then emit the survivors unconditionally.
+ *
+ * An unevaluable condition keeps the face: a spurious extra face costs a font
+ * request, a missing one silently restores the fallback-metrics bug.
+ */
+function groupingRuleAppliesInPreview(
+  rule: CSSRule,
+  view: Window | null,
+): boolean {
+  const mediaText = (rule as CSSMediaRule).media?.mediaText;
+  if (mediaText) {
+    if (typeof view?.matchMedia !== "function") return true;
+    try {
+      return view.matchMedia(mediaText).matches;
+    } catch {
+      return true;
+    }
+  }
+  const conditionText = (rule as CSSSupportsRule).conditionText;
+  if (conditionText) {
+    const css = (view as (Window & { CSS?: typeof CSS }) | null)?.CSS;
+    if (typeof css?.supports !== "function") return true;
+    try {
+      return css.supports(conditionText);
+    } catch {
+      return true;
+    }
+  }
+  // `@layer` and anything else with no condition is always in play.
+  return true;
 }
 
 /**
@@ -183,12 +267,17 @@ function harvestFontFaceRules(
     if (!nested) continue;
     if (seen.has(rule)) continue;
     seen.add(rule);
+    if (!groupingRuleAppliesInPreview(rule, harvest.view)) continue;
     harvestFontFaceRules(Array.from(nested), baseUrl, harvest, seen);
   }
 }
 
 function collectPreviewFontFaceCss(doc: Document): FontFaceHarvest {
-  const harvest: FontFaceHarvest = { rules: [], unreadable: [] };
+  const harvest: FontFaceHarvest = {
+    rules: [],
+    unreadable: [],
+    view: doc.defaultView,
+  };
   const seen = new Set<object>();
   for (const sheet of Array.from(doc.styleSheets)) {
     const base = sheet.href ?? doc.baseURI;
@@ -208,15 +297,84 @@ function collectPreviewFontFaceCss(doc: Document): FontFaceHarvest {
   return harvest;
 }
 
-async function fetchFontFaceRules(
-  href: string,
-  signal?: AbortSignal,
-): Promise<string[]> {
-  const response = await fetch(href, { signal });
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+/**
+ * `@import url("x")` / `@import "x"` targets, resolved to absolute URLs.
+ * A target that will not resolve is returned separately rather than dropped,
+ * so the caller can report a sheet it could not follow instead of mirroring
+ * a silently incomplete set of faces.
+ */
+export function extractImportUrls(
+  cssText: string,
+  baseUrl: string,
+): { urls: string[]; unresolvable: string[] } {
+  const urls: string[] = [];
+  const unresolvable: string[] = [];
+  const pattern =
+    /@import\s+(?:url\(\s*(['"]?)([^'")]+)\1\s*\)|(['"])([^'"]+)\3)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(cssText))) {
+    const raw = (match[2] ?? match[4] ?? "").trim();
+    if (!raw) continue;
+    try {
+      urls.push(new URL(raw, baseUrl).href);
+    } catch {
+      unresolvable.push(raw);
+    }
   }
-  return extractFontFaceRules(await response.text(), href);
+  return { urls, unresolvable };
+}
+
+/**
+ * A fetched stylesheet can itself `@import` the sheet holding the faces, so
+ * stopping at direct `@font-face` blocks dropped them with nothing reported.
+ * Bounded so a cyclic or deeply chained import cannot stall an export.
+ */
+const MAX_FETCHED_IMPORT_DEPTH = 3;
+
+interface FetchContext {
+  failed: string[];
+  visited: Set<string>;
+  /** Sheets that produced an answer, so a timeout cannot look like success. */
+  resolved: Set<string>;
+  signal?: AbortSignal;
+  remainingMs: () => number;
+}
+
+async function fetchFontFaceRulesDeep(
+  href: string,
+  context: FetchContext,
+  depth = 0,
+): Promise<string[]> {
+  if (context.visited.has(href)) return [];
+  context.visited.add(href);
+  if (depth > MAX_FETCHED_IMPORT_DEPTH || context.remainingMs() <= 0) {
+    context.failed.push(href);
+    context.resolved.add(href);
+    return [];
+  }
+  let cssText: string;
+  try {
+    const response = await fetch(href, { signal: context.signal });
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    cssText = await response.text();
+  } catch {
+    context.failed.push(href);
+    context.resolved.add(href);
+    return [];
+  }
+  const rules = extractFontFaceRules(cssText, href);
+  const imports = extractImportUrls(cssText, href);
+  context.failed.push(...imports.unresolvable);
+  const nested = await Promise.all(
+    imports.urls.map((importHref) =>
+      fetchFontFaceRulesDeep(importHref, context, depth + 1),
+    ),
+  );
+  for (const group of nested) rules.push(...group);
+  context.resolved.add(href);
+  return rules;
 }
 
 /**
@@ -231,26 +389,46 @@ export async function mirrorPreviewWebFonts(
   options?: { timeoutMs?: number },
 ): Promise<MirroredFonts> {
   const timeoutMs = options?.timeoutMs ?? 4000;
+  // One budget for the whole operation. Fetching and font loading used to get
+  // a full window each, so a slow stylesheet followed by slow fonts could add
+  // roughly double the intended delay to an export that is already waiting on
+  // waitForExportReady.
+  const deadlineAt = Date.now() + timeoutMs;
+  const remainingMs = () => Math.max(0, deadlineAt - Date.now());
   const { rules, unreadable } = collectPreviewFontFaceCss(previewDoc);
   const failed: string[] = [];
 
   const controller =
     typeof AbortController === "function" ? new AbortController() : null;
   const fetchTimer = controller
-    ? setTimeout(() => controller.abort(), timeoutMs)
+    ? setTimeout(() => controller.abort(), remainingMs())
     : null;
-  const fetched = await Promise.all(
-    unreadable.map(async (href) => {
-      try {
-        return await fetchFontFaceRules(href, controller?.signal);
-      } catch {
-        failed.push(href);
-        return [] as string[];
-      }
+  const fetchContext: FetchContext = {
+    failed,
+    visited: new Set<string>(),
+    resolved: new Set<string>(),
+    signal: controller?.signal,
+    remainingMs,
+  };
+  // Abort only asks nicely; a fetch implementation that ignores the signal
+  // would otherwise hang the export forever. The deadline has to bound the
+  // phase itself, not just the request.
+  const fetched = await Promise.race([
+    Promise.all(
+      unreadable.map((href) => fetchFontFaceRulesDeep(href, fetchContext)),
+    ),
+    new Promise<string[][]>((resolve) => {
+      setTimeout(() => resolve([]), remainingMs());
     }),
-  );
+  ]);
   if (fetchTimer) clearTimeout(fetchTimer);
   for (const group of fetched) rules.push(...group);
+  // A sheet the timeout cut short is neither mirrored nor yet reported.
+  for (const href of unreadable) {
+    if (!fetchContext.resolved.has(href) && !failed.includes(href)) {
+      failed.push(href);
+    }
+  }
 
   if (rules.length === 0 || !targetDoc.head) {
     return {
@@ -279,7 +457,7 @@ export async function mirrorPreviewWebFonts(
 
   const specs = collectUsedFontSpecs(previewDoc);
   const deadline = new Promise<void>((resolve) => {
-    setTimeout(resolve, timeoutMs);
+    setTimeout(resolve, remainingMs());
   });
   await Promise.race([
     Promise.all(specs.map((spec) => fontSet.load(spec).catch(() => undefined)))

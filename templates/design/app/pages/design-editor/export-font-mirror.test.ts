@@ -6,6 +6,7 @@ import {
   absolutizeCssUrls,
   collectUsedFontSpecs,
   extractFontFaceRules,
+  extractImportUrls,
   mirrorPreviewWebFonts,
 } from "./export-font-mirror";
 
@@ -311,5 +312,275 @@ describe("mirrorPreviewWebFonts nested stylesheets", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+/**
+ * html2canvas turns `::before` / `::after` into real painted elements
+ * (`DocumentCloner.resolvePseudoContent`), so a font used only by generated
+ * content still has to be requested in the document that owns the canvas.
+ *
+ * happy-dom does not implement pseudo-element computed styles (`content` comes
+ * back empty), so these drive a stubbed view: they pin that the walk asks for
+ * pseudo styles and uses them, which is the logic this module owns. The
+ * end-to-end behaviour is covered by the Chromium harness.
+ */
+describe("collectUsedFontSpecs generated content", () => {
+  function docWithComputedStyles(
+    html: string,
+    styles: (
+      element: Element,
+      pseudo?: string | null,
+    ) => Record<string, string>,
+  ): Document {
+    const doc = document.implementation.createHTMLDocument("preview");
+    doc.body.innerHTML = html;
+    Object.defineProperty(doc, "defaultView", {
+      value: {
+        getComputedStyle: (element: Element, pseudo?: string | null) =>
+          styles(element, pseudo) as unknown as CSSStyleDeclaration,
+      },
+    });
+    return doc;
+  }
+
+  it("requests the font of an icon pseudo-element with no host text", () => {
+    const doc = docWithComputedStyles(`<i class="icon"></i>`, (_el, pseudo) =>
+      pseudo === "::before"
+        ? {
+            content: '"\\f0c7"',
+            fontFamily: '"IconFont"',
+            fontSize: "20px",
+            fontWeight: "700",
+            fontStyle: "normal",
+          }
+        : {
+            content: "none",
+            fontFamily: "Inter",
+            fontSize: "16px",
+            fontWeight: "400",
+            fontStyle: "normal",
+          },
+    );
+
+    const specs = collectUsedFontSpecs(doc);
+
+    expect(specs).toEqual(['normal 700 20px "IconFont"']);
+  });
+
+  it("ignores pseudo-elements with no painted content", () => {
+    const doc = docWithComputedStyles(`<i class="plain"></i>`, () => ({
+      content: "none",
+      fontFamily: '"Ghost"',
+      fontSize: "16px",
+      fontWeight: "400",
+      fontStyle: "normal",
+    }));
+
+    expect(collectUsedFontSpecs(doc)).toEqual([]);
+  });
+
+  it("skips elements that hold text but paint none of it", () => {
+    document.head.innerHTML = "";
+    document.body.innerHTML = `<div><style>.x { color: red }</style><script>var a = 1;</script></div>`;
+
+    expect(collectUsedFontSpecs(document)).toEqual([]);
+  });
+});
+
+describe("extractImportUrls", () => {
+  it("resolves url() and bare-string imports", () => {
+    expect(
+      extractImportUrls(
+        `@import url("a.css"); @import 'b.css'; @import url(c.css) screen;`,
+        "https://cdn.example.com/css/main.css",
+      ),
+    ).toEqual({
+      urls: [
+        "https://cdn.example.com/css/a.css",
+        "https://cdn.example.com/css/b.css",
+        "https://cdn.example.com/css/c.css",
+      ],
+      unresolvable: [],
+    });
+  });
+
+  it("returns an unresolvable target instead of dropping it", () => {
+    expect(extractImportUrls(`@import url("a.css");`, "not a base")).toEqual({
+      urls: [],
+      unresolvable: ["a.css"],
+    });
+  });
+});
+
+describe("mirrorPreviewWebFonts import chains and budget", () => {
+  const FONT_FACE_RULE = 5;
+
+  function crossOriginPreview(href: string): Document {
+    const preview = document.implementation.createHTMLDocument("preview");
+    Object.defineProperty(preview, "styleSheets", {
+      value: [
+        {
+          href,
+          get cssRules(): never {
+            throw new DOMException("cross-origin", "SecurityError");
+          },
+        },
+      ],
+    });
+    return preview;
+  }
+
+  it("follows an @import inside a fetched stylesheet", async () => {
+    const outer = "https://fonts.example.com/outer.css";
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: () =>
+          Promise.resolve(
+            String(url).includes("outer")
+              ? `@import url("nested/inner.css");`
+              : `@font-face { font-family: "Inner"; src: url(i.woff2); }`,
+          ),
+      })) as unknown as typeof fetch;
+    try {
+      const target = document.implementation.createHTMLDocument("editor");
+      const mirrored = await mirrorPreviewWebFonts(
+        crossOriginPreview(outer),
+        target,
+      );
+      expect(mirrored.faceCount).toBe(1);
+      expect(mirrored.unreadableStylesheets).toEqual([]);
+      expect(
+        target.head.querySelector("style[data-agent-native-export-fontface]")
+          ?.textContent,
+      ).toContain("https://fonts.example.com/nested/i.woff2");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("reports an unreachable nested import rather than losing it", async () => {
+    const outer = "https://fonts.example.com/outer.css";
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((url: string) =>
+      String(url).includes("outer")
+        ? Promise.resolve({
+            ok: true,
+            status: 200,
+            statusText: "OK",
+            text: () => Promise.resolve(`@import url("inner.css");`),
+          })
+        : Promise.reject(new Error("offline"))) as unknown as typeof fetch;
+    try {
+      const mirrored = await mirrorPreviewWebFonts(
+        crossOriginPreview(outer),
+        document.implementation.createHTMLDocument("editor"),
+      );
+      expect(mirrored.faceCount).toBe(0);
+      expect(mirrored.unreadableStylesheets).toEqual([
+        "https://fonts.example.com/inner.css",
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("terminates on an import cycle between fetched sheets", async () => {
+    const outer = "https://fonts.example.com/a.css";
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: () =>
+          Promise.resolve(
+            String(url).includes("a.css")
+              ? `@import url("b.css"); @font-face { font-family: "A"; src: url(a.woff2); }`
+              : `@import url("a.css");`,
+          ),
+      })) as unknown as typeof fetch;
+    try {
+      const mirrored = await mirrorPreviewWebFonts(
+        crossOriginPreview(outer),
+        document.implementation.createHTMLDocument("editor"),
+      );
+      expect(mirrored.faceCount).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("spends one shared budget across fetching and font loading", async () => {
+    const outer = "https://fonts.example.com/slow.css";
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (() =>
+      new Promise(() => {
+        // Never settles; the shared deadline has to end this phase.
+      })) as unknown as typeof fetch;
+    try {
+      const started = Date.now();
+      await mirrorPreviewWebFonts(
+        crossOriginPreview(outer),
+        document.implementation.createHTMLDocument("editor"),
+        { timeoutMs: 300 },
+      );
+      // Two independent windows would take ~600ms here.
+      expect(Date.now() - started).toBeLessThan(520);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("mirrorPreviewWebFonts grouping conditions", () => {
+  const FONT_FACE_RULE = 5;
+  const MEDIA_RULE = 4;
+
+  function previewWithMedia(mediaText: string, matches: boolean): Document {
+    const preview = document.implementation.createHTMLDocument("preview");
+    Object.defineProperty(preview, "styleSheets", {
+      value: [
+        {
+          href: "https://cdn.example.com/a.css",
+          cssRules: [
+            {
+              type: MEDIA_RULE,
+              media: { mediaText },
+              cssRules: [
+                {
+                  type: FONT_FACE_RULE,
+                  cssText: `@font-face { font-family: "Conditional"; src: url(c.woff2); }`,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    Object.defineProperty(preview, "defaultView", {
+      value: { matchMedia: () => ({ matches }) },
+    });
+    return preview;
+  }
+
+  it("mirrors a face whose condition matches in the preview", async () => {
+    const mirrored = await mirrorPreviewWebFonts(
+      previewWithMedia("screen", true),
+      document.implementation.createHTMLDocument("editor"),
+    );
+    expect(mirrored.faceCount).toBe(1);
+  });
+
+  it("skips a face the preview never activated", async () => {
+    const mirrored = await mirrorPreviewWebFonts(
+      previewWithMedia("print", false),
+      document.implementation.createHTMLDocument("editor"),
+    );
+    expect(mirrored.faceCount).toBe(0);
   });
 });
