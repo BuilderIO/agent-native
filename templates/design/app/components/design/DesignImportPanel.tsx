@@ -29,8 +29,8 @@ import {
 } from "@/lib/design-file-upload";
 import {
   importResultNotification,
-  isFigmaRateLimitImportError,
   looksLikeStandaloneHtml,
+  readFigmaImportFailure,
   VISUAL_EDIT_CONNECT_COMMAND,
   VISUAL_EDIT_INSTALL_COMMAND,
   type ImportResult,
@@ -237,40 +237,16 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     } catch (error) {
       // A rejected credential should not linger in component state or the DOM.
       setFigmaAccessToken("");
-      const rateLimitDetails = error as Error & {
-        rateLimitRetryAfter?: number;
-        rateLimitPlanTier?: string;
-        figmaPlanTier?: string;
-        rateLimitType?: string;
-        figmaRateLimitType?: string;
-        rateLimitUpgradeUrl?: string;
-        figmaUpgradeUrl?: string;
-      };
-      const rateLimitResult: ImportResult = {
-        error:
-          typeof rateLimitDetails.message === "string"
-            ? rateLimitDetails.message
-            : t("common.genericError"),
-        rateLimitRetryAfter: rateLimitDetails.rateLimitRetryAfter,
-        rateLimitPlanTier:
-          rateLimitDetails.rateLimitPlanTier ?? rateLimitDetails.figmaPlanTier,
-        rateLimitType:
-          rateLimitDetails.rateLimitType ?? rateLimitDetails.figmaRateLimitType,
-        rateLimitUpgradeUrl:
-          rateLimitDetails.rateLimitUpgradeUrl ??
-          rateLimitDetails.figmaUpgradeUrl,
-      };
-      const isRateLimitError =
-        (error instanceof Error &&
-          /rate limit|429|quota/i.test(error.message)) ||
-        isFigmaRateLimitImportError(rateLimitResult);
-      if (isRateLimitError) {
-        setFigmaRateLimitError(rateLimitResult);
+      const { result, isRateLimited } = readFigmaImportFailure(
+        error,
+        t("common.genericError"),
+      );
+      if (isRateLimited) {
+        setFigmaRateLimitError(result);
         setActiveMode("fig-upload");
       }
       toast.error(t("designEditor.import.errors.figmaImportFailed"), {
-        description:
-          error instanceof Error ? error.message : t("common.genericError"),
+        description: result.error,
       });
     } finally {
       setFigmaConnectionBusy(false);

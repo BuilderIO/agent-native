@@ -10,6 +10,10 @@ import {
   type FigmaClipboardMatchReason,
 } from "../server/lib/figma-clipboard-match.js";
 import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+} from "../server/lib/figma-import-errors.js";
+import {
   buildScreenFilesFromFigmaNodes,
   fetchFileStructure,
   fetchFigmaNodes,
@@ -144,7 +148,10 @@ export default defineAction({
   ) => {
     const fileKey = parseFigmaFileKey(figmetaFileKey);
     if (!fileKey) {
-      throw new Error("The clipboard's Figma file key could not be parsed.");
+      failFigmaImport(
+        "The clipboard's Figma file key could not be parsed.",
+        FIGMA_IMPORT_ERROR_CODES.urlInvalid,
+      );
     }
     const resolvedDesignId = await resolveImportDesignId(designId);
 
@@ -201,8 +208,9 @@ export default defineAction({
 
       if (clipboardTexts.length === 0) {
         matchStatus = "none";
-        throw new Error(
+        failFigmaImport(
           "The Figma clipboard did not include exact node ids or visible text for matching.",
+          FIGMA_IMPORT_ERROR_CODES.clipboardUnmatched,
         );
       }
 

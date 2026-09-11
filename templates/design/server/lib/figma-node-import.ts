@@ -17,6 +17,13 @@ import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+  isFigmaImportFailure,
+  isFigmaPayloadTooLargeError,
+  readFigmaProviderJson,
+} from "./figma-import-errors.js";
+import {
   collectFallbackNodeIds,
   collectFontUsage,
   collectImageFillRefs,
@@ -62,8 +69,10 @@ class FigmaImageByteBudget {
       this.downloadedBytes + this.reservedBytes + bytes >
       MAX_TOTAL_FIGMA_IMAGE_BYTES
     ) {
-      throw new Error(
+      failFigmaImport(
         "Figma images exceeded the 64 MB total import limit. Import a smaller frame or selection.",
+        FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+        { statusCode: 413 },
       );
     }
   }
@@ -139,7 +148,11 @@ async function readCappedImageBytes(
     declaredLength > MAX_FIGMA_IMAGE_BYTES
   ) {
     await discardResponseBody(response);
-    throw new Error("image exceeded the 15 MB per-asset limit");
+    failFigmaImport(
+      "A Figma image exceeded the 15 MB per-asset limit.",
+      FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+      { statusCode: 413 },
+    );
   }
   let reservedBytes = 0;
   if (Number.isFinite(declaredLength) && declaredLength > 0) {
@@ -167,7 +180,11 @@ async function readCappedImageBytes(
   if (!reader) {
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength > MAX_FIGMA_IMAGE_BYTES) {
-      throw new Error("image exceeded the 15 MB per-asset limit");
+      failFigmaImport(
+        "A Figma image exceeded the 15 MB per-asset limit.",
+        FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+        { statusCode: 413 },
+      );
     }
     accountDownloadedBytes(buffer.byteLength);
     aggregateBudget.releaseReservation(reservedBytes);
@@ -183,7 +200,11 @@ async function readCappedImageBytes(
     total += value.byteLength;
     if (total > MAX_FIGMA_IMAGE_BYTES) {
       await reader.cancel().catch(() => undefined);
-      throw new Error("image exceeded the 15 MB per-asset limit");
+      failFigmaImport(
+        "A Figma image exceeded the 15 MB per-asset limit.",
+        FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+        { statusCode: 413 },
+      );
     }
     try {
       accountDownloadedBytes(value.byteLength);
@@ -273,15 +294,19 @@ async function mirrorFigmaImageUrls(
   const uniqueUrls = Array.from(new Set(urls));
   if (uniqueUrls.length === 0) return new Map();
   if (uniqueUrls.length > MAX_FIGMA_IMAGE_REFERENCES) {
-    throw new Error(
+    failFigmaImport(
       `Figma import referenced too many images (${uniqueUrls.length}; max ${MAX_FIGMA_IMAGE_REFERENCES}). Import a smaller frame or selection.`,
+      FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+      { statusCode: 413 },
     );
   }
 
   const ownerEmail = options.ownerEmail ?? getRequestUserEmail();
   if (!ownerEmail) {
-    throw new Error(
+    failFigmaImport(
       "Figma image import requires an authenticated user so assets can be stored durably.",
+      FIGMA_IMPORT_ERROR_CODES.authRequired,
+      { statusCode: 401 },
     );
   }
   const fetcher = options.fetcher ?? ssrfSafeFetch;
@@ -300,14 +325,18 @@ async function mirrorFigmaImageUrls(
           { maxRedirects: 3, httpsOnly: true },
         );
       } catch (error) {
-        throw new Error(
+        failFigmaImport(
           `Could not securely fetch a Figma image: ${error instanceof Error ? error.message : String(error)}`,
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502 },
         );
       }
       if (!response.ok) {
         await discardResponseBody(response);
-        throw new Error(
+        failFigmaImport(
           `Could not fetch a Figma image (HTTP ${response.status}). Try importing again; Figma render URLs expire.`,
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502, details: { figmaStatus: response.status } },
         );
       }
 
@@ -315,8 +344,10 @@ async function mirrorFigmaImageUrls(
       const extension = FIGMA_IMAGE_MIME_TYPES.get(mimeType);
       if (!extension) {
         await discardResponseBody(response);
-        throw new Error(
+        failFigmaImport(
           `Figma returned an unsupported image type (${mimeType || "missing content type"}).`,
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502 },
         );
       }
 
@@ -324,13 +355,21 @@ async function mirrorFigmaImageUrls(
       try {
         data = await readCappedImageBytes(response, aggregateBudget);
       } catch (error) {
-        throw new Error(
+        // readCappedImageBytes already names its own budget refusals. Anything
+        // else here is the download itself dying mid-stream, which is not the
+        // same answer and must not be reported as an oversize frame.
+        if (isFigmaImportFailure(error)) throw error;
+        failFigmaImport(
           `Could not import a Figma image: ${error instanceof Error ? error.message : String(error)}.`,
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502 },
         );
       }
       if (!hasMatchingImageSignature(mimeType, data)) {
-        throw new Error(
+        failFigmaImport(
           "Figma image bytes did not match the advertised image type.",
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502 },
         );
       }
       const intrinsic = intrinsicImageSize(data);
@@ -346,13 +385,15 @@ async function mirrorFigmaImageUrls(
           stableUrl: true,
         });
       } catch (error) {
-        throw new Error(
+        failFigmaImport(
           `Could not store a Figma image durably. Check Settings > File uploads and try again. ${error instanceof Error ? error.message : String(error)}`,
+          FIGMA_IMPORT_ERROR_CODES.storageUnavailable,
         );
       }
       if (!uploaded?.url || /^(?:data|blob):/i.test(uploaded.url)) {
-        throw new Error(
+        failFigmaImport(
           "Figma import needs durable file storage for rendered images. Connect Builder.io (free tier available) in Settings > File uploads, or configure S3, R2, GCS, or another file upload provider, then try again. No image bytes were stored in SQL.",
+          FIGMA_IMPORT_ERROR_CODES.storageUnavailable,
         );
       }
       return [url, uploaded.url] as const;
@@ -470,106 +511,12 @@ export function withFigmaFontLoading(
   return `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${escapedUrl}">\n${html}`;
 }
 
-type FigmaProviderEnvelope = {
-  response?: {
-    ok?: boolean;
-    status?: number;
-    statusText?: string;
-    headers?: Record<string, string>;
-    json?: unknown;
-    text?: string;
-    truncated?: boolean;
-    size?: number;
-  };
-};
-
-export type FigmaRateLimitError = Error & {
-  statusCode: 429;
-  retryAfterSeconds?: number;
-  figmaPlanTier?: string;
-  figmaRateLimitType?: "low" | "high";
-  figmaUpgradeUrl?: string;
-};
-
-const FIGMA_PLAN_TIERS = new Set([
-  "enterprise",
-  "org",
-  "pro",
-  "starter",
-  "student",
-]);
-
-export function isFigmaRateLimitError(
-  err: unknown,
-): err is FigmaRateLimitError {
-  return (
-    err instanceof Error && (err as { statusCode?: unknown }).statusCode === 429
-  );
-}
-
-function figmaUpgradeUrl(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    const url = new URL(value);
-    if (
-      url.protocol === "https:" &&
-      (url.hostname === "figma.com" || url.hostname.endsWith(".figma.com"))
-    ) {
-      return value;
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
-
-export function providerJson(envelope: unknown, label: string): unknown {
-  const response = (envelope as FigmaProviderEnvelope | null)?.response;
-  if (!response) throw new Error(`Figma ${label} response was empty.`);
-  if (response.truncated) {
-    throw new Error(
-      `Figma ${label} response exceeded the safe 4 MB import limit${response.size ? ` (${response.size} bytes)` : ""}. Import a smaller frame or selection.`,
-    );
-  }
-  if (response.ok === false) {
-    const jsonBody = response.json as {
-      message?: string;
-      error?: string;
-    } | null;
-    const detail =
-      (typeof response.text === "string" && response.text.trim()) ||
-      (typeof jsonBody?.message === "string" && jsonBody.message) ||
-      response.statusText ||
-      `HTTP ${response.status ?? "error"}`;
-    const err = new Error(`Figma ${label} request failed: ${detail}`);
-    if (response.status === 429) {
-      const rateLimitError = err as FigmaRateLimitError;
-      rateLimitError.statusCode = 429;
-
-      const retryAfterHeader = response.headers?.["retry-after"];
-      if (retryAfterHeader) {
-        rateLimitError.retryAfterSeconds = parseInt(retryAfterHeader, 10);
-      }
-
-      const planTier = response.headers?.["x-figma-plan-tier"];
-      if (planTier && FIGMA_PLAN_TIERS.has(planTier)) {
-        rateLimitError.figmaPlanTier = planTier;
-      }
-
-      const rateLimitType = response.headers?.["x-figma-rate-limit-type"];
-      if (rateLimitType === "low" || rateLimitType === "high") {
-        rateLimitError.figmaRateLimitType = rateLimitType;
-      }
-
-      const upgradeUrl = figmaUpgradeUrl(
-        response.headers?.["x-figma-upgrade-link"],
-      );
-      if (upgradeUrl) rateLimitError.figmaUpgradeUrl = upgradeUrl;
-    }
-    throw err;
-  }
-  return response.json;
-}
+/**
+ * Kept as a named re-export: `import-figma-clipboard.ts`,
+ * `get-figma-design-context.ts` and the fidelity harness all read node
+ * payloads through this name.
+ */
+export const providerJson = readFigmaProviderJson;
 
 export async function figmaGet(path: string, query?: Record<string, unknown>) {
   return executeProviderApiRequest({
@@ -621,8 +568,10 @@ export async function resolveTargetNodeId(
   const firstPage = document.children?.[0];
   const firstFrame = firstPage?.children?.find((child) => Boolean(child?.id));
   if (!firstFrame?.id) {
-    throw new Error(
+    failFigmaImport(
       "Could not find a frame to import. Pass a specific node-id or a Figma frame URL with ?node-id=.",
+      FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+      { statusCode: 404 },
     );
   }
   return firstFrame.id;
@@ -655,9 +604,7 @@ export async function fetchFigmaNodes(
     });
     json = providerJson(envelope, "nodes") as typeof json;
   } catch (error) {
-    const isOversize = /exceeded the safe 4 MB import limit/i.test(
-      error instanceof Error ? error.message : String(error),
-    );
+    const isOversize = isFigmaPayloadTooLargeError(error);
     if (isOversize && nodeIds.length > 1) {
       const midpoint = Math.ceil(nodeIds.length / 2);
       const [left, right] = await Promise.all([
@@ -668,7 +615,7 @@ export async function fetchFigmaNodes(
     }
     if (isOversize && withGeometry) {
       console.warn(
-        `[figma-import] Node ${nodeIds.join(",")} exceeded the 4 MB limit with geometry=paths; retrying without it (vectors will import as rendered PNGs).`,
+        `[figma-import] Node ${nodeIds.join(",")} exceeded the provider response limit with geometry=paths; retrying without it (vectors will import as rendered PNGs).`,
       );
       return fetchFigmaNodes(fileKey, nodeIds, false);
     }
@@ -678,17 +625,25 @@ export async function fetchFigmaNodes(
   for (const nodeId of nodeIds) {
     const entry = json.nodes?.[nodeId];
     if (!entry) {
-      throw new Error(
+      failFigmaImport(
         `Figma node ${nodeId} was not found in file ${fileKey}. Check the node-id and that the token has access to this file.`,
+        FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+        { statusCode: 404, details: { fileKey, nodeId } },
       );
     }
     if (entry.err) {
-      throw new Error(
+      failFigmaImport(
         `Figma returned an error for node ${nodeId}: ${entry.err}`,
+        FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+        { statusCode: 404, details: { fileKey, nodeId } },
       );
     }
     if (!entry.document) {
-      throw new Error(`Figma node ${nodeId} had no document payload.`);
+      failFigmaImport(
+        `Figma node ${nodeId} had no document payload.`,
+        FIGMA_IMPORT_ERROR_CODES.requestFailed,
+        { statusCode: 502, details: { fileKey, nodeId } },
+      );
     }
     result[nodeId] = entry.document;
   }
@@ -864,8 +819,10 @@ export async function buildScreenFilesFromFigmaNodes(
   }
   const imageReferenceCount = fallbackNodeIds.size + imageFillRefs.size;
   if (imageReferenceCount > MAX_FIGMA_IMAGE_REFERENCES) {
-    throw new Error(
+    failFigmaImport(
       `Figma import referenced too many images (${imageReferenceCount}; max ${MAX_FIGMA_IMAGE_REFERENCES}). Import a smaller frame or selection.`,
+      FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+      { statusCode: 413 },
     );
   }
 

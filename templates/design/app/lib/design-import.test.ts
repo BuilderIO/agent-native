@@ -10,6 +10,7 @@ import {
   looksLikeStandaloneHtml,
   parseDesignClipboardMarker,
   parseUploadResponse,
+  readFigmaImportFailure,
   serializeDesignClipboardPayload,
 } from "./design-import";
 
@@ -492,5 +493,53 @@ describe("parseUploadResponse", () => {
         "Upload failed",
       ),
     ).rejects.toThrow(SyntaxError);
+  });
+});
+
+describe("readFigmaImportFailure", () => {
+  it("reads rate-limit facts from the details the transport preserves", () => {
+    const error = Object.assign(
+      new Error("Action import-figma-frame failed: Figma nodes request failed"),
+      {
+        actionMessage: "Figma nodes request failed: Rate limit exceeded",
+        errorCode: "figma_rate_limited",
+        details: {
+          retryAfterSeconds: 90,
+          planTier: "starter",
+          rateLimitType: "low",
+          upgradeUrl: "https://www.figma.com/pricing",
+        },
+      },
+    );
+
+    const { result, isRateLimited } = readFigmaImportFailure(error, "fallback");
+
+    expect(isRateLimited).toBe(true);
+    expect(result.error).toBe(
+      "Figma nodes request failed: Rate limit exceeded",
+    );
+    expect(result.rateLimitRetryAfter).toBe(90);
+    expect(result.rateLimitPlanTier).toBe("starter");
+    expect(result.rateLimitType).toBe("low");
+    expect(result.rateLimitUpgradeUrl).toBe("https://www.figma.com/pricing");
+  });
+
+  it("does not treat a non-rate-limit failure as rate limited", () => {
+    const error = Object.assign(new Error("Action x failed: nope"), {
+      actionMessage: "Figma nodes request failed: Invalid token",
+      errorCode: "figma_request_failed",
+      details: { figmaStatus: 401 },
+    });
+
+    const { result, isRateLimited } = readFigmaImportFailure(error, "fallback");
+
+    expect(isRateLimited).toBe(false);
+    expect(result.error).toBe("Figma nodes request failed: Invalid token");
+    expect(result.rateLimitRetryAfter).toBeUndefined();
+  });
+
+  it("falls back to the caller's copy when the failure carried no message", () => {
+    const { result } = readFigmaImportFailure({}, "Something went wrong");
+    expect(result.error).toBe("Something went wrong");
   });
 });

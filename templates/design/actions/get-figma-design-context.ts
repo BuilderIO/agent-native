@@ -6,6 +6,10 @@ import {
   summarizeFigmaNode,
 } from "../server/lib/figma-design-context.js";
 import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+} from "../server/lib/figma-import-errors.js";
+import {
   fetchFigmaNode,
   fetchFileStructure,
   type FigmaFileDepthNode,
@@ -90,7 +94,10 @@ export default defineAction({
     const fileKey =
       parseFigmaFileKey(args.fileKey) ?? parseFigmaFileKey(args.figmaUrl);
     if (!fileKey) {
-      throw new Error("Could not find a Figma file key in the provided URL.");
+      failFigmaImport(
+        "Could not find a Figma file key in the provided URL.",
+        FIGMA_IMPORT_ERROR_CODES.urlInvalid,
+      );
     }
     const nodeId =
       parseFigmaNodeId(args.nodeId) ?? parseFigmaNodeId(args.figmaUrl);
