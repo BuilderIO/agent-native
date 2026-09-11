@@ -484,8 +484,14 @@ export function InboxPage() {
     return Promise.resolve();
   }, [inboxHasNextPage, inboxIsFetchingNextPage]);
   const inboxAccountErrors = useMemo(() => {
+    // Also covers `needs_reauth`: an account needing reconnection has unread
+    // rows we could not read either, so it must count toward incomplete
+    // coverage the same as a sync error (the reconnect-specific banner in
+    // AppLayout is unaffected — this only feeds the generic notice + the
+    // Inbox Zero suppression below).
     const errored = inboxThreads.data?.accounts.filter(
-      (account) => account.state === "error",
+      (account) =>
+        account.state === "error" || account.state === "needs_reauth",
     );
     if (!errored?.length) return undefined;
     return errored.map((account) => ({

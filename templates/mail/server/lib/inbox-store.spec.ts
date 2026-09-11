@@ -86,8 +86,11 @@ vi.mock("../db/index.js", () => {
 
 import {
   applyLocalLabelDelta,
+  assertSyncClaimHeld,
   patchSyncAccount,
   readCachedLabels,
+  resetSyncAccountProgress,
+  SyncClaimLostError,
 } from "./inbox-store.js";
 
 function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -252,6 +255,9 @@ describe("applyLocalLabelDelta", () => {
       const { set } = dbState.updates[0];
       expect(set.unreadCount).toBe(2);
       expect(set.isUnread).toBe(1);
+      // Other messages in the thread are still unread — the union must keep
+      // UNREAD, not drop it just because one message was read.
+      expect(JSON.parse(set.labelIdsJson)).toContain("UNREAD");
     });
 
     it("marks the thread read once the last targeted unread message is cleared", async () => {
@@ -274,6 +280,7 @@ describe("applyLocalLabelDelta", () => {
       const { set } = dbState.updates[0];
       expect(set.unreadCount).toBe(0);
       expect(set.isUnread).toBe(0);
+      expect(JSON.parse(set.labelIdsJson)).not.toContain("UNREAD");
     });
 
     it("adding UNREAD increments unread_count and marks the thread unread", async () => {
@@ -336,6 +343,10 @@ describe("applyLocalLabelDelta", () => {
       );
 
       expect(dbState.updates[0].set.isStarred).toBeUndefined();
+      // The union must not lose STARRED either — same reasoning as isStarred.
+      expect(JSON.parse(dbState.updates[0].set.labelIdsJson)).toContain(
+        "STARRED",
+      );
     });
   });
 });
@@ -377,5 +388,45 @@ describe("patchSyncAccount", () => {
     );
 
     expect(updated).toBe(false);
+  });
+});
+
+describe("assertSyncClaimHeld", () => {
+  it("resolves when the row's claim still matches", async () => {
+    dbState.syncAccounts = [syncAccountRow({ syncClaimId: "claim-1" })];
+
+    await expect(
+      assertSyncClaimHeld("owner@example.com", "acct1@example.com", "claim-1"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws SyncClaimLostError when a newer worker holds the claim", async () => {
+    dbState.syncAccounts = [syncAccountRow({ syncClaimId: "claim-2" })];
+
+    await expect(
+      assertSyncClaimHeld("owner@example.com", "acct1@example.com", "claim-1"),
+    ).rejects.toThrow(SyncClaimLostError);
+  });
+
+  it("throws SyncClaimLostError when the account row is gone", async () => {
+    dbState.syncAccounts = [];
+
+    await expect(
+      assertSyncClaimHeld("owner@example.com", "acct1@example.com", "claim-1"),
+    ).rejects.toThrow(SyncClaimLostError);
+  });
+});
+
+describe("resetSyncAccountProgress", () => {
+  it("clears the claim columns in the same update as the progress reset", async () => {
+    await resetSyncAccountProgress("owner@example.com", "acct1@example.com");
+
+    const { set } = dbState.updates[0];
+    expect(set.historyId).toBeNull();
+    expect(set.fullSyncPageToken).toBeNull();
+    expect(set.fullSyncHistoryId).toBeNull();
+    expect(set.fullSyncStartedAt).toBeNull();
+    expect(set.syncClaimId).toBeNull();
+    expect(set.syncClaimedAt).toBeNull();
   });
 });

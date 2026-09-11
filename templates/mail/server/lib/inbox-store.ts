@@ -335,11 +335,18 @@ export async function applyLocalLabelDelta(
   await Promise.all(
     rows.map((row) => {
       const labels = new Set(parseJsonArray<string>(row.labelIdsJson, []));
-      for (const l of remove) labels.delete(l);
-      for (const l of add) labels.add(l);
+      // UNREAD/STARRED are handled separately below, not applied blindly
+      // here: at message scope the delta only describes the last-touched
+      // message, not the thread's whole state, so the union must be derived
+      // from the recomputed unread count / an add-only star rule instead.
+      for (const l of remove)
+        if (!messageScoped || (l !== "UNREAD" && l !== "STARRED"))
+          labels.delete(l);
+      for (const l of add)
+        if (!messageScoped || (l !== "UNREAD" && l !== "STARRED"))
+          labels.add(l);
 
       const set: Record<string, unknown> = {
-        labelIdsJson: JSON.stringify([...labels]),
         inInbox: labels.has("INBOX") && !labels.has("TRASH") ? 1 : 0,
         isImportant: labels.has("IMPORTANT") ? 1 : 0,
         updatedAt: now,
@@ -361,20 +368,27 @@ export async function applyLocalLabelDelta(
           const nextUnread = Math.max(0, currentUnread - matched);
           set.unreadCount = nextUnread;
           set.isUnread = nextUnread > 0 ? 1 : 0;
+          // Only drop UNREAD from the union once every unread message in the
+          // thread has been cleared — a partial read must not hide the rest.
+          if (nextUnread === 0) labels.delete("UNREAD");
         } else if (delta.add?.includes("UNREAD")) {
           set.unreadCount = currentUnread + matched;
           set.isUnread = 1;
+          labels.add("UNREAD");
         }
         if (delta.add?.includes("STARRED")) {
           set.isStarred = 1;
+          labels.add("STARRED");
         }
-        // Removing STARRED at message scope is intentionally a no-op for
-        // isStarred: we don't track which individual message(s) hold the
-        // star, so we can't tell whether another message in the thread is
-        // still starred. The next history sync (within the 15s freshness
-        // window) refetches the thread from Gmail and corrects it.
+        // Removing STARRED at message scope is intentionally a no-op — for
+        // isStarred and for the union label set: we don't track which
+        // individual message(s) hold the star, so we can't tell whether
+        // another message in the thread is still starred. The next history
+        // sync (within the 15s freshness window) refetches the thread from
+        // Gmail and corrects it.
       }
 
+      set.labelIdsJson = JSON.stringify([...labels]);
       return getDb()
         .update(schema.mailInboxThreads)
         .set(set)
@@ -673,6 +687,41 @@ export async function ensureSyncAccountRow(
 }
 
 /**
+ * Thrown when a claimed sync step finds its claim no longer held — this
+ * worker's TTL lapsed and a newer worker has already taken over the account.
+ * The sync step must stop immediately rather than continue making Gmail
+ * calls whose results it can no longer safely persist.
+ */
+export class SyncClaimLostError extends Error {
+  constructor(accountEmail: string) {
+    super(`Sync claim for ${accountEmail} was lost to another worker`);
+    this.name = "SyncClaimLostError";
+  }
+}
+
+/**
+ * Guards a batch of row writes (`upsertInboxThreadRows`,
+ * `markThreadsOutOfInboxBeforeSync`, `deleteInboxThreadRow`) that have no
+ * `sync_claim_id` column of their own to fence against, unlike
+ * {@link patchSyncAccount}'s `opts.claimId`. One SELECT immediately before
+ * the write; throws {@link SyncClaimLostError} when the claim no longer
+ * matches instead of letting a lapsed worker overwrite a newer worker's rows.
+ */
+export async function assertSyncClaimHeld(
+  ownerEmail: string,
+  accountEmail: string,
+  claimId: string,
+): Promise<void> {
+  const rows = await getDb()
+    .select({ syncClaimId: schema.mailSyncAccounts.syncClaimId })
+    .from(schema.mailSyncAccounts)
+    .where(eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)))
+    .limit(1);
+  if (rows[0]?.syncClaimId !== claimId)
+    throw new SyncClaimLostError(accountEmail);
+}
+
+/**
  * Atomic CAS claim, same pattern as inventory-cursor.ts's
  * claimInventoryCursor: one UPDATE guarded by a WHERE that only matches an
  * unclaimed or stale-claimed row, so two concurrent Lambdas can't both sync
@@ -740,6 +789,8 @@ export type SyncAccountPatch = Partial<{
   status: SyncAccountRow["status"];
   lastError: string | null;
   lastSyncedAt: number | null;
+  syncClaimId: string | null;
+  syncClaimedAt: number | null;
   labels: CachedGmailLabel[];
   labelsUpdatedAt: number;
 }>;
@@ -775,7 +826,15 @@ export async function patchSyncAccount(
   return rows.length > 0;
 }
 
-/** Clears the history watermark so the next sync step starts a fresh full sync. */
+/**
+ * Clears the history watermark so the next sync step starts a fresh full
+ * sync, and also releases the claim columns — otherwise a worker still
+ * running against the reset row keeps its claim, and a later fenced write
+ * from that same stale run would succeed and could restore the old
+ * watermark. Clearing the claim here means that worker's next fenced write
+ * (via `patchSyncAccount`'s `opts.claimId` or `assertSyncClaimHeld`) raises
+ * {@link SyncClaimLostError} and stops it instead.
+ */
 export async function resetSyncAccountProgress(
   ownerEmail: string,
   accountEmail: string,
@@ -791,6 +850,8 @@ export async function resetSyncAccountProgress(
       fullSyncStartedAt: null,
       status: "idle",
       lastError: null,
+      syncClaimId: null,
+      syncClaimedAt: null,
     },
     opts,
   );

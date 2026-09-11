@@ -126,7 +126,13 @@ export default defineEventHandler(async (event: H3Event) => {
       // Best-effort: drive the synced inbox store off the same push instead
       // of waiting for the next 15s freshness check. A sync failure here
       // must never fail the push ack (Pub/Sub would just redeliver it).
-      await syncInboxAccount(owner, emailAddress, { budgetMs: 8_000 }).catch(
+      // Budget stays well under Pub/Sub's default 10s ack deadline — an
+      // incremental history sync (the common case here) is ~1-2s, and a full
+      // sync just resumes on the next request/poll since its progress is
+      // persisted, so there's no need to risk redelivery chasing it to
+      // completion synchronously (fire-and-forget after responding is killed
+      // on Netlify Lambdas, so this can't run past the response either way).
+      await syncInboxAccount(owner, emailAddress, { budgetMs: 4_000 }).catch(
         (syncErr: any) => {
           console.warn(`[gmail-push] inbox resync failed: ${syncErr?.message}`);
         },

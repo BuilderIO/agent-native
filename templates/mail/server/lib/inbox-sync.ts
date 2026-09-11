@@ -26,6 +26,7 @@ import {
 } from "./google-auth.js";
 import { classifyAutomated } from "./inbox-classify.js";
 import {
+  assertSyncClaimHeld,
   claimSyncAccount,
   deleteInboxThreadRow,
   ensureSyncAccountRow,
@@ -34,6 +35,7 @@ import {
   readSyncAccounts,
   releaseSyncAccount,
   resetSyncAccountProgress,
+  SyncClaimLostError,
   upsertInboxThreadRows,
   type CachedGmailLabel,
   type SyncAccountPatch,
@@ -69,19 +71,6 @@ function boundedErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   // Never let a token leak into last_error via an echoed Authorization header.
   return msg.replace(/Bearer [^\s"]+/gi, "Bearer [redacted]").slice(0, 240);
-}
-
-/**
- * Thrown when a claimed sync step's fenced progress write matches 0 rows —
- * this worker's 90s claim TTL lapsed and a newer worker has already taken
- * over the account. The sync step stops immediately rather than continuing
- * to make Gmail calls whose results it can no longer safely persist.
- */
-export class SyncClaimLostError extends Error {
-  constructor(accountEmail: string) {
-    super(`Sync claim for ${accountEmail} was lost to another worker`);
-    this.name = "SyncClaimLostError";
-  }
 }
 
 /** Fenced progress write: throws {@link SyncClaimLostError} instead of silently no-oping. */
@@ -254,6 +243,7 @@ async function hydrateAndApply(
   ownerEmail: string,
   accountEmail: string,
   connected: Set<string>,
+  claimId: string,
 ): Promise<void> {
   const upserts: ThreadUpsertInput[] = [];
   const deletes: string[] = [];
@@ -283,6 +273,9 @@ async function hydrateAndApply(
       else deletes.push(part.id);
     }
   }
+  // Fenced immediately before this step's row writes: a claim lost to a
+  // newer worker during the Gmail round trips above must not land here.
+  await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
   if (upserts.length > 0) await upsertInboxThreadRows(upserts);
   for (const id of deletes)
     await deleteInboxThreadRow(ownerEmail, accountEmail, id);
@@ -326,6 +319,9 @@ async function runFullSyncStep(
         accountEmail,
         connected,
       );
+      // Fenced immediately before the page's row writes: a claim lost to a
+      // newer worker during the Gmail round trips above must not land here.
+      await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
       await upsertInboxThreadRows(rows);
     }
     pageToken = page.nextPageToken;
@@ -334,6 +330,7 @@ async function runFullSyncStep(
     });
 
     if (!pageToken) {
+      await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
       await markThreadsOutOfInboxBeforeSync(
         ownerEmail,
         accountEmail,
@@ -437,6 +434,7 @@ async function runIncrementalSyncStep(
         ownerEmail,
         accountEmail,
         connected,
+        claimId,
       );
     }
 

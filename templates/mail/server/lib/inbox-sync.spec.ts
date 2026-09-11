@@ -1,24 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  listOAuthAccountsByOwner: vi.fn(),
-  gmailGetProfile: vi.fn(),
-  gmailListThreads: vi.fn(),
-  gmailListHistory: vi.fn(),
-  gmailListLabels: vi.fn(),
-  gmailBatchGetThreads: vi.fn(),
-  getClientForAccount: vi.fn(),
-  invalidateListCacheForOwner: vi.fn(),
-  ensureSyncAccountRow: vi.fn(),
-  claimSyncAccount: vi.fn(),
-  releaseSyncAccount: vi.fn(),
-  patchSyncAccount: vi.fn(),
-  resetSyncAccountProgress: vi.fn(),
-  upsertInboxThreadRows: vi.fn(),
-  deleteInboxThreadRow: vi.fn(),
-  markThreadsOutOfInboxBeforeSync: vi.fn(),
-  readSyncAccounts: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  class SyncClaimLostError extends Error {
+    constructor(accountEmail: string) {
+      super(`Sync claim for ${accountEmail} was lost to another worker`);
+      this.name = "SyncClaimLostError";
+    }
+  }
+  return {
+    listOAuthAccountsByOwner: vi.fn(),
+    gmailGetProfile: vi.fn(),
+    gmailListThreads: vi.fn(),
+    gmailListHistory: vi.fn(),
+    gmailListLabels: vi.fn(),
+    gmailBatchGetThreads: vi.fn(),
+    getClientForAccount: vi.fn(),
+    invalidateListCacheForOwner: vi.fn(),
+    ensureSyncAccountRow: vi.fn(),
+    claimSyncAccount: vi.fn(),
+    releaseSyncAccount: vi.fn(),
+    patchSyncAccount: vi.fn(),
+    resetSyncAccountProgress: vi.fn(),
+    upsertInboxThreadRows: vi.fn(),
+    deleteInboxThreadRow: vi.fn(),
+    markThreadsOutOfInboxBeforeSync: vi.fn(),
+    readSyncAccounts: vi.fn(),
+    assertSyncClaimHeld: vi.fn(),
+    SyncClaimLostError,
+  };
+});
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
@@ -51,6 +61,8 @@ vi.mock("./inbox-store.js", () => ({
   deleteInboxThreadRow: mocks.deleteInboxThreadRow,
   markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
   readSyncAccounts: mocks.readSyncAccounts,
+  assertSyncClaimHeld: mocks.assertSyncClaimHeld,
+  SyncClaimLostError: mocks.SyncClaimLostError,
 }));
 
 import { resetInboxSync, syncInboxAccount } from "./inbox-sync.js";
@@ -134,6 +146,7 @@ beforeEach(() => {
   mocks.deleteInboxThreadRow.mockResolvedValue(undefined);
   mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
   mocks.resetSyncAccountProgress.mockResolvedValue(true);
+  mocks.assertSyncClaimHeld.mockResolvedValue(undefined);
 });
 
 // The row `claimSyncAccount` hands back for the call under test — tests set
@@ -214,6 +227,32 @@ describe("syncInboxAccount — full sync", () => {
       expect.objectContaining({ historyId: "9000", fullSyncPageToken: null }),
       { claimId: "claim-1" },
     );
+  });
+
+  it("aborts a lost claim before the page upsert without writing the page's rows", async () => {
+    currentRow = baseRow();
+    mocks.gmailGetProfile.mockResolvedValue({ historyId: "9000" });
+    mocks.gmailListThreads.mockResolvedValue({
+      threads: [{ id: "t1" }],
+      nextPageToken: undefined,
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t1",
+        data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
+      },
+    ]);
+    // A newer worker has already taken the claim by the time this page's
+    // hydrate round trip finishes.
+    mocks.assertSyncClaimHeld.mockRejectedValueOnce(
+      new mocks.SyncClaimLostError(ACCOUNT),
+    );
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("initial");
+    expect(mocks.upsertInboxThreadRows).not.toHaveBeenCalled();
+    expect(mocks.markThreadsOutOfInboxBeforeSync).not.toHaveBeenCalled();
   });
 });
 

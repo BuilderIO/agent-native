@@ -227,6 +227,16 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("const labels = labelsData ?? EMPTY_LABELS;");
     expect(source).toContain("const activeLabelIsInboxScoped =");
   });
+
+  it("treats a needs_reauth account as incomplete coverage, not just error", () => {
+    const source = inboxSource();
+
+    // A reconnect-needed account has unread rows we couldn't read either, so
+    // it must suppress the false Inbox Zero the same as a sync error.
+    expect(source).toContain(
+      'account.state === "error" || account.state === "needs_reauth"',
+    );
+  });
 });
 
 describe("Inbox pagination", () => {
