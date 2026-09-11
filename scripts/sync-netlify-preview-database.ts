@@ -3,7 +3,9 @@ import { pathToFileURL } from "node:url";
 
 import { requestNetlifyApi } from "./netlify-api-request.ts";
 
-const PREVIEW_CONTEXT = "deploy-preview";
+const PREVIEW_CONTEXT = "branch-deploy";
+const LEGACY_PREVIEW_CONTEXT = "deploy-preview";
+const PREVIEW_CONTEXTS = [PREVIEW_CONTEXT, LEGACY_PREVIEW_CONTEXT];
 const DATABASE_ENV_KEY_PATTERN = /(?:^|_)DATABASE_URL(?:_UNPOOLED)?$/;
 const DATABASE_SCOPES = ["builds", "functions", "runtime"];
 
@@ -250,7 +252,7 @@ export async function mirrorProductionDatabaseVariables({
       if (createResponse.ok) continue;
       if (createStatus !== 409) {
         throw new Error(
-          `${variable.key} deploy-preview environment creation failed with HTTP ${createStatus}.`,
+          `${variable.key} branch-deploy environment creation failed with HTTP ${createStatus}.`,
         );
       }
 
@@ -279,16 +281,6 @@ export async function mirrorProductionDatabaseVariables({
     const previewValues = current.values.filter(
       ({ context }) => context === PREVIEW_CONTEXT,
     );
-    for (const value of previewValues.slice(1)) {
-      await deletePreviewValue({
-        accountId,
-        key: variable.key,
-        request,
-        siteId,
-        token,
-        value,
-      });
-    }
     await assertResponse(
       await request(netlifyEnvUrl(accountId, siteId, variable.key), {
         method: "PATCH",
@@ -298,8 +290,24 @@ export async function mirrorProductionDatabaseVariables({
           value: variable.value,
         }),
       }),
-      `${variable.key} deploy-preview environment update`,
+      `${variable.key} branch-deploy environment update`,
     );
+
+    for (const value of [
+      ...previewValues.slice(1),
+      ...current.values.filter(
+        ({ context }) => context === LEGACY_PREVIEW_CONTEXT,
+      ),
+    ]) {
+      await deletePreviewValue({
+        accountId,
+        key: variable.key,
+        request,
+        siteId,
+        token,
+        value,
+      });
+    }
   }
 
   // Keep an already-live preview usable if a later cleanup request fails. All
@@ -307,8 +315,8 @@ export async function mirrorProductionDatabaseVariables({
   // removed.
   for (const variable of existing) {
     if (desiredKeys.has(variable.key)) continue;
-    for (const value of variable.values.filter(
-      ({ context }) => context === PREVIEW_CONTEXT,
+    for (const value of variable.values.filter(({ context }) =>
+      PREVIEW_CONTEXTS.includes(context),
     )) {
       await deletePreviewValue({
         accountId,
@@ -349,11 +357,11 @@ async function main(): Promise<void> {
     token,
   });
   console.log(
-    `Mirrored ${result.mirroredKeys.length} production database variable(s) into deploy-preview context: ${result.mirroredKeys.join(", ")}`,
+    `Mirrored ${result.mirroredKeys.length} production database variable(s) into branch-deploy context: ${result.mirroredKeys.join(", ")}`,
   );
   if (result.removedKeys.length > 0) {
     console.log(
-      `Removed stale deploy-preview database override(s): ${result.removedKeys.join(", ")}`,
+      `Removed stale preview database override(s): ${result.removedKeys.join(", ")}`,
     );
   }
 }
