@@ -37,7 +37,10 @@ import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-e
 import { applyPortableStyleSnapshotToHtml } from "@/pages/design-editor/portable-style";
 import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
 
-import { insertClonedHtmlLayers } from "../clone-and-pen-edit";
+import {
+  insertClonedHtmlLayers,
+  prepareClonedHtmlLayersForLiveInsert,
+} from "../clone-and-pen-edit";
 
 /** Empty generated screens strip absolute positioning, so a flow-insert
  * into an empty body parks the node at 0,0. Drop at the pointer instead. */
@@ -265,11 +268,52 @@ export function runCrossScreenElementDrop(
       return;
     }
     if (targetScreenIsLive) {
+      const liveDestinationContent = getScreenContent(targetScreenId);
+      const hasAnchor = Boolean(
+        targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
+      );
+      const placeAbsolute =
+        Boolean(targetLocalPoint) &&
+        (!hasAnchor || targetDropMode === "absolute-container");
+      const absolutePosition =
+        placeAbsolute && targetLocalPoint
+          ? absolutePlacePointForDrop({
+              placeAbsoluteOnEmptyScreen: false,
+              targetAnchorRect,
+              targetLocalPoint,
+            })
+          : undefined;
+      const prepared = prepareClonedHtmlLayersForLiveInsert(
+        liveDestinationContent,
+        [sourceCloneHtml],
+        {
+          positions: absolutePosition
+            ? [
+                {
+                  x: absolutePosition.x - (sourcePointerOffset?.x ?? 0),
+                  y: absolutePosition.y - (sourcePointerOffset?.y ?? 0),
+                },
+              ]
+            : undefined,
+          stripRootPosition:
+            hasAnchor &&
+            !placeAbsolute &&
+            targetDropMode !== "absolute-container",
+          styleSnapshots: [styleSnapshot],
+        },
+      );
+      const insertedHtml = prepared?.htmlFragments[0];
+      if (!insertedHtml) {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
         screenId: targetScreenId,
-        html: sourceCloneHtml,
+        html: insertedHtml,
         anchor: {
           selector: targetAnchorSelector ?? "",
           sourceId: targetAnchorNodeId,

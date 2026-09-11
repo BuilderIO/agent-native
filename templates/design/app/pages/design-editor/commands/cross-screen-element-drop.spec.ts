@@ -134,19 +134,28 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
           targetScreenId: "target",
           targetAnchorSelector: "body",
           targetAnchorPlacement: "inside",
+          targetDropMode: "absolute-container",
+          targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+          targetLocalPoint: { x: 240, y: 300 },
+          sourcePointerOffset: { x: 10, y: 12 },
           duplicate: true,
           sourceCloneHtml:
-            '<section data-agent-native-node-id="copy-id"></section>',
+            '<section id="source-root" data-agent-native-node-id="copy-id" style="position:absolute;left:4px;top:6px"></section>',
         },
       );
 
       expect(runtimeStructureInsertRevisionRef.current).toBe(1);
       expect(runtimeStructureInsertRequest).toMatchObject({
         screenId: "target",
-        html: '<section data-agent-native-node-id="copy-id"></section>',
         anchor: { selector: "body" },
         placement: "inside",
       });
+      const insertedHtml = (runtimeStructureInsertRequest as { html: string })
+        .html;
+      expect(insertedHtml).not.toContain('id="source-root"');
+      expect(insertedHtml).toMatch(/data-agent-native-node-id="[^"]+"/);
+      expect(insertedHtml).toContain("left: 130px");
+      expect(insertedHtml).toContain("top: 238px");
     },
   );
 });
