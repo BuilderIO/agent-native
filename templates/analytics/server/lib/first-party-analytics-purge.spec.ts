@@ -61,6 +61,9 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
       }),
     );
     expect(execute.mock.calls[1]?.[0]?.sql).toContain(
+      "delivery_queue.delivered_at IS NULL",
+    );
+    expect(execute.mock.calls[1]?.[0]?.sql).not.toContain(
       "delivery_queue.attempt_count <",
     );
   });

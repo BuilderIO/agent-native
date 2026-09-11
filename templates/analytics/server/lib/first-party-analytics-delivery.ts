@@ -17,6 +17,10 @@ const DELIVERY_RETRY_BASE_MS = 60 * 1000;
 const DELIVERY_RETRY_MAX_MS = 60 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS = 10;
 const DELIVERY_CLEANUP_RETENTION_MS = 10 * 60 * 1000;
+// Keep terminal failures auditable for a week; the source event remains in
+// Postgres so the purge guard still sees an unconfirmed delivery afterward.
+export const FIRST_PARTY_ANALYTICS_DELIVERY_TERMINAL_RETENTION_MS =
+  7 * 24 * 60 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_STALE_MS = 10 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX =
   "first-party-analytics-bigquery-fallback:";
@@ -352,7 +356,7 @@ async function reconcileMigrationFallbackRows(
               ON event.id = substring(fallback.key FROM char_length($1) + 1)
            WHERE event.owner_email = fallback.metadata ->> 'ownerEmail'
              AND event.org_id IS NOT DISTINCT FROM NULLIF(fallback.metadata ->> 'orgId', '')
-            AND NOT EXISTS (
+           AND NOT EXISTS (
                 SELECT 1
                   FROM ${DELIVERY_TABLE} AS queued
                  WHERE queued.event_id = event.id
@@ -467,6 +471,31 @@ async function markDeliveryRowsDelivered(
   );
 }
 
+async function markFallbackMarkersDelivered(
+  db: Executor,
+  rows: DeliveryQueueRow[],
+  deliveredAt: string,
+): Promise<void> {
+  if (!rows.length) return;
+  await db.execute({
+    sql: `UPDATE settings
+             SET value = jsonb_set(
+               jsonb_set(value::jsonb, '{deliveryState}', '"delivered"'::jsonb, true),
+               '{deliveredAt}', to_jsonb($1::text), true
+             )::text,
+                 updated_at = $2
+           WHERE key IN (${idPlaceholders(3, rows.length)})
+             AND value::jsonb ->> 'deliveryState' IS DISTINCT FROM 'delivered'`,
+    args: [
+      deliveredAt,
+      Date.now(),
+      ...rows.map(firstPartyAnalyticsDeliveryFallbackKey),
+    ],
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+  });
+}
+
 async function scheduleDeliveryRetry(
   db: Executor,
   rows: DeliveryQueueRow[],
@@ -516,7 +545,7 @@ async function scheduleDeliveryRetry(
   );
 }
 
-async function cleanupDeliveredRows(db: Executor): Promise<number> {
+async function cleanupDeliveryRows(db: Executor): Promise<number> {
   if (!db.transaction) {
     throw new Error(
       "BigQuery delivery cleanup requires a database transaction",
@@ -526,6 +555,9 @@ async function cleanupDeliveredRows(db: Executor): Promise<number> {
     Date.now() - DELIVERY_CLEANUP_RETENTION_MS,
   ).toISOString();
   const markerCutoff = Date.now() - DELIVERY_CLEANUP_RETENTION_MS;
+  const terminalCutoff = new Date(
+    Date.now() - FIRST_PARTY_ANALYTICS_DELIVERY_TERMINAL_RETENTION_MS,
+  ).toISOString();
   return db.transaction(async (tx) => {
     const selected = await tx.execute({
       sql: `SELECT event_id
@@ -548,11 +580,17 @@ async function cleanupDeliveredRows(db: Executor): Promise<number> {
       .filter(Boolean);
     const selectedFallback = await tx.execute({
       sql: `SELECT substring(key FROM char_length($1) + 1) AS event_id
-              FROM settings
-             WHERE key LIKE $1 || '%'
-               AND value::jsonb ->> 'deliveryState' = 'delivered'
-               AND updated_at <= $2
-             ORDER BY updated_at ASC, key ASC
+             FROM settings AS marker
+             WHERE marker.key LIKE $1 || '%'
+               AND marker.value::jsonb ->> 'deliveryState' = 'delivered'
+               AND marker.updated_at <= $2
+               AND NOT EXISTS (
+                 SELECT 1
+                   FROM ${DELIVERY_TABLE} AS delivery_queue
+                  WHERE delivery_queue.event_id = substring(marker.key FROM char_length($1) + 1)
+                    AND delivery_queue.delivered_at IS NULL
+               )
+             ORDER BY marker.updated_at ASC, marker.key ASC
              LIMIT $3
              FOR UPDATE SKIP LOCKED`,
       args: [
@@ -570,23 +608,20 @@ async function cleanupDeliveredRows(db: Executor): Promise<number> {
           : "",
       )
       .filter(Boolean);
-    const selectedOrphanedTerminal = await tx.execute({
-      sql: `SELECT delivery.event_id
+    const selectedTerminal = await tx.execute({
+      sql: `SELECT event_id
               FROM ${DELIVERY_TABLE} AS delivery
-             WHERE delivery.attempt_count >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
-               AND NOT EXISTS (
-                 SELECT 1
-                   FROM analytics_events AS event
-                  WHERE event.id = delivery.event_id
-               )
+             WHERE delivery.delivered_at IS NULL
+               AND delivery.attempt_count >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+               AND delivery.updated_at <= $1
              ORDER BY delivery.updated_at ASC, delivery.event_id ASC
-             LIMIT $1
+             LIMIT $2
              FOR UPDATE SKIP LOCKED`,
-      args: [DELIVERY_BATCH_SIZE],
+      args: [terminalCutoff, DELIVERY_BATCH_SIZE],
       timeoutMs: 5_000,
       maxAttempts: 1,
     });
-    const orphanedIds = (selectedOrphanedTerminal.rows ?? [])
+    const terminalIds = (selectedTerminal.rows ?? [])
       .map((row) =>
         row && typeof row === "object"
           ? stringValue(row as Record<string, unknown>, "event_id", "eventId")
@@ -594,8 +629,8 @@ async function cleanupDeliveredRows(db: Executor): Promise<number> {
       )
       .filter(Boolean);
     const uniqueIds = [...new Set([...ids, ...fallbackIds])];
-    const queueIds = [...new Set([...ids, ...orphanedIds])];
-    if (!uniqueIds.length && !queueIds.length) return 0;
+    const markerIds = [...new Set([...uniqueIds, ...terminalIds])];
+    if (!uniqueIds.length && !terminalIds.length) return 0;
     if (uniqueIds.length) {
       await tx.execute({
         sql: `DELETE FROM analytics_events
@@ -604,33 +639,49 @@ async function cleanupDeliveredRows(db: Executor): Promise<number> {
         timeoutMs: 5_000,
         maxAttempts: 1,
       });
+    }
+    if (markerIds.length) {
       await tx.execute({
         sql: `DELETE FROM settings
-               WHERE key IN (${idPlaceholders(1, uniqueIds.length)})`,
-        args: uniqueIds.map(firstPartyAnalyticsDeliveryFallbackKey),
+               WHERE key IN (${idPlaceholders(1, markerIds.length)})`,
+        args: markerIds.map(firstPartyAnalyticsDeliveryFallbackKey),
         timeoutMs: 5_000,
         maxAttempts: 1,
       });
     }
-    if (queueIds.length) {
+    if (ids.length) {
       const deleted = await tx.execute({
         sql: `DELETE FROM ${DELIVERY_TABLE}
-               WHERE event_id IN (${idPlaceholders(1, queueIds.length)})
-                 AND (
-                   delivered_at IS NOT NULL
-                   OR attempt_count >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
-                 )`,
-        args: queueIds,
+               WHERE delivered_at IS NOT NULL
+                 AND event_id IN (${idPlaceholders(1, ids.length)})`,
+        args: ids,
         timeoutMs: 5_000,
         maxAttempts: 1,
       });
       requireRowsAffected(
         deleted,
-        queueIds.length,
+        ids.length,
         "Cleaning BigQuery delivery rows",
       );
     }
-    return uniqueIds.length + orphanedIds.length;
+    if (terminalIds.length) {
+      const deleted = await tx.execute({
+        sql: `DELETE FROM ${DELIVERY_TABLE}
+               WHERE delivered_at IS NULL
+                 AND attempt_count >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+                 AND updated_at <= $1
+                 AND event_id IN (${idPlaceholders(2, terminalIds.length)})`,
+        args: [terminalCutoff, ...terminalIds],
+        timeoutMs: 5_000,
+        maxAttempts: 1,
+      });
+      requireRowsAffected(
+        deleted,
+        terminalIds.length,
+        "Cleaning terminal BigQuery delivery rows",
+      );
+    }
+    return uniqueIds.length + terminalIds.length;
   });
 }
 
@@ -699,11 +750,9 @@ export async function runFirstPartyAnalyticsBigQueryDeliveryOnce(): Promise<Firs
         const acceptedRows = rows.filter((row) => acceptedIds.has(row.eventId));
         const rejectedRows = rows.filter((row) => rejectedIds.has(row.eventId));
         if (acceptedRows.length) {
-          await markDeliveryRowsDelivered(
-            db,
-            acceptedRows,
-            new Date().toISOString(),
-          );
+          const deliveredAt = new Date().toISOString();
+          await markFallbackMarkersDelivered(db, acceptedRows, deliveredAt);
+          await markDeliveryRowsDelivered(db, acceptedRows, deliveredAt);
           delivered += acceptedRows.length;
         }
         if (rejectedRows.length) {
@@ -731,7 +780,7 @@ export async function runFirstPartyAnalyticsBigQueryDeliveryOnce(): Promise<Firs
 
   let cleaned = 0;
   for (let index = 0; index < MAX_DELIVERY_BATCHES_PER_SWEEP; index += 1) {
-    const batch = await cleanupDeliveredRows(db);
+    const batch = await cleanupDeliveryRows(db);
     cleaned += batch;
     if (batch < DELIVERY_BATCH_SIZE) break;
   }

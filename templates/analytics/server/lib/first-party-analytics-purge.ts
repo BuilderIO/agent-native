@@ -1,9 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 
-import {
-  FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX,
-  FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS,
-} from "./first-party-analytics-delivery.js";
+import { FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX } from "./first-party-analytics-delivery.js";
 
 export interface FirstPartyAnalyticsPurgeScope {
   userEmail: string;
@@ -40,7 +37,6 @@ function pendingDeliveryFilter(enabled: boolean): string {
     FROM ${DELIVERY_QUEUE_TABLE} AS delivery_queue
     WHERE delivery_queue.event_id = analytics_events.id
       AND delivery_queue.delivered_at IS NULL
-      AND delivery_queue.attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
   )`
     : "";
   return `${queueFilter} AND NOT EXISTS (

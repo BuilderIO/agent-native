@@ -74,6 +74,7 @@ describe("BigQuery delivery queue", () => {
         .mockResolvedValueOnce({ rowsAffected: 0 })
         .mockResolvedValueOnce({ rows: [eventRow] })
         .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rowsAffected: 0 })
         .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({
           rows: [
@@ -114,6 +115,11 @@ describe("BigQuery delivery queue", () => {
     expect(db.execute).toHaveBeenCalledWith(
       expect.objectContaining({
         sql: expect.stringContaining("deliveryState"),
+      }),
+    );
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("UPDATE settings"),
       }),
     );
     const reconcileSql = db.execute.mock.calls[0]?.[0]?.sql as string;
