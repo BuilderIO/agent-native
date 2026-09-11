@@ -8,8 +8,9 @@ import {
   type DesignClipboardManagedStyleSnapshot,
 } from "./design-clipboard-managed-styles";
 
-/** Matches FIGMA_IMPORT_ERROR_CODES.rateLimited on the server. */
+/** Match FIGMA_IMPORT_ERROR_CODES.rateLimited / .providerQuotaCooldown. */
 const FIGMA_RATE_LIMITED_ERROR_CODE = "figma_rate_limited";
+const FIGMA_PROVIDER_QUOTA_ERROR_CODE = "figma_provider_quota_cooldown";
 
 export interface FigmaFidelityReport {
   exactCount: number;
@@ -46,6 +47,12 @@ export interface ImportResult {
   rateLimitPlanTier?: string;
   rateLimitType?: string;
   rateLimitUpgradeUrl?: string;
+  /**
+   * Who is throttling. Figma's own limit gets Figma copy and a plan link;
+   * `design` is our provider-API quota governor cooling down, which no Figma
+   * plan affects.
+   */
+  quotaSource?: "figma" | "design";
   fidelityReport?: FigmaFidelityReport;
   guidance?: string;
 }
@@ -91,8 +98,14 @@ export function readFigmaImportFailure(
       rateLimitPlanTier: text(details.planTier),
       rateLimitType: text(details.rateLimitType),
       rateLimitUpgradeUrl: text(details.upgradeUrl),
+      quotaSource:
+        source?.errorCode === FIGMA_PROVIDER_QUOTA_ERROR_CODE
+          ? "design"
+          : "figma",
     },
-    isRateLimited: source?.errorCode === FIGMA_RATE_LIMITED_ERROR_CODE,
+    isRateLimited:
+      source?.errorCode === FIGMA_RATE_LIMITED_ERROR_CODE ||
+      source?.errorCode === FIGMA_PROVIDER_QUOTA_ERROR_CODE,
   };
 }
 

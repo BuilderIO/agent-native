@@ -381,12 +381,16 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
           {figmaRateLimitError ? (
             <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-[11px] leading-snug">
               <p className="font-medium text-destructive">
-                {t("designEditor.import.rateLimitTitle")}
+                {figmaRateLimitError.quotaSource === "design"
+                  ? t("designEditor.import.quotaCooldownTitle")
+                  : t("designEditor.import.rateLimitTitle")}
               </p>
               <p className="text-muted-foreground">
-                {figmaRateLimitError.rateLimitType === "low"
-                  ? t("designEditor.import.rateLimitLowSeat")
-                  : t("designEditor.import.rateLimitGeneric")}
+                {figmaRateLimitError.quotaSource === "design"
+                  ? t("designEditor.import.quotaCooldownBody")
+                  : figmaRateLimitError.rateLimitType === "low"
+                    ? t("designEditor.import.rateLimitLowSeat")
+                    : t("designEditor.import.rateLimitGeneric")}
               </p>
               {figmaRateLimitError.rateLimitRetryAfter ? (
                 <p className="text-muted-foreground">

@@ -542,4 +542,33 @@ describe("readFigmaImportFailure", () => {
     const { result } = readFigmaImportFailure({}, "Something went wrong");
     expect(result.error).toBe("Something went wrong");
   });
+
+  it("marks our own provider quota cooldown as design-sourced, not Figma", () => {
+    const error = Object.assign(new Error("Action x failed: cooldown"), {
+      actionMessage: "Design is pacing its own Figma requests",
+      errorCode: "figma_provider_quota_cooldown",
+      details: { retryAfterSeconds: 42 },
+    });
+
+    const { result, isRateLimited } = readFigmaImportFailure(error, "fallback");
+
+    // Still a banner state so the countdown and the no-quota alternatives
+    // render, but attributed to Design so no Figma plan copy or upgrade link.
+    expect(isRateLimited).toBe(true);
+    expect(result.quotaSource).toBe("design");
+    expect(result.rateLimitRetryAfter).toBe(42);
+    expect(result.rateLimitUpgradeUrl).toBeUndefined();
+    expect(result.rateLimitPlanTier).toBeUndefined();
+  });
+
+  it("attributes a Figma rate limit to Figma", () => {
+    const error = Object.assign(new Error("Action x failed: rate limited"), {
+      errorCode: "figma_rate_limited",
+      details: { retryAfterSeconds: 90, planTier: "starter" },
+    });
+
+    const { result } = readFigmaImportFailure(error, "fallback");
+    expect(result.quotaSource).toBe("figma");
+    expect(result.rateLimitPlanTier).toBe("starter");
+  });
 });

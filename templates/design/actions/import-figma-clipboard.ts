@@ -29,13 +29,34 @@ import { parseFigmaFileKey } from "../shared/figma-url.js";
 
 const NODE_STRUCTURE_DEPTH = 3;
 
-// Also matches a Figma 403 that occurs when the token is saved but lacks
-// file_content:read scope — the validator only checks current_user:read.
+// A Figma 403 means the token is saved but lacks file_content:read scope -
+// the validator only checks current_user:read. An absent token normally
+// arrives as a typed `figma_auth_required` from the provider wrapper; the
+// raw resolver message is kept so a caller that reaches the provider runtime
+// without that wrapper still degrades to the local fallback instead of
+// surfacing a hard failure.
 const CREDENTIAL_MISSING_RE =
   /credential not configured|figma.*request failed:.*403|figma.*request failed:.*forbidden/i;
 // Transient errors should not block local-kiwi fallback when the buffer is present.
 const TRANSIENT_ERROR_RE =
   /quota cooldown|provider.*quota|rate.?limit|fetch failed|network.*error|timeout|ECONNRESET|ENOTFOUND|ERR_NETWORK/i;
+
+function isMissingFigmaCredential(error: unknown, message: string): boolean {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return (
+    code === FIGMA_IMPORT_ERROR_CODES.authRequired ||
+    CREDENTIAL_MISSING_RE.test(message)
+  );
+}
+
+function isTransientFigmaFailure(error: unknown, message: string): boolean {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return (
+    code === FIGMA_IMPORT_ERROR_CODES.rateLimited ||
+    code === FIGMA_IMPORT_ERROR_CODES.providerQuotaCooldown ||
+    TRANSIENT_ERROR_RE.test(message)
+  );
+}
 const DURABLE_STORAGE_REQUIRED_RE =
   /authenticated user so assets can be stored durably|could not store a Figma image durably|needs durable file storage/i;
 
@@ -252,12 +273,16 @@ export default defineAction({
       // The importer intentionally refuses to persist Figma's expiring render
       // URLs. Keep its actionable storage setup error instead of disguising it
       // as an ordinary clipboard-format fallback.
-      if (DURABLE_STORAGE_REQUIRED_RE.test(errorMessage)) {
+      const storageCode = (error as { errorCode?: unknown } | null)?.errorCode;
+      if (
+        storageCode === FIGMA_IMPORT_ERROR_CODES.storageUnavailable ||
+        DURABLE_STORAGE_REQUIRED_RE.test(errorMessage)
+      ) {
         throw error;
       }
       restError = errorMessage;
-      figmaApiKeyMissing = CREDENTIAL_MISSING_RE.test(errorMessage);
-      const isTransient = TRANSIENT_ERROR_RE.test(errorMessage);
+      figmaApiKeyMissing = isMissingFigmaCredential(error, errorMessage);
+      const isTransient = isTransientFigmaFailure(error, errorMessage);
       if (
         selectedNodeIds?.length &&
         !parsedClipboard.fallbackHtml &&
