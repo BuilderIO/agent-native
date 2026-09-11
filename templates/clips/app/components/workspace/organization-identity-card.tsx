@@ -36,6 +36,7 @@ export function OrganizationIdentityCard() {
     data: orgInfo,
     isLoading: orgLoading,
     isError: isOrgError,
+    isFetching: isOrgFetching,
   } = useOrg();
   // Personal scope owns this surface: the framework Team card below already
   // renders "create an organization", so an org-scoped branding fetch here
@@ -66,16 +67,23 @@ export function OrganizationIdentityCard() {
     return role === "admin" || role === "owner";
   }, [members, email, organization?.ownerEmail]);
 
+  const loadFailed = (
+    <Card>
+      <CardContent className="py-6 text-center text-sm text-muted-foreground">
+        {t("organizationSettings.brandingLoadFailed")}
+      </CardContent>
+    </Card>
+  );
+
   // A failed load must not look like "this org has no branding", and an
   // unreadable organization must not look like not having one.
-  if (isOrgError || isError) {
-    return (
-      <Card>
-        <CardContent className="py-6 text-center text-sm text-muted-foreground">
-          {t("organizationSettings.brandingLoadFailed")}
-        </CardContent>
-      </Card>
-    );
+  if (isOrgError) return loadFailed;
+  if (isError) {
+    // Deleting or switching an org invalidates every query at once, so while
+    // `org-me` is still in flight `orgInfo` names the outgoing organization
+    // and this failure means "asked about the wrong org". It settles on its
+    // own; flashing the error this surface exists to remove is worse.
+    return isOrgFetching ? <Skeleton className="h-64 w-full" /> : loadFailed;
   }
   if (orgLoading) return <Skeleton className="h-64 w-full" />;
   if (!hasActiveOrg) return null;
