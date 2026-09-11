@@ -343,6 +343,14 @@ export function runCrossScreenElementDrop(
     const placeAbsolute =
       Boolean(targetLocalPoint) &&
       (!hasAnchor || targetDropMode === "absolute-container");
+    const absolutePosition =
+      placeAbsolute && targetLocalPoint
+        ? absolutePlacePointForDrop({
+            placeAbsoluteOnEmptyScreen: false,
+            targetAnchorRect,
+            targetLocalPoint,
+          })
+        : undefined;
     const nextContent = insertClonedHtmlLayers(
       rawDestContent,
       [sourceCloneHtml],
@@ -350,16 +358,14 @@ export function runCrossScreenElementDrop(
         targetSelectors: anchorSelectors,
         anchorSelectors,
         placement: targetAnchorPlacement ?? "inside",
-        positions:
-          placeAbsolute && targetLocalPoint
-            ? [
-                absolutePlacePointForDrop({
-                  placeAbsoluteOnEmptyScreen: false,
-                  targetAnchorRect,
-                  targetLocalPoint,
-                }),
-              ]
-            : undefined,
+        positions: absolutePosition
+          ? [
+              {
+                x: absolutePosition.x - (sourcePointerOffset?.x ?? 0),
+                y: absolutePosition.y - (sourcePointerOffset?.y ?? 0),
+              },
+            ]
+          : undefined,
         stripRootPosition:
           hasAnchor &&
           !placeAbsolute &&

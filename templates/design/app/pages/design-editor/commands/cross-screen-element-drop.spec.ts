@@ -158,4 +158,66 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
       expect(insertedHtml).toContain("top: 238px");
     },
   );
+
+  it("preserves the grab offset for an inline cross-screen copy", () => {
+    const runtimeStructureInsertRevisionRef = { current: 0 };
+    let nextDestinationContent = "";
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate: (_fileId, nextContent) => {
+          nextDestinationContent = nextContent;
+        },
+        boardFileId: undefined,
+        canEditDesign: true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: { current: new Map() },
+        designSourceType: "inline",
+        getScreenContent: (screenId) =>
+          screenId === "source" ? SCREEN_WITH_FRAME : SCREEN_WITH_FRAME,
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "target",
+            filename: "target.html",
+            content: SCREEN_WITH_FRAME,
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "inline",
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry: () => {},
+        runtimeStructureInsertRevisionRef,
+        sendRuntimeLayerMoveSemanticHandoff: () => true,
+        setActiveFileId: () => {},
+        setCreatedOverviewLayerSelection: () => {},
+        setOverviewSelectedScreenIds: () => {},
+        setRuntimeStructureInsertRequest: () => {},
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: "#source",
+        sourceNodeId: "source-id",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorSelector: '[data-agent-native-node-id="frame-1"]',
+        targetAnchorPlacement: "inside",
+        targetDropMode: "absolute-container",
+        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetLocalPoint: { x: 240, y: 300 },
+        sourcePointerOffset: { x: 10, y: 12 },
+        duplicate: true,
+        sourceCloneHtml:
+          '<section data-agent-native-node-id="copy-id" style="position:absolute;left:4px;top:6px"></section>',
+      },
+    );
+
+    expect(nextDestinationContent).toContain("left: 130px");
+    expect(nextDestinationContent).toContain("top: 238px");
+  });
 });
