@@ -76,6 +76,8 @@ describe("InlineExtensionFrame", () => {
       submit: true,
       openSidebar: false,
     });
+    expect(iframe?.getAttribute("aria-disabled")).toBe("true");
+    expect(iframe?.style.pointerEvents).toBe("none");
   });
 
   it("keeps extension chat messages draft-only without explicit submission", async () => {

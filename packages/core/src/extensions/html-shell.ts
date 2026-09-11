@@ -250,7 +250,6 @@ export function buildExtensionHtml(
 	      color: hsl(var(--foreground));
 	      font-family: 'Inter', sans-serif;
 	      margin: 0;
-	      min-height: 100vh;
 	      padding: var(--agent-native-extension-padding);
 	    }
 	    body:has(> [data-extension-layout="full-bleed"]),

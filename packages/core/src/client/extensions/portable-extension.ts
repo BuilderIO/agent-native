@@ -515,7 +515,7 @@ export function buildAgentNativeExtensionHtml({
        body snippet cannot supply one. Without this an x-cloak overlay paints
        over the whole extension until Alpine boots — and forever if it never does. */
     [x-cloak] { display: none !important; }
-    html, body { margin: 0; min-height: 100%; background: transparent; color: hsl(var(--foreground, 222 47% 11%)); }
+    html, body { margin: 0; background: transparent; color: hsl(var(--foreground, 222 47% 11%)); }
     body {
       --agent-native-extension-padding: clamp(12px, 2vw, 20px);
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;

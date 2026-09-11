@@ -148,6 +148,7 @@ describe("buildExtensionHtml", () => {
       "new URLSearchParams(location.search).get('slot') || window.parent !== window",
     );
     expect(html).toContain("agent-native-extension-resize");
+    expect(html).not.toContain("min-height: 100vh");
   });
 
   it("serializes authenticated extension binding metadata", () => {
