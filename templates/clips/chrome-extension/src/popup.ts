@@ -69,6 +69,7 @@ type NativeRecording = {
 type PopupStatusResponse = {
   ok?: boolean;
   activeRecording?: NativeRecording | null;
+  arming?: boolean;
   error?: string;
 };
 
@@ -765,7 +766,10 @@ function formatDuration(startedAtMs: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function renderActiveRecording(recording: NativeRecording | null): void {
+function renderActiveRecording(
+  recording: NativeRecording | null,
+  arming = false,
+): void {
   const idleContent = byId<HTMLDivElement>("idle-content");
   const activeContent = byId<HTMLDivElement>("active-content");
   const recordingTitle = byId<HTMLDivElement>("recording-title");
@@ -782,6 +786,7 @@ function renderActiveRecording(recording: NativeRecording | null): void {
   idleContent.hidden = active;
   activeContent.hidden = !active;
   start.hidden = active;
+  start.disabled = arming;
   signIn.hidden = true;
   if (recordingActions) recordingActions.hidden = !active;
   if (!recording) {
@@ -870,6 +875,7 @@ async function init(): Promise<void> {
   const signIn = byId<HTMLButtonElement>("sign-in");
   const storageHelpOpen = byId<HTMLButtonElement>("storage-help-open");
   let activeRecording: NativeRecording | null = null;
+  let arming = false;
   let authStatus: AuthStatus = "checking";
   let feedbackOpenedAt = 0;
   let feedbackSchema: FeedbackFormSchema | null = null;
@@ -978,12 +984,16 @@ async function init(): Promise<void> {
       void refreshDevices();
     });
   }
-  const status =
-    await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
-  activeRecording = status.activeRecording ?? null;
-  renderActiveRecording(activeRecording);
-  if (activeRecording) {
-    window.setInterval(() => renderActiveRecording(activeRecording), 1000);
+  const refreshActiveRecording = async (): Promise<void> => {
+    const status =
+      await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
+    activeRecording = status.activeRecording ?? null;
+    arming = Boolean(status.arming);
+    renderActiveRecording(activeRecording, arming);
+  };
+  await refreshActiveRecording();
+  if (activeRecording || arming) {
+    window.setInterval(() => void refreshActiveRecording(), 1000);
   }
 
   // No on-page pre-record preview. A Chrome action popup closes the instant you

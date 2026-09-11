@@ -1402,6 +1402,7 @@ async function armRecording(args: {
   //    recorder starts. The on-page bubble shows during countdown AND recording
   //    (the face is captured in the display; we do not composite).
   const cameraInvolved = mode === "camera" || settings.includeCamera;
+  setActionPopup("");
   overlayPhase = "countdown";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
@@ -1412,8 +1413,6 @@ async function armRecording(args: {
   // so the popup-close disconnect won't tear down the live recording overlay.
   previewTabId = null;
   setRecordingFlag(true);
-  // Keep the active-recording stop and discard controls behind the popup.
-  setActionPopup("src/popup.html");
   overlayTabId = tab.id as number;
   await mountOverlayOnTab(tab.id as number);
   broadcastOverlayState();
@@ -1492,6 +1491,9 @@ async function armRecording(args: {
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
   };
+  // Keep the active-recording stop and discard controls behind the popup once
+  // the recording exists and the countdown can safely be reopened.
+  setActionPopup("src/popup.html");
 
   // 4) Start the recorder when the (already-running) countdown ends. The
   //    offscreen owns the pre-roll timer (a reliable context, unlike the
