@@ -718,6 +718,8 @@ export async function mergeCoreSharingActions(
       "set-feature-flag",
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
+    ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),

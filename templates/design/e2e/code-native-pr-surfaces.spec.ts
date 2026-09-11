@@ -6,9 +6,15 @@ import {
   type Response,
 } from "@playwright/test";
 
+import { DESIGN_REVIEW_PANEL } from "../shared/design-flags";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
-import { designFrame, gotoEditor, selectByText } from "./helpers";
+import {
+  designFrame,
+  enableFeatureFlag,
+  gotoEditor,
+  selectByText,
+} from "./helpers";
 
 let designId: string;
 let fileId: string;
@@ -184,6 +190,19 @@ test("token CSS-var edits update the iframe live and persist after reload", asyn
 test("Review panel runs an audit and applies an inline a11y fix", async ({
   page,
 }) => {
+  const disableReviewPanel = await enableFeatureFlag(
+    page,
+    DESIGN_REVIEW_PANEL.key,
+  );
+  try {
+    await gotoEditor(page, designId);
+    await runReviewPanelAudit(page);
+  } finally {
+    await disableReviewPanel();
+  }
+});
+
+async function runReviewPanelAudit(page: Page): Promise<void> {
   const reviewToggle = page.getByRole("button", {
     name: "Review",
     exact: true,
@@ -235,7 +254,7 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
         .getAttribute("class"),
     )
     .toContain("focus-visible:ring-2");
-});
+}
 
 test("Motion dock autosaves track edits to CSS and reopens them", async ({
   page,

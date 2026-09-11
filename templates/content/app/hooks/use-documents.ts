@@ -559,16 +559,19 @@ export interface PreviewDocumentDraftRecord {
   updatedAt: string;
 }
 
-export function usePreviewDocumentDraft(documentId: string | null) {
+export function usePreviewDocumentDraft(
+  documentId: string | null,
+  options: { enabled?: boolean } = {},
+) {
   return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
     "get-preview-document-draft",
     documentId ? { documentId } : undefined,
     {
-      enabled: !!documentId,
-      // This read only runs for a document that already reported canEdit, so it
-      // cannot legitimately refuse its own draft: 403/404 means the row is not
-      // visible to this connection yet. Every other failure class stays
-      // terminal exactly as before.
+      enabled: !!documentId && options.enabled !== false,
+      // The caller gates this off while it knows creation is pending. A 403/404
+      // that still arrives is a row this connection cannot see yet, not a
+      // refusal — the surface only mounted because the document reported
+      // canEdit. Ride that window out; every other failure class stays terminal.
       ...DOCUMENT_SCOPED_READ_RETRY_OPTIONS,
     },
   );

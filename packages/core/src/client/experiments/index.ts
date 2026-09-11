@@ -1,3 +1,4 @@
+/** @deprecated Import from the Labs client entrypoint instead. */
 export {
   ExperimentsSettings,
   type ExperimentsSettingsProps,

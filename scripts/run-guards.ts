@@ -47,6 +47,7 @@ const guards = [
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
   "guard:no-action-twin-routes",
+  "guard:agent-access-endpoints-public",
   "guard:external-result-contract",
   "guard:provider-action-factories",
   "guard:agent-chat-context",
