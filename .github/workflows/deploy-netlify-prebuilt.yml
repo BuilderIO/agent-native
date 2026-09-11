@@ -1152,8 +1152,7 @@ jobs:
             deploy_message="GitHub Actions PR preview #${PULL_REQUEST_NUMBER} ${SOURCE_TEMPLATE} ${SOURCE_REF}"
           fi
           # Netlify treats an aliased upload as a branch-deploy. The database
-          # mirror above writes that context because --context is unavailable
-          # with --no-build.
+          # mirror above writes that matching runtime context for this upload.
           deploy_args=(
             --site "$NETLIFY_SITE_ID"
             --dir "$PUBLISH_DIRECTORY"
