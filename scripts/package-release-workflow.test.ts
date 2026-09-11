@@ -111,7 +111,7 @@ describe("npm package release workflow", () => {
   });
 
   it("allows npm propagation to settle before failing a publish", () => {
-    assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 15 * 60_000);
+    assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 30 * 60_000);
   });
 
   it("consumes concurrent public changesets after stable publication", () => {

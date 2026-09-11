@@ -145,16 +145,46 @@ jobs:
       artifact_name: beta-${{ matrix.site }}-${{ github.run_id }}
     secrets: inherit
 
+  confirm-current-source:
+    name: Confirm beta source is current
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.resolve-source.result == 'success' &&
+      needs.discover-sites.result == 'success' &&
+      needs.build.result == 'success' }}
+    needs: [resolve-source, discover-sites, build]
+    runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.source.outputs.current }}
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        id: source
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
+        with:
+          script: |
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            const current = process.env.SOURCE_SHA.toLowerCase() === mainSha.toLowerCase();
+            core.setOutput('current', current ? 'true' : 'false');
+            if (!current) {
+              core.info(`Skipping stale beta source ${process.env.SOURCE_SHA}; current main is ${mainSha}.`);
+            }
+
   deploy:
     name: ${{ matrix.site }} beta prebuilt deploy
     if: >-
       ${{ always() && !cancelled() &&
       needs.resolve-source.result == 'success' &&
       needs.discover-sites.result == 'success' &&
-      needs.build.result != 'cancelled' }}
+      needs.build.result == 'success' &&
+      needs.confirm-current-source.outputs.current == 'true' }}
     permissions:
       contents: read
-    needs: [resolve-source, discover-sites, build]
+    needs: [resolve-source, discover-sites, build, confirm-current-source]
     strategy:
       fail-fast: false
       max-parallel: 8

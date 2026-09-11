@@ -298,6 +298,20 @@ jobs:
                 core.setFailed('Beta source_ref must be a full 40-character commit SHA.');
                 return;
               }
+              if (process.env.CALLER.trim() === 'automatic-build') {
+                const comparison = await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: sourceSha,
+                  head: mainSha,
+                });
+                if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                  core.setFailed(`Beta build source ${sourceSha} is not an ancestor of main ${mainSha}.`);
+                  return;
+                }
+                core.setOutput('source_ref', sourceSha);
+                return;
+              }
               if (sourceSha.toLowerCase() !== mainSha.toLowerCase()) {
                 core.setFailed(`Beta source_ref must equal current main ${mainSha}.`);
                 return;

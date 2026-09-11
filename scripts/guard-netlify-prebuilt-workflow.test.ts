@@ -481,6 +481,7 @@ describe("production Netlify site concurrency guard", () => {
       "resolve-source",
       "discover-sites",
       "build",
+      "confirm-current-source",
     ]);
     assert.equal((beta.jobs as Workflow).deploy.with.artifact_download, true);
     assert.match(

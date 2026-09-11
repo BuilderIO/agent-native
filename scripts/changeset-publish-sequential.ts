@@ -40,7 +40,7 @@ const rootDir = path.resolve(
 const registry = "https://registry.npmjs.org";
 const npmDistTag = process.env.AGENT_NATIVE_NPM_DIST_TAG ?? "latest";
 const availabilityPollIntervalMs = 10_000;
-export const DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS = 15 * 60_000;
+export const DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS = 30 * 60_000;
 const availabilityTimeoutMs = Number(
   process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ??
     DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
