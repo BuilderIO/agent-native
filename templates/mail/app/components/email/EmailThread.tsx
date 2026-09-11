@@ -424,13 +424,19 @@ export function EmailThread({
       failedAutoReadThreadRef.current !== threadId
     ) {
       const id = threadId;
+      const accountEmail = messages.find(
+        (m) => (m.threadId || m.id) === id,
+      )?.accountEmail;
       const handle = setTimeout(() => {
         autoReadTimerRef.current = undefined;
-        markThreadRead.mutate(id, {
-          onError: () => {
-            failedAutoReadThreadRef.current = id;
+        markThreadRead.mutate(
+          { threadId: id, accountEmail },
+          {
+            onError: () => {
+              failedAutoReadThreadRef.current = id;
+            },
           },
-        });
+        );
       }, 0);
       autoReadTimerRef.current = handle;
       return () => {
@@ -698,7 +704,8 @@ export function EmailThread({
 
     const undo = () => {
       for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets) unarchiveEmail.mutate(t.id);
+      for (const t of targets)
+        unarchiveEmail.mutate({ id: t.id, accountEmail: t.accountEmail });
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
@@ -754,7 +761,8 @@ export function EmailThread({
 
     const undo = () => {
       for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets) untrashEmail.mutate(t.id);
+      for (const t of targets)
+        untrashEmail.mutate({ id: t.id, accountEmail: t.accountEmail });
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
@@ -765,7 +773,8 @@ export function EmailThread({
       { action: { label: "UNDO", onClick: undo } },
     );
     advanceOrGoBack();
-    for (const t of targets) trashEmail.mutate(t.id);
+    for (const t of targets)
+      trashEmail.mutate({ id: t.id, accountEmail: t.accountEmail });
     setSelectedIds?.(new Set());
   }, [
     email,

@@ -449,6 +449,14 @@ export default function ShareRoute() {
         ref: attribution.ref,
         via: attribution.via,
       });
+      void trackEvent("clip_viewed", {
+        app_name: "clips",
+        template_name: "clips",
+        output_type: "clip",
+        view_type: "shared",
+        ref: attribution.ref,
+        via: attribution.via,
+      });
     } catch {
       // Never let analytics break the page render.
     }
@@ -512,7 +520,7 @@ export default function ShareRoute() {
   // Keep the public viewer's rail in the same default state as the signed-in
   // viewer. Its own tab strip is the only panel navigation; the page toolbar
   // stays focused on recording actions.
-  const [panel, setPanel] = useState<SharePanel>("transcript");
+  const [panel, setPanel] = useState<SharePanel>("comments");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
   const selectCommentsPanel = useCallback(() => {
@@ -683,6 +691,11 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  useEffect(() => {
+    if (recording && !recording.enableComments && panel === "comments") {
+      setPanel("transcript");
+    }
+  }, [panel, recording?.enableComments]);
   const {
     dismiss: dismissProcessingToast,
     error: failProcessingToast,
@@ -1642,7 +1655,19 @@ export default function ShareRoute() {
 
       <Tabs
         value={panel}
-        onValueChange={(value) => setPanel(value as SharePanel)}
+        onValueChange={(value) => {
+          const nextPanel = value as SharePanel;
+          setPanel(nextPanel);
+          if (nextPanel === "agent" && recordingId) {
+            trackEvent("builtin_agent_used", {
+              app_name: "clips",
+              template_name: "clips",
+              output_type: "clip",
+              query_type: "clip",
+              surface: "shared_clip",
+            });
+          }
+        }}
         className="contents"
       >
         <RecordingSidePanel
@@ -1650,7 +1675,10 @@ export default function ShareRoute() {
           tabs={
             <ViewerTabsList>
               {recording.enableComments ? (
-                <ViewerTabsTrigger value="comments">
+                <ViewerTabsTrigger
+                  value="comments"
+                  className="px-0 data-[state=active]:after:inset-x-0"
+                >
                   {t("sharePage.comments")}
                 </ViewerTabsTrigger>
               ) : null}
@@ -1673,9 +1701,6 @@ export default function ShareRoute() {
                 ref={commentsSectionRef}
                 className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"
               >
-                <h2 className="mb-3 shrink-0 text-sm font-semibold">
-                  {t("sharePage.comments")}
-                </h2>
                 <CommentsPanel
                   recordingId={recording.id}
                   comments={comments}

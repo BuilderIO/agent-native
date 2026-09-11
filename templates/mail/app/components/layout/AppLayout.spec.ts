@@ -2,59 +2,21 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  buildLabelDisplayNames,
-  getTabPrefetchTarget,
-  labelTabHref,
-  prefetchMailTabTargets,
-} from "./AppLayout";
+import { buildLabelDisplayNames, reorderById } from "./AppLayout";
 
 function appLayoutSource(): string {
   return readFileSync(new URL("./AppLayout.tsx", import.meta.url), "utf8");
 }
 
-describe("AppLayout inbox rail count", () => {
-  it("uses the mailbox-wide unread count instead of the loaded page", () => {
+describe("AppLayout inbox tab bar", () => {
+  it("reads the whole-mailbox unread count off the synced label list, not loaded rows", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'const inboxSidebarUnreadCount = getInboxCount("unread");',
+      "const inboxSidebarUnreadCount = inboxThreads.data?.labels.find(",
     );
-    expect(source).not.toContain(
-      'const inboxSidebarUnreadCount =\n    labelThreadCounts.unread["__inboxTotal"]',
-    );
-  });
-
-  it("uses the whole-Inbox local count for the Inbox tab", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain('const localCount = localCounts["__inboxTotal"]');
-  });
-
-  it("uses the saved-filter-exclusive local count for a plain Inbox", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain("if (savedFilterQueries.length > 0)");
-    expect(source).toContain('return localCounts["__inboxExclusive"] ?? 0;');
-    expect(source).toContain('total["__inboxExclusive"]');
-    expect(source).toContain(
-      "const savedFilterThreads = savedFilterThreadIds(",
-    );
-    expect(source).toContain(
-      "filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e)))",
-    );
-  });
-
-  it("groups badge rows with the rendered list's thread identity", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain(
-      'import { groupIntoThreads } from "@/lib/threads";',
-    );
-    expect(source).toContain("const threadRows = groupIntoThreads(filtered);");
-    expect(source).toContain(
-      "filterInboxTabEmails(filtered, null, pinnedLabels, savedFilterQueries)",
-    );
+    expect(source).not.toContain('getInboxCount("unread")');
+    expect(source).not.toContain("labelThreadCounts");
   });
 
   it("collapses the native rail while the per-app chat is open", () => {
@@ -87,14 +49,25 @@ describe("AppLayout inbox rail count", () => {
     const source = appLayoutSource();
 
     expect(source).toContain("!isMobile &&\n              showSidebar &&");
-    expect(source).toContain('sidebarOpen && !isMobile && "ps-64"');
+    expect(source).toContain('!isMobile && sidebarOpen && "ps-[260px]"');
   });
 
-  it("keeps the explicit Other inbox tab and search restoration path", () => {
+  it("resolves every tab from the server response and links through inboxTabHref", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain("href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`");
-    expect(source).toContain("id: OTHER_INBOX_TAB_ID");
+    expect(source).toContain(
+      'import { inboxTabHref } from "@shared/inbox-threads";',
+    );
+    expect(source).toContain("const tabs = inboxThreads.data?.tabs ?? [];");
+    expect(source).toContain("href: inboxTabHref(tab.id)");
+    expect(source).toContain("tooltip: tab.query");
+    expect(source).toContain("total: tab.total");
+    expect(source).toContain("unread: tab.unread");
+  });
+
+  it("keeps the search restoration path", () => {
+    const source = appLayoutSource();
+
     expect(source).toContain('params.set("tab", tab)');
     expect(source).toContain('params.set("filter", filter)');
   });
@@ -112,8 +85,7 @@ describe("AppLayout inbox rail count", () => {
     );
     expect(source).toContain("!isInboxScopedAppLabel(activeLabel)");
     expect(source).toContain("resolveDefaultMailHref({");
-    expect(source).toContain("!combineInbox &&");
-    expect(source).toContain("if (combineInbox) continue;");
+    expect(source).toContain("if (combineInbox) return [];");
     expect(source).toContain(
       '<Switch\n          id="combined-inbox-toggle"\n          checked={combinedInbox}\n          onCheckedChange={onCombinedInboxChange}',
     );
@@ -125,19 +97,14 @@ describe("AppLayout inbox rail count", () => {
 
     expect(source).toContain("onSaveSearch={saveSearchAsFilter}");
     expect(source).toContain(
-      "href: `/inbox?filter=${encodeURIComponent(filter.id)}`",
+      "void navigate(`/inbox?filter=${encodeURIComponent(id)}`);",
     );
     expect(source).toContain("savedFilters: [...savedFilters, filter]");
     expect(source).toContain("savedFilters.length >= 20");
     expect(source).toContain("filtersLimitReached");
-    expect(source).toContain("activeAccounts.size > 0");
-    expect(source).toContain(
-      'useEmails("inbox", activeSavedFilter?.query, undefined,',
-    );
-    expect(source).toContain("activeFilterHasNextPage");
   });
 
-  it("cycles filter tabs globally with Tab key and warms visible queries", () => {
+  it("cycles top-bar tabs globally with the Tab key", () => {
     const source = appLayoutSource();
 
     expect(source).toContain("const cycleTab = useCallback(");
@@ -150,18 +117,14 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
     expect(source).toContain("canCycleTab");
     expect(source).toContain("data-mail-tab-list");
-    expect(source).toContain("prefetchEmails(");
-    expect(source).toContain(
-      'queryClient.cancelQueries({ queryKey: ["email-prefetch"] })',
-    );
-    expect(source).toContain("if (tab.isActive) continue;");
-    expect(source).toContain("Promise.allSettled(");
   });
 
-  it("does not show a false count for an inactive saved filter", () => {
+  it("no longer runs a client-side per-tab prefetch loop", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain("? activeFilterCounts[kind]\n        : undefined");
+    expect(source).not.toContain("prefetchMailTabTargets");
+    expect(source).not.toContain("getTabPrefetchTarget");
+    expect(source).not.toContain('queryKey: ["email-prefetch"]');
   });
 
   it("builds pin mutations from the resolved visible pins", () => {
@@ -171,60 +134,80 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("[pinnedLabels, updateSettings],");
   });
 
-  it("keeps pinned tab dragging aligned with the displayed pin order", () => {
+  it("drag-reorders pinned labels and saved filters through the same mechanism, each within its own group", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain("const canDrag = !!tab.pinnedId;");
     expect(source).toContain(
-      "const current = pinnedLabels;\n    if (!current.includes(dragPinnedId)) return;",
+      'type DragItem = { group: "label" | "filter"; id: string };',
+    );
+    expect(source).toContain("const canDrag = !!dragItemForTab;");
+    expect(source).toContain('if (dragItem.group === "label") {');
+    expect(source).toContain(
+      "if (!pinnedLabels.includes(dragItem.id)) return;",
+    );
+    expect(source).toContain(
+      "if (!savedFilters.some((filter) => filter.id === dragItem.id)) return;",
+    );
+    expect(source).toContain(
+      "pinnedLabels: reorderById(\n          pinnedLabels,\n          (id) => id,\n          dragItem.id,\n          targetTab.pinnedId,\n          dropIndicator.side,\n        ),",
+    );
+    expect(source).toContain(
+      "savedFilters: reorderById(\n          savedFilters,\n          (filter) => filter.id,\n          dragItem.id,\n          targetTab.filterId,\n          dropIndicator.side,\n        ),",
+    );
+    expect(source).toContain(
+      "const targetTab = topBarTabs[dropIndicator.tabIndex];",
     );
   });
 
-  it("keeps exclusive tab badges local and mirrors primary tabs on mobile", () => {
+  it("mirrors the server-resolved label/filter tabs on mobile", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      "const inboxPartitionTabIds = new Set<string>([OTHER_INBOX_TAB_ID]);",
-    );
-    expect(source).toContain(
-      "if (inboxPartitionTabIds.has(viewId)) return localCount;",
-    );
-    expect(source).toContain("const mobileInboxTabs = visibleTabs.filter(");
+    expect(source).toContain("const mobileInboxTabs = dataTabs;");
     expect(source).toContain("{mobileInboxTabs.map((tab) => {");
+    expect(source).toContain("const count = tab.unread;");
   });
 
-  it("uses mailbox-wide counts for regular label tabs", () => {
+  it("scopes both the tab bar and the label list to the selected accounts", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      "if (!isInboxScopedAppLabel(label?.id ?? pinnedId)) continue;",
+      "useLabels(\n    activeAccounts.size > 0 ? [...activeAccounts] : undefined,\n  )",
     );
+    expect(source).toContain("accountEmails: inboxAccountEmails,");
   });
 
-  it("does not let loaded pages inflate server-backed label badges", () => {
+  it("never shows a red list-labels banner — useLabels degrades on its own", () => {
     const source = appLayoutSource();
 
-    expect(source).not.toContain("Math.max(serverCount, localCount)");
-    expect(source).toContain(
-      'typeof serverCount === "number" ? serverCount : localCount',
-    );
-  });
-
-  it("scopes label counts to the selected accounts", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain(
-      "useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined)",
-    );
-  });
-
-  it("preserves labels and exposes a retry when Gmail label reads fail", () => {
-    const source = appLayoutSource();
-
+    expect(source).not.toContain('role="alert"');
+    expect(source).not.toContain("mail.error.retrying");
     expect(source).toContain("data: labelsData");
-    expect(source).toContain("isError: labelsError");
-    expect(source).toContain("refetch: refetchLabels");
-    expect(source).toContain('role="alert"');
+  });
+
+  it("shows a compact inline indicator only while the inbox is syncing", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "const inboxSyncing = inboxThreads.data?.syncing === true;",
+    );
+    expect(source).toContain("{inboxSyncing && (");
+    expect(source).toContain('{t("mail.inbox.syncing")}');
+  });
+
+  it("reuses the existing Google reconnect UI for a needs_reauth account", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain('state === "needs_reauth"');
+    expect(source).toContain(
+      '{needsReauthAccount && <GoogleConnectBanner variant="banner" />}',
+    );
+  });
+
+  it('fixes every dead `["labels"]` invalidation to the real action key', () => {
+    const source = appLayoutSource();
+
+    expect(source).not.toContain('queryKey: ["labels"]');
+    expect(source).toContain("void invalidateInboxThreads(queryClient);");
   });
 
   // Repro: with no Google account connected, `view` for an unmatched URL
@@ -245,105 +228,6 @@ describe("AppLayout inbox rail count", () => {
   });
 });
 
-describe("labelTabHref", () => {
-  it("routes a nested user label to the unscoped all-mail view, not the inbox tab", () => {
-    // Repro: Jason Yang's "2-Tasks/Jira" label carries mail that's filed out
-    // of the inbox. Routing through /inbox forces `in:inbox` server-side
-    // (gmail-query.ts) and the label reads as empty even though it has mail.
-    expect(labelTabHref("2-tasks/jira")).toBe("/all?label=2-tasks%2Fjira");
-  });
-
-  it("keeps Gmail's inbox-only categories pinned to the inbox view", () => {
-    // "important" (and the other category labels) only ever exist inside the
-    // inbox, so they keep the client-slice-of-inbox behavior on purpose.
-    expect(labelTabHref("important")).toBe("/inbox?label=important");
-    expect(labelTabHref("updates")).toBe("/inbox?label=updates");
-  });
-});
-
-describe("getTabPrefetchTarget", () => {
-  it("maps saved filters and label tabs to their real mailbox queries", () => {
-    expect(
-      getTabPrefetchTarget(
-        { id: "filter:pitch", href: "/inbox?filter=pitch", type: "filter" },
-        [{ id: "pitch", query: "from:pitch@example.com" }],
-      ),
-    ).toEqual({ view: "inbox", search: "from:pitch@example.com" });
-    expect(
-      getTabPrefetchTarget(
-        {
-          id: "pitch",
-          href: "/all?label=pitch",
-          type: "label",
-        },
-        [],
-      ),
-    ).toEqual({ view: "all", label: "pitch" });
-    expect(
-      getTabPrefetchTarget(
-        { id: "important", href: "/inbox?label=important", type: "label" },
-        [],
-      ),
-    ).toEqual({ view: "inbox" });
-  });
-});
-
-describe("prefetchMailTabTargets", () => {
-  it("warms every target with bounded concurrency", async () => {
-    const targets = ["pitch", "github", "other", "important"].map((view) => ({
-      view,
-    }));
-    const started: string[] = [];
-    let active = 0;
-    let maxActive = 0;
-
-    await prefetchMailTabTargets(targets, async (target) => {
-      started.push(target.view);
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await Promise.resolve();
-      active -= 1;
-    });
-
-    expect(started).toEqual(["pitch", "github", "other", "important"]);
-    expect(maxActive).toBe(2);
-  });
-
-  it("does not overlap a superseded queue when tabs change", async () => {
-    const started: string[] = [];
-    const releases: Array<() => void> = [];
-    let resolveStarted!: () => void;
-    const twoStarted = new Promise<void>((resolve) => {
-      resolveStarted = resolve;
-    });
-
-    const previous = prefetchMailTabTargets(
-      [{ view: "stale-1" }, { view: "stale-2" }, { view: "stale-3" }],
-      async (target) => {
-        started.push(target.view);
-        await new Promise<void>((resolve) => {
-          releases.push(resolve);
-          if (releases.length === 2) resolveStarted();
-        });
-      },
-    );
-    await twoStarted;
-
-    const current = prefetchMailTabTargets(
-      [{ view: "current" }],
-      async (target) => {
-        started.push(target.view);
-      },
-    );
-    expect(started).not.toContain("current");
-
-    for (const release of releases) release();
-    await Promise.all([previous, current]);
-
-    expect(started).toEqual(["stale-1", "stale-2", "current"]);
-  });
-});
-
 describe("buildLabelDisplayNames", () => {
   it("disambiguates labels that share a short name", () => {
     const displayNames = buildLabelDisplayNames([
@@ -361,5 +245,62 @@ describe("buildLabelDisplayNames", () => {
       "[Superhuman]/AI/Automated notifications",
     );
     expect(displayNames.get("pitch")).toBe("Pitch");
+  });
+});
+
+describe("reorderById", () => {
+  it("moves the dragged item before the target on a left drop", () => {
+    expect(reorderById(["a", "b", "c"], (id) => id, "c", "a", "left")).toEqual([
+      "c",
+      "a",
+      "b",
+    ]);
+  });
+
+  it("moves the dragged item after the target on a right drop", () => {
+    expect(reorderById(["a", "b", "c"], (id) => id, "a", "b", "right")).toEqual(
+      ["b", "a", "c"],
+    );
+  });
+
+  it("appends to the end when the target id is undefined (dropped outside this group)", () => {
+    expect(
+      reorderById(["a", "b", "c"], (id) => id, "a", undefined, "left"),
+    ).toEqual(["b", "c", "a"]);
+  });
+
+  it("appends to the end when the target id isn't found in this list", () => {
+    expect(
+      reorderById(["a", "b", "c"], (id) => id, "a", "not-here", "left"),
+    ).toEqual(["b", "c", "a"]);
+  });
+
+  it("returns a copy unchanged when the dragged id isn't in the list", () => {
+    const items = ["a", "b", "c"];
+    const result = reorderById(items, (id) => id, "missing", "b", "left");
+    expect(result).toEqual(items);
+    expect(result).not.toBe(items);
+  });
+
+  it("works with objects via a custom id getter, e.g. saved filters", () => {
+    const filters = [
+      { id: "important", name: "Important" },
+      { id: "github", name: "Github" },
+      { id: "pitch", name: "Pitch" },
+    ];
+
+    const reordered = reorderById(
+      filters,
+      (f) => f.id,
+      "github",
+      "pitch",
+      "right",
+    );
+
+    expect(reordered.map((f) => f.id)).toEqual([
+      "important",
+      "pitch",
+      "github",
+    ]);
   });
 });

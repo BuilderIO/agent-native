@@ -6,6 +6,7 @@ import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -89,6 +90,12 @@ async function signalMailRefresh(): Promise<void> {
   await writeAppState("refresh-signal", { ts: Date.now() }).catch((error) => {
     console.error("[send-email] refresh signal failed:", error);
   });
+}
+
+function countRecipients(...values: Array<string | undefined>): number {
+  return values
+    .flatMap((value) => value?.split(",") ?? [])
+    .filter((value) => value.trim()).length;
 }
 
 const attachmentSchema = z.object({
@@ -240,6 +247,18 @@ export default defineAction({
           );
         } catch {}
         await signalMailRefresh();
+        track(
+          "email_sent",
+          {
+            app_name: "mail",
+            template_name: "mail",
+            output_id: newEmail.id,
+            output_type: "email",
+            recipient_count: countRecipients(args.to, args.cc, args.bcc),
+            attachment_count: args.attachments?.length ?? 0,
+          },
+          ctx,
+        );
         return JSON.stringify(newEmail, null, 2);
       });
     }
@@ -339,6 +358,18 @@ export default defineAction({
         // best-effort — never block the send response
       }
       await signalMailRefresh();
+      track(
+        "email_sent",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          output_id: sent.id,
+          output_type: "email",
+          recipient_count: countRecipients(args.to, args.cc, args.bcc),
+          attachment_count: args.attachments?.length ?? 0,
+        },
+        ctx,
+      );
 
       return `Email sent successfully (id: ${sent.id})`;
     } catch (err: any) {

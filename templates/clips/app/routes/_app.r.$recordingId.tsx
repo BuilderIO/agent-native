@@ -3,12 +3,12 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import { useExperiment } from "@agent-native/core/client/experiments";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -20,6 +20,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -33,8 +34,8 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
-import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/experiments";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
+import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -108,6 +109,7 @@ import {
   ViewerTabsTrigger,
 } from "@/components/player/viewer-controls";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
@@ -141,6 +143,7 @@ import { useCompletionAudioCue } from "@/hooks/use-completion-audio-cue";
 import { useFolders, useSpaces } from "@/hooks/use-library";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
+import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
@@ -555,12 +558,12 @@ export default function RecordingPage() {
   const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
   const panelParam = searchParams.get("panel");
   const { session, isLoading: sessionLoading } = useSession();
-  const videoEditingExperimentEnabled = useExperiment(CLIPS_VIDEO_EDITING.key);
-  const meetingsExperimentEnabled = useExperiment(CLIPS_MEETINGS.key);
+  const videoEditingLabEnabled = useLab(CLIPS_VIDEO_EDITING.key);
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
 
-  const [panel, setPanel] = useState<SidePanel | null>("transcript");
+  const [panel, setPanel] = useState<SidePanel | null>("comments");
   const globalAgentSidebarOpen = useGlobalAgentSidebarOpen();
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -581,6 +584,14 @@ export default function RecordingPage() {
   // the player, so nothing needs to scroll there.
   const openSidePanel = useCallback(
     (next: ToolbarPanel) => {
+      if (panel !== next) {
+        trackEvent("clip_panel_opened", {
+          app_name: "clips",
+          template_name: "clips",
+          surface: "recording_page",
+          panel: next,
+        });
+      }
       setPanel(next);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("panel", next);
@@ -592,9 +603,17 @@ export default function RecordingPage() {
           ?.scrollIntoView({ block: "start" });
       });
     },
-    [isCompactLayout, searchParams, setSearchParams],
+    [isCompactLayout, panel, searchParams, setSearchParams],
   );
   const openCommentsPanel = useCallback(() => {
+    if (panel !== "comments") {
+      trackEvent("clip_panel_opened", {
+        app_name: "clips",
+        template_name: "clips",
+        surface: "recording_page",
+        panel: "comments",
+      });
+    }
     setPanel("comments");
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("panel", "comments");
@@ -607,10 +626,20 @@ export default function RecordingPage() {
         });
       });
     }
-  }, [isCompactLayout, searchParams, setSearchParams]);
+  }, [isCompactLayout, panel, searchParams, setSearchParams]);
   const openAgentPanel = useCallback(() => {
+    if (recordingId) {
+      trackEvent("builtin_agent_used", {
+        app_name: "clips",
+        template_name: "clips",
+        output_id: recordingId,
+        output_type: "clip",
+        query_type: "clip",
+        surface: "recording_page",
+      });
+    }
     requestAgentSidebarOpen();
-  }, []);
+  }, [recordingId]);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -837,6 +866,20 @@ export default function RecordingPage() {
     | "commenter"
     | "viewer"
     | undefined;
+  const clipViewFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!recording?.id || role === undefined) return;
+    if (clipViewFiredRef.current === recording.id) return;
+    clipViewFiredRef.current = recording.id;
+    trackEvent("clip_viewed", {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: recording.id,
+      output_type: "clip",
+      is_owner: role === "owner",
+      view_type: "recording_page",
+    });
+  }, [recording?.id, role]);
   const directAgentContextUrl = useMemo(() => {
     if (
       typeof window === "undefined" ||
@@ -937,11 +980,10 @@ export default function RecordingPage() {
     recordingId === VIEWER_REDESIGN_PREVIEW_ID
       ? VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS
       : (recording?.durationMs ?? 0);
-  const hasBrowserDiagnosticFailures = Boolean(
-    browserDiagnostics &&
-    (browserDiagnostics.summary.consoleErrorCount > 0 ||
-      browserDiagnostics.summary.consoleWarnCount > 0 ||
-      browserDiagnostics.summary.networkFailureCount > 0),
+  const unviewedDebugEventCount = useUnviewedDebugEventCount(
+    recordingId,
+    browserDiagnostics?.summary ?? null,
+    panel === "debug",
   );
   // Reaching this page already requires a signed-in session with at least
   // viewer access to the recording, so any resolved role qualifies to
@@ -950,11 +992,12 @@ export default function RecordingPage() {
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
-      (!browserDiagnostics && panel === "debug")
+      (!browserDiagnostics && panel === "debug") ||
+      (recording && !recording.enableComments && panel === "comments")
     ) {
       setPanel("transcript");
     }
-  }, [browserDiagnostics, canEdit, panel]);
+  }, [browserDiagnostics, canEdit, panel, recording]);
 
   useEffect(() => {
     if (panelParam === "agent") {
@@ -1200,7 +1243,7 @@ export default function RecordingPage() {
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor =
-    canEdit && videoEditingExperimentEnabled && !isLoomEmbedBacked;
+    canEdit && videoEditingLabEnabled && !isLoomEmbedBacked;
   const canDelete = role === "owner";
   const canDownloadRecording = Boolean(
     recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
@@ -1941,7 +1984,10 @@ export default function RecordingPage() {
   const renderPanelTabs = () => (
     <ViewerTabsList className="min-w-0 shrink-0 bg-sidebar">
       {recording.enableComments ? (
-        <ViewerTabsTrigger value="comments">
+        <ViewerTabsTrigger
+          value="comments"
+          className="px-0 data-[state=active]:after:inset-x-0"
+        >
           {t("playerSettings.comments")}
         </ViewerTabsTrigger>
       ) : null}
@@ -1952,11 +1998,16 @@ export default function RecordingPage() {
         <ViewerTabsTrigger value="debug">
           <span className="flex items-center justify-center gap-1.5">
             {t("browserDiagnostics.debug")}
-            {hasBrowserDiagnosticFailures ? (
-              <span
-                className="size-1.5 rounded-full bg-destructive"
-                aria-label={t("browserDiagnostics.failuresPresent")}
-              />
+            {unviewedDebugEventCount > 0 ? (
+              <Badge
+                variant="secondary"
+                className="h-4 min-w-4 justify-center rounded-full px-1 py-0 text-[10px] leading-none"
+                aria-label={t("browserDiagnostics.unviewedCount", {
+                  count: unviewedDebugEventCount,
+                })}
+              >
+                {unviewedDebugEventCount}
+              </Badge>
             ) : null}
           </span>
         </ViewerTabsTrigger>
@@ -1979,11 +2030,6 @@ export default function RecordingPage() {
           : "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3",
       )}
     >
-      {!compact ? (
-        <h2 className="mb-3 shrink-0 text-sm font-semibold">
-          {t("playerSettings.comments")}
-        </h2>
-      ) : null}
       <CommentsPanel
         recordingId={recording.id}
         comments={comments}
@@ -2545,7 +2591,7 @@ export default function RecordingPage() {
                     </div>
                     {/* G9 — "From meeting" badge surfaced when this recording is
                       attached to a meeting (server fix 6 attaches `meeting`). */}
-                    {meetingsExperimentEnabled && playerDataQ.data?.meeting ? (
+                    {meetingsLabEnabled && playerDataQ.data?.meeting ? (
                       <NavLink
                         to={`/meetings/${playerDataQ.data.meeting.id}`}
                         className="mb-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"

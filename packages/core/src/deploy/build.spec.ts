@@ -3139,6 +3139,30 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain('includedFiles: ["**"]');
   });
 
+  it.each([true, false])(
+    "emits recovery with jobs disabled only when durable chat is enabled (%s)",
+    (durableChat) => {
+      process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = String(durableChat);
+      const cwd = setupNetlifyOutput();
+      if (durableChat) emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+      emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
+
+      expect(
+        fs.existsSync(
+          path.join(
+            cwd,
+            ".netlify",
+            "functions-internal",
+            NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
+            `${NETLIFY_RECURRING_JOBS_FUNCTION_NAME}.mjs`,
+          ),
+        ),
+      ).toBe(durableChat);
+    },
+  );
+
   describe("keep-warm opt-in and cadence", () => {
     const KEEP_WARM_ENV_KEYS = [
       "AGENT_NATIVE_ENABLE_KEEP_WARM",

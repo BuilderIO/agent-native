@@ -366,3 +366,45 @@ export type AISDKProvider = keyof typeof AI_SDK_MODEL_CONFIG;
 export const DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
 export const DEFAULT_OPENAI_MODEL = AI_SDK_MODEL_CONFIG.openai.defaultModel;
 export const DEFAULT_ANTHROPIC_MODEL = ANTHROPIC_MODEL_CONFIG.defaultModel;
+
+type ClaudeModelFamily = "haiku" | "sonnet" | "opus";
+
+// haiku→sonnet, sonnet→haiku, opus→sonnet: the sibling family a run switches
+// to for one retry attempt when the original model's provider is throttling
+// (see `production-agent.ts`'s per-attempt retry loop).
+const RATE_LIMIT_FALLBACK_FAMILY: Record<ClaudeModelFamily, ClaudeModelFamily> =
+  {
+    haiku: "sonnet",
+    sonnet: "haiku",
+    opus: "sonnet",
+  };
+
+function claudeModelFamily(model: string): ClaudeModelFamily | undefined {
+  const id = model.toLowerCase();
+  if (id.includes("haiku")) return "haiku";
+  if (id.includes("sonnet")) return "sonnet";
+  if (id.includes("opus")) return "opus";
+  return undefined;
+}
+
+/**
+ * The model to retry on when `model` is rate-limited and the engine retry
+ * budget is exhausted, resolved from `model`'s Claude family (haiku / sonnet /
+ * opus) rather than a literal id table — a run may be on Builder-catalog ids
+ * (`claude-haiku-4-5`) or the direct Anthropic engine's dated ids
+ * (`claude-haiku-4-5-20251001`), and only `supportedModels` (the engine
+ * actually in use) knows which ids are valid for this run. Returns undefined
+ * when `model`'s family is unknown (gpt-*, gemini-*, "auto") or
+ * `supportedModels` has no other id in the target family.
+ */
+export function resolveFallbackModel(
+  model: string,
+  supportedModels: readonly string[] | undefined,
+): string | undefined {
+  const family = claudeModelFamily(model);
+  if (!family || !supportedModels) return undefined;
+  const targetFamily = RATE_LIMIT_FALLBACK_FAMILY[family];
+  return supportedModels.find(
+    (id) => id !== model && claudeModelFamily(id) === targetFamily,
+  );
+}

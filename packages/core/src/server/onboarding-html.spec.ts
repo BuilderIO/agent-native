@@ -15,6 +15,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 
 function readAuthPageData(html: string): AuthPageProps {
@@ -39,13 +40,17 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="upgrade-note"');
   });
 
-  it("includes a beta switcher on the standalone auth page", () => {
-    const html = getOnboardingHtml({
-      requestHost: "beta.analytics.agent-native.com",
-    });
+  it("includes an environment switcher on the standalone auth page", () => {
+    // Auth responses inject the shared switcher at the login boundary; the
+    // React shell alone only ships lane config + document styles.
+    const html = injectBetaOptOutPersistence(
+      getOnboardingHtml({
+        requestHost: "beta.analytics.agent-native.com",
+      }),
+    );
 
     expect(html).toContain('id="environment-badge"');
-    expect(html).toContain("You&#x27;re on Agent-Native Beta");
+    expect(html).toContain("You're on Agent-Native Alpha");
     expect(html).toContain("Switch to production");
     expect(html).toContain('id="environment-hide-badge"');
     expect(readAuthPageData(html).environmentBetaHosts).toHaveProperty(

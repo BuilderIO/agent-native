@@ -55,6 +55,7 @@ describe("attachment upload tickets", () => {
     const created = await createAttachmentUploadTicket(
       "owner@example.com",
       "quarterly report.pdf",
+      "org-1",
     );
     const stored = JSON.parse(settings.get(storageKey)!) as {
       tickets: Record<string, Record<string, unknown>>;
@@ -68,7 +69,7 @@ describe("attachment upload tickets", () => {
       verifyAttachmentUploadTicket(created.uploadId, created.token),
     ).resolves.toMatchObject({
       ownerEmail: "owner@example.com",
-      ticket: { originalName: "quarterly report.pdf" },
+      ticket: { originalName: "quarterly report.pdf", orgId: "org-1" },
     });
   });
 

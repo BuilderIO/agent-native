@@ -4,6 +4,211 @@
 /** Compiled IIFE string for editor-chrome.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const editorChromeBridgeScript: string = `"use strict";
 (() => {
+  var __create = Object.create;
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __getProtoOf = Object.getPrototypeOf;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __commonJS = (cb, mod) => function __require() {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+    // If the importer is in node compatibility mode or this is not an ESM
+    // file that has been converted to a CommonJS file using a Babel-
+    // compatible transform (i.e. "__esModule" has not been set), then set
+    // "default" to the CommonJS "module.exports" for node compatibility.
+    isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+    mod
+  ));
+
+  // ../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
+  var require_resolve_uri_umd = __commonJS({
+    "../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
+      (function(global, factory) {
+        typeof exports === "object" && typeof module !== "undefined" ? module.exports = factory() : typeof define === "function" && define.amd ? define(factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, global.resolveURI = factory());
+      })(exports, (function() {
+        "use strict";
+        const schemeRegex = /^[\\w+.-]+:\\/\\//;
+        const urlRegex = /^([\\w+.-]+:)\\/\\/([^@/#?]*@)?([^:/#?]*)(:\\d+)?(\\/[^#?]*)?(\\?[^#]*)?(#.*)?/;
+        const fileRegex = /^file:(?:\\/\\/((?![a-z]:)[^/#?]*)?)?(\\/?[^#?]*)(\\?[^#]*)?(#.*)?/i;
+        function isAbsoluteUrl(input) {
+          return schemeRegex.test(input);
+        }
+        function isSchemeRelativeUrl(input) {
+          return input.startsWith("//");
+        }
+        function isAbsolutePath(input) {
+          return input.startsWith("/");
+        }
+        function isFileUrl(input) {
+          return input.startsWith("file:");
+        }
+        function isRelative(input) {
+          return /^[.?#]/.test(input);
+        }
+        function parseAbsoluteUrl(input) {
+          const match = urlRegex.exec(input);
+          return makeUrl(match[1], match[2] || "", match[3], match[4] || "", match[5] || "/", match[6] || "", match[7] || "");
+        }
+        function parseFileUrl(input) {
+          const match = fileRegex.exec(input);
+          const path = match[2];
+          return makeUrl("file:", "", match[1] || "", "", isAbsolutePath(path) ? path : "/" + path, match[3] || "", match[4] || "");
+        }
+        function makeUrl(scheme, user, host, port, path, query, hash) {
+          return {
+            scheme,
+            user,
+            host,
+            port,
+            path,
+            query,
+            hash,
+            type: 7
+          };
+        }
+        function parseUrl(input) {
+          if (isSchemeRelativeUrl(input)) {
+            const url2 = parseAbsoluteUrl("http:" + input);
+            url2.scheme = "";
+            url2.type = 6;
+            return url2;
+          }
+          if (isAbsolutePath(input)) {
+            const url2 = parseAbsoluteUrl("http://foo.com" + input);
+            url2.scheme = "";
+            url2.host = "";
+            url2.type = 5;
+            return url2;
+          }
+          if (isFileUrl(input))
+            return parseFileUrl(input);
+          if (isAbsoluteUrl(input))
+            return parseAbsoluteUrl(input);
+          const url = parseAbsoluteUrl("http://foo.com/" + input);
+          url.scheme = "";
+          url.host = "";
+          url.type = input ? input.startsWith("?") ? 3 : input.startsWith("#") ? 2 : 4 : 1;
+          return url;
+        }
+        function stripPathFilename(path) {
+          if (path.endsWith("/.."))
+            return path;
+          const index = path.lastIndexOf("/");
+          return path.slice(0, index + 1);
+        }
+        function mergePaths(url, base) {
+          normalizePath(base, base.type);
+          if (url.path === "/") {
+            url.path = base.path;
+          } else {
+            url.path = stripPathFilename(base.path) + url.path;
+          }
+        }
+        function normalizePath(url, type) {
+          const rel = type <= 4;
+          const pieces = url.path.split("/");
+          let pointer = 1;
+          let positive = 0;
+          let addTrailingSlash = false;
+          for (let i = 1; i < pieces.length; i++) {
+            const piece = pieces[i];
+            if (!piece) {
+              addTrailingSlash = true;
+              continue;
+            }
+            addTrailingSlash = false;
+            if (piece === ".")
+              continue;
+            if (piece === "..") {
+              if (positive) {
+                addTrailingSlash = true;
+                positive--;
+                pointer--;
+              } else if (rel) {
+                pieces[pointer++] = piece;
+              }
+              continue;
+            }
+            pieces[pointer++] = piece;
+            positive++;
+          }
+          let path = "";
+          for (let i = 1; i < pointer; i++) {
+            path += "/" + pieces[i];
+          }
+          if (!path || addTrailingSlash && !path.endsWith("/..")) {
+            path += "/";
+          }
+          url.path = path;
+        }
+        function resolve(input, base) {
+          if (!input && !base)
+            return "";
+          const url = parseUrl(input);
+          let inputType = url.type;
+          if (base && inputType !== 7) {
+            const baseUrl = parseUrl(base);
+            const baseType = baseUrl.type;
+            switch (inputType) {
+              case 1:
+                url.hash = baseUrl.hash;
+              // fall through
+              case 2:
+                url.query = baseUrl.query;
+              // fall through
+              case 3:
+              case 4:
+                mergePaths(url, baseUrl);
+              // fall through
+              case 5:
+                url.user = baseUrl.user;
+                url.host = baseUrl.host;
+                url.port = baseUrl.port;
+              // fall through
+              case 6:
+                url.scheme = baseUrl.scheme;
+            }
+            if (baseType > inputType)
+              inputType = baseType;
+          }
+          normalizePath(url, inputType);
+          const queryHash = url.query + url.hash;
+          switch (inputType) {
+            // This is impossible, because of the empty checks at the start of the function.
+            // case UrlType.Empty:
+            case 2:
+            case 3:
+              return queryHash;
+            case 4: {
+              const path = url.path.slice(1);
+              if (!path)
+                return queryHash || ".";
+              if (isRelative(base || input) && !isRelative(path)) {
+                return "./" + path + queryHash;
+              }
+              return path + queryHash;
+            }
+            case 5:
+              return url.path + queryHash;
+            default:
+              return url.scheme + "//" + url.user + url.host + url.port + url.path + queryHash;
+          }
+        }
+        return resolve;
+      }));
+    }
+  });
+
   // ../../packages/toolkit/dist/canvas-interactions/canvas-interactions.js
   var DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
   var DEFAULT_CANVAS_NUDGE = 1;
@@ -412,6 +617,292 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
   }
 
+  // ../../node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
+  var comma = ",".charCodeAt(0);
+  var semicolon = ";".charCodeAt(0);
+  var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  var intToChar = new Uint8Array(64);
+  var charToInt = new Uint8Array(128);
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars.charCodeAt(i);
+    intToChar[i] = c;
+    charToInt[c] = i;
+  }
+  function decodeInteger(reader, relative) {
+    let value = 0;
+    let shift = 0;
+    let integer = 0;
+    do {
+      const c = reader.next();
+      integer = charToInt[c];
+      value |= (integer & 31) << shift;
+      shift += 5;
+    } while (integer & 32);
+    const shouldNegate = value & 1;
+    value >>>= 1;
+    if (shouldNegate) {
+      value = -2147483648 | -value;
+    }
+    return relative + value;
+  }
+  function hasMoreVlq(reader, max) {
+    if (reader.pos >= max) return false;
+    return reader.peek() !== comma;
+  }
+  var bufLength = 1024 * 16;
+  var StringReader = class {
+    constructor(buffer) {
+      this.pos = 0;
+      this.buffer = buffer;
+    }
+    next() {
+      return this.buffer.charCodeAt(this.pos++);
+    }
+    peek() {
+      return this.buffer.charCodeAt(this.pos);
+    }
+    indexOf(char) {
+      const { buffer, pos } = this;
+      const idx = buffer.indexOf(char, pos);
+      return idx === -1 ? buffer.length : idx;
+    }
+  };
+  function decode(mappings) {
+    const { length } = mappings;
+    const reader = new StringReader(mappings);
+    const decoded = [];
+    let genColumn = 0;
+    let sourcesIndex = 0;
+    let sourceLine = 0;
+    let sourceColumn = 0;
+    let namesIndex = 0;
+    do {
+      const semi = reader.indexOf(";");
+      const line = [];
+      let sorted = true;
+      let lastCol = 0;
+      genColumn = 0;
+      while (reader.pos < semi) {
+        let seg;
+        genColumn = decodeInteger(reader, genColumn);
+        if (genColumn < lastCol) sorted = false;
+        lastCol = genColumn;
+        if (hasMoreVlq(reader, semi)) {
+          sourcesIndex = decodeInteger(reader, sourcesIndex);
+          sourceLine = decodeInteger(reader, sourceLine);
+          sourceColumn = decodeInteger(reader, sourceColumn);
+          if (hasMoreVlq(reader, semi)) {
+            namesIndex = decodeInteger(reader, namesIndex);
+            seg = [genColumn, sourcesIndex, sourceLine, sourceColumn, namesIndex];
+          } else {
+            seg = [genColumn, sourcesIndex, sourceLine, sourceColumn];
+          }
+        } else {
+          seg = [genColumn];
+        }
+        line.push(seg);
+        reader.pos++;
+      }
+      if (!sorted) sort(line);
+      decoded.push(line);
+      reader.pos = semi + 1;
+    } while (reader.pos <= length);
+    return decoded;
+  }
+  function sort(line) {
+    line.sort(sortComparator);
+  }
+  function sortComparator(a, b) {
+    return a[0] - b[0];
+  }
+
+  // ../../node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
+  var import_resolve_uri = __toESM(require_resolve_uri_umd(), 1);
+  function stripFilename(path) {
+    if (!path) return "";
+    const index = path.lastIndexOf("/");
+    return path.slice(0, index + 1);
+  }
+  function resolver(mapUrl, sourceRoot) {
+    const from = stripFilename(mapUrl);
+    const prefix = sourceRoot ? sourceRoot + "/" : "";
+    return (source) => (0, import_resolve_uri.default)(prefix + (source || ""), from);
+  }
+  var COLUMN = 0;
+  var SOURCES_INDEX = 1;
+  var SOURCE_LINE = 2;
+  var SOURCE_COLUMN = 3;
+  var NAMES_INDEX = 4;
+  function maybeSort(mappings, owned) {
+    const unsortedIndex = nextUnsortedSegmentLine(mappings, 0);
+    if (unsortedIndex === mappings.length) return mappings;
+    if (!owned) mappings = mappings.slice();
+    for (let i = unsortedIndex; i < mappings.length; i = nextUnsortedSegmentLine(mappings, i + 1)) {
+      mappings[i] = sortSegments(mappings[i], owned);
+    }
+    return mappings;
+  }
+  function nextUnsortedSegmentLine(mappings, start) {
+    for (let i = start; i < mappings.length; i++) {
+      if (!isSorted(mappings[i])) return i;
+    }
+    return mappings.length;
+  }
+  function isSorted(line) {
+    for (let j = 1; j < line.length; j++) {
+      if (line[j][COLUMN] < line[j - 1][COLUMN]) {
+        return false;
+      }
+    }
+    return true;
+  }
+  function sortSegments(line, owned) {
+    if (!owned) line = line.slice();
+    return line.sort(sortComparator2);
+  }
+  function sortComparator2(a, b) {
+    return a[COLUMN] - b[COLUMN];
+  }
+  var found = false;
+  function binarySearch(haystack, needle, low, high) {
+    while (low <= high) {
+      const mid = low + (high - low >> 1);
+      const cmp = haystack[mid][COLUMN] - needle;
+      if (cmp === 0) {
+        found = true;
+        return mid;
+      }
+      if (cmp < 0) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    found = false;
+    return low - 1;
+  }
+  function upperBound(haystack, needle, index) {
+    for (let i = index + 1; i < haystack.length; index = i++) {
+      if (haystack[i][COLUMN] !== needle) break;
+    }
+    return index;
+  }
+  function lowerBound(haystack, needle, index) {
+    for (let i = index - 1; i >= 0; index = i--) {
+      if (haystack[i][COLUMN] !== needle) break;
+    }
+    return index;
+  }
+  function memoizedState() {
+    return {
+      lastKey: -1,
+      lastNeedle: -1,
+      lastIndex: -1
+    };
+  }
+  function memoizedBinarySearch(haystack, needle, state, key) {
+    const { lastKey, lastNeedle, lastIndex } = state;
+    let low = 0;
+    let high = haystack.length - 1;
+    if (key === lastKey) {
+      if (needle === lastNeedle) {
+        found = lastIndex !== -1 && haystack[lastIndex][COLUMN] === needle;
+        return lastIndex;
+      }
+      if (needle >= lastNeedle) {
+        low = lastIndex === -1 ? 0 : lastIndex;
+      } else {
+        high = lastIndex;
+      }
+    }
+    state.lastKey = key;
+    state.lastNeedle = needle;
+    return state.lastIndex = binarySearch(haystack, needle, low, high);
+  }
+  function parse(map) {
+    return typeof map === "string" ? JSON.parse(map) : map;
+  }
+  var LINE_GTR_ZERO = "\`line\` must be greater than 0 (lines start at line 1)";
+  var COL_GTR_EQ_ZERO = "\`column\` must be greater than or equal to 0 (columns start at column 0)";
+  var LEAST_UPPER_BOUND = -1;
+  var GREATEST_LOWER_BOUND = 1;
+  var TraceMap = class {
+    constructor(map, mapUrl) {
+      const isString = typeof map === "string";
+      if (!isString && map._decodedMemo) return map;
+      const parsed = parse(map);
+      const { version, file, names, sourceRoot, sources, sourcesContent } = parsed;
+      this.version = version;
+      this.file = file;
+      this.names = names || [];
+      this.sourceRoot = sourceRoot;
+      this.sources = sources;
+      this.sourcesContent = sourcesContent;
+      this.ignoreList = parsed.ignoreList || parsed.x_google_ignoreList || void 0;
+      const resolve = resolver(mapUrl, sourceRoot);
+      this.resolvedSources = sources.map(resolve);
+      const { mappings } = parsed;
+      if (typeof mappings === "string") {
+        this._encoded = mappings;
+        this._decoded = void 0;
+      } else if (Array.isArray(mappings)) {
+        this._encoded = void 0;
+        this._decoded = maybeSort(mappings, isString);
+      } else if (parsed.sections) {
+        throw new Error(\`TraceMap passed sectioned source map, please use FlattenMap export instead\`);
+      } else {
+        throw new Error(\`invalid source map: \${JSON.stringify(parsed)}\`);
+      }
+      this._decodedMemo = memoizedState();
+      this._bySources = void 0;
+      this._bySourceMemos = void 0;
+    }
+  };
+  function cast(map) {
+    return map;
+  }
+  function decodedMappings(map) {
+    var _a;
+    return (_a = cast(map))._decoded || (_a._decoded = decode(cast(map)._encoded));
+  }
+  function originalPositionFor(map, needle) {
+    let { line, column, bias } = needle;
+    line--;
+    if (line < 0) throw new Error(LINE_GTR_ZERO);
+    if (column < 0) throw new Error(COL_GTR_EQ_ZERO);
+    const decoded = decodedMappings(map);
+    if (line >= decoded.length) return OMapping(null, null, null, null);
+    const segments = decoded[line];
+    const index = traceSegmentInternal(
+      segments,
+      cast(map)._decodedMemo,
+      line,
+      column,
+      bias || GREATEST_LOWER_BOUND
+    );
+    if (index === -1) return OMapping(null, null, null, null);
+    const segment = segments[index];
+    if (segment.length === 1) return OMapping(null, null, null, null);
+    const { names, resolvedSources } = map;
+    return OMapping(
+      resolvedSources[segment[SOURCES_INDEX]],
+      segment[SOURCE_LINE] + 1,
+      segment[SOURCE_COLUMN],
+      segment.length === 5 ? names[segment[NAMES_INDEX]] : null
+    );
+  }
+  function OMapping(source, line, column, name) {
+    return { source, line, column, name };
+  }
+  function traceSegmentInternal(segments, memo, line, column, bias) {
+    let index = memoizedBinarySearch(segments, column, memo, line);
+    if (found) {
+      index = (bias === LEAST_UPPER_BOUND ? upperBound : lowerBound)(segments, column, index);
+    } else if (bias === LEAST_UPPER_BOUND) index++;
+    if (index === -1 || index === segments.length) return -1;
+    return index;
+  }
+
   // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     if (window.__anEditorChromeBridge) return;
@@ -716,6 +1207,18 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function selectorPart(el) {
       if (!el || !el.tagName) return "";
+      if (isTemplateCloneElement(el)) {
+        var cloneTag = el.tagName.toLowerCase();
+        var cloneParent = el.parentElement;
+        if (!cloneParent) return cloneTag;
+        var typeIndex = 0;
+        for (var at = 0; at < cloneParent.children.length; at += 1) {
+          var sibling = cloneParent.children[at];
+          if (sibling.tagName === el.tagName) typeIndex += 1;
+          if (sibling === el) break;
+        }
+        return cloneTag + ":nth-of-type(" + typeIndex + ")";
+      }
       var stableSelector = attributeSelector(el, "data-agent-native-node-id") || attributeSelector(el, "data-code-layer-id") || attributeSelector(el, "data-layer-id") || attributeSelector(el, "data-builder-id") || attributeSelector(el, "data-loc");
       if (stableSelector) return el.tagName.toLowerCase() + stableSelector;
       if (el.id) return "#" + escapeIdent(el.id);
@@ -725,7 +1228,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         var sameTag = Array.prototype.filter.call(
           parent.children,
           function(child) {
-            return child.tagName === el.tagName;
+            if (child.tagName !== el.tagName) return false;
+            if (isOverlayElement(child)) return false;
+            if (child !== el && isTemplateCloneElement(child)) return false;
+            return true;
           }
         );
         if (sameTag.length > 1) {
@@ -766,17 +1272,23 @@ export const editorChromeBridgeScript: string = `"use strict";
     function resolveProvenanceFrameUrl(rawUrl) {
       if (rawUrl.indexOf("webpack-internal:///") === 0) {
         var webpackPath = rawUrl.slice("webpack-internal:///".length).replace(/^\\.\\//, "");
-        return webpackPath || null;
+        return webpackPath ? { sourceFile: webpackPath, localServedOutput: false } : null;
       }
       try {
-        var url = new URL(rawUrl);
+        var baseUrl = typeof document !== "undefined" ? document.baseURI : void 0;
+        var url = baseUrl ? new URL(rawUrl, baseUrl) : new URL(rawUrl);
         var path = decodeURIComponent(url.pathname);
+        var localServedOutput = path.indexOf("/@fs/") === 0;
         if (path.indexOf("/@fs/") === 0) {
           path = path.slice("/@fs".length);
         } else if (url.protocol !== "file:") {
           path = path.replace(/^\\/+/, "");
         }
-        return path || null;
+        return path ? {
+          sourceFile: path,
+          servedUrl: url.href,
+          localServedOutput
+        } : null;
       } catch (_error) {
         return null;
       }
@@ -785,16 +1297,21 @@ export const editorChromeBridgeScript: string = `"use strict";
     function parseProvenanceStackFrame(lineText) {
       var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
       if (!match) return null;
-      var sourceFile = resolveProvenanceFrameUrl(match[2]);
-      if (!sourceFile || isProvenanceNoisePath(sourceFile)) return null;
+      var resolved = resolveProvenanceFrameUrl(match[2]);
+      if (!resolved) return null;
+      if (!resolved.localServedOutput && isProvenanceNoisePath(resolved.sourceFile)) {
+        return null;
+      }
       var line = parseInt(match[3], 10);
       var column = parseInt(match[4], 10);
       if (!isFinite(line) || !isFinite(column)) return null;
       return {
-        sourceFile,
+        sourceFile: resolved.sourceFile,
         line,
         column,
-        functionName: match[1] || void 0
+        functionName: match[1] || void 0,
+        servedUrl: resolved.servedUrl,
+        localServedOutput: resolved.localServedOutput
       };
     }
     function fiberDebugLocation(fiber) {
@@ -818,7 +1335,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             line: parsed.line,
             column: parsed.column,
             functionName: parsed.functionName,
-            structured: false
+            structured: false,
+            servedUrl: parsed.servedUrl
           };
         }
       }
@@ -855,21 +1373,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (cached !== void 0) return cached;
       var leafFiber = reactFiberOf(el);
       if (!leafFiber) return { unavailableReason: "not-framework" };
-      var elementLocation = null;
+      var elementLocation = fiberDebugLocation(leafFiber);
       var componentFiber = null;
-      var fiber = leafFiber;
+      var fiber = leafFiber.return || leafFiber.parent || leafFiber._debugOwner;
       for (var depth = 0; fiber && depth < 12; depth += 1) {
-        if (!elementLocation) elementLocation = fiberDebugLocation(fiber);
-        if (!componentFiber && fiber !== leafFiber && typeof fiber.type === "function") {
+        if (!componentFiber && typeof fiber.type === "function") {
           componentFiber = fiber;
         }
-        if (elementLocation && componentFiber) break;
-        fiber = fiber.return;
+        if (componentFiber) break;
+        fiber = fiber.return || fiber.parent || fiber._debugOwner;
       }
       if (!elementLocation) {
         return { framework: "react", unavailableReason: "no-debug-info" };
       }
-      var componentName = componentFiber && componentFiber.type && (componentFiber.type.displayName || componentFiber.type.name) || elementLocation.functionName || void 0;
+      var componentName = componentFiber && componentFiber.type && (componentFiber.type.displayName || componentFiber.type.name) || elementLocation.functionName || elementLocation.sourceFile.split("/").pop()?.split(".")[0] || void 0;
       var provenance = {
         framework: "react",
         sourceFile: elementLocation.sourceFile,
@@ -893,6 +1410,140 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       reactDebugProvenanceCache?.set(el, provenance);
       return provenance;
+    }
+    var sourceMapPromiseCache = typeof Map !== "undefined" ? /* @__PURE__ */ new Map() : null;
+    function unavailableProvenanceValue() {
+      return null;
+    }
+    function sourceMapRequestFailure(_error) {
+      return unavailableProvenanceValue();
+    }
+    function sourceMapUrlForFrame(servedUrl) {
+      if (!servedUrl) return null;
+      try {
+        var baseUrl = typeof document !== "undefined" ? document.baseURI : void 0;
+        var url = baseUrl ? new URL(servedUrl, baseUrl) : new URL(servedUrl);
+        if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+        url.pathname = url.pathname + ".map";
+        return url.href;
+      } catch (_error) {
+        return unavailableProvenanceValue();
+      }
+    }
+    function loadProvenanceSourceMap(servedUrl) {
+      var mapUrl = sourceMapUrlForFrame(servedUrl);
+      if (!mapUrl) return Promise.resolve(null);
+      var cached = sourceMapPromiseCache?.get(mapUrl);
+      if (cached) return cached;
+      var request = fetch(mapUrl, { credentials: "same-origin" }).then(function(response) {
+        return response.ok ? response.json() : null;
+      }).catch(sourceMapRequestFailure);
+      sourceMapPromiseCache?.set(mapUrl, request);
+      return request;
+    }
+    function sourceFileFromSourceMap(source, mapUrl, sourceRoot) {
+      if (typeof source !== "string" || !source) return null;
+      try {
+        var base = typeof sourceRoot === "string" && sourceRoot ? new URL(sourceRoot, mapUrl) : new URL(".", mapUrl);
+        var sourceUrl = new URL(source, base);
+        return resolveProvenanceFrameUrl(sourceUrl.href)?.sourceFile || null;
+      } catch (_error) {
+        return unavailableProvenanceValue();
+      }
+    }
+    function traceMappedProvenanceLocation(location, map, mapUrl) {
+      if (!location || !map || typeof map !== "object") return null;
+      try {
+        var original = originalPositionFor(new TraceMap(map), {
+          line: location.line,
+          column: Math.max(0, Number(location.column || 1) - 1)
+        });
+        if (!original || typeof original.source !== "string" || !Number.isFinite(original.line) || !Number.isFinite(original.column)) {
+          return null;
+        }
+        var sourceFile = sourceFileFromSourceMap(
+          original.source,
+          mapUrl,
+          map.sourceRoot
+        );
+        if (!sourceFile) return null;
+        return {
+          sourceFile,
+          line: original.line,
+          column: original.column + 1,
+          functionName: original.name || location.functionName,
+          structured: false,
+          servedUrl: void 0
+        };
+      } catch (_error) {
+        return unavailableProvenanceValue();
+      }
+    }
+    function remapProvenanceLocation(location) {
+      if (!location || location.structured || !location.servedUrl) {
+        return Promise.resolve(null);
+      }
+      var mapUrl = sourceMapUrlForFrame(location.servedUrl);
+      if (!mapUrl) return Promise.resolve(null);
+      return loadProvenanceSourceMap(location.servedUrl).then(function(map) {
+        return traceMappedProvenanceLocation(location, map, mapUrl);
+      });
+    }
+    function remapReactElementProvenance(el, provenance) {
+      if (provenance.framework !== "react" || !provenance.sourceFile && !provenance.ownerSourceFile) {
+        return Promise.resolve(null);
+      }
+      var leafFiber = reactFiberOf(el);
+      if (!leafFiber) return Promise.resolve(null);
+      var leafLocation = fiberDebugLocation(leafFiber);
+      var componentFiber = null;
+      var fiber = leafFiber.return || leafFiber.parent || leafFiber._debugOwner;
+      for (var depth = 0; fiber && depth < 12; depth += 1) {
+        if (typeof fiber.type === "function") {
+          componentFiber = fiber;
+          break;
+        }
+        fiber = fiber.return || fiber.parent || fiber._debugOwner;
+      }
+      var ownerLocation = componentFiber ? fiberDebugLocation(componentFiber) : null;
+      return Promise.all([
+        provenance.method === "debug-stack" ? remapProvenanceLocation(leafLocation) : Promise.resolve(null),
+        provenance.ownerMethod === "debug-stack" ? remapProvenanceLocation(ownerLocation) : Promise.resolve(null)
+      ]).then(function([mappedLeaf, mappedOwner]) {
+        if (!mappedLeaf && !mappedOwner) return null;
+        var next = { ...provenance };
+        if (mappedLeaf) {
+          next.sourceFile = mappedLeaf.sourceFile;
+          next.line = mappedLeaf.line;
+          next.column = mappedLeaf.column;
+          next.method = "debug-stack-remapped";
+        }
+        if (mappedOwner) {
+          next.ownerSourceFile = mappedOwner.sourceFile;
+          next.ownerLine = mappedOwner.line;
+          next.ownerColumn = mappedOwner.column;
+          next.ownerMethod = "debug-stack-remapped";
+        }
+        reactDebugProvenanceCache?.set(el, next);
+        return next;
+      });
+    }
+    function remapReactDocumentProvenance() {
+      if (!runtimeLayerSnapshotEnabled || !document.body) return;
+      var elements = Array.prototype.slice.call(
+        document.body.querySelectorAll("*")
+      );
+      var pending = [];
+      elements.forEach(function(element) {
+        var provenance = frameworkDebugProvenance(element);
+        if (provenance.framework === "react" && (provenance.method === "debug-stack" || provenance.ownerMethod === "debug-stack")) {
+          pending.push(remapReactElementProvenance(element, provenance));
+        }
+      });
+      if (pending.length === 0) return;
+      void Promise.all(pending).then(function(results) {
+        if (results.some(Boolean)) scheduleRuntimeLayerSnapshot();
+      });
     }
     function parseFrameworkDataLoc(value) {
       var lastColon = value.lastIndexOf(":");
@@ -1027,7 +1678,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         line: line !== void 0 && isFinite(line) ? line : void 0,
         column: column !== void 0 && isFinite(column) ? column : void 0,
         component: sourceNode.getAttribute("data-component-name") || void 0,
-        method: declaredMethod === "debug-source" || declaredMethod === "debug-stack" || declaredMethod === "vue-inspector" || declaredMethod === "svelte-meta" ? declaredMethod : "data-attribute"
+        method: declaredMethod === "debug-source" || declaredMethod === "debug-stack" || declaredMethod === "debug-stack-remapped" || declaredMethod === "vue-inspector" || declaredMethod === "svelte-meta" ? declaredMethod : "data-attribute"
       };
     }
     function elementDebugProvenance(el) {
@@ -1435,27 +2086,172 @@ export const editorChromeBridgeScript: string = `"use strict";
     function hasStableOwnSource(el) {
       return !!(el && !isDocumentRootElement(el) && getSourceId(el));
     }
+    var repeatBodyIdCache = /* @__PURE__ */ new WeakMap();
+    function repeatBodyIds(template) {
+      var cached = repeatBodyIdCache.get(template);
+      if (cached) return cached;
+      var ids = /* @__PURE__ */ new Set();
+      var body = template.content;
+      if (body) {
+        var all = body.querySelectorAll("*");
+        for (var i = 0; i < all.length; i += 1) {
+          var id = all[i].getAttribute("data-agent-native-node-id");
+          if (id) ids.add(id);
+        }
+      }
+      repeatBodyIdCache.set(template, ids);
+      return ids;
+    }
+    function repeatBodyRootTag(template) {
+      var body = template.content;
+      var root = body ? body.firstElementChild : null;
+      return root ? root.tagName : "";
+    }
+    function repeatTemplateOwning(node) {
+      var parent = node.parentElement;
+      if (!parent) return null;
+      var ownId = node.getAttribute ? node.getAttribute("data-agent-native-node-id") : null;
+      var siblings = parent.children;
+      for (var i = 0; i < siblings.length; i += 1) {
+        var sib = siblings[i];
+        if (sib === node || !sib.tagName || sib.tagName.toLowerCase() !== "template" || !sib.hasAttribute("x-for")) {
+          continue;
+        }
+        if (ownId) {
+          if (repeatBodyIds(sib).has(ownId)) return sib;
+          continue;
+        }
+        if (node.tagName === repeatBodyRootTag(sib)) return sib;
+      }
+      return null;
+    }
     function isTemplateCloneElement(el) {
       var node = el;
       while (node && !isDocumentRootElement(node)) {
-        if (hasStableOwnSource(node)) return false;
-        var parent = node.parentElement;
-        if (!parent) return false;
-        var siblings = parent.children;
-        for (var i = 0; i < siblings.length; i += 1) {
-          var sib = siblings[i];
-          if (sib !== node && sib.tagName && sib.tagName.toLowerCase() === "template" && sib.hasAttribute("x-for")) {
-            return true;
-          }
-        }
-        node = parent;
+        if (repeatTemplateOwning(node)) return true;
+        node = node.parentElement;
       }
       return false;
+    }
+    function hasOwnTextContent(el) {
+      var children = el.childNodes;
+      for (var i = 0; i < children.length; i += 1) {
+        var node = children[i];
+        if (node.nodeType === 3 && (node.nodeValue || "").trim()) return true;
+      }
+      return false;
+    }
+    function repeatRowsOf(template, row) {
+      var parent = row.parentElement;
+      if (!parent) return [];
+      var rows = [];
+      var siblings = parent.children;
+      for (var i = 0; i < siblings.length; i += 1) {
+        var sibling = siblings[i];
+        if (isOverlayElement(sibling)) continue;
+        if (repeatTemplateOwning(sibling) === template) rows.push(sibling);
+      }
+      return rows;
+    }
+    function rowKeyFor(template, row) {
+      if (!template || !row) return "";
+      var lookup = template._x_lookup;
+      if (!lookup) return "";
+      var map = lookup;
+      if (typeof map.forEach === "function" && typeof map.get === "function") {
+        var fromMap = "";
+        map.forEach(function(value, key2) {
+          if (!fromMap && value === row) fromMap = String(key2);
+        });
+        return fromMap;
+      }
+      var record = lookup;
+      for (var key in record) {
+        if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+        if (record[key] === row) return key;
+      }
+      return "";
+    }
+    function repeatRowRootOf(el) {
+      var node = el;
+      while (node && !isDocumentRootElement(node)) {
+        if (repeatTemplateOwning(node)) return node;
+        node = node.parentElement;
+      }
+      return null;
+    }
+    function repeatInstanceInfo(el) {
+      if (!isTemplateCloneElement(el) || !el.getAttribute) return null;
+      var row = repeatRowRootOf(el);
+      var template = row ? repeatTemplateOwning(row) : null;
+      if (!row || !template) return null;
+      var rows = repeatRowsOf(template, row);
+      var rowIndex = rows.indexOf(row);
+      if (rowIndex === -1) return null;
+      var sourceNodeId = el.getAttribute("data-agent-native-node-id") || "";
+      var sourceSelector = sourceNodeId ? '[data-agent-native-node-id="' + escapeAttribute(sourceNodeId) + '"]' : "";
+      var instanceIndex = rowIndex + 1;
+      if (sourceSelector) {
+        var matches = document.querySelectorAll(sourceSelector);
+        for (var i = 0; i < matches.length; i += 1) {
+          if (matches[i] === el) {
+            instanceIndex = i + 1;
+            break;
+          }
+        }
+      }
+      return {
+        sourceSelector,
+        instanceCount: rows.length,
+        instanceIndex,
+        xFor: template.getAttribute("x-for") || "",
+        itemIndex: rowIndex,
+        // Empty when this element's text is literal markup in the template body,
+        // which an ordinary markup edit reaches correctly.
+        textBinding: el.getAttribute("x-text") || "",
+        keyExpression: template.getAttribute(":key") || "",
+        itemKey: rowKeyFor(template, row)
+      };
+    }
+    function repeatStyleTargets(el) {
+      var info = repeatInstanceInfo(el);
+      if (!info || info.instanceCount < 2) return [el];
+      if (info.sourceSelector) {
+        var matches = document.querySelectorAll(info.sourceSelector);
+        var targets = [];
+        for (var i = 0; i < matches.length; i += 1) targets.push(matches[i]);
+        if (targets.length > 0) return targets;
+      }
+      var row = repeatRowRootOf(el);
+      var template = row ? repeatTemplateOwning(row) : null;
+      if (!row || !template) return [el];
+      var path = [];
+      var walk = el;
+      while (walk && walk !== row && walk.parentElement) {
+        path.unshift(
+          Array.prototype.indexOf.call(walk.parentElement.children, walk)
+        );
+        walk = walk.parentElement;
+      }
+      if (walk !== row) return [el];
+      var siblings = [];
+      repeatRowsOf(template, row).forEach(function(candidate) {
+        var node = candidate;
+        for (var step = 0; step < path.length && node; step += 1) {
+          node = node.children[path[step]] ?? null;
+        }
+        if (node) siblings.push(node);
+      });
+      return siblings.length > 0 ? siblings : [el];
     }
     function selectionTargetForHit(hit) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
       if (svgRoot) return svgRoot;
+      if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
+        var textOwner = hit.parentElement;
+        if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+      }
       return hit;
     }
     function freshRuntimeNodeId(prefix) {
@@ -1492,6 +2288,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function getSelector(el) {
       if (!el) return "";
+      if (isTemplateCloneElement(el)) return selectorPath(el);
       var stableOwnSelector = attributeSelector(el, "data-agent-native-node-id") || attributeSelector(el, "data-code-layer-id") || attributeSelector(el, "data-layer-id") || attributeSelector(el, "data-builder-id") || attributeSelector(el, "data-loc");
       if (stableOwnSelector) return stableOwnSelector;
       if (el.id) return "#" + escapeIdent(el.id);
@@ -1517,18 +2314,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !el.getAttribute || !el.tagName) return false;
       if (explicitComponentNameForElement(el)) return true;
       var tag = el.tagName.toLowerCase();
-      if (tag === "button" || tag === "input" || tag === "select" || tag === "textarea") {
-        return true;
-      }
-      var layerName = el.getAttribute("data-agent-native-layer-name") || "";
-      if (/component|card|button|control/i.test(layerName)) return true;
-      if (!el.classList) return false;
-      for (var i = 0; i < el.classList.length; i += 1) {
-        if (/component|card|button|control/i.test(el.classList.item(i) || "")) {
-          return true;
-        }
-      }
-      return false;
+      return tag === "button" || tag === "input" || tag === "select" || tag === "textarea";
     }
     function componentNameForElement(el) {
       var explicit = explicitComponentNameForElement(el);
@@ -1791,9 +2577,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     function chromeColorForElement(el) {
       return elementLooksLikeComponent(el) ? "var(--design-editor-component-color)" : "var(--design-editor-accent-color)";
     }
-    function chromeStrongColorForElement(el) {
-      return elementLooksLikeComponent(el) ? "var(--design-editor-component-strong-color)" : "var(--design-editor-accent-strong-color)";
-    }
     function chromeContrastColorForElement(el) {
       return elementLooksLikeComponent(el) ? "var(--design-editor-component-contrast-color)" : "var(--design-editor-accent-contrast-color)";
     }
@@ -1805,7 +2588,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parentAutoLayout = autoLayoutParentInfo(el);
       var parentStyles = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
-      var sourceBacked = hasStableOwnSource(el) || !!closestStableSourceElement(el);
+      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
       var pendingNodeId = "";
       if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
@@ -1871,6 +2654,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        repeat: repeatInstanceInfo(el) || void 0,
+        hasOwnText: hasOwnTextContent(el),
         pendingNodeId: pendingNodeId || void 0,
         selector: getSelector(el),
         classes: Array.from(el.classList),
@@ -2000,7 +2785,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function getLightElementInfo(el) {
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
-      var sourceBacked = hasStableOwnSource(el) || !!closestStableSourceElement(el);
+      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
       var parentStyles = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
@@ -2040,13 +2825,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
     }
     function postElementSelect(el, e) {
+      var selectionGenerationAtPost = ++selectionGeneration;
       rememberLiveVisualEditOriginalStyles(el);
+      var intent = e ? selectionIntentFromEvent(e) : void 0;
       var message = {
         type: "element-select",
         payload: getElementInfo(el)
       };
-      if (e) message.intent = selectionIntentFromEvent(e);
+      if (intent) message.intent = intent;
       window.parent.postMessage(message, "*");
+      var framework = frameworkDebugProvenance(el);
+      if (framework.framework === "react" && (framework.method === "debug-stack" || framework.ownerMethod === "debug-stack")) {
+        void remapReactElementProvenance(el, framework).then(function(mapped) {
+          if (!mapped || el.isConnected === false || selectedEl !== el || selectionGeneration !== selectionGenerationAtPost) {
+            return;
+          }
+          window.parent.postMessage(
+            { type: "element-select", payload: getElementInfo(el) },
+            "*"
+          );
+          remapReactDocumentProvenance();
+        });
+      }
     }
     function collectSelectableElements() {
       var nodes = Array.prototype.slice.call(
@@ -2344,15 +3144,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       componentTagOverlay.style.borderWidth = 1 * line + "px";
       componentTagOverlay.style.left = rect.left + "px";
       componentTagOverlay.style.top = tagTop + "px";
-      selectionOverlay.style.outline = 2 * line + "px solid " + chromeStrongColorForElement(el);
-      selectionOverlay.style.outlineOffset = 2 * line + "px";
     }
     function clearComponentTag() {
       componentTagOverlay.style.display = "none";
       componentTagOverlay.removeAttribute("data-component-node-id");
       componentTagOverlay.removeAttribute("data-component-name");
-      selectionOverlay.style.outline = "";
-      selectionOverlay.style.outlineOffset = "";
     }
     function applyElementOverlayChrome(overlay, el) {
       var color = chromeColorForElement(el);
@@ -2414,8 +3210,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       refreshFrameNameLabels();
       hideParentAutoLayoutOverlay();
       clearComponentTag();
+      removeRepeatInstanceOverlays();
     }
     var selectedEl = null;
+    var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
     var highlightOverlayStyle = "default";
@@ -2427,6 +3225,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var passiveSelectionEls = [];
     var passiveSelectionOverlays = [];
+    var repeatInstanceOverlays = [];
+    var repeatInstanceAnchor = null;
     var multiSelectionBoundsOverlay = null;
     var activeMarqueeSelection = null;
     var activeTextEditEl = null;
@@ -2549,6 +3349,43 @@ export const editorChromeBridgeScript: string = `"use strict";
         overlay.appendChild(handle);
       });
       scalePassiveSelectionOverlay(overlay);
+    }
+    function makeRepeatInstanceOverlay() {
+      var overlay = document.createElement("div");
+      overlay.setAttribute("data-agent-native-edit-overlay", "repeat-instance");
+      overlay.style.cssText = "position:fixed;pointer-events:none;z-index:99995;border:1px dashed color-mix(in srgb,var(--design-editor-accent-color) 70%,transparent);background:transparent;display:none;box-sizing:border-box;";
+      document.body.appendChild(overlay);
+      return overlay;
+    }
+    function removeRepeatInstanceOverlays() {
+      repeatInstanceOverlays.forEach(function(overlay) {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      });
+      repeatInstanceOverlays = [];
+      repeatInstanceAnchor = null;
+    }
+    function paintRepeatInstances(el) {
+      var info = el ? repeatInstanceInfo(el) : null;
+      if (!info || info.instanceCount < 2) {
+        if (repeatInstanceOverlays.length) removeRepeatInstanceOverlays();
+        return;
+      }
+      var siblings = repeatStyleTargets(el).filter(function(instance) {
+        return instance !== el && !isLayerInteractionBlocked(instance);
+      });
+      if (repeatInstanceAnchor !== el || repeatInstanceOverlays.length !== siblings.length) {
+        removeRepeatInstanceOverlays();
+        for (var made = 0; made < siblings.length; made += 1) {
+          repeatInstanceOverlays.push(makeRepeatInstanceOverlay());
+        }
+        repeatInstanceAnchor = el;
+      }
+      var line = chromeLineScale();
+      siblings.forEach(function(instance, index) {
+        var overlay = repeatInstanceOverlays[index];
+        overlay.style.borderWidth = line + "px";
+        positionOverlay(overlay, instance);
+      });
     }
     function makePassiveSelectionOverlay(style) {
       var overlay = document.createElement("div");
@@ -2696,6 +3533,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (root.nodeType === 1 && root.hasAttribute("data-agent-native-edit-overlay")) {
         return;
       }
+      if (root.nodeType === 1 && isTemplateCloneElement(root)) return;
       recordSourceOwnership(root);
       if (root.nodeType !== 1) return;
       var template = templateContentOf(root);
@@ -2712,6 +3550,18 @@ export const editorChromeBridgeScript: string = `"use strict";
     function templateContentOf(element) {
       if (element.nodeName !== "TEMPLATE") return null;
       return element.content ?? null;
+    }
+    function findSourceNodeForSelector(root, selector) {
+      var direct = root.querySelector(selector);
+      if (direct) return { node: direct, inTemplate: false };
+      var templates = root.querySelectorAll("template");
+      for (var i = 0; i < templates.length; i += 1) {
+        var content = templateContentOf(templates[i]);
+        if (!content) continue;
+        var nested = findSourceNodeForSelector(content, selector);
+        if (nested.node) return { node: nested.node, inTemplate: true };
+      }
+      return { node: null, inTemplate: false };
     }
     function scopedMorphContext(liveRoot, nextRoot) {
       var keyed = /* @__PURE__ */ new Map();
@@ -2879,6 +3729,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         style: next.getAttribute("style") ?? ""
       };
     }
+    function nextSourceAnchor(node) {
+      var probe = node;
+      while (probe && !isSourceOwned(probe)) probe = probe.nextSibling;
+      return probe;
+    }
     function morphChildren(live, next, context) {
       var cursor = live.firstChild;
       var nextChild = next.firstChild;
@@ -2916,7 +3771,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (reuse && reuse.nodeType === 1 && scopeDirectiveChanged(reuse, nextChild)) {
           var rebuilt = document.importNode(nextChild, true);
-          live.insertBefore(rebuilt, cursor);
+          live.insertBefore(rebuilt, nextSourceAnchor(cursor));
           if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
           recordSourceSubtree(rebuilt);
           cursor = rebuilt.nextSibling;
@@ -2924,7 +3779,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           continue;
         }
         if (reuse) {
-          if (reuse !== cursor) live.insertBefore(reuse, cursor);
+          var reuseAnchor = nextSourceAnchor(cursor);
+          if (reuse !== reuseAnchor) live.insertBefore(reuse, reuseAnchor);
           if (reuse.nodeType === 1) {
             morphElement(reuse, nextChild, context);
           } else if (reuse.nodeValue !== nextChild.nodeValue) {
@@ -2933,7 +3789,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           cursor = reuse.nextSibling;
         } else if (nextChild.nodeType === 1) {
           var shell = document.importNode(nextChild, false);
-          live.insertBefore(shell, cursor);
+          live.insertBefore(shell, nextSourceAnchor(cursor));
           recordSourceOwnership(shell);
           morphElement(shell, nextChild, context);
           cursor = shell.nextSibling;
@@ -3040,14 +3896,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         var matchedSelector = "";
         var fallbackCurrentMatch = null;
         var fallbackSelector = "";
+        var nextInTemplate = false;
         for (var matchIndex = 0; matchIndex < activeCandidates.length; matchIndex += 1) {
           try {
             var currentCandidate = document.querySelector(
               activeCandidates[matchIndex]
             );
-            var nextCandidate = nextDoc.querySelector(
+            var nextResolved = findSourceNodeForSelector(
+              nextDoc,
               activeCandidates[matchIndex]
             );
+            var nextCandidate = nextResolved.node;
             if (currentCandidate && !fallbackCurrentMatch) {
               fallbackCurrentMatch = currentCandidate;
               fallbackSelector = activeCandidates[matchIndex];
@@ -3055,6 +3914,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             if (currentCandidate && nextCandidate) {
               currentMatch = currentCandidate;
               nextMatch = nextCandidate;
+              nextInTemplate = nextResolved.inTemplate;
               matchedSelector = activeCandidates[matchIndex];
               break;
             }
@@ -3065,7 +3925,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           currentMatch = fallbackCurrentMatch;
           matchedSelector = fallbackSelector;
         }
-        if (currentMatch && currentMatch !== document.body && currentMatch !== document.documentElement && !isOverlayElement(currentMatch)) {
+        if (!nextInTemplate && currentMatch && currentMatch !== document.body && currentMatch !== document.documentElement && !isOverlayElement(currentMatch)) {
           if (nextMatch) {
             currentMatch.replaceWith(document.importNode(nextMatch, true));
           } else if (currentMatch !== document.body && currentMatch !== document.documentElement) {
@@ -3972,6 +4832,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         overlay.style.transform = "";
       }
       if (overlay === selectionOverlay) {
+        paintRepeatInstances(el);
         applySelectionChrome(el);
         applySelectionHandleHitGeometry(el);
         updateSpacingOverlay(el);
@@ -4185,6 +5046,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
     }
     function refreshOverlays() {
+      paintRepeatInstances(selectedEl);
       var textEditingEl = activeTextEditEl || document.querySelector(
         "[data-agent-native-text-editing]"
       );
@@ -5312,7 +6174,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       refreshOverlays();
       postNodeHtmlPreviewApplied(proposalId);
     }
-    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId) {
+    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId, allowDocumentBody = false) {
       var matches = /* @__PURE__ */ new Set();
       if (typeof pendingId === "string" && pendingId) {
         try {
@@ -5321,7 +6183,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           if (pendingMatches.length === 1) {
             var pendingMatch = pendingMatches[0];
-            if (pendingMatch !== document.body && pendingMatch !== document.documentElement && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
+            if (pendingMatch !== document.documentElement && (allowDocumentBody || pendingMatch !== document.body) && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
               return pendingMatch;
             }
           }
@@ -5351,15 +6213,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (matches.size > 1) return null;
         if (matches.size === 1) {
           var sourceMatch = Array.from(matches)[0];
-          return sourceMatch && sourceMatch !== document.body && sourceMatch !== document.documentElement && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
+          return sourceMatch && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
         }
       }
-      if (typeof selector !== "string" || !selector) return null;
+      if (typeof selector !== "string" || !selector) {
+        return allowDocumentBody && !(typeof sourceId === "string" && sourceId) && !(typeof pendingId === "string" && pendingId) ? document.body : null;
+      }
       try {
         var selectorMatches = document.querySelectorAll(selector);
         if (selectorMatches.length !== 1) return null;
         var selectorMatch = selectorMatches[0];
-        return selectorMatch !== document.body && selectorMatch !== document.documentElement && !isOverlayElement(selectorMatch) && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
+        return selectorMatch !== document.documentElement && (allowDocumentBody || selectorMatch !== document.body) && !isOverlayElement(selectorMatch) && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
       } catch (_err) {
         return null;
       }
@@ -6404,7 +7268,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
-    function postCrossScreenDrag(phase, el, ev) {
+    function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
         activeCrossScreenStyleSnapshot = void 0;
@@ -6415,13 +7279,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (phase === "start") {
-        activeCrossScreenStyleSnapshot = collectPortableStyleSnapshot(el ?? null);
+        activeCrossScreenStyleSnapshot = options?.styleSnapshot ?? collectPortableStyleSnapshot(el ?? null);
       }
-      var rect = el ? el.getBoundingClientRect() : null;
-      var pointerOffset = rect && ev?.clientX !== void 0 && ev.clientY !== void 0 ? {
+      var rect = options?.elementRect ?? (el ? el.getBoundingClientRect() : null);
+      var pointerOffset = options?.pointerOffset ?? (rect && ev?.clientX !== void 0 && ev.clientY !== void 0 ? {
         x: ev.clientX - rect.left,
         y: ev.clientY - rect.top
-      } : void 0;
+      } : void 0);
       window.parent.postMessage(
         {
           type: "agent-native:cross-screen-drag",
@@ -6441,7 +7305,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             height: rect.height
           } : void 0,
           pointerOffset,
-          styleSnapshot: activeCrossScreenStyleSnapshot
+          styleSnapshot: activeCrossScreenStyleSnapshot,
+          duplicate: options?.duplicate === true ? true : void 0,
+          sourceCloneHtml: options?.duplicate && el ? el.outerHTML : void 0
         },
         "*"
       );
@@ -7199,6 +8065,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function postVisualDuplicateChange(originalEl, cloneEl, target) {
       if (!originalEl || !cloneEl) return;
+      recordSourceSubtree(cloneEl);
       window.parent.postMessage(
         {
           type: "visual-duplicate-change",
@@ -8176,28 +9043,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           var dy = cy - reorderPointerStart.clientY;
           var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
           if (!isGroupDrag) {
-            window.parent.postMessage(
+            postCrossScreenDrag(
+              "move",
+              reorderEl,
+              { clientX: cx, clientY: cy },
               {
-                type: "agent-native:cross-screen-drag",
-                phase: "move",
-                selector: reorderSelector,
-                sourceId: reorderSourceId,
-                iframeX: cx,
-                iframeY: cy,
-                viewportW: vw,
-                viewportH: vh,
-                // Without a size the host can only draw a 16px cursor dot, so
-                // the element being dragged is invisible once it leaves here.
-                elementRect: {
-                  left: reorderRect.left,
-                  top: reorderRect.top,
-                  width: reorderRect.width,
-                  height: reorderRect.height
-                },
+                duplicate: duplicatedForDrag,
+                elementRect: reorderRect,
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
-              },
-              "*"
+              }
             );
           }
           if (outside && !isGroupDrag) {
@@ -8250,10 +9105,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           cleanupReorderDrag2();
           hideTransformBadge();
           hideInsertionGuide();
-          window.parent.postMessage(
-            { type: "agent-native:cross-screen-drag", phase: "cancel" },
-            "*"
-          );
+          if (!isGroupDrag) postCrossScreenDrag("cancel");
           if (duplicatedForDrag && reorderEl && reorderEl !== originalSelectedEl) {
             if (reorderEl.parentElement)
               reorderEl.parentElement.removeChild(reorderEl);
@@ -8293,31 +9145,28 @@ export const editorChromeBridgeScript: string = `"use strict";
           // twice, from two different ideas of where it landed.
           crossScreenClaimedByHost;
           if (!isGroupDrag) {
-            window.parent.postMessage(
+            postCrossScreenDrag(
+              "end",
+              reorderEl,
+              { clientX: cx, clientY: cy },
               {
-                type: "agent-native:cross-screen-drag",
-                phase: "end",
-                selector: reorderSelector,
-                sourceId: reorderSourceId,
-                iframeX: cx,
-                iframeY: cy,
-                viewportW: vw,
-                viewportH: vh,
-                // Without a size the host can only draw a 16px cursor dot, so
-                // the element being dragged is invisible once it leaves here.
-                elementRect: {
-                  left: reorderRect.left,
-                  top: reorderRect.top,
-                  width: reorderRect.width,
-                  height: reorderRect.height
-                },
+                duplicate: duplicatedForDrag,
+                elementRect: reorderRect,
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
-              },
-              "*"
+              }
             );
           }
-          if (outsideOnDrop) return;
+          if (outsideOnDrop) {
+            if (duplicatedForDrag) {
+              if (reorderEl.parentElement)
+                reorderEl.parentElement.removeChild(reorderEl);
+              selectedEl = originalSelectedEl;
+              positionOverlay(selectionOverlay, selectedEl);
+              postElementSelect(selectedEl);
+            }
+            return;
+          }
           var finalRaw = resolveReorderOrFreeTarget2(cx, cy, Boolean(ev?.ctrlKey));
           currentTarget = liveReflowEnabled ? stabilizeReorderTarget2(
             applyReorderSizeGuard2(finalRaw, ev),
@@ -8359,6 +9208,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               reorderEl,
               currentTarget
             );
+            postCrossScreenDrag("cancel");
           } else if (isGroupDrag) {
             applyGroupStructureDrop(
               groupEls,
@@ -8425,8 +9275,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           ctrl: Boolean(e.ctrlKey),
           target: dndTarget(currentTarget)
         });
-        var reorderSelector = getSelector(reorderEl);
-        var reorderSourceId = getSourceId(reorderEl);
         crossScreenClaimedByHost = false;
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
         var reorderRect = reorderEl.getBoundingClientRect();
@@ -8435,6 +9283,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           x: reorderPointerStart.clientX - reorderRect.left,
           y: reorderPointerStart.clientY - reorderRect.top
         };
+        if (!isGroupDrag) {
+          postCrossScreenDrag("start", reorderEl, reorderPointerStart, {
+            duplicate: duplicatedForDrag,
+            elementRect: {
+              left: reorderRect.left,
+              top: reorderRect.top,
+              width: reorderRect.width,
+              height: reorderRect.height
+            },
+            pointerOffset: reorderPointerOffset,
+            styleSnapshot: reorderStyleSnapshot
+          });
+        }
         var reorderLiftedMembers = [];
         var reorderCommittedTarget = null;
         var reorderCommittedSlot = null;
@@ -8511,9 +9372,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         kind: "move",
         objectIds: [getSelector(gestureEl)],
         // \`e\` is deliberately the event that actually began the legacy move
-        // lifecycle. \`pointerStartParam\` is only Design's outer shield
-        // disambiguation origin; using it here would apply that first
-        // threshold-crossing delta twice.
+        // lifecycle, not \`pointerStartParam\`: anchoring the controller at the
+        // pointerdown moves the element the extra threshold-crossing distance,
+        // which breaks the cross-screen drop's target resolution.
         pointer: bridgeGesturePointer(e),
         viewport: gestureViewport,
         canvas: { width: gestureViewport.width, height: gestureViewport.height }
@@ -8537,8 +9398,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var dragElOffsetScaleX = ancestorScale(dragEl, "x");
       var dragElOffsetScaleY = ancestorScale(dragEl, "y");
-      if (!duplicatedForDrag && !isGroupDrag) {
-        postCrossScreenDrag("start", dragEl, e);
+      if (!isGroupDrag) {
+        postCrossScreenDrag("start", dragEl, e, {
+          duplicate: duplicatedForDrag
+        });
       }
       var crossScreenDragMoveScheduled = false;
       var crossScreenDragMovePendingEv = null;
@@ -8546,7 +9409,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         crossScreenDragMoveScheduled = false;
         var pendingEv = crossScreenDragMovePendingEv;
         crossScreenDragMovePendingEv = null;
-        if (pendingEv) postCrossScreenDrag("move", dragEl, pendingEv);
+        if (pendingEv) {
+          postCrossScreenDrag("move", dragEl, pendingEv, {
+            duplicate: duplicatedForDrag
+          });
+        }
       }
       function scheduleCrossScreenDragMove(ev) {
         crossScreenDragMovePendingEv = {
@@ -8605,10 +9472,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           state.el.style.left = quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
           state.el.style.top = quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
         });
-        if (!duplicatedForDrag && !isGroupDrag) {
+        if (!isGroupDrag) {
           scheduleCrossScreenDragMove(ev);
         }
-        if (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
         } else {
@@ -8631,7 +9498,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
         var flowInsertPending = !!currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode !== "absolute-container";
-        if (flowInsertPending || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        if (flowInsertPending || !isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           hideSnapGuides();
           dragChromeSuppressed = true;
           hideSizeBadge();
@@ -8686,6 +9553,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           selectedEl = originalSelectedEl;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
+          postCrossScreenDrag("cancel");
         } else if (dragEl && document.documentElement.contains(dragEl)) {
           restoreSourceDragPosition();
           if (!isGroupDrag) postCrossScreenDrag("cancel");
@@ -8710,6 +9578,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideSnapGuides();
           hideSizeBadge();
           hideConstraintGuides();
+          if (duplicatedForDrag) {
+            if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+            postCrossScreenDrag("cancel");
+          }
           return;
         }
         cleanupMoveDrag();
@@ -8720,11 +9595,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideConstraintGuides();
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
-        if (ev && !duplicatedForDrag && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-          postCrossScreenDrag("end", dragEl, ev);
+        if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
+          postCrossScreenDrag("end", dragEl, ev, {
+            duplicate: duplicatedForDrag
+          });
         }
-        if (ev && !duplicatedForDrag && outsideOnDrop) {
-          restoreSourceDragPosition();
+        if (ev && !isGroupDrag && outsideOnDrop) {
+          if (duplicatedForDrag) {
+            if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+          } else {
+            restoreSourceDragPosition();
+          }
           return;
         }
         if (ev && !duplicatedForDrag && !outsideOnDrop && !bridgeSpaceKeyPressed) {
@@ -8750,10 +9634,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           selectedEl = originalSelectedEl;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
+          postCrossScreenDrag("cancel");
           return;
         }
         if (duplicatedForDrag) {
           postVisualDuplicateChange(originalSelectedEl, dragEl);
+          postCrossScreenDrag("cancel");
         } else if (currentAutoLayoutTarget) {
           if (isGroupDrag) {
             applyGroupStructureDrop(
@@ -10072,7 +10958,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         return;
       }
-      if (!programmaticFlag && isTemplateCloneElement(target)) {
+      if (!programmaticFlag && isTemplateCloneElement(target) && !(target.getAttribute && target.getAttribute("x-text"))) {
         showRejectedDragBadge(
           "Can't edit repeated items directly",
           e.clientX,
@@ -10754,6 +11640,13 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
         });
+        var selectedRepeat = selectedEl ? repeatInstanceInfo(selectedEl) : null;
+        if (selectedRepeat) {
+          passiveTargets = passiveTargets.filter(function(candidate) {
+            var candidateRepeat = repeatInstanceInfo(candidate);
+            return !candidateRepeat || candidateRepeat.sourceSelector !== selectedRepeat.sourceSelector;
+          });
+        }
         setPassiveSelectionElements(
           passiveTargets,
           e.data.passiveSelectionStyle === "soft" ? "soft" : "default"
@@ -10934,7 +11827,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var insertAnchor = findUniqueRuntimeStructureTarget(
           String(e.data.anchorSelector || ""),
           typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
-          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : ""
+          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : "",
+          true
         );
         if (!insertAnchor) {
           rejectInsert("anchor-unresolved");
@@ -11232,7 +12126,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (didPatchDom) el.setAttribute("class", nextClass.join(" "));
       }
       if (prop && typeof prop === "string") {
-        applyInlineStyleProperty(el, prop, val);
+        var styleTargets = repeatStyleTargets(el);
+        for (var st = 0; st < styleTargets.length; st += 1) {
+          applyInlineStyleProperty(styleTargets[st], prop, val);
+        }
         didPatchDom = true;
       }
       if (didPatchDom) {

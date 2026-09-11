@@ -1879,8 +1879,19 @@ export default function CodeAgentsApp({
       e.preventDefault();
       openSelectedGoalRef.current();
     };
+    const handleDesktopNewChat = () => openSelectedGoalRef.current();
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener(
+      "agent-native:desktop-new-chat",
+      handleDesktopNewChat,
+    );
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener(
+        "agent-native:desktop-new-chat",
+        handleDesktopNewChat,
+      );
+    };
   }, [isActive]);
 
   async function selectProjectFolder(pathValue: string) {

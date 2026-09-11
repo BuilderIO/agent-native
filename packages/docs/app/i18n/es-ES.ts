@@ -1034,9 +1034,9 @@ const esES = {
       s060: "Elige qué quieres capturar y, después, empieza a grabar en Clips.",
       s062: "Ver todas las plantillas",
       faq: {
-        question1: "¿Clips es gratis y de código abierto?",
+        question1: "¿Qué es Agent-Native Clips?",
         answer1:
-          "Sí. Clips es software gratuito y de código abierto. Puedes usar la app o personalizar y auto-alojar tu propia versión.",
+          "Agent-Native Clips es un grabador de pantalla gratuito y de código abierto para compartir errores, comentarios y tutoriales con agentes de IA. Le da a tu agente de IA una transcripción e imágenes con marca de tiempo de una grabación, mientras que las personas pueden ver el mismo clip.",
         question2: "¿Puedo compartir grabaciones con Claude, ChatGPT o Cursor?",
         answer2:
           "Clips ofrece un enlace legible por agentes con una transcripción e imágenes con marca de tiempo. Tu agente debe poder abrir el contenido enlazado y leer imágenes para usar ambos. Algunos modos de chat pueden leer la transcripción, pero necesitan que subas una imagen por separado.",
@@ -1565,30 +1565,75 @@ const esES = {
     },
     slides: {
       faq: {
-        question1: "¿Puedo crear una presentación desde Claude o ChatGPT?",
+        question1: "¿Qué es Agent-Native Slides?",
         answer1:
-          "Sí. Pide una presentación a Claude o ChatGPT y llegará a Slides —con tu marca, editable y exportable—, en lugar de obligarte a empezar de nuevo en un sitio de presentaciones.",
-        question2: "¿Puedo corregir los errores de la IA?",
+          "Agent-Native Slides es un creador de presentaciones de IA gratuito y de código abierto. Crea decks con tu marca a partir de tus ideas y material de referencia con un agente de IA, luego edita las diapositivas tú mismo, preséntalas o expórtalas a PowerPoint.",
+        question2:
+          "¿Puedo editar las diapositivas después de que la IA las genere?",
         answer2:
-          "De tres maneras: mediante un prompt, a mano —haz clic en cualquier elemento y doble clic en cualquier texto— o en el código. Nunca te quedas atrapado en el ciclo de regenerar y cruzar los dedos.",
-        question3: "¿Cómo mantienen los decks la identidad de marca?",
+          "Sí. Edita texto, diseño y estilo directamente en el editor visual, o pide al agente de IA que revise una diapositiva seleccionada. Puedes seguir puliendo la presentación después del primer borrador.",
+        question3:
+          "¿Puedo crear una presentación a partir de un deck o documento ya existente?",
         answer3:
-          "Marca como favorito un deck del que te sientas orgulloso. Cada deck nuevo heredará sus diseños, titulares, estilo visual y tokens de marca. Los generadores de un solo intento te dan un deck; esto te permite crear una práctica repetible para tus presentaciones.",
-        question4: "¿En qué se diferencia Slides de Gamma?",
+          "Sí. Adjunta un deck o documento como material de referencia para una nueva presentación. Para trabajar directamente sobre el deck existente, impórtalo de forma explícita. Revisa las diapositivas importadas por si hay cambios de diseño o imágenes que faltan.",
+        question4:
+          "¿Puedo usar mis propios colores de marca, fuentes y logotipo?",
         answer4:
-          "Gamma crea rápidamente un deck aceptable en un solo intento; después estás en su lienzo, pagando su suscripción y regenerando cuando solo está bien al 85 %. Slides es gratuito, de código abierto, hereda tu marca y te permite editarlo todo.",
-        question5: "¿Slides es gratuito?",
+          "Sí. Aplica un sistema de diseño con los colores, la tipografía y los logotipos de tu marca, y reutilízalo en varios decks. También puedes aportar una presentación de referencia para guiar las decisiones de diseño del agente de IA.",
+        question5: "¿Puedo usar mi presentación en PowerPoint o Google Slides?",
         answer5:
-          "Sí. Es gratuito y de código abierto, sin suscripción, contador de créditos ni precios por deck.",
+          "Exporta un archivo PPTX para abrirlo en PowerPoint. Para usar la presentación en Google Slides, impórtalo allí. Revisa las fuentes y los diseños después de exportar, porque pueden renderizarse de forma distinta entre editores.",
       },
       s001: "Slides captura de pantalla de la plantilla",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "Crea presentaciones con tu agente de IA",
+      heroDescription:
+        "Slides es un creador de presentaciones de IA gratuito y de código abierto para crear decks con tu marca a partir de tus ideas y material de referencia, con diapositivas que puedes editar tú mismo.",
+      heroCta: "Crear un deck",
+      useCasesHeading: "¿Qué puedes hacer con Slides?",
+      useCasesBody:
+        "Prepara un pitch, presenta un plan o comparte una actualización. Dale a tu agente de IA el material y el público que tienes en mente.",
+      useCase1Title: "Crear presentaciones de ventas y pitch",
+      useCase1Body:
+        "Convierte el brief de tu producto en un deck para clientes potenciales o inversores. Adapta el mensaje al público ante el que vas a presentar.",
+      useCase2Title: "Presentar planes y estrategias",
+      useCase2Body:
+        "Dale a tu agente de IA un brief de estrategia o un plan de lanzamiento para convertirlo en diapositivas que expliquen la dirección y los próximos pasos propuestos.",
+      useCase3Title: "Compartir actualizaciones del negocio",
+      useCase3Body:
+        "Convierte notas de proyecto o informes de rendimiento en una presentación que muestre el progreso, explique los resultados y destaque lo que necesita atención.",
+      keyFeaturesEyebrow: "Funciones clave",
+      keyFeaturesHeading:
+        "Todo lo que necesitas para crear, editar y presentar",
+      feature1Title: "Generación de presentaciones con IA",
+      feature1Body:
+        "Empieza con un prompt, un documento o un deck de referencia. Dale a tu agente de IA el tema y el público para construir la presentación en torno a ellos.",
+      feature2Title: "Edición con IA y visual",
+      feature2Body:
+        "Selecciona texto para que tu agente de IA lo revise, o edita tú mismo el texto, el diseño y el estilo directamente en la diapositiva.",
+      feature3Title: "Estilos de marca reutilizables",
+      feature3Body:
+        "Guarda tus colores, fuentes y logotipos en un sistema de diseño. Aplícalo en varios decks para mantener las presentaciones coherentes con tu marca.",
+      feature4Title: "Imágenes y logotipos",
+      feature4Body:
+        "Pide a tu agente de IA que genere imágenes, busque fotos o localice logotipos de empresas para usar en tus diapositivas.",
+      feature5Title: "Colaboración en equipo",
+      feature5Body:
+        "Trabaja en los decks con tu equipo, deja comentarios en diapositivas concretas y restaura una versión anterior cuando lo necesites.",
+      feature6Title: "Presentación y exportación",
+      feature6Body:
+        "Presenta a pantalla completa con notas del orador, comparte un enlace de visualización o exporta tu deck como archivo de PowerPoint.",
+      finalCtaHeading: "Empieza tu próxima presentación",
+      finalCtaBody: "Trae una idea, un brief o un deck ya existente.",
+      finalCtaButton: "Abrir Slides",
       s002: "describir",
       s003: "generar",
       s004: "Refinar",
       s005: "Todas las plantillas",
       s006Primary: "Presentaciones de diapositivas",
       s006Secondary: "Con tu marca y editables",
-      s007: "Genera presentaciones de diapositivas con tu marca desde tu agente de IA, aplica tus propios cambios manuales en cualquier momento y expórtalas donde quieras.",
+      s007: "Genera presentaciones con tu marca desde tu agente de IA, edita luego las diapositivas tú mismo y expórtalas donde quieras.",
       s008: "Probar",
       s009: "como funciona",
       s010: "Todo lo que necesitas",
@@ -2332,10 +2377,11 @@ const esES = {
     designCollaborationAndFullApps: "Revisión y entrega",
     designDevelopers: "Guía para desarrolladores",
     dispatchOverview: "Visión general",
-    dispatchMessagingRouting: "Mensajería y enrutamiento",
-    dispatchOperations: "Consola del operador",
-    dispatchVaultIntegrations: "Secretos e integraciones",
+    dispatchFeatures: "Funciones",
+    dispatchAgent: "Hablar con el Agent",
+    dispatchIntegrations: "Uso entre apps",
     dispatchDevelopers: "Guía para desarrolladores",
+    dispatchReference: "Referencia de acciones y datos",
     forms: "Formularios",
     formsOverview: "Visión general",
     formsFeatures: "Funciones",

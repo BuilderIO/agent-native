@@ -4,6 +4,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
@@ -432,6 +433,18 @@ export default defineAction({
       // already-open editors, so it must never hold the saved mutation hostage
       // behind an unavailable database or a stale per-document write lock.
       queueDashboardCollabSync(dashboardId, root, "agent");
+      track(
+        "dashboard_saved",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          output_id: dashboardId,
+          output_type: "dashboard",
+          dashboard_id: dashboardId,
+          panel_count: Array.isArray(root.panels) ? root.panels.length : 0,
+        },
+        actionContext,
+      );
     }
 
     const compact = compactDashboardResult(root, movedPanelIdsFrom(operations));

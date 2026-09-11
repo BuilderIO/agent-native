@@ -1,39 +1,19 @@
-import {
-  getUserSetting,
-  mutateUserSetting,
-} from "../settings/user-settings.js";
-import { getExperimentDefinition, listExperiments } from "./registry.js";
+import { getLabDefinition } from "../labs/registry.js";
+import { getUserLabs, normalizeLabValues, setUserLab } from "../labs/store.js";
 
+/** @deprecated Import the Labs store instead. */
 export const EXPERIMENTS_SETTING_KEY = "experiments";
+export const normalizeExperimentValues = normalizeLabValues;
+export const getUserExperiments = getUserLabs;
 
-export function normalizeExperimentValues(
-  stored: Record<string, unknown> | null | undefined,
-): Record<string, boolean> {
-  return Object.fromEntries(
-    listExperiments().map(({ key }) => [key, stored?.[key] === true]),
-  );
-}
-
-export async function getUserExperiments(
-  email: string,
-): Promise<Record<string, boolean>> {
-  return normalizeExperimentValues(
-    await getUserSetting(email, EXPERIMENTS_SETTING_KEY),
-  );
-}
-
+/** @deprecated Use setUserLab instead. */
 export async function setUserExperiment(
   email: string,
   key: string,
   enabled: boolean,
 ): Promise<Record<string, boolean>> {
-  if (!getExperimentDefinition(key)) {
+  if (!getLabDefinition(key)) {
     throw new Error(`Unknown experiment: ${key}`);
   }
-  const stored = await mutateUserSetting(
-    email,
-    EXPERIMENTS_SETTING_KEY,
-    (current) => ({ ...(current ?? {}), [key]: enabled }),
-  );
-  return normalizeExperimentValues(stored);
+  return setUserLab(email, key, enabled);
 }
