@@ -99,9 +99,12 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.resolve-sites.outputs.matrix) }}
     concurrency:
-      # Use the same per-site queue as fleet deploys and manager operations.
-      # This prevents restore from racing a prebuilt unlock/upload window.
-      group: agent-native-production-site-${{ matrix.site }}
+      # Use the same queue as fleet deploys and manager operations, including
+      # the shared Design and Slides database.
+      group: >-
+        ${{ (matrix.site == 'design' || matrix.site == 'slides')
+            && 'agent-native-production-site-design-slides'
+            || format('agent-native-production-site-{0}', matrix.site) }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:

@@ -19,6 +19,8 @@ const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 // reusable child while that child waits for the canonical production queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
+export const PRODUCTION_MAPPED_SITE_GROUP =
+  "${{ (matrix.site == 'design' || matrix.site == 'slides') && 'agent-native-production-site-design-slides' || format('agent-native-production-site-{0}', matrix.site) }}";
 export const PRODUCTION_FLEET_CHILD_GROUP =
   "agent-native-production-fleet-child-${{ matrix.site }}";
 export const PUBLISHED_CACHE_PURGE_CONDITION =
@@ -190,12 +192,19 @@ export function validateProductionSiteConcurrency(workflows: {
       "deploy",
       PRODUCTION_FLEET_CHILD_GROUP,
     ],
-    [manageProductionPath, workflows.manage, "manage", PRODUCTION_SITE_GROUP],
-    [promotePath, workflows.promote, "promote", PRODUCTION_SITE_GROUP],
+    [
+      manageProductionPath,
+      workflows.manage,
+      "manage",
+      PRODUCTION_MAPPED_SITE_GROUP,
+    ],
+    [promotePath, workflows.promote, "promote", PRODUCTION_MAPPED_SITE_GROUP],
   ] as const) {
     const concurrency = jobConcurrency(workflow, jobName);
     const group = concurrency?.group;
-    if (group !== expectedGroup) {
+    const normalizedGroup =
+      typeof group === "string" ? group.trim().replace(/\s+/g, " ") : group;
+    if (normalizedGroup !== expectedGroup) {
       issues.push(
         `${path} ${jobName} job concurrency.group must equal ${expectedGroup}`,
       );

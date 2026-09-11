@@ -118,10 +118,12 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.resolve-sites.outputs.matrix) }}
     concurrency:
-      # Match the prebuilt fleet's per-site queue. GitHub can now retain one
-      # pending operation for every selected site instead of dropping an
-      # entire all-sites operation behind one shared workflow slot.
-      group: agent-native-production-site-${{ matrix.site }}
+      # Match the reusable production child queue, including the shared Design
+      # and Slides database. GitHub can retain one pending operation per site.
+      group: >-
+        ${{ (matrix.site == 'design' || matrix.site == 'slides')
+            && 'agent-native-production-site-design-slides'
+            || format('agent-native-production-site-{0}', matrix.site) }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 90

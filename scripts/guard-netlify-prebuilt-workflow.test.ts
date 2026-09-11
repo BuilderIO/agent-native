@@ -11,6 +11,7 @@ import { parse } from "yaml";
 import {
   PUBLISHED_CACHE_PURGE_CONDITION,
   PRODUCTION_FLEET_CHILD_GROUP,
+  PRODUCTION_MAPPED_SITE_GROUP,
   PRODUCTION_SITE_GROUP,
   validateGoogleCallbackVerificationWorkflow,
   validateNetlifyApiRateLimitHandling,
@@ -1830,7 +1831,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(
       issues.some((issue) =>
         issue.includes(
-          `promote-netlify-deploy.yml promote job concurrency.group must equal ${PRODUCTION_SITE_GROUP}`,
+          `promote-netlify-deploy.yml promote job concurrency.group must equal ${PRODUCTION_MAPPED_SITE_GROUP}`,
         ),
       ),
     );
@@ -1846,7 +1847,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(
       issues.some((issue) =>
         issue.includes(
-          `manage-production-sites.yml manage job concurrency.group must equal ${PRODUCTION_SITE_GROUP}`,
+          `manage-production-sites.yml manage job concurrency.group must equal ${PRODUCTION_MAPPED_SITE_GROUP}`,
         ),
       ),
     );
