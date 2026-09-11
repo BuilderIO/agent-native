@@ -688,14 +688,17 @@ interface EmailsPage {
   accountErrors?: AccountError[];
 }
 
-// Retryable: transient upstream trouble (rate limit / gateway) and network
-// errors with no status at all. Never an auth failure — retrying a 401/403
-// just burns time before the UI can show the real "reconnect" state.
+// Retryable: transient upstream trouble (gateway) and network errors with no
+// status at all. Never an auth failure — retrying a 401/403 just burns time
+// before the UI can show the real "reconnect" state. Never a 429 either — that
+// means the server's own Gmail quota breaker is already tripped, and it comes
+// with its own Retry-After-driven countdown in the UI; an automatic retry here
+// would only hit the still-active breaker.
 function isRetryableEmailsError(error: unknown): boolean {
   if (isAuthFailure(error)) return false;
   const status = (error as { status?: unknown } | undefined)?.status;
   if (typeof status !== "number") return true;
-  return status === 429 || status === 502 || status === 503 || status === 504;
+  return status === 502 || status === 503 || status === 504;
 }
 
 function emailQueryOptions(

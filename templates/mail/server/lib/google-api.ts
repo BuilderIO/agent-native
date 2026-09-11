@@ -118,6 +118,10 @@ export function createOAuth2Client(
 // all calls for this token briefly so the per-minute window can refill and
 // subsequent requests don't pile on top of an already-exhausted quota.
 const QUOTA_COOLDOWN_MS = 90_000;
+// Must match the 300s Retry-After clamp in retryAfterSecondsFromErrors
+// (list-inbox-emails.ts) and gmailErrorStatus (server/handlers/emails.ts) —
+// otherwise a client could retry into a breaker window that's still active.
+const QUOTA_COOLDOWN_MAX_MS = 300_000;
 const tokenCooldowns = new Map<string, number>();
 
 function cooldownKey(accessToken: string): string {
@@ -143,7 +147,10 @@ function tripCooldown(
   accessToken: string,
   cooldownMs = QUOTA_COOLDOWN_MS,
 ): number {
-  const effectiveCooldownMs = Math.max(cooldownMs, QUOTA_COOLDOWN_MS);
+  const effectiveCooldownMs = Math.min(
+    Math.max(cooldownMs, QUOTA_COOLDOWN_MS),
+    QUOTA_COOLDOWN_MAX_MS,
+  );
   tokenCooldowns.set(
     cooldownKey(accessToken),
     Date.now() + effectiveCooldownMs,

@@ -154,6 +154,36 @@ describe("googleFetch quota handling", () => {
     expect((caught as Error).message).toMatch(/about 90s/);
   });
 
+  it("caps a long provider Retry-After to the breaker's advertised maximum", async () => {
+    // Must match the 300s Retry-After clamp callers use (list-inbox-emails.ts,
+    // server/handlers/emails.ts) — otherwise a client could retry into a
+    // cooldown window that's still active.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          429,
+          { error: { message: "User-rate limit exceeded" } },
+          { "retry-after": "600" },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let caught: unknown;
+    try {
+      await googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-cap",
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(GmailQuotaCooldownError);
+    expect((caught as GmailQuotaCooldownError).retryAfterMs).toBe(300_000);
+    expect((caught as Error).message).toMatch(/about 300s/);
+  });
+
   it("classifies a whole-batch HTTP 429 as a typed cooldown error, not raw batch-failure text", async () => {
     // Distinct from the "quota failures inside Gmail batch parts" case below:
     // this is the *transport-level* response for the whole multipart batch
