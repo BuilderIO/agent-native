@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
@@ -887,6 +888,11 @@ export default function PromptPopover({
               data-start-with-ai
               disabled={loading}
               onClick={() => {
+                trackEvent("design_start_mode_selected", {
+                  app_name: "design",
+                  template_name: "design",
+                  mode: "ai",
+                });
                 setShowStartChoice(false);
                 // autoFocus already ran while the composer was display:none,
                 // so revealing it leaves no caret. Focus it once it is shown.
@@ -913,6 +919,11 @@ export default function PromptPopover({
               disabled={loading || skipInFlight}
               onClick={() => {
                 if (loading || skipInFlightRef.current) return;
+                trackEvent("design_start_mode_selected", {
+                  app_name: "design",
+                  template_name: "design",
+                  mode: "blank_canvas",
+                });
                 skipInFlightRef.current = true;
                 setSkipInFlight(true);
                 // Close on commit rather than after the design is created and
@@ -997,7 +1008,13 @@ export default function PromptPopover({
                           variant="outline"
                           size="icon"
                           className="size-9 shrink-0"
-                          onClick={onCreateDesignSystem}
+                          onClick={() => {
+                            trackEvent("design_system_creator_opened", {
+                              app_name: "design",
+                              template_name: "design",
+                            });
+                            onCreateDesignSystem();
+                          }}
                           aria-label={t("promptDialog.createDesignSystem")}
                         >
                           <IconPlus className="size-4" />
@@ -1167,7 +1184,16 @@ function PromptAttachmentMenu({
         multiple
         className="hidden"
         onChange={(event) => {
-          onUploadFiles(Array.from(event.target.files ?? []));
+          const files = Array.from(event.target.files ?? []);
+          if (files.length > 0) {
+            trackEvent("design_attachment_source_selected", {
+              app_name: "design",
+              template_name: "design",
+              source: "upload",
+              attachment_count: Math.min(files.length, 10),
+            });
+          }
+          onUploadFiles(files);
           event.target.value = "";
           setOpen(false);
         }}
@@ -1208,6 +1234,11 @@ function PromptAttachmentMenu({
           type="button"
           className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"
           onClick={() => {
+            trackEvent("design_attachment_source_selected", {
+              app_name: "design",
+              template_name: "design",
+              source: "asset_picker",
+            });
             setOpen(false);
             onPickAsset();
           }}
@@ -1255,7 +1286,14 @@ function CreationModeToggle({
         role="radio"
         aria-checked={mode === "design"}
         disabled={disabled}
-        onClick={() => onChange("design")}
+        onClick={() => {
+          trackEvent("design_start_mode_selected", {
+            app_name: "design",
+            template_name: "design",
+            mode: "design",
+          });
+          onChange("design");
+        }}
         className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           mode === "design"
             ? "bg-background text-foreground shadow-sm"
@@ -1270,7 +1308,14 @@ function CreationModeToggle({
         role="radio"
         aria-checked={mode === "app"}
         disabled={disabled}
-        onClick={() => onChange("app")}
+        onClick={() => {
+          trackEvent("design_start_mode_selected", {
+            app_name: "design",
+            template_name: "design",
+            mode: "app",
+          });
+          onChange("app");
+        }}
         className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           mode === "app"
             ? "bg-background text-foreground shadow-sm"

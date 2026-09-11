@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   getBrowserTabId,
   setClientAppState,
@@ -202,6 +203,18 @@ export function LibraryGrid({
     useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
   const [page, setPage] = useState(1);
+  const handleSortChange = useCallback(
+    (nextSort: SortKey) => {
+      setSort(nextSort);
+      trackEvent("recording_sort_changed", {
+        app_name: "clips",
+        template_name: "clips",
+        surface: view,
+        sort: nextSort,
+      });
+    },
+    [view],
+  );
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
   const pageBreadcrumbItems =
     breadcrumbItems ?? (title ? [{ label: title }] : []);
@@ -453,7 +466,18 @@ export function LibraryGrid({
       key: `tag:${tagFilter}`,
       label: `#${tagFilter}`,
       active: true,
-      onRemove: onClearTag,
+      onRemove: onClearTag
+        ? () => {
+            trackEvent("recording_filter_changed", {
+              app_name: "clips",
+              template_name: "clips",
+              surface: view,
+              filter_type: "tag",
+              action: "removed",
+            });
+            onClearTag();
+          }
+        : undefined,
     });
   }
 
@@ -521,7 +545,7 @@ export function LibraryGrid({
           />
           <div className="ms-auto flex min-w-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
             {extraActions}
-            <SortMenu value={sort} onChange={setSort} />
+            <SortMenu value={sort} onChange={handleSortChange} />
           </div>
         </div>
       </PageHeader>

@@ -31,8 +31,13 @@ const FIXTURE = `<!doctype html>
          style="position:absolute;left:20px;top:520px;width:120px;height:80px;background:#a855f7"></div>
     <div data-agent-native-node-id="loose-b" data-agent-native-layer-name="Loose B"
          style="position:absolute;left:170px;top:520px;width:120px;height:80px;background:#ec4899"></div>
-  </body>
+</body>
 </html>`;
+
+const BOARD_FIXTURE = FIXTURE.replace("loose-a", "board-a")
+  .replace("Loose A", "Board A")
+  .replace("loose-b", "board-b")
+  .replace("Loose B", "Board B");
 
 let baseURL = "";
 
@@ -67,6 +72,28 @@ async function newDesign(page: Page): Promise<string> {
     filename: "index.html",
     content: FIXTURE,
     fileType: "html",
+  });
+  return id;
+}
+
+async function newBoardDesign(page: Page): Promise<string> {
+  const created = await postAction(page, "create-design", {
+    title: "group fill board surface",
+    projectType: "prototype",
+  });
+  const id = created?.id ?? created?.data?.id;
+  if (!id) throw new Error("create-design returned no id");
+  const board = await postAction(page, "create-file", {
+    designId: id,
+    filename: "__board__.html",
+    content: BOARD_FIXTURE,
+    fileType: "html",
+  });
+  const boardFileId = board?.id ?? board?.data?.id;
+  if (!boardFileId) throw new Error("create-file returned no board id");
+  await postAction(page, "update-design", {
+    id,
+    dataOperations: [{ op: "set", path: ["boardFileId"], value: boardFileId }],
   });
   return id;
 }
@@ -355,6 +382,35 @@ test.describe("groups", () => {
       `Figma: "Groups automatically adjust their bounds to fit the layers within." ` +
         `Children span ${Math.round(expectedWidth)}px; the group measures ${Math.round(group!.width)}px.`,
     ).toBeCloseTo(expectedWidth, -1.4);
+  });
+
+  test("a group fill is visible on the board surface", async ({ page }) => {
+    const id = await newBoardDesign(page);
+    await openEditor(page, id);
+    await multiSelect(page, ["Board A", "Board B"]);
+    await page.keyboard.press(`${MOD}+g`);
+    await expect(
+      layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
+    ).toHaveCount(1);
+
+    const fillSection = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })
+      .first();
+    await expect(fillSection).toBeVisible();
+    await fillSection.getByRole("button", { name: "Add fill" }).click();
+
+    const group = page
+      .locator("iframe[data-design-preview-iframe]")
+      .first()
+      .contentFrame()
+      .locator('[data-agent-native-layer-name="Group"]')
+      .first();
+    await expect
+      .poll(() =>
+        group.evaluate((element) => getComputedStyle(element).backgroundColor),
+      )
+      .toBe("rgb(255, 255, 255)");
   });
 
   test("Cmd+Shift+G ungroups", async ({ page }) => {
