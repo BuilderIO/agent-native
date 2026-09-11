@@ -441,6 +441,15 @@ export function validateGoogleCallbackVerificationWorkflow(
         `${reusablePath} Google OAuth verification must use the deployed capability contract instead of a template allowlist`,
       );
     }
+    if (
+      !rollback.includes("id: google_callback_rollback") ||
+      !rollback.includes("restored_deploy_id") ||
+      !rollback.includes("process.env.GITHUB_OUTPUT")
+    ) {
+      issues.push(
+        `${reusablePath} Google OAuth rollback must expose its returned deploy id to failure cleanup`,
+      );
+    }
   }
 
   if (
@@ -976,13 +985,16 @@ if (
   !reusable.slice(cleanupStart).includes("cutoverPublishedDeployId") ||
   !reusable.slice(cleanupStart).includes("cutoverNewDeployId") ||
   !reusable.slice(cleanupStart).includes("cutoverWasLocked") ||
+  !cleanupWindow.includes("cutoverGoogleRollbackDeployId") ||
+  !cleanupWindow.includes("callbackRestoredDeployId") ||
+  !cleanupWindow.includes("currentDeployId !== callbackRestoredDeployId") ||
   !reusable
     .slice(cleanupStart)
     .includes('const action = expectedLocked ? "lock" : "unlock"') ||
   !cleanupWindow.includes(
     "/sites/${process.env.NETLIFY_SITE_ID}/deploys/${originalDeployId}/restore",
   ) ||
-  !cleanupWindow.includes("const restoredDeployId = restored?.id") ||
+  !cleanupWindow.includes("restoredDeployId = restored?.id") ||
   !cleanupWindow.includes("waitForPublished(restoredDeployId)") ||
   !/restoreLockState\(\s*restoredDeployId,/.test(cleanupWindow) ||
   cleanupWindow.includes("waitForPublished(originalDeployId)") ||
@@ -994,7 +1006,8 @@ if (
   !cleanupWindow.includes("rollbackError && failedDeployLockError") ||
   !/restoreLockState\(\s*newDeployId,\s*"true"/.test(cleanupWindow) ||
   !cleanupWindow.includes("currentDeployId === newDeployId") ||
-  !cleanupWindow.includes("Restored previous production deploy")
+  !cleanupWindow.includes("Restored previous production deploy") ||
+  !cleanupWindow.includes("Preserved Google callback rollback deploy")
 ) {
   issues.push(
     `${reusablePath} must pause automatic builds before cutover, restore the prior deploy, lock the failed deploy, and fail-safe the production lock after cutover errors`,
@@ -1031,7 +1044,9 @@ if (
   resumeStart < 0 ||
   cleanupStart >= resumeStart ||
   !resumeWindow.includes(noCutoverStateCheck) ||
-  !resumeWindow.includes("steps.failure_cleanup.outcome != 'failure'")
+  !resumeWindow.includes("steps.failure_cleanup.outcome == 'success'") ||
+  !resumeWindow.includes("steps.failure_cleanup.outcome == 'skipped'") ||
+  resumeWindow.includes("steps.failure_cleanup.outcome != 'failure'")
 ) {
   issues.push(
     `${reusablePath} production resume must leave automatic builds unchanged when pause state was not acquired`,

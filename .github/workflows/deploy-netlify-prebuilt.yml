@@ -1959,6 +1959,7 @@ jobs:
           exit "$status"
 
       - name: Roll back after Google callback verification failure
+        id: google_callback_rollback
         if: >-
           steps.google_redirect.outcome == 'failure' &&
           steps.google_redirect.outputs.exit_code == '1'
@@ -1971,6 +1972,7 @@ jobs:
           set -euo pipefail
           node --experimental-strip-types <<'NODE'
           (async () => {
+            const { appendFileSync } = await import("node:fs");
             const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
             const api = "https://api.netlify.com/api/v1";
             const headers = {
@@ -2022,6 +2024,10 @@ jobs:
                 "Netlify callback rollback verification",
               );
               if (site?.published_deploy?.id === restoredDeployId) {
+                appendFileSync(
+                  process.env.GITHUB_OUTPUT,
+                  `restored_deploy_id=${restoredDeployId}\n`,
+                );
                 console.log(`Restored previous published deploy ${previousId} as ${restoredDeployId}.`);
                 process.exitCode = 1;
                 return;
@@ -2180,6 +2186,7 @@ jobs:
           cutoverNewDeployId: ${{ steps.deploy.outputs.deploy_id }}
           cutoverWasLocked: ${{ steps.unlock.outputs.was_locked }}
           cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
+          cutoverGoogleRollbackDeployId: ${{ steps.google_callback_rollback.outputs.restored_deploy_id }}
         run: |
           set -euo pipefail
           node --experimental-strip-types <<'NODE'
@@ -2258,23 +2265,43 @@ jobs:
           if (!currentDeployId) {
             throw new Error("Cannot restore the production lock: site has no published deploy.");
           }
-          if (newDeployId && currentDeployId === newDeployId) {
+          const callbackRestoredDeployId = process.env.cutoverGoogleRollbackDeployId;
+          if (
+            callbackRestoredDeployId &&
+            (!newDeployId || callbackRestoredDeployId === newDeployId)
+          ) {
+            throw new Error(
+              "Cannot preserve the Google callback rollback without a distinct failed deploy id.",
+            );
+          }
+          if (callbackRestoredDeployId && currentDeployId !== callbackRestoredDeployId) {
+            throw new Error(
+              `Refusing failure cleanup because Netlify serves ${currentDeployId}, expected the Google callback rollback deploy ${callbackRestoredDeployId}.`,
+            );
+          }
+          if (
+            callbackRestoredDeployId ||
+            (newDeployId && currentDeployId === newDeployId)
+          ) {
             let rollbackError;
             try {
-              const restored = await readJson(
-                await request(
-                  `${api}/sites/${process.env.NETLIFY_SITE_ID}/deploys/${originalDeployId}/restore`,
-                  { method: "POST" },
-                ),
-                `Netlify previous production deploy ${originalDeployId} restore`,
-              );
-              const restoredDeployId = restored?.id;
+              let restoredDeployId = callbackRestoredDeployId;
               if (!restoredDeployId) {
-                throw new Error(
-                  `Netlify previous production deploy ${originalDeployId} restore did not return a new deploy id.`,
+                const restored = await readJson(
+                  await request(
+                    `${api}/sites/${process.env.NETLIFY_SITE_ID}/deploys/${originalDeployId}/restore`,
+                    { method: "POST" },
+                  ),
+                  `Netlify previous production deploy ${originalDeployId} restore`,
                 );
+                restoredDeployId = restored?.id;
+                if (!restoredDeployId) {
+                  throw new Error(
+                    `Netlify previous production deploy ${originalDeployId} restore did not return a new deploy id.`,
+                  );
+                }
+                await waitForPublished(restoredDeployId);
               }
-              await waitForPublished(restoredDeployId);
               await restoreLockState(
                 restoredDeployId,
                 process.env.cutoverWasLocked,
@@ -2285,6 +2312,9 @@ jobs:
             }
             let failedDeployLockError;
             try {
+              if (!newDeployId) {
+                throw new Error("Cannot lock the failed production deploy: deploy id is missing.");
+              }
               await restoreLockState(
                 newDeployId,
                 "true",
@@ -2306,7 +2336,9 @@ jobs:
               throw failedDeployLockError;
             }
             console.log(
-              `Restored previous production deploy ${originalDeployId} and locked failed deploy ${newDeployId} after cutover failure.`,
+              callbackRestoredDeployId
+                ? `Preserved Google callback rollback deploy ${callbackRestoredDeployId} and locked failed deploy ${newDeployId} after cutover failure.`
+                : `Restored previous production deploy ${originalDeployId} and locked failed deploy ${newDeployId} after cutover failure.`,
             );
             process.exit(0);
           }
@@ -2326,7 +2358,8 @@ jobs:
         if: >-
           inputs.target == 'production' && inputs.deploy &&
           inputs.deploy_mode == 'production' && always() &&
-          steps.failure_cleanup.outcome != 'failure'
+          (steps.failure_cleanup.outcome == 'success' ||
+          steps.failure_cleanup.outcome == 'skipped')
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}

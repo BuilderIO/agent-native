@@ -77,6 +77,8 @@ describe("Google callback deploy verification guard", () => {
       validateGoogleCallbackVerificationWorkflow(reusableSource),
       [],
     );
+    assert.match(reusableSource, /id: google_callback_rollback/);
+    assert.match(reusableSource, /restored_deploy_id=\$\{restoredDeployId\}/);
     assert.match(
       validateGoogleCallbackVerificationWorkflow(
         reusableSource
@@ -1749,6 +1751,14 @@ describe("production Netlify site concurrency guard", () => {
     assert(resumeIndex > cleanupIndex);
     assert.match(
       resume?.if as string,
+      /steps\.failure_cleanup\.outcome == 'success'/,
+    );
+    assert.match(
+      resume?.if as string,
+      /steps\.failure_cleanup\.outcome == 'skipped'/,
+    );
+    assert.doesNotMatch(
+      resume?.if as string,
       /steps\.failure_cleanup\.outcome != 'failure'/,
     );
     assert.equal(
@@ -1781,10 +1791,7 @@ describe("production Netlify site concurrency guard", () => {
       String(cleanup?.run),
       /sites\/\$\{process\.env\.NETLIFY_SITE_ID\}\/deploys\/\$\{originalDeployId\}\/restore/,
     );
-    assert.match(
-      String(cleanup?.run),
-      /const restoredDeployId = restored\?\.id/,
-    );
+    assert.match(String(cleanup?.run), /restoredDeployId = restored\?\.id/);
     assert.match(String(cleanup?.run), /waitForPublished\(restoredDeployId\)/);
     assert.match(
       String(cleanup?.run),
@@ -1797,6 +1804,11 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(cleanup?.run), /catch \(error\)/);
     assert.match(String(cleanup?.run), /let rollbackError/);
     assert.match(String(cleanup?.run), /let failedDeployLockError/);
+    assert.match(String(cleanup?.run), /callbackRestoredDeployId/);
+    assert.match(
+      String(cleanup?.run),
+      /currentDeployId !== callbackRestoredDeployId/,
+    );
     assert.match(String(cleanup?.run), /rollbackError = error/);
     assert.match(String(cleanup?.run), /failedDeployLockError = error/);
     assert.match(String(cleanup?.run), /throw new AggregateError/);
@@ -1809,6 +1821,14 @@ describe("production Netlify site concurrency guard", () => {
       /restoreLockState\(\s*newDeployId,\s*"true"/,
     );
     assert.match(String(cleanup?.run), /Restored previous production deploy/);
+    assert.match(
+      String(cleanup?.run),
+      /Preserved Google callback rollback deploy/,
+    );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverGoogleRollbackDeployId,
+      "${{ steps.google_callback_rollback.outputs.restored_deploy_id }}",
+    );
   });
 
   it("records cutover acquisition before pause verification", () => {
