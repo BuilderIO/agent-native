@@ -45,6 +45,10 @@ const SLIDE_TEXT_CONTAINER_TAGS = new Set([
   "UL",
 ]);
 
+// A slide text block is one bounded block; StarterKit's trailing paragraph
+// would add an empty line under an edited list that the canvas never shows.
+const SLIDE_STARTER_KIT = { trailingNode: false } as const;
+
 const SLIDE_EDITOR_BLOCK_ATTRIBUTES = ["dir", "data-pptx-paragraph"] as const;
 const SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES = [
   "color",
@@ -953,33 +957,32 @@ export const SlideRichTextEditor = forwardRef<
   }, [editor, initialSelection, setSelectionFromOffsets]);
 
   return (
-    <div className="slide-shared-rich-editor">
-      <SharedRichEditor
-        value={normalizeSlideEditorContent(value)}
-        onChange={onChange}
-        onEditorReady={handleEditorReady}
-        dialect="gfm"
-        preset="content"
-        features={{
-          codeBlock: false,
-          markdown: false,
-          placeholder: false,
-          tables: false,
-          tasks: false,
-        }}
-        dragHandle={false}
-        placeholder=""
-        className="slide-shared-rich-editor__surface"
-        editorClassName="slide-shared-rich-editor__prose"
-        ariaLabel="Slide text"
-        getMarkdown={(currentEditor) =>
-          stripEditorOnlyTrailingParagraphs(currentEditor.getHTML())
-        }
-        parseValue={false}
-        normalizeValue={(nextValue) => nextValue}
-        extraExtensions={[SlideTextStyle, SlideBlockStyle]}
-      />
-    </div>
+    <SharedRichEditor
+      value={normalizeSlideEditorContent(value)}
+      onChange={onChange}
+      onEditorReady={handleEditorReady}
+      dialect="gfm"
+      preset="content"
+      features={{
+        codeBlock: false,
+        markdown: false,
+        placeholder: false,
+        tables: false,
+        tasks: false,
+      }}
+      dragHandle={false}
+      placeholder=""
+      unstyled
+      starterKit={SLIDE_STARTER_KIT}
+      className="slide-shared-rich-editor"
+      ariaLabel="Slide text"
+      getMarkdown={(currentEditor) =>
+        stripEditorOnlyTrailingParagraphs(currentEditor.getHTML())
+      }
+      parseValue={false}
+      normalizeValue={(nextValue) => nextValue}
+      extraExtensions={[SlideTextStyle, SlideBlockStyle]}
+    />
   );
 });
 

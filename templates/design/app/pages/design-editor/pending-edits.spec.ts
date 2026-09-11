@@ -7,6 +7,7 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   appendPendingVisualStyleUndoEntry,
+  formatVisualEditClipboardPrompt,
 } from "./pending-edits";
 
 function styleEdit(
@@ -113,5 +114,26 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
     expect(stack).toHaveLength(1);
     expect(stack[0]?.edit.value).toBe("Help");
     expect(stack[0]?.revertValue).toBe("Hello");
+  });
+});
+
+describe("formatVisualEditClipboardPrompt", () => {
+  it("uses the page-local WebMCP handoff inside supported hosts", () => {
+    const prompt = "Apply the exact source edits from this canvas.";
+    expect(formatVisualEditClipboardPrompt(prompt, "chatgpt")).toContain(
+      "get-visual-edit-prompt",
+    );
+    expect(formatVisualEditClipboardPrompt(prompt, "claude")).toContain(
+      "get-visual-edit-prompt",
+    );
+    expect(formatVisualEditClipboardPrompt(prompt, "webmcp")).toContain(
+      "get-visual-edit-prompt",
+    );
+  });
+
+  it("keeps the detailed prompt for ordinary clipboard use", () => {
+    expect(formatVisualEditClipboardPrompt("Apply these edits.", null)).toBe(
+      "Apply these edits.",
+    );
   });
 });

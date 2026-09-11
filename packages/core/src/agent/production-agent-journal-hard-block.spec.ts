@@ -650,4 +650,141 @@ describe("tool-call journal hard-block", () => {
 
     expect(action.run).toHaveBeenCalledOnce();
   });
+
+  // A resurfaced re-fetch (the model's earlier result fell out of its visible
+  // context) is the SAME call answered again, not a stuck loop. Neither the
+  // journal-seeded ledger nor this chunk's own resurfaced call may count
+  // toward `repeated_tool_call` (MAX_IDENTICAL_TOOL_CALLS = 8) — reproduces
+  // the prod incident where 8 legitimate re-fetches across chunks killed the
+  // turn with "called 8 times with identical arguments".
+  it("does not stop the turn after 8 resurfaced re-fetches of the same read across chunks", async () => {
+    const RAW_RESULT = "the actual document content";
+    const resurfacedResult =
+      "Skipped duplicate read-only call to get-doc: identical input already ran in this turn. " +
+      `Its earlier result is no longer in view, so here it is again:\n\n${RAW_RESULT}`;
+    const readAction = vi.fn(async () => RAW_RESULT);
+    const action: ActionEntry = {
+      tool: {
+        description: "A read action",
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: true,
+      run: readAction,
+    };
+
+    // Seeded as already completed by an even-earlier chunk this test never
+    // simulates directly — only its journal footprint matters here.
+    let ledger: unknown[] = completedLedger(
+      "get-doc",
+      { id: "doc-1" },
+      RAW_RESULT,
+    );
+
+    for (let chunk = 1; chunk <= 8; chunk++) {
+      currentTurnEventsMock.mockResolvedValue(ledger);
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine: singleToolEngine("get-doc", { id: "doc-1" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: `continue ${chunk}` }],
+          },
+        ],
+        actions: { "get-doc": action },
+        send: (e) => events.push(e),
+        signal: new AbortController().signal,
+        threadId: "thread-resurface",
+      });
+
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "repeated_tool_call" }),
+      );
+      const toolDone = events.find((e: any) => e.type === "tool_done");
+      expect(toolDone?.result).toBe(resurfacedResult);
+
+      // Grows exactly as the real durable ledger would: this chunk's own
+      // resurfaced tool_done is now part of the journal the NEXT chunk reads.
+      ledger = [
+        ...ledger,
+        ...completedLedger("get-doc", { id: "doc-1" }, resurfacedResult),
+      ];
+    }
+
+    // The original read never re-fires — every one of the 8 chunks was
+    // served from the journal/cache.
+    expect(readAction).not.toHaveBeenCalled();
+  });
+
+  it("seeds repeat counts by call identity, not FIFO-per-tool-name, when concurrent same-tool calls resolve out of order", async () => {
+    // Two concurrent `get-data` calls with DIFFERENT inputs (id "1" and id
+    // "2") can complete and get journaled out of order. Only the id "2" call
+    // was answered as a resurfaced re-fetch; the seven id "1" calls are all
+    // genuine. FIFO-per-tool-name pairing lines up the wrong call with the
+    // resurfaced flag (the id "2" result is journaled BEFORE most of the id
+    // "1" tool_starts), wrongly consuming one of id "1"'s genuine repeats and
+    // wrongly crediting id "2" with a repeat it never made. Keying by
+    // (tool, input) identity instead must seed id "1" at the full genuine
+    // count of 7 and id "2" at 0.
+    const resurfacedResult =
+      "Skipped duplicate read-only call to get-data: identical input already ran in this turn. " +
+      "Its earlier result is no longer in view, so here it is again:\n\nold-id-2-result";
+    currentTurnEventsMock.mockResolvedValue([
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "2" } },
+      // id "2" completes FIRST — out of order relative to the id "1" calls
+      // still in flight below.
+      {
+        type: "tool_done",
+        tool: "get-data",
+        input: { id: "2" },
+        result: resurfacedResult,
+      },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+    ]);
+
+    const readAction: ActionEntry = {
+      tool: {
+        description: "A read action",
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: true,
+      run: vi.fn(async () => "fresh-read"),
+    };
+    const events: any[] = [];
+
+    // Seeded genuine count for id "1" is exactly MAX_IDENTICAL_TOOL_CALLS - 1
+    // (7); this chunk's single call to id "1" is the 8th, which must trip the
+    // hard block. The old FIFO-per-name pairing seeded id "1" at 5 (losing 2
+    // to the misattributed resurfaced flag and the wrongly-credited id "2"
+    // entry), so the 8th call would only reach 6 and never stop the turn.
+    await runAgentLoop({
+      engine: singleToolEngine("get-data", { id: "1" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "get-data": readAction },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-concurrent-out-of-order",
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_call",
+        recoverable: false,
+      }),
+    );
+  });
 });

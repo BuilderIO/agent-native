@@ -619,6 +619,8 @@ const messages: AgentChatTranslation = {
     "Le fournisseur du modèle est injoignable. Vérifiez votre connexion et réessayez.",
   "errorMessages.providerRateLimit":
     "Le fournisseur du modèle limite temporairement cette discussion. Patientez un instant, puis réessayez.",
+  "errorMessages.providerTransientRejection":
+    "Le fournisseur d'IA a temporairement refusé cette demande. Cela se résout généralement en moins d'une minute : réessayez.",
   "errorMessages.startNewChat": "Démarrer une nouvelle discussion",
   "errorMessages.upgradeAtBuilder": "Mettre à niveau sur Builder.io",
   "feedback.inaccurate": "Inexact",

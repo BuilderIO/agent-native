@@ -47,21 +47,48 @@ describe("InlineMarkdown", () => {
     expect(links[0]?.rel).toBe("noopener noreferrer");
   });
 
-  it("keeps headings and other block syntax out of compact surfaces", () => {
+  it("renders lists only when a block surface opts in", () => {
     act(() => {
       root.render(
         <InlineMarkdown
           content={
-            "# Heading\n\n- list item\n\n> quoted text\n\n**still inline**"
+            "# Heading\n\n1. first item\n2. second item\n\n- bullet item\n\n> quoted text"
           }
         />,
       );
     });
 
     expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
-    expect(container.querySelector("ul, ol, blockquote")).toBeNull();
+    expect(container.querySelector("ul, ol")).toBeNull();
+    expect(container.querySelector("blockquote")).toBeNull();
     expect(container.textContent).toContain("Heading");
-    expect(container.textContent).toContain("list item");
+    expect(container.textContent).toContain("first item");
+
+    act(() => {
+      root.render(
+        <InlineMarkdown
+          renderLists
+          content={
+            "# Heading\n\n1. first item\n2. second item\n\n- bullet item\n\n> quoted text"
+          }
+        />,
+      );
+    });
+
+    expect(container.querySelector("ol")?.className).toContain("list-decimal");
+    expect(container.querySelector("ul")?.className).toContain("list-disc");
+
+    act(() => {
+      root.render(
+        <InlineMarkdown
+          inline
+          renderLists
+          content={"1. first item\n2. second item\n\n**still inline**"}
+        />,
+      );
+    });
+
+    expect(container.querySelector("ul, ol")).toBeNull();
     expect(container.querySelector("strong")?.textContent).toBe("still inline");
   });
 

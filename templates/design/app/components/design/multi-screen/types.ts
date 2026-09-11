@@ -327,6 +327,10 @@ export interface MultiScreenCanvasProps {
     sourcePointerOffset?: Point;
     /** Host-captured HTML for a board root, including its current DOM subtree. */
     sourceHtmlSnapshot?: string;
+    /** True when the source bridge is carrying an Alt-drag copy. */
+    duplicate?: boolean;
+    /** Runtime HTML for an Alt-drag copy whose source must remain in place. */
+    sourceCloneHtml?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
   }) => void;

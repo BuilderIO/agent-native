@@ -72,6 +72,10 @@ const rootBuildFiles = new Set([
   "pnpm-workspace.yaml",
 ]);
 
+export function previewEligibleSiteNames(repoRoot = REPO_ROOT): string[] {
+  return withDocsSite(buildableSites(repoRoot), repoRoot);
+}
+
 export function previewSitesForChangedPaths(
   changedPaths: readonly string[],
   repoRoot = REPO_ROOT,
