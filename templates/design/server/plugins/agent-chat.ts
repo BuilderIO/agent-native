@@ -124,6 +124,7 @@ const DESIGN_FILE_TARGET_TOOLS = new Set([
   "insert-asset",
   "insert-design-native-asset",
   "remove-motion-timeline",
+  "rename-screen",
   "swap-component-instance",
   "update-file",
 ]);
@@ -178,7 +179,7 @@ async function designIdForTool(
   if (typeof input?.designId === "string") return input.designId;
   if (!DESIGN_FILE_TARGET_TOOLS.has(tool)) return undefined;
   const fileId =
-    tool === "delete-file" || tool === "update-file"
+    tool === "delete-file" || tool === "rename-screen" || tool === "update-file"
       ? input?.id
       : input?.fileId;
   return typeof fileId === "string" ? fileDesignId(fileId) : undefined;

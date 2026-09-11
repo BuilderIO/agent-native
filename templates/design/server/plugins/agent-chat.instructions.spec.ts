@@ -62,9 +62,16 @@ describe("design autosave tool coverage", () => {
     const fileTargetStart = agentChatSource.indexOf(
       "const DESIGN_FILE_TARGET_TOOLS",
     );
+    const helperStart = agentChatSource.indexOf("function eventRecord");
 
     expect(agentChatSource.slice(editToolsStart, fileTargetStart)).toContain(
       '"rename-screen"',
+    );
+    expect(agentChatSource.slice(fileTargetStart, helperStart)).toContain(
+      '"rename-screen"',
+    );
+    expect(agentChatSource).toContain(
+      'tool === "delete-file" || tool === "rename-screen" || tool === "update-file"',
     );
   });
 });

@@ -270,6 +270,18 @@ describe("formatChatErrorText", () => {
     );
   });
 
+  it("normalizes structured provider 403 failures", () => {
+    const normalized = normalizeChatError("Forbidden", "http_403");
+
+    expect(normalized.message).toBe(
+      "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+    );
+    expect(normalized.details).toBe("Forbidden");
+    expect(formatChatErrorText("Forbidden", undefined, "http_403")).toBe(
+      "Error: The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+    );
+  });
+
   it("normalizes the stored credential failure marker without an error code", () => {
     expect(
       normalizeChatError("The model provider rejected the saved API key."),
