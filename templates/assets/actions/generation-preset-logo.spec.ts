@@ -44,6 +44,7 @@ vi.mock("../server/lib/library-access.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: vi.fn(() => "designer@example.com"),
   getRequestOrgId: vi.fn(() => "org-1"),
 }));
