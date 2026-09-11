@@ -1155,7 +1155,7 @@ for (const [path, target, buildContext] of [
   }
   const expectedCaller =
     path === betaPath
-      ? "${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}"
+      ? "${{ github.event_name == 'workflow_dispatch' && inputs.handoff && 'automatic' || github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}"
       : "fleet";
   if (deployWith?.caller !== expectedCaller) {
     issues.push(

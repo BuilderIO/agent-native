@@ -193,7 +193,7 @@ jobs:
     with:
       target: beta
       site: ${{ matrix.site }}
-      caller: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}
+      caller: ${{ github.event_name == 'workflow_dispatch' && inputs.handoff && 'automatic' || github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}
       source_ref: ${{ needs.resolve-source.outputs.source_sha }}
       build_context: branch-deploy
       deploy: true

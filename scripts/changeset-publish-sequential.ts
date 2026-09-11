@@ -594,7 +594,6 @@ async function main() {
         console.log(
           `${pkg.name} is already published on npm, but ${tagName(pkg)} is missing on origin`,
         );
-        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
       continue;
@@ -625,7 +624,6 @@ async function main() {
     // at the end with a summary of what broke.
     try {
       if (await publishPackage(pkg)) {
-        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
     } catch (error) {
@@ -648,6 +646,13 @@ async function main() {
       }
     }
   }
+
+  // npm publishes stay serial to avoid overlapping OIDC handshakes. Registry
+  // reads can settle together, so one slow package cannot consume the whole
+  // stable-release coordinator deadline before later packages are published.
+  await Promise.all(
+    packagesNeedingTags.map((pkg) => waitForPackageAvailability(pkg)),
+  );
 
   if (packagesNeedingTags.length === 0) {
     console.log("No unpublished packages found");

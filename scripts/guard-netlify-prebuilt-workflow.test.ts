@@ -732,7 +732,7 @@ describe("production Netlify site concurrency guard", () => {
     ).find((step) => step.id === "source");
     assert.equal(
       ((betaResolveSource.jobs as Workflow).deploy as Workflow).with?.caller,
-      "${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}",
+      "${{ github.event_name == 'workflow_dispatch' && inputs.handoff && 'automatic' || github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}",
     );
     assert.match(
       String(betaResolveStep?.with?.script),
