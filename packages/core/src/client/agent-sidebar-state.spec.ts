@@ -1,0 +1,214 @@
+// @vitest-environment happy-dom
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const {
+  consumeAgentSidebarUrlOpenOverride,
+  clampAgentSidebarWidth,
+  dispatchAgentSidebarStateChange,
+  getAgentSidebarMaxWidth,
+  getAgentSidebarOpenPreferenceKey,
+  getAgentSidebarWideWidth,
+  getInitialAgentSidebarOpen,
+  hasChatThreadDeepLink,
+  requestAgentSidebarOpen,
+  SIDEBAR_OPEN_KEY,
+  SIDEBAR_STATE_CHANGE_EVENT,
+  setAgentSidebarOpenPreference,
+  subscribeAgentSidebarUrlChanges,
+} = await import("./agent-sidebar-state.js");
+
+function stubMatchMedia(matches: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation(() => ({
+      matches,
+      media: "(max-width: 767px)",
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
+describe("agent sidebar width presets", () => {
+  it("uses 75% of the desktop viewport for the wide preset", () => {
+    expect(getAgentSidebarWideWidth(1440)).toBe(1080);
+    expect(getAgentSidebarWideWidth(1024)).toBe(768);
+  });
+
+  it("keeps the existing 700px drag ceiling below the wide preset", () => {
+    expect(getAgentSidebarMaxWidth(800)).toBe(700);
+    expect(getAgentSidebarMaxWidth(1440)).toBe(1080);
+  });
+
+  it("clamps manual widths to the responsive maximum", () => {
+    expect(clampAgentSidebarWidth(1200, 1024)).toBe(768);
+    expect(clampAgentSidebarWidth(100, 1440)).toBe(280);
+  });
+});
+
+describe("getInitialAgentSidebarOpen", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.history.replaceState(null, "", "/");
+    stubMatchMedia(false);
+  });
+
+  it("uses the provided default when there is no saved preference", () => {
+    expect(getInitialAgentSidebarOpen(true)).toBe(true);
+    expect(getInitialAgentSidebarOpen(false)).toBe(false);
+  });
+
+  it("recognizes shared chat thread links", () => {
+    window.history.replaceState(null, "", "/overview?thread=thread-1");
+    expect(hasChatThreadDeepLink()).toBe(true);
+
+    window.history.replaceState(null, "", "/overview?threadId=thread-2");
+    expect(hasChatThreadDeepLink()).toBe(true);
+
+    window.history.replaceState(null, "", "/overview?from=sidebar");
+    expect(hasChatThreadDeepLink()).toBe(false);
+  });
+
+  it("opens for a shared chat thread link even when the sidebar defaults closed", () => {
+    window.history.replaceState(null, "", "/overview?thread=thread-1");
+    expect(getInitialAgentSidebarOpen(false)).toBe(true);
+
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?thread=thread-1&agentSidebar=closed",
+    );
+    expect(getInitialAgentSidebarOpen(false)).toBe(false);
+  });
+
+  it("opens from the explicit sidebar URL hint", () => {
+    window.history.replaceState(null, "", "/?agentSidebar=open");
+
+    expect(getInitialAgentSidebarOpen(false)).toBe(true);
+  });
+
+  it("does not auto-open default-closed sidebars from saved state", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    expect(getInitialAgentSidebarOpen(false)).toBe(false);
+
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "false");
+    expect(getInitialAgentSidebarOpen(true)).toBe(false);
+  });
+
+  it("scopes saved sidebar state by storage key", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    setAgentSidebarOpenPreference(false, "docs");
+
+    expect(getInitialAgentSidebarOpen(true, "plans")).toBe(true);
+    expect(getInitialAgentSidebarOpen(true, "docs")).toBe(false);
+    expect(getInitialAgentSidebarOpen(false, "plans")).toBe(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(
+      window.localStorage.getItem(getAgentSidebarOpenPreferenceKey("docs")),
+    ).toBe("false");
+  });
+
+  it("can persist sidebar state and request a transient open", () => {
+    const openEvents: string[] = [];
+    window.addEventListener("agent-panel:open", () => openEvents.push("open"));
+
+    setAgentSidebarOpenPreference(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("false");
+
+    requestAgentSidebarOpen();
+
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("false");
+    expect(openEvents).toEqual(["open"]);
+  });
+
+  it("starts closed on mobile even with a saved open preference", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    stubMatchMedia(true);
+
+    expect(getInitialAgentSidebarOpen(true)).toBe(false);
+  });
+
+  it("starts closed from an external-agent deep-link hint even with a saved open preference", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    window.history.replaceState(
+      null,
+      "",
+      "/inbox?threadId=t1&agentSidebar=closed",
+    );
+
+    expect(getInitialAgentSidebarOpen(true)).toBe(false);
+  });
+
+  it("consumes the external-agent deep-link hint and persists the closed state", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    window.history.replaceState(
+      null,
+      "",
+      "/inbox?threadId=t1&agentSidebar=closed#message",
+    );
+
+    expect(consumeAgentSidebarUrlOpenOverride("docs")).toBe(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(
+      window.localStorage.getItem(getAgentSidebarOpenPreferenceKey("docs")),
+    ).toBe("false");
+    expect(window.location.pathname).toBe("/inbox");
+    expect(window.location.search).toBe("?threadId=t1");
+    expect(window.location.hash).toBe("#message");
+  });
+
+  it("reacts when an already-mounted app shell receives the closed hint", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    const seen: Array<boolean | null> = [];
+    const unsubscribe = subscribeAgentSidebarUrlChanges(() => {
+      seen.push(consumeAgentSidebarUrlOpenOverride("docs"));
+    });
+
+    window.history.pushState(
+      null,
+      "",
+      "/inbox?threadId=t1&agentSidebar=closed",
+    );
+
+    unsubscribe();
+    expect(seen).toContain(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(
+      window.localStorage.getItem(getAgentSidebarOpenPreferenceKey("docs")),
+    ).toBe("false");
+    expect(window.location.pathname).toBe("/inbox");
+    expect(window.location.search).toBe("?threadId=t1");
+  });
+});
+
+describe("dispatchAgentSidebarStateChange", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.history.replaceState(null, "", "/");
+    stubMatchMedia(false);
+  });
+
+  it("emits a public state-change event with sidebar ownership details", () => {
+    const listener = vi.fn();
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, listener);
+
+    dispatchAgentSidebarStateChange({
+      open: true,
+      source: "frame",
+      mode: "code",
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0]![0] as CustomEvent).detail).toEqual({
+      open: true,
+      source: "frame",
+      mode: "code",
+    });
+
+    window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, listener);
+  });
+});

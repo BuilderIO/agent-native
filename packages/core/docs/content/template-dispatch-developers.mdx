@@ -1,0 +1,121 @@
+---
+title: "Dispatch — architecture for developers"
+description: "How Dispatch's package and generated-app source are split, the orchestrator's remote agent registry, scaffolding a workspace with Dispatch, and customizing a curated workspace template."
+---
+
+# Dispatch — architecture for developers
+
+This page is for engineers extending Dispatch or customizing the template: how the orchestrator finds other agents, how the published package and your generated app source are split, and how to add your own management screens or create a private app from another template.
+
+## Orchestrator agent and remote agent registry {#orchestrator}
+
+The chat is set up as a router: it reads `AGENTS.md` and `LEARNINGS.md` and routes to specialist sub-agents or remote A2A agents. A2A agent manifests are workspace-runtime entries, not a checked-in template source folder: in a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers, with no manual registration needed. Dispatch calls them using the `call-agent` action.
+
+Server plugins register each connected channel's webhook (Slack, Microsoft Teams, Discord, Telegram, WhatsApp) and forward incoming messages to the orchestrator agent. Vault tables (secrets, grants, requests, approvals, audit logs) are Drizzle tables defined in the `@agent-native/dispatch` package (`packages/dispatch/src/db/schema.ts`); the template's own `templates/dispatch/server/db/index.ts` re-exports that same schema via `createGetDb` rather than declaring a template-local `server/db/schema.ts`.
+
+## Package vs app-owned surface split {#package-split}
+
+`@agent-native/dispatch` owns the shell, sidebar, vault schema, and every built-in page — vault, integrations, messaging, operations, destinations, metrics, thread debug, audit, identities, dreams, approvals, automations, and the extensions catalog. Most files under `templates/dispatch/app/routes/` are thin re-exports of those packaged pages (for example `export { default, meta } from "@agent-native/dispatch/routes/pages/operations";`); `integrations.tsx` is the one route that's a full custom page in the template, reusing shared package components directly. The app-owned action surface in `templates/dispatch/actions/` covers Workspace Connections, staged datasets, and the `provider-api-*` escape hatch — everything else (vault, dreams, resources, destinations, approvals, thread debug, audit, identities, metrics) is a packaged action from `@agent-native/dispatch/actions`.
+
+<FileTree
+  id="doc-block-dispatch7"
+  title="packages/dispatch vs templates/dispatch"
+  entries={[
+    {
+      path: "packages/dispatch/src/actions/",
+      note: "Vault, dreams, resources, destinations, approvals, thread-debug, audit, and identities actions",
+    },
+    {
+      path: "packages/dispatch/src/db/schema.ts",
+      note: "Vault, resources, destinations, dreams, approval, and audit tables",
+    },
+    {
+      path: "packages/dispatch/src/routes/pages/",
+      note: "Built-in screens: overview, vault, integrations, messaging, operations, destinations, metrics, thread-debug, audit, identities, tools, new-app, ...",
+    },
+    {
+      path: "templates/dispatch/actions/",
+      note: "App-owned: workspace connections, staged datasets, provider-api-catalog/docs/request, run, view-screen",
+    },
+    {
+      path: "templates/dispatch/app/routes/*.tsx",
+      note: "Mostly thin re-exports of the packaged pages; integrations.tsx is a full custom page",
+    },
+    {
+      path: "templates/dispatch/app/dispatch-extensions.tsx",
+      note: "Where a generated workspace registers its own nav items and query keys",
+    },
+    {
+      path: "templates/dispatch/AGENTS.md",
+      note: "Dispatch-specific agent instructions",
+    },
+  ]}
+/>
+
+## Scaffolding a workspace with Dispatch {#scaffolding}
+
+```bash
+npx @agent-native/core@latest create my-platform
+# Dispatch is included automatically. Deselect Chat for Dispatch only, or select domain apps to scaffold alongside it
+```
+
+If you prefer to name the template directly instead of using the picker:
+
+```bash
+npx @agent-native/core@latest create my-platform --template dispatch
+# add more apps in the same workspace as you go
+```
+
+Dispatch is usually scaffolded into a workspace alongside the apps it coordinates. For a workspace, Dispatch's shared auth, database, and brand are inherited from the workspace core — see [Multi-App Workspace](/docs/multi-app-workspace).
+
+There is no meaningful `--standalone` Dispatch: a control plane with nothing to coordinate is just an empty inbox. Scaffold it into a workspace with at least one domain app so it has agents to route to over A2A. (The flag still works and produces a runnable app, but the orchestrator has no specialists to delegate to until you add sibling apps.)
+
+From the workspace root, `pnpm install` and `pnpm dev` bring up the dev server — see [Getting started](/docs/getting-started) for the rest of local setup, including account creation and connecting an LLM provider.
+
+## Customizing it {#customize}
+
+Dispatch is a full template like any other — see [Templates](/docs/cloneable-saas). Ask the agent to "add a new integration for Datadog" or "route Slack DMs from channel X to the analytics agent" and it'll edit the routing config, add the webhook handler, and wire it up.
+
+For workspace-specific management screens, add local React Router pages and register them in `app/dispatch-extensions.tsx`. The generated workspace owns only the extra tab and route; `@agent-native/dispatch` keeps owning the shell, sidebar, built-in pages, and future package updates.
+
+<AnnotatedCode
+  id="doc-block-dispatch8"
+  title="app/dispatch-extensions.tsx"
+  filename="app/dispatch-extensions.tsx"
+  language="tsx"
+  code={
+    'import type { DispatchExtensionConfig } from "@agent-native/dispatch/components";\nimport { IconChartBar } from "@tabler/icons-react";\n\nexport const dispatchExtensions = {\n  navItems: [\n    {\n      id: "reports",\n      to: "/reports",\n      label: "Reports",\n      icon: IconChartBar,\n      section: "operations",\n    },\n  ],\n  queryKeys: ["list-reports"],\n} satisfies DispatchExtensionConfig;'
+  }
+  annotations={[
+    {
+      lines: "1",
+      note: "`DispatchExtensionConfig` is exported by the package so the generated workspace's extension file stays type-checked against it.",
+    },
+    {
+      lines: "5-13",
+      label: "Extra tab",
+      note: 'Each nav item needs a matching `app/routes/*.tsx` file at `to` — the sidebar renders it, but Dispatch\'s shell and built-in pages don\'t change. `section` is `"primary"` or `"operations"`.',
+    },
+    {
+      lines: "14",
+      label: "Live sync",
+      note: "`queryKeys` lists the action names your new route's queries use, so Dispatch's shared DB-sync refresh loop invalidates them too.",
+    },
+  ]}
+/>
+
+## Create an app from a curated workspace template {#remix}
+
+Curated workspace templates are reviewed sources for creating an independent private app — mail, calendar, analytics, slides, content, clips, brain, assets, forms, or design.
+
+- **`list-curated-workspace-templates`** returns the reviewed catalog: stable metadata, the live product URL, setup guidance, and whether each source template is already installed in the current workspace.
+- **`remix-workspace-template`** creates a private, independent app. In a local runtime it scaffolds the template directly; in a hosted workspace it starts a Builder app-creation branch instead. The existing action and `<template>-remix` app id remain stable for compatibility, while the request is required to use empty or synthetic seed data only — it must never copy the source app's records, credentials, secrets, or private configuration.
+
+## What's next
+
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane overview
+- [**Secrets, integrations, and workspace connections**](/docs/template-dispatch-vault-integrations) — the vault, integrations, and Workspace Connections
+- [**Messaging, routing, and approvals**](/docs/template-dispatch-messaging-routing) — channels, routing, and approvals
+- [**Operating the workspace**](/docs/template-dispatch-operations) — jobs, Dreams, and the operator console
+- [**Creating Templates**](/docs/creating-templates) — the current build pattern for a full template
+- [**A2A Protocol**](/docs/a2a-protocol) — how Dispatch delegates to specialist agents

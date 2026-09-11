@@ -1,0 +1,150 @@
+---
+title: "Brand Systems and Figma"
+description: "How Design applies brand tokens and design systems, imports Figma frames and clipboard pastes, and reports exactly what converts versus what only approximates."
+---
+
+# Brand Systems and Figma
+
+A design system is the brand identity — colors, fonts, spacing, logos — that Design applies to every prototype linked to it. This page covers building one from scratch, from a public starting point, or from your own site, code, or documents, plus what a Figma import into Design can and can't do exactly.
+
+## Design systems
+
+Create a design system by describing your brand, or start from a real, maintained public system — Material 3, Carbon, or Primer — instead of recreating one from memory. Each of these ships real semantic tokens, a type scale, spacing, and attribution, and Design won't let a prompt quietly turn one into a lookalike with different data underneath. The first design system you create becomes your default automatically, and only one system is default at a time.
+
+Every design system also carries an optional set of custom instructions and a described image style, so generated photography and illustration stay in the same visual language as the rest of the brand instead of reading like stock art.
+
+## Importing brand from somewhere else
+
+- **Website** — paste a URL and Design pulls colors, fonts, the favicon, and the social preview image straight off the live site.
+- **GitHub repo or code files** — Design indexes the actual CSS and tokens from your codebase, so the system matches what's really deployed rather than a guess.
+- **Documents** — DOCX, PPTX, or PDF uploads; presentations are usually the strongest signal for brand colors and fonts.
+- **An existing design or design system** — start from one you already have instead of starting over.
+
+When several sources come in together, Design cross-references them — code sources are the most trustworthy, the website confirms what's actually shipped, documents fill in gaps — before merging everything into one system.
+
+<Diagram id="doc-block-design3" title="Multiple sources, one system" summary={"Website, code, Figma, and document sources all feed the same design system, and every design linked to it inherits the tokens on each generation pass."}>
+
+```html
+<div class="diagram-brandflow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Website URL<br /><small class="diagram-muted"
+        >colors, fonts, favicon</small
+      >
+    </div>
+    <div class="diagram-node">
+      GitHub repo / code files<br /><small class="diagram-muted"
+        >indexed brand kit</small
+      >
+    </div>
+    <div class="diagram-node">
+      Figma file or frame<br /><small class="diagram-muted"
+        >styles, screenshot, or MCP variables</small
+      >
+    </div>
+    <div class="diagram-node">
+      Documents<br /><small class="diagram-muted">DOCX / PPTX / PDF</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-design-system</span
+    ><small class="diagram-muted">or index-design-system-with-builder</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Design system<br /><small class="diagram-muted"
+      >colors · type · spacing · logos</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Every generation</span
+    ><small class="diagram-muted">:root tokens + fonts + logo</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-brandflow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-brandflow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-brandflow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-brandflow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Figma {#figma}
+
+### Bringing in a frame (pixel-accurate import)
+
+Paste a Figma frame or file share link and Design imports it as a real, editable screen — not a screenshot. Position, auto-layout (mapped to flexbox), text styling, fills, strokes, corner radii, shadows, and blend modes all come across structurally. A shape Figma allows but CSS structurally can't express — a vector network, a boolean operation — is rendered as an exact image instead of a guessed approximation, and every import returns a fidelity report saying exactly which properties landed in which bucket.
+
+### Pasting instead of linking
+
+A plain clipboard copy from Figma (Cmd+C, then Cmd+V on the Design canvas) is handled differently from a share link, because a link names one exact node while a clipboard paste doesn't always carry that. A current version of Figma includes hidden data in the paste that lets Design import the exact selection; without it, Design falls back to matching the pasted content against the file's own text, and only imports something when it's confident — a frame's name or two distinct pieces of visible text have to match verbatim. If it isn't confident, it imports nothing rather than guessing. Copying a frame's share link is the more reliable path when exactness matters.
+
+### Inserting one component, or just reading a file
+
+To drop in a single published component instead of a whole screen, Design can insert one from your Figma-connected library, with its source recorded. To ask a question about a file or frame — what's in it, what components it uses — without importing anything, Design can read the file's structure and pull a screenshot without creating a new screen.
+
+<Table
+  id="doc-block-design4"
+  title="Figma import paths"
+  columns={["Path", "What it is", "When to use it"]}
+  rows={[
+    [
+      "Frame link",
+      "A pasted Figma share URL naming one exact frame or node — always maps to structural, editable HTML/CSS",
+      "Bringing in a whole named frame as a real, editable screen",
+    ],
+    [
+      "Clipboard paste (Cmd+C / Cmd+V)",
+      "A copy from Figma pasted directly onto the canvas — exact when Figma's clipboard metadata is present, conservative text-matching otherwise",
+      "Fast iteration without leaving the canvas or copying a link",
+    ],
+    [
+      "Library asset insert",
+      "One published component or component set, with its source recorded",
+      "You want a reusable library component, not a whole screen",
+    ],
+    [
+      "Read without importing",
+      "Pages, frames, components, and a screenshot of a file or frame",
+      "You just want to know what's in a file before deciding what to bring in",
+    ],
+  ]}
+/>
+
+## Honest fidelity limits {#fidelity-limits}
+
+<Callout id="doc-block-design5" tone="info">
+
+Every Figma import returns a fidelity report, not a promise: which properties matched exactly, which ones CSS can only approximate (rotation, per-side stroke weights, some gradient shapes), and which subtrees had to fall back to a flat image because the shape can't be represented in HTML/CSS at all. Design surfaces this report so you know what to expect if you go on to edit that part of the screen — it never claims a lossless round trip.
+
+</Callout>
+
+## What's next
+
+- [**Design**](/docs/template-design) — back to the overview
+- [**Quality Passes and Components**](/docs/template-design-quality-and-components) — the audit/screenshot pass and reusable components
+- [**Review, Handoff, and Full Apps**](/docs/template-design-collaboration-and-full-apps) — export formats, including Figma-vector SVG
+- [**Extending Design**](/docs/template-design-developers) — the full action reference

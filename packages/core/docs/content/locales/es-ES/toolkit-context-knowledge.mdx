@@ -1,0 +1,12 @@
+---
+title: "Contexto y conocimiento"
+description: "Crea superficies de contexto para agentes respetando las capas de motor, acceso a datos y presentación reutilizable."
+---
+
+# Contexto y conocimiento
+
+Core conserva el estado de aplicación, el acceso con alcance y el motor de Context X-Ray. Toolkit proporciona la presentación reutilizable; la app conserva sus registros de dominio, taxonomía y reglas de selección.
+
+El motor de Context X-Ray sigue siendo de Core. Usa la presentación de Toolkit para mostrar contexto de forma coherente, pero mantén decisiones de estado y acceso en Core y acciones. [Context awareness](/docs/context-awareness) hace visible para el agente la navegación, selección y objeto enfocado; [Resources](/docs/toolkit-resources) cubre archivos y adjuntos.
+
+El contexto nunca sustituye los controles de acceso. Conserva las comprobaciones de recursos y credenciales antes de recuperar conocimiento de proveedores.

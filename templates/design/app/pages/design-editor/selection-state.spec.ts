@@ -1,0 +1,298 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  getOverviewScreenContentKey,
+  hasSelectableCodeLayerParent,
+  isDocumentShellCodeLayerNode,
+  overviewSelectionTargetsElement,
+  pendingEditTargetsSelectedElement,
+  shouldClearSelectionForReviewThreadTarget,
+  shouldEscapeToOverview,
+} from "./selection-state";
+
+describe("getOverviewScreenContentKey", () => {
+  it("keeps inline overview identity stable across active switch, content edits, and revision bumps", () => {
+    const before = getOverviewScreenContentKey({
+      screenId: "screen-a",
+      screenIsActive: true,
+      contentRenderRevision: 2,
+      updatedAt: "before",
+      content: "<main>before</main>",
+      useRuntimeReplacement: true,
+    });
+    const after = getOverviewScreenContentKey({
+      screenId: "screen-a",
+      screenIsActive: false,
+      contentRenderRevision: 99,
+      updatedAt: "after",
+      content: "<main>after</main>",
+      useRuntimeReplacement: true,
+    });
+
+    expect(before).toBe("screen-a:inline-overview");
+    expect(after).toBe(before);
+  });
+
+  it("retains the remount fallback for overview sources without runtime replacement", () => {
+    const before = getOverviewScreenContentKey({
+      screenId: "screen-a",
+      screenIsActive: false,
+      contentRenderRevision: 0,
+      updatedAt: "before",
+      content: "before",
+      useRuntimeReplacement: false,
+    });
+    const after = getOverviewScreenContentKey({
+      screenId: "screen-a",
+      screenIsActive: false,
+      contentRenderRevision: 0,
+      updatedAt: "after",
+      content: "after",
+      useRuntimeReplacement: false,
+    });
+    expect(after).not.toBe(before);
+  });
+});
+
+describe("shouldClearSelectionForReviewThreadTarget", () => {
+  it("clears stale layer context when thread focus changes screens", () => {
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: "screen-b",
+      }),
+    ).toBe(true);
+  });
+
+  it("preserves selection for same-screen and design-wide threads", () => {
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: "screen-a",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: null,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isDocumentShellCodeLayerNode", () => {
+  it("treats <body>/<html> nodes named purely from their tag as document shell nodes", () => {
+    expect(
+      isDocumentShellCodeLayerNode({ tag: "body", layerNameSource: "tag" }),
+    ).toBe(true);
+    expect(
+      isDocumentShellCodeLayerNode({ tag: "html", layerNameSource: "tag" }),
+    ).toBe(true);
+  });
+
+  it("does not treat a body/html node with a more specific layer name as a shell node", () => {
+    // e.g. a <body data-agent-native-layer-name="Screen root"> — an explicit
+    // rename means it should stay selectable like any other layer.
+    expect(
+      isDocumentShellCodeLayerNode({
+        tag: "body",
+        layerNameSource: "attribute",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not treat non-shell tags as document shell nodes", () => {
+    expect(
+      isDocumentShellCodeLayerNode({ tag: "div", layerNameSource: "tag" }),
+    ).toBe(false);
+  });
+});
+
+describe("hasSelectableCodeLayerParent", () => {
+  it("is false when there is no parent node at all", () => {
+    expect(hasSelectableCodeLayerParent({ parentNode: undefined })).toBe(false);
+    expect(hasSelectableCodeLayerParent({ parentNode: null })).toBe(false);
+  });
+
+  it("is false when the parent resolves to a collapsed document-shell node (BUG-ESCAPE-SHELL fail-before case)", () => {
+    // Before the fix: a top-level layer's parentId still resolves to <body>
+    // in the flat ownership map, and callers used a bare
+    // Boolean(parentNode) check — which is true here — treating <body> as a
+    // selectable parent layer. That is exactly the case that let Escape and
+    // Shift+Enter walk into <body>/<html>.
+    expect(
+      hasSelectableCodeLayerParent({
+        parentNode: { tag: "body", layerNameSource: "tag" },
+      }),
+    ).toBe(false);
+    expect(
+      hasSelectableCodeLayerParent({
+        parentNode: { tag: "html", layerNameSource: "tag" },
+      }),
+    ).toBe(false);
+  });
+
+  it("is true for a real, non-shell parent layer", () => {
+    expect(
+      hasSelectableCodeLayerParent({
+        parentNode: { tag: "div", layerNameSource: "semantic" },
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("pendingEditTargetsSelectedElement", () => {
+  it("matches by sourceId when both edit and selection carry one", () => {
+    expect(
+      pendingEditTargetsSelectedElement({
+        editSourceId: "node-1",
+        editSelector: ".stale-selector",
+        selectedSourceId: "node-1",
+        selectedSelector: ".different-selector",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not match a different sourceId even if selectors coincidentally match", () => {
+    expect(
+      pendingEditTargetsSelectedElement({
+        editSourceId: "node-1",
+        editSelector: ".same",
+        selectedSourceId: "node-2",
+        selectedSelector: ".same",
+      }),
+    ).toBe(false);
+  });
+
+  it("falls back to selector matching when the edit carries no sourceId", () => {
+    expect(
+      pendingEditTargetsSelectedElement({
+        editSourceId: null,
+        editSelector: ".card",
+        selectedSourceId: undefined,
+        selectedSelector: ".card",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not match when neither sourceId nor selector line up", () => {
+    expect(
+      pendingEditTargetsSelectedElement({
+        editSourceId: null,
+        editSelector: ".card",
+        selectedSourceId: "node-3",
+        selectedSelector: ".other",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not match against no current selection", () => {
+    expect(
+      pendingEditTargetsSelectedElement({
+        editSourceId: "node-1",
+        editSelector: ".card",
+        selectedSourceId: null,
+        selectedSelector: null,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldEscapeToOverview", () => {
+  const base = {
+    activeTool: "move" as const,
+    drawMode: false,
+    mode: "edit" as const,
+    pinMode: false,
+    selectedElement: null,
+    viewMode: "single" as const,
+  };
+
+  it("is true only in single mode, edit mode, move tool, with nothing selected/drawing/pinning", () => {
+    expect(shouldEscapeToOverview(base)).toBe(true);
+  });
+
+  it("is false in overview mode", () => {
+    expect(shouldEscapeToOverview({ ...base, viewMode: "overview" })).toBe(
+      false,
+    );
+  });
+
+  it("is false when something is selected", () => {
+    expect(
+      shouldEscapeToOverview({
+        ...base,
+        selectedElement: {
+          sourceId: "n1",
+          selector: ".card",
+        } as unknown as (typeof base)["selectedElement"],
+      }),
+    ).toBe(false);
+  });
+
+  it("is false while drawing or pinning", () => {
+    expect(shouldEscapeToOverview({ ...base, drawMode: true })).toBe(false);
+    expect(shouldEscapeToOverview({ ...base, pinMode: true })).toBe(false);
+  });
+});
+
+describe("overviewSelectionTargetsElement", () => {
+  const element = {
+    tagName: "DIV",
+    selector: ".card",
+  } as unknown as Parameters<
+    typeof overviewSelectionTargetsElement
+  >[0]["selectedElement"];
+
+  it("routes an arrow key to the element rather than sliding the screen frame", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: element,
+        selectedLayerIds: ["html:card-one"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(true);
+  });
+
+  it("routes Delete to the element when a layer inside a screen is selected", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: null,
+        selectedLayerIds: ["html:card-one"],
+        fileIds: ["screen-1", "screen-2"],
+      }),
+    ).toBe(true);
+  });
+
+  it("routes Delete to the element for a canvas element selection", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: element,
+        selectedLayerIds: [],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(true);
+  });
+
+  it("leaves a screen-frame selection to the screen-delete confirmation", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: null,
+        selectedLayerIds: ["screen-1", "__pseudo-row"],
+        fileIds: ["screen-1", "screen-2"],
+      }),
+    ).toBe(false);
+  });
+
+  it("treats the screen root element as the screen, not an element", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: {
+          tagName: "BODY",
+        } as unknown as typeof element,
+        selectedLayerIds: ["screen-1"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(false);
+  });
+});

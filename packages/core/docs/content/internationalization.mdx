@@ -1,0 +1,164 @@
+---
+title: "Internationalization"
+description: "Localize Agent-Native apps with shared locale catalogs, a language picker, and browser-language fallback."
+---
+
+# Internationalization
+
+Agent-Native apps can localize framework and template UI through the shared
+`@agent-native/core/client/i18n` runtime. The framework stores the user's
+language choice in SQL settings, exposes it as actions, and falls back to
+English when an app has not translated a string yet.
+
+## Runtime
+
+Use the provider through `AppProviders`:
+
+```tsx
+import { AppProviders } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` sets the initial `lang`, `dir`, and
+`window.__AGENT_NATIVE_LOCALE__` before React hydrates. Public SSR routes can
+call `resolveLocaleFromRequest()` from `@agent-native/core/server` and pass the
+resolved locale/catalog into that script to avoid hydration mismatches.
+For custom locales, pass the same `supportedLocales` and `localeMetadata`
+to both server helpers.
+
+## Catalogs
+
+Each localized template keeps catalogs under `app/i18n/`:
+
+```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
+import enUS from "./en-US";
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
+  messages: enUS,
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
+  },
+});
+```
+
+`messages` bundles `en-US` directly so it is always available before any
+locale loads. `localeLoaders` dynamic-imports every other catalog so users
+only download the active locale. The framework's built-in locale codes are
+`en-US`, `zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`,
+`ko-KR`, `pt-BR`, `hi-IN`, and `ar-SA`. Apps can also register
+additional canonical BCP-47 locales with their own metadata, such as native
+and English names and text direction.
+
+`createAgentNativeI18nCatalog` also accepts an optional `sourceLocale`,
+which defaults to `en-US`, and an optional `supportedLocales` array. Set
+`supportedLocales` when an app ships translations for only some of the
+framework's locales instead of all ten. Registered `locales` are added to
+that list even when `supportedLocales` restricts the built-ins. `LanguagePicker`
+only lists locales in this set, and any detected or requested locale outside it
+falls back to `sourceLocale`. `translations.locales` in `agent-native.json` is
+an explicit app-level allowlist and takes precedence over catalog registration.
+
+Register app-owned locale metadata and optional framework overrides alongside
+the app catalog:
+
+```ts
+locales: [
+  { code: "it-IT", nativeName: "Italiano", englishName: "Italian", dir: "ltr" },
+],
+coreMessageOverrides: {
+  "it-IT": () => import("./it-IT-core-overrides"),
+},
+```
+
+The app's `localeLoaders` supplies its UI strings. Framework strings that are
+not included in `coreMessageOverrides` fall back to English, so a custom
+locale does not need a complete framework catalog.
+
+## UI
+
+Use `useT()` to translate interface strings:
+
+```tsx
+import { useT } from "@agent-native/core/client/i18n";
+
+function Greeting({ name }: { name: string }) {
+  const t = useT();
+  return <p>{t("greeting.hello", { name })}</p>;
+}
+```
+
+Use `useFormatters()` for dates, numbers, relative time, and lists. Do not put
+locale-sensitive date/number formatting inside translation strings.
+
+Put `<LanguagePicker />` wherever the app lets a user change their language.
+See [Toolkit: Settings](/docs/toolkit-settings) for the standard settings
+page pattern, including where `openAgentSettings()` fits in.
+
+## Actions And Persistence
+
+Every app inherits:
+
+- `get-localization-preference` — read the current user's `{ locale, timezone }`
+- `set-localization-preference` — set `locale` and/or `timezone`, each optional
+
+`locale` is `"system"` or a valid BCP-47 locale registered by the app. `timezone` is `"system"`
+or an IANA zone such as `America/New_York`. It exists so scheduled and
+automation work runs in the user's zone instead of the host's. Setting only
+one field leaves the other unchanged, because `set-localization-preference`
+merges onto the existing stored value instead of overwriting it.
+
+The durable value lives in user-scoped SQL settings under `localization`.
+`localStorage` is only used for pre-hydration and anonymous fallback. The active
+locale is mirrored into application state as ambient context so agents can see
+the current interface language.
+
+## Guard
+
+Run:
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+For app and template catalogs, the guard checks:
+
+- Locale filenames, key parity, placeholder parity, and stale keys
+- Duplicate keys and leftover development-only markers
+- Wrong-script contamination, for example Chinese text inside an Arabic catalog
+- CLDR plural categories through `Intl.PluralRules`
+- `t()` calls in app source whose key is missing from the English catalog
+
+The guard checks structure, not translation quality. High-visibility strings
+still need human review.
+
+Do not translate stable identifiers such as action names, routes, enum values,
+app-state keys, database values, protocol fields, env var names, or provider
+names.
+
+## What's next
+
+- [**Overview**](/docs/client-overview#app-shell) — the `AppProviders` wrapper and other browser hooks i18n builds on
+- [**Toolkit: Settings**](/docs/toolkit-settings) — put `<LanguagePicker>` on the standard settings page
+- [**Getting Started**](/docs/getting-started) — build your first app on a template that already ships localized catalogs

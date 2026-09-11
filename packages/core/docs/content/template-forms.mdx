@@ -1,0 +1,135 @@
+---
+title: "Forms"
+description: "An agent-powered form builder that replaces Typeform and Google Forms with one app you own. Describe the form you want in chat, publish a protected link, and watch responses get routed, exported, and summarized automatically."
+---
+
+# Forms
+
+Forms is a form builder for anyone who needs to collect information without writing code. Use it for signups, feedback, registrations, or surveys. Describe the form you want to the agent, fine-tune it visually when you want more direct control, and publish a link that anyone can fill out.
+
+<Cards columns={1}>
+
+### [Try it out now →](https://forms.agent-native.com)
+
+See Forms live and publish a real form.
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70338a3cf0cc402580858a409dd5bd6a?alt=media&token=f2c7c8e9-6cf3-4e03-865d-abc499d87ff6&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A brief tour of the forms application."
+  caption="A brief tour of the forms application."
+  autoplay={true}
+  loop={true}
+/>
+
+Every new session opens on **Ask Forms**, a chat where you describe what you want. The agent creates the form for you. You can then move into the visual editor any time you want to adjust fields, validation, or publishing settings by hand. Both ways of editing update the same form, so nothing gets out of sync.
+
+<Diagram id="doc-block-forms2" title="Build, publish, collect" summary={"The agent and the visual editor edit the same form. Anyone can open the public fill page without signing in, and new submissions are sent to your destinations automatically."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Ask Forms chat<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      Visual editor<br /><small class="diagram-muted"
+        >labels, validation, order</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · patch-form-fields</span
+    ><small class="diagram-muted">fields JSON, settings JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">SQL via Drizzle</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Public fill page<br /><small class="diagram-muted">unauthenticated</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / Sheets</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## What it replaces
+
+<Comparison>
+
+### Before
+
+- Typeform, Google Forms, or a form built by hand for collecting responses
+- Copying new submissions into Slack or a spreadsheet by hand
+- A separate tool just to summarize what came back
+- Setting up a Zapier automation to get responses into Sheets or a webhook
+
+### After
+
+- One form that the agent and the visual editor both update
+- New responses are sent to Slack, Discord, Sheets, or a webhook the moment they arrive
+- Ask for a summary and get a chart, a table, or both, without a separate tool
+- Conditional fields, spam protection, and anonymous mode are all built into the same builder
+
+</Comparison>
+
+## Forms in a multi-app workspace
+
+If you run Forms alongside other apps in [Dispatch](/docs/template-dispatch), a form is no longer just a page you open by hand. The Forms agent can pass along questions that belong to another app, and other apps can send responses into your form directly, the same way the framework's own feedback button does. See [Forms in a Multi-App Workspace](/docs/template-forms-integrations) for how this works.
+
+## What you can do with it
+
+- **Build forms conversationally.** Try prompts like "Create a contact form," "add an NPS score question," or "make the email field required." See [the available field types](/docs/template-forms-features#field-types).
+- **Fine-tune visually.** Edit labels, placeholders, required fields, options, and field order right in the form builder when you want more direct control.
+- **Publish and protect a public form.** Share a public link, and turn on spam protection or fully anonymous responses when you need them. See [Features](/docs/template-forms-features).
+- **Review responses and ask for insights.** Try prompts like "Summarize this week's submissions" or "Chart submissions by day." See [Features](/docs/template-forms-features#response-insights).
+- **Route submissions automatically.** Paste in a Slack, Discord, Google Sheets, or generic webhook URL, and new responses are sent there the moment they arrive.
+
+## What's next
+
+- [**Features**](/docs/template-forms-features) — field types, conditional logic, publishing, protections, responses, insights, and routing, with setup steps for each
+- [**Talk to the Agent**](/docs/template-forms-agent) — prompts by task and how the agent sees your screen
+- [**Forms in a Multi-App Workspace**](/docs/template-forms-integrations) — delegation and the public submit endpoint other apps use
+- [**Developer Guide**](/docs/template-forms-developers) — the SQL schema, action reference, and routes, for developers
+- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
+- [**Actions**](/docs/actions-overview) — the action system powering the builder
+- [**Messaging**](/docs/messaging) — Slack and other submission destinations
+- [**Sharing**](/docs/sharing) — the share-grant model form shares build on

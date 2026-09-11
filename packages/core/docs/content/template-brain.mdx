@@ -1,0 +1,195 @@
+---
+title: "Brain"
+description: "Clean company chat backed by cited institutional memory, reviewable source ingestion, and reusable workspace integrations."
+---
+
+# Brain
+
+Brain is clean company chat backed by cited institutional memory. People ask
+plain-English questions; Brain answers from approved company knowledge with
+links back to the Slack thread, meeting, transcript, issue, or webhook capture
+that supports the answer.
+
+Brain ingests approved Slack channels, Clips recordings, Granola Team-space
+notes, GitHub issues/PRs, and generic transcript/webhook payloads. It stores raw
+captures, distills durable facts/decisions/processes, and routes sensitive or
+low-confidence memories through review before they become company knowledge.
+
+The product surface stays simple on purpose: **Ask** is the primary chat
+experience, while **Sources**, **Review**, and **Knowledge** are admin/support
+surfaces for connecting data, approving proposals, and inspecting cited memory.
+
+<Diagram id="doc-block-1blji0z" title="From source to cited answer" summary="Brain ingests approved sources into raw captures, distills durable memory, gates it through review, and only then answers with citations.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Sources</span
+    ><small class="diagram-muted"
+      >Slack · Granola · GitHub · Clips · webhooks</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Raw captures<br /><small class="diagram-muted">deduped, redacted</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Distill<br /><small class="diagram-muted"
+      >facts · decisions · processes</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Review</span
+    ><small class="diagram-muted">sensitive / low-confidence queue</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Knowledge</span
+    ><small class="diagram-muted">approved, atomic</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Ask</span
+    ><small class="diagram-muted">cited answer</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.diagram-flow .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<WireframeBlock id="doc-block-9napv7">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Ask company memory</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Search'></span><strong style='flex:1'>Why did we choose usage pricing?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>The team chose usage pricing after pilots showed seat counts undercounted automation value.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>Pricing RFC</span><span class='wf-pill'>Launch retro</span><span class='wf-pill'>Sales notes</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Source timeline</strong><div class='wf-box'>May 3 · Decision captured</div><div class='wf-box'>May 8 · Customer evidence added</div><div class='wf-box'>May 12 · Legal note approved</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+When you open the app, **Ask** is front and center — a clean chat over reviewed
+company memory. **Sources**, **Review**, and **Knowledge** sit alongside it as
+admin surfaces for connecting data, approving proposals, and inspecting cited
+entries.
+
+## When to pick it
+
+Use Brain when your team wants agents to answer questions like "why did we make
+this product decision?", "how does this in-development feature work?", or "what
+changed in this process?" with links back to the source conversation, meeting,
+or issue.
+
+Brain and Dispatch are complementary but do different jobs:
+
+- **Brain owns company memory.** It ingests sources, reviews raw captures,
+  distills durable facts/decisions/processes, answers from cited evidence, and
+  exposes approved knowledge to agents.
+- **Dispatch owns the workspace control plane.** It centralizes messaging,
+  secrets, recurring jobs, approvals, A2A orchestration, and the distribution
+  and approval of workspace-wide resources.
+
+In a multi-app workspace, Dispatch can route a question to Brain over A2A and
+can grant Brain shared provider credentials. Brain remains the specialist for
+approved source ingestion, review, retrieval, and cited Company Brain answers.
+Brain exposes read-only, citation-backed retrieval as its public A2A capability
+so Dispatch and sibling apps can ask company-memory questions — the A2A agent
+card is public discovery metadata, while retrieval still happens inside Brain's
+authenticated action surface.
+
+## What you can do with it
+
+- **Ask cited questions.** Ask is the main product surface: a clean chat over
+  reviewed company memory. Every answer links back to the Slack thread,
+  meeting, issue, or capture that supports it, and Brain says so honestly when
+  nothing supports an answer instead of guessing. See
+  [Asking, Citations & Knowledge](/docs/template-brain-knowledge).
+- **Connect approved sources.** Configure manual, generic webhook, Clips,
+  Slack, Granola, and GitHub sources, with a guided safe rollout for Slack.
+  See [Connecting & Reviewing Sources](/docs/template-brain-sources).
+- **Review before publishing.** Sensitive or low-confidence proposals queue for
+  human review before they become knowledge the whole company can be told as
+  fact. See [Asking, Citations & Knowledge](/docs/template-brain-knowledge).
+- **Check source and system health.** An Ops view tracks sync freshness and
+  distillation queue health across every source. See
+  [Connecting & Reviewing Sources](/docs/template-brain-sources).
+- **Answer across the whole workspace.** Brain can hand off a live-data
+  question — a metric, a mailbox, a workspace grant — to the specialist app
+  that owns it, and sibling apps can ask Brain for cited answers over A2A. See
+  [Talking to the Agent & Cross-App Use](/docs/template-brain-agent).
+
+## Getting started
+
+Live demo: [brain.agent-native.com](https://brain.agent-native.com).
+
+1. **Try the demo.** Open Ask and choose **Start demo**. Brain seeds a small
+   product-decision corpus, runs the trust checks, and asks a cited question so
+   you can see answers, citations, review, and not-found behavior before adding
+   real company data.
+2. **Add one source.** Start with a single Slack channel, Granola Team-space
+   feed, GitHub repository, Clips export, or generic transcript webhook. Keep
+   the scope small until citations and review quality look right.
+3. **Review before publishing.** Inspect evidence, edit wording, and approve
+   only durable company memory.
+4. **Ask from the source.** Use Ask for questions that should be grounded in
+   approved knowledge, not raw chat logs.
+
+For a public demo, the seeded corpus demonstrates product-decision recall,
+citation links, supersede behavior, review gating, redaction, personal-content
+exclusion, and honest not-found behavior without connecting a real workspace.
+
+### Quick start
+
+```bash
+npx @agent-native/core@latest create my-brain --standalone --template brain
+```
+
+See [Getting Started](/docs/getting-started) for running it locally, and the
+[Developer Guide](/docs/template-brain-developers) for the data model and full
+action reference.
+
+## What's next
+
+- [**Connecting & Reviewing Sources**](/docs/template-brain-sources) — adding
+  a source, the Slack safe rollout, and checking source health
+- [**Asking, Citations & Knowledge**](/docs/template-brain-knowledge) — Ask,
+  Search, browsing Knowledge, and reviewing proposals
+- [**Talking to the Agent & Cross-App Use**](/docs/template-brain-agent) —
+  useful prompts, cross-app answers, and A2A
+- [**Developer Guide**](/docs/template-brain-developers) — data model, the
+  full action reference, and how to customize Brain
+- [**Dispatch**](/docs/dispatch) — the workspace control plane
+- [**Dispatch template**](/docs/template-dispatch) — the scaffolded coordination app
+- [**A2A Protocol**](/docs/a2a-protocol) — cross-app delegation
+- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model, and every other domain template to start from
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync

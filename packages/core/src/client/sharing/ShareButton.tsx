@@ -1,0 +1,1504 @@
+import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
+import * as Select from "@radix-ui/react-select";
+import {
+  IconLock,
+  IconWorld,
+  IconTrash,
+  IconCheck,
+  IconChevronDown,
+  IconLoader2,
+  IconSearch,
+  IconSearchOff,
+  IconUsersGroup,
+} from "@tabler/icons-react";
+import {
+  type ComponentPropsWithoutRef,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  UIEvent as ReactUIEvent,
+} from "react";
+
+import { trackEvent } from "../analytics.js";
+import { writeClipboardText } from "../clipboard.js";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import { useT } from "../i18n.js";
+import { useAvatarUrl } from "../use-avatar.js";
+import { cn } from "../utils.js";
+import { AgentShareSection } from "./AgentShareSection.js";
+import {
+  useShareButtonController,
+  type ShareButtonController,
+  type ShareButtonGroup,
+  type ShareButtonOrgMember,
+  type ShareButtonOrgMemberSearch,
+  type ShareButtonShare,
+  type ShareButtonRole,
+  type ShareButtonVisibility,
+} from "./useShareButtonController.js";
+
+export interface ShareButtonProps {
+  resourceType: string;
+  resourceId: string;
+  resourceTitle?: string;
+  /** @deprecated No longer affects rendering — trigger always says
+   *  "Share". Kept for callsite compatibility. */
+  variant?: "compact" | "label";
+  /** @deprecated Share triggers are standardized as text-only buttons. */
+  trigger?: "label" | "icon" | "label-icon";
+  /** @deprecated No longer affects rendering — kept for callsite compatibility. */
+  hideTriggerIcon?: boolean;
+  /** Optional className applied to the trigger button. */
+  triggerClassName?: string;
+  /** Notified when the share popover opens or closes. Hosts that render the
+   *  button next to an iframe use this to disable the iframe's pointer events
+   *  while the popover is open, so popover hover/clicks aren't swallowed. */
+  onOpenChange?: (open: boolean) => void;
+  /** Open the popover on first render. Useful after an upgrade/create flow that
+   *  lands the user directly in the shareable resource. */
+  defaultOpen?: boolean;
+  /** Optional public/share URL shown as a copyable link in the popover.
+   *  This is treated as the primary "Copy link" target — same convention
+   *  as Google Docs' Share dialog, which copies the editor URL. */
+  shareUrl?: string;
+  /** Optional label for the primary copyable link section. */
+  shareUrlLabel?: string;
+  /** Optional helper text for the primary copyable link section. */
+  shareUrlDescription?: ReactNode;
+  /** Where to render share links in the popover. Defaults to the top,
+   *  keeping the copyable link as the primary share action. */
+  shareUrlPlacement?: "top" | "bottom";
+  /** Whether to render copyable share URL fields. Defaults to true. */
+  showShareLinks?: boolean;
+  /** @deprecated The Done action was removed; share popovers dismiss directly. */
+  showDoneButton?: boolean;
+  /** Optional placeholder shown in the share-URL slot when `shareUrl` is
+   *  undefined. Use this to explain *why* there's no link yet (e.g. "Publish
+   *  this form to get a public response link") instead of leaving the slot
+   *  empty. */
+  shareUrlPlaceholder?: ReactNode;
+  /** Optional secondary copyable link (e.g. a presentation / read-only
+   *  surface for the same resource). Anyone with at least viewer access
+   *  can open it — access is enforced on the resource itself, not the
+   *  URL shape, so we never gate this behind visibility. */
+  secondaryShareUrl?: string;
+  /** Optional label for the secondary copyable link. */
+  secondaryShareUrlLabel?: string;
+  /** Optional helper text for the secondary copyable link. */
+  secondaryShareUrlDescription?: ReactNode;
+  /** @deprecated No longer enforced — access is checked on the resource,
+   *  not the URL shape, mirroring Google Slides. Kept for callsite
+   *  compatibility; the prop is now a no-op. */
+  shareUrlRequiresPublic?: boolean;
+  /** @deprecated See `shareUrlRequiresPublic`. No longer rendered. */
+  shareUrlUnavailableDescription?: ReactNode;
+  /** Optional template-specific copy for the visibility picker. */
+  visibilityCopy?: Partial<
+    Record<Visibility, { label?: string; description?: string }>
+  >;
+  /** Optional template-specific labels and descriptions for share roles. */
+  roleCopy?: Partial<Record<Role, { label?: string; description?: string }>>;
+  /** Optional role capability boundary for resources without comment support. */
+  allowedRoles?: readonly Role[];
+  /** Optional label for the explicit per-person access list. */
+  peopleAccessLabel?: ReactNode;
+  /** Optional label for the coarse visibility control. */
+  generalAccessLabel?: ReactNode;
+  /** Optional note rendered between general access and the copyable link. */
+  accessNote?: ReactNode;
+  /** Optional host-rendered footer for compact app-specific share actions. */
+  shareFooterContent?: ReactNode;
+  /** Optional Notion-style organization access control. When present, the
+   *  share panel exposes a "Hide in search" switch under Advanced for org
+   *  visibility. */
+  hideInSearchControl?: {
+    checked: boolean;
+    pending?: boolean;
+    label?: string;
+    description?: ReactNode;
+    onCheckedChange: (checked: boolean) => void | Promise<void>;
+  };
+  /** Optional extra tabs rendered beside the default sharing/access panel. */
+  shareTabs?: {
+    shareLabel?: ReactNode;
+    defaultValue?: string;
+    tabs: Array<{
+      value: string;
+      label: ReactNode;
+      content: ReactNode;
+      disabled?: boolean;
+    }>;
+    onValueChange?: (value: string) => void;
+  };
+  /** Optional className for the popover content, useful for wider custom tabs. */
+  popoverClassName?: string;
+}
+
+type Visibility = ShareButtonVisibility;
+type Role = ShareButtonRole;
+type HideInSearchControl = NonNullable<ShareButtonProps["hideInSearchControl"]>;
+type OrgMember = ShareButtonOrgMember;
+type OrgMemberSearch = ShareButtonOrgMemberSearch;
+
+type Share = ShareButtonShare;
+
+// Match shadcn's <Button size="sm" variant="outline"> sizing so the trigger
+// sits flush next to other controls while staying transparent at rest.
+const BUTTON_BASE =
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
+const BUTTON_PRIMARY_SM = cn(
+  BUTTON_BASE,
+  "h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90",
+);
+const BUTTON_GHOST_ICON = cn(
+  BUTTON_BASE,
+  "h-7 w-7 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+);
+const SHARE_POPOVER_SURFACE =
+  "border border-border bg-popover text-popover-foreground";
+const SHARE_NESTED_OVERLAY_ATTR = "data-agent-native-share-overlay";
+const SHARE_NESTED_OVERLAY_Z = "z-[100020]";
+const VIS_META: Record<
+  Visibility,
+  {
+    labelKey: string;
+    descriptionKey: string;
+    defaultLabel: string;
+    defaultDescription: string;
+    Icon: typeof IconLock;
+  }
+> = {
+  private: {
+    labelKey: "agentChat.share.private",
+    descriptionKey: "agentChat.share.privateDescription",
+    defaultLabel: "Private",
+    defaultDescription: "Only people with access can view",
+    Icon: IconLock,
+  },
+  org: {
+    labelKey: "agentChat.share.organization",
+    descriptionKey: "agentChat.share.organizationDescription",
+    defaultLabel: "Organization",
+    defaultDescription: "Anyone in your organization can view",
+    Icon: IconUsersGroup,
+  },
+  public: {
+    labelKey: "agentChat.share.public",
+    descriptionKey: "agentChat.share.publicDescription",
+    defaultLabel: "Public",
+    defaultDescription: "Anyone with the link can view",
+    Icon: IconWorld,
+  },
+};
+
+type ShareTranslate = ReturnType<typeof useT>;
+
+function visibilityMeta(
+  visibility: Visibility,
+  t: ShareTranslate,
+  copy?: ShareButtonProps["visibilityCopy"],
+): { label: string; description: string; Icon: typeof IconLock } {
+  const base = VIS_META[visibility];
+  const override = copy?.[visibility];
+  return {
+    Icon: base.Icon,
+    label:
+      override?.label ??
+      t(base.labelKey, {
+        defaultValue: base.defaultLabel,
+      }),
+    description:
+      override?.description ??
+      t(base.descriptionKey, {
+        defaultValue: base.defaultDescription,
+      }),
+  };
+}
+
+function roleOptions(
+  t: ShareTranslate,
+): Array<{ value: Role; label: string; description: string }> {
+  return [
+    {
+      value: "viewer",
+      label: t("agentChat.share.viewer", { defaultValue: "Viewer" }),
+      description: t("agentChat.share.viewerDescription", {
+        defaultValue: "Can view",
+      }),
+    },
+    {
+      value: "commenter",
+      label: t("agentChat.share.commenter", { defaultValue: "Commenter" }),
+      description: t("agentChat.share.commenterDescription", {
+        defaultValue: "Can view and add comments",
+      }),
+    },
+    {
+      value: "editor",
+      label: t("agentChat.share.editor", { defaultValue: "Editor" }),
+      description: t("agentChat.share.editorDescription", {
+        defaultValue: "Can edit",
+      }),
+    },
+    {
+      value: "admin",
+      label: t("agentChat.share.admin", { defaultValue: "Admin" }),
+      description: t("agentChat.share.adminDescription", {
+        defaultValue: "Can edit and manage access",
+      }),
+    },
+  ];
+}
+
+function roleMeta(
+  role: Role,
+  t: ShareTranslate,
+  copy?: ShareButtonProps["roleCopy"],
+): { value: Role; label: string; description: string } {
+  const options = roleOptions(t);
+  const base = options.find((option) => option.value === role) ?? options[0];
+  const override = copy?.[role];
+  return {
+    ...base,
+    label: override?.label ?? base.label,
+    description: override?.description ?? base.description,
+  };
+}
+
+type SharePopoverInteractOutsideEvent = Parameters<
+  NonNullable<
+    ComponentPropsWithoutRef<typeof PopoverContent>["onInteractOutside"]
+  >
+>[0];
+
+function isShareNestedOverlayTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(`[${SHARE_NESTED_OVERLAY_ATTR}]`) !== null
+  );
+}
+
+function handleSharePopoverInteractOutside(
+  event: SharePopoverInteractOutsideEvent,
+) {
+  const originalTarget = event.detail.originalEvent.target;
+  if (isShareNestedOverlayTarget(originalTarget)) {
+    event.preventDefault();
+  }
+}
+
+/**
+ * Framework share control. Renders a shadcn-outline-styled trigger that
+ * opens a Google-Docs-style popover anchored beneath it. Uses Tailwind
+ * + CSS variables so the same component renders natively in light and
+ * dark mode in any shadcn template.
+ */
+export function ShareButton(props: ShareButtonProps) {
+  const t = useT();
+  const controller = useShareButtonController({
+    resourceType: props.resourceType,
+    resourceId: props.resourceId,
+    defaultOpen: props.defaultOpen,
+    onOpenChange: props.onOpenChange,
+    shareTabs: props.shareTabs,
+    shareUrl: props.shareUrl,
+    allowedRoles: props.allowedRoles,
+    hideInSearchControl: props.hideInSearchControl,
+  });
+  const triggerLabel = t("agentChat.share.share", { defaultValue: "Share" });
+  return (
+    <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
+      <PopoverTrigger asChild>
+        <ShareTrigger
+          label={triggerLabel}
+          className={props.triggerClassName}
+          aria-label={triggerLabel}
+          title={triggerLabel}
+        />
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        data-agent-native-share-overlay=""
+        className={cn(
+          "z-[2000] w-[min(460px,92vw)] rounded-lg p-4 shadow-lg",
+          SHARE_POPOVER_SURFACE,
+          props.popoverClassName,
+        )}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={handleSharePopoverInteractOutside}
+      >
+        <SharePanel {...props} controller={controller} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function SharePanel(
+  props: ShareButtonProps & {
+    controller: ShareButtonController;
+  },
+) {
+  const t = useT();
+  const tabIds = useId();
+  const { controller } = props;
+  const {
+    inviteEmail,
+    setInviteEmail: onInviteEmailChange,
+    activeShareTab,
+    handleShareTabChange,
+    data,
+    policy,
+    visibility,
+    canManage,
+    role,
+    setRole,
+    notifyPeople,
+    setNotifyPeople,
+    shareMessage,
+    setShareMessage,
+    messageOpen,
+    setMessageOpen,
+    shareError,
+    setShareError,
+    suggestionsOpen,
+    setSuggestionsOpen,
+    inFlight,
+    memberSearch,
+    memberSuggestions,
+    groupSuggestions,
+    selectGroup,
+    knownMembers,
+    shares,
+    handleVisibility,
+    handleHideInSearch,
+    handleAdd,
+    handleChangeRole,
+    handleRemove,
+  } = controller;
+  const hasInviteEmail = inviteEmail.trim().length > 0;
+
+  // `data` stays undefined after a failed read, so a stuck skeleton is
+  // indistinguishable from loading unless the error comes off the query itself.
+  // `isError` alone is not that signal: it is also true when a refetch fails
+  // while React Query still holds usable data, and this panel refetches on open
+  // and after every mutation — blocking on that would swap a working panel for
+  // a retry screen on one transient failure.
+  const loadFailed = controller.sharesQuery.isError && data === undefined;
+  const isLoading = !loadFailed && data === undefined;
+  const meta = visibilityMeta(visibility, t, props.visibilityCopy);
+  const peopleAccessLabel =
+    props.peopleAccessLabel ??
+    t("agentChat.share.peopleWithAccess", {
+      defaultValue: "People with access",
+    });
+  const generalAccessLabel =
+    props.generalAccessLabel ??
+    t("agentChat.share.generalAccess", { defaultValue: "General access" });
+  const shareLinks = (
+    <>
+      {props.shareUrl ? (
+        <CopyLinkField
+          value={props.shareUrl}
+          label={props.shareUrlLabel}
+          description={props.shareUrlDescription}
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          linkType="share"
+        />
+      ) : props.shareUrlPlaceholder ? (
+        <div className="mb-4 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+          {props.shareUrlLabel ? (
+            <div className="mb-0.5 font-medium text-foreground">
+              {props.shareUrlLabel}
+            </div>
+          ) : null}
+          {props.shareUrlPlaceholder}
+        </div>
+      ) : null}
+
+      {props.secondaryShareUrl ? (
+        <CopyLinkField
+          value={props.secondaryShareUrl}
+          label={props.secondaryShareUrlLabel}
+          description={props.secondaryShareUrlDescription}
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          linkType="secondary"
+        />
+      ) : null}
+    </>
+  );
+  const showShareLinks =
+    (props.showShareLinks ?? true) &&
+    (Boolean(props.shareUrl) ||
+      Boolean(props.shareUrlPlaceholder) ||
+      Boolean(props.secondaryShareUrl));
+  const shareUrlPlacement = props.shareUrlPlacement ?? "top";
+  const extraTabs = props.shareTabs?.tabs ?? [];
+  const hasTabs = extraTabs.length > 0;
+  const shareTabLabel =
+    props.shareTabs?.shareLabel ??
+    t("agentChat.share.shareLink", { defaultValue: "Share link" });
+
+  const sharePanel = loadFailed ? (
+    <div>
+      {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
+      <div
+        role="alert"
+        className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
+      >
+        <span className="text-xs text-muted-foreground">
+          {t("agentChat.share.loadFailed", {
+            defaultValue: "Couldn't load sharing settings.",
+          })}
+        </span>
+        <button
+          type="button"
+          onClick={() => controller.sharesQuery.refetch()}
+          disabled={controller.sharesQuery.isFetching}
+          className={cn(
+            BUTTON_BASE,
+            "h-7 px-2 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          {t("agentChat.common.retry")}
+        </button>
+      </div>
+      {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
+    </div>
+  ) : isLoading ? (
+    <div>
+      {showShareLinks ? (
+        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+      ) : null}
+      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+      <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
+      <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
+    </div>
+  ) : (
+    <div>
+      {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
+
+      <div className="mb-4">
+        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+          >
+            <meta.Icon size={16} strokeWidth={1.75} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <VisibilitySelect
+              value={visibility}
+              onChange={handleVisibility}
+              disabled={!canManage}
+              visibilityCopy={props.visibilityCopy}
+              allowPublic={policy.allowPublic}
+            />
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span className="sr-only">{meta.description}</span>
+              {visibility === "org" && props.hideInSearchControl ? (
+                <AdvancedAccessPopover
+                  control={props.hideInSearchControl}
+                  canManage={canManage}
+                  onToggle={handleHideInSearch}
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-4 space-y-4">
+        <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+        {canManage ? (
+          <div className="space-y-2">
+            <div className="flex items-stretch gap-2">
+              <MemberAutocomplete
+                value={inviteEmail}
+                open={suggestionsOpen}
+                onOpenChange={setSuggestionsOpen}
+                onValueChange={(next) => {
+                  onInviteEmailChange(next);
+                  if (shareError) setShareError(null);
+                }}
+                onSelectSuggestion={(suggestion) => {
+                  if (suggestion.principalType === "group") {
+                    selectGroup(suggestion);
+                  } else {
+                    onInviteEmailChange(suggestion.email);
+                  }
+                  setSuggestionsOpen(false);
+                  if (shareError) setShareError(null);
+                }}
+                onSubmit={handleAdd}
+                placeholder={
+                  policy.requireOrgMemberForUserShares
+                    ? t("agentChat.share.addPeopleOrganization", {
+                        defaultValue: "Add people from your organization",
+                      })
+                    : t("agentChat.share.addPeopleEmail", {
+                        defaultValue: policy.supportsGroupShares
+                          ? "Add people or groups"
+                          : "Add people by email",
+                      })
+                }
+                suggestions={[
+                  ...memberSuggestions.map((member) => ({
+                    ...member,
+                    principalType: "user" as const,
+                  })),
+                  ...(policy.supportsGroupShares
+                    ? groupSuggestions.map((group) => ({
+                        ...group,
+                        principalType: "group" as const,
+                      }))
+                    : []),
+                ]}
+                search={memberSearch}
+              />
+              <RoleSelect
+                value={role}
+                onChange={setRole}
+                roleCopy={props.roleCopy}
+                allowedRoles={props.allowedRoles}
+              />
+              <button
+                type="button"
+                onClick={handleAdd}
+                disabled={!hasInviteEmail}
+                className={BUTTON_PRIMARY_SM}
+              >
+                {t("agentChat.share.add", { defaultValue: "Add" })}
+              </button>
+            </div>
+            {shareError ? (
+              <div
+                role="alert"
+                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                {shareError}
+              </div>
+            ) : null}
+            {hasInviteEmail ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={notifyPeople}
+                    onChange={(e) => setNotifyPeople(e.target.checked)}
+                    className="h-4 w-4 rounded border-input accent-primary"
+                  />
+                  {t("agentChat.share.notifyPeople", {
+                    defaultValue: "Notify people",
+                  })}
+                </label>
+                {notifyPeople ? (
+                  <button
+                    type="button"
+                    aria-expanded={messageOpen}
+                    onClick={() => setMessageOpen(!messageOpen)}
+                    className="rounded-sm px-1 py-0.5 font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {messageOpen
+                      ? t("agentChat.share.hideMessage", {
+                          defaultValue: "Hide message",
+                        })
+                      : t("agentChat.share.addMessage", {
+                          defaultValue: "Add a message",
+                        })}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {hasInviteEmail && notifyPeople && messageOpen ? (
+              <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+                <textarea
+                  aria-label={t("agentChat.share.message", {
+                    defaultValue: "Message",
+                  })}
+                  placeholder={t("agentChat.share.messagePlaceholder", {
+                    defaultValue: "Add a short note (optional)",
+                  })}
+                  value={shareMessage}
+                  onChange={(event) => setShareMessage(event.target.value)}
+                  maxLength={500}
+                  rows={3}
+                  className="w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <ul className="flex list-none flex-col gap-1 p-0 m-0">
+          {data?.ownerEmail ? (
+            <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
+              <Avatar
+                email={data.ownerEmail}
+                image={memberImage(data.ownerEmail, knownMembers)}
+                label={displayName(data.ownerEmail, knownMembers, t)}
+              />
+              <span className="flex-1 min-w-0 truncate">
+                {displayName(data.ownerEmail, knownMembers, t)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {t("agentChat.share.owner", { defaultValue: "Owner" })}
+              </span>
+            </li>
+          ) : null}
+          {shares.map((s) => (
+            <li
+              key={keyOf(s)}
+              className={cn(
+                "flex items-center gap-3 px-1 py-1.5 text-sm",
+                inFlight.has(keyOf(s)) && "opacity-60",
+              )}
+            >
+              <Avatar
+                email={s.principalType === "user" ? s.principalId : undefined}
+                image={
+                  s.principalType === "user"
+                    ? memberImage(s.principalId, knownMembers)
+                    : undefined
+                }
+                label={principalLabel(s, knownMembers, t)}
+                org={s.principalType === "org"}
+                group={s.principalType === "group"}
+              />
+              <span className="flex-1 min-w-0 truncate">
+                {principalLabel(s, knownMembers, t)}
+              </span>
+              {canManage ? (
+                <RoleSelect
+                  value={s.role}
+                  onChange={(r) => handleChangeRole(s, r)}
+                  disabled={inFlight.has(keyOf(s))}
+                  plain
+                  roleCopy={props.roleCopy}
+                  allowedRoles={props.allowedRoles}
+                />
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {roleMeta(s.role, t, props.roleCopy).label}
+                </span>
+              )}
+              {canManage ? (
+                <button
+                  type="button"
+                  aria-label={t("agentChat.share.remove", {
+                    defaultValue: "Remove",
+                  })}
+                  onClick={() => handleRemove(s)}
+                  disabled={inFlight.has(keyOf(s))}
+                  className={BUTTON_GHOST_ICON}
+                >
+                  <IconTrash size={14} />
+                </button>
+              ) : null}
+            </li>
+          ))}
+          {!shares.length && !data?.ownerEmail ? (
+            <li className="px-1 py-1.5 text-sm text-muted-foreground">
+              {t("agentChat.share.noAccess", {
+                defaultValue: "No one has access yet.",
+              })}
+            </li>
+          ) : null}
+        </ul>
+      </div>
+
+      {shareError && !canManage ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {shareError}
+        </div>
+      ) : null}
+
+      <AgentShareSection
+        enabled={data?.agentReadable === true}
+        resourceType={props.resourceType}
+        resourceId={props.resourceId}
+      />
+
+      {props.accessNote ? (
+        <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
+          {props.accessNote}
+        </div>
+      ) : null}
+
+      {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
+
+      {props.shareFooterContent}
+    </div>
+  );
+
+  if (!hasTabs) return sharePanel;
+
+  const tabs = [
+    {
+      value: "share",
+      label: shareTabLabel,
+      content: sharePanel,
+      disabled: false,
+    },
+    ...extraTabs,
+  ];
+  const activeTab = tabs.some((tab) => tab.value === activeShareTab)
+    ? activeShareTab
+    : "share";
+  return (
+    <div className="flex flex-col gap-4">
+      <div
+        role="tablist"
+        aria-label={t("agentChat.share.shareOptions", {
+          defaultValue: "Share options",
+        })}
+        className="flex gap-1 rounded-xl bg-muted/70 p-1"
+      >
+        {tabs.map((tab, index) => {
+          const active = tab.value === activeTab;
+          const tabId = `${tabIds}-tab-${index}`;
+          const panelId = `${tabIds}-panel-${index}`;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              id={tabId}
+              role="tab"
+              aria-selected={active}
+              aria-controls={panelId}
+              disabled={tab.disabled}
+              onClick={() => handleShareTabChange(tab.value)}
+              className={cn(
+                "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+                active && "bg-background text-foreground shadow-sm",
+              )}
+            >
+              <span className="block truncate">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      {tabs.map((tab, index) => {
+        const active = tab.value === activeTab;
+        return (
+          <div
+            key={tab.value}
+            id={`${tabIds}-panel-${index}`}
+            role="tabpanel"
+            aria-labelledby={`${tabIds}-tab-${index}`}
+            tabIndex={active ? 0 : -1}
+            hidden={!active}
+          >
+            {active ? tab.content : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AdvancedAccessPopover({
+  control,
+  canManage,
+  onToggle,
+}: {
+  control: HideInSearchControl;
+  canManage: boolean;
+  onToggle: () => void;
+}) {
+  const t = useT();
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={!canManage}
+          className="inline-flex items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {t("agentChat.share.advanced", { defaultValue: "Advanced" })}
+          <IconChevronDown size={12} strokeWidth={1.8} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        data-agent-native-share-overlay=""
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        className={cn(
+          SHARE_NESTED_OVERLAY_Z,
+          "w-72 p-3 shadow-lg",
+          SHARE_POPOVER_SURFACE,
+        )}
+      >
+        <div className="space-y-3">
+          <div>
+            <div className="text-sm font-medium text-foreground">
+              {t("agentChat.share.advancedAccess", {
+                defaultValue: "Advanced access",
+              })}
+            </div>
+            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t("agentChat.share.advancedDescription", {
+                defaultValue:
+                  "Control how organization access appears in search.",
+              })}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={control.checked}
+            disabled={!canManage || control.pending}
+            onClick={onToggle}
+            className={cn(
+              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-card px-3 py-2.5 text-start transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
+              control.checked && "border-border bg-accent/35 text-foreground",
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-border bg-muted-foreground/25 transition-colors",
+                control.checked && "border-primary/70 bg-primary",
+              )}
+            >
+              <span
+                className={cn(
+                  "ml-0.5 size-4 rounded-full bg-popover shadow-sm transition-transform",
+                  control.checked && "translate-x-4",
+                )}
+              />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                <IconSearchOff size={14} strokeWidth={1.8} />
+                {control.label ??
+                  t("agentChat.share.hideInSearch", {
+                    defaultValue: "Hide in search",
+                  })}
+              </span>
+              <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                {control.description ??
+                  t("agentChat.share.linkCanStillOpen", {
+                    defaultValue: "People with the link can still open this.",
+                  })}
+              </span>
+            </span>
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+interface MemberAutocompleteProps {
+  value: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onValueChange: (value: string) => void;
+  onSelectSuggestion: (suggestion: ShareSuggestion) => void;
+  onSubmit: () => void;
+  placeholder: string;
+  suggestions: ShareSuggestion[];
+  search: OrgMemberSearch;
+}
+
+type ShareSuggestion =
+  | (OrgMember & { principalType: "user" })
+  | (ShareButtonGroup & { principalType: "group" });
+
+function MemberAutocomplete({
+  value,
+  open,
+  onOpenChange,
+  onValueChange,
+  onSelectSuggestion,
+  onSubmit,
+  placeholder,
+  suggestions,
+  search,
+}: MemberAutocompleteProps) {
+  const t = useT();
+  const rawListboxId = useId();
+  const listboxId = rawListboxId.replace(/:/g, "");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const activeSuggestion =
+    activeIndex >= 0 && activeIndex < suggestions.length
+      ? suggestions[activeIndex]
+      : null;
+
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [value]);
+
+  useEffect(() => {
+    if (activeIndex >= suggestions.length) {
+      setActiveIndex(suggestions.length > 0 ? suggestions.length - 1 : -1);
+    }
+  }, [activeIndex, suggestions.length]);
+
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    document
+      .getElementById(optionId(listboxId, activeIndex))
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, listboxId]);
+
+  const chooseSuggestion = (suggestion: ShareSuggestion) => {
+    onSelectSuggestion(suggestion);
+    onOpenChange(false);
+    inputRef.current?.focus();
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      onOpenChange(true);
+      if (suggestions.length === 0) return;
+      setActiveIndex((prev) => {
+        if (prev >= suggestions.length - 1) {
+          if (search.hasMore && !search.isLoadingMore) search.loadMore();
+          return suggestions.length - 1;
+        }
+        return prev + 1;
+      });
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      onOpenChange(true);
+      if (suggestions.length === 0) return;
+      setActiveIndex((prev) => (prev <= 0 ? suggestions.length - 1 : prev - 1));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      if (open && activeSuggestion) {
+        event.preventDefault();
+        chooseSuggestion(activeSuggestion);
+        return;
+      }
+      if (value.trim()) {
+        event.preventDefault();
+        onSubmit();
+      }
+      return;
+    }
+
+    if (event.key === "Escape" && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      onOpenChange(false);
+      setActiveIndex(-1);
+    }
+  };
+
+  const handleScroll = (event: ReactUIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    if (
+      search.hasMore &&
+      !search.isLoadingMore &&
+      target.scrollTop + target.clientHeight >= target.scrollHeight - 24
+    ) {
+      search.loadMore();
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverAnchor asChild>
+        <div className="relative flex-1 min-w-0">
+          <IconSearch
+            aria-hidden
+            size={15}
+            strokeWidth={1.8}
+            className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            ref={inputRef}
+            type="text"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={open}
+            aria-controls={open ? listboxId : undefined}
+            aria-activedescendant={
+              activeIndex >= 0 ? optionId(listboxId, activeIndex) : undefined
+            }
+            placeholder={placeholder}
+            value={value}
+            onChange={(event) => {
+              onValueChange(event.target.value);
+              onOpenChange(true);
+            }}
+            onFocus={() => onOpenChange(true)}
+            onBlur={() => {
+              setTimeout(() => {
+                if (document.activeElement !== inputRef.current) {
+                  onOpenChange(false);
+                }
+              }, 0);
+            }}
+            onKeyDown={handleKeyDown}
+            autoComplete="off"
+            className="h-9 w-full min-w-0 rounded-md border border-input bg-card ps-8 pe-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+          />
+          {search.isLoading ? (
+            <IconLoader2
+              aria-hidden
+              size={15}
+              strokeWidth={1.8}
+              className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground"
+            />
+          ) : null}
+        </div>
+      </PopoverAnchor>
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        data-agent-native-share-overlay=""
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        className={cn(
+          SHARE_NESTED_OVERLAY_Z,
+          "w-[var(--radix-popper-anchor-width)] min-w-[18rem] rounded-md p-1 shadow-lg",
+          SHARE_POPOVER_SURFACE,
+        )}
+      >
+        <div
+          id={listboxId}
+          role="listbox"
+          className="max-h-56 overflow-y-auto overflow-x-hidden"
+          onScroll={handleScroll}
+        >
+          {suggestions.map((suggestion, index) => {
+            const active = index === activeIndex;
+            return (
+              <div
+                key={`${suggestion.principalType}:${suggestion.principalType === "group" ? suggestion.id : suggestion.email}`}
+                id={optionId(listboxId, index)}
+                role="option"
+                aria-selected={active}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => chooseSuggestion(suggestion)}
+                className={cn(
+                  "flex cursor-pointer select-none flex-col rounded-sm px-3 py-2 text-sm outline-none",
+                  active
+                    ? "bg-accent text-accent-foreground"
+                    : "text-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                <span className="flex items-center gap-2 truncate font-medium">
+                  {suggestion.principalType === "group" ? (
+                    <IconUsersGroup
+                      aria-hidden
+                      size={14}
+                      strokeWidth={1.8}
+                      className="shrink-0 text-muted-foreground"
+                    />
+                  ) : (
+                    <Avatar
+                      email={suggestion.email}
+                      image={suggestion.image}
+                      label={suggestion.name?.trim() || suggestion.email}
+                      className="h-6 w-6 text-[10px]"
+                    />
+                  )}
+                  <span className="truncate">
+                    {suggestion.principalType === "group"
+                      ? suggestion.name
+                      : suggestion.name?.trim() || suggestion.email}
+                  </span>
+                </span>
+                {suggestion.principalType === "group" ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {t("agentChat.share.userGroup", {
+                      defaultValue: "User group",
+                    })}
+                  </span>
+                ) : suggestion.name?.trim() ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {suggestion.email}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+
+          {search.isLoading && suggestions.length === 0 ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {t("agentChat.share.searching", {
+                defaultValue: "Searching...",
+              })}
+            </div>
+          ) : null}
+
+          {search.error ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {t("agentChat.share.loadPeopleFailed", {
+                defaultValue: "Could not load people.",
+              })}
+            </div>
+          ) : null}
+
+          {!search.isLoading && !search.error && suggestions.length === 0 ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {value.trim()
+                ? t("agentChat.share.noMatches", {
+                    defaultValue: "No matches.",
+                  })
+                : t("agentChat.share.noPeopleFound", {
+                    defaultValue: "No people found.",
+                  })}
+            </div>
+          ) : null}
+
+          {search.isLoadingMore ? (
+            <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+              <IconLoader2
+                aria-hidden
+                size={14}
+                strokeWidth={1.8}
+                className="animate-spin"
+              />
+              {t("agentChat.share.loading", { defaultValue: "Loading..." })}
+            </div>
+          ) : null}
+
+          {search.hasMore && !search.isLoadingMore ? (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={search.loadMore}
+              className="mt-1 flex w-full items-center justify-center rounded-sm px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            >
+              {t("agentChat.share.loadMore", { defaultValue: "Load more" })}
+            </button>
+          ) : null}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function optionId(baseId: string, index: number): string {
+  return `${baseId}-option-${index}`;
+}
+
+function CopyLinkField({
+  value,
+  label,
+  description,
+  resourceType,
+  resourceId,
+  linkType,
+}: {
+  value: string;
+  label?: string;
+  description?: ReactNode;
+  resourceType: string;
+  resourceId: string;
+  linkType: "share" | "secondary";
+}) {
+  const t = useT();
+  const copy = async (nextValue: string) => {
+    const copied = await writeClipboardText(nextValue);
+    if (copied) {
+      trackEvent("share_link_copied", {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        link_type: linkType,
+      });
+    }
+    return copied;
+  };
+  return (
+    <ShareCopyRow
+      value={value}
+      label={
+        label ?? t("agentChat.share.shareLink", { defaultValue: "Share link" })
+      }
+      description={description}
+      copyLabel={t("agentChat.share.copy", { defaultValue: "Copy" })}
+      copiedLabel={t("agentChat.share.copied", { defaultValue: "Copied" })}
+      onCopy={copy}
+      className="mb-4"
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Radix Select wrappers styled like shadcn Select (no native <select> anywhere)
+// ---------------------------------------------------------------------------
+
+const selectContentClass = `${SHARE_NESTED_OVERLAY_Z} min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0`;
+const selectItemClass =
+  "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
+
+interface ShadSelectItemProps {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+function SelectItems({ items }: { items: ShadSelectItemProps[] }) {
+  return (
+    <>
+      {items.map((it) => (
+        <Select.Item
+          key={it.value}
+          value={it.value}
+          className={selectItemClass}
+        >
+          <span className="absolute start-2 top-2 flex h-4 w-4 items-center justify-center">
+            <Select.ItemIndicator>
+              <IconCheck size={14} />
+            </Select.ItemIndicator>
+          </span>
+          <span className="flex flex-col">
+            <Select.ItemText>{it.label}</Select.ItemText>
+            {it.description ? (
+              <span className="text-xs text-muted-foreground">
+                {it.description}
+              </span>
+            ) : null}
+          </span>
+        </Select.Item>
+      ))}
+    </>
+  );
+}
+
+function RoleSelect(props: {
+  value: Role;
+  onChange: (v: Role) => void;
+  disabled?: boolean;
+  /** When true, render as inline text + chevron (no border / bg) — matches
+   *  the per-person role picker in Google Docs. */
+  plain?: boolean;
+  roleCopy?: ShareButtonProps["roleCopy"];
+  allowedRoles?: ShareButtonProps["allowedRoles"];
+}) {
+  const t = useT();
+  const allOptions = roleOptions(t);
+  const current = roleMeta(props.value, t, props.roleCopy);
+  const allowedRoles =
+    props.allowedRoles ?? allOptions.map((item) => item.value);
+  const options = allOptions
+    .filter(
+      (option) =>
+        option.value === props.value || allowedRoles.includes(option.value),
+    )
+    .map((option) => roleMeta(option.value, t, props.roleCopy));
+  return (
+    <Select.Root
+      value={props.value}
+      onValueChange={(v) => props.onChange(v as Role)}
+      disabled={props.disabled}
+    >
+      <Select.Trigger
+        className={
+          props.plain
+            ? cn(
+                BUTTON_BASE,
+                "h-7 px-2 bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              )
+            : cn(
+                BUTTON_BASE,
+                "h-9 px-3 border border-input bg-card hover:bg-accent hover:text-accent-foreground",
+              )
+        }
+        aria-label={t("agentChat.share.role", { defaultValue: "Role" })}
+      >
+        <Select.Value>{current.label}</Select.Value>
+        <Select.Icon>
+          <IconChevronDown size={14} />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content
+          data-agent-native-share-overlay=""
+          className={selectContentClass}
+          position="popper"
+          sideOffset={4}
+        >
+          <Select.Viewport>
+            <SelectItems items={options} />
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
+function VisibilitySelect(props: {
+  value: Visibility;
+  onChange: (v: Visibility) => void;
+  disabled?: boolean;
+  visibilityCopy?: ShareButtonProps["visibilityCopy"];
+  /** When false, the "Private" option is omitted unless currently selected. */
+  allowPrivate?: boolean;
+  /** When false, the "Public" option is omitted. Default: true. */
+  allowPublic?: boolean;
+}) {
+  const t = useT();
+  const allowPrivate = props.allowPrivate !== false;
+  const allowPublic = props.allowPublic !== false;
+  const current = visibilityMeta(props.value, t, props.visibilityCopy);
+  const options = (Object.keys(VIS_META) as Visibility[]).filter((k) => {
+    if (k === props.value) return true;
+    if (k === "private" && !allowPrivate) return false;
+    if (k === "public" && !allowPublic) return false;
+    return true;
+  });
+  return (
+    <Select.Root
+      value={props.value}
+      onValueChange={(v) => props.onChange(v as Visibility)}
+      disabled={props.disabled}
+    >
+      <Select.Trigger
+        className={cn(
+          BUTTON_BASE,
+          "h-7 px-1 -ms-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
+        )}
+        aria-label={t("agentChat.share.generalAccess", {
+          defaultValue: "General access",
+        })}
+      >
+        <Select.Value>{current.label}</Select.Value>
+        <Select.Icon>
+          <IconChevronDown size={14} />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content
+          data-agent-native-share-overlay=""
+          className={selectContentClass}
+          position="popper"
+          sideOffset={4}
+        >
+          <Select.Viewport>
+            <SelectItems
+              items={options.map((k) => ({
+                value: k,
+                label: visibilityMeta(k, t, props.visibilityCopy).label,
+                description: visibilityMeta(k, t, props.visibilityCopy)
+                  .description,
+              }))}
+            />
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
+function Avatar({
+  email,
+  image,
+  label,
+  org,
+  group,
+  className,
+}: {
+  email?: string;
+  image?: string | null;
+  label: string;
+  org?: boolean;
+  group?: boolean;
+  className?: string;
+}) {
+  const profileImage = image?.trim();
+  const avatarUrl = useAvatarUrl(profileImage ? undefined : email);
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-[11px] font-semibold text-muted-foreground",
+        className,
+      )}
+    >
+      {org || group ? (
+        <IconUsersGroup size={14} strokeWidth={1.75} />
+      ) : profileImage || avatarUrl ? (
+        <img
+          src={profileImage || avatarUrl || undefined}
+          alt=""
+          className="size-full object-cover"
+        />
+      ) : (
+        initials(label)
+      )}
+    </span>
+  );
+}
+
+function keyOf(s: Share): string {
+  return `${s.principalType}:${s.principalId}`;
+}
+
+function initials(s: string): string {
+  const name = s.split("@")[0] ?? s;
+  return (name[0] ?? "?").toUpperCase();
+}
+
+function principalLabel(
+  share: Share,
+  members: OrgMember[],
+  t: ShareTranslate,
+): string {
+  const serverLabel = share.displayName?.trim();
+  if (serverLabel) return serverLabel;
+  if (share.principalType === "org")
+    return t("agentChat.share.organization", {
+      defaultValue: "Organization",
+    });
+  if (share.principalType === "group")
+    return (
+      serverLabel ||
+      t("agentChat.share.userGroup", { defaultValue: "User group" })
+    );
+  return displayName(share.principalId, members, t);
+}
+
+function displayName(
+  emailOrId: string,
+  members: OrgMember[],
+  t: ShareTranslate,
+): string {
+  const normalized = emailOrId.trim().toLowerCase();
+  const match = members.find((m) => m.email.toLowerCase() === normalized);
+  if (match?.name && match.name.trim()) return match.name;
+  return normalized.includes("@")
+    ? emailOrId
+    : t("agentChat.share.unknownPerson", {
+        defaultValue: "Unknown person",
+      });
+}
+
+function memberImage(email: string, members: OrgMember[]): string | undefined {
+  const normalized = email.trim().toLowerCase();
+  const match = members.find(
+    (member) => member.email.trim().toLowerCase() === normalized,
+  );
+  return match?.image?.trim() || undefined;
+}

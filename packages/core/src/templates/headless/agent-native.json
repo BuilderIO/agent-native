@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "onboarding": {
+    "firstRun": "off"
+  },
+  "doctor": {
+    "failOnBuild": true
+  }
+}

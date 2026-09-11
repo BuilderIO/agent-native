@@ -1,0 +1,65 @@
+---
+title: "本機資料夾來源"
+description: "將 Markdown 與 MDX 資料夾連接至由資料庫支援的 Content 空間。"
+---
+
+# 本機資料夾來源
+
+Content 現在只有一個資料模型：每個頁面都儲存在 SQL 中，屬於一個**空間**，並且
+是該空間系統 **Files** 資料庫的項目。本機資料夾是連接至 Files 的來源，而不是
+另一種應用程式模式。`AGENT_NATIVE_MODE` 切換已移除。
+
+每位使用者有個人空間，每個可存取的組織有組織空間；個人 **Workspaces** 目錄
+決定應用程式顯示哪些空間。Files 是一般 Content 資料庫，因此它的屬性、篩選、
+排序、分組與已儲存檢視也能呈現為側邊欄。
+
+## 連接資料夾
+
+透過瀏覽器或 Agent-Native Desktop 選擇資料夾，將它連接至既有空間，或建立一個
+由該資料夾支援的私人空間。SQL 只儲存不透明的連線 ID、相對路徑、雜湊與來源
+中繼資料；不儲存絕對路徑、瀏覽器控制代碼或原始檔案本文。
+
+可用策略為 `database_primary`、`source_primary` 與
+`reviewed_bidirectional`。同步會將檔案實體化為一般 SQL 頁面。若檔案和 Content
+頁面同時變更，系統會建立待審查的變更，而不會悄悄覆寫任一方。中斷連線會保留
+頁面與本機檔案。
+
+## 從儲存庫啟動
+
+```bash
+npx @agent-native/core@latest content .
+```
+
+此命令啟動一般的資料庫版 Content，將資料夾註冊為來源並開啟連線畫面；它不會
+設定模式環境變數。
+
+## 設定
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"],
+          "source": {
+            "type": "local-folder",
+            "connectionId": "local-folder:<opaque-id>",
+            "truthPolicy": "source_primary"
+          }
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+移轉時請刪除 `mode: "local-files"` 與 `AGENT_NATIVE_MODE=local-files`，保留
+roots 並加入 `source`。frontmatter ID 能在重新命名與移動時維持頁面身分。本機
+元件和擴充功能仍透過受信任的本機橋接載入。

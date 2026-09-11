@@ -1,0 +1,153 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+const editorSource = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
+  "utf8",
+);
+const pageSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../pages/DeckEditor.tsx",
+  ),
+  "utf8",
+);
+
+describe("editor side panels", () => {
+  it("keeps comments as the only parent-owned side panel", () => {
+    expect(pageSource).toContain('type EditorSidePanel = "comments" | null');
+    expect(pageSource).toContain(
+      'const commentsOpen = sidePanel === "comments"',
+    );
+  });
+
+  it("has no style dock left to open", () => {
+    expect(editorSource).not.toContain("stylePanelOpen");
+    expect(editorSource).not.toContain("SlideStyleInspector");
+    expect(editorSource).not.toContain('data-slide-style-dock="true"');
+  });
+
+  it("clears generic animation targets when the active slide changes", () => {
+    expect(pageSource).toContain(`useEffect(() => {
+    setAnimationTarget(null);
+  }, [activeSlideId]);`);
+    const toggleAnimationsStart = pageSource.indexOf(
+      "const toggleAnimations = useCallback(() => {",
+    );
+    const toggleLayersStart = pageSource.indexOf(
+      "const toggleLayers = useCallback",
+      toggleAnimationsStart,
+    );
+    const toggleAnimationsSource = pageSource.slice(
+      toggleAnimationsStart,
+      toggleLayersStart,
+    );
+    expect(toggleAnimationsSource).toContain("setLayersOpen(false);");
+    expect(toggleAnimationsSource).toContain("setAnimationTarget(null);");
+    expect(toggleAnimationsSource).toContain(
+      "setAnimationsOpen((open) => !open);",
+    );
+  });
+
+  it("rounds the canvas edge consistently for either right-side panel", () => {
+    expect(editorSource).toContain(
+      'animationsOpen || layersOpen ? "rounded-r-lg" : ""',
+    );
+  });
+
+  it("mounts Layers beside the canvas shell like Transitions", () => {
+    expect(editorSource).toContain(
+      "createPortal(layersPanel, layersPanelSlot)",
+    );
+    expect(pageSource).toContain('data-layers-panel-host="true"');
+    expect(pageSource).toContain("layersPanelSlot={layersPanelSlot}");
+    const workspaceStart = pageSource.indexOf(
+      'className="deck-editor-workspace relative flex',
+    );
+    const layersHost = pageSource.indexOf(
+      'data-layers-panel-host="true"',
+      workspaceStart,
+    );
+    const workspaceEnd = pageSource.indexOf(
+      "\n      </div>\n\n      {/* Hidden upload input */}",
+      workspaceStart,
+    );
+    expect(layersHost).toBeGreaterThan(workspaceStart);
+    expect(layersHost).toBeLessThan(workspaceEnd);
+  });
+
+  it("uses the same element context menu from every layer row", () => {
+    expect(editorSource).toContain(
+      "contextMenuContent={readOnly ? undefined : slideElementContextMenuContent}",
+    );
+    expect(editorSource).toContain(
+      "onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}",
+    );
+    expect(editorSource).toContain("{slideElementContextMenuContent}");
+  });
+});
+
+describe("slide context toolbar", () => {
+  const mountIndex = editorSource.indexOf("<SlideContextToolbar");
+
+  it("is the only styling surface, on every editable slide", () => {
+    expect(mountIndex).toBeGreaterThan(-1);
+    // Excalidraw slides included: they have no selectable content, but
+    // SlideRenderer still paints slide.background behind the drawing, and this
+    // row is now the only place that background can be edited.
+    expect(editorSource).not.toContain("!readOnly && !slide.excalidrawData");
+  });
+
+  it("keeps the toolbar alive while text is being edited", () => {
+    // Without the marker the click-outside handler exits the edit and drops
+    // the saved range, so partial-text formatting would hit the whole object.
+    expect(editorSource).toContain('data-slide-inline-edit-surface="true"');
+  });
+
+  it("renders into the shell's full-width slot so it spans the slide rail", () => {
+    expect(editorSource).toContain(
+      "createPortal(contextToolbar, contextToolbarSlot)",
+    );
+    expect(pageSource).toContain("ref={setContextToolbarSlot}");
+    expect(pageSource).toContain("contextToolbarSlot={contextToolbarSlot}");
+  });
+
+  it("leads with the selection-independent action cluster", () => {
+    expect(pageSource).toContain("contextToolbarLeading={");
+    expect(pageSource).toContain("<EditorActionCluster");
+  });
+
+  it("keeps the rich text selection alive while the toolbar is pressed", () => {
+    // Without this guard on the wrapper, applying a style to a partial text
+    // selection silently no-ops: focus leaves the contentEditable before the
+    // patch resolves the range.
+    const wrapper = editorSource.slice(
+      Math.max(0, mountIndex - 300),
+      mountIndex,
+    );
+    expect(wrapper).toContain(
+      "onPointerDownCapture={preserveRichTextSelection}",
+    );
+  });
+
+  it("cancels native image dragging on the editable canvas", () => {
+    expect(editorSource).toContain(
+      "onDragStart={(event) => event.preventDefault()}",
+    );
+  });
+
+  it("keeps the comment target mounted for Excalidraw slides", () => {
+    expect(editorSource).toContain(
+      'data-main-slide-canvas="true"\n              data-slide-canvas-focus="true"',
+    );
+    expect(editorSource).toContain(
+      '<div className="slide-content relative h-full">',
+    );
+    expect(editorSource).toContain(
+      "canvasSelector=\"[data-main-slide-canvas='true']\"",
+    );
+  });
+});
