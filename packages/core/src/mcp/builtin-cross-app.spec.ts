@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as callerAuth from "../a2a/caller-auth.js";
 import * as a2aClient from "../a2a/client.js";
+import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import * as embedSession from "../server/embed-session.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { verifyAuth } from "./build-server.js";
@@ -331,6 +332,37 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     });
     expect(result.url).toBe("/mail/extensions/ext_123?tab=settings");
     expect(result.embed).toBe(true);
+  });
+
+  // Deep links stay base-relative on purpose: `toAbsoluteOpenUrl` owns the
+  // base prefix for the browser-facing `openLink.webUrl` the host uses as its
+  // out-of-frame escape hatch, and `normalizeEmbedTargetPath` stores embed
+  // targets base-relative (it strips the base when one is present). Prefixing
+  // here too would be redundant, but a *missing* prefix downstream would 404
+  // the escape hatch again, so pin both ends.
+  it("keeps bare-view deep links base-relative while the open link carries the base path", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    const deepLink =
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed";
+    const tools = getBuiltinCrossAppTools(baseConfig());
+
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      view: "inbox",
+      params: { threadId: "abc" },
+      embed: true,
+    });
+
+    expect(result.url).toBe(deepLink);
+    expect(toAbsoluteOpenUrl(result.url, "https://mail.example.com")).toBe(
+      `https://mail.example.com/mail${deepLink}`,
+    );
+    expect(
+      embedSession.normalizeEmbedTargetPath(
+        result.url,
+        "https://mail.example.com",
+      ),
+    ).toBe(deepLink);
   });
 
   it("defaults to the app's home page when neither view nor path is given", async () => {
