@@ -74,12 +74,15 @@ export function validateReusableWorkflowConcurrency(
     !group.includes("inputs.caller") ||
     !group.includes("netlify-prebuilt-child") ||
     !group.includes("netlify-prebuilt-preview-{0}-{1}") ||
-    !group.includes("netlify-prebuilt-beta-{0}") ||
     !group.includes("netlify-prebuilt-beta-direct") ||
     !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
     !group.includes("agent-native-production-site") ||
+    !group.includes("agent-native-production-site-design-slides") ||
+    !group.includes("inputs.site == 'chat'") ||
+    !group.includes("!inputs.deploy") ||
+    !group.includes("inputs.deploy_mode != 'production'") ||
     !group.includes("github.event_name")
   ) {
     return [
@@ -571,7 +574,19 @@ const normalizedReusableConcurrencyGroup = reusableConcurrencyGroup.replace(
 );
 if (
   !normalizedReusableConcurrencyGroup.includes(
-    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}', inputs.site)",
+    "inputs.target == 'beta' && (inputs.site == 'design' || inputs.site == 'slides') && 'agent-native-production-site-design-slides'",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "inputs.target == 'beta' && format(",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "'agent-native-production-site-{0}', inputs.site == 'chat' && 'starter' || inputs.site",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "inputs.target == 'production' && (inputs.site == 'design' || inputs.site == 'slides') && 'agent-native-production-site-design-slides'",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "inputs.target == 'production' && format('agent-native-production-site-{0}', inputs.site)",
   ) ||
   !normalizedReusableConcurrencyGroup.includes(
     "github.event_name == 'workflow_dispatch'",
@@ -579,6 +594,9 @@ if (
   !normalizedReusableConcurrencyGroup.includes("!inputs.caller") ||
   !normalizedReusableConcurrencyGroup.includes(
     "format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "!inputs.deploy || inputs.deploy_mode != 'production'",
   )
 ) {
   issues.push(
@@ -1128,7 +1146,9 @@ const betaMigrationRun = String(betaMigrationStep?.run ?? "");
 if (
   betaMigrationIndex < 0 ||
   buildIndex < 0 ||
-  betaMigrationIndex >= buildIndex ||
+  parsedUploadIndex < 0 ||
+  betaMigrationIndex <= buildIndex ||
+  betaMigrationIndex >= parsedUploadIndex ||
   !betaMigrationIf.includes("inputs.target == 'beta'") ||
   !betaMigrationIf.includes("inputs.deploy") ||
   !betaMigrationIf.includes("inputs.deploy_mode == 'production'") ||
@@ -1147,7 +1167,7 @@ if (
   !betaMigrationRun.includes("No production PostgreSQL migration URL")
 ) {
   issues.push(
-    `${reusablePath} must migrate each beta site's production database before building or publishing it`,
+    `${reusablePath} must migrate each beta site's production database after artifact validation and before publishing it`,
   );
 }
 

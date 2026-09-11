@@ -481,7 +481,19 @@ describe("production Netlify site concurrency guard", () => {
       (step) =>
         step.name === "Run the beta release migration against production",
     );
+    const betaMigrationIndex = reusableSteps.findIndex(
+      (step) =>
+        step.name === "Run the beta release migration against production",
+    );
+    const buildIndex = reusableSteps.findIndex(
+      (step) => step.name === "Build with the Netlify project configuration",
+    );
+    const uploadIndex = reusableSteps.findIndex(
+      (step) => step.name === "Upload the prebuilt deploy",
+    );
     assert.ok(betaMigration);
+    assert.ok(betaMigrationIndex > buildIndex);
+    assert.ok(betaMigrationIndex < uploadIndex);
     assert.match(String(betaMigration?.if), /inputs\.target == 'beta'/);
     assert.match(
       String(betaMigration?.if),
@@ -508,7 +520,23 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
-      /inputs\.target == 'beta'\s+&&\s+format\('netlify-prebuilt-beta-\{0\}', inputs\.site\)/,
+      /inputs\.target == 'beta'[\s\S]*agent-native-production-site-\{0\}/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.site == 'design'\s+\|\|\s+inputs\.site == 'slides'/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /agent-native-production-site-design-slides/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.site == 'chat'\s+&&\s+'starter'/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.target == 'production'[\s\S]*format\(\s*'agent-native-production-site-\{0\}', inputs\.site\)/,
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
@@ -517,6 +545,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       String((reusable.concurrency as Workflow).group),
       /format\('netlify-prebuilt-beta-direct-\{0\}-\{1\}', inputs\.site, github\.run_id\)/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /!inputs\.deploy\s+\|\|\s+inputs\.deploy_mode != 'production'/,
     );
     assert.equal(
       (reusable.concurrency as Workflow)["cancel-in-progress"],
