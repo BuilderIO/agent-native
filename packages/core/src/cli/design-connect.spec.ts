@@ -1062,6 +1062,62 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("proxies a frame navigation to the bare root instead of serving the control-plane manifest", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      if (req.url === "/") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<!doctype html><title>app root</title><h1>app root</h1>");
+        return;
+      }
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+
+      // Control-plane callers never send Sec-Fetch-Dest: the bare root keeps
+      // returning the bridge manifest for them.
+      const controlPlane = await getJson(`${base}/`, {
+        "x-design-preview-token": bridge.previewToken,
+      });
+      expect(controlPlane.status).toBe(200);
+      expect(controlPlane.body["source"]).toBe("agent-native-design-connect");
+
+      // A live frame that navigates to "/" (router redirect, home link) is a
+      // document/iframe navigation and must get the app's own root.
+      const framed = await fetch(`${base}/`, {
+        headers: {
+          "x-design-preview-token": bridge.previewToken,
+          "sec-fetch-dest": "iframe",
+        },
+      });
+      expect(framed.status).toBe(200);
+      expect(framed.headers.get("content-type") ?? "").toContain("text/html");
+      expect(await framed.text()).toContain("app root");
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("routes the proxied app's own manifest.json to the dev server instead of the bridge's control-plane manifest", async () => {
     const root = tmpDir();
     const devPort = await freePort();

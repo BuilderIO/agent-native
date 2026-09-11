@@ -2257,9 +2257,20 @@ export async function startDesignConnectBridge(
         (req.method === "GET" || req.method === "HEAD") &&
         pathname === "/manifest.json" &&
         readHeader(req, "sec-fetch-dest") === "manifest";
+      // The bare root doubles as a manifest alias for control-plane callers,
+      // but a live frame that navigates to "/" (router redirect, home link)
+      // arrives as a document/iframe navigation and must reach the app's
+      // own root, not a JSON blob. Browsers tag navigations with
+      // Sec-Fetch-Dest; Node's fetch never does.
+      const frameNavigationDest = readHeader(req, "sec-fetch-dest");
+      const isFrameNavigation =
+        frameNavigationDest === "document" ||
+        frameNavigationDest === "iframe" ||
+        frameNavigationDest === "frame";
       if (
         !isProxiedAppManifestRequest &&
-        (pathname === "/" || pathname === "/manifest.json")
+        (pathname === "/manifest.json" ||
+          (pathname === "/" && !isFrameNavigation))
       ) {
         if (rejectInvalidPreviewToken()) return;
         sendJson(res, 200, manifest as unknown as Record<string, unknown>);
