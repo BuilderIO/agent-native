@@ -5,7 +5,10 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 
 type BridgeMessage = {
   type?: string;
-  payload?: { provenance?: { method?: string; [key: string]: unknown } };
+  payload?: {
+    id?: string;
+    provenance?: { method?: string; [key: string]: unknown };
+  };
 };
 
 /**
@@ -364,6 +367,124 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
           method: "debug-stack-remapped",
           component: "AuthPage",
         });
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "does not let a slow source-map response re-select an older element",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html><body>
+          <div id="first" style="width:160px;height:80px">First</div>
+          <div id="second" style="width:160px;height:80px">Second</div>
+          <script>window.__bridgeMessages = [];
+            window.addEventListener("message", (event) => {
+              window.__bridgeMessages.push(event.data);
+            });
+          </script>
+        </body></html>`);
+
+        let releaseFirstMap!: () => void;
+        let firstMapRequested!: () => void;
+        const firstMap = new Promise<void>((resolve) => {
+          releaseFirstMap = resolve;
+        });
+        const firstRequest = new Promise<void>((resolve) => {
+          firstMapRequested = resolve;
+        });
+        await page.route(
+          "http://localhost:8220/@fs/Users/dev/app/src/First.jsx.map",
+          async (route) => {
+            firstMapRequested();
+            await firstMap;
+            await route.fulfill({
+              contentType: "application/json",
+              body: JSON.stringify({
+                version: 3,
+                file: "First.jsx",
+                sources: ["First.jsx"],
+                names: [],
+                mappings: "AAAA",
+              }),
+            });
+          },
+        );
+        await page.route(
+          "http://localhost:8220/@fs/Users/dev/app/src/Second.jsx.map",
+          (route) =>
+            route.fulfill({
+              contentType: "application/json",
+              body: JSON.stringify({
+                version: 3,
+                file: "Second.jsx",
+                sources: ["Second.jsx"],
+                names: [],
+                mappings: "AAAA",
+              }),
+            }),
+        );
+        await page.evaluate(() => {
+          const first = document.getElementById("first") as HTMLElement;
+          const second = document.getElementById("second") as HTMLElement;
+          const fiber = (sourceFile: string) => ({
+            type: "div",
+            key: null,
+            _debugStack: {
+              stack: [
+                "Error: react-stack-top-frame",
+                `    at Widget (http://localhost:8220/@fs/Users/dev/app/src/${sourceFile}:1:1)`,
+              ].join("\n"),
+            },
+            return: null,
+          });
+          (first as unknown as Record<string, unknown>)["__reactFiber$first"] =
+            fiber("First.jsx");
+          (second as unknown as Record<string, unknown>)[
+            "__reactFiber$second"
+          ] = fiber("Second.jsx");
+        });
+        await page.addScriptTag({ content: hydratedBridgeScript() });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+        await page.mouse.click(80, 40);
+        await firstRequest;
+        await page.mouse.click(80, 120);
+        await page.waitForFunction(
+          () =>
+            (
+              (window as unknown as { __bridgeMessages?: BridgeMessage[] })
+                .__bridgeMessages ?? []
+            ).some(
+              (message) =>
+                message?.type === "element-select" &&
+                message.payload?.id === "second" &&
+                message.payload.provenance?.method === "debug-stack-remapped",
+            ),
+          undefined,
+          { timeout: 5_000 },
+        );
+
+        releaseFirstMap();
+        await page.waitForTimeout(100);
+        const messages = await page.evaluate(
+          () =>
+            (window as unknown as { __bridgeMessages?: BridgeMessage[] })
+              .__bridgeMessages ?? [],
+        );
+        expect(
+          messages.some(
+            (message) =>
+              message?.type === "element-select" &&
+              message.payload?.id === "first" &&
+              message.payload.provenance?.method === "debug-stack-remapped",
+          ),
+        ).toBe(false);
       } finally {
         await browser.close();
       }

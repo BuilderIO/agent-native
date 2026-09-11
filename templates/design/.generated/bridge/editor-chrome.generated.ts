@@ -2676,6 +2676,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
     }
     function postElementSelect(el, e) {
+      var selectionGenerationAtPost = ++selectionGeneration;
       rememberLiveVisualEditOriginalStyles(el);
       var intent = e ? selectionIntentFromEvent(e) : void 0;
       var message = {
@@ -2687,7 +2688,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var framework = frameworkDebugProvenance(el);
       if (framework.framework === "react" && (framework.method === "debug-stack" || framework.ownerMethod === "debug-stack")) {
         void remapReactElementProvenance(el, framework).then(function(mapped) {
-          if (!mapped || el.isConnected === false) return;
+          if (!mapped || el.isConnected === false || selectedEl !== el || selectionGeneration !== selectionGenerationAtPost) {
+            return;
+          }
           window.parent.postMessage(
             { type: "element-select", payload: getElementInfo(el) },
             "*"
@@ -3064,6 +3067,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       clearComponentTag();
     }
     var selectedEl = null;
+    var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
     var highlightOverlayStyle = "default";

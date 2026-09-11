@@ -2616,6 +2616,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function postElementSelect(el: Element, e?: MouseEvent): void {
+    var selectionGenerationAtPost = ++selectionGeneration;
     rememberLiveVisualEditOriginalStyles(el);
     var intent = e ? selectionIntentFromEvent(e) : undefined;
     var message: {
@@ -2631,8 +2632,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     // React 19 gives us a transformed stack coordinate synchronously. Resolve
     // its Vite map after the first paint, then echo the same selection with the
-    // authored location. The host's intent-less echo guard keeps this update
-    // from changing additive/meta selection semantics or stealing a newer hit.
+    // authored location. The generation and identity checks keep a slow map
+    // response from stealing a newer hit or changing additive selection state.
     var framework = frameworkDebugProvenance(el);
     if (
       framework.framework === "react" &&
@@ -2640,7 +2641,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         framework.ownerMethod === "debug-stack")
     ) {
       void remapReactElementProvenance(el, framework).then(function (mapped) {
-        if (!mapped || el.isConnected === false) return;
+        if (
+          !mapped ||
+          el.isConnected === false ||
+          selectedEl !== el ||
+          selectionGeneration !== selectionGenerationAtPost
+        ) {
+          return;
+        }
         (window.parent as Window).postMessage(
           { type: "element-select", payload: getElementInfo(el) },
           "*",
@@ -3185,6 +3193,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
+  var selectionGeneration = 0;
   // When true, selection chrome stays hidden through async reflows so a
   // keyboard-nudge burst does not flicker; selection itself is unchanged.
   var selectionChromeHidden = false;
