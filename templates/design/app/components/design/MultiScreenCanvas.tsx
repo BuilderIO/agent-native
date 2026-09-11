@@ -1330,6 +1330,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [],
   );
 
+  // installDragListeners already coalesces native moves to one callback per
+  // animation frame. Resize previews need that visual state update, but the
+  // persistence-facing callback belongs at the gesture boundary.
+  const updateFrameGeometryPreview = useCallback(
+    (updater: (current: FrameGeometryById) => FrameGeometryById) => {
+      const next = updater(frameGeometryRef.current);
+      frameGeometryRef.current = next;
+      setFrameGeometry(next);
+    },
+    [],
+  );
+
   // PERF9: ref-only geometry write used by beginFrameDrag's live mousemove
   // tick. Mirrors the pan/zoom gesture's applyViewToDom/scheduleViewCommit
   // split — mutate the source of truth other reads depend on
@@ -6355,7 +6367,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 minHeight: 1,
               },
             );
-          updateFrameGeometry((current) => ({
+          updateFrameGeometryPreview((current) => ({
             ...current,
             [singleRotatedFrame.id]: {
               ...state.originFrames[singleRotatedFrame.id],
@@ -6410,7 +6422,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           state.originBounds,
           snap.frame,
         );
-        updateFrameGeometry((current) => {
+        updateFrameGeometryPreview((current) => {
           const next = { ...current };
           resizedEntries.forEach((entry) => {
             next[entry.id] = {
@@ -6432,12 +6444,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const state = dragState.current;
         if (state?.type === "resize" && !state.hasMoved) {
           // Belt-and-braces restore, matching the move handler.
-          updateFrameGeometry((current) =>
+          updateFrameGeometryPreview((current) =>
             frameGeometryWithOverrides(current, state.originFrames),
           );
         }
         if (state?.type === "resize" && state.hasMoved) {
           const after = cloneFrameGeometryById(frameGeometryRef.current);
+          setFrameGeometry(after);
+          onGeometryChangeRef.current?.(after);
           onGeometryCommitRef.current?.(
             frameGeometryWithOverrides(after, state.originFrames),
             after,
@@ -6456,7 +6470,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       lockedScreenIdSet,
       onPick,
       showTransformFeedback,
-      updateFrameGeometry,
+      updateFrameGeometryPreview,
       updateSelectedIds,
       frameGeometryCenter,
       resolveSnapStepForTargets,

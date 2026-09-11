@@ -1064,6 +1064,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   });
 
   it("keeps content-fit height and breakpoint companions in sync during a side resize", async () => {
+    const onGeometryChange = vi.fn();
     const onGeometryCommit = vi.fn();
     await act(async () => {
       root.render(
@@ -1085,6 +1086,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             "screen-a": { x: 0, y: 0, width: 320, height: 200 },
           }}
           onPick={() => {}}
+          onGeometryChange={onGeometryChange}
           onGeometryCommit={onGeometryCommit}
         />,
       );
@@ -1140,11 +1142,13 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(selectionBox!.style.width).toBe("370px");
     expect(selectionBox!.style.height).toBe("1200px");
     expect(breakpointFrame!.style.left).not.toBe(beforeCompanionLeft);
+    expect(onGeometryChange).not.toHaveBeenCalled();
 
     await act(async () => {
       dispatchMouse(window, "mouseup", 450, 400);
     });
 
+    expect(onGeometryChange).toHaveBeenCalledTimes(1);
     expect(onGeometryCommit).toHaveBeenCalledTimes(1);
     expect(onGeometryCommit.mock.calls[0]?.[1]).toMatchObject({
       "screen-a": { width: 370, height: 1200 },
