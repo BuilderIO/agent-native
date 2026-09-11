@@ -378,6 +378,7 @@ function persistOverlay(): Promise<void> {
 async function restoreRuntimeState(): Promise<void> {
   const stored = await sessionStorageGet([
     "activeNativeRecording",
+    "pendingNativeRecording",
     "overlayRuntime",
     "armingNativeRecordingSessionId",
   ]);
@@ -386,8 +387,16 @@ async function restoreRuntimeState(): Promise<void> {
   );
   const hadArmingGuardBeforeRestore = armingNativeRecordingSessionId !== null;
   const rec = stored.activeNativeRecording as NativeRecording | undefined;
-  if (rec && typeof rec.sessionId === "string" && !activeNativeRecording) {
-    activeNativeRecording = rec;
+  const pendingRec = stored.pendingNativeRecording as
+    | NativeRecording
+    | undefined;
+  const restoredRecording = rec ?? pendingRec;
+  if (
+    restoredRecording &&
+    typeof restoredRecording.sessionId === "string" &&
+    !activeNativeRecording
+  ) {
+    activeNativeRecording = restoredRecording;
   }
   const freshArmingSessionId = await readFreshPersistedArmingSessionId(
     stored.armingNativeRecordingSessionId,
@@ -448,15 +457,22 @@ async function restoreRuntimeState(): Promise<void> {
         await setArmingGuard(null);
         armingRecovered = true;
       } else {
-        // Preserve a live recorder if its row was not readable during restore;
-        // cancelling it would lose media that has already crossed BEGIN.
-        console.warn(
-          "[clips-bg] live offscreen recorder has no persisted row:",
+        // A pending descriptor normally restores the row above. If it is also
+        // missing, cancel the live recorder instead of leaving it with no UI
+        // stop/discard path; the offscreen state supplies a best-effort row id.
+        await cancelRecoveredOffscreenSession(
           recoverySessionId,
+          offscreenState.activeRecordingId,
         );
+        resetOverlay();
+        await broadcastUnmount();
+        broadcastOverlayState();
+        await clearNativeRecording();
+        await setArmingGuard(null);
+        armingRecovered = true;
       }
     } else if (offscreenState?.preparedSessionId === recoverySessionId) {
-      if (hadArmingGuardBeforeRestore) {
+      if (hadArmingGuardBeforeRestore && freshArmingSessionId) {
         // This is the normal acquire/create/attach gap before BEGIN. Keep the
         // guard while the prepared streams are still owned by this arm.
       } else if (activeNativeRecording?.sessionId === recoverySessionId) {
@@ -466,10 +482,7 @@ async function restoreRuntimeState(): Promise<void> {
         await setArmingGuard(null);
         armingRecovered = true;
       } else {
-        await sendOffscreenMessage({
-          type: "CLIPS_OFFSCREEN_CANCEL",
-          sessionId: recoverySessionId,
-        }).catch(() => undefined);
+        await cancelRecoveredOffscreenSession(recoverySessionId);
         resetOverlay();
         await broadcastUnmount();
         broadcastOverlayState();
@@ -484,10 +497,7 @@ async function restoreRuntimeState(): Promise<void> {
       if (activeNativeRecording?.sessionId === recoverySessionId) {
         await cancelRecording(true);
       } else {
-        await sendOffscreenMessage({
-          type: "CLIPS_OFFSCREEN_CANCEL",
-          sessionId: recoverySessionId,
-        }).catch(() => undefined);
+        await cancelRecoveredOffscreenSession(recoverySessionId);
         if (!activeNativeRecording) {
           resetOverlay();
           await broadcastUnmount();
@@ -902,11 +912,39 @@ async function authHeaders(
 async function saveActiveNativeRecording(): Promise<void> {
   if (!activeNativeRecording) {
     await sessionStorageRemove("activeNativeRecording").catch(() => undefined);
+    await sessionStorageRemove("pendingNativeRecording").catch(() => undefined);
     return;
   }
   await sessionStorageSet({
     activeNativeRecording: activeNativeRecording,
   }).catch(() => undefined);
+}
+
+async function persistPendingNativeRecording(
+  recording: NativeRecording,
+): Promise<void> {
+  await sessionStorageSet({ pendingNativeRecording: recording });
+}
+
+async function cancelRecoveredOffscreenSession(
+  sessionId: string,
+  recordingId?: string,
+): Promise<void> {
+  await sendOffscreenMessage({
+    type: "CLIPS_OFFSCREEN_CANCEL",
+    sessionId,
+  }).catch(() => undefined);
+  if (recordingId) {
+    const settings = await readSettings();
+    await postAction(settings, "trash-recording", { id: recordingId }).catch(
+      (error) => {
+        console.warn(
+          "[clips-bg] recovered recording cleanup could not trash row",
+          error,
+        );
+      },
+    );
+  }
 }
 
 // The arming guard rejects a second CLIPS_POPUP_START while the picker +
@@ -1586,9 +1624,19 @@ async function armRecording(args: {
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
   };
-  // Persist before BEGIN so a worker restart cannot mistake a live offscreen
-  // recorder for picker-only arming and cancel it before its row is durable.
-  await saveActiveNativeRecording();
+  // Persist a descriptor before BEGIN so recovery can control or trash the
+  // server row even if the worker dies before the active state write finishes.
+  try {
+    await persistPendingNativeRecording(activeNativeRecording);
+    await saveActiveNativeRecording();
+  } catch (err) {
+    await abortArming();
+    await postAction(settings, "trash-recording", { id: created.id }).catch(
+      () => undefined,
+    );
+    await clearNativeRecording();
+    throw err;
+  }
   // 4) Start the recorder when the (already-running) countdown ends. The
   //    offscreen owns the pre-roll timer (a reliable context, unlike the
   //    suspendable worker) and reports "recording" back when it actually starts.
@@ -2864,6 +2912,11 @@ chrome.action.onClicked.addListener(() => {
     // Await restore — the click may have woken the worker, leaving the module
     // globals empty until this resolves. Without it, Stop silently does nothing.
     await ensureRestored();
+    if (armingNativeRecordingSessionId) {
+      // The action can stay disabled after a transient offscreen-status wake
+      // failure, so retry recovery from the fallback click path as well.
+      await restoreRuntimeState();
+    }
     console.log(
       "[clips-bg] icon clicked — phase:",
       overlayPhase,
