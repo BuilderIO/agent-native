@@ -25,7 +25,22 @@ export async function syncInboxLabelDelta(
 ): Promise<void> {
   const ids = threadIds.filter(Boolean);
   if (ids.length === 0) return;
-  await applyLocalLabelDelta(ownerEmail, accountEmail, ids, delta);
+  try {
+    await applyLocalLabelDelta(ownerEmail, accountEmail, ids, delta);
+  } catch (error) {
+    // Gmail already accepted this mutation before we got here — it is the
+    // source of truth and has already changed. A mirror failure must not
+    // surface as a failed/rolled-back archive/trash/read/star to the client.
+    // The next incremental history sync re-derives this row from Gmail
+    // (history records our own label changes), so this is logged and
+    // reconciled, not swallowed.
+    console.error("[inbox-store-sync] mirror failed", {
+      ownerEmail,
+      accountEmail,
+      threadIds: ids.length,
+      error,
+    });
+  }
   invalidateListCacheForOwner(ownerEmail);
 }
 

@@ -220,6 +220,55 @@ export function markInboxThreadReadOptimistic(
   );
 }
 
+/**
+ * Optimistically adjust one thread row's unread count by a single message's
+ * read/unread delta (±1), instead of setting the whole row read/unread like
+ * `markInboxThreadReadOptimistic` — for message-scoped mutations (mark one
+ * message read/unread) where other messages in the thread may still be
+ * unread. Mirrors the clamp-to-[0, messageCount] rule in
+ * server/lib/inbox-store.ts `applyLocalLabelDelta`'s message scope. The
+ * active tab's unread count only moves when the row itself crosses the
+ * zero/nonzero boundary — the tab counts unread *threads*, not messages.
+ */
+export function adjustInboxThreadUnreadOptimistic(
+  qc: QueryClient,
+  threadId: string,
+  delta: 1 | -1,
+) {
+  qc.setQueriesData<ListInboxThreadsResult>(
+    { queryKey: INBOX_THREADS_QUERY_KEY },
+    (old) => {
+      if (!old) return old;
+      let crossed: -1 | 0 | 1 = 0;
+      const items = old.items.map((item) => {
+        if (threadKeyOf(item) !== threadId) return item;
+        const nextUnreadCount = Math.max(
+          0,
+          Math.min(item.messageCount, item.unreadCount + delta),
+        );
+        if (nextUnreadCount === item.unreadCount) return item;
+        if (item.unreadCount === 0 && nextUnreadCount > 0) crossed = 1;
+        else if (item.unreadCount > 0 && nextUnreadCount === 0) crossed = -1;
+        return {
+          ...item,
+          unreadCount: nextUnreadCount,
+          isRead: nextUnreadCount === 0,
+        };
+      });
+      if (crossed === 0) return { ...old, items };
+      return {
+        ...old,
+        items,
+        tabs: old.tabs.map((tab) =>
+          tab.id === old.activeTabId
+            ? { ...tab, unread: Math.max(0, tab.unread + crossed) }
+            : tab,
+        ),
+      };
+    },
+  );
+}
+
 /** Optimistically toggle star — no tab count is derived from star state. */
 export function toggleInboxThreadsStarOptimistic(
   qc: QueryClient,

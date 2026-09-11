@@ -45,6 +45,32 @@ describe("syncInboxLabelDelta", () => {
       "owner@example.com",
     );
   });
+
+  it("swallows a mirror failure after Gmail already accepted the mutation, logging it and still invalidating the cache", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.applyLocalLabelDelta.mockRejectedValueOnce(new Error("SQL down"));
+
+    await expect(
+      syncInboxLabelDelta("owner@example.com", "acct@example.com", ["t1"], {
+        add: ["STARRED"],
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[inbox-store-sync] mirror failed",
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        accountEmail: "acct@example.com",
+        threadIds: 1,
+      }),
+    );
+    expect(mocks.invalidateListCacheForOwner).toHaveBeenCalledWith(
+      "owner@example.com",
+    );
+    consoleError.mockRestore();
+  });
 });
 
 describe("syncInboxLabelDeltaForTargets", () => {

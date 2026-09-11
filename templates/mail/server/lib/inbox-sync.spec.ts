@@ -529,4 +529,77 @@ describe("syncInboxAccount — managed workspace grant", () => {
     expect(result.state).toBe("error");
     expect(result.error).toContain("not connected");
   });
+
+  it("treats the managed account's own sent reply as self even with no per-user OAuth row", async () => {
+    // HIGH review finding: connectedEmailsLower used to build the self-address
+    // set from listOAuthAccountsByOwner alone, which is empty for a
+    // managed-only workspace grant. That let the mailbox's own sent reply be
+    // picked as the "latest received" message for classification.
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    mocks.getConnectedAccounts.mockResolvedValue(["managed@example.com"]);
+    currentRow = baseRow({
+      accountEmail: "managed@example.com",
+      historyId: "500",
+    });
+    mocks.getClientForConnectedAccount.mockResolvedValue({
+      accessToken: "managed-tok",
+      email: "managed@example.com",
+    });
+    mocks.gmailListHistory.mockResolvedValue({
+      historyId: "600",
+      history: [
+        {
+          id: "601",
+          messagesAdded: [{ message: { id: "t1-m2", threadId: "t1" } }],
+        },
+      ],
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t1",
+        data: {
+          id: "t1",
+          historyId: "600",
+          snippet: "thread snippet",
+          messages: [
+            {
+              id: "t1-m1",
+              internalDate: "1700000000000",
+              labelIds: ["INBOX"],
+              payload: {
+                headers: [
+                  { name: "From", value: "External <ext@example.com>" },
+                  { name: "To", value: "managed@example.com" },
+                  { name: "Subject", value: "Hello" },
+                ],
+              },
+            },
+            {
+              // Latest message by date, but sent from the managed account
+              // itself — must not be picked as the classification target.
+              id: "t1-m2",
+              internalDate: "1700000005000",
+              labelIds: ["INBOX"],
+              payload: {
+                headers: [
+                  { name: "From", value: "Managed <managed@example.com>" },
+                  { name: "To", value: "ext@example.com" },
+                  { name: "Subject", value: "Re: Hello" },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const result = await syncInboxAccount(OWNER, "managed@example.com", {
+      budgetMs: 5_000,
+    });
+
+    expect(result.state).toBe("ready");
+    const upserted = mocks.upsertInboxThreadRows.mock.calls[0][0];
+    expect(upserted).toHaveLength(1);
+    expect(upserted[0].fromEmail).toBe("ext@example.com");
+  });
 });

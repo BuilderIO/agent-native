@@ -23,7 +23,9 @@ import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import {
+  adjustInboxThreadUnreadOptimistic,
   INBOX_THREADS_QUERY_KEY,
+  invalidateInboxThreads,
   markInboxThreadReadOptimistic,
   removeInboxThreadsOptimistic,
   restoreInboxThreadsOptimistic,
@@ -951,10 +953,13 @@ export function useMarkRead() {
         ),
       );
       const inboxSnapshot = snapshotInboxThreads(qc);
-      markInboxThreadReadOptimistic(
+      // Message-scoped: this only touches one message, so the row's unread
+      // count must move by ±1, not snap the whole thread to read/unread —
+      // see adjustInboxThreadUnreadOptimistic's doc.
+      adjustInboxThreadUnreadOptimistic(
         qc,
-        new Set([resolvedThreadId ?? id]),
-        isRead,
+        resolvedThreadId ?? id,
+        isRead ? -1 : 1,
       );
       const restartThread = resolvedThreadId
         ? supersedeCachedThreadFetch(resolvedThreadId)
@@ -1159,11 +1164,30 @@ export function useToggleStar() {
         ),
       );
       const inboxSnapshot = snapshotInboxThreads(qc);
-      toggleInboxThreadsStarOptimistic(
-        qc,
-        new Set([resolvedThreadId ?? id]),
-        isStarred,
-      );
+      const threadKey = resolvedThreadId ?? id;
+      if (isStarred) {
+        // Starring one message stars the thread row — correct as-is.
+        toggleInboxThreadsStarOptimistic(qc, new Set([threadKey]), true);
+      } else if (previousThread) {
+        // Only clear the row's star if no OTHER message in the thread is
+        // still starred — the server never removes STARRED at message scope
+        // (see applyLocalLabelDelta), so neither should we.
+        const otherStarred = previousThread.some(
+          (message) => message.id !== id && message.isStarred,
+        );
+        if (!otherStarred) {
+          toggleInboxThreadsStarOptimistic(qc, new Set([threadKey]), false);
+        }
+      } else {
+        // Thread not cached — only safe to clear when we can see from the
+        // inbox row itself that it's a single-message thread.
+        const row = inboxSnapshot
+          .flatMap(([, data]) => data?.items ?? [])
+          .find((item) => (item.threadId || item.id) === threadKey);
+        if ((row?.messageCount ?? 1) === 1) {
+          toggleInboxThreadsStarOptimistic(qc, new Set([threadKey]), false);
+        }
+      }
       if (resolvedThreadId && previousThread) {
         setCachedThread(
           resolvedThreadId,
@@ -1283,7 +1307,11 @@ export function useUnarchiveEmail() {
         assertActionSuccess,
       );
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      invalidateInboxThreads(qc);
+    },
   });
 }
 
@@ -1294,7 +1322,11 @@ export function useUntrashEmail() {
       callAction("untrash-email", { id, accountEmail }).then(
         assertActionSuccess,
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      invalidateInboxThreads(qc);
+    },
   });
 }
 

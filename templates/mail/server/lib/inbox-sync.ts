@@ -6,7 +6,6 @@
  * messages.list page every list/count used to cost (see google-api.ts's
  * quota bucket / cooldown for why that mattered).
  */
-import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import type { InboxSyncAccountStatus } from "@shared/inbox-threads.js";
 
 import {
@@ -103,9 +102,19 @@ function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
   };
 }
 
-async function connectedEmailsLower(ownerEmail: string): Promise<Set<string>> {
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-  return new Set(accounts.map((a) => a.accountId.toLowerCase()));
+// Self-address set for the "latest received message" pick. Must include the
+// account being synced explicitly: a managed-only workspace grant has no
+// per-user OAuth row, and getConnectedAccounts drops the managed email once
+// any OAuth account exists.
+async function connectedEmailsLower(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<Set<string>> {
+  const accounts = await getConnectedAccounts(ownerEmail);
+  return new Set([
+    ...accounts.map((a) => a.toLowerCase()),
+    accountEmail.toLowerCase(),
+  ]);
 }
 
 function messageLabels(m: any): string[] {
@@ -303,7 +312,7 @@ async function runFullSyncStep(
   }
 
   let pageToken: string | undefined = row.fullSyncPageToken ?? undefined;
-  const connected = await connectedEmailsLower(ownerEmail);
+  const connected = await connectedEmailsLower(ownerEmail, accountEmail);
 
   while (Date.now() < deadline) {
     const page = await gmailListThreads(accessToken, {
@@ -428,7 +437,7 @@ async function runIncrementalSyncStep(
     }
 
     if (threadIds.size > 0) {
-      const connected = await connectedEmailsLower(ownerEmail);
+      const connected = await connectedEmailsLower(ownerEmail, accountEmail);
       await hydrateAndApply(
         accessToken,
         [...threadIds],

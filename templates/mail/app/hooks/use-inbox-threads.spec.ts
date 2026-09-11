@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
+  adjustInboxThreadUnreadOptimistic,
   inboxThreadsHasNextPage,
   markInboxThreadReadOptimistic,
   mergeInboxThreadPages,
@@ -48,6 +49,7 @@ function seedResult(overrides?: {
     unreadCount: number;
     isRead: boolean;
     isStarred: boolean;
+    messageCount?: number;
   }>;
   activeTabId?: string;
   tabs?: Array<{ id: string; total: number; unread: number }>;
@@ -194,6 +196,174 @@ describe("markInboxThreadReadOptimistic", () => {
     expect(item.isRead).toBe(false);
     expect(item.unreadCount).toBe(1);
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(3);
+  });
+});
+
+describe("adjustInboxThreadUnreadOptimistic", () => {
+  it("marking one unread message read (0/2 → still unread) does not clear the row or cross the tab boundary", () => {
+    const qc = makeClient(
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 2,
+            isRead: false,
+            isStarred: false,
+            messageCount: 2,
+          },
+        ],
+      }),
+    );
+
+    adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
+
+    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
+      "action",
+      "list-inbox-threads",
+      { tab: "important" },
+    ])!;
+    const item = result.items.find((i) => i.id === "m1")!;
+    expect(item.unreadCount).toBe(1);
+    expect(item.isRead).toBe(false);
+    // No boundary crossed (still unread) — tab count untouched.
+    expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(2);
+  });
+
+  it("marking the last unread message read crosses to read and decrements the tab count", () => {
+    const qc = makeClient(
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 1,
+            isRead: false,
+            isStarred: false,
+            messageCount: 2,
+          },
+        ],
+      }),
+    );
+
+    adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
+
+    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
+      "action",
+      "list-inbox-threads",
+      { tab: "important" },
+    ])!;
+    const item = result.items.find((i) => i.id === "m1")!;
+    expect(item.unreadCount).toBe(0);
+    expect(item.isRead).toBe(true);
+    expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(1);
+  });
+
+  it("marking a fully-read thread's message unread crosses into unread and increments the tab count", () => {
+    const qc = makeClient(
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 0,
+            isRead: true,
+            isStarred: false,
+            messageCount: 2,
+          },
+        ],
+      }),
+    );
+
+    adjustInboxThreadUnreadOptimistic(qc, "t1", 1);
+
+    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
+      "action",
+      "list-inbox-threads",
+      { tab: "important" },
+    ])!;
+    const item = result.items.find((i) => i.id === "m1")!;
+    expect(item.unreadCount).toBe(1);
+    expect(item.isRead).toBe(false);
+    expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(3);
+  });
+
+  it("clamps unreadCount to [0, messageCount] instead of over/under-flowing", () => {
+    const qc = makeClient(
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 0,
+            isRead: true,
+            isStarred: false,
+            messageCount: 2,
+          },
+        ],
+      }),
+    );
+
+    // Reading an already-read message must not push unreadCount negative.
+    adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
+
+    let result = qc.getQueryData<ReturnType<typeof seedResult>>([
+      "action",
+      "list-inbox-threads",
+      { tab: "important" },
+    ])!;
+    expect(result.items.find((i) => i.id === "m1")?.unreadCount).toBe(0);
+    // No change means no crossing — tab count untouched.
+    expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(2);
+
+    qc.setQueryData(["action", "list-inbox-threads", { tab: "important" }], {
+      ...result,
+      items: [
+        {
+          id: "m1",
+          threadId: "t1",
+          unreadCount: 2,
+          isRead: false,
+          isStarred: false,
+          messageCount: 2,
+        },
+      ],
+    });
+
+    // Marking unread past messageCount must clamp at messageCount, not exceed it.
+    adjustInboxThreadUnreadOptimistic(qc, "t1", 1);
+
+    result = qc.getQueryData<ReturnType<typeof seedResult>>([
+      "action",
+      "list-inbox-threads",
+      { tab: "important" },
+    ])!;
+    expect(result.items.find((i) => i.id === "m1")?.unreadCount).toBe(2);
+  });
+
+  it("is a no-op when the threadId doesn't match any cached row", () => {
+    const seeded = seedResult({
+      items: [
+        {
+          id: "m1",
+          threadId: "t1",
+          unreadCount: 1,
+          isRead: false,
+          isStarred: false,
+          messageCount: 2,
+        },
+      ],
+    });
+    const qc = makeClient(seeded);
+
+    adjustInboxThreadUnreadOptimistic(qc, "not-a-thread", -1);
+
+    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
+      "action",
+      "list-inbox-threads",
+      { tab: "important" },
+    ])!;
+    expect(result).toEqual(seeded);
   });
 });
 
