@@ -117,7 +117,6 @@ const JSON_LD = JSON.stringify({
         name: "Builder.io",
         url: "https://builder.io",
       },
-      codeRepository: "https://github.com/BuilderIO/agent-native",
     },
   ],
 });
@@ -252,8 +251,6 @@ export const meta = () => [
       "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   { property: "og:type", content: "website" },
-  { property: "og:url", content: SITE_URL },
-  { property: "og:site_name", content: "Agent-Native" },
 ];
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
@@ -364,6 +361,8 @@ function SeoLinks() {
   return (
     <>
       <link rel="canonical" href={canonical} />
+      <meta property="og:url" content={canonical} />
+      <meta property="og:site_name" content="Agent-Native" />
       {markdownPath ? (
         <link
           rel="alternate"
