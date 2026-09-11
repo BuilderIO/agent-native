@@ -4,7 +4,6 @@ import {
   isInBuilderFrame,
 } from "@agent-native/core/client/host";
 import {
-  normalizeWorkspaceAppHomePath,
   resolveEnvironmentTargets,
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
@@ -19,7 +18,6 @@ export interface WorkspaceAppSummary {
   name: string;
   description?: string;
   path: string;
-  homePath?: string;
   url?: string | null;
   isDispatch?: boolean;
   audience?: "internal" | "public";
@@ -295,12 +293,7 @@ export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
         })
       : null;
   }
-  const base = app.path || app.url || null;
-  if (!base || app.isDispatch) return base;
-  return workspaceAppDirectHref(
-    app,
-    normalizeWorkspaceAppHomePath(app.homePath),
-  );
+  return app.path || app.url || null;
 }
 
 export function workspaceAppEmbedTarget(

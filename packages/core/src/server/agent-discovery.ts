@@ -6,7 +6,6 @@ import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
-  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromPackageJson,
   workspaceAppRouteAccessFromPackageJson,
@@ -110,7 +109,6 @@ export interface WorkspaceAppManifestEntry {
   name: string;
   description: string;
   path: string;
-  homePath: string;
   url?: string | null;
   /** Local-only child port used to authorize loopback A2A calls. */
   port?: number;
@@ -784,7 +782,6 @@ function parseWorkspaceAppsManifest(
             : titleCase(id),
         description: typeof e.description === "string" ? e.description : "",
         path: pathValue,
-        homePath: normalizeWorkspaceAppHomePath(e.homePath),
         url: typeof e.url === "string" && e.url.trim() ? e.url.trim() : null,
         isDispatch:
           typeof e.isDispatch === "boolean" ? e.isDispatch : id === "dispatch",
@@ -882,7 +879,6 @@ function readWorkspaceAppsFromFilesystem(
         name: pkg.displayName || titleCase(entry.name),
         description: pkg.description || "",
         path: `/${entry.name}`,
-        homePath: "/home",
         isDispatch: normalizeAgentId(entry.name) === "dispatch",
         audience:
           workspaceAppAudienceFromPackageJson(pkg) ??
