@@ -34,6 +34,27 @@ test("expands shared runtime changes to every docs app site", () => {
   ]);
 });
 
+test("normalizes shared paths before selecting the preview matrix", () => {
+  assert.deepEqual(
+    previewSitesForChangedPaths(["scripts\\netlify-pr-preview-targets.ts"]),
+    [
+      "analytics",
+      "assets",
+      "calendar",
+      "clips",
+      "content",
+      "design",
+      "dispatch",
+      "forms",
+      "mail",
+      "plan",
+      "slides",
+      "starter",
+      "fw",
+    ],
+  );
+});
+
 test("previews the docs site for app changes but skips prose and hidden templates", () => {
   assert.deepEqual(
     previewSitesForChangedPaths(["packages/docs/app/routes/apps.tsx"]),
@@ -56,5 +77,34 @@ test("previews the docs site for app changes but skips prose and hidden template
     [],
   );
   assert.deepEqual(previewSitesForChangedPaths(["templates/crm/app.tsx"]), []);
+  assert.deepEqual(
+    previewSitesForChangedPaths(["templates/factory/app.tsx"]),
+    [],
+  );
   assert.deepEqual(previewSitesForChangedPaths(["docs/netlify.md"]), []);
+});
+
+test("keeps hidden templates out of the shared preview fanout", () => {
+  assert.deepEqual(
+    previewSitesForChangedPaths([
+      "packages/core/src/index.ts",
+      "templates/crm/app.tsx",
+      "templates/macros/app.tsx",
+    ]),
+    [
+      "analytics",
+      "assets",
+      "calendar",
+      "clips",
+      "content",
+      "design",
+      "dispatch",
+      "forms",
+      "mail",
+      "plan",
+      "slides",
+      "starter",
+      "fw",
+    ],
+  );
 });

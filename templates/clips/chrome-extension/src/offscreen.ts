@@ -1802,11 +1802,15 @@ function startNow(message: SimpleMessage): { ok: boolean } {
 function getRecordingState(): {
   ok: boolean;
   activeSessionId?: string;
+  activeRecordingId?: string;
   preparedSessionId?: string;
 } {
   return {
     ok: true,
     ...(activeRecording ? { activeSessionId: activeRecording.sessionId } : {}),
+    ...(activeRecording?.recordingId
+      ? { activeRecordingId: activeRecording.recordingId }
+      : {}),
     ...(prepared ? { preparedSessionId: prepared.sessionId } : {}),
   };
 }

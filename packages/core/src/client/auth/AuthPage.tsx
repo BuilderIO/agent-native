@@ -719,10 +719,6 @@ export function AuthPage(props: AuthPageProps) {
   }, []);
   const [googleBusy, setGoogleBusy] = React.useState(false);
   const [magicLinkBusy, setMagicLinkBusy] = React.useState(false);
-  const [environmentVisible, setEnvironmentVisible] = React.useState(false);
-  const [environmentOpen, setEnvironmentOpen] = React.useState(false);
-  const [environmentProductionUrl, setEnvironmentProductionUrl] =
-    React.useState("");
   const [copiedLocalMode, setCopiedLocalMode] = React.useState(false);
   const signupViewTrackedRef = React.useRef(false);
   const pendingSignupPassword = React.useRef("");
@@ -1201,34 +1197,6 @@ export function AuthPage(props: AuthPageProps) {
       // coercion-ok: beta controls are optional.
     }
   }, [localDevAllowed, props]);
-
-  React.useEffect(() => {
-    if (window.parent !== window) return;
-    const hostname = window.location.hostname.toLowerCase().replace(/\.$/, "");
-    const productionHost = hostname.startsWith("beta.")
-      ? hostname.slice("beta.".length)
-      : "";
-    if (
-      !productionHost ||
-      props.environmentBetaHosts[productionHost] !== hostname
-    ) {
-      return;
-    }
-    try {
-      const productionUrl = new URL(window.location.href);
-      productionUrl.protocol = "https:";
-      productionUrl.hostname = productionHost;
-      productionUrl.port = "";
-      productionUrl.searchParams.set(
-        props.betaOptOutQueryParam,
-        String(Date.now() + props.betaOptOutDurationMs),
-      );
-      setEnvironmentProductionUrl(productionUrl.toString());
-      setEnvironmentVisible(true);
-    } catch {
-      // coercion-ok: malformed host metadata cannot produce a useful switcher.
-    }
-  }, [props]);
 
   const stopOAuthPolling = React.useCallback(() => {
     if (oauthPollTimer.current !== null) {
@@ -2803,59 +2771,6 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
-  const environmentBadge = (
-    <div
-      className="environment-switcher"
-      id="environment-switcher"
-      hidden={!environmentVisible}
-    >
-      <button
-        type="button"
-        className="environment-badge"
-        id="environment-badge"
-        aria-expanded={environmentOpen}
-        aria-controls="environment-popover"
-        onClick={() => setEnvironmentOpen((open) => !open)}
-      >
-        beta
-      </button>
-      <div
-        className="environment-popover"
-        id="environment-popover"
-        role="dialog"
-        aria-labelledby="environment-popover-title"
-        hidden={!environmentOpen}
-      >
-        <div
-          className="environment-popover-title"
-          id="environment-popover-title"
-        >
-          You're on Agent-Native Beta
-        </div>
-        <div className="environment-popover-copy">
-          Choose where you want to continue.
-        </div>
-        <a
-          className="environment-production-link"
-          id="environment-production-link"
-          href={environmentProductionUrl}
-        >
-          Switch to production
-        </a>
-        <button
-          type="button"
-          className="environment-hide-badge"
-          id="environment-hide-badge"
-          onClick={() => {
-            setEnvironmentOpen(false);
-            setEnvironmentVisible(false);
-          }}
-        >
-          Hide badge
-        </button>
-      </div>
-    </div>
-  );
   const marketingSurface = marketingCopy ? (
     <MarketingHome
       appName={marketingCopy.appName}
@@ -2963,7 +2878,6 @@ export function AuthPage(props: AuthPageProps) {
   return (
     <>
       {localePicker}
-      {environmentBadge}
       {initialPrompt ? (
         <div className="auth-centered">{authCard}</div>
       ) : (

@@ -584,6 +584,82 @@ describe("GitHub triage client", () => {
     expect(snapshot.commentsTruncated).toBe(false);
   });
 
+  it("lists issue comments across pages and reports a readable scan", async () => {
+    const page = (start: number, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: start + index,
+        user: { login: "builderio-bot", id: 9 },
+        body: `comment ${start + index}`,
+        created_at: "2026-08-28T12:00:00Z",
+        html_url: `https://github.com/builder/factory/pull/7#c${start + index}`,
+      }));
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      if (!url.pathname.endsWith("/issues/7/comments")) {
+        throw new Error(`unexpected ${url.pathname}`);
+      }
+      return response(
+        url.searchParams.get("page") === "1" ? page(1, 100) : page(101, 3),
+      );
+    });
+
+    const scan = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).listIssueComments(repository, 7);
+
+    expect(scan.comments).toHaveLength(103);
+    expect(scan.truncated).toBe(false);
+    expect(scan.comments[0]).toEqual({
+      id: "1",
+      author: "builderio-bot",
+      body: "comment 1",
+      createdAt: "2026-08-28T12:00:00Z",
+      htmlUrl: "https://github.com/builder/factory/pull/7#c1",
+    });
+  });
+
+  // A capped scan is the case that must never read as "Factory has not asked yet".
+  it("marks an issue comment scan truncated when every page is full", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      user: { login: "reviewer", id: 2 },
+      body: "chatter",
+      created_at: "2026-08-28T12:00:00Z",
+      html_url: `https://github.com/builder/factory/pull/7#c${index + 1}`,
+    }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => response(full));
+
+    const scan = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).listIssueComments(repository, 7);
+
+    expect(scan.truncated).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
+  });
+
+  it("refuses an issue comment whose body is not a string", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response([
+        {
+          id: 5,
+          user: { login: "reviewer", id: 2 },
+          body: null,
+          created_at: "2026-08-28T12:00:00Z",
+          html_url: "https://github.com/builder/factory/pull/7#c5",
+        },
+      ]),
+    );
+
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl,
+      }).listIssueComments(repository, 7),
+    ).rejects.toThrow("issue comment body");
+  });
+
   it("fails loudly when GitHub check-run results are truncated", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
       const path = new URL(String(input)).pathname;

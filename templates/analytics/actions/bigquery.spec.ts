@@ -8,6 +8,10 @@ vi.mock("../server/lib/bigquery", () => ({
     runQuery(sql, options),
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: vi.fn(),
+}));
+
 // Imported after the mock is registered so the action picks up the stub.
 const { default: bigquery } = await import("./bigquery");
 
@@ -79,11 +83,21 @@ describe("bigquery action error handling", () => {
   });
 
   it("passes successful query results straight through", async () => {
-    runQuery.mockResolvedValue([{ week: "2026-05-11", signups: 42 }]);
+    runQuery.mockResolvedValue({
+      rows: [{ week: "2026-05-11", signups: 42 }],
+      totalRows: 1,
+      schema: [],
+      bytesProcessed: 0,
+    });
 
     const result = await bigquery.run({ sql: "SELECT 1" });
 
-    expect(result).toEqual([{ week: "2026-05-11", signups: 42 }]);
+    expect(result).toEqual({
+      rows: [{ week: "2026-05-11", signups: 42 }],
+      totalRows: 1,
+      schema: [],
+      bytesProcessed: 0,
+    });
   });
 
   it("forwards the agent run signal and stops cleanly when the run is cancelled", async () => {

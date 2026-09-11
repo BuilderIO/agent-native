@@ -119,8 +119,10 @@ export {
 } from "./workspace-app-id.js";
 export {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  DEFAULT_WORKSPACE_APP_HOME_PATH,
   WORKSPACE_APP_AUDIENCES,
   normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromEnv,
   workspaceAppAudienceFromPackageJson,

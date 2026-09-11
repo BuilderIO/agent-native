@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -20,7 +21,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Design ID to export"),
   }),
-  run: async ({ id }) => {
+  run: async ({ id }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
 
@@ -38,6 +39,19 @@ export default defineAction({
 
     const filename = exportFilename(row.title, "html");
     const saveResult = await trySaveExportFile(filename, html);
+
+    track(
+      "design_exported",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design",
+        export_format: "html",
+        file_count: exportFiles.length,
+      },
+      ctx,
+    );
 
     return { html, filename, ...saveResult, fileCount: exportFiles.length };
   },

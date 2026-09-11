@@ -3684,7 +3684,10 @@ export const config = {
 export function emitSingleTemplateNetlifyRecurringJobsFunction(
   projectCwd: string,
 ): void {
-  if (!isRecurringJobsDeployEnabled()) return;
+  // Chat recovery shares this trigger, even when user-created jobs are disabled.
+  if (!isRecurringJobsDeployEnabled() && !isDurableBackgroundDeployEnabled()) {
+    return;
+  }
   const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
   const backgroundEntry = path.join(
     internalDir,

@@ -15,6 +15,7 @@ import {
 import { assertReviewableResourceAccess } from "../registry.js";
 import {
   getReviewStatus,
+  getReviewDiscussionStateForComments,
   getReviewThreadSummary,
   queryReviewComments,
 } from "../store.js";
@@ -71,6 +72,16 @@ export default defineAction({
         targetId: args.targetId,
       }),
     ]);
+    const discussion = {
+      ...(await getReviewDiscussionStateForComments(
+        comments,
+        actionCtx?.userEmail ?? null,
+      )),
+      canReact:
+        Boolean(actionCtx?.userEmail) &&
+        roleSatisfies(access.role, "commenter"),
+      canSetThreadPreferences: Boolean(actionCtx?.userEmail),
+    };
     const profiles = await getUserProfiles(
       comments.flatMap((comment) =>
         comment.authorEmail &&
@@ -105,7 +116,13 @@ export default defineAction({
           ),
           reviewStatus: redactPublicReviewStatusIdentity(reviewStatus),
           summary,
+          discussion,
         }
-      : { comments: commentsWithCapabilities, reviewStatus, summary };
+      : {
+          comments: commentsWithCapabilities,
+          reviewStatus,
+          summary,
+          discussion,
+        };
   },
 });

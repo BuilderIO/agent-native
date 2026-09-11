@@ -324,6 +324,13 @@ describe("materializeTemplate", () => {
         2,
       )}\n`,
     );
+    // Real workspaces always have this by the time an app is scaffolded in —
+    // scaffoldWorkspaceRoot copies it from the workspace-root template first.
+    // workspacifyApp needs it to record the node-pty/node-gyp packageExtension.
+    fs.writeFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n  - apps/*\n",
+    );
 
     // Mirrors scaffoldOneAppIntoWorkspace's transform order exactly.
     const resolution = await _scaffoldAppTemplate(appDir, "chat");

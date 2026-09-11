@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -38,15 +38,15 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   run: async ({ designId, kind, sourceRef }) => {
+    await assertAccess("design", designId, "viewer");
     const db = getDb();
 
-    // Access is checked via the parent designs row (design_state has no own shares table).
-    const conditions = [
-      accessFilter(schema.designs, schema.designShares),
-      eq(schema.designState.designId, designId),
-    ];
+    // design_state has no own shares table, so the parent access check above is
+    // the authorization boundary for this child collection.
+    const conditions = [eq(schema.designState.designId, designId)];
 
     if (kind) {
       conditions.push(eq(schema.designState.kind, kind));

@@ -242,6 +242,21 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   }
 });
 
+/**
+ * New Design opens the prompt popover first; skipping it is what creates the
+ * empty shell and lands in the editor. The starting-point row and its design
+ * system picker live in the agent rail, which arrival no longer opens.
+ */
+async function startEmptyDesignFromHome(page: Page): Promise<string> {
+  await page.getByRole("button", { name: "New Design", exact: true }).click();
+  await page.getByRole("button", { name: "Skip prompt", exact: true }).click();
+  await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, { timeout: 30_000 });
+  const designId = page.url().match(/\/design\/([^/?#]+)/)?.[1];
+  if (!designId) throw new Error(`no design id in ${page.url()}`);
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  return designId;
+}
+
 test("New Design starts an empty design and fills it from a template in the rail", async ({
   page,
   request,
@@ -268,15 +283,7 @@ test("New Design starts an empty design and fills it from a template in the rail
 
     await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("load");
-    await page.getByRole("button", { name: "New Design", exact: true }).click();
-
-    // The button now creates the design and lands in the editor; the starting
-    // point is chosen there, next to the drawing tools.
-    await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
-      timeout: 30_000,
-    });
-    createdDesignId = page.url().match(/\/design\/([^/?#]+)/)?.[1];
-    expect(createdDesignId).toBeTruthy();
+    createdDesignId = await startEmptyDesignFromHome(page);
 
     const designSystemPicker = page.locator("[data-design-system-picker]");
     await expect(designSystemPicker).toBeVisible({ timeout: 30_000 });
@@ -374,12 +381,7 @@ test("choosing No design system clears the design instead of snapping back", asy
 
     await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("load");
-    await page.getByRole("button", { name: "New Design", exact: true }).click();
-    await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
-      timeout: 30_000,
-    });
-    createdDesignId = page.url().match(/\/design\/([^/?#]+)/)?.[1];
-    expect(createdDesignId).toBeTruthy();
+    createdDesignId = await startEmptyDesignFromHome(page);
 
     const trigger = page
       .locator("[data-design-system-picker]")

@@ -130,7 +130,8 @@ describe("direct recording route shell cue", () => {
     expect(toolbar).not.toContain("renderSidebarToggleButton()");
     expect(toolbar).not.toContain("renderPanelTabs()");
     expect(route).toContain("<ViewerTabsList");
-    expect(route).toContain('<ViewerTabsTrigger value="comments">');
+    expect(route).toContain('value="comments"');
+    expect(route).toContain('useState<SidePanel | null>("comments")');
     expect(route).toContain('<ViewerTabsTrigger value="transcript">');
     expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
     expect(route).toContain('<ViewerTabsTrigger value="debug">');
@@ -285,5 +286,30 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("recording.hasPassword === true");
     expect(route).toContain("const shouldFallbackToShare =");
     expect(route).toContain("playerDataUnauthorized && !session");
+  });
+
+  it("badges the Debug tab with an unviewed count instead of an always-on dot", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const debugTabStart = route.indexOf('<ViewerTabsTrigger value="debug">');
+    const debugTab = route.slice(
+      debugTabStart,
+      route.indexOf("</ViewerTabsTrigger>", debugTabStart),
+    );
+
+    expect(debugTabStart).toBeGreaterThan(-1);
+    expect(route).toContain(
+      'import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";',
+    );
+    expect(route).toContain("const unviewedDebugEventCount =");
+    expect(route).toContain('panel === "debug",');
+    expect(debugTab).toContain("unviewedDebugEventCount > 0");
+    expect(debugTab).toContain("<Badge");
+    expect(debugTab).toContain('variant="secondary"');
+    expect(debugTab).toContain('t("browserDiagnostics.unviewedCount"');
+    expect(debugTab).toContain("{unviewedDebugEventCount}");
+    // The old always-on failure dot must be gone: it never cleared and fired
+    // on console warnings, which are present on nearly every recording.
+    expect(route).not.toContain("hasBrowserDiagnosticFailures");
+    expect(route).not.toContain("browserDiagnostics.failuresPresent");
   });
 });
