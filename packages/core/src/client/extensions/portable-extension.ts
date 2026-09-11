@@ -678,6 +678,7 @@ export function buildAgentNativeExtensionHtml({
       var resizeObserver = null;
       var positionedElements = new Set();
       var motionElements = new Set();
+      var observedPositionedElements = new Set();
       var isExcludedFromHeight = function(element, body) {
         if (!element) return false;
         if (window.getComputedStyle(element).position === 'fixed') return true;
@@ -705,6 +706,7 @@ export function buildAgentNativeExtensionHtml({
         motionElements.forEach(function(element) {
           if (!document.body.contains(element)) motionElements.delete(element);
         });
+        var nextObservedPositionedElements = new Set();
         if (resizeObserver) {
           resizeObserver.observe(document.documentElement);
           resizeObserver.observe(document.body);
@@ -716,8 +718,17 @@ export function buildAgentNativeExtensionHtml({
           }
           if (resizeObserver && style.position === 'absolute') {
             resizeObserver.observe(element);
+            nextObservedPositionedElements.add(element);
           }
         });
+        if (resizeObserver && typeof resizeObserver.unobserve === 'function') {
+          observedPositionedElements.forEach(function(element) {
+            if (!nextObservedPositionedElements.has(element)) {
+              resizeObserver.unobserve(element);
+            }
+          });
+        }
+        observedPositionedElements = nextObservedPositionedElements;
       };
       var enqueueResizeWork = function(callback) {
         if (typeof window.requestAnimationFrame === 'function') {
@@ -827,10 +838,12 @@ export function buildAgentNativeExtensionHtml({
               }
             });
           }
-          if (hasIndefiniteAnimation) positionMonitorFramesRemaining -= 1;
+          if (hasFiniteAnimation || hasIndefiniteAnimation) {
+            positionMonitorFramesRemaining -= 1;
+          }
           if (
-            hasFiniteAnimation ||
-            (hasIndefiniteAnimation && positionMonitorFramesRemaining > 0)
+            (hasFiniteAnimation || hasIndefiniteAnimation) &&
+            positionMonitorFramesRemaining > 0
           ) {
             schedulePositionMonitor();
             return;
@@ -856,6 +869,9 @@ export function buildAgentNativeExtensionHtml({
         schedulePositionObservation();
         scheduleResizeWork();
         schedulePositionMonitor();
+        if (typeof scheduleAnimationProbe === 'function') {
+          scheduleAnimationProbe();
+        }
       };
       var startPositionMonitorIfActive = function() {
         var animations = activeAnimations();
@@ -989,7 +1005,10 @@ export function buildAgentNativeExtensionHtml({
         animationProbeTimer = window.setTimeout(function() {
           animationProbeTimer = null;
           startPositionMonitorIfActive();
-          scheduleAnimationProbe();
+          var animations = activeAnimations();
+          if ((animations && animations.length) || positionMonitorActive) {
+            scheduleAnimationProbe();
+          }
         }, 250);
       };
       if (typeof document.getAnimations === 'function') scheduleAnimationProbe();

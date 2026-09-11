@@ -75,6 +75,22 @@ describe("org switcher app links", () => {
     expect(apps?.[0]?.href).toBe("/mail/inbox");
   });
 
+  it("preserves legacy hosted URLs when no home path is published", () => {
+    const apps = parseWorkspaceAppLinks({
+      apps: [
+        {
+          id: "mail",
+          path: "/mail",
+          url: "https://mail.example.test/inbox?tenant=acme#today",
+        },
+      ],
+    });
+
+    expect(apps?.[0]?.href).toBe(
+      "https://mail.example.test/inbox?tenant=acme#today",
+    );
+  });
+
   it("accepts boolean-style workspace flags", () => {
     expect(
       isWorkspaceAppEnvironment({ VITE_AGENT_NATIVE_WORKSPACE: "true" }),

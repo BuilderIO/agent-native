@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readConfiguredWorkspaceAppHomePath } from "../app-config/workspace-app-config.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -322,13 +323,13 @@ export function applyWorkspaceAppMetadataOverride<
  * restart). Reading only the env var would silently downgrade the behavior
  * in both cases.
  */
-export function loadWorkspaceAppsManifest(
+export async function loadWorkspaceAppsManifest(
   strict = false,
-): WorkspaceAppManifestEntry[] | null {
+): Promise<WorkspaceAppManifestEntry[] | null> {
   return (
     readWorkspaceAppsFromEnv(strict) ??
     readWorkspaceAppsFromManifestFile(strict) ??
-    readWorkspaceAppsFromFilesystem(strict)
+    (await readWorkspaceAppsFromFilesystem(strict))
   );
 }
 
@@ -858,45 +859,46 @@ function readWorkspaceAppsFromManifestFile(
   return null;
 }
 
-function readWorkspaceAppsFromFilesystem(
+async function readWorkspaceAppsFromFilesystem(
   strict = false,
-): WorkspaceAppManifestEntry[] | null {
+): Promise<WorkspaceAppManifestEntry[] | null> {
   const workspaceRoot = findWorkspaceRoot();
   if (!workspaceRoot) return null;
   const appsDir = path.join(workspaceRoot, "apps");
   if (!fs.existsSync(appsDir)) return null;
 
-  const apps = fs
+  const apps: WorkspaceAppManifestEntry[] = [];
+  for (const entry of fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry): WorkspaceAppManifestEntry | null => {
-      const appDir = path.join(appsDir, entry.name);
-      const pkg = readJson(path.join(appDir, "package.json"));
-      if (!pkg) {
-        if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
-        return null;
-      }
-      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-      return {
-        id: normalizeAgentId(entry.name),
-        name: pkg.displayName || titleCase(entry.name),
-        description: pkg.description || "",
-        path: `/${entry.name}`,
-        homePath: "/home",
-        isDispatch: normalizeAgentId(entry.name) === "dispatch",
-        audience:
-          workspaceAppAudienceFromPackageJson(pkg) ??
-          DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: routeAccess.publicPaths ?? [],
-        protectedPaths: routeAccess.protectedPaths ?? [],
-      } satisfies WorkspaceAppManifestEntry;
-    })
-    .filter((app): app is WorkspaceAppManifestEntry => !!app)
-    .sort((a, b) => {
-      if (a.id === "dispatch") return -1;
-      if (b.id === "dispatch") return 1;
-      return a.name.localeCompare(b.name);
+    .filter((entry) => entry.isDirectory())) {
+    const appDir = path.join(appsDir, entry.name);
+    const pkg = readJson(path.join(appDir, "package.json"));
+    if (!pkg) {
+      if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
+      continue;
+    }
+    const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    apps.push({
+      id: normalizeAgentId(entry.name),
+      name: pkg.displayName || titleCase(entry.name),
+      description: pkg.description || "",
+      path: `/${entry.name}`,
+      homePath: normalizeWorkspaceAppHomePath(
+        await readConfiguredWorkspaceAppHomePath(appDir),
+      ),
+      isDispatch: normalizeAgentId(entry.name) === "dispatch",
+      audience:
+        workspaceAppAudienceFromPackageJson(pkg) ??
+        DEFAULT_WORKSPACE_APP_AUDIENCE,
+      publicPaths: routeAccess.publicPaths ?? [],
+      protectedPaths: routeAccess.protectedPaths ?? [],
     });
+  }
+  apps.sort((a, b) => {
+    if (a.id === "dispatch") return -1;
+    if (b.id === "dispatch") return 1;
+    return a.name.localeCompare(b.name);
+  });
 
   return apps.length ? apps : null;
 }
@@ -927,7 +929,7 @@ async function discoverWorkspaceAgents(
   options?: { preferLocalUrls?: boolean },
   strictMetadata = false,
 ): Promise<DiscoveredAgent[]> {
-  const workspaceApps = loadWorkspaceAppsManifest(strictMetadata);
+  const workspaceApps = await loadWorkspaceAppsManifest(strictMetadata);
   if (!workspaceApps) return [];
 
   const metadataSettings =
@@ -968,8 +970,10 @@ async function discoverWorkspaceAgents(
 }
 
 /** Resolve only the Dispatch app designated by the receiver's own manifest. */
-export function findWorkspaceDispatchAgent(): DiscoveredAgent | undefined {
-  const app = loadWorkspaceAppsManifest()?.find(
+export async function findWorkspaceDispatchAgent(): Promise<
+  DiscoveredAgent | undefined
+> {
+  const app = (await loadWorkspaceAppsManifest())?.find(
     (candidate) => candidate.isDispatch === true,
   );
   if (!app) return undefined;

@@ -154,6 +154,8 @@ function appEntryToLink(
     typeof record.icon === "string" && record.icon.trim()
       ? record.icon.trim()
       : getTemplate(id)?.icon;
+  const explicitHomePath =
+    typeof record.homePath === "string" ? record.homePath.trim() : "";
   const homePath = normalizeWorkspaceAppHomePath(record.homePath);
 
   return {
@@ -166,7 +168,9 @@ function appEntryToLink(
       ? appendPath(baseHref, "overview")
       : homePath === "/"
         ? baseHref
-        : appendPath(baseHref, homePath),
+        : explicitUrl && !explicitHomePath
+          ? baseHref
+          : appendPath(baseHref, homePath),
     description:
       typeof record.description === "string" && record.description.trim()
         ? record.description.trim()

@@ -698,9 +698,10 @@ export function buildExtensionHtml(
 	    // transient inline chat UI uses srcdoc, so detect that by parent frame.
 	    // The host listens for agent-native-extension-resize and adjusts height.
 	    if (new URLSearchParams(location.search).get('slot') || window.parent !== window) {
-	      var _ro = null;
-	      var _positionedElements = new Set();
-	      var _motionElements = new Set();
+      var _ro = null;
+      var _positionedElements = new Set();
+      var _motionElements = new Set();
+      var _observedPositionedElements = new Set();
 	      var _isExcludedFromHeight = function(element, body) {
 	        if (!element) return false;
 	        if (window.getComputedStyle(element).position === 'fixed') return true;
@@ -722,25 +723,35 @@ export function buildExtensionHtml(
 	        _motionElements.add(element);
 	        return true;
 	      };
-	      var _observePositioned = function() {
-	        if (!document.body) return;
-	        _positionedElements.clear();
-	        _motionElements.forEach(function(element) {
-	          if (!document.body.contains(element)) _motionElements.delete(element);
-	        });
-	        if (_ro) {
-	          _ro.observe(document.documentElement);
-	          _ro.observe(document.body);
-	        }
-	        Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(element) {
+      var _observePositioned = function() {
+        if (!document.body) return;
+        _positionedElements.clear();
+        _motionElements.forEach(function(element) {
+          if (!document.body.contains(element)) _motionElements.delete(element);
+        });
+        var _nextObservedPositionedElements = new Set();
+        if (_ro) {
+          _ro.observe(document.documentElement);
+          _ro.observe(document.body);
+        }
+        Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(element) {
 	          var style = window.getComputedStyle(element);
 		          if (style.position !== 'static' || style.transform !== 'none') {
 		            _positionedElements.add(element);
-		          }
-	          if (_ro && style.position === 'absolute') {
-	            _ro.observe(element);
-	          }
-		        });
+          }
+          if (_ro && style.position === 'absolute') {
+            _ro.observe(element);
+            _nextObservedPositionedElements.add(element);
+          }
+        });
+        if (_ro && typeof _ro.unobserve === 'function') {
+          _observedPositionedElements.forEach(function(element) {
+            if (!_nextObservedPositionedElements.has(element)) {
+              _ro.unobserve(element);
+            }
+          });
+        }
+        _observedPositionedElements = _nextObservedPositionedElements;
 	      };
 	      var _enqueueResizeWork = function(callback) {
 	        if (typeof window.requestAnimationFrame === 'function') {
@@ -850,10 +861,12 @@ export function buildExtensionHtml(
               }
             });
           }
-          if (hasIndefiniteAnimation) _positionMonitorFramesRemaining -= 1;
+          if (hasFiniteAnimation || hasIndefiniteAnimation) {
+            _positionMonitorFramesRemaining -= 1;
+          }
           if (
-            hasFiniteAnimation ||
-            (hasIndefiniteAnimation && _positionMonitorFramesRemaining > 0)
+            (hasFiniteAnimation || hasIndefiniteAnimation) &&
+            _positionMonitorFramesRemaining > 0
           ) {
             _schedulePositionMonitor();
             return;
@@ -875,11 +888,14 @@ export function buildExtensionHtml(
 	          _activeCssMotionCount += 1;
 	        }
 	        _positionMonitorActive = true;
-	        _positionMonitorFramesRemaining = 120;
-	        _schedulePositionObservation();
-		        _scheduleResizeWork();
-	        _schedulePositionMonitor();
-	      };
+        _positionMonitorFramesRemaining = 120;
+        _schedulePositionObservation();
+	        _scheduleResizeWork();
+        _schedulePositionMonitor();
+        if (typeof _scheduleAnimationProbe === 'function') {
+          _scheduleAnimationProbe();
+        }
+      };
 	      var _startPositionMonitorIfActive = function() {
 	        var animations = _activeAnimations();
 	        if (animations && animations.length) {
@@ -1002,7 +1018,10 @@ export function buildExtensionHtml(
         _animationProbeTimer = window.setTimeout(function() {
           _animationProbeTimer = null;
           _startPositionMonitorIfActive();
-          _scheduleAnimationProbe();
+          var animations = _activeAnimations();
+          if ((animations && animations.length) || _positionMonitorActive) {
+            _scheduleAnimationProbe();
+          }
         }, 250);
       };
 	      if (typeof document.getAnimations === 'function') _scheduleAnimationProbe();
