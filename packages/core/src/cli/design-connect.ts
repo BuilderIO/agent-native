@@ -2941,7 +2941,15 @@ export async function startDesignConnectBridge(
                     injectLiveEditBridge(
                       proxied.body.toString("utf8"),
                       new URL("/", manifest.bridgeUrl).toString(),
-                      keyedScript ?? liveEditBridgeScript,
+                      // A body-bearing navigation with no recoverable key
+                      // must not boot as whichever screen registered last.
+                      // With keyed screens present it gets no bridge at all;
+                      // its next GET recovers the frame's identity. The
+                      // unkeyed slot still serves clients that never key.
+                      keyedScript ??
+                        (method !== "GET" && liveEditBridgeScripts.size > 0
+                          ? ""
+                          : liveEditBridgeScript),
                       (() => {
                         const parsed = new URL(proxied.url);
                         const search = stripQueryPair(

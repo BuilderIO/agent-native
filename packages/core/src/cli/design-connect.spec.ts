@@ -1405,6 +1405,9 @@ describe("design connect bridge endpoints", () => {
       const noRefererPostHtml = await noRefererPost.text();
       expect(noRefererPostHtml).toContain("page /submit");
       expect(noRefererPostHtml).not.toContain("location.replace(");
+      // …and, with keyed screens registered, it boots with no bridge rather
+      // than with whichever screen registered last.
+      expect(noRefererPostHtml).not.toContain("__screenBridge");
 
       // A reload of the rewritten URL itself carries the key in the request.
       const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
