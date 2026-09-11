@@ -157,20 +157,26 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("style.overflowY");
     expect(html).toContain("auto|scroll|overlay|hidden|clip");
     expect(html).toContain("style.position === 'fixed'");
-    expect(html).toContain(
-      "window.getComputedStyle(element).position === 'absolute'",
-    );
+    expect(html).toContain("style.position === 'absolute'");
     expect(html).toContain("requestAnimationFrame");
     expect(html).toContain("_positionObservationScheduled");
     expect(html).toContain("_schedulePositionObservation");
-    expect(html).toContain("_positionMonitorFramesRemaining");
+    expect(html).toContain("_positionMonitorActive");
+    expect(html).toContain("_activeCssMotionCount");
+    expect(html).toContain("_animationProbeTimer");
     expect(html).toContain("document.getAnimations()");
+    expect(html).toContain("_positionedContent.forEach");
+    expect(html).toContain("_refreshHeightCandidates");
+    expect(html).toContain("_watchAnimationCompletion");
+    expect(html).toContain("timing.endTime !== Infinity");
+    expect(html).toContain("document.addEventListener('animationend'");
+    expect(html).toContain("document.addEventListener('transitionend'");
     expect(html).not.toContain(
       "document.addEventListener('animationiteration'",
     );
     expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");
-    expect(html).toContain("document.createTreeWalker(body, 4)");
+    expect(html).toContain("document.createTreeWalker(body, 4");
     expect(html).toContain("range.getClientRects()");
     expect(html).not.toContain("body.scrollHeight");
   });

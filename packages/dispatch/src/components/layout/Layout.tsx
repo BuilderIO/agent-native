@@ -117,6 +117,7 @@ import {
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
   workspaceAppRoute,
+  workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
@@ -1467,7 +1468,7 @@ export function Layout({
         isPathMountedWorkspaceApp(registration)
           ? workspaceAppDirectHref(
               registration,
-              registration.homePath ?? "/home",
+              workspaceAppTargetPath(registration),
             )
           : null;
       if (directHref && shouldOpenWorkspaceAppInTopWindow()) {

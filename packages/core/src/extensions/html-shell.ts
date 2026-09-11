@@ -699,6 +699,10 @@ export function buildExtensionHtml(
 	    // The host listens for agent-native-extension-resize and adjusts height.
 	    if (new URLSearchParams(location.search).get('slot') || window.parent !== window) {
 	      var _ro = null;
+	      var _positionedElements = new Set();
+	      var _motionElements = new Set();
+	      var _positionedContent = [];
+	      var _staticContentBottom = 0;
 	      var _isExcludedFromHeight = function(element, body) {
 	        if (!element) return false;
 	        if (window.getComputedStyle(element).position === 'fixed') return true;
@@ -713,16 +717,33 @@ export function buildExtensionHtml(
 	        }
 	        return false;
 	      };
+	      var _trackPositionedElement = function(element) {
+	        if (!element || element.nodeType !== 1 || _motionElements.has(element)) {
+	          return false;
+	        }
+	        _motionElements.add(element);
+	        return true;
+	      };
 	      var _observePositioned = function() {
-	        if (!_ro || !document.body) return;
-	        _ro.observe(document.documentElement);
-	        _ro.observe(document.body);
+	        if (!document.body) return;
+	        _positionedElements.clear();
+	        if (_ro) {
+	          _ro.observe(document.documentElement);
+	          _ro.observe(document.body);
+	        }
 	        Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(element) {
-	          if (window.getComputedStyle(element).position === 'absolute') {
+	          var style = window.getComputedStyle(element);
+		          if (style.position !== 'static' || style.transform !== 'none') {
+		            _positionedElements.add(element);
+		          }
+	          if (_ro && style.position === 'absolute') {
 	            _ro.observe(element);
 	          }
-	        });
-	      };
+		        });
+		        if (typeof _refreshHeightCandidates === 'function') {
+		          _refreshHeightCandidates();
+		        }
+		      };
 	      var _enqueueResizeWork = function(callback) {
 	        if (typeof window.requestAnimationFrame === 'function') {
 	          window.requestAnimationFrame(callback);
@@ -733,8 +754,30 @@ export function buildExtensionHtml(
 	      var _resizeWorkScheduled = false;
 	      var _positionObservationScheduled = false;
 	      var _positionMonitorScheduled = false;
-	      // ponytail: cap animation polling at 120 frames; target affected properties for longer motion.
+	      var _positionMonitorActive = false;
+	      var _activeCssMotionCount = 0;
+	      // ponytail: cap polling for animations without a reliable completion signal.
 	      var _positionMonitorFramesRemaining = 0;
+	      var _activeAnimations = function() {
+	        if (typeof document.getAnimations !== 'function') return null;
+	        var animations;
+	        try {
+	          animations = document.getAnimations();
+		          // coercion-ok: animation introspection can be unavailable; CSS events remain authoritative.
+		        } catch (_) {
+	          return null;
+	        }
+	        var active = [];
+	        for (var i = 0; i < animations.length; i++) {
+	          if (
+	            animations[i].playState === 'running' ||
+	            animations[i].playState === 'pending'
+	          ) {
+	            active.push(animations[i]);
+	          }
+	        }
+	        return active;
+	      };
 	      var _scheduleResizeWork = function() {
 	        if (_resizeWorkScheduled) return;
 	        _resizeWorkScheduled = true;
@@ -742,6 +785,30 @@ export function buildExtensionHtml(
 	          _resizeWorkScheduled = false;
 	          _reportHeight();
 	        });
+	      };
+	      var _watchedAnimations = [];
+	      var _removeWatchedAnimation = function(animation) {
+	        var index = _watchedAnimations.indexOf(animation);
+	        if (index !== -1) _watchedAnimations.splice(index, 1);
+	      };
+	      var _watchAnimationCompletion = function(animation) {
+	        if (_watchedAnimations.indexOf(animation) !== -1) return false;
+	        _watchedAnimations.push(animation);
+	        try {
+	          var finished = animation.finished;
+	          if (finished && typeof finished.then === 'function') {
+	            finished.then(function() {
+	              _removeWatchedAnimation(animation);
+	              _scheduleResizeWork();
+	            }, function() {
+	              _removeWatchedAnimation(animation);
+	              _scheduleResizeWork();
+	            });
+	          }
+	        } catch (_) {
+	          _removeWatchedAnimation(animation);
+	        }
+	        return true;
 	      };
 	      var _schedulePositionObservation = function() {
 	        if (_positionObservationScheduled) return;
@@ -752,32 +819,157 @@ export function buildExtensionHtml(
 	        });
 	      };
 	      var _schedulePositionMonitor = function() {
-	        if (_positionMonitorFramesRemaining <= 0) return;
+	        if (!_positionMonitorActive) return;
 	        if (_positionMonitorScheduled) return;
 	        _positionMonitorScheduled = true;
 	        _enqueueResizeWork(function() {
 	          _positionMonitorScheduled = false;
-	          _positionMonitorFramesRemaining -= 1;
-	          _scheduleResizeWork();
-	          if (typeof document.getAnimations !== 'function') return;
-	          var animations = document.getAnimations();
-	          for (var i = 0; i < animations.length; i++) {
-	            if (
-	              animations[i].playState === 'running' ||
-	              animations[i].playState === 'pending'
-	            ) {
-	              _schedulePositionMonitor();
-	              break;
-	            }
+	          if (!_positionMonitorActive) return;
+	          var body = document.body;
+	          if (!body) return;
+	          var measured = _measurePositionedContent(body.getBoundingClientRect().top);
+	          if (measured.changed) _reportPositionedHeight(measured.bottom);
+	          var animations = _activeAnimations();
+	          var hasFiniteAnimation = false;
+	          var hasIndefiniteAnimation = false;
+	          if (animations) {
+	            animations.forEach(function(animation) {
+	              var effect = animation.effect;
+	              _trackPositionedElement(effect && effect.target);
+	              _watchAnimationCompletion(animation);
+	              var timing =
+	                effect && typeof effect.getComputedTiming === 'function'
+	                  ? effect.getComputedTiming()
+	                  : null;
+	              if (timing && timing.endTime !== Infinity) {
+	                hasFiniteAnimation = true;
+	              } else {
+	                hasIndefiniteAnimation = true;
+	              }
+	            });
 	          }
+	          if (_activeCssMotionCount > 0) hasIndefiniteAnimation = true;
+	          if (hasIndefiniteAnimation) _positionMonitorFramesRemaining -= 1;
+	          if (
+	            hasFiniteAnimation ||
+	            (hasIndefiniteAnimation && _positionMonitorFramesRemaining > 0)
+	          ) {
+	            _schedulePositionMonitor();
+	            return;
+	          }
+	          _positionMonitorActive = false;
+	          _scheduleResizeWork();
 	        });
 	      };
-	      var _startPositionMonitor = function() {
-	        _positionMonitorFramesRemaining = 120;
+	      var _startPositionMonitor = function(event) {
+	        _trackPositionedElement(event && event.target);
+	        if (event && (event.type === 'animationstart' || event.type === 'transitionrun')) {
+	          _activeCssMotionCount += 1;
+		        }
+		        _positionMonitorActive = true;
+		        _positionMonitorFramesRemaining = 120;
+		        _schedulePositionObservation();
+		        _scheduleResizeWork();
 	        _schedulePositionMonitor();
 	      };
-	      var _lastH = 0;
-	      var _reportHeight = function() {
+	      var _startPositionMonitorIfActive = function() {
+	        var animations = _activeAnimations();
+	        if (animations && animations.length) {
+	          var newlyObserved = false;
+	          animations.forEach(function(animation) {
+	            var effect = animation.effect;
+            _trackPositionedElement(effect && effect.target);
+            if (_watchAnimationCompletion(animation)) newlyObserved = true;
+          });
+	          if (newlyObserved) _startPositionMonitor();
+        }
+      };
+	      var _finishPositionMonitor = function(event) {
+	        if (event && event.target) _motionElements.delete(event.target);
+	        if (_activeCssMotionCount > 0) _activeCssMotionCount -= 1;
+	        var animations = _activeAnimations();
+	        if (animations) {
+	          animations.forEach(function(animation) {
+	            var effect = animation.effect;
+	            _trackPositionedElement(effect && effect.target);
+	          });
+	        }
+	        _positionMonitorActive =
+	          (animations && animations.length > 0) ||
+	          (animations === null && _activeCssMotionCount > 0);
+	        if (_positionMonitorActive && _positionMonitorFramesRemaining <= 0) {
+	          _positionMonitorFramesRemaining = 120;
+	        }
+		        _scheduleResizeWork();
+		        if (_positionMonitorActive) _schedulePositionMonitor();
+		      };
+		      if (
+		        typeof Element !== 'undefined' &&
+		        typeof Element.prototype.animate === 'function'
+		      ) {
+		        var _nativeAnimate = Element.prototype.animate;
+		        Element.prototype.animate = function() {
+		          var animation = _nativeAnimate.apply(this, arguments);
+		          _trackPositionedElement(this);
+		          _startPositionMonitor();
+		          return animation;
+		        };
+		      }
+		      var _measureTextBottom = function(textNode, body, bodyTop) {
+		        if (
+		          !textNode ||
+		          textNode.isConnected === false ||
+		          _isExcludedFromHeight(textNode.parentElement, body)
+		        ) return 0;
+	        var range = document.createRange();
+	        range.selectNodeContents(textNode);
+	        var bottom = 0;
+	        Array.prototype.forEach.call(range.getClientRects(), function(rect) {
+	          bottom = Math.max(bottom, rect.bottom - bodyTop);
+	        });
+	        return bottom;
+	      };
+	      var _isPositionedContent = function(element, body) {
+	        var current = element;
+	        while (current && current !== body) {
+	          if (_positionedElements.has(current) || _motionElements.has(current)) return true;
+	          current = current.parentElement;
+	        }
+	        return false;
+	      };
+	      var _measurePositionedContent = function(bodyTop) {
+	        var changed = false;
+	        var bottom = 0;
+	        _positionedContent.forEach(function(entry) {
+	          var next = entry.element
+	            ? _isExcludedFromHeight(entry.element, document.body)
+	              ? 0
+	              : entry.element.getBoundingClientRect().bottom - bodyTop
+	            : _measureTextBottom(entry.textNode, document.body, bodyTop);
+	          if (next !== entry.bottom) changed = true;
+	          entry.bottom = next;
+	          bottom = Math.max(bottom, next);
+	        });
+	        return { changed: changed, bottom: bottom };
+	      };
+	      var _reportPositionedHeight = function(positionedBottom) {
+	        var body = document.body;
+	        if (!body) return;
+	        var bodyRect = body.getBoundingClientRect();
+	        var bodyStyle = window.getComputedStyle(body);
+	        var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+	        var contentBottom = Math.max(
+	          _staticContentBottom,
+	          bodyRect.height - paddingBottom,
+	          positionedBottom,
+	        );
+	        var h = Math.ceil(contentBottom + paddingBottom);
+	        if (h !== _lastH) {
+	          _lastH = h;
+	          window.parent.postMessage({ type: 'agent-native-extension-resize', height: h }, '*');
+	        }
+	      };
+	      var _refreshHeightCandidates = function() {
 	        var body = document.body;
 	        if (!body) return;
 	        var bodyRect = body.getBoundingClientRect();
@@ -785,43 +977,68 @@ export function buildExtensionHtml(
 	        var bodyStyle = window.getComputedStyle(body);
 	        var paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
 	        var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
-        var contentBottom = Math.max(paddingTop, bodyRect.height - paddingBottom);
+	        var contentBottom = Math.max(paddingTop, bodyRect.height - paddingBottom);
+	        var nextPositionedContent = [];
 	        Array.prototype.forEach.call(body.querySelectorAll('*'), function(element) {
 	          if (_isExcludedFromHeight(element, body)) return;
 	          var rect = element.getBoundingClientRect();
-	          contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+	          if (_isPositionedContent(element, body)) {
+	            nextPositionedContent.push({
+	              element: element,
+	              bottom: rect.bottom - bodyTop,
+	            });
+	          } else {
+	            contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+	          }
 	        });
 	        var textWalker = document.createTreeWalker(body, 4);
 	        var textNode;
 	        while ((textNode = textWalker.nextNode())) {
 	          if (!textNode.nodeValue || !textNode.nodeValue.trim()) continue;
-	          var range = document.createRange();
-	          range.selectNodeContents(textNode);
-	          Array.prototype.forEach.call(range.getClientRects(), function(rect) {
-	            if (_isExcludedFromHeight(textNode.parentElement, body)) return;
-	            contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
-	          });
+	          if (_isPositionedContent(textNode.parentElement, body)) {
+	            nextPositionedContent.push({
+	              textNode: textNode,
+	              bottom: _measureTextBottom(textNode, body, bodyTop),
+	            });
+	          } else {
+	            var range = document.createRange();
+	            range.selectNodeContents(textNode);
+	            Array.prototype.forEach.call(range.getClientRects(), function(rect) {
+	              if (_isExcludedFromHeight(textNode.parentElement, body)) return;
+	              contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+	            });
+	          }
 	        }
-	        var h = Math.ceil(contentBottom + paddingBottom);
-	        if (h !== _lastH) {
-	          _lastH = h;
-	          window.parent.postMessage({ type: 'agent-native-extension-resize', height: h }, '*');
-	        }
+	        _staticContentBottom = contentBottom;
+	        _positionedContent = nextPositionedContent;
+	      };
+	      var _lastH = 0;
+	      var _reportHeight = function() {
+	        var body = document.body;
+	        if (!body) return;
+	        var measured = _measurePositionedContent(body.getBoundingClientRect().top);
+	        _reportPositionedHeight(measured.bottom);
 	      };
 	      window.addEventListener('scroll', _scheduleResizeWork, true);
 	      window.addEventListener('resize', _scheduleResizeWork);
 	      document.addEventListener('animationstart', _startPositionMonitor, true);
 	      document.addEventListener('transitionrun', _startPositionMonitor, true);
 	      document.addEventListener('transitionstart', _startPositionMonitor, true);
+	      document.addEventListener('animationend', _finishPositionMonitor, true);
+	      document.addEventListener('animationcancel', _finishPositionMonitor, true);
+	      document.addEventListener('transitionend', _finishPositionMonitor, true);
+	      document.addEventListener('transitioncancel', _finishPositionMonitor, true);
 	      if (typeof ResizeObserver !== 'undefined') {
 	        _ro = new ResizeObserver(_scheduleResizeWork);
-	        document.addEventListener('DOMContentLoaded', function() {
-	          _observePositioned();
+		        document.addEventListener('DOMContentLoaded', function() {
+		          _observePositioned();
+		          _scheduleResizeWork();
+		          _startPositionMonitorIfActive();
 	          if (typeof MutationObserver !== 'undefined' && document.body) {
 	            new MutationObserver(function() {
 	              _schedulePositionObservation();
 	              _scheduleResizeWork();
-	              _schedulePositionMonitor();
+	              _startPositionMonitorIfActive();
 	            }).observe(document.body, {
 	              attributes: true,
 	              characterData: true,
@@ -834,6 +1051,16 @@ export function buildExtensionHtml(
 	      // Initial reports — Alpine takes a tick to render after DOMContentLoaded.
 	      setTimeout(_reportHeight, 50);
 	      setTimeout(_reportHeight, 250);
+	      var _animationProbeTimer = null;
+	      var _scheduleAnimationProbe = function() {
+	        if (_animationProbeTimer !== null) return;
+	        _animationProbeTimer = window.setTimeout(function() {
+	          _animationProbeTimer = null;
+	          _startPositionMonitorIfActive();
+	          _scheduleAnimationProbe();
+	        }, 250);
+	      };
+	      if (typeof document.getAnimations === 'function') _scheduleAnimationProbe();
 	    }
 
 	    window.addEventListener('message', function(event) {

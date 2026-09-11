@@ -9,9 +9,11 @@ import { fileURLToPath } from "node:url";
 
 import * as Sentry from "@sentry/node";
 
+import { readConfiguredWorkspaceAppHomePath } from "../app-config/workspace-app-config.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  normalizeWorkspaceAppHomePath,
   workspaceAppAudienceFromPackageJson,
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
@@ -30,6 +32,7 @@ export interface WorkspaceApp {
   audience: WorkspaceAppAudience;
   publicPaths: string[];
   protectedPaths: string[];
+  homePath: string;
   dir: string;
   port: number;
   process?: ChildProcess;
@@ -311,7 +314,10 @@ function shouldCaptureDiscoverAppsReadFailure(
   return code !== "EACCES" && code !== "EPERM";
 }
 
-function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
+async function discoverApps(
+  appsDir: string,
+  appPortStart: number,
+): Promise<WorkspaceApp[]> {
   if (!fs.existsSync(appsDir)) return [];
   // existsSync -> readdirSync is a TOCTOU race. Treat ENOENT as "no apps
   // right now" and let the polling sync recover.
@@ -334,27 +340,29 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
     }
     return [];
   }
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => {
-      const dir = path.join(appsDir, entry.name);
-      const pkg = readJson(path.join(dir, "package.json"));
-      if (!pkg) return null;
-      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-      return {
-        id: entry.name,
-        name: pkg.displayName || pkg.name || entry.name,
-        description: typeof pkg.description === "string" ? pkg.description : "",
-        audience:
-          workspaceAppAudienceFromPackageJson(pkg) ??
-          DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: routeAccess.publicPaths ?? [],
-        protectedPaths: routeAccess.protectedPaths ?? [],
-        dir,
-        port: appPortStart,
-      } satisfies WorkspaceApp;
-    })
-    .filter((app): app is WorkspaceApp => !!app)
+  const apps: WorkspaceApp[] = [];
+  for (const entry of entries.filter((entry) => entry.isDirectory())) {
+    const dir = path.join(appsDir, entry.name);
+    const pkg = readJson(path.join(dir, "package.json"));
+    if (!pkg) continue;
+    const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    apps.push({
+      id: entry.name,
+      name: pkg.displayName || pkg.name || entry.name,
+      description: typeof pkg.description === "string" ? pkg.description : "",
+      audience:
+        workspaceAppAudienceFromPackageJson(pkg) ??
+        DEFAULT_WORKSPACE_APP_AUDIENCE,
+      publicPaths: routeAccess.publicPaths ?? [],
+      protectedPaths: routeAccess.protectedPaths ?? [],
+      homePath: normalizeWorkspaceAppHomePath(
+        await readConfiguredWorkspaceAppHomePath(dir),
+      ),
+      dir,
+      port: appPortStart,
+    });
+  }
+  return apps
     .sort(compareApps)
     .map((app, index) => ({ ...app, port: appPortStart + index }));
 }
@@ -638,7 +646,7 @@ export async function runWorkspaceDev(
   );
   let gatewayUrl = `http://${gatewayHost}:${requestedPort}`;
 
-  const apps = discoverApps(appsDir, appPortStart);
+  const apps = await discoverApps(appsDir, appPortStart);
   if (apps.length === 0) {
     throw new Error("[workspace] No apps found under ./apps");
   }
@@ -722,12 +730,13 @@ export async function runWorkspaceDev(
         audience: workspaceApp.audience,
         publicPaths: workspaceApp.publicPaths,
         protectedPaths: workspaceApp.protectedPaths,
+        homePath: workspaceApp.homePath,
       })),
     );
   }
 
   async function syncApps(): Promise<void> {
-    const discovered = discoverApps(appsDir, appPortStart);
+    const discovered = await discoverApps(appsDir, appPortStart);
     for (const app of discovered) {
       const existing = appById.get(app.id);
       if (existing) {
@@ -736,6 +745,7 @@ export async function runWorkspaceDev(
         existing.audience = app.audience;
         existing.publicPaths = app.publicPaths;
         existing.protectedPaths = app.protectedPaths;
+        existing.homePath = app.homePath;
         existing.dir = app.dir;
         continue;
       }

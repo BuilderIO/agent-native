@@ -297,10 +297,33 @@ export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   }
   const base = app.path || app.url || null;
   if (!base || app.isDispatch) return base;
-  return workspaceAppDirectHref(
-    app,
-    normalizeWorkspaceAppHomePath(app.homePath),
-  );
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
+export function workspaceAppTargetPath(app: {
+  homePath?: string | null;
+  url?: string | null;
+}): string {
+  if (typeof app.homePath === "string") {
+    return normalizeWorkspaceAppHomePath(app.homePath);
+  }
+
+  const rawUrl = app.url?.trim();
+  if (rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      if (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        url.pathname !== "/"
+      ) {
+        return "/";
+      }
+    } catch {
+      // coercion-ok: invalid app URLs use the default app home path.
+    }
+  }
+
+  return normalizeWorkspaceAppHomePath(undefined);
 }
 
 export function workspaceAppEmbedTarget(

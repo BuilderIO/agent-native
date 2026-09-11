@@ -356,7 +356,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      url: "https://agent-workspace.builder.io/mail/home",
+      url: "https://agent-workspace.builder.io/mail",
       chrome: "minimal",
     });
     expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
@@ -405,7 +405,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "feedback-leaderboard",
-      url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard/home",
+      url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
       chrome: "minimal",
     });
     expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
@@ -439,7 +439,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
       app: "custom-sso",
-      url: "https://custom.example/custom-sso/home",
+      url: "https://custom.example/custom-sso",
       chrome: "minimal",
     });
     expect(navigateToTopWindow).toHaveBeenCalledWith("about:blank");

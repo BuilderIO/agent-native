@@ -4,6 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -318,6 +319,29 @@ describe("workspace dev startup", () => {
       publicPaths: ["/", "/pricing"],
       protectedPaths: ["/admin"],
     });
+  });
+
+  it("passes configured home paths through the local dev manifest", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    makeApp(tmpDir, "portal", { homePath: "/inbox" });
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const portalEnv = fake
+      .calls()
+      .find((call) => call.options?.env?.APP_NAME === "portal")?.options?.env;
+    expect(
+      JSON.parse(portalEnv?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]").find(
+        (app: any) => app.id === "portal",
+      ),
+    ).toMatchObject({ homePath: "/inbox" });
   });
 
   it("uses polling watchers in Builder-style remote dev environments", async () => {
@@ -811,6 +835,7 @@ function makeApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    homePath?: string;
     installVite?: boolean;
     protectedPaths?: string[];
     publicPaths?: string[];
@@ -832,6 +857,24 @@ function makeApp(
     };
   }
   fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
+  if (opts.homePath) {
+    const coreConfigPath = pathToFileURL(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../app-config/index.ts",
+      ),
+    ).href;
+    const pluginsDir = path.join(appDir, "server", "plugins");
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, "config.ts"),
+      [
+        `import { defineAppConfig } from ${JSON.stringify(coreConfigPath)};`,
+        `export default defineAppConfig({ app: { homePath: ${JSON.stringify(opts.homePath)} } });`,
+        "",
+      ].join("\n"),
+    );
+  }
   if (opts.installVite !== false) createViteBin(appDir);
 }
 

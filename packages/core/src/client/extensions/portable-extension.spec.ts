@@ -40,14 +40,20 @@ describe("portable extension runtime", () => {
     expect(html).toContain("style.overflowY");
     expect(html).toContain("auto|scroll|overlay|hidden|clip");
     expect(html).toContain("style.position === 'fixed'");
-    expect(html).toContain(
-      "window.getComputedStyle(element).position === 'absolute'",
-    );
+    expect(html).toContain("style.position === 'absolute'");
     expect(html).toContain("requestAnimationFrame");
     expect(html).toContain("positionObservationScheduled");
     expect(html).toContain("schedulePositionObservation");
-    expect(html).toContain("positionMonitorFramesRemaining");
+    expect(html).toContain("positionMonitorActive");
+    expect(html).toContain("activeCssMotionCount");
+    expect(html).toContain("animationProbeTimer");
     expect(html).toContain("document.getAnimations()");
+    expect(html).toContain("positionedContent.forEach");
+    expect(html).toContain("refreshHeightCandidates");
+    expect(html).toContain("watchAnimationCompletion");
+    expect(html).toContain("timing.endTime !== Infinity");
+    expect(html).toContain("document.addEventListener('animationend'");
+    expect(html).toContain("document.addEventListener('transitionend'");
     expect(html).not.toContain(
       "document.addEventListener('animationiteration'",
     );

@@ -23,6 +23,13 @@ describe("workspace app routes", () => {
       workspaceAppHref({ id: "mail", path: "/mail", homePath: "/inbox" }),
     ).toBe("/mail/inbox");
     expect(workspaceAppHref({ id: "mail", path: "/mail" })).toBe("/mail/home");
+    expect(
+      workspaceAppHref({
+        id: "feedback-leaderboard",
+        path: "/feedback-leaderboard",
+        url: "https://workspace.example.test/feedback-leaderboard/leaderboard",
+      }),
+    ).toBe("https://workspace.example.test/feedback-leaderboard/leaderboard");
   });
 
   it("round-trips encoded app ids", () => {

@@ -676,6 +676,8 @@ export function buildAgentNativeExtensionHtml({
       window.slotContext = slotContext;
 
       var resizeObserver = null;
+      var positionedElements = new Set();
+      var motionElements = new Set();
       var isExcludedFromHeight = function(element, body) {
         if (!element) return false;
         if (window.getComputedStyle(element).position === 'fixed') return true;
@@ -690,12 +692,30 @@ export function buildAgentNativeExtensionHtml({
         }
         return false;
       };
+      var trackPositionedElement = function(element) {
+        if (!element || element.nodeType !== 1 || motionElements.has(element)) {
+          return false;
+        }
+        motionElements.add(element);
+        return true;
+      };
       var observePositioned = function() {
-        if (!resizeObserver || !document.body) return;
-        resizeObserver.observe(document.documentElement);
-        resizeObserver.observe(document.body);
+        if (!document.body) return;
+        positionedElements.forEach(function(element) {
+          if (!document.body.contains(element)) positionedElements.delete(element);
+        });
+        motionElements.forEach(function(element) {
+          if (!document.body.contains(element)) motionElements.delete(element);
+        });
+        if (resizeObserver) {
+          resizeObserver.observe(document.documentElement);
+          resizeObserver.observe(document.body);
+        }
         Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(element) {
-          if (window.getComputedStyle(element).position === 'absolute') {
+          var style = window.getComputedStyle(element);
+          if (style.position === 'absolute') positionedElements.add(element);
+          else if (style.position !== 'static' || style.transform !== 'none') positionedElements.add(element);
+          if (resizeObserver && style.position === 'absolute') {
             resizeObserver.observe(element);
           }
         });
@@ -710,8 +730,28 @@ export function buildAgentNativeExtensionHtml({
       var resizeWorkScheduled = false;
       var positionObservationScheduled = false;
       var positionMonitorScheduled = false;
-      // ponytail: cap animation polling at 120 frames; target affected properties for longer motion.
-      var positionMonitorFramesRemaining = 0;
+      var positionMonitorActive = false;
+      var activeCssMotionCount = 0;
+      var activeAnimations = function() {
+        if (typeof document.getAnimations !== 'function') return null;
+        var animations;
+        try {
+          animations = document.getAnimations();
+        // coercion-ok: an unreadable animation list stays distinct from no active animations.
+        } catch (_) {
+          return null;
+        }
+        var active = [];
+        for (var i = 0; i < animations.length; i++) {
+          if (
+            animations[i].playState === 'running' ||
+            animations[i].playState === 'pending'
+          ) {
+            active.push(animations[i]);
+          }
+        }
+        return active;
+      };
       var scheduleResizeWork = function() {
         if (resizeWorkScheduled) return;
         resizeWorkScheduled = true;
@@ -719,6 +759,30 @@ export function buildAgentNativeExtensionHtml({
           resizeWorkScheduled = false;
           reportHeight();
         });
+      };
+      var watchedAnimations = [];
+      var removeWatchedAnimation = function(animation) {
+        var index = watchedAnimations.indexOf(animation);
+        if (index !== -1) watchedAnimations.splice(index, 1);
+      };
+      var watchAnimationCompletion = function(animation) {
+        if (watchedAnimations.indexOf(animation) !== -1) return false;
+        watchedAnimations.push(animation);
+        try {
+          var finished = animation.finished;
+          if (finished && typeof finished.then === 'function') {
+            finished.then(function() {
+              removeWatchedAnimation(animation);
+              scheduleResizeWork();
+            }, function() {
+              removeWatchedAnimation(animation);
+              scheduleResizeWork();
+            });
+          }
+        } catch (_) {
+          removeWatchedAnimation(animation);
+        }
+        return true;
       };
       var schedulePositionObservation = function() {
         if (positionObservationScheduled) return;
@@ -729,50 +793,193 @@ export function buildAgentNativeExtensionHtml({
         });
       };
       var schedulePositionMonitor = function() {
-        if (positionMonitorFramesRemaining <= 0) return;
+        if (!positionMonitorActive) return;
         if (positionMonitorScheduled) return;
         positionMonitorScheduled = true;
         enqueueResizeWork(function() {
           positionMonitorScheduled = false;
-          positionMonitorFramesRemaining -= 1;
-          scheduleResizeWork();
-          if (typeof document.getAnimations !== 'function') return;
-          var animations = document.getAnimations();
-          for (var i = 0; i < animations.length; i++) {
-            if (
-              animations[i].playState === 'running' ||
-              animations[i].playState === 'pending'
-            ) {
-              schedulePositionMonitor();
-              break;
-            }
-          }
-        });
-      };
-      var startPositionMonitor = function() {
-        positionMonitorFramesRemaining = 120;
-        schedulePositionMonitor();
-      };
-
-      function reportHeight() {
-        try {
+          if (!positionMonitorActive) return;
           var body = document.body;
           if (!body) return;
-          var bodyRect = body.getBoundingClientRect();
-          var bodyTop = bodyRect.top;
-          var bodyStyle = window.getComputedStyle(body);
-          var paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
-          var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
-          var contentBottom = Math.max(paddingTop, bodyRect.height - paddingBottom);
-          Array.prototype.forEach.call(body.querySelectorAll('*'), function(element) {
-            if (isExcludedFromHeight(element, body)) return;
-            var rect = element.getBoundingClientRect();
-            contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+          reportHeight();
+          var animations = activeAnimations();
+          var hasFiniteAnimation = false;
+          var hasIndefiniteAnimation = false;
+          if (animations) {
+            animations.forEach(function(animation) {
+              var effect = animation.effect;
+              trackPositionedElement(effect && effect.target);
+              watchAnimationCompletion(animation);
+              var timing =
+                effect && typeof effect.getComputedTiming === 'function'
+                  ? effect.getComputedTiming()
+                  : null;
+              if (timing && timing.endTime === Infinity) {
+                hasIndefiniteAnimation = true;
+              } else {
+                hasFiniteAnimation = true;
+              }
+            });
+          }
+          if (activeCssMotionCount > 0) hasFiniteAnimation = true;
+          if (
+            hasFiniteAnimation ||
+            hasIndefiniteAnimation ||
+            (animations === null && activeCssMotionCount > 0)
+          ) {
+            schedulePositionMonitor();
+            return;
+          }
+          positionMonitorActive = false;
+          scheduleResizeWork();
+        });
+      };
+      var startPositionMonitor = function(event) {
+        trackPositionedElement(event && event.target);
+        if (event && (event.type === 'animationstart' || event.type === 'transitionrun')) {
+          activeCssMotionCount += 1;
+        }
+        positionMonitorActive = true;
+        schedulePositionObservation();
+        scheduleResizeWork();
+        schedulePositionMonitor();
+      };
+      var startPositionMonitorIfActive = function() {
+        var animations = activeAnimations();
+        if (animations && animations.length) {
+          animations.forEach(function(animation) {
+            var effect = animation.effect;
+            trackPositionedElement(effect && effect.target);
+            watchAnimationCompletion(animation);
           });
-          var textWalker = document.createTreeWalker(body, 4);
-          var textNode;
-          while ((textNode = textWalker.nextNode())) {
-            if (!textNode.nodeValue || !textNode.nodeValue.trim()) continue;
+          if (!positionMonitorActive) startPositionMonitor();
+          else schedulePositionMonitor();
+        }
+      };
+      var finishPositionMonitor = function(event) {
+        if (event && event.target) motionElements.delete(event.target);
+        if (activeCssMotionCount > 0) activeCssMotionCount -= 1;
+        var animations = activeAnimations();
+        if (animations) {
+          animations.forEach(function(animation) {
+            var effect = animation.effect;
+            trackPositionedElement(effect && effect.target);
+          });
+        }
+        positionMonitorActive =
+          (animations && animations.length > 0) ||
+          (animations === null && activeCssMotionCount > 0);
+        scheduleResizeWork();
+        if (positionMonitorActive) schedulePositionMonitor();
+      };
+      if (
+        typeof Element !== 'undefined' &&
+        typeof Element.prototype.animate === 'function'
+      ) {
+        var nativeAnimate = Element.prototype.animate;
+        Element.prototype.animate = function() {
+          var animation = nativeAnimate.apply(this, arguments);
+          trackPositionedElement(this);
+          startPositionMonitor();
+          watchAnimationCompletion(animation);
+          return animation;
+        };
+      }
+
+      var measureTextBottom = function(textNode, body, bodyTop) {
+        if (
+          !textNode ||
+          textNode.isConnected === false ||
+          isExcludedFromHeight(textNode.parentElement, body)
+        ) return 0;
+        var range = document.createRange();
+        range.selectNodeContents(textNode);
+        var bottom = 0;
+        Array.prototype.forEach.call(range.getClientRects(), function(rect) {
+          bottom = Math.max(bottom, rect.bottom - bodyTop);
+        });
+        return bottom;
+      };
+      var isPositionedContent = function(element, body) {
+        var current = element;
+        while (current && current !== body) {
+          if (positionedElements.has(current) || motionElements.has(current)) return true;
+          current = current.parentElement;
+        }
+        return false;
+      };
+      var measurePositionedContent = function(bodyTop) {
+        var changed = false;
+        var bottom = 0;
+        positionedContent.forEach(function(entry) {
+          var next = entry.element
+            ? isExcludedFromHeight(entry.element, document.body)
+              ? 0
+              : entry.element.getBoundingClientRect().bottom - bodyTop
+            : measureTextBottom(entry.textNode, document.body, bodyTop);
+          if (next !== entry.bottom) changed = true;
+          entry.bottom = next;
+          bottom = Math.max(bottom, next);
+        });
+        return { changed: changed, bottom: bottom };
+      };
+      var lastReportedHeight = null;
+      var postHeight = function(height) {
+        if (height === lastReportedHeight) return;
+        lastReportedHeight = height;
+        window.parent.postMessage({
+          type: messageTypes.extension.RESIZE,
+          extensionId: extensionId,
+          slotId: slotId,
+          height: height,
+        }, '*');
+      };
+      var reportPositionedHeight = function(positionedBottom) {
+        var body = document.body;
+        if (!body) return;
+        var bodyRect = body.getBoundingClientRect();
+        var bodyStyle = window.getComputedStyle(body);
+        var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+        var contentBottom = Math.max(
+          staticContentBottom,
+          bodyRect.height - paddingBottom,
+          positionedBottom,
+        );
+        postHeight(Math.ceil(contentBottom + paddingBottom));
+      };
+
+      var refreshHeightCandidates = function() {
+        var body = document.body;
+        if (!body) return;
+        var bodyRect = body.getBoundingClientRect();
+        var bodyTop = bodyRect.top;
+        var bodyStyle = window.getComputedStyle(body);
+        var paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+        var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+        var contentBottom = Math.max(paddingTop, bodyRect.height - paddingBottom);
+        var nextPositionedContent = [];
+        Array.prototype.forEach.call(body.querySelectorAll('*'), function(element) {
+          if (isExcludedFromHeight(element, body)) return;
+          var rect = element.getBoundingClientRect();
+          if (isPositionedContent(element, body)) {
+            nextPositionedContent.push({
+              element: element,
+              bottom: rect.bottom - bodyTop,
+            });
+          } else {
+            contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+          }
+        });
+        var textWalker = document.createTreeWalker(body, 4);
+        var textNode;
+        while ((textNode = textWalker.nextNode())) {
+          if (!textNode.nodeValue || !textNode.nodeValue.trim()) continue;
+          if (isPositionedContent(textNode.parentElement, body)) {
+            nextPositionedContent.push({
+              textNode: textNode,
+              bottom: measureTextBottom(textNode, body, bodyTop),
+            });
+          } else {
             var range = document.createRange();
             range.selectNodeContents(textNode);
             Array.prototype.forEach.call(range.getClientRects(), function(rect) {
@@ -780,13 +987,18 @@ export function buildAgentNativeExtensionHtml({
               contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
             });
           }
-          var height = Math.ceil(contentBottom + paddingBottom);
-          window.parent.postMessage({
-            type: messageTypes.extension.RESIZE,
-            extensionId: extensionId,
-            slotId: slotId,
-            height: height,
-          }, '*');
+        }
+        staticContentBottom = contentBottom;
+        positionedContent = nextPositionedContent;
+      };
+
+      function reportHeight() {
+        try {
+          var body = document.body;
+          if (!body) return;
+          var measured = measurePositionedContent(body.getBoundingClientRect().top);
+          reportPositionedHeight(measured.bottom);
+          // coercion-ok: transient measurement failures are retried by later reports.
         } catch (_) {}
       }
 
@@ -796,15 +1008,21 @@ export function buildAgentNativeExtensionHtml({
       document.addEventListener('animationstart', startPositionMonitor, true);
       document.addEventListener('transitionrun', startPositionMonitor, true);
       document.addEventListener('transitionstart', startPositionMonitor, true);
+      document.addEventListener('animationend', finishPositionMonitor, true);
+      document.addEventListener('animationcancel', finishPositionMonitor, true);
+      document.addEventListener('transitionend', finishPositionMonitor, true);
+      document.addEventListener('transitioncancel', finishPositionMonitor, true);
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(scheduleResizeWork);
         var setupResizeObservation = function() {
           observePositioned();
+          scheduleResizeWork();
+          startPositionMonitorIfActive();
           if (typeof MutationObserver !== 'undefined' && document.body) {
             new MutationObserver(function() {
               schedulePositionObservation();
               scheduleResizeWork();
-              schedulePositionMonitor();
+              startPositionMonitorIfActive();
             }).observe(document.body, {
               attributes: true,
               characterData: true,
@@ -819,8 +1037,21 @@ export function buildAgentNativeExtensionHtml({
           setupResizeObservation();
         }
       } else {
-        setInterval(reportHeight, 1000);
+        setInterval(function() {
+          observePositioned();
+          reportHeight();
+        }, 1000);
       }
+      var animationProbeTimer = null;
+      var scheduleAnimationProbe = function() {
+        if (animationProbeTimer !== null) return;
+        animationProbeTimer = window.setTimeout(function() {
+          animationProbeTimer = null;
+          startPositionMonitorIfActive();
+          scheduleAnimationProbe();
+        }, 250);
+      };
+      if (typeof document.getAnimations === 'function') scheduleAnimationProbe();
 
       window.parent.postMessage({
         type: messageTypes.host.READY,

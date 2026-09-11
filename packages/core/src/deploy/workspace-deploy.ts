@@ -17,7 +17,6 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import { pathToFileURL } from "url";
 
 import {
   AGENT_BACKGROUND_PROCESSOR_A2A,
@@ -28,6 +27,7 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
+import { readConfiguredWorkspaceAppHomePath } from "../app-config/workspace-app-config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -1502,68 +1502,6 @@ async function readWorkspaceAppManifest(
     if (b.id === "dispatch") return 1;
     return a.name.localeCompare(b.name);
   });
-}
-
-async function readConfiguredWorkspaceAppHomePath(
-  appDir: string,
-): Promise<string | undefined> {
-  const pluginsDir = path.join(appDir, "server", "plugins");
-  if (!fs.existsSync(pluginsDir)) return undefined;
-
-  const pluginPaths = fs
-    .readdirSync(pluginsDir)
-    .filter((filename) => /\.(?:m?js|m?ts)$/.test(filename))
-    .filter((filename) => !/\.(?:spec|test)\./.test(filename))
-    .map((filename) => path.join(pluginsDir, filename))
-    .filter((pluginPath) => {
-      const source = fs.readFileSync(pluginPath, "utf8");
-      return (
-        path.basename(pluginPath).startsWith("config.") ||
-        /\bdefineAppConfig\s*\(/.test(source)
-      );
-    })
-    .sort();
-  if (pluginPaths.length === 0) return undefined;
-
-  const { createJiti } = await import("jiti");
-  const { getAppConfig, resetAppConfigForTests } =
-    await import("../app-config/index.js");
-  const globals = globalThis as typeof globalThis & {
-    __agentNativeAppConfig?: {
-      layers: Record<string, unknown>;
-      resolved?: unknown;
-      envSignature?: string;
-    };
-  };
-  const previousState = globals.__agentNativeAppConfig;
-  const previousLayers = previousState
-    ? { ...previousState.layers }
-    : undefined;
-  const previousResolved = previousState?.resolved;
-  const previousEnvSignature = previousState?.envSignature;
-  resetAppConfigForTests();
-  try {
-    const jiti = createJiti(pathToFileURL(pluginPaths[0]).href, {
-      interopDefault: true,
-    });
-    for (const pluginPath of pluginPaths) {
-      await jiti.import(pluginPath);
-    }
-    return getAppConfig().app.homePath;
-  } catch (error) {
-    throw new Error(
-      `Could not load workspace app configuration from ${appDir}: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
-  } finally {
-    resetAppConfigForTests();
-    if (previousState) {
-      previousState.layers = previousLayers ?? {};
-      previousState.resolved = previousResolved;
-      previousState.envSignature = previousEnvSignature;
-      globals.__agentNativeAppConfig = previousState;
-    }
-  }
 }
 
 function readExistingWorkspaceAppManifest(

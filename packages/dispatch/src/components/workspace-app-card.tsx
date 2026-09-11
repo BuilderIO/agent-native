@@ -35,6 +35,7 @@ import {
   workspaceAppDirectHref,
   workspaceAppHref,
   workspaceAppRoute,
+  workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
@@ -121,7 +122,7 @@ export function WorkspaceAppCard({
     isPathMountedWorkspaceApp(app)
       ? workspaceAppDirectHref(
           app,
-          app.isDispatch ? "/overview" : (app.homePath ?? "/home"),
+          app.isDispatch ? "/overview" : workspaceAppTargetPath(app),
         )
       : null;
   const isPending = app.status === "pending";
