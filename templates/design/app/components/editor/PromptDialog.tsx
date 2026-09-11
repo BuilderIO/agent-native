@@ -450,11 +450,17 @@ export default function PromptPopover({
   // transition with no reload and no storage clear (see useSwitchOrg). Fold
   // the active org id into the key so a draft abandoned under one account
   // never resurfaces after switching to another.
-  const { data: org } = useOrg();
+  const { data: org, isPending: orgPending } = useOrg();
   const baseDraftScope = draftScope ?? title;
-  const orgScopedDraftScope = org?.orgId
-    ? `${baseDraftScope}:${org.orgId}`
-    : baseDraftScope;
+  // Before the org query resolves, we don't yet know which account this
+  // draft belongs to. Route to a distinct "pending" bucket rather than
+  // falling back to the unscoped base key, which could otherwise restore
+  // (or later leak) a different account's abandoned draft during the brief
+  // window before `org` loads. `org?.orgId` is legitimately `null` for
+  // users with no active org, so that gets its own stable suffix too.
+  const orgScopedDraftScope = orgPending
+    ? `${baseDraftScope}:pending`
+    : `${baseDraftScope}:${org?.orgId ?? "none"}`;
   const [showStartChoice, setShowStartChoice] = useState(offerStartChoice);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);

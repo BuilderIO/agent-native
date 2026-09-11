@@ -456,9 +456,24 @@ function persistComposerDraft(
   }
 }
 
-function clearComposerDraft(draftKey: string | null): void {
+function clearComposerDraft(
+  draftKey: string | null,
+  expectedValue?: string | null,
+): void {
   if (!draftKey) return;
   try {
+    if (
+      expectedValue !== undefined &&
+      localStorage.getItem(draftKey) !== expectedValue
+    ) {
+      // A submit that started against this key may resolve long after its
+      // composer instance unmounted. If a freshly mounted composer reused
+      // the exact same scope (e.g. the host reopens the same popover before
+      // the earlier submit settles) and the visitor typed something new,
+      // localStorage now holds that newer draft — leave it alone instead of
+      // wiping out a draft this stale submit never wrote.
+      return;
+    }
     localStorage.removeItem(draftKey);
   } catch {
     // coercion-ok: browser storage is optional and can be unavailable or full.
@@ -3423,30 +3438,37 @@ export function TiptapComposer({
     return { text, references };
   }, [extractComposerPayload, syncComposerRuntimeState]);
 
-  const clearEditorAfterSubmit = useCallback(() => {
-    // A caller may close/unmount the host popover as soon as submit starts
-    // (before awaiting the round trip), which destroys this editor instance
-    // while the submit promise is still in flight. The persisted draft has
-    // no dependency on the live editor, so it must be cleared unconditionally
-    // here — gating it behind `isComposerEditorUsable` left the old prompt
-    // stuck in localStorage forever, ready to resurface on the next mount.
-    cancelScheduledDraftPersist();
-    clearComposerDraft(draftKey);
-    const ed = editor;
-    if (isComposerEditorUsable(ed)) {
-      ed.commands.clearContent();
-      setEditorHasText(false);
-      setSlotReferences([]);
-      resetComposerRuntimeState();
-    }
-    closePopover();
-  }, [
-    cancelScheduledDraftPersist,
-    closePopover,
-    draftKey,
-    editor,
-    resetComposerRuntimeState,
-  ]);
+  const clearEditorAfterSubmit = useCallback(
+    (expectedDraftSnapshot?: string | null) => {
+      // A caller may close/unmount the host popover as soon as submit starts
+      // (before awaiting the round trip), which destroys this editor instance
+      // while the submit promise is still in flight. The persisted draft has
+      // no dependency on the live editor, so it must be cleared unconditionally
+      // here — gating it behind `isComposerEditorUsable` left the old prompt
+      // stuck in localStorage forever, ready to resurface on the next mount.
+      // `expectedDraftSnapshot` guards a narrower race: a fresh composer
+      // instance may reuse this exact scope and persist its own draft before
+      // this stale submit settles, so only clear when localStorage still
+      // holds what this submit actually wrote.
+      cancelScheduledDraftPersist();
+      clearComposerDraft(draftKey, expectedDraftSnapshot);
+      const ed = editor;
+      if (isComposerEditorUsable(ed)) {
+        ed.commands.clearContent();
+        setEditorHasText(false);
+        setSlotReferences([]);
+        resetComposerRuntimeState();
+      }
+      closePopover();
+    },
+    [
+      cancelScheduledDraftPersist,
+      closePopover,
+      draftKey,
+      editor,
+      resetComposerRuntimeState,
+    ],
+  );
 
   const submitComposer = useCallback(
     async (intent: ComposerSubmitIntent = "immediate") => {
@@ -3458,6 +3480,18 @@ export function TiptapComposer({
       flushComposerDraft();
       const submittingDraftKey = draftKeyRef.current;
       const submittingDraftGeneration = draftScopeGenerationRef.current;
+      // Snapshot exactly what flushComposerDraft just persisted so a
+      // same-scope draft written by a later, unrelated composer instance
+      // (see clearComposerDraft) is never mistaken for this submission's.
+      const submittingDraftSnapshot = submittingDraftKey
+        ? (() => {
+            try {
+              return localStorage.getItem(submittingDraftKey);
+            } catch {
+              return null;
+            }
+          })()
+        : null;
       const isCurrentDraftScope = () =>
         draftKeyRef.current === submittingDraftKey &&
         draftScopeGenerationRef.current === submittingDraftGeneration;
@@ -3596,7 +3630,7 @@ export function TiptapComposer({
           return;
         }
         cancelActiveVoice();
-        clearEditorAfterSubmit();
+        clearEditorAfterSubmit(submittingDraftSnapshot);
         return;
       } else {
         composerRuntime.send();
