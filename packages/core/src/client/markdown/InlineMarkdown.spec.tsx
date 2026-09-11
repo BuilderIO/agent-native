@@ -47,7 +47,7 @@ describe("InlineMarkdown", () => {
     expect(links[0]?.rel).toBe("noopener noreferrer");
   });
 
-  it("renders list markers on block surfaces but not inline surfaces", () => {
+  it("renders lists only when a block surface opts in", () => {
     act(() => {
       root.render(
         <InlineMarkdown
@@ -59,8 +59,7 @@ describe("InlineMarkdown", () => {
     });
 
     expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
-    expect(container.querySelector("ol")?.className).toContain("list-decimal");
-    expect(container.querySelector("ul")?.className).toContain("list-disc");
+    expect(container.querySelector("ul, ol")).toBeNull();
     expect(container.querySelector("blockquote")).toBeNull();
     expect(container.textContent).toContain("Heading");
     expect(container.textContent).toContain("first item");
@@ -68,7 +67,22 @@ describe("InlineMarkdown", () => {
     act(() => {
       root.render(
         <InlineMarkdown
+          renderLists
+          content={
+            "# Heading\n\n1. first item\n2. second item\n\n- bullet item\n\n> quoted text"
+          }
+        />,
+      );
+    });
+
+    expect(container.querySelector("ol")?.className).toContain("list-decimal");
+    expect(container.querySelector("ul")?.className).toContain("list-disc");
+
+    act(() => {
+      root.render(
+        <InlineMarkdown
           inline
+          renderLists
           content={"1. first item\n2. second item\n\n**still inline**"}
         />,
       );

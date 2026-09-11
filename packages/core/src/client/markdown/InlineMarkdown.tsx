@@ -26,6 +26,7 @@ export interface InlineMarkdownProps {
   linkClassName?: string;
   codeClassName?: string;
   inline?: boolean;
+  renderLists?: boolean;
   protectedSpans?: readonly InlineMarkdownProtectedSpan[];
   renderProtectedSpan?: (
     span: InlineMarkdownProtectedSpan,
@@ -43,8 +44,9 @@ export interface InlineMarkdownProtectedSpan {
 /**
  * Render user-authored Markdown for compact text surfaces.
  *
- * Compact inline renders omit block-level Markdown. Block renders preserve
- * ordered and unordered lists; headings, quotes, and raw HTML stay omitted.
+ * Compact renders omit block-level Markdown by default. Callers that own a
+ * block surface can opt into ordered and unordered lists; headings, quotes,
+ * and raw HTML stay omitted.
  */
 export function InlineMarkdown({
   content,
@@ -52,6 +54,7 @@ export function InlineMarkdown({
   linkClassName,
   codeClassName,
   inline = false,
+  renderLists = false,
   protectedSpans = [],
   renderProtectedSpan,
 }: InlineMarkdownProps) {
@@ -116,7 +119,9 @@ export function InlineMarkdown({
     <Root className={cn("whitespace-pre-wrap break-words", className)}>
       <ReactMarkdown
         allowedElements={
-          inline ? INLINE_MARKDOWN_ELEMENTS : BLOCK_MARKDOWN_ELEMENTS
+          renderLists && !inline
+            ? BLOCK_MARKDOWN_ELEMENTS
+            : INLINE_MARKDOWN_ELEMENTS
         }
         components={components}
         remarkPlugins={[remarkGfm]}
