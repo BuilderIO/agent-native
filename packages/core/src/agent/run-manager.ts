@@ -1878,18 +1878,35 @@ export function startRun(
     // SQL poller's cursor past the slow row, permanently dropping it for
     // reconnecting clients. Terminal events surface persistence errors so the
     // caller can decide how to handle a failed final write.
-    const thisInsert = persistenceChain.then(() =>
-      insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event)),
-    );
-    persistenceChain = thisInsert.catch((error) => {
-      if (!eventPersistenceErrorCaptured) {
-        eventPersistenceErrorCaptured = true;
-        captureRunPersistenceError(error, "insert-event", {
-          seq: runEvent.seq,
-          eventType: runEvent.event.type,
-        });
+    const thisInsert = persistenceChain.then(async () => {
+      try {
+        await insertRunEvent(
+          runId,
+          runEvent.seq,
+          JSON.stringify(runEvent.event),
+        );
+      } catch (error) {
+        if (!eventPersistenceErrorCaptured) {
+          eventPersistenceErrorCaptured = true;
+          captureRunPersistenceError(error, "insert-event", {
+            seq: runEvent.seq,
+            eventType: runEvent.event.type,
+          });
+        }
+        // insertRunEvent is idempotent on (run_id, seq), so retrying the same
+        // write is safe after an uncertain acknowledgement. Keep a second
+        // failure rejected on persistenceChain so later seq values cannot
+        // commit past an event the durable stream never confirmed.
+        await insertRunEvent(
+          runId,
+          runEvent.seq,
+          JSON.stringify(runEvent.event),
+        );
       }
     });
+    // Preserve rejection on the chain. Turning this into a resolved promise
+    // lets the next event insert despite the missing sequence row.
+    persistenceChain = thisInsert;
     const persistence = thisInsert;
     if (!options?.surfacePersistenceError) {
       persistence.catch(() => {});
@@ -1984,17 +2001,37 @@ export function startRun(
       // fetch thread_data" without polling/retrying for a race window
       // where onComplete was still pending.
 
-      // 1. Await the completion callback (thread_data save). Heartbeat is
-      //    still ticking so the run doesn't look stale to any concurrent
-      //    /runs/active check while we wait for SQL writes to land.
+      // 1. Flush ordered event writes before the completion callback
+      //    (thread_data save). Heartbeat is still ticking so the run doesn't
+      //    look stale to any concurrent /runs/active check while we wait for
+      //    SQL writes to land.
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
+      let eventPersistenceError: unknown = null;
       // Populated in step 5b for errored runs; read by the terminal tracking
       // emission below so it doesn't have to re-walk diagnosticEvents.
       let runTerminalErrorCode: string | undefined;
       let runTerminalErrorDetail: string | undefined;
       let terminalPersistenceEstablished = false;
+      try {
+        await persistenceChain;
+      } catch (error) {
+        // A failed event write poisons the ordered stream. Surface the run as
+        // errored before completion work can make it look successfully done;
+        // later terminal writes must not bypass the missing sequence.
+        eventPersistenceError = error;
+        run.status = "errored";
+        pendingTerminalEvent = {
+          seq: run.events.length,
+          event: {
+            type: "error",
+            error: "Agent run ended unexpectedly",
+            errorCode: "run_event_persistence_failed",
+          },
+        };
+      }
       const resolveTerminalEventForCompletion = () => {
+        if (eventPersistenceError) return pendingTerminalEvent;
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
               seq: run.events.length,
@@ -2063,6 +2100,11 @@ export function startRun(
               terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
             : "completed";
+      // Keep the live run object aligned with the status derived from its
+      // terminal event. A runFn may return normally after stashing a typed
+      // error, so the earlier `.then()` status of "completed" is otherwise
+      // visible through StartedRun/getRun during the cleanup window.
+      run.status = finalStatus;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
         (endsAfterCompletedToolWithoutAssistantFinal(run) ||
@@ -2080,12 +2122,14 @@ export function startRun(
       if (unfinishedTurnContinuationEvent) {
         terminalEvent = unfinishedTurnContinuationEvent;
       }
-      const terminalReason = terminalReasonForRun(
-        finalStatus,
-        terminalEvent,
-        run.abortReason,
-        completionError,
-      );
+      const terminalReason = eventPersistenceError
+        ? "error:run_event_persistence_failed"
+        : terminalReasonForRun(
+            finalStatus,
+            terminalEvent,
+            run.abortReason,
+            completionError,
+          );
       // A run that stopped at a continuation boundary did not finish, so it is
       // not `completed`. Persisted directly here rather than left for
       // `setRunTerminalReason` to correct, so the row is never briefly readable
@@ -2114,8 +2158,13 @@ export function startRun(
         // insertRunEvent's `ON CONFLICT (run_id, seq) DO NOTHING`, so the
         // client would never see the terminal/continuation signal. We always
         // re-stamp the seq at emit time (max-seq+1) just below.
-        const terminalEventToEmit: AgentChatEvent =
-          finalStatus === "completed"
+        const terminalEventToEmit: AgentChatEvent = eventPersistenceError
+          ? {
+              type: "error",
+              error: "Agent run ended unexpectedly",
+              errorCode: "run_event_persistence_failed",
+            }
+          : finalStatus === "completed"
             ? (unfinishedTurnContinuationEvent ??
               terminalEventForCompletion?.event ?? { type: "done" })
             : terminalEventForCompletion?.event.type === "error" ||
@@ -2159,20 +2208,22 @@ export function startRun(
               "[run-manager] terminal event persistence error:",
               err instanceof Error ? err.message : err,
             );
-            try {
-              await insertRunEvent(
-                runId,
-                terminal.seq,
-                JSON.stringify(terminal.event),
-              );
-              terminalPersistenceError = null;
-            } catch (retryError) {
-              terminalPersistenceError = retryError;
-              captureRunError(retryError, "completion");
-              console.error(
-                "[run-manager] terminal event retry persistence error:",
-                retryError instanceof Error ? retryError.message : retryError,
-              );
+            if (!eventPersistenceError) {
+              try {
+                await insertRunEvent(
+                  runId,
+                  terminal.seq,
+                  JSON.stringify(terminal.event),
+                );
+                terminalPersistenceError = null;
+              } catch (retryError) {
+                terminalPersistenceError = retryError;
+                captureRunError(retryError, "completion");
+                console.error(
+                  "[run-manager] terminal event retry persistence error:",
+                  retryError instanceof Error ? retryError.message : retryError,
+                );
+              }
             }
           }
         }
@@ -2181,14 +2232,7 @@ export function startRun(
         run.subscribers.delete(subscriber);
       }
 
-      // 4. Stop the heartbeat — all liveness writes are done.
-      clearInterval(heartbeatTimer);
-      if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
-      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
-      if (progressWriteTimer) clearTimeout(progressWriteTimer);
-      progressWriteTimer = null;
-      progressWritePending = false;
-      // A tool can throw before its matching event is emitted, or the process
+      // 4. A tool can throw before its matching event is emitted, or the process
       // can reach terminal cleanup with an in-flight call still open. Do not
       // leave the SQL grace marker attached to a terminal run.
       if (inFlightWorkCount > 0 || inFlightMarkerSince !== null) {
@@ -2201,7 +2245,7 @@ export function startRun(
       //    status written by the reaper or a replacement run.
       try {
         await insertRunPromise;
-        if (!terminalPersistenceError) {
+        if (!terminalPersistenceError || eventPersistenceError) {
           let statusUpdated = false;
           try {
             statusUpdated = await updateRunStatusIfRunning(
@@ -2212,7 +2256,7 @@ export function startRun(
             statusUpdated = false;
           }
           if (statusUpdated) {
-            terminalPersistenceEstablished = true;
+            terminalPersistenceEstablished = !terminalPersistenceError;
             await setRunTerminalReason(runId, terminalReason);
           } else {
             terminalPersistenceEstablished =
@@ -2271,9 +2315,9 @@ export function startRun(
       }
 
       if (terminalPersistenceError) {
-        const reconciled = await reconcileTerminalRunFromEvents(runId).catch(
-          () => false,
-        );
+        const reconciled = eventPersistenceError
+          ? false
+          : await reconcileTerminalRunFromEvents(runId);
         if (!reconciled) throw terminalPersistenceError;
         terminalPersistenceEstablished = true;
       }
@@ -2304,8 +2348,15 @@ export function startRun(
           attemptCount: options?.attemptCount,
         });
       }
-
-      // 6. Schedule in-memory cleanup + opportunistic old-run pruning.
+    })
+    .finally(() => {
+      // Persistence failure must still release timers and the in-memory run.
+      clearInterval(heartbeatTimer);
+      if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
+      if (progressWriteTimer) clearTimeout(progressWriteTimer);
+      progressWriteTimer = null;
+      progressWritePending = false;
       setTimeout(() => {
         activeRuns.delete(runId);
         if (threadToRun.get(threadId) === runId) {

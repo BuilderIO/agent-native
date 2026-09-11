@@ -21,12 +21,12 @@ import {
 import { Link, useInRouterContext, useLocation } from "react-router";
 
 import { appMountPath, appMountedPath } from "../../client/api-path.js";
-import type { ExperimentDefinition } from "../../experiments/registry.js";
+import type { LabDefinition } from "../../labs/registry.js";
 import {
   buildSettingsRoute,
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
-import { ExperimentsSettings } from "../experiments/ExperimentsSettings.js";
+import { LabsSettings } from "../labs/LabsSettings.js";
 import { cn } from "../utils.js";
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
@@ -83,10 +83,10 @@ export interface SettingsTabsPageProps {
   team?: ReactNode;
   whatsNew?: ReactNode;
   extraTabs?: SettingsTabItem[];
-  /** User experiments to expose in the searchable settings surface. */
-  experiments?: readonly ExperimentDefinition[];
-  experimentsLabel?: string;
-  experimentsIntro?: string;
+  /** User labs to expose in the searchable settings surface. */
+  labs?: readonly LabDefinition[];
+  labsLabel?: string;
+  labsIntro?: string;
   generalLabel?: string;
   accountLabel?: string;
   teamLabel?: string;
@@ -160,13 +160,35 @@ function normalizeTabId(value?: string | null): string | null {
   return normalized;
 }
 
+function normalizeSettingsRoute(value: string): string {
+  const normalized = normalizeTabId(value) ?? value;
+  const legacyPrefixes = [
+    ["labs:experiments:experiment-", "labs:lab-"],
+    ["experiments:experiment-", "labs:lab-"],
+    ["experiment-", "labs:lab-"],
+  ] as const;
+  for (const [legacyPrefix, canonicalPrefix] of legacyPrefixes) {
+    if (normalized.startsWith(legacyPrefix)) {
+      return `${canonicalPrefix}${normalized.slice(legacyPrefix.length)}`;
+    }
+  }
+  return normalized;
+}
+
 function resolveTabId(
   tabs: SettingsTabItem[],
   value?: string | null,
 ): string | null {
-  const normalized = normalizeTabId(value);
+  const normalized = normalizeSettingsRoute(value ?? "");
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  // Keep old settings links working after the user-facing tab rename.
+  if (
+    (normalized === "experiments" || normalized.startsWith("experiments:")) &&
+    tabs.some((tab) => tab.id === "labs")
+  ) {
+    return "labs";
+  }
   // Legacy `#browser` deep links: the Browser Automation section now lives
   // inside the merged Integrations tab (id varies by consumer).
   if (normalized === "browser") {
@@ -277,7 +299,10 @@ function buildSettingsEntryRoute(tabId: string, section?: string): string {
 
 function updateRouteForTab(tabId: string, section?: string) {
   if (typeof window === "undefined") return;
-  const route = buildSettingsEntryRoute(tabId, section);
+  const route = buildSettingsEntryRoute(
+    tabId,
+    section ? normalizeSettingsRoute(section) : section,
+  );
   window.history.pushState(
     null,
     "",
@@ -317,9 +342,9 @@ function SettingsTabsPageContent({
   searchPlaceholder = "Search settings",
   searchEntries,
   generalSearchEntries,
-  experiments = [],
-  experimentsLabel = "Experiments",
-  experimentsIntro,
+  labs = [],
+  labsLabel = "Labs",
+  labsIntro,
   value,
   onValueChange,
   routerLocation,
@@ -353,25 +378,21 @@ function SettingsTabsPageContent({
       });
     }
     next.push(...inlineTabs);
-    if (experiments.length > 0) {
+    if (labs.length > 0) {
       next.push({
-        id: "experiments",
-        label: experimentsLabel,
+        id: "labs",
+        label: labsLabel,
         icon: IconFlask,
         keywords: "experimental unstable beta bugs feedback",
         content: (
-          <ExperimentsSettings
-            experiments={experiments}
-            title={experimentsLabel}
-            intro={experimentsIntro}
-          />
+          <LabsSettings labs={labs} title={labsLabel} intro={labsIntro} />
         ),
-        searchEntries: experiments.map((experiment) => ({
-          id: `experiment:${experiment.key}`,
-          label: experiment.displayName ?? experiment.key,
-          keywords: `${experiment.key} ${experiment.keywords ?? ""}`,
-          description: experiment.description,
-          hash: `experiment-${experiment.key}`,
+        searchEntries: labs.map((lab) => ({
+          id: `lab:${lab.key}`,
+          label: lab.displayName ?? lab.key,
+          keywords: `${lab.key} ${lab.keywords ?? ""}`,
+          description: lab.description,
+          hash: `lab-${lab.key}`,
         })),
       });
     }
@@ -399,9 +420,9 @@ function SettingsTabsPageContent({
     account,
     accountLabel,
     extraTabs,
-    experiments,
-    experimentsIntro,
-    experimentsLabel,
+    labs,
+    labsIntro,
+    labsLabel,
     general,
     generalLabel,
     generalSearchEntries,
@@ -555,8 +576,8 @@ function SettingsTabsPageContent({
   const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
   useEffect(() => {
-    if (!routerLocation || !selectedTab) return;
-    const pathname = appLocalPathname(routerLocation.pathname);
+    if (!selectedTab) return;
+    const pathname = appLocalPathname(routerLocation?.pathname);
     if (!pathname.startsWith("/settings/")) return;
     const routeValue = pathname
       .slice("/settings/".length)
@@ -570,9 +591,10 @@ function SettingsTabsPageContent({
         }
       })
       .join(":");
+    const canonicalRouteValue = normalizeSettingsRoute(routeValue);
     const prefix = `${selectedTab.id}:`;
-    if (!routeValue.startsWith(prefix)) return;
-    const section = routeValue.slice(prefix.length);
+    if (!canonicalRouteValue.startsWith(prefix)) return;
+    const section = canonicalRouteValue.slice(prefix.length);
     const targetId =
       selectedTab.searchEntries?.find(
         (entry) => normalizeTabId(entry.hash ?? entry.id) === section,

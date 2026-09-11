@@ -1307,6 +1307,26 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
   });
 
+  it.each([true, false])(
+    "keeps per-app chat recovery independent of disabled jobs (%s)",
+    async (durableChat) => {
+      process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = String(durableChat);
+      makeWorkspaceApp(tmpDir, "dispatch");
+      makeWorkspaceApp(tmpDir, "starter");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=netlify", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      });
+
+      for (const app of ["dispatch", "starter"]) {
+        expect(fs.existsSync(recurringFuncDir(app))).toBe(durableChat);
+      }
+    },
+  );
+
   it("emits scoped integration background and scheduled recovery functions when opted in", async () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
     process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
