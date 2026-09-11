@@ -121,9 +121,16 @@ export function writeDevActionDiscoveryFile(
   }
 }
 
-/** Remove the discovery file. Safe to call multiple times or when it was never written. */
+/**
+ * Remove the discovery file this process published. Safe to call multiple
+ * times or when it was never written. A file that a newer dev server has
+ * since replaced belongs to that server and is left alone — an overlapping
+ * restart must not delete the live record.
+ */
 export function removeDevActionDiscoveryFile(appRoot: string): void {
   devBridgeProcess.__agentNativeDevActionToken = undefined;
+  const current = readDevActionDiscoveryFile(appRoot);
+  if (!current || current.pid !== process.pid) return;
   try {
     fs.unlinkSync(path.join(appRoot, DISCOVERY_PATH));
   } catch (error) {
@@ -253,7 +260,10 @@ export function mountDevActionForwardRoute(
         };
       }
       const entry = actions[name];
-      if (!entry) {
+      // A CLI wrapper entry runs `pnpm action <name>` in a child process,
+      // which would read this same discovery file and forward straight back
+      // here. 404 sends the CLI down its in-process path instead.
+      if (!entry || entry.cliWrapper) {
         setResponseStatus(event, 404);
         return { ok: false, error: `Action "${name}" not found.` };
       }

@@ -32,7 +32,7 @@ import {
   type AgentNativeConfigContext,
   type AgentNativeConfigInput,
 } from "../config.js";
-import { getDatabaseUrl } from "../db/client.js";
+import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import {
@@ -2901,7 +2901,7 @@ function devActionBridgePlugin(): Plugin {
         const addr = server.httpServer?.address();
         if (!addr || typeof addr !== "object" || !addr.port) return;
         const databaseKey = hashDatabaseKey(
-          getDatabaseUrl("pglite:./data/pglite"),
+          getRuntimeDatabaseUrl("pglite:./data/pglite"),
         );
         writeDevActionDiscoveryFile(
           appRoot,

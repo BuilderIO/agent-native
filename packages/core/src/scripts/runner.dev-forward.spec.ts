@@ -15,7 +15,7 @@ const mockHashDatabaseKey = vi.hoisted(() =>
 
 vi.mock("../db/client.js", () => ({
   closeDbExec: vi.fn(async () => {}),
-  getDatabaseUrl: (...args: unknown[]) => mockGetDatabaseUrl(...args),
+  getRuntimeDatabaseUrl: (...args: unknown[]) => mockGetDatabaseUrl(...args),
   isProcessAlive: (...args: unknown[]) => mockIsProcessAlive(...args),
 }));
 vi.mock("../server/dev-action-bridge.js", () => ({
@@ -90,6 +90,39 @@ describe("tryForwardToDevServer", () => {
     mockIsProcessAlive.mockReturnValue(true);
     await tryForwardToDevServer("do-thing", []);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("runs in-process, sending nothing, when the discovery origin is not the loopback dev server", async () => {
+    for (const origin of [
+      "http://evil.example",
+      "https://127.0.0.1:1",
+      "http://localhost:1",
+      "http://127.0.0.1:1/path",
+      "not a url",
+    ]) {
+      mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery({ origin }));
+      mockIsProcessAlive.mockReturnValue(true);
+      process.env.AGENT_USER_EMAIL = "dev@example.com";
+      await tryForwardToDevServer("do-thing", []);
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it("exits 1 with the normal failure message when the forwarded arguments don't parse", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    const exit = mockExit();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      tryForwardToDevServer("do-thing", ["{not json"]),
+    ).rejects.toThrow("process.exit(1)");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      'Action "do-thing" failed:',
+      expect.any(String),
+    );
+    expect(exit).toHaveBeenCalledWith(1);
   });
 
   it("runs in-process when the dev server isn't actually reachable", async () => {

@@ -96,6 +96,22 @@ describe("dev action discovery file", () => {
     expect(getDevActionToken()).toBeUndefined();
   });
 
+  it("leaves a discovery file that a newer dev server has replaced", () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const filePath = path.join(tmpDir, ".agent-native", "dev-server.json");
+    const replaced = {
+      origin: "http://127.0.0.1:2",
+      pid: process.pid + 1,
+      token: "newer",
+      databaseKey: "k",
+    };
+    fs.writeFileSync(filePath, JSON.stringify(replaced));
+
+    removeDevActionDiscoveryFile(tmpDir);
+    expect(JSON.parse(fs.readFileSync(filePath, "utf8"))).toEqual(replaced);
+    expect(getDevActionToken()).toBeUndefined();
+  });
+
   it("removing twice, or a directory that never had one, is a no-op", () => {
     expect(() => removeDevActionDiscoveryFile(tmpDir)).not.toThrow();
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
@@ -202,6 +218,23 @@ describe("mountDevActionForwardRoute", () => {
     const response = await handler(event);
     expect(response.ok).toBe(false);
     expect(event._status).toBe(404);
+  });
+
+  it("returns 404 for a CLI wrapper entry instead of forwarding back into pnpm action", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    const run = vi.fn();
+    const handler = mountedHandler({
+      "wrapped-script": { cliWrapper: true, tool: {}, run } as any,
+    });
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: token },
+      _body: { name: "wrapped-script" },
+    };
+    const response = await handler(event);
+    expect(response.ok).toBe(false);
+    expect(event._status).toBe(404);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("runs a registered action under caller cli with the header identity and returns its result", async () => {

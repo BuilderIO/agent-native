@@ -808,6 +808,10 @@ export interface ActionEntry {
    *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Set on the bash-wrapper fallback entries the agent-chat plugin builds for
+   *  CLI-style scripts: their `run` shells out to `pnpm action <name>`, so
+   *  surfaces that already run inside the server must not invoke them. */
+  cliWrapper?: boolean;
   /** Optional deep-link builder. When set, MCP/A2A surfaces append an
    *  "Open in <app> →" link built from the call's args + result. Pure, sync,
    *  best-effort. See `defineAction` and the `external-agents` skill. */

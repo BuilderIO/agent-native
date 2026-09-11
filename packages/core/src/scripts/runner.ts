@@ -17,7 +17,11 @@ import { pathToFileURL } from "url";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
-import { closeDbExec, getDatabaseUrl, isProcessAlive } from "../db/client.js";
+import {
+  closeDbExec,
+  getRuntimeDatabaseUrl,
+  isProcessAlive,
+} from "../db/client.js";
 import {
   actionCallIsReadOnly,
   notifyActionChange,
@@ -339,10 +343,27 @@ export async function tryForwardToDevServer(
 ): Promise<void> {
   const discovery = readDevActionDiscoveryFile(process.cwd());
   if (!discovery || !isProcessAlive(discovery.pid)) return;
+  // The file is the only source of the origin, and the request carries the
+  // dev token plus the caller's identity headers: only ever send those to the
+  // loopback origin the dev server publishes for itself.
+  if (!isLoopbackDevActionOrigin(discovery.origin)) return;
+  // Same resolver the running server's request-time clients use, so an app
+  // configured with a runtime/unpooled URL still produces a matching key.
   const ourDatabaseKey = hashDatabaseKey(
-    getDatabaseUrl("pglite:./data/pglite"),
+    getRuntimeDatabaseUrl("pglite:./data/pglite"),
   );
   if (discovery.databaseKey !== ourDatabaseKey) return;
+
+  let input: Record<string, unknown>;
+  try {
+    input = parseActionArgs(args, { coerceBooleans: true });
+  } catch (error) {
+    console.error(
+      `Action "${actionName}" failed:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    process.exit(1);
+  }
 
   let response: Response;
   try {
@@ -358,10 +379,7 @@ export async function tryForwardToDevServer(
           ? { [DEV_ACTION_ORG_HEADER]: process.env.AGENT_ORG_ID }
           : {}),
       },
-      body: JSON.stringify({
-        name: actionName,
-        input: parseActionArgs(args, { coerceBooleans: true }),
-      }),
+      body: JSON.stringify({ name: actionName, input }),
     });
   } catch {
     // The dev server isn't actually listening (stale discovery file,
@@ -400,6 +418,22 @@ export async function tryForwardToDevServer(
     assertCliHandoffLaunched(printActionResult(body.result));
   }
   process.exit(0);
+}
+
+function isLoopbackDevActionOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return (
+      url.protocol === "http:" &&
+      url.hostname === "127.0.0.1" &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    // coercion-ok: an unparseable origin is simply not a dev server to trust.
+    return false;
+  }
 }
 
 function coerceCliValue(
