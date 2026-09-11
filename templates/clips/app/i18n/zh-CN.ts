@@ -632,9 +632,11 @@ const messages = {
     downloadAgain: "没有成功？请再次下载",
     alsoFor: "也可用于 {{platform}}",
     backToLibrary: "返回资料库",
-    clipsDesktop: "Clips 桌面版",
+    clipsDesktop: "下载 Clips",
     stable: "稳定版",
     nightly: "Nightly",
+    allPlatforms: "所有平台",
+    releaseChannel: "发布渠道",
     switchToNightly: "切换到 Nightly 构建",
     switchToStable: "切换到稳定版构建",
     retry: "重试",
@@ -1283,13 +1285,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (已本地化)",
     chromeTitle: "Chrome extension (已本地化)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (已本地化)",
+    chromeDescription: "使用 Chrome 扩展程序捕获浏览器标签页。",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (已本地化)",
     desktopTitle: "Desktop app (已本地化)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (已本地化)",
+    desktopDescription: "使用全局快捷键和系统音频录制。",
     openDesktopApp: "Open desktop app (已本地化)",
   },
   editableTitle: {
