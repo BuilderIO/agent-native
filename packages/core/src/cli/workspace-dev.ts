@@ -705,6 +705,7 @@ export async function runWorkspaceDev(
   const redirectRootToDefault = Boolean(explicitDefaultApp || hasDispatch);
 
   let syncTimer: NodeJS.Timeout | undefined;
+  let syncInFlight: Promise<void> | undefined;
   let shuttingDown = false;
   let workspaceStarted = false;
 
@@ -736,27 +737,36 @@ export async function runWorkspaceDev(
   }
 
   async function syncApps(): Promise<void> {
-    const discovered = await discoverApps(appsDir, appPortStart);
-    for (const app of discovered) {
-      const existing = appById.get(app.id);
-      if (existing) {
-        existing.name = app.name;
-        existing.description = app.description;
-        existing.audience = app.audience;
-        existing.publicPaths = app.publicPaths;
-        existing.protectedPaths = app.protectedPaths;
-        existing.homePath = app.homePath;
-        existing.dir = app.dir;
-        continue;
+    if (syncInFlight) return syncInFlight;
+    const run = (async () => {
+      const discovered = await discoverApps(appsDir, appPortStart);
+      for (const app of discovered) {
+        const existing = appById.get(app.id);
+        if (existing) {
+          existing.name = app.name;
+          existing.description = app.description;
+          existing.audience = app.audience;
+          existing.publicPaths = app.publicPaths;
+          existing.protectedPaths = app.protectedPaths;
+          existing.homePath = app.homePath;
+          existing.dir = app.dir;
+          continue;
+        }
+        const usedPorts = new Set(apps.map((existingApp) => existingApp.port));
+        const port = await reserveAppPort(appPortStart, usedPorts);
+        reservedAppPorts.add(port);
+        const next = { ...app, port };
+        apps.push(next);
+        apps.sort(compareApps);
+        appById.set(next.id, next);
+        stdout.write(`[workspace] Detected new app: /${next.id}\n`);
       }
-      const usedPorts = new Set(apps.map((existingApp) => existingApp.port));
-      const port = await reserveAppPort(appPortStart, usedPorts);
-      reservedAppPorts.add(port);
-      const next = { ...app, port };
-      apps.push(next);
-      apps.sort(compareApps);
-      appById.set(next.id, next);
-      stdout.write(`[workspace] Detected new app: /${next.id}\n`);
+    })();
+    syncInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (syncInFlight === run) syncInFlight = undefined;
     }
   }
 
