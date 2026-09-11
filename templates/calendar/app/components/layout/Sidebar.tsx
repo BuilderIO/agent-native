@@ -9,6 +9,7 @@ import {
   FeedbackButton,
   type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
+import type { GoogleCalendarSource, OverlayPerson } from "@shared/api";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconCalendar,
@@ -89,6 +90,7 @@ import {
 } from "@/lib/calendar-view-preferences";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
+import { isPersonCalendarId } from "@/lib/person-calendar";
 import { cn } from "@/lib/utils";
 
 import { useCalendarContext } from "./AppLayout";
@@ -427,16 +429,22 @@ function ColorPickerPopover({
   );
 }
 
-function GoogleCalendarsSections({
-  onClose,
-  section = "owned",
-}: {
-  onClose: () => void;
-  section?: "owned" | "other";
-}) {
+function otherCalendarLabel(calendar: GoogleCalendarSource): string {
+  return isPersonCalendarId(calendar.calendarId)
+    ? calendar.calendarId
+    : calendar.name;
+}
+
+interface OtherCalendarItem {
+  key: string;
+  label: string;
+  google?: GoogleCalendarSource;
+  person?: OverlayPerson;
+}
+
+function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
   const t = useT();
   const { setAddCalendarOpen, setAddCalendarDefaultTab } = useCalendarContext();
-  const [showAllCalendars, setShowAllCalendars] = useState(false);
   const { data: calendars, enabled } = useGoogleCalendars();
   const {
     prefs: {
@@ -461,15 +469,11 @@ function GoogleCalendarsSections({
   const ownedCalendars = readableCalendars.filter(
     (calendar) => calendar.accessRole === "owner",
   );
-  const otherCalendars = readableCalendars.filter(
-    (calendar) => calendar.accessRole !== "owner",
-  );
   function renderCalendarRow(calendar: (typeof readableCalendars)[number]) {
     const preferenceKey = calendar.canonicalKey;
-    const displayName =
-      section === "owned" && calendar.primary
-        ? calendar.accountEmail
-        : calendar.name;
+    const displayName = calendar.primary
+      ? calendar.accountEmail
+      : calendar.name;
     const visible =
       googleCalendarVisibility[preferenceKey] ??
       (calendar.primary || calendar.selected);
@@ -599,8 +603,7 @@ function GoogleCalendarsSections({
 
   return (
     <div className="px-1.5 py-1.5">
-      {section === "owned" && (
-        <div className="mb-1 flex min-h-8 items-center justify-between px-3">
+      <div className="mb-1 flex min-h-8 items-center justify-between px-3">
           <div className="flex items-center">
             <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               {t("sidebar.myCalendars")}
@@ -630,33 +633,12 @@ function GoogleCalendarsSections({
               </TooltipTrigger>
               <TooltipContent>
                 {t("sidebar.googleCalendarSettings")}
-              </TooltipContent>
-            </Tooltip>
-          </div>
+            </TooltipContent>
+          </Tooltip>
         </div>
-      )}
+      </div>
 
-      {enabled &&
-        (section === "owned"
-          ? ownedCalendars
-          : showAllCalendars
-            ? otherCalendars
-            : otherCalendars.slice(0, 8)
-        ).map(renderCalendarRow)}
-      {enabled && section === "other" && otherCalendars.length > 8 && (
-        <button
-          type="button"
-          onClick={() => setShowAllCalendars((current) => !current)}
-          className="mx-3 mt-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {
-            showAllCalendars
-              ? t("common.showLess") // i18n-key-ignore generated calendar catalog
-              : t("common.showMore") // i18n-key-ignore generated calendar catalog
-          }{" "}
-          ({otherCalendars.length - 8})
-        </button>
-      )}
+      {enabled && ownedCalendars.map(renderCalendarRow)}
     </div>
   );
 }
@@ -678,10 +660,17 @@ export function Sidebar({
     toggleHiddenCalendar,
     isHiddenCalendar,
   } = useCalendarContext();
-  const googleStatus = useGoogleAuthStatus();
+const googleStatus = useGoogleAuthStatus();
   const { data: rawOverlayPeople } = useOverlayPeople();
-  const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
-  const removePerson = useRemoveOverlayPerson();
+  const overlayPeople = useMemo(
+    () =>
+      (Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [])
+        .slice()
+        .sort((a, b) =>
+          a.email.localeCompare(b.email, undefined, { sensitivity: "base" }),
+        ),
+    [rawOverlayPeople],
+  );
   const updatePersonColor = useUpdateOverlayPersonColor();
   const overlayEmails = useMemo(
     () => overlayPeople.map((person) => person.email),
@@ -699,16 +688,101 @@ export function Sidebar({
     () => shouldOfferGoogleOAuthSetup(),
     [],
   );
-  const [peopleGroupOpen, setPeopleGroupOpen] = useState(
-    () => overlayPeople.length <= 2, // i18n-ignore scanner false positive
+  const includeGoogleOtherCalendars =
+    isConnected && (googleStatus.data?.accounts?.length ?? 0) > 0;
+  const { data: otherGoogleCalendarsRaw } = useGoogleCalendars({
+    enabled: includeGoogleOtherCalendars,
+  });
+  const {
+    prefs: { googleCalendarColors, googleCalendarVisibility },
+    updateGoogleCalendarColor,
+    updateGoogleCalendarVisibility,
+  } = useViewPreferences();
+  const [showAllOtherCalendars, setShowAllOtherCalendars] = useState(false);
+  const otherGoogleCalendars = useMemo(
+    () =>
+      includeGoogleOtherCalendars
+        ? (otherGoogleCalendarsRaw ?? []).filter(
+            (calendar) =>
+              calendar.accessRole !== "freeBusyReader" &&
+              calendar.accessRole !== "owner",
+          )
+        : [],
+    [includeGoogleOtherCalendars, otherGoogleCalendarsRaw],
   );
+  const otherCalendarItems = useMemo(() => {
+    const items = new Map<string, OtherCalendarItem>();
+    for (const calendar of otherGoogleCalendars) {
+      const mapKey = isPersonCalendarId(calendar.calendarId)
+        ? calendar.calendarId.toLowerCase()
+        : "google:" + calendar.canonicalKey;
+      items.set(mapKey, {
+        key: mapKey,
+        label: otherCalendarLabel(calendar),
+        google: calendar,
+      });
+    }
+    for (const person of overlayPeople) {
+      const mapKey = person.email.toLowerCase();
+      const existing = items.get(mapKey);
+      items.set(mapKey, {
+        key: mapKey,
+        label: existing ? existing.label : person.email,
+        google: existing ? existing.google : undefined,
+        person,
+      });
+    }
+    return Array.from(items.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+    );
+  }, [otherGoogleCalendars, overlayPeople]);
+  const visibleOtherCalendarItems = showAllOtherCalendars
+    ? otherCalendarItems
+    : otherCalendarItems.slice(0, 8);
+  function isOtherItemVisible(item: OtherCalendarItem): boolean {
+    const personVisible = item.person
+      ? !isHiddenCalendar("people", item.person.email)
+      : true;
+    const googleVisible = item.google
+      ? (googleCalendarVisibility[item.google.canonicalKey] ??
+        (item.google.primary || item.google.selected))
+      : true;
+    return personVisible && googleVisible;
+  }
+  function toggleOtherItemVisibility(item: OtherCalendarItem) {
+    const nextVisible = !isOtherItemVisible(item);
+    if (item.person) {
+      const personVisible = !isHiddenCalendar("people", item.person.email);
+      if (personVisible !== nextVisible) {
+        toggleHiddenCalendar("people", item.person.email);
+      }
+    }
+    if (item.google) {
+      updateGoogleCalendarVisibility(item.google.canonicalKey, nextVisible);
+    }
+  }
+  function otherItemColor(item: OtherCalendarItem): string {
+    if (item.person) return item.person.color;
+    if (item.google) {
+      return (
+        googleCalendarColors[item.google.canonicalKey] ??
+        item.google.color ??
+        CALENDAR_COLORS[6]
+      );
+    }
+    return CALENDAR_COLORS[6];
+  }
+  function setOtherItemColor(item: OtherCalendarItem, color: string) {
+    if (item.person) {
+      updatePersonColor.mutate({ email: item.person.email, color });
+    }
+    if (item.google) {
+      updateGoogleCalendarColor(item.google.canonicalKey, color);
+    }
+  }
   const [feedsGroupOpen, setFeedsGroupOpen] = useState(
     () => externalCalendars.length <= 2, // i18n-ignore scanner false positive
   );
-
-  useEffect(() => {
-    if (overlayPeople.length <= 2) setPeopleGroupOpen(true);
-  }, [overlayPeople.length]);
 
   useEffect(() => {
     if (externalCalendars.length <= 2) setFeedsGroupOpen(true);
@@ -878,134 +952,130 @@ export function Sidebar({
                   <IconPlus className="h-3.5 w-3.5" />
                 </button>
               </div>
-              {isConnected &&
-                (googleStatus.data?.accounts?.length ?? 0) > 0 && (
-                  <GoogleCalendarsSections onClose={onClose} section="other" />
-                )}
-              {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
-                <div className="mt-1 space-y-1">
-                  {overlayPeople.length > 0 && (
-                    <Collapsible
-                      open={peopleGroupOpen}
-                      onOpenChange={setPeopleGroupOpen}
-                    >
-                      <CollapsibleTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                        >
-                          {peopleGroupOpen ? (
-                            <IconChevronDown className="h-3 w-3" />
-                          ) : (
-                            <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
-                          )}
-                          <span className="min-w-0 flex-1 text-start">
-                            People
-                          </span>
-                          <span className="text-[10px]">
-                            {overlayPeople.length}
-                          </span>
-                        </button>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="space-y-0.5">
-                        {overlayPeople.map((person) => (
-                          <div
-                            key={person.email}
-                            className="group flex min-h-7 items-center gap-2 px-2 text-xs"
-                          >
-                            <ColorPickerPopover
-                              color={person.color}
-                              onColorChange={(color) =>
-                                updatePersonColor.mutate({
-                                  email: person.email,
-                                  color,
-                                })
-                              }
+                {(otherCalendarItems.length > 0 ||
+                  externalCalendars.length > 0) && (
+                  <div className="mt-1 space-y-1">
+                    {otherCalendarItems.length > 0 && (
+                      <div className="space-y-0.5">
+                        {visibleOtherCalendarItems.map((item) => {
+                          const visible = isOtherItemVisible(item);
+                          const color = otherItemColor(item);
+                          return (
+                            <div
+                              key={item.key}
+                              className="group flex min-h-7 items-center gap-2 px-3 text-xs"
                             >
-                              <button
-                                type="button"
-                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                              <ColorPickerPopover
+                                color={color}
+                                onColorChange={(nextColor) =>
+                                  setOtherItemColor(item, nextColor)
+                                }
                               >
-                                <span
-                                  className={cn(
-                                    "block h-2.5 w-2.5 rounded-full",
-                                    isHiddenCalendar("people", person.email) &&
-                                      "opacity-40",
-                                  )}
-                                  style={{ backgroundColor: person.color }}
-                                />
-                              </button>
-                            </ColorPickerPopover>
-                            <span
-                              className={cn(
-                                "min-w-0 flex-1 truncate",
-                                isHiddenCalendar("people", person.email)
-                                  ? "text-muted-foreground/40"
-                                  : "text-muted-foreground",
-                              )}
-                            >
-                              {person.name || person.email}
-                            </span>
-                            {overlayStatusByEmail?.get(
-                              person.email.toLowerCase(),
-                            )?.status === "error" && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                                >
                                   <span
-                                    tabIndex={0}
-                                    className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    aria-label={t(
-                                      "sidebar.overlayCalendarUnavailable",
-                                      { email: person.name || person.email },
+                                    className={cn(
+                                      "block h-2.5 w-2.5 rounded-full",
+                                      !visible && "opacity-40",
                                     )}
-                                  >
-                                    <IconAlertTriangle
-                                      className="h-3 w-3 text-muted-foreground/60"
-                                      aria-hidden="true"
-                                    />
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent side="right">
-                                  {t("sidebar.overlayCalendarUnavailable", {
-                                    email: person.name || person.email,
-                                  })}
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            <div className="flex items-center">
+                                    style={{ backgroundColor: color }}
+                                  />
+                                </button>
+                              </ColorPickerPopover>
+                              <span
+                                className={cn(
+                                  "min-w-0 flex-1 truncate",
+                                  visible
+                                    ? "text-muted-foreground"
+                                    : "text-muted-foreground/40",
+                                )}
+                              >
+                                {item.label}
+                              </span>
+                              {item.person &&
+                                overlayStatusByEmail?.get(
+                                  item.person.email.toLowerCase(),
+                                )?.status === "error" && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span
+                                        tabIndex={0}
+                                        className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                        aria-label={t(
+                                          "sidebar.overlayCalendarUnavailable",
+                                          {
+                                            email:
+                                              item.person.name ||
+                                              item.person.email,
+                                          },
+                                        )}
+                                      >
+                                        <IconAlertTriangle
+                                          className="h-3 w-3 text-muted-foreground/60"
+                                          aria-hidden="true"
+                                        />
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">
+                                      {t("sidebar.overlayCalendarUnavailable", {
+                                        email:
+                                          item.person.name || item.person.email,
+                                      })}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
                               <button
                                 type="button"
-                                onClick={() =>
-                                  toggleHiddenCalendar("people", person.email)
-                                }
-                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                onClick={() => toggleOtherItemVisibility(item)}
+                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
                                 aria-label={
-                                  isHiddenCalendar("people", person.email)
-                                    ? t("sidebar.showCalendar")
-                                    : t("sidebar.hideCalendar")
+                                  visible
+                                    ? t("sidebar.hideCalendar")
+                                    : t("sidebar.showCalendar")
                                 }
                               >
-                                {isHiddenCalendar("people", person.email) ? (
-                                  <IconEyeOff className="h-3 w-3" />
-                                ) : (
+                                {visible ? (
                                   <IconEye className="h-3 w-3" />
+                                ) : (
+                                  <IconEyeOff className="h-3 w-3" />
                                 )}
                               </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  removePerson.mutate(person.email)
-                                }
-                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-                              >
-                                <IconX className="h-3 w-3" />
-                              </button>
                             </div>
-                          </div>
-                        ))}
-                      </CollapsibleContent>
-                    </Collapsible>
-                  )}
+                          );
+                        })}
+                        {otherCalendarItems.length > 8 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setShowAllOtherCalendars((current) => !current)
+                            }
+                            className="mx-3 mt-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {
+                              showAllOtherCalendars
+                                ? t("common.showLess") // i18n-key-ignore generated calendar catalog
+                                : t("common.showMore") // i18n-key-ignore generated calendar catalog
+                            }{" "}
+                            ({otherCalendarItems.length - 8})
+                          </button>
+                        )}
+                        {/* Removing a peer also stops their working hours
+                            backing your booking links, so it lives on the
+                            booking-links page rather than as a hover target
+                            next to a plain hide toggle. */}
+                        {overlayPeople.length > 0 && (
+                          <Link
+                            to="/booking-links?tab=shared"
+                            onClick={onClose}
+                            className="mx-3 flex h-7 items-center rounded text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            {t("sidebar.managePeerAvailability")}
+                          </Link>
+                        )}
+                      </div>
+                    )}
 
                   {externalCalendars.length > 0 && (
                     <Collapsible
