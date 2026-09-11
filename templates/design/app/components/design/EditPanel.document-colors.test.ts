@@ -226,6 +226,41 @@ describe("extractDocumentColorPalette", () => {
     );
   });
 
+  it("does not mask script-like CSS strings before scanning styles", () => {
+    const content =
+      '<style>.card::before { content: "<script>"; color:#0066ff }</style>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<style>.card::before { content: "<script>"; color:#ff0000 }</style>',
+    );
+  });
+
+  it("uses HTML quote rules for style attributes", () => {
+    const content = '<style data-x="\\">.card { color:#0066ff }</style>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe('<style data-x="\\">.card { color:#ff0000 }</style>');
+  });
+
   it("does not treat quoted URL fragments as colors", () => {
     const content = `<div style='background-image: url("sprite)#0066ff.svg"); color:#0066ff'></div>`;
 

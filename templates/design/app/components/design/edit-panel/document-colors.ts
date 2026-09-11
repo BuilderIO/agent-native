@@ -34,10 +34,24 @@ const STYLE_ATTRIBUTE_PATTERN =
 const NON_RENDERED_HTML_PATTERN =
   /<!--[\s\S]*?-->|<script\b[\s\S]*?<\/script\s*>|<noscript\b[\s\S]*?<\/noscript\s*>/gi;
 
-function maskNonRenderedHtml(content: string): string {
-  return content.replace(NON_RENDERED_HTML_PATTERN, (match) =>
-    match.replace(/[^\r\n]/g, " "),
-  );
+function maskNonRenderedHtml(
+  content: string,
+  styleBlocks: StyleBlockSpan[],
+): string {
+  const protectedContent = content.split("");
+  for (const block of styleBlocks) {
+    const end = block.start + block.value.length;
+    for (let index = block.start; index < end; index += 1) {
+      if (content[index] !== "\r" && content[index] !== "\n") {
+        protectedContent[index] = " ";
+      }
+    }
+  }
+  return protectedContent
+    .join("")
+    .replace(NON_RENDERED_HTML_PATTERN, (match) =>
+      match.replace(/[^\r\n]/g, " "),
+    );
 }
 
 function maskCssComments(css: string): string {
@@ -93,21 +107,12 @@ function htmlTagSpans(content: string): HtmlTagSpan[] {
   const tags: HtmlTagSpan[] = [];
   let start = -1;
   let quote: string | null = null;
-  let escaped = false;
   for (let index = 0; index < content.length; index += 1) {
     const character = content[index];
     if (start < 0) {
       if (character === "<" && /[A-Za-z!?/]/.test(content[index + 1] ?? "")) {
         start = index;
       }
-      continue;
-    }
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (character === "\\") {
-      escaped = true;
       continue;
     }
     if (quote) {
@@ -399,7 +404,8 @@ function colorTokenSpansInCss(css: string, offset = 0): ColorTokenSpan[] {
 }
 
 function colorTokenSpansInHtml(content: string): ColorTokenSpan[] {
-  const maskedContent = maskNonRenderedHtml(content);
+  const styleBlocks = styleBlockSpans(content);
+  const maskedContent = maskNonRenderedHtml(content, styleBlocks);
   const tokens: ColorTokenSpan[] = [];
 
   for (const { start: tagOffset, value: tag } of htmlTagSpans(maskedContent)) {
@@ -412,7 +418,7 @@ function colorTokenSpansInHtml(content: string): ColorTokenSpan[] {
     }
   }
 
-  for (const block of styleBlockSpans(maskedContent)) {
+  for (const block of styleBlocks) {
     tokens.push(...colorTokenSpansInCss(block.value, block.start));
   }
 
