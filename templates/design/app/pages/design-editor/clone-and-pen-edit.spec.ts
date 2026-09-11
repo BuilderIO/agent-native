@@ -12,34 +12,36 @@ import {
 const LIVE_URL = "http://localhost:5173/products?preview=1";
 
 describe("extractLayerPosition", () => {
-  it("includes authored pixel translation in paste placement", () => {
+  it("returns authored layout coordinates without applying the transform", () => {
     expect(
       extractLayerPosition(
         '<div style="position:absolute;left:40px;top:120px;transform:translate(16px, 24px) rotate(2deg)"></div>',
       ),
-    ).toEqual({ x: 56, y: 144 });
+    ).toEqual({ x: 40, y: 120 });
   });
 
-  it("reads a pixel translation when left and top are absent", () => {
+  it("does not treat an in-flow transform as absolute placement", () => {
     expect(
       extractLayerPosition(
-        '<div style="position:absolute;transform:translate3d(12px, 18px, 0)"></div>',
+        '<div style="transform:translate3d(12px, 18px, 0)"></div>',
       ),
-    ).toEqual({ x: 12, y: 18 });
+    ).toBeNull();
   });
 
-  it("does not apply an authored translation twice when positioning a clone", () => {
+  it("preserves transform and sizing when positioning a clone", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
       [
-        '<div data-agent-native-node-id="source" style="position:absolute;left:40px;top:120px;transform:translate(16px, 24px) rotate(2deg)">Source</div>',
+        '<div data-agent-native-node-id="source" style="position:absolute;left:40px;top:120px;width:180px;height:64px;transform:translate(16px, 24px) rotate(2deg)">Source</div>',
       ],
-      { positions: [{ x: 66, y: 154 }] },
+      { positions: [{ x: 50, y: 130 }] },
     );
 
     const clone = parseFragment(result!.htmlFragments[0]!);
     expect((clone as HTMLElement).style.left).toBe("50px");
     expect((clone as HTMLElement).style.top).toBe("130px");
+    expect((clone as HTMLElement).style.width).toBe("180px");
+    expect((clone as HTMLElement).style.height).toBe("64px");
     expect((clone as HTMLElement).style.transform).toBe(
       "translate(16px, 24px) rotate(2deg)",
     );

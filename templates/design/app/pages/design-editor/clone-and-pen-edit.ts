@@ -170,79 +170,6 @@ function clearRootLayerPosition(element: Element) {
   host.style.bottom = "";
 }
 
-function parseTransformTranslation(transform: string): {
-  x: number;
-  y: number;
-  hasX: boolean;
-  hasY: boolean;
-} {
-  let x = 0;
-  let y = 0;
-  let hasX = false;
-  let hasY = false;
-  const operations = transform.match(
-    /(?:translate3d|translate|translateX|translateY|matrix3d|matrix)\([^)]*\)/gi,
-  );
-  for (const operation of operations ?? []) {
-    const match = operation.match(/^([^(]+)\(([^)]*)\)$/);
-    if (!match) continue;
-    const kind = match[1]!.toLowerCase();
-    const values = match[2]!.trim().split(/[,\s]+/);
-    const number = (value: string | undefined, unit = "px") => {
-      if (!value || (unit === "px" && !/px$/i.test(value))) return null;
-      const parsed = Number.parseFloat(value);
-      return Number.isFinite(parsed) ? parsed : null;
-    };
-    if (kind === "translatex") {
-      const value = number(values[0]);
-      if (value !== null) {
-        x += value;
-        hasX = true;
-      }
-    } else if (kind === "translatey") {
-      const value = number(values[0]);
-      if (value !== null) {
-        y += value;
-        hasY = true;
-      }
-    } else if (kind === "translate" || kind === "translate3d") {
-      const nextX = number(values[0]);
-      const nextY = number(values[1]);
-      if (nextX !== null) {
-        x += nextX;
-        hasX = true;
-      }
-      if (nextY !== null) {
-        y += nextY;
-        hasY = true;
-      }
-    } else if (kind === "matrix" && values.length >= 6) {
-      const nextX = number(values[4], "");
-      const nextY = number(values[5], "");
-      if (nextX !== null) {
-        x += nextX;
-        hasX = true;
-      }
-      if (nextY !== null) {
-        y += nextY;
-        hasY = true;
-      }
-    } else if (kind === "matrix3d" && values.length >= 13) {
-      const nextX = number(values[12], "");
-      const nextY = number(values[13], "");
-      if (nextX !== null) {
-        x += nextX;
-        hasX = true;
-      }
-      if (nextY !== null) {
-        y += nextY;
-        hasY = true;
-      }
-    }
-  }
-  return { x, y, hasX, hasY };
-}
-
 export function preserveClipboardLayerName(
   layerHtml: string,
   layerName: string | null | undefined,
@@ -271,18 +198,13 @@ function setRootLayerPosition(
 ) {
   const host = styleHost(element);
   if (!host) return;
-  const translation = parseTransformTranslation(host.style.transform);
-  const left = translation.hasX ? position.x - translation.x : position.x;
-  const top = translation.hasY ? position.y - translation.y : position.y;
   // Use explicit style property assignments rather than prepending a raw
   // string. Prepending creates duplicate CSS properties in the same style
   // attribute, and in CSS the LAST occurrence wins, so existing left/top
-  // values from the cloned element would override the new position. The
-  // target is transform-inclusive, so leave the authored transform intact
-  // and position its layout box beneath that translation.
+  // values from the cloned element would override the new position.
   host.style.position = "absolute";
-  host.style.left = `${Math.max(0, Math.round(left))}px`;
-  host.style.top = `${Math.max(0, Math.round(top))}px`;
+  host.style.left = `${Math.max(0, Math.round(position.x))}px`;
+  host.style.top = `${Math.max(0, Math.round(position.y))}px`;
   host.style.right = "";
   host.style.bottom = "";
 }
@@ -652,23 +574,8 @@ export function extractLayerPosition(
     if (!source) return null;
     const left = parseFloat(source.style.left);
     const top = parseFloat(source.style.top);
-    const translation = parseTransformTranslation(source.style.transform);
-    const translatedX = translation.x;
-    const translatedY = translation.y;
-    const hasTranslatedX = translation.hasX;
-    const hasTranslatedY = translation.hasY;
-    const x = Number.isFinite(left)
-      ? left + translatedX
-      : hasTranslatedX
-        ? translatedX
-        : Number.NaN;
-    const y = Number.isFinite(top)
-      ? top + translatedY
-      : hasTranslatedY
-        ? translatedY
-        : Number.NaN;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    return { x, y };
+    if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+    return { x: left, y: top };
   } catch {
     return null;
   }
