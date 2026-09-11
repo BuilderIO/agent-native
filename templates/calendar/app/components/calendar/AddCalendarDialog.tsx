@@ -51,6 +51,13 @@ interface AddCalendarDialogProps {
   onOpenChange: (open: boolean) => void;
   defaultTab?: "people" | "url" | "google";
   visibleTabs?: Array<"people" | "url" | "google">;
+  /** Fires once the peer is actually saved to the overlay list, so a caller
+   *  opening this dialog mid-flow (e.g. the booking-link host picker) can
+   *  adopt the peer without making the user pick them a second time. */
+  onPersonAdded?: (person: { email: string; name?: string }) => void;
+  /** Prefills the people search. Never auto-adds: a link click must not
+   *  write someone into the user's calendar without confirmation. */
+  prefillPersonEmail?: string;
 }
 
 export function AddCalendarDialog({
@@ -58,6 +65,8 @@ export function AddCalendarDialog({
   onOpenChange,
   defaultTab = "people",
   visibleTabs = ["people", "url", "google"],
+  onPersonAdded,
+  prefillPersonEmail,
 }: AddCalendarDialogProps) {
   const t = useT();
   const [activeTab, setActiveTab] = useState<"people" | "url" | "google">(
@@ -105,7 +114,11 @@ export function AddCalendarDialog({
 
           {visibleTabs.includes("people") && (
             <TabsContent value="people" className="mt-0">
-              <PeopleTab open={open} />
+              <PeopleTab
+                open={open}
+                onPersonAdded={onPersonAdded}
+                prefillPersonEmail={prefillPersonEmail}
+              />
             </TabsContent>
           )}
 
@@ -168,7 +181,15 @@ function GoogleTab() {
 
 // ─── People tab ──────────────────────────────────────────────────────────────
 
-function PeopleTab({ open }: { open: boolean }) {
+function PeopleTab({
+  open,
+  onPersonAdded,
+  prefillPersonEmail,
+}: {
+  open: boolean;
+  onPersonAdded?: (person: { email: string; name?: string }) => void;
+  prefillPersonEmail?: string;
+}) {
   const t = useT();
   const [query, setQuery] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -214,6 +235,14 @@ function PeopleTab({ open }: { open: boolean }) {
     contacts.data?.scopeRequired || directorySearch.data?.scopeRequired,
   );
 
+  // Seed the search from a deep link. Keyed on open/prefill so it can't
+  // clobber what the user is typing, and never clears an existing query.
+  useEffect(() => {
+    if (!open || !prefillPersonEmail) return;
+    setQuery(prefillPersonEmail);
+    setSearchQuery(prefillPersonEmail);
+  }, [open, prefillPersonEmail]);
+
   useEffect(() => {
     const timeout = window.setTimeout(
       () => setSearchQuery(query),
@@ -247,7 +276,12 @@ function PeopleTab({ open }: { open: boolean }) {
   }, [activeIndex]);
 
   function handleAdd(email: string, name?: string) {
-    addPerson.mutate({ email, name });
+    addPerson.mutate(
+      { email, name },
+      // Only after the overlay write lands: a rolled-back add must not leave
+      // the caller holding a peer who is not actually on the calendar.
+      { onSuccess: () => onPersonAdded?.({ email, name }) },
+    );
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {

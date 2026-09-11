@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
+import { addDaysToDateKey } from "@shared/timezone";
 import {
   useQueryClient,
   useQuery,
@@ -345,7 +346,10 @@ export function useOverlayCalendarStatus(overlayEmails: string[]) {
     "list-events",
     {
       from: today,
-      to: today,
+      // Exclusive upper bound: resolveCalendarEventRange only fills in a
+      // default end date when `to` is omitted, so passing the same day for
+      // both bounds hit its "from must be before to" guard on every call.
+      to: addDaysToDateKey(today, 1),
       sources: ["overlays"],
       overlayEmails,
       format: "inventory",

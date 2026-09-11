@@ -83,6 +83,7 @@ import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { isPersonCalendarId } from "@/lib/person-calendar";
 import {
   buildAllDayEventDraft,
   buildWorkingLocationDraft,
@@ -453,29 +454,62 @@ export default function CalendarView() {
     browserTimezone: string;
   } | null>(null);
   const { data: rawOverlayPeople } = useOverlayPeople();
-  const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
-  const overlayEmails = useMemo(
-    () => overlayPeople.map((p) => p.email),
-    [overlayPeople],
+  const overlayPeople = useMemo(
+    () => (Array.isArray(rawOverlayPeople) ? rawOverlayPeople : []),
+    [rawOverlayPeople],
   );
-  const enabledGoogleCalendarSourceKeys = useMemo(() => {
+  const enabledGoogleSources = useMemo(() => {
     if (!googleCalendars.enabled || !googleCalendars.data) return undefined;
-    return googleCalendars.data
-      .filter((source) => {
-        if (source.accessRole === "freeBusyReader") {
-          return false;
-        }
-        return (
-          viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
-          (source.primary || source.selected)
-        );
-      })
-      .map((source) => source.sourceKey);
+    return googleCalendars.data.filter((source) => {
+      if (source.accessRole === "freeBusyReader") {
+        return false;
+      }
+      return (
+        viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
+        (source.primary || source.selected)
+      );
+    });
   }, [
     googleCalendars.data,
     googleCalendars.enabled,
     viewPrefs.googleCalendarVisibility,
   ]);
+  const enabledGoogleCalendarSourceKeys = useMemo(
+    () => enabledGoogleSources?.map((source) => source.sourceKey),
+    [enabledGoogleSources],
+  );
+  // Mirrors the sidebar's merged-row visibility: a person can also be a
+  // directly-shared Google calendar merged into the same row, so their
+  // overlay-sourced events must stay hidden when that Google side is
+  // explicitly hidden, even though the person side alone is still visible.
+  const googleHiddenPersonEmails = useMemo(() => {
+    const hidden = new Set<string>();
+    for (const source of googleCalendars.data ?? []) {
+      if (!isPersonCalendarId(source.calendarId)) continue;
+      const visible =
+        viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
+        (source.primary || source.selected);
+      if (!visible) hidden.add(source.calendarId.toLowerCase());
+    }
+    return hidden;
+  }, [googleCalendars.data, viewPrefs.googleCalendarVisibility]);
+  // A peer can be both an overlay person and a Google calendar shared with us.
+  // Requesting both reads the same calendar twice and renders every event
+  // twice, under two colors and two independent visibility toggles. Drop the
+  // overlay request when the shared calendar already covers that address —
+  // deduping the events afterwards is not possible, because provider event ids
+  // legitimately repeat across different people's calendars for the same
+  // meeting.
+  const overlayEmails = useMemo(() => {
+    const coveredByGoogle = new Set(
+      (enabledGoogleSources ?? []).map((source) =>
+        source.calendarId.toLowerCase(),
+      ),
+    );
+    return overlayPeople
+      .map((person) => person.email)
+      .filter((email) => !coveredByGoogle.has(email.toLowerCase()));
+  }, [overlayPeople, enabledGoogleSources]);
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
@@ -710,9 +744,27 @@ export default function CalendarView() {
         if (e.overlayEmail && hiddenCalendars.people.includes(e.overlayEmail))
           return false;
         if (
+          e.overlayEmail &&
+          googleHiddenPersonEmails.has(e.overlayEmail.toLowerCase())
+        )
+          return false;
+        if (
           e.source === "google" &&
           e.canonicalKey &&
           viewPrefs.googleCalendarVisibility[e.canonicalKey] === false
+        ) {
+          return false;
+        }
+        // A person can also be a directly-shared Google calendar. The
+        // sidebar merges that into the same row as their overlay entry, so
+        // hiding it must also hide their Google-sourced events, not just the
+        // overlay-sourced ones the check above covers.
+        if (
+          e.source === "google" &&
+          e.calendarId &&
+          hiddenCalendars.people.some(
+            (email) => email.toLowerCase() === e.calendarId!.toLowerCase(),
+          )
         ) {
           return false;
         }
@@ -732,6 +784,7 @@ export default function CalendarView() {
     hiddenCalendars,
     quickEditTempIds,
     viewPrefs.googleCalendarVisibility,
+    googleHiddenPersonEmails,
   ]);
 
   // Filter events for day view — use overlap check so multi-day continuation
