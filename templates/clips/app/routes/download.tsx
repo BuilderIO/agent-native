@@ -6,7 +6,7 @@ import {
   IconBrandApple,
   IconBrandWindows,
   IconCheck,
-  IconExternalLink,
+  IconDownload,
   IconHelpCircle,
   IconTerminal2,
 } from "@tabler/icons-react";
@@ -190,13 +190,13 @@ function primaryDownloadButton(
       <Button
         asChild
         size="lg"
-        className="h-12 min-w-[252px] gap-2 px-6 text-base"
+        className="h-10 min-w-[252px] gap-2 bg-foreground px-6 text-sm text-background hover:bg-foreground/90"
       >
         <a href={asset.url} download onClick={() => onDownload(asset)}>
           {downloadStarted ? (
             <IconCheck className="h-5 w-5" />
           ) : (
-            <Icon className="h-5 w-5" />
+            <IconDownload className="h-5 w-5" />
           )}
           {downloadStarted ? downloadStartedLabel : downloadLabel}
         </a>
@@ -229,6 +229,44 @@ function primaryDownloadButton(
       <Icon className="h-5 w-5" />
       {downloadLabel}
     </Button>
+  );
+}
+
+function DownloadChannelToggle({
+  channel,
+  onChange,
+}: {
+  channel: DownloadReleaseChannel;
+  onChange: (nextChannel: DownloadReleaseChannel) => void;
+}) {
+  const t = useT();
+  return (
+    <div className="inline-flex items-center gap-0.5 rounded-md border border-border/60 p-1">
+      {(
+        [
+          ["production", t("downloadRoute.stable")],
+          ["nightly", t("downloadRoute.nightly")],
+        ] as const
+      ).map(([value, label]) => {
+        const active = channel === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(value)}
+            className={`rounded px-3 py-1.5 font-mono text-[11px] font-semibold transition-colors ${
+              active
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -310,19 +348,13 @@ export default function DownloadPage() {
     setConfirmedDownload({ asset, label });
   };
 
-  const handlePlatformChange = (nextPlatform: PlatformId) => {
-    if (nextPlatform === detected) return;
-    setConfirmedDownload(null);
-    setDetected(nextPlatform);
-  };
-
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-4">
+      <header className="border-b border-border/40">
+        <div className="mx-auto flex h-16 max-w-[1300px] items-center gap-3 border-x border-border/40 px-6 sm:px-10">
           <a
             href={appPath("/")}
-            className="flex items-center gap-2 font-semibold"
+            className="flex items-center gap-2 font-semibold tracking-tight"
           >
             <img
               src={appPath("/agent-native-icon-light.svg")}
@@ -340,55 +372,32 @@ export default function DownloadPage() {
           </a>
           <a
             href={appPath("/library")}
-            className="ms-auto text-sm text-muted-foreground hover:text-foreground"
+            className="ms-auto text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             {t("downloadRoute.backToLibrary")}
           </a>
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-16">
-        <div className="flex flex-col items-center text-center">
-          <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-            {t("downloadRoute.clipsDesktop")}
-            {channel === "nightly" && (
-              <>
-                {" "}
-                <span className="text-highlight">
-                  {t("downloadRoute.nightly")}
-                </span>
-              </>
-            )}
-          </h1>
-          <p className="mt-4 max-w-xl text-base text-muted-foreground">
-            {t("downloadRoute.heroDescription")}
-          </p>
+      <main>
+        <section className="border-b border-border/40">
+          <div className="mx-auto flex max-w-[1300px] flex-col items-center border-x border-border/40 px-6 pb-24 pt-36 text-center sm:px-10">
+            <h1 className="text-4xl font-medium tracking-tight sm:text-[56px] sm:leading-[1.05]">
+              {t("downloadRoute.clipsDesktop")}
+              {channel === "nightly" && (
+                <>
+                  {" "}
+                  <span className="text-highlight">
+                    {t("downloadRoute.nightly")}
+                  </span>
+                </>
+              )}
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+              {t("downloadRoute.heroDescription")}
+            </p>
 
-          <div className="mt-10 flex flex-col items-center">
-            <div className="mb-2 flex justify-center gap-2">
-              {VARIANTS.map((variant) => {
-                const Icon = variant.icon;
-                const active = primary.id === variant.id;
-                return (
-                  <button
-                    key={variant.id}
-                    type="button"
-                    aria-label={variant.label}
-                    aria-pressed={active}
-                    onClick={() => handlePlatformChange(variant.id)}
-                    className={`group flex items-center justify-center rounded-lg p-4 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                      active
-                        ? "text-foreground"
-                        : "text-muted-foreground opacity-40 hover:opacity-65"
-                    }`}
-                  >
-                    <Icon className="size-6" aria-hidden="true" />
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mx-auto mt-8 max-w-2xl text-center">
+            <div className="mt-10 flex flex-col items-center gap-3">
               {primaryDownloadButton(
                 primary,
                 manifest,
@@ -402,10 +411,7 @@ export default function DownloadPage() {
               )}
 
               {primaryDownloadStarted && confirmedDownload && (
-                <p
-                  aria-live="polite"
-                  className="mt-3 text-xs text-muted-foreground"
-                >
+                <p aria-live="polite" className="text-xs text-muted-foreground">
                   <span className="sr-only">{downloadStartedLabel}</span>
                   <a
                     href={confirmedDownload.asset.url}
@@ -417,90 +423,118 @@ export default function DownloadPage() {
                         confirmedDownload.label,
                       )
                     }
-                    className="text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    className="underline underline-offset-2 hover:text-foreground"
                   >
                     {t("downloadRoute.downloadAgain")}
                   </a>
                 </p>
               )}
-
-              <div className="mt-5 flex justify-center">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>{t("downloadRoute.stable")}</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={channel === "nightly"}
-                    aria-label={t(
-                      channel === "nightly"
-                        ? "downloadRoute.switchToStable"
-                        : "downloadRoute.switchToNightly",
-                    )}
-                    onClick={() =>
-                      handleChannelChange(
-                        channel === "nightly" ? "production" : "nightly",
-                      )
-                    }
-                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                      channel === "nightly"
-                        ? "bg-foreground"
-                        : "bg-muted-foreground/20"
-                    }`}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`block size-3.5 rounded-full bg-primary-foreground shadow-sm transition-transform ${
-                        channel === "nightly"
-                          ? "translate-x-[18px]"
-                          : "translate-x-[2px]"
-                      }`}
-                    />
-                  </button>
-                  <span
-                    className={
-                      channel === "nightly"
-                        ? "font-medium text-foreground"
-                        : "text-muted-foreground"
-                    }
-                  >
-                    {t("downloadRoute.nightly")}
-                  </span>
-                </div>
-              </div>
             </div>
           </div>
+        </section>
 
-          {chromeExtensionEnabled && (
-            <section className="mt-16 w-full max-w-md text-start">
-              <div className="flex items-center gap-2">
-                <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                  <IconBrandChrome className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-sm font-semibold text-foreground">
-                    {t("downloadRoute.chromeTitle")}
-                  </h2>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t("captureInstall.chromeDescription")}
-                  </p>
-                </div>
-                <a
-                  href={CHROME_EXTENSION_DOCS_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={t("downloadRoute.chromeTitle")}
-                  title={t("downloadRoute.chromeTitle")}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        <section>
+          <div className="mx-auto flex max-w-[1300px] items-center border-x border-b border-border/40 px-6 py-5 sm:px-8">
+            <span className="font-mono text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+              {t("downloadRoute.allPlatforms")}
+            </span>
+            <div className="flex-1" />
+            <DownloadChannelToggle
+              channel={channel}
+              onChange={handleChannelChange}
+            />
+          </div>
+
+          <div className="mx-auto grid max-w-[1300px] grid-cols-1 border-x border-b border-border/40 sm:grid-cols-3">
+            {VARIANTS.map((variant, index) => {
+              const Icon = variant.icon;
+              const asset = pickAsset(manifest, variant);
+              const extension = asset?.name.split(".").pop() ?? "";
+              return (
+                <div
+                  key={variant.id}
+                  className={`flex min-h-60 flex-col gap-5 p-6 sm:p-8 ${
+                    index < VARIANTS.length - 1
+                      ? "border-b border-border/40 sm:border-r sm:border-b-0"
+                      : "border-b-0"
+                  }`}
                 >
-                  <IconHelpCircle className="size-3" aria-hidden="true" />
-                </a>
+                  <Icon
+                    size={24}
+                    stroke={1.5}
+                    className="text-foreground"
+                    aria-hidden="true"
+                  />
+                  <h2 className="text-lg font-medium">{variant.label}</h2>
+                  <a
+                    href={asset?.url}
+                    target={asset ? "_blank" : undefined}
+                    rel={asset ? "noreferrer" : undefined}
+                    aria-disabled={!asset}
+                    onClick={
+                      asset
+                        ? () => handleDownload(asset, downloadLabel)
+                        : undefined
+                    }
+                    className={`mt-auto flex items-center gap-2 text-sm no-underline transition-colors ${
+                      asset
+                        ? "text-muted-foreground hover:text-foreground"
+                        : "pointer-events-none text-muted-foreground/50"
+                    }`}
+                  >
+                    <span>
+                      {variant.id === "mac"
+                        ? t("downloadRoute.macSublabel")
+                        : variant.id === "windows"
+                          ? t("downloadRoute.windowsSublabel")
+                          : t("downloadRoute.downloadFor", {
+                              platform: variant.label,
+                            })}
+                    </span>
+                    {extension && (
+                      <span className="font-mono text-[11px] text-muted-foreground/70">
+                        {extension}
+                      </span>
+                    )}
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {chromeExtensionEnabled && (
+          <section className="mx-auto max-w-[1300px] border-x border-b border-border/40">
+            <div className="flex flex-col gap-4 px-6 py-8 sm:flex-row sm:items-center sm:px-8">
+              <IconBrandChrome
+                size={24}
+                stroke={1.5}
+                className="text-foreground"
+                aria-hidden="true"
+              />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg font-medium">
+                  {t("downloadRoute.chromeTitle")}
+                </h2>
+                <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+                  {t("captureInstall.chromeDescription")}
+                </p>
               </div>
+              <a
+                href={CHROME_EXTENSION_DOCS_URL}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t("downloadRoute.chromeTitle")}
+                title={t("downloadRoute.chromeTitle")}
+                className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <IconHelpCircle className="size-3" aria-hidden="true" />
+              </a>
               <Button
                 asChild={Boolean(clipsChromeExtensionUrl)}
                 disabled={!clipsChromeExtensionUrl}
                 variant="outline"
                 size="sm"
-                className="mt-3 w-full gap-2"
               >
                 {clipsChromeExtensionUrl ? (
                   <a
@@ -508,19 +542,19 @@ export default function DownloadPage() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <IconExternalLink className="h-4 w-4" />
+                    <IconBrandChrome className="h-4 w-4" />
                     {t("downloadRoute.installChrome")}
                   </a>
                 ) : (
                   <>
-                    <IconExternalLink className="h-4 w-4" />
+                    <IconBrandChrome className="h-4 w-4" />
                     {t("downloadRoute.chromePending")}
                   </>
                 )}
               </Button>
-            </section>
-          )}
-        </div>
+            </div>
+          </section>
+        )}
       </main>
     </div>
   );

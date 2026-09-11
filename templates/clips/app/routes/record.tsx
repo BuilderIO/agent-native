@@ -654,10 +654,10 @@ function PreRecordPanelSkeleton() {
 function DesktopRecorderCallout() {
   const t = useT();
   return (
-    <aside className="flex justify-center">
+    <aside className="flex justify-center pt-3">
       <CaptureInstallButton
         size="sm"
-        variant="outline"
+        variant="ghost"
         className="h-9 gap-2 px-3 text-sm font-medium"
         downloadedChildren={t("captureInstall.openDesktopApp")}
       >

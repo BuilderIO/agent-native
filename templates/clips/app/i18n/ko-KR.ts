@@ -660,9 +660,10 @@ const messages = {
     downloadAgain: "작동하지 않았나요? 다시 다운로드",
     alsoFor: "{{platform}}에도 사용 가능",
     backToLibrary: "라이브러리로 돌아가기",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips 다운로드",
     stable: "안정 버전",
     nightly: "Nightly",
+    allPlatforms: "모든 플랫폼",
     switchToNightly: "Nightly 빌드로 전환",
     switchToStable: "안정 버전 빌드로 전환",
     retry: "다시 시도",
@@ -1337,13 +1338,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (현지화됨)",
     chromeTitle: "Chrome extension (현지화됨)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (현지화됨)",
+    chromeDescription: "Chrome 확장 프로그램으로 브라우저 탭을 캡처하세요.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (현지화됨)",
     desktopTitle: "Desktop app (현지화됨)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (현지화됨)",
+    desktopDescription: "전역 단축키와 시스템 오디오로 녹화하세요.",
     openDesktopApp: "Open desktop app (현지화됨)",
   },
   editableTitle: {

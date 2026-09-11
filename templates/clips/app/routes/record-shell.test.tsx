@@ -146,7 +146,8 @@ describe("record route lifecycle shell", () => {
     expect(source).toContain(
       'className="mx-auto grid w-full max-w-[420px] gap-2"',
     );
-    expect(callout).toContain('variant="outline"');
+    expect(callout).toContain('variant="ghost"');
+    expect(callout).toContain("pt-3");
     expect(callout).toContain("DesktopPlatformIcon");
     expect(callout).toContain("text-sm font-medium");
     expect(source).not.toContain("xl:grid-cols-[288px_320px_288px]");
