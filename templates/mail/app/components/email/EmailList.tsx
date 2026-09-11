@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
 import type { EmailMessage } from "@shared/types";
@@ -1230,6 +1231,11 @@ export function EmailList({
     (thread: ThreadSummary) => {
       const email = thread.latestMessage;
       const targetThreadId = email.threadId || email.id;
+      trackEvent(email.isDraft ? "email_draft_opened" : "email_thread_opened", {
+        app_name: "mail",
+        template_name: "mail",
+        view,
+      });
       setFocusedId(email.id);
       // A plain click is a single-thread action — clear any in-progress
       // multi-selection so the next keyboard shortcut doesn't act on a stale set.

@@ -109,10 +109,14 @@ function jsonlResponse(events: unknown[]): Response {
   });
 }
 
-function jsonErrorResponse(status: number, body: unknown): Response {
+function jsonErrorResponse(
+  status: number,
+  body: unknown,
+  headers?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
@@ -1246,6 +1250,30 @@ describe("createBuilderEngine", () => {
       expect(stop?.errorCode).toBe("credits-limit-reached");
     });
 
+    it("preserves Retry-After on a credits-lane visitor stop", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonErrorResponse(
+            429,
+            {
+              code: "too_many_concurrent_requests",
+              message: "Too many concurrent gateway requests.",
+            },
+            { "retry-after": "5" },
+          ),
+        ),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+      const stop = events.find((e) => e.type === "stop");
+
+      expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+      expect(stop?.retryAfterMs).toBe(5_000);
+    });
+
     it("shows one visitor line for an in-stream invalid_request", async () => {
       vi.stubGlobal(
         "fetch",
@@ -1464,6 +1492,72 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toBe("Too many concurrent gateway requests.");
     expect(stop?.statusCode).toBe(429);
     expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("propagates the HTTP Retry-After delay on a 429 stop event", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(
+          429,
+          {
+            code: "too_many_concurrent_requests",
+            message: "Too many concurrent gateway requests.",
+          },
+          { "Retry-After": "5" },
+        ),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+
+    expect(stop?.statusCode).toBe(429);
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.retryAfterMs).toBe(5_000);
+  });
+
+  it("propagates the HTTP Retry-After delay on an ordinary 503 stop event", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonErrorResponse(
+            503,
+            { message: "Service temporarily unavailable." },
+            { "retry-after": "7" },
+          ),
+        ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+
+    expect(stop?.errorCode).toBe("http_503");
+    expect(stop?.statusCode).toBe(503);
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.retryAfterMs).toBe(7_000);
+  });
+
+  it("caps an oversized HTTP Retry-After delay at 60 seconds", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonErrorResponse(
+            503,
+            { message: "Service temporarily unavailable." },
+            { "retry-after": "600" },
+          ),
+        ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+
+    expect(stop?.retryAfterMs).toBe(60_000);
   });
 
   it("maps daily gateway caps to a non-retryable error message", async () => {

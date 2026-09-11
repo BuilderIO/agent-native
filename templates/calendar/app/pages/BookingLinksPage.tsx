@@ -1803,7 +1803,17 @@ export default function BookingLinksPage({
         {t("bookingLinks.description")}
       </p>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => {
+          trackEvent("booking_links_tab_changed", {
+            app_name: "calendar",
+            template_name: "calendar",
+            tab: v,
+          });
+          setActiveTab(v as Tab);
+        }}
+      >
         <TabsList>
           <TabsTrigger value="links">
             {t("bookingLinks.meetingTypes")}

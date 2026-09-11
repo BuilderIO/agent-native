@@ -1,6 +1,5 @@
 import {
   buildCodeLayerProjection,
-  componentIdentityHint,
   type CodeLayerNode,
   type CodeLayerProjection,
   type CodeLayerTreeNode,
@@ -40,22 +39,22 @@ export function layerTypeForCodeLayer(
   return "element";
 }
 
+/**
+ * Gates "already a component", so a guess here denies Create Component to the
+ * very elements it mislabels. Identity is the annotation, nothing else.
+ */
 export function codeLayerNodeLooksLikeComponent(
   node: CodeLayerNode | null | undefined,
 ): boolean {
   if (!node) return false;
   if (isComponentInstance(node)) return true;
   const tag = node.tag.toLowerCase();
-  if (
+  return (
     tag === "button" ||
     tag === "input" ||
     tag === "select" ||
     tag === "textarea"
-  ) {
-    return true;
-  }
-  if (componentIdentityHint(node.layerName)) return true;
-  return node.classes.some(componentIdentityHint);
+  );
 }
 
 export function preferredCodeLayerSelector(node: CodeLayerNode): string {
@@ -502,6 +501,28 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
+    hasOwnText: node.paintsOwnText,
+    // A layers-panel selection is the LAYER, which renders every row, so no
+    // single item index exists. Reported anyway so a content edit refuses with
+    // a reason instead of writing markup the next render throws away.
+    ...(node.repeatXFor
+      ? {
+          repeat: {
+            sourceSelector: preferredCodeLayerSelector(node),
+            instanceCount: 0,
+            instanceIndex: 0,
+            xFor: node.repeatXFor,
+            itemIndex: -1,
+            textBinding:
+              typeof node.attributes["x-text"] === "string"
+                ? node.attributes["x-text"]
+                : "",
+            // Source has one row, so there is no rendered key here either.
+            keyExpression: "",
+            itemKey: "",
+          },
+        }
+      : {}),
     childElementCount: node.children.length,
     isFlexChild: node.layout.parentDisplay?.includes("flex") ? true : false,
     isFlexContainer: node.layout.isFlexContainer,

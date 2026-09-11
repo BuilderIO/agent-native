@@ -222,6 +222,19 @@ describe("IntegrationsPanel MCP connection errors", () => {
     ).not.toBeNull();
   });
 
+  it("warns Slack webhook users to disable Socket Mode", async () => {
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const connectSlack = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect Slack (agent in channels)"]',
+    );
+    await act(async () => connectSlack?.click());
+
+    expect(container.textContent).toContain("Turn off Socket Mode");
+  });
+
   it.each([
     ["Claude Cowork", "codex"],
     ["Claude Code", "claude-code"],

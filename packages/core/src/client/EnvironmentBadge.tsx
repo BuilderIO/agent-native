@@ -325,7 +325,9 @@ function LocalEnvironmentBadge({
       className={cn(
         environmentBadgePlacementClasses[placement],
         environmentBadgeFontClass(badgeText, collapsed),
-        "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground select-none",
+        // Fixed placement parks this over app chrome; without this the pill
+        // silently swallows clicks on whatever sits beneath it.
+        "pointer-events-none inline-flex select-none items-center justify-center border border-border/80 bg-background/95 text-foreground",
         className,
       )}
       role="status"

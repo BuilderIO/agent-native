@@ -102,6 +102,7 @@ a module breaks those — re-point the spec in the same commit.
 | Module                     | Does                                                                          |
 | -------------------------- | ----------------------------------------------------------------------------- |
 | `screen-element-select.ts` | Select an element on a screen from the canvas                                 |
+| `select-all.ts`            | Cmd+A: the selected layer's siblings, else all screens or the screen's roots  |
 | `iframe-context-menu.ts`   | Build the canvas context menu for a right-click inside the iframe             |
 | `enter-hotkey.ts`          | Enter key: start text edit, enter a group, or enter vector edit               |
 | `escape-hotkey.ts`         | Escape key: exit text edit, vector edit, tool, or selection in priority order |
