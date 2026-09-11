@@ -186,3 +186,33 @@ jobs:
       deploy_mode: production
       smoke: ${{ inputs.smoke }}
     secrets: inherit
+
+  handoff-beta:
+    name: Hand off latest main to beta publisher
+    needs: deploy
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue the current main source for beta
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-beta-sites-prebuilt.yml',
+              ref: 'main',
+              inputs: {
+                source_ref: mainSha,
+                handoff: 'true',
+              },
+            });
+            core.info(`Handed off current main ${mainSha} to the beta publisher.`);

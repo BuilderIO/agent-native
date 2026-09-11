@@ -559,10 +559,16 @@ const betaWorkflowConcurrency = asRecord(
 const betaWorkflowConcurrencyGroup = String(
   betaWorkflowConcurrency?.group ?? "",
 );
+const betaWorkflowDispatchInputs = asRecord(
+  asRecord(asRecord(parsedWorkflows.get(betaPath)?.on)?.workflow_dispatch)
+    ?.inputs,
+);
 if (
   !betaWorkflowConcurrencyGroup.includes(
     "github.event_name == 'workflow_dispatch'",
   ) ||
+  !asRecord(betaWorkflowDispatchInputs?.handoff) ||
+  !betaWorkflowConcurrencyGroup.includes("!inputs.handoff") ||
   !betaWorkflowConcurrencyGroup.includes(
     "format('deploy-agent-native-beta-manual-{0}', github.run_id)",
   ) ||
@@ -572,7 +578,7 @@ if (
   betaWorkflowConcurrency?.["cancel-in-progress"] !== false
 ) {
   issues.push(
-    `${betaPath} must isolate manual validation from the automatic beta publisher queue`,
+    `${betaPath} must isolate manual validation and support production handoff requeues`,
   );
 }
 const reusableDeployJobConfig = asRecord(
@@ -1184,7 +1190,6 @@ if (
   !betaMigrationIf.includes(
     "steps.beta_pre_migration_freshness.outputs.current == 'true'",
   ) ||
-  !betaMigrationIf.includes("source_template != '@agent-native/docs'") ||
   betaMigrationEnv?.BUILD_CONTEXT !== "production" ||
   betaMigrationEnv?.NETLIFY_MIGRATION_SITE_ID !==
     "${{ steps.target.outputs.migration_site_id }}" ||
@@ -1201,6 +1206,49 @@ if (
   issues.push(
     `${reusablePath} must migrate each beta site's production database after artifact validation and before publishing it`,
   );
+}
+
+for (const [path, needs] of [
+  [productionPath, "deploy"],
+  [manageProductionPath, "manage"],
+  [promotePath, "promote"],
+  [docsProductionPath, "restore-netlify-builds"],
+] as const) {
+  const document = parsedWorkflows.get(path);
+  const handoff = asRecord(asRecord(document?.jobs)?.["handoff-beta"]);
+  const permissions = asRecord(handoff?.permissions);
+  const handoffScript = String(
+    (
+      (Array.isArray(handoff?.steps) ? handoff.steps : [])
+        .map(asRecord)
+        .find((step) => {
+          const script = asRecord(step?.with)?.script;
+          return (
+            typeof script === "string" &&
+            script.includes("github.rest.actions.createWorkflowDispatch")
+          );
+        })?.with as Record<string, unknown> | undefined
+    )?.script ?? "",
+  );
+  const handoffNeeds = handoff?.needs;
+  if (
+    !(
+      handoffNeeds === needs ||
+      (Array.isArray(handoffNeeds) && handoffNeeds.includes(needs))
+    ) ||
+    typeof handoff.if !== "string" ||
+    !handoff.if.includes("always()") ||
+    permissions?.actions !== "write" ||
+    permissions?.contents !== "read" ||
+    !handoffScript.includes("createWorkflowDispatch") ||
+    !handoffScript.includes("deploy-beta-sites-prebuilt.yml") ||
+    !handoffScript.includes("source_ref") ||
+    !handoffScript.includes("handoff")
+  ) {
+    issues.push(
+      `${path} must requeue the current main source after ${needs} so production cannot permanently evict a beta publish`,
+    );
+  }
 }
 
 const planMigrationStep = reusableSteps.find(

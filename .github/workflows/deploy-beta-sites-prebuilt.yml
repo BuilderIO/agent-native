@@ -14,17 +14,23 @@ on:
         required: false
         type: string
         default: ""
+      handoff:
+        description: Requeue the latest main source after a production operation
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
 
 # Beta is a moving mirror of main. Keep one accepted automatic publisher running
-# and coalesce pending automatic runs. Manual runs use isolated validation so an
-# invalid input cannot evict a valid pending publish; child queues still serialize
-# each site.
+# and coalesce pending automatic and production-handoff runs. Manual runs use
+# isolated validation so an invalid input cannot evict a valid pending publish;
+# child queues still serialize each site.
 concurrency:
   group: >-
     ${{ github.event_name == 'workflow_dispatch'
+        && !inputs.handoff
         && format('deploy-agent-native-beta-manual-{0}', github.run_id)
         || 'deploy-agent-native-beta-sites-prebuilt' }}
   cancel-in-progress: false

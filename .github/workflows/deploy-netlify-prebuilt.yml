@@ -186,7 +186,9 @@ concurrency:
   # beta migration cannot race its production cutover. Design and Slides use
   # one production database, so they intentionally share one queue as well.
   # Keep an accepted publisher alive and coalesce only pending beta children;
-  # manual validation must not evict a pending automatic publish.
+  # manual validation must not evict a pending automatic publish. Production
+  # callers hand the current main source back to the beta workflow after their
+  # operation, so this shared queue remains the migration exclusion boundary.
   group: >-
     ${{ inputs.target == 'beta'
         && github.event_name == 'workflow_dispatch'
@@ -1146,8 +1148,7 @@ jobs:
         if: >-
           inputs.target == 'beta' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
-          steps.beta_pre_migration_freshness.outputs.current == 'true' &&
-          steps.target.outputs.source_template != '@agent-native/docs'
+          steps.beta_pre_migration_freshness.outputs.current == 'true'
         env:
           BETA_DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
           BUILD_CONTEXT: production

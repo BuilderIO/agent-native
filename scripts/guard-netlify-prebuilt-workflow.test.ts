@@ -433,9 +433,21 @@ describe("production Netlify site concurrency guard", () => {
       String(betaConcurrency.group),
       /format\('deploy-agent-native-beta-manual-\{0\}', github\.run_id\)/,
     );
+    assert.match(String(betaConcurrency.group), /!inputs\.handoff/);
     assert.match(
       String(betaConcurrency.group),
       /'deploy-agent-native-beta-sites-prebuilt'/,
+    );
+    assert.deepEqual(
+      (((beta.on as Workflow).workflow_dispatch as Workflow).inputs as Workflow)
+        .handoff,
+      {
+        description:
+          "Requeue the latest main source after a production operation",
+        required: false,
+        type: "boolean",
+        default: false,
+      },
     );
     assert.equal((beta.permissions as Workflow).contents, "read");
     assert.equal(
@@ -508,7 +520,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.ok(betaMigrationIndex > buildIndex);
     assert.ok(betaMigrationIndex < uploadIndex);
     assert.match(String(betaMigration?.if), /inputs\.target == 'beta'/);
-    assert.match(
+    assert.doesNotMatch(
       String(betaMigration?.if),
       /source_template != '@agent-native\/docs'/,
     );
@@ -795,6 +807,42 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /BUILD_CONTEXT="\$BUILD_CONTEXT" node --experimental-strip-types scripts\/netlify-migration-url\.ts/,
     );
+  });
+
+  it("requeues the latest beta source after every production operation", () => {
+    const cases = [
+      [
+        readWorkflow(".github/workflows/deploy-production-sites-prebuilt.yml"),
+        "deploy",
+      ],
+      [readWorkflow(".github/workflows/manage-production-sites.yml"), "manage"],
+      [readWorkflow(".github/workflows/promote-netlify-deploy.yml"), "promote"],
+      [
+        readWorkflow(".github/workflows/deploy-docs-production.yml"),
+        "restore-netlify-builds",
+      ],
+    ] as const;
+
+    for (const [workflow, needs] of cases) {
+      const handoff = (workflow.jobs as Workflow)["handoff-beta"] as Workflow;
+      assert.equal(handoff.needs, needs);
+      assert.match(String(handoff.if), /always\(\)/);
+      assert.deepEqual(handoff.permissions, {
+        actions: "write",
+        contents: "read",
+      });
+      const script = String(
+        (
+          (handoff.steps as Array<Workflow>).find(
+            (step) => step.uses,
+          ) as Workflow
+        ).with?.script,
+      );
+      assert.match(script, /createWorkflowDispatch/);
+      assert.match(script, /deploy-beta-sites-prebuilt\.yml/);
+      assert.match(script, /source_ref/);
+      assert.match(script, /handoff/);
+    }
   });
 
   it("resolves migration URLs by context, then preserves key priority", () => {
