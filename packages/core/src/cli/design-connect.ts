@@ -1107,7 +1107,10 @@ function resolvePreviewSnapshotUrl(
   if (!sameOrigin(parsed.toString(), base)) {
     throw new Error("Snapshot URL must stay on the connected dev server.");
   }
-  return parsed.toString();
+  // The frame identity param is bridge-only; a rewritten route that comes
+  // back through /live-edit must not hand it to the app.
+  const search = stripQueryPair(parsed.search, FRAME_BRIDGE_KEY_PARAM);
+  return `${parsed.origin}${parsed.pathname}${search}`;
 }
 
 /**
@@ -1129,6 +1132,87 @@ function stripPreviewTokenQueryParam(search: string): string {
       (pair) => pair !== "previewToken" && !pair.startsWith("previewToken="),
     );
   return kept.length > 0 ? `?${kept.join("&")}` : "";
+}
+
+/** Browser navigations of a top-level document or a frame. Sec-Fetch-Dest is a
+ *  forbidden header, so page JS cannot forge it; Node's fetch never sends it. */
+function isFrameNavigationRequest(req: IncomingMessage): boolean {
+  const dest = readHeader(req, "sec-fetch-dest");
+  return dest === "document" || dest === "iframe" || dest === "frame";
+}
+
+/** Query param the pre-boot shim keeps on a keyed frame's rewritten URL so the
+ *  key survives the app's own navigations. Root-relative links drop it, but the
+ *  browser's same-origin Referer still carries the page it was on. */
+const FRAME_BRIDGE_KEY_PARAM = "agentNativeBridgeKey";
+
+function bridgeKeyFromUrl(url: URL): string {
+  if (url.pathname === "/live-edit") {
+    return url.searchParams.get("bridgeKey")?.trim() ?? "";
+  }
+  return url.searchParams.get(FRAME_BRIDGE_KEY_PARAM)?.trim() ?? "";
+}
+
+/** The bridge identity a frame navigation belongs to: the key on the request
+ *  URL itself (a reload of a shim-rewritten page), else the key on the
+ *  same-origin page it came from — the keyed /live-edit page on the first hop,
+ *  a shim-rewritten app route after that. */
+function keyedFrameNavigation(
+  requestUrl: URL,
+  referer: string | undefined,
+  bridgeUrl: string,
+): { bridgeKey: string; previewToken: string } | null {
+  const origin = new URL(bridgeUrl).origin;
+  const candidates: URL[] = [];
+  if (requestUrl.origin === origin) candidates.push(requestUrl);
+  if (referer) {
+    try {
+      const url = new URL(referer);
+      if (url.origin === origin) candidates.push(url);
+    } catch {
+      // coercion-ok: an unparseable referer carries no bridge identity.
+    }
+  }
+  for (const url of candidates) {
+    const bridgeKey = bridgeKeyFromUrl(url);
+    if (!bridgeKey) continue;
+    return {
+      bridgeKey,
+      previewToken: url.searchParams.get("previewToken")?.trim() ?? "",
+    };
+  }
+  return null;
+}
+
+/** Drop one query pair from a raw `?a=1&b` search string without touching the
+ *  others. Never route this through `URLSearchParams`: re-serializing turns a
+ *  valueless Vite flag like `?url` into `?url=`, which Vite treats differently
+ *  (see stripPreviewTokenQueryParam). */
+function stripQueryPair(search: string, name: string): string {
+  if (!search) return search;
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  // Compare decoded names so a percent-encoded spelling of the same param
+  // cannot survive as a duplicate; every other pair stays byte-identical.
+  const kept = raw.split("&").filter((pair) => {
+    const rawName = pair.split("=", 1)[0] ?? pair;
+    let decoded = rawName;
+    try {
+      decoded = decodeURIComponent(rawName);
+    } catch {
+      // coercion-ok: an undecodable name is not this param.
+    }
+    return decoded !== name;
+  });
+  const next = kept.join("&");
+  return next ? `?${next}` : "";
+}
+
+/** Append one query pair to a raw search string, preserving existing pairs
+ *  byte-for-byte for the same reason as stripQueryPair. */
+function appendQueryPair(search: string, name: string, value: string): string {
+  const pair = `${name}=${encodeURIComponent(value)}`;
+  if (!search || search === "?") return `?${pair}`;
+  return `${search}&${pair}`;
 }
 
 function resolvePreviewProxyUrl(
@@ -1311,12 +1395,31 @@ function addLiveEditBaseHref(html: string, href: string): string {
  * (before deferred module bundles), so `history.replaceState` lands the SPA on
  * the intended route. Assets still resolve via the injected `<base href>`.
  */
-function injectPreBootLocationShim(html: string, targetPath: string): string {
+/** Prefix of the `window.name` a keyed frame carries. `window.name` is per
+ *  browsing context and survives every navigation inside the frame, so it
+ *  recovers the frame's screen identity even when the app's Referrer-Policy
+ *  hides the referer and a root-relative link dropped the query param. */
+const FRAME_IDENTITY_NAME_PREFIX = "agent-native-bridge:";
+
+function injectPreBootLocationShim(
+  html: string,
+  targetPath: string,
+  identity: { bridgeKey?: string; recoverTargetUrl?: string } = {},
+): string {
   const path = targetPath.trim();
   if (!path || path === "/live-edit") return html;
-  const shim = `<script data-agent-native-live-edit-location>
-(function(){try{var p=${JSON.stringify(path)};if(p&&(location.pathname+location.search)!==p){history.replaceState(null,"",p);}}catch(e){}})();
-</script>`;
+  const prefix = JSON.stringify(FRAME_IDENTITY_NAME_PREFIX);
+  const remember = identity.bridgeKey
+    ? `if(!window.name||window.name.indexOf(${prefix})===0){window.name=${prefix}+${JSON.stringify(identity.bridgeKey)};}`
+    : "";
+  // An unkeyed navigation inside a frame that remembers a key goes back
+  // through /live-edit with that key instead of booting the unkeyed script.
+  const recover = identity.recoverTargetUrl
+    ? `if(window.name&&window.name.indexOf(${prefix})===0){var k=window.name.slice(${prefix}.length);if(k){location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(identity.recoverTargetUrl)})+"&bridgeKey="+encodeURIComponent(k));return;}}`
+    : "";
+  // coercion-ok: browser-side JS injected ahead of the app; a replaceState or window.name failure must not break the app's own boot.
+  const shimBody = `(function(){try{${recover}${remember}var p=${JSON.stringify(path)};if(p&&(location.pathname+location.search)!==p){history.replaceState(null,"",p);}}catch(e){}})();`;
+  const shim = `<script data-agent-native-live-edit-location>\n${shimBody}\n</script>`;
   if (/<head\b[^>]*>/i.test(html)) {
     return html.replace(/<head\b[^>]*>/i, (match) => `${match}${shim}`);
   }
@@ -1334,10 +1437,12 @@ function injectLiveEditBridge(
   baseHref: string,
   script: string,
   targetPath: string,
+  identity: { bridgeKey?: string; recoverTargetUrl?: string } = {},
 ) {
   const withBase = injectPreBootLocationShim(
     addLiveEditBaseHref(html, baseHref),
     targetPath,
+    identity,
   );
   if (!script) return withBase;
   return injectDocumentMarkup(withBase, script);
@@ -2257,9 +2362,20 @@ export async function startDesignConnectBridge(
         (req.method === "GET" || req.method === "HEAD") &&
         pathname === "/manifest.json" &&
         readHeader(req, "sec-fetch-dest") === "manifest";
+      // The bare root doubles as a manifest alias for control-plane callers,
+      // but a live frame that navigates to "/" (router redirect, home link)
+      // arrives as a document/iframe navigation and must reach the app's
+      // own root, not a JSON blob. Browsers tag navigations with
+      // Sec-Fetch-Dest; Node's fetch never does.
+      const frameNavigationDest = readHeader(req, "sec-fetch-dest");
+      const isFrameNavigation =
+        frameNavigationDest === "document" ||
+        frameNavigationDest === "iframe" ||
+        frameNavigationDest === "frame";
       if (
         !isProxiedAppManifestRequest &&
-        (pathname === "/" || pathname === "/manifest.json")
+        (pathname === "/manifest.json" ||
+          (pathname === "/" && !isFrameNavigation))
       ) {
         if (rejectInvalidPreviewToken()) return;
         sendJson(res, 200, manifest as unknown as Record<string, unknown>);
@@ -2399,13 +2515,26 @@ export async function startDesignConnectBridge(
             // from the resolved snapshot target rather than the bridge's own
             // "/live-edit" request path.
             const targetParsed = new URL(targetUrl);
-            const targetPath =
-              `${targetParsed.pathname}${targetParsed.search}` || "/";
+            // A keyed frame keeps its key on the rewritten URL so a later
+            // navigation (whose Referer is that URL) can be sent back through
+            // /live-edit with the same identity.
+            // The requested key is authoritative: a stale copy already on the
+            // target (a rewritten route reloaded through /live-edit) must not
+            // remain as a duplicate the client would read first.
+            const targetSearch = requestedBridgeKey
+              ? appendQueryPair(
+                  stripQueryPair(targetParsed.search, FRAME_BRIDGE_KEY_PARAM),
+                  FRAME_BRIDGE_KEY_PARAM,
+                  requestedBridgeKey,
+                )
+              : targetParsed.search;
+            const targetPath = `${targetParsed.pathname}${targetSearch}` || "/";
             const html = injectLiveEditBridge(
               snapshot.html,
               new URL("/", manifest.bridgeUrl).toString(),
               includeEditorBridge ? editorBridgeScript : "",
               targetPath,
+              requestedBridgeKey ? { bridgeKey: requestedBridgeKey } : {},
             );
             sendText(
               res,
@@ -2725,11 +2854,60 @@ export async function startDesignConnectBridge(
         void (async () => {
           try {
             const proxyRequestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
+            // Both bridge-only query params stay off the dev server's URL.
             const targetUrl = resolvePreviewProxyUrl(
               manifest.devServerUrl,
-              `${proxyRequestUrl.pathname}${stripPreviewTokenQueryParam(proxyRequestUrl.search)}`,
+              `${proxyRequestUrl.pathname}${stripQueryPair(
+                stripPreviewTokenQueryParam(proxyRequestUrl.search),
+                FRAME_BRIDGE_KEY_PARAM,
+              )}`,
             );
             const method = req.method ?? "GET";
+            // A keyed frame that navigates (router redirect, home link) lands
+            // here with no key of its own; injecting the unkeyed script would
+            // boot it with whichever screen registered last. Its referer is
+            // the /live-edit URL it came from, so send it back through
+            // /live-edit with that key and the frame keeps its identity.
+            const keyed = isFrameNavigationRequest(req)
+              ? keyedFrameNavigation(
+                  proxyRequestUrl,
+                  readHeader(req, "referer"),
+                  manifest.bridgeUrl,
+                )
+              : null;
+            if (method === "GET" && keyed) {
+              {
+                const next = new URL("/live-edit", manifest.bridgeUrl);
+                next.searchParams.set("url", targetUrl);
+                next.searchParams.set("bridgeKey", keyed.bridgeKey);
+                if (keyed.previewToken) {
+                  next.searchParams.set("previewToken", keyed.previewToken);
+                }
+                res.writeHead(302, { location: next.toString() });
+                res.end();
+                return;
+              }
+            }
+            // A keyed navigation whose key this bridge no longer knows must
+            // not boot with whichever screen registered last; report it the
+            // same way GET /live-edit does so the client can re-register.
+            const keyedScript = keyed
+              ? liveEditBridgeScripts.get(keyed.bridgeKey)
+              : undefined;
+            if (keyed && !keyedScript) {
+              // Answer without consuming the body, but let the stream drain so
+              // a keep-alive connection is not left with an unread request.
+              req.resume();
+              sendJson(res, 409, {
+                ok: false,
+                code: "unknown-bridge-key",
+                bridgeKey: keyed.bridgeKey,
+                bridgeInstanceId,
+                error:
+                  "The requested live-edit bridge script is not registered. Reload the Design frame to register it again.",
+              });
+              return;
+            }
             const requestBody =
               method === "GET" || method === "HEAD"
                 ? undefined
@@ -2750,19 +2928,54 @@ export async function startDesignConnectBridge(
               previewSessionCookies,
             );
             const contentType = proxied.headers.get("content-type") ?? "";
-            const documentNavigation =
-              readHeader(req, "sec-fetch-dest") === "document";
+            // A frame navigating to the app's own routes is a document too:
+            // without the bridge injection here, a redirect or home link
+            // inside a visual-edit frame would silently drop live editing.
+            const documentNavigation = isFrameNavigationRequest(req);
+            // A keyed navigation that could not be redirected (a form POST
+            // has a body the redirect would drop) still boots with its own
+            // screen's script and keeps the key on the shim path.
             const responseBody =
               documentNavigation && contentType.includes("html")
                 ? Buffer.from(
                     injectLiveEditBridge(
                       proxied.body.toString("utf8"),
                       new URL("/", manifest.bridgeUrl).toString(),
-                      liveEditBridgeScript,
+                      // A body-bearing navigation with no recoverable key
+                      // must not boot as whichever screen registered last.
+                      // With keyed screens present it gets no bridge at all;
+                      // its next GET recovers the frame's identity. The
+                      // unkeyed slot still serves clients that never key.
+                      keyedScript ??
+                        (method !== "GET" && liveEditBridgeScripts.size > 0
+                          ? ""
+                          : liveEditBridgeScript),
                       (() => {
                         const parsed = new URL(proxied.url);
-                        return `${parsed.pathname}${parsed.search}` || "/";
+                        const search = stripQueryPair(
+                          parsed.search,
+                          FRAME_BRIDGE_KEY_PARAM,
+                        );
+                        return (
+                          `${parsed.pathname}${
+                            keyed
+                              ? appendQueryPair(
+                                  search,
+                                  FRAME_BRIDGE_KEY_PARAM,
+                                  keyed.bridgeKey,
+                                )
+                              : search
+                          }` || "/"
+                        );
                       })(),
+                      // Recovery re-issues the navigation as a GET, so it is
+                      // only offered to GET navigations: a body-bearing POST
+                      // that already reached the app must keep its response.
+                      keyed
+                        ? { bridgeKey: keyed.bridgeKey }
+                        : method === "GET"
+                          ? { recoverTargetUrl: targetUrl }
+                          : {},
                     ),
                   )
                 : proxied.body;
