@@ -670,9 +670,11 @@ const messages = {
     downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
     alsoFor: "{{platform}}でもご利用いただけます",
     backToLibrary: "ライブラリに戻る",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips をダウンロード",
     stable: "安定版",
     nightly: "Nightly",
+    allPlatforms: "すべてのプラットフォーム",
+    releaseChannel: "リリースチャンネル",
     switchToNightly: "Nightly ビルドに切り替え",
     switchToStable: "安定版ビルドに切り替え",
     retry: "再試行",
@@ -1354,13 +1356,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (ローカライズ済み)",
     chromeTitle: "Chrome extension (ローカライズ済み)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (ローカライズ済み)",
+    chromeDescription: "Chrome 拡張機能でブラウザのタブをキャプチャします。",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (ローカライズ済み)",
     desktopTitle: "Desktop app (ローカライズ済み)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (ローカライズ済み)",
+    desktopDescription: "グローバルショートカットとシステム音声で録画します。",
     openDesktopApp: "Open desktop app (ローカライズ済み)",
   },
   editableTitle: {

@@ -246,8 +246,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .mode-toggle button.active {
-  background: var(--bg);
-  color: var(--brand);
+  background: var(--brand);
+  color: var(--bg);
   box-shadow: var(--shadow-sm);
 }
 
