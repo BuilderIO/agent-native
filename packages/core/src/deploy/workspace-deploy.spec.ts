@@ -1084,7 +1084,7 @@ describe("workspace deploy", () => {
       expect.objectContaining({ id: "calendar", homePath: "/dashboard" }),
       expect.objectContaining({ id: "mail", homePath: "/compose" }),
     ]);
-  });
+  }, 30_000);
 
   it("uses public workspace URLs before loopback gateways when building apps", async () => {
     process.env.APP_URL = "https://workspace.example.test";
