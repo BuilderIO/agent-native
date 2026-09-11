@@ -54,10 +54,12 @@ import {
   classifyTerminalErrorCode,
   canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
+  isBareProviderRejectionMessage,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
   isContextOverflowMessage,
   isProviderConnectionErrorMessage,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
 import { limitProviderTools } from "./limit-provider-tools.js";
@@ -738,6 +740,23 @@ async function* emitHttpError(
     return;
   }
   if (status === 403) {
+    // A 403 the gateway sent no structured code for (`code` fell back to
+    // `http_403`) and whose body is just an SDK/proxy status echo is the
+    // gateway load-shedding, not a revoked credential — it arrives in bursts
+    // across unrelated users, often right after a 429. A structured code
+    // (gateway_suspended, insufficient_scope, ...) still falls through below
+    // unchanged, and the OAuth-lane bare "Forbidden" above already claimed
+    // its own builder_auth_error mapping before reaching here.
+    if (code === "http_403" && isBareProviderRejectionMessage(message)) {
+      yield stop({
+        error:
+          "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
+        errorCode: PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+        statusCode: 403,
+        providerRetryable: true,
+      });
+      return;
+    }
     yield stop({ error: message, errorCode: code });
     return;
   }
@@ -1046,20 +1065,30 @@ async function* parseJsonlStream(
             const isProviderConnectionError =
               typeof explicitErrMsg === "string" &&
               isProviderConnectionErrorMessage(String(explicitErrMsg));
+            // A 403 with no structured gateway code and a bare SDK/proxy
+            // status echo ("403 status code (no body)", a bare "Forbidden")
+            // is the gateway load-shedding, not a rejected credential — same
+            // check as the HTTP-error path in emitHttpError above.
+            const isBareRejection =
+              !gatewayErrCode &&
+              Boolean(explicitErrMsg) &&
+              isBareProviderRejectionMessage(String(errMsg));
             const errCode = isCredentialAuthError
               ? "builder_auth_error"
               : isModelAuthError
                 ? BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE
                 : isProviderConnectionError
                   ? BUILDER_GATEWAY_NETWORK_ERROR_CODE
-                  : (gatewayErrCode ??
-                    (!explicitErrMsg
-                      ? "builder_gateway_error"
-                      : // A detailed in-stream error the gateway left uncoded:
-                        // classify the RAW sentence here, because run persistence
-                        // would otherwise do it downstream on the visitor line and
-                        // record `unknown` on the credits lane alone.
-                        classifyTerminalErrorCode(String(errMsg))));
+                  : isBareRejection
+                    ? PROVIDER_TRANSIENT_REJECTION_ERROR_CODE
+                    : (gatewayErrCode ??
+                      (!explicitErrMsg
+                        ? "builder_gateway_error"
+                        : // A detailed in-stream error the gateway left uncoded:
+                          // classify the RAW sentence here, because run persistence
+                          // would otherwise do it downstream on the visitor line and
+                          // record `unknown` on the credits lane alone.
+                          classifyTerminalErrorCode(String(errMsg))));
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );
@@ -1088,12 +1117,15 @@ async function* parseJsonlStream(
               });
             }
             yield stop({
-              error: String(errMsg),
+              error: isBareRejection
+                ? "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying."
+                : String(errMsg),
               ...(errCode ? { errorCode: errCode } : {}),
+              ...(isBareRejection ? { statusCode: 403 } : {}),
               // The upstream provider giving up ("Overloaded", a bare 529) is
               // retryable, and the raw text is the only place it says so — a
               // stop event carries no status.
-              ...(isTransientGatewayFailure(String(errMsg))
+              ...(isBareRejection || isTransientGatewayFailure(String(errMsg))
                 ? { providerRetryable: true }
                 : {}),
               // requestId rides the stop event whether or not the gateway sent a

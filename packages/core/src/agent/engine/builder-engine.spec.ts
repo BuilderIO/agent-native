@@ -985,6 +985,97 @@ describe("createBuilderEngine", () => {
     });
   });
 
+  it("treats a bare 403 on the legacy (non-OAuth) lane as a transient rejection, not a credential failure", async () => {
+    // Same bare "Forbidden" the OAuth lane maps to builder_auth_error above —
+    // on the legacy lane it is the gateway's load-shedding signature, not a
+    // revoked key, and must not send the reader to reconnect a working
+    // Builder connection.
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(jsonErrorResponse(403, { message: "Forbidden" })),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("provider_transient_rejection");
+    expect(stop?.statusCode).toBe(403);
+    expect(stop?.providerRetryable).toBe(true);
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("treats a bare '403 status code (no body)' SDK echo as a transient rejection", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonErrorResponse(403, { message: "403 status code (no body)" }),
+        ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("provider_transient_rejection");
+    expect(stop?.statusCode).toBe(403);
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("keeps a structured gateway 403 code unchanged instead of classifying it as transient", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(403, {
+          code: "gateway_suspended",
+          message: "This space's Builder gateway access was suspended.",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("gateway_suspended");
+    expect(stop?.providerRetryable).toBeUndefined();
+  });
+
+  it("treats an in-stream bare '403 status code (no body)' as a transient rejection", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "403 status code (no body)",
+            requestId: "req_403",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("provider_transient_rejection");
+    expect(stop?.statusCode).toBe(403);
+    expect(stop?.providerRetryable).toBe(true);
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+  });
+
   describe("Builder-credits lane", () => {
     beforeEach(() => {
       credentialState.lane = "gateway-deploy";

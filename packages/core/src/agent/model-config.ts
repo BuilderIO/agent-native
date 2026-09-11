@@ -366,3 +366,27 @@ export type AISDKProvider = keyof typeof AI_SDK_MODEL_CONFIG;
 export const DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
 export const DEFAULT_OPENAI_MODEL = AI_SDK_MODEL_CONFIG.openai.defaultModel;
 export const DEFAULT_ANTHROPIC_MODEL = ANTHROPIC_MODEL_CONFIG.defaultModel;
+
+/**
+ * Small explicit fallback table for a provider-rate-limited model: the sibling
+ * a run switches to for one retry attempt when the original model's provider
+ * is throttling (see `production-agent.ts`'s per-attempt retry loop). Covers
+ * only the Builder/Anthropic ids in `BUILDER_MODEL_CONFIG.supportedModels` —
+ * everything else (gpt-*, gemini-*, "auto") has no established sibling here,
+ * so `resolveFallbackModel` returns undefined and the run just exhausts
+ * retries normally.
+ */
+const MODEL_RATE_LIMIT_FALLBACK: Record<string, string> = {
+  "claude-haiku-4-5": CLAUDE_SONNET_MODEL_ID,
+  [CLAUDE_SONNET_MODEL_ID]: "claude-haiku-4-5",
+  "claude-opus-4-8": CLAUDE_SONNET_MODEL_ID,
+};
+
+/**
+ * The model to retry on when `model` is rate-limited and the engine retry
+ * budget is exhausted. `undefined` means no known fallback for this model —
+ * the caller falls through to the normal terminal error instead.
+ */
+export function resolveFallbackModel(model: string): string | undefined {
+  return MODEL_RATE_LIMIT_FALLBACK[model];
+}

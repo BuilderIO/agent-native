@@ -1862,6 +1862,17 @@ function isRetryableStartupError(message: string): boolean {
 
 function isAuthErrorMessage(message: string): boolean {
   const msg = message.toLowerCase();
+  // A transient gateway 403/429 retry is diagnostic text that names its own
+  // HTTP status ("...temporarily refused this request (HTTP 403...", the
+  // gateway's `provider_transient_rejection`/`provider_rate_limited` codes),
+  // not an auth failure — it must not fall into the bare digit match below.
+  if (
+    msg.includes("provider_transient_rejection") ||
+    msg.includes("provider_rate_limited") ||
+    msg.includes("temporarily refused this request")
+  ) {
+    return false;
+  }
   return (
     msg.includes("authentication required") ||
     msg.includes("unauthorized") ||

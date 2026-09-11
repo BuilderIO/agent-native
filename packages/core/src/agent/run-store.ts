@@ -286,6 +286,18 @@ const STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT = 3;
 const STALE_RUN_RECOVERY_NO_PROGRESS_WINDOW_MS = 20_000;
 
 /**
+ * Hard, order-independent cap on total `stale_run` successors per turn —
+ * separate from `STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT` because
+ * that check only trips on N *consecutive* stale_run rows: a single
+ * interleaved non-stale reap (e.g. an `http_429` between two dead-on-arrival
+ * successors) resets its streak to zero and lets recovery keep inserting
+ * successors indefinitely (prod: 12 successors over 38 minutes, none of them
+ * ever making real progress). Three dead-on-arrival successors in one turn is
+ * never a blip regardless of what else happened to that turn in between.
+ */
+export const STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN = 3;
+
+/**
  * Maximum time the stale reapers (`reapIfStale`, `reapAllStaleRuns`,
  * `cleanupOldRuns`'s heartbeat-stale pass) will suspend reaping a "running"
  * row that is marked in-flight (`in_flight_since`, see `setRunInFlightMarker`)
@@ -1814,6 +1826,25 @@ async function attemptStaleRunRecovery(
     return { outcome: "budget_exhausted" };
   }
 
+  // See `STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN`. `id = ?` counts the row
+  // being reaped even when its own `error_code` UPDATE isn't visible yet on
+  // this handle — true on the non-transactional fallback path above, which
+  // calls this BEFORE writing `error_code`, and harmless on the transactional
+  // path where the UPDATE already landed on the same `tx`.
+  const { rows: staleCountRows } = await db.execute({
+    sql: `SELECT COUNT(*) AS stale_count FROM agent_runs WHERE turn_id = ? AND (error_code = ? OR id = ?)`,
+    args: [turnId, STALE_RUN_ERROR_EVENT.errorCode, runId],
+  });
+  const staleSuccessorCount = Number(
+    (staleCountRows?.[0] as { stale_count?: unknown } | undefined)?.stale_count,
+  );
+  if (
+    Number.isFinite(staleSuccessorCount) &&
+    staleSuccessorCount >= STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN
+  ) {
+    return { outcome: "repeated_no_progress" };
+  }
+
   // See `STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT`: a run whose last
   // N attempts (including the one just reaped, already written by the
   // caller's UPDATE earlier in this same transaction) all died as stale_run
@@ -1907,6 +1938,31 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
       );
     }
   })();
+}
+
+/**
+ * Extracts the `stage` field from a `recordRunDiagnostic` JSON payload
+ * (`{ stage, detail?, at }`) read off `diag_stage`/`worker_stage`, falling
+ * back to the raw column text (truncated) for a value that isn't that shape
+ * — never throws, since a malformed prior value is diagnostic noise, not a
+ * reason to lose the rest of the reap forensics.
+ */
+function priorDiagStageLabel(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { stage?: unknown }).stage === "string"
+    ) {
+      return (parsed as { stage: string }).stage;
+    }
+  } catch {
+    // coercion-ok: not the `{stage,...}` JSON shape — the raw text is returned
+    // below, so the caller still sees the original value, not a blank.
+  }
+  return raw.slice(0, 120);
 }
 
 /**
@@ -2013,44 +2069,64 @@ async function reapSingleStaleRun(
   // recorded: the recovery outcome keeps its own stage name and leading
   // position, and the liveness numbers are appended.
   let forensics = "";
+  // `priorStageInfo` captures what the dying run's OWN worker last recorded
+  // (never started? claimed then died? lost the claim to a duplicate?) —
+  // read HERE, before `recordRunDiagnostic` below overwrites `diag_stage`
+  // with this reap's own `staleRunRecoveryAttempted` write, which is the
+  // last moment that answer is readable at all.
+  let priorStageInfo = "";
   if (reaped) {
-    forensics = await client
+    const read = await client
       .execute({
         sql: `SELECT started_at, heartbeat_at, last_progress_at, in_flight_since,
-                     dispatch_mode, dispatch_payload
+                     dispatch_mode, dispatch_payload, diag_stage, worker_stage
                 FROM agent_runs WHERE id = ?`,
         args: [runId],
       })
       .then((res) => {
         const row = (res.rows as unknown as Array<Record<string, unknown>>)[0];
-        if (!row) return "forensics=row_missing";
+        if (!row)
+          return { forensics: "forensics=row_missing", priorStageInfo: "" };
         const num = (v: unknown) => (v == null ? null : Number(v));
-        return describeStaleReap({
-          startedAt: num(row.started_at),
-          heartbeatAt: num(row.heartbeat_at),
-          lastProgressAt: num(row.last_progress_at),
-          inFlightSince: num(row.in_flight_since),
-          dispatchMode: (row.dispatch_mode as string | null) ?? null,
-          hasDispatchPayload: row.dispatch_payload != null,
-          ...(typeof maxStaleMs === "number" ? { maxStaleMs } : {}),
-          now: completedAt,
-        });
+        const priorParts: string[] = [];
+        const priorDiag = priorDiagStageLabel(row.diag_stage);
+        const priorWorker = priorDiagStageLabel(row.worker_stage);
+        if (priorDiag) priorParts.push(`priorDiag=${priorDiag}`);
+        if (priorWorker) priorParts.push(`priorWorker=${priorWorker}`);
+        return {
+          forensics: describeStaleReap({
+            startedAt: num(row.started_at),
+            heartbeatAt: num(row.heartbeat_at),
+            lastProgressAt: num(row.last_progress_at),
+            inFlightSince: num(row.in_flight_since),
+            dispatchMode: (row.dispatch_mode as string | null) ?? null,
+            hasDispatchPayload: row.dispatch_payload != null,
+            ...(typeof maxStaleMs === "number" ? { maxStaleMs } : {}),
+            now: completedAt,
+          }),
+          priorStageInfo: priorParts.join(" "),
+        };
       })
       // Best-effort throughout: a diagnostic that could fail a reap would be
       // strictly worse than no diagnostic. But an empty string reads as "reaped
       // with nothing worth saying" — the exact ambiguity these forensics exist
       // to remove — so an unreadable row says so instead of going quiet.
-      .catch(
-        (err) =>
-          `forensics=unreadable ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
-      );
+      .catch((err) => ({
+        forensics: `forensics=unreadable ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
+        priorStageInfo: "",
+      }));
+    forensics = read.forensics;
+    priorStageInfo = read.priorStageInfo;
   }
 
   if (reaped && outcome && outcome.outcome !== "not_background") {
-    const detail =
+    const outcomeDetail =
       outcome.outcome === "recovered"
         ? `recovered successorRunId=${outcome.successorRunId}`
         : `declined reason=${outcome.outcome}`;
+    const detail = priorStageInfo
+      ? `${outcomeDetail} ${priorStageInfo}`
+      : outcomeDetail;
     await recordRunDiagnostic(
       runId,
       RUN_DIAG_STAGE.staleRunRecoveryAttempted,

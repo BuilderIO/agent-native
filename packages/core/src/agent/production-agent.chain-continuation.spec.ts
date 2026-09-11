@@ -87,6 +87,17 @@ function recoverableErrorBoundaryRun(): ActiveRun {
   ]);
 }
 
+function rateLimitedBoundaryRun(): ActiveRun {
+  return makeRun([
+    {
+      type: "error",
+      error: "429 status code (no body)",
+      errorCode: "http_429",
+      recoverable: true,
+    },
+  ]);
+}
+
 interface Harness {
   deps: Required<
     Pick<
@@ -303,6 +314,19 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     expect(dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
       noProgressErrorCode: "builder_gateway_internal_error",
       noProgressCount: 1,
+    });
+  });
+
+  it("labels the successor marker's continuationReason as rate_limited for an http_429 boundary", async () => {
+    const h = makeHarness();
+    await runChain(h, { run: rateLimitedBoundaryRun() });
+
+    const dispatch = (h.deps.fireInternalDispatch as any).mock.calls[0][0];
+    // This is exactly the field the NEXT chunk reads back as
+    // `priorContinuationReason` to decide whether the rate-limit chain cap
+    // applies — see `shouldChainBackgroundContinuation` in production-agent.ts.
+    expect(dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
+      continuationReason: "rate_limited",
     });
   });
 

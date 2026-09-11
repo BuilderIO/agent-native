@@ -11,6 +11,7 @@ import {
   DEFAULT_OPENAI_MODEL,
   getContextWindowForModel,
   getMaxOutputTokensForModel,
+  resolveFallbackModel,
 } from "./model-config.js";
 
 describe("agent model config catalog", () => {
@@ -318,5 +319,39 @@ describe("getMaxOutputTokensForModel", () => {
     expect(getMaxOutputTokensForModel("unknown-model-xyz")).toBe(64_000);
     expect(getMaxOutputTokensForModel("")).toBe(64_000);
     expect(getMaxOutputTokensForModel(undefined)).toBe(64_000);
+  });
+});
+
+describe("resolveFallbackModel", () => {
+  it("swaps haiku and sonnet 5 for each other", () => {
+    expect(resolveFallbackModel("claude-haiku-4-5")).toBe(
+      CLAUDE_SONNET_MODEL_ID,
+    );
+    expect(resolveFallbackModel(CLAUDE_SONNET_MODEL_ID)).toBe(
+      "claude-haiku-4-5",
+    );
+  });
+
+  it("falls back opus 5 to sonnet 5", () => {
+    expect(resolveFallbackModel("claude-opus-4-8")).toBe(
+      CLAUDE_SONNET_MODEL_ID,
+    );
+  });
+
+  it("only covers ids actually in BUILDER_MODEL_CONFIG.supportedModels", () => {
+    for (const model of [
+      "claude-haiku-4-5",
+      CLAUDE_SONNET_MODEL_ID,
+      "claude-opus-4-8",
+    ]) {
+      expect(BUILDER_MODEL_CONFIG.supportedModels).toContain(model);
+    }
+  });
+
+  it("returns undefined for models with no established fallback sibling", () => {
+    expect(resolveFallbackModel("auto")).toBeUndefined();
+    expect(resolveFallbackModel("gpt-5-6-luna")).toBeUndefined();
+    expect(resolveFallbackModel("gemini-3-5-flash")).toBeUndefined();
+    expect(resolveFallbackModel("unknown-model-xyz")).toBeUndefined();
   });
 });

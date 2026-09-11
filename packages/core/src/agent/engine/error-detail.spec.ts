@@ -6,6 +6,7 @@ import {
   classifyProviderError,
   classifyTerminalErrorCode,
   describeErrorWithCauses,
+  isBareProviderRejectionMessage,
   isBuilderGatewayInternalErrorMessage,
   isProviderConnectionError,
   isProviderConnectionErrorMessage,
@@ -248,6 +249,51 @@ describe("isProviderConnectionErrorMessage", () => {
     });
     expect(isProviderConnectionError(err)).toBe(true);
     expect(isProviderConnectionError(new Error("bad request"))).toBe(false);
+  });
+
+  it("classifies a bare 403 as a transient rejection instead of a credential error", () => {
+    const bareForbidden = Object.assign(
+      new Error("403 status code (no body)"),
+      { statusCode: 403 },
+    );
+    expect(classifyProviderError(bareForbidden)).toEqual({
+      errorCode: "provider_transient_rejection",
+      statusCode: 403,
+      providerRetryable: true,
+    });
+  });
+
+  it("keeps a structured 403 message as an ordinary http_403", () => {
+    const namedRejection = Object.assign(
+      new Error("Invalid API key provided"),
+      { statusCode: 403 },
+    );
+    expect(classifyProviderError(namedRejection)).toEqual({
+      errorCode: "http_403",
+      statusCode: 403,
+    });
+  });
+});
+
+describe("isBareProviderRejectionMessage", () => {
+  it("matches an SDK/proxy status echo with no reason", () => {
+    expect(isBareProviderRejectionMessage("")).toBe(true);
+    expect(isBareProviderRejectionMessage("Forbidden")).toBe(true);
+    expect(isBareProviderRejectionMessage("403 status code (no body)")).toBe(
+      true,
+    );
+    expect(isBareProviderRejectionMessage("Builder gateway returned 403")).toBe(
+      true,
+    );
+  });
+
+  it("does not match a message that names an actual reason", () => {
+    expect(isBareProviderRejectionMessage("Invalid API key provided")).toBe(
+      false,
+    );
+    expect(
+      isBareProviderRejectionMessage("User is not authorized for this space"),
+    ).toBe(false);
   });
 });
 

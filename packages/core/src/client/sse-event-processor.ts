@@ -6,7 +6,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
-import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+} from "../agent/engine/error-detail.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { emitChatFirstOpenApp } from "./chat-first.js";
@@ -838,6 +841,11 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "not_found_error" ||
     code === "model_not_found" ||
     code === "provider_rate_limited" ||
+    // The server already retried the bare-403 load-shedding signature before
+    // this reached the client; another automatic POST would just hammer the
+    // same throttle. Renders with the manual Retry affordance like
+    // `provider_rate_limited` above, not auto-continued.
+    code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
     // `builder_gateway_error` is the no-detail fallback the Builder engine
     // emits when the gateway returns `{type:"stop",reason:"error"}` with no
     // explanation — almost always the upstream provider giving up (model

@@ -1856,6 +1856,13 @@ describe("SSE event processor no-progress recovery", () => {
         "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
       ],
       ["authentication_error", "Missing Authentication header"],
+      // The server already retried this bare-403 load-shedding signature
+      // before it reached the client; auto-continuing here would just POST
+      // the same request into the same throttle.
+      [
+        "provider_transient_rejection",
+        "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
+      ],
     ]) {
       const caught = await (async () => {
         try {
@@ -2180,6 +2187,56 @@ describe("SSE event processor error classification", () => {
               "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
             details: "429 status code (no body)",
             errorCode: "provider_rate_limited",
+          },
+        },
+      },
+    });
+  });
+
+  it("surfaces a bare-403 transient rejection as a terminal run error, not a credential rejection", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    const rawMessage =
+      "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.";
+    const expectedMessage =
+      "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: rawMessage,
+            errorCode: "provider_transient_rejection",
+            details: rawMessage,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-transient-403",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message: expectedMessage,
+          details: rawMessage,
+          errorCode: "provider_transient_rejection",
+          tabId: "tab-transient-403",
+        },
+      }),
+    );
+    expect(results[0]).toEqual({
+      content: [{ type: "text", text: `Error: ${expectedMessage}` }],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message: expectedMessage,
+            details: rawMessage,
+            errorCode: "provider_transient_rejection",
           },
         },
       },

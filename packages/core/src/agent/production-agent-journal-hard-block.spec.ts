@@ -650,4 +650,73 @@ describe("tool-call journal hard-block", () => {
 
     expect(action.run).toHaveBeenCalledOnce();
   });
+
+  // A resurfaced re-fetch (the model's earlier result fell out of its visible
+  // context) is the SAME call answered again, not a stuck loop. Neither the
+  // journal-seeded ledger nor this chunk's own resurfaced call may count
+  // toward `repeated_tool_call` (MAX_IDENTICAL_TOOL_CALLS = 8) — reproduces
+  // the prod incident where 8 legitimate re-fetches across chunks killed the
+  // turn with "called 8 times with identical arguments".
+  it("does not stop the turn after 8 resurfaced re-fetches of the same read across chunks", async () => {
+    const RAW_RESULT = "the actual document content";
+    const resurfacedResult =
+      "Skipped duplicate read-only call to get-doc: identical input already ran in this turn. " +
+      `Its earlier result is no longer in view, so here it is again:\n\n${RAW_RESULT}`;
+    const readAction = vi.fn(async () => RAW_RESULT);
+    const action: ActionEntry = {
+      tool: {
+        description: "A read action",
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: true,
+      run: readAction,
+    };
+
+    // Seeded as already completed by an even-earlier chunk this test never
+    // simulates directly — only its journal footprint matters here.
+    let ledger: unknown[] = completedLedger(
+      "get-doc",
+      { id: "doc-1" },
+      RAW_RESULT,
+    );
+
+    for (let chunk = 1; chunk <= 8; chunk++) {
+      currentTurnEventsMock.mockResolvedValue(ledger);
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine: singleToolEngine("get-doc", { id: "doc-1" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: `continue ${chunk}` }],
+          },
+        ],
+        actions: { "get-doc": action },
+        send: (e) => events.push(e),
+        signal: new AbortController().signal,
+        threadId: "thread-resurface",
+      });
+
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "repeated_tool_call" }),
+      );
+      const toolDone = events.find((e: any) => e.type === "tool_done");
+      expect(toolDone?.result).toBe(resurfacedResult);
+
+      // Grows exactly as the real durable ledger would: this chunk's own
+      // resurfaced tool_done is now part of the journal the NEXT chunk reads.
+      ledger = [
+        ...ledger,
+        ...completedLedger("get-doc", { id: "doc-1" }, resurfacedResult),
+      ];
+    }
+
+    // The original read never re-fires — every one of the 8 chunks was
+    // served from the journal/cache.
+    expect(readAction).not.toHaveBeenCalled();
+  });
 });
