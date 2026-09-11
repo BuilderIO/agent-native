@@ -439,7 +439,11 @@ export default defineAction({
     const park = async (
       nextState: string,
       clause: string,
-      options?: { status?: string; veto?: BabysitPingReason },
+      options?: {
+        status?: string;
+        veto?: BabysitPingReason;
+        metadata?: Record<string, unknown>;
+      },
     ): Promise<void> => {
       if (
         shouldRecordBabysitAudit({ previousState, nextState, posted: false })
@@ -470,9 +474,11 @@ export default defineAction({
           prBabysitFingerprint: fingerprint,
           prBabysitLastCheckedAt: nowIso,
           ...parkedPatch,
+          ...(options?.metadata ?? {}),
         },
         {
-          ...options,
+          status: options?.status,
+          veto: options?.veto,
           touchUpdatedAt: previousState !== nextState,
         },
       );
@@ -571,7 +577,11 @@ export default defineAction({
       }
 
       if (decision === "defer" || mechanical.builderActive) {
-        await park("defer", babysitDeferClause());
+        await park("defer", babysitDeferClause(), {
+          metadata: mechanical.builderActiveUntil
+            ? { prBabysitBuilderActiveUntil: mechanical.builderActiveUntil }
+            : undefined,
+        });
         return { ok: true, action: "defer" };
       }
 

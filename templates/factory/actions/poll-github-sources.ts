@@ -43,6 +43,7 @@ import {
 import {
   babysitLeavesReviewWindow,
   botReviewBodyKeys,
+  deferBabysitQuietWindowExpired,
   countHumanReviewBodies,
   countHumanReviewComments,
   detectBotErrorAfterPing,
@@ -206,7 +207,11 @@ function parkedRecheckPollMetadataPatch(
       checkedAt,
     }),
     ...(reopenParked
-      ? { prBabysitState: "queued", prBabysitPendingReopen: true }
+      ? {
+          prBabysitState: "queued",
+          prBabysitPendingReopen: true,
+          prBabysitBuilderActiveUntil: null,
+        }
       : {}),
   };
 }
@@ -259,7 +264,9 @@ function shouldReopenFromRecheck(
   recheck: ParkedRecheck | undefined,
   parked: boolean,
   parkedState?: string | null,
+  nowMs: number = Date.now(),
 ): boolean {
+  if (deferBabysitQuietWindowExpired(existingMetadata, nowMs)) return true;
   const stored = storedMergeability(existingMetadata);
   return shouldReopenParkedBabysit({
     parked,

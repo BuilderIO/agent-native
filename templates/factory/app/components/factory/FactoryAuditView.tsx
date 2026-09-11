@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { safeHttpUrl } from "@/lib/safe-http-url";
 
 const AUDIT_PAGE_SIZE = 20;
+const AUDIT_SUMMARY_COLLAPSE_CHARS = 280;
 
 type FactoryAuditCounts = {
   newlyObserved: number;
@@ -63,6 +64,7 @@ type FactoryAuditItem = {
   sourceUrl: string | null;
   title: string;
   summary: string | null;
+  pullRequestNumber?: number | null;
   outcome: "held" | "dispatched" | "failed" | "inspected" | "left";
   status: string;
   rationale: string | null;
@@ -451,11 +453,10 @@ function AuditRunDetail({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-        {run.threadId && (
+      {run.threadId ? (
+        <Button variant="outline" size="sm" asChild>
           <a
             href={`/chat/${encodeURIComponent(run.threadId)}`}
-            className="inline-flex items-center text-primary hover:underline"
             onClick={(event) => {
               if (
                 event.metaKey ||
@@ -472,8 +473,8 @@ function AuditRunDetail({
           >
             {t("factoryRoute.auditOpenThread")}
           </a>
-        )}
-      </div>
+        </Button>
+      ) : null}
 
       {(run.error || failedItems.length > 0) && (
         <div className="mt-4 rounded-md bg-destructive/5 p-3 text-sm">
@@ -586,19 +587,27 @@ function AuditItemRow({
 }) {
   const t = useT();
   const sourceLink = resolveAuditSourceLink(item);
+  const pullRequestLabel = auditPullRequestLabel(item);
 
   return (
     <details className="group overflow-hidden rounded-lg border border-border bg-muted/20">
       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <AuditSourceIcon source={item.source} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">
-            <SlackMrkdwn
-              text={item.title}
-              inline
-              mentionLabels={item.userLabels}
-              builderSlackUserId={builderSlackUserId}
-            />
+          <p className="flex min-w-0 items-baseline gap-2 truncate text-sm font-medium">
+            {pullRequestLabel ? (
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {pullRequestLabel}
+              </span>
+            ) : null}
+            <span className="min-w-0 truncate">
+              <SlackMrkdwn
+                text={item.title}
+                inline
+                mentionLabels={item.userLabels}
+                builderSlackUserId={builderSlackUserId}
+              />
+            </span>
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {formatItemRowHint(item, t)}
@@ -614,17 +623,14 @@ function AuditItemRow({
         <AuditDecisionFacts item={item} />
         <BabysitDecisionFacts item={item} />
         {item.summary ? (
-          <div
-            className={`rounded-md border border-border bg-background px-3 py-2 ${
-              hasAuditFacts(item) ? "mt-3" : ""
-            }`}
-          >
-            <SlackMrkdwn
-              text={item.summary}
-              mentionLabels={item.userLabels}
-              builderSlackUserId={builderSlackUserId}
-            />
-          </div>
+          <AuditSummaryBody
+            summary={item.summary}
+            mentionLabels={item.userLabels}
+            builderSlackUserId={builderSlackUserId}
+            className={hasAuditFacts(item) ? "mt-3" : ""}
+            viewMoreLabel={t("factoryRoute.auditViewMore")}
+            viewLessLabel={t("factoryRoute.auditViewLess")}
+          />
         ) : null}
         <div className={item.summary || hasAuditFacts(item) ? "mt-3" : ""}>
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -1074,6 +1080,59 @@ function formatAuditEventHint(event: FactoryAuditEvent): string | null {
     readStringDetail(event.details, "because") ??
     readStringDetail(event.details, "veto")
   );
+}
+
+function AuditSummaryBody({
+  summary,
+  mentionLabels,
+  builderSlackUserId,
+  className,
+  viewMoreLabel,
+  viewLessLabel,
+}: {
+  summary: string;
+  mentionLabels?: Record<string, string>;
+  builderSlackUserId: string | null;
+  className?: string;
+  viewMoreLabel: string;
+  viewLessLabel: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = summary.length > AUDIT_SUMMARY_COLLAPSE_CHARS;
+
+  return (
+    <div
+      className={`rounded-md border border-border bg-background px-3 py-2 ${className ?? ""}`}
+    >
+      <div className={expanded || !collapsible ? undefined : "line-clamp-4"}>
+        <SlackMrkdwn
+          text={summary}
+          mentionLabels={mentionLabels}
+          builderSlackUserId={builderSlackUserId}
+        />
+      </div>
+      {collapsible ? (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="mt-1 h-auto px-0 text-xs"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? viewLessLabel : viewMoreLabel}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function auditPullRequestLabel(item: FactoryAuditItem): string | null {
+  if ((item.source ?? "").toLowerCase() !== "github") return null;
+  const number = item.pullRequestNumber;
+  if (typeof number !== "number" || !Number.isFinite(number) || number < 1) {
+    return null;
+  }
+  return `#${number}`;
 }
 
 function formatAuditAge(value: string | number, nowLabel: string) {

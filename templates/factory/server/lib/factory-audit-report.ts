@@ -17,6 +17,7 @@ export type FactoryAuditItemSnapshot = {
   summary: string | null;
   source: string | null;
   sourceUrl: string | null;
+  pullRequestNumber?: number | null;
   status?: string | null;
   createdAt?: string | null;
   lastSeenAt?: string | null;
@@ -46,6 +47,7 @@ export type FactoryAuditReportItem = {
   sourceUrl: string | null;
   title: string;
   summary: string | null;
+  pullRequestNumber: number | null;
   outcome: FactoryAuditItemOutcome;
   status: string;
   rationale: string | null;
@@ -242,6 +244,10 @@ function projectItem(
       null,
     title: auditItemSubject(item, events),
     summary: auditItemMessage(item, events),
+    pullRequestNumber:
+      typeof item?.pullRequestNumber === "number" && item.pullRequestNumber > 0
+        ? item.pullRequestNumber
+        : null,
     outcome,
     status:
       outcome === "failed"

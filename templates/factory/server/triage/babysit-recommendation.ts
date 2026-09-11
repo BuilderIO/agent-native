@@ -36,7 +36,7 @@ export function computeBabysitRecommendation(
   });
   const builder = detectBuilderActive({
     checks: input.checks,
-    lastActivityAtMs: input.lastCommentAtMs,
+    lastBuilderActivityAtMs: input.lastCommentAtMs,
     nowMs: input.nowMs,
   });
   const openBot = input.proposal.unansweredBotComments.length;

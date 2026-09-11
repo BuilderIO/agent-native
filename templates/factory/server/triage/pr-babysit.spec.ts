@@ -7,6 +7,7 @@ import {
   countBabysitComments,
   countFactoryBabysitComments,
   decideBabysitPing,
+  deferBabysitQuietWindowExpired,
   DEFAULT_BABYSIT_PR_COMMENT,
   formatBabysitAuditSummary,
   hasCompletePassingChecks,
@@ -914,6 +915,33 @@ describe("babysit work policy", () => {
     for (const state of ["active", "queued", "out-of-scope", null, undefined]) {
       expect(babysitLeavesReviewWindow(state)).toBe(false);
     }
+  });
+
+  it("reopens defer after the builder quiet window expires", () => {
+    expect(
+      deferBabysitQuietWindowExpired(
+        {
+          prBabysitState: "defer",
+          prBabysitBuilderActiveUntil: "2026-09-11T12:00:00.000Z",
+        },
+        Date.parse("2026-09-11T12:00:01.000Z"),
+      ),
+    ).toBe(true);
+    expect(
+      deferBabysitQuietWindowExpired(
+        {
+          prBabysitState: "defer",
+          prBabysitBuilderActiveUntil: "2026-09-11T12:00:00.000Z",
+        },
+        Date.parse("2026-09-11T11:59:59.000Z"),
+      ),
+    ).toBe(false);
+    expect(
+      deferBabysitQuietWindowExpired(
+        { prBabysitState: "waiting" },
+        Date.parse("2026-09-11T12:00:01.000Z"),
+      ),
+    ).toBe(false);
   });
 
   it("reopens stuck for human review but not for a merge conflict", () => {
