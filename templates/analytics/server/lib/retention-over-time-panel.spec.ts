@@ -136,4 +136,32 @@ describe("retention-over-time panel SQL", () => {
     expect(row(cohortBDate, "1-7d return").rate).not.toBeNull();
     expect(row(cohortBDate, "7-14d return").rate).toBeNull();
   });
+
+  it("sizes a bounded spine to the same calendar days as the shared time-range filter", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolate(panel.sql, {
+      timeRange: "7d",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as { rows: Array<{ date: string }> }
+    ).rows;
+    const dates = [...new Set(rows.map((r) => r.date))].sort();
+
+    // `dashboardTimeRangeFilter` admits `event_date >= CURRENT_DATE - 7 days`
+    // through today: eight calendar days, oldest one inclusive.
+    expect(dates).toEqual(
+      Array.from({ length: 8 }, (_, n) => offsetDate(today, 7 - n)),
+    );
+  });
 });
