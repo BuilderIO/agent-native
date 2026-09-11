@@ -2342,16 +2342,47 @@ jobs:
             );
             process.exit(0);
           }
+          const fallbackErrors = [];
           if (currentDeployId !== originalDeployId) {
-            throw new Error(
-              `Refusing failure cleanup to modify published deploy ${currentDeployId}; cutover started from ${originalDeployId}.`,
+            fallbackErrors.push(
+              new Error(
+                `Refusing failure cleanup to modify published deploy ${currentDeployId}; cutover started from ${originalDeployId}.`,
+              ),
             );
           }
-          await restoreLockState(
-            originalDeployId,
-            process.env.cutoverWasLocked,
-            `Published production deploy ${originalDeployId}`,
+          if (newDeployId && newDeployId !== originalDeployId) {
+            try {
+              await restoreLockState(
+                newDeployId,
+                "true",
+                `Failed production deploy ${newDeployId} not currently published`,
+              );
+            } catch (error) {
+              fallbackErrors.push(error);
+            }
+          }
+          try {
+            await restoreLockState(
+              originalDeployId,
+              process.env.cutoverWasLocked,
+              `Published production deploy ${originalDeployId}`,
+            );
+          } catch (error) {
+            fallbackErrors.push(error);
+          }
+          if (fallbackErrors.length === 1) {
+            throw fallbackErrors[0];
+          }
+          if (fallbackErrors.length > 1) {
+            throw new AggregateError(
+              fallbackErrors,
+              "Netlify failure cleanup could not quarantine the failed deploy and restore the prior lock state.",
+            );
+          }
+          console.log(
+            `Preserved published production deploy ${originalDeployId} and quarantined failed deploy ${newDeployId || "none"} after cutover failure.`,
           );
+          process.exit(0);
           NODE
 
       - name: Resume automatic Netlify builds after production cutover

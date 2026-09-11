@@ -985,6 +985,7 @@ if (
   !reusable.slice(cleanupStart).includes("cutoverPublishedDeployId") ||
   !reusable.slice(cleanupStart).includes("cutoverNewDeployId") ||
   !reusable.slice(cleanupStart).includes("cutoverWasLocked") ||
+  !cleanupWindow.includes("id: failure_cleanup") ||
   !cleanupWindow.includes("cutoverGoogleRollbackDeployId") ||
   !cleanupWindow.includes("callbackRestoredDeployId") ||
   !cleanupWindow.includes("currentDeployId !== callbackRestoredDeployId") ||
@@ -1006,6 +1007,10 @@ if (
   !cleanupWindow.includes("rollbackError && failedDeployLockError") ||
   !/restoreLockState\(\s*newDeployId,\s*"true"/.test(cleanupWindow) ||
   !cleanupWindow.includes("currentDeployId === newDeployId") ||
+  !cleanupWindow.includes("newDeployId !== originalDeployId") ||
+  !cleanupWindow.includes("fallbackErrors") ||
+  !cleanupWindow.includes("Failed production deploy") ||
+  !cleanupWindow.includes("quarantined failed deploy") ||
   !cleanupWindow.includes("Restored previous production deploy") ||
   !cleanupWindow.includes("Preserved Google callback rollback deploy")
 ) {

@@ -1816,6 +1816,9 @@ describe("production Netlify site concurrency guard", () => {
       String(cleanup?.run),
       /rollbackError && failedDeployLockError/,
     );
+    assert.match(String(cleanup?.run), /newDeployId !== originalDeployId/);
+    assert.match(String(cleanup?.run), /fallbackErrors/);
+    assert.match(String(cleanup?.run), /quarantined failed deploy/);
     assert.match(
       String(cleanup?.run),
       /restoreLockState\(\s*newDeployId,\s*"true"/,
