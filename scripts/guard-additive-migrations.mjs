@@ -31,6 +31,12 @@
  *     DELETE FROM without a WHERE clause.
  *   - Two migration entries in the same array declaring the same
  *     `version` number — the exact parallel-branch collision above.
+ *   - ADD COLUMN ... NOT NULL (or PRIMARY KEY) on an existing table with no
+ *     DEFAULT and no auto-generated value (SERIAL/IDENTITY). Beta and
+ *     production migrate independently against one shared database, so a
+ *     not-null column with nothing to fill it breaks on the first existing
+ *     row, and breaks any already-deployed INSERT that doesn't know the
+ *     column exists yet.
  *
  * The additive alternative is always available: add a new nullable column
  * (or table) and backfill it, rather than dropping/renaming/retyping the
@@ -52,7 +58,12 @@
  *
  *   // guard:allow-destructive-ddl — <reason>
  *
- * SQL files may use either `//` or `--` for the pragma comment.
+ * The blocking-not-null-column check has its own pragma, since it isn't
+ * destructive DDL:
+ *
+ *   // guard:allow-blocking-column-default — <reason>
+ *
+ * SQL files may use either `//` or `--` for either pragma comment.
  */
 
 import { readFileSync } from "node:fs";
@@ -67,6 +78,8 @@ const REPO_ROOT = path.resolve(
 );
 
 const PRAGMA_RE = /^\s*(?:\/\/|--)\s*guard:allow-destructive-ddl\b/i;
+const BLOCKING_COLUMN_PRAGMA_RE =
+  /^\s*(?:\/\/|--)\s*guard:allow-blocking-column-default\b/i;
 
 /**
  * The engine itself, not a migration list - its doc comments demonstrate
@@ -286,11 +299,79 @@ function lineOf(src, index) {
   return line;
 }
 
-function isPragmaed(lines, lineNumber) {
+function isPragmaed(lines, lineNumber, pragmaRe = PRAGMA_RE) {
   return (
-    PRAGMA_RE.test(lines[lineNumber - 1] ?? "") ||
-    PRAGMA_RE.test(lines[lineNumber - 2] ?? "")
+    pragmaRe.test(lines[lineNumber - 1] ?? "") ||
+    pragmaRe.test(lines[lineNumber - 2] ?? "")
   );
+}
+
+/**
+ * Splits a comma-separated SQL clause list at depth 0 (respecting
+ * parens and '...' strings), so `DEFAULT ARRAY[1,2]` or
+ * `CHECK (a > 0 AND b < 10)` don't get mistaken for separate clauses.
+ */
+function splitTopLevelClauses(text) {
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  let inSingle = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "'") {
+      if (inSingle && text[i + 1] === "'") {
+        i++;
+        continue;
+      }
+      inSingle = !inSingle;
+      continue;
+    }
+    if (inSingle) continue;
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      out.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(text.slice(start));
+  return out;
+}
+
+// A column with one of these gets a value on every existing row without an
+// explicit DEFAULT, so NOT NULL is safe: SERIAL/BIGSERIAL/SMALLSERIAL assign
+// the next sequence value, and GENERATED ... AS IDENTITY does the same.
+const SELF_FILLING_COLUMN_RE =
+  /\b(?:SMALL|BIG)?SERIAL\b|\bGENERATED\s+(?:ALWAYS|BY\s+DEFAULT)\s+AS\s+IDENTITY\b/i;
+
+/**
+ * `ADD COLUMN ... NOT NULL` (or `PRIMARY KEY`, which implies NOT NULL) with
+ * no DEFAULT and no self-filling type breaks on the first existing row —
+ * and breaks any already-deployed code path that inserts without knowing
+ * the new column exists. The additive fix is always available: make the
+ * column nullable, or give it a DEFAULT, and backfill separately if needed.
+ */
+function blockingAddColumnMatches(statementText) {
+  if (!/\bALTER\s+TABLE\b/i.test(statementText)) return [];
+  const afterTable = statementText.replace(
+    /^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?\S+\s*/i,
+    "",
+  );
+  const hits = [];
+  for (const clause of splitTopLevelClauses(afterTable)) {
+    if (
+      !/^\s*ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\S/i.test(clause)
+    ) {
+      continue;
+    }
+    const requiresValue =
+      /\bNOT\s+NULL\b/i.test(clause) || /\bPRIMARY\s+KEY\b/i.test(clause);
+    if (!requiresValue) continue;
+    if (/\bDEFAULT\b/i.test(clause)) continue;
+    if (SELF_FILLING_COLUMN_RE.test(clause)) continue;
+    hits.push(clause.trim().slice(0, 120));
+  }
+  return hits;
 }
 
 function scanFile(file) {
@@ -305,21 +386,41 @@ function scanFile(file) {
 
   for (const blob of blobs) {
     for (const stmt of splitStatements(blob.text)) {
-      const hits = destructiveMatches(stmt.text);
-      if (hits.length === 0) continue;
       const line = lineOf(src, blob.absStart + stmt.offset);
-      if (isPragmaed(lines, line)) continue;
-      violations.push({
-        file,
-        line,
-        message:
-          `matched ${hits.join(", ")} in: ${stmt.text.trim().slice(0, 120)} — ` +
-          "migrations must be additive-only; add a new nullable column (or " +
-          "table) and backfill it instead of dropping/renaming/retyping in " +
-          "place. If this is a genuinely reviewed exception, add " +
-          "`// guard:allow-destructive-ddl — <reason>` on this line or the " +
-          "line above.",
-      });
+
+      const hits = destructiveMatches(stmt.text);
+      if (hits.length > 0 && !isPragmaed(lines, line)) {
+        violations.push({
+          file,
+          line,
+          message:
+            `matched ${hits.join(", ")} in: ${stmt.text.trim().slice(0, 120)} — ` +
+            "migrations must be additive-only; add a new nullable column (or " +
+            "table) and backfill it instead of dropping/renaming/retyping in " +
+            "place. If this is a genuinely reviewed exception, add " +
+            "`// guard:allow-destructive-ddl — <reason>` on this line or the " +
+            "line above.",
+        });
+      }
+
+      const blockingColumns = blockingAddColumnMatches(stmt.text);
+      if (
+        blockingColumns.length > 0 &&
+        !isPragmaed(lines, line, BLOCKING_COLUMN_PRAGMA_RE)
+      ) {
+        violations.push({
+          file,
+          line,
+          message:
+            `ADD COLUMN with no DEFAULT is not backward compatible: ${blockingColumns.join("; ")} — ` +
+            "an existing row has no value for this column, and code already " +
+            "deployed against the old schema doesn't know to provide one on " +
+            "insert. Make the column nullable, or give it a DEFAULT, then " +
+            "backfill separately if needed. If this is a genuinely reviewed " +
+            "exception, add `// guard:allow-blocking-column-default — <reason>` " +
+            "on this line or the line above.",
+        });
+      }
     }
   }
 
