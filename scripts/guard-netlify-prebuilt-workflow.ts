@@ -960,6 +960,7 @@ const pauseStart = reusable.indexOf(
 const cleanupStart = reusable.indexOf(
   "name: Restore the production deploy lock after a failed cutover",
 );
+const cleanupWindow = reusable.slice(cleanupStart);
 if (
   pauseStart < 0 ||
   lockStart < 0 ||
@@ -975,14 +976,17 @@ if (
   !reusable
     .slice(cleanupStart)
     .includes('const action = expectedLocked ? "lock" : "unlock"') ||
-  !reusable.slice(cleanupStart).includes("/restore") ||
-  !reusable.slice(cleanupStart).includes("waitForPublished") ||
-  !reusable.slice(cleanupStart).includes("finally") ||
-  !/restoreLockState\(\s*newDeployId,\s*"true"/.test(
-    reusable.slice(cleanupStart),
+  !cleanupWindow.includes(
+    "/sites/${process.env.NETLIFY_SITE_ID}/deploys/${originalDeployId}/restore",
   ) ||
-  !reusable.slice(cleanupStart).includes("currentDeployId === newDeployId") ||
-  !reusable.slice(cleanupStart).includes("Restored previous production deploy")
+  !cleanupWindow.includes("const restoredDeployId = restored?.id") ||
+  !cleanupWindow.includes("waitForPublished(restoredDeployId)") ||
+  !/restoreLockState\(\s*restoredDeployId,/.test(cleanupWindow) ||
+  cleanupWindow.includes("waitForPublished(originalDeployId)") ||
+  !cleanupWindow.includes("finally") ||
+  !/restoreLockState\(\s*newDeployId,\s*"true"/.test(cleanupWindow) ||
+  !cleanupWindow.includes("currentDeployId === newDeployId") ||
+  !cleanupWindow.includes("Restored previous production deploy")
 ) {
   issues.push(
     `${reusablePath} must pause automatic builds before cutover, restore the prior deploy, lock the failed deploy, and fail-safe the production lock after cutover errors`,

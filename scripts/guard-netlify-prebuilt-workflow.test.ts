@@ -1769,8 +1769,23 @@ describe("production Netlify site concurrency guard", () => {
       /!process\.env\.cutoverPublishedDeployId/,
     );
     assert.match(String(cleanup?.run), /currentDeployId === newDeployId/);
-    assert.match(String(cleanup?.run), /\/restore/);
-    assert.match(String(cleanup?.run), /waitForPublished/);
+    assert.match(
+      String(cleanup?.run),
+      /sites\/\$\{process\.env\.NETLIFY_SITE_ID\}\/deploys\/\$\{originalDeployId\}\/restore/,
+    );
+    assert.match(
+      String(cleanup?.run),
+      /const restoredDeployId = restored\?\.id/,
+    );
+    assert.match(String(cleanup?.run), /waitForPublished\(restoredDeployId\)/);
+    assert.match(
+      String(cleanup?.run),
+      /restoreLockState\(\s*restoredDeployId,/,
+    );
+    assert.doesNotMatch(
+      String(cleanup?.run),
+      /waitForPublished\(originalDeployId\)/,
+    );
     assert.match(String(cleanup?.run), /finally/);
     assert.match(
       String(cleanup?.run),

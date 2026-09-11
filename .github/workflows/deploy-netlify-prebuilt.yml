@@ -2334,15 +2334,24 @@ jobs:
           }
           if (newDeployId && currentDeployId === newDeployId) {
             try {
-              await readJson(
-                await request(`${api}/deploys/${originalDeployId}/restore`, { method: "POST" }),
+              const restored = await readJson(
+                await request(
+                  `${api}/sites/${process.env.NETLIFY_SITE_ID}/deploys/${originalDeployId}/restore`,
+                  { method: "POST" },
+                ),
                 `Netlify previous production deploy ${originalDeployId} restore`,
               );
-              await waitForPublished(originalDeployId);
+              const restoredDeployId = restored?.id;
+              if (!restoredDeployId) {
+                throw new Error(
+                  `Netlify previous production deploy ${originalDeployId} restore did not return a new deploy id.`,
+                );
+              }
+              await waitForPublished(restoredDeployId);
               await restoreLockState(
-                originalDeployId,
+                restoredDeployId,
                 process.env.cutoverWasLocked,
-                `Restored production deploy ${originalDeployId}`,
+                `Restored production deploy ${restoredDeployId}`,
               );
             } finally {
               await restoreLockState(
