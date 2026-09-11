@@ -500,6 +500,8 @@ interface DesignCanvasProps {
   editorChromeScaleY?: number;
   editMode: boolean;
   interactMode: boolean;
+  /** Centers the focused responsive preview without resetting its camera. */
+  centerInteractPreview?: boolean;
   readOnly?: boolean;
   /** This screen's layout grid step in content px. 1 (or absent) means no grid,
    *  which leaves the whole-pixel floor every gesture already lands on. */
@@ -1145,6 +1147,7 @@ export function DesignCanvas({
   editorChromeScaleY = editorChromeScaleX,
   editMode,
   interactMode,
+  centerInteractPreview = false,
   layoutGridStep,
   readOnly = false,
   scaleMode = false,
@@ -2329,7 +2332,7 @@ export function DesignCanvas({
     // ~327,680px, comfortably under browser max-element-size limits.
     min: DEFAULT_CANVAS_MIN_ZOOM,
     max: DEFAULT_CANVAS_MAX_ZOOM,
-    zoomToCursor: deviceFrame === "none",
+    zoomToCursor: deviceFrame === "none" && !centerInteractPreview,
     enabled: Boolean(onZoomChange),
   });
 
@@ -2354,7 +2357,7 @@ export function DesignCanvas({
   // `deviceFrame !== "none"` branch below, without giving up the top-left
   // transform-origin the zoom-anchor math above depends on.
   useEffect(() => {
-    if (deviceFrame !== "none") return;
+    if (deviceFrame !== "none" || centerInteractPreview) return;
     const scroll = scrollContainerRef.current;
     const layer = zoomLayerRef.current;
     if (!scroll || !layer) return;
@@ -2377,7 +2380,7 @@ export function DesignCanvas({
     // gesture manages its own scroll delta and would otherwise be fought by
     // this effect on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceFrame, contentKey, previewWidthPx]);
+  }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
   // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
   // outside Edit mode. The editor chrome bridge is omitted for Interact mode
@@ -3229,7 +3232,7 @@ export function DesignCanvas({
           Math.min(DEFAULT_CANVAS_MAX_ZOOM, currentZoom * factor),
         );
         if (!Number.isFinite(nextZoom) || nextZoom === currentZoom) return;
-        if (deviceFrame === "none") {
+        if (deviceFrame === "none" && !centerInteractPreview) {
           const rawClientX = Number(e.data.clientX);
           const rawClientY = Number(e.data.clientY);
           if (!Number.isFinite(rawClientX) || !Number.isFinite(rawClientY)) {
@@ -3288,6 +3291,7 @@ export function DesignCanvas({
     onRuntimeStructureInsertRejected,
     onVisualDuplicateChange,
     onZoomChange,
+    centerInteractPreview,
     deviceFrame,
     onPrototypeNavigate,
     onComponentSourceJump,
@@ -5190,7 +5194,19 @@ export function DesignCanvas({
     >
       {/* Canvas area. "none" mode fills the canvas (responsive preview);
           framed modes are centered inside the canvas with zoom applied. */}
-      {deviceFrame === "none" ? (
+      {centerInteractPreview ? (
+        <div className="relative flex min-h-full min-w-full items-center justify-center">
+          <div
+            ref={zoomLayerRef}
+            style={{
+              transform: `scale(${zoom / 100})`,
+              transformOrigin: "center center",
+            }}
+          >
+            {wrappedContent}
+          </div>
+        </div>
+      ) : deviceFrame === "none" ? (
         <div
           ref={zoomLayerRef}
           className="relative h-full w-full"
