@@ -489,7 +489,7 @@ async function markFallbackMarkersDelivered(
     args: [
       deliveredAt,
       Date.now(),
-      ...rows.map(firstPartyAnalyticsDeliveryFallbackKey),
+      ...rows.map((row) => firstPartyAnalyticsDeliveryFallbackKey(row.eventId)),
     ],
     timeoutMs: 5_000,
     maxAttempts: 1,
