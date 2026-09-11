@@ -183,7 +183,7 @@ export function ShareRecordingPopover({
       resource_type: "recording",
       resource_id: recordingId,
       link_type: "share",
-      link_scope: initialVisibility ?? "private",
+      ...(initialVisibility ? { link_scope: initialVisibility } : {}),
     });
     setCopied(true);
     if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
@@ -813,7 +813,7 @@ function AgentTab({
       resource_type: "recording",
       resource_id: recordingId,
       link_type: "agent_context",
-      link_scope: visibility ?? "private",
+      ...(visibility ? { link_scope: visibility } : {}),
     });
     toast.success(t("shareUi.copied"));
   };
