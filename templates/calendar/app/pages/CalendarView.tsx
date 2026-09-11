@@ -84,7 +84,6 @@ import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import { isPersonCalendarId } from "@/lib/person-calendar";
 import {
   buildAllDayEventDraft,
   buildWorkingLocationDraft,
@@ -114,6 +113,7 @@ import {
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
 import { getLocationSuggestions } from "@/lib/location-suggestions";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { isPersonCalendarId } from "@/lib/person-calendar";
 import { cn } from "@/lib/utils";
 import {
   buildWorkingLocationProperties,

@@ -9969,8 +9969,7 @@ const translatedBookingHostAvailability = {
         "Impossible d'ajouter {{email}}. Veuillez réessayer.",
       overlayRequestEmailNotConfigured:
         "L'envoi d'e-mails n'est pas encore configuré",
-      overlayRequestInProgress:
-        "Une demande à ce collègue est déjà en cours",
+      overlayRequestInProgress: "Une demande à ce collègue est déjà en cours",
       addOtherEmail: "Ajouter un autre e-mail",
       overlayHostsHint:
         "Les personnes de votre calendrier bénéficient d'une planification tenant compte de leurs horaires. Les autres e-mails ne sont vérifiés que pour les conflits.",
@@ -10032,13 +10031,13 @@ const translatedBookingHostAvailability = {
       overlayRequestPageAdded:
         "Hinzugefügt. Die Buchungslinks von {{email}} verwenden jetzt deine tatsächlichen Arbeitszeiten.",
       overlayRequestPageDismiss: "Nicht jetzt",
-      overlayRequestPageInvalidLink: "Dieser Link ist ungültig oder abgelaufen.",
+      overlayRequestPageInvalidLink:
+        "Dieser Link ist ungültig oder abgelaufen.",
       overlayRequestPageAddFailed:
         "{{email}} konnte nicht hinzugefügt werden. Bitte versuche es erneut.",
       overlayRequestEmailNotConfigured:
         "E-Mail-Versand ist noch nicht eingerichtet",
-      overlayRequestInProgress:
-        "Eine Anfrage an diese Person läuft bereits",
+      overlayRequestInProgress: "Eine Anfrage an diese Person läuft bereits",
       addOtherEmail: "Weitere E-Mail hinzufügen",
       overlayHostsHint:
         "Personen aus deinem Kalender erhalten eine Terminplanung, die ihre Arbeitszeiten berücksichtigt. Andere E-Mails werden nur auf Konflikte geprüft.",
@@ -10282,17 +10281,18 @@ const translatedBookingHostAvailability = {
       overlayRequestPageTitle: "{{email}}님을 캘린더에 추가하시겠어요?",
       overlayRequestPageDescription:
         "{{email}}님이 회원님을 자신의 캘린더에 추가했으며, 회원님이 필수 호스트로 지정된 예약 링크가 있습니다. 현재 해당 링크는 회원님의 바쁨 여부만 확인할 수 있습니다. 다시 추가하면 실제 근무 시간을 사용하게 됩니다.",
-      overlayRequestPageAlreadyAdded: "이미 {{email}}님을 캘린더에 추가했습니다.",
+      overlayRequestPageAlreadyAdded:
+        "이미 {{email}}님을 캘린더에 추가했습니다.",
       overlayRequestPageAdded:
         "추가되었습니다. 이제 {{email}}님의 예약 링크가 회원님의 실제 근무 시간을 사용합니다.",
       overlayRequestPageDismiss: "나중에",
-      overlayRequestPageInvalidLink: "이 링크는 유효하지 않거나 만료되었습니다.",
+      overlayRequestPageInvalidLink:
+        "이 링크는 유효하지 않거나 만료되었습니다.",
       overlayRequestPageAddFailed:
         "{{email}}님을 추가하지 못했습니다. 다시 시도해 주세요.",
       overlayRequestEmailNotConfigured:
         "이메일 발송이 아직 설정되지 않았습니다",
-      overlayRequestInProgress:
-        "이 상대방에게 보낸 요청이 이미 진행 중입니다",
+      overlayRequestInProgress: "이 상대방에게 보낸 요청이 이미 진행 중입니다",
       addOtherEmail: "다른 이메일 추가",
       overlayHostsHint:
         "캘린더에 있는 사람은 근무 시간을 반영한 일정이 적용됩니다. 다른 이메일은 일정 충돌만 확인합니다.",
@@ -10416,8 +10416,7 @@ const translatedBookingHostAvailability = {
         "تعذر إضافة {{email}}. يرجى المحاولة مرة أخرى.",
       overlayRequestEmailNotConfigured:
         "لم يتم إعداد إرسال البريد الإلكتروني بعد",
-      overlayRequestInProgress:
-        "هناك طلب قيد التنفيذ بالفعل لهذا الشخص",
+      overlayRequestInProgress: "هناك طلب قيد التنفيذ بالفعل لهذا الشخص",
       addOtherEmail: "إضافة بريد إلكتروني آخر",
       overlayHostsHint:
         "يحصل الأشخاص من تقويمك على جدولة تراعي ساعات عملهم. يتم التحقق من رسائل البريد الإلكتروني الأخرى بحثًا عن التعارضات فقط.",

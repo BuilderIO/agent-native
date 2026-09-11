@@ -14,9 +14,7 @@ describe("formatRelativeTimeFromNow", () => {
   });
 
   it("localizes the sub-minute case for the active locale", () => {
-    expect(formatRelativeTimeFromNow(ago(30 * 1000), NOW, "es")).toBe(
-      "ahora",
-    );
+    expect(formatRelativeTimeFromNow(ago(30 * 1000), NOW, "es")).toBe("ahora");
   });
 
   it("formats minutes", () => {

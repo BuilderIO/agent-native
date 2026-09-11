@@ -37,7 +37,9 @@ export function overlayRequestDayKey(ms: number): string {
  * read as `perPeer` with an empty `dailyCounts`, so existing settings keep
  * working without a migration.
  */
-export function normalizeOverlayRequestState(current: unknown): OverlayRequestState {
+export function normalizeOverlayRequestState(
+  current: unknown,
+): OverlayRequestState {
   if (current && typeof current === "object" && "perPeer" in current) {
     const state = current as Partial<OverlayRequestState>;
     return {

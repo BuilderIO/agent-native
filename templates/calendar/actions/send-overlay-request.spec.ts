@@ -114,8 +114,13 @@ describe("send-overlay-request", () => {
     sendEmailMock.mockResolvedValue(undefined);
     assertAccessMock.mockResolvedValue({ role: "editor" });
     mutateUserSettingMock.mockImplementation(
-      async (email: string, key: string, updater: (current: unknown) => unknown) => {
-        const current = key === REQUESTS_KEY ? (requestsStore[email] ?? null) : null;
+      async (
+        email: string,
+        key: string,
+        updater: (current: unknown) => unknown,
+      ) => {
+        const current =
+          key === REQUESTS_KEY ? (requestsStore[email] ?? null) : null;
         const next = await updater(current);
         if (key === REQUESTS_KEY) {
           requestsStore[email] = next as StoredState;
@@ -231,14 +236,18 @@ describe("send-overlay-request", () => {
   });
 
   it("rejects sending to a peer who has already added the owner back", async () => {
-    getUserSettingMock.mockImplementation(async (email: string, key: string) => {
-      if (key !== "calendar-overlay-people") return null;
-      // The owner has PEER overlaid, and PEER's own list already has the
-      // owner back, so the relationship is reciprocal.
-      if (email === OWNER) return { people: [{ email: PEER, color: "#fff" }] };
-      if (email === PEER) return { people: [{ email: OWNER, color: "#fff" }] };
-      return null;
-    });
+    getUserSettingMock.mockImplementation(
+      async (email: string, key: string) => {
+        if (key !== "calendar-overlay-people") return null;
+        // The owner has PEER overlaid, and PEER's own list already has the
+        // owner back, so the relationship is reciprocal.
+        if (email === OWNER)
+          return { people: [{ email: PEER, color: "#fff" }] };
+        if (email === PEER)
+          return { people: [{ email: OWNER, color: "#fff" }] };
+        return null;
+      },
+    );
 
     await expect(run({ email: PEER })).rejects.toThrow(
       "already added the owner back",
@@ -321,7 +330,9 @@ describe("send-overlay-request", () => {
 
     await run({ email: PEER });
 
-    expect(requestsStore[OWNER]?.perPeer?.["stale@example.com"]).toBeUndefined();
+    expect(
+      requestsStore[OWNER]?.perPeer?.["stale@example.com"],
+    ).toBeUndefined();
     expect(requestsStore[OWNER]?.perPeer?.[PEER]).toBeDefined();
   });
 

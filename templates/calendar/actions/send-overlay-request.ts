@@ -135,62 +135,66 @@ export default defineAction({
     };
     const dayKey = overlayRequestDayKey(now);
 
-    await mutateUserSetting(ownerEmail, OVERLAY_REQUESTS_SETTING_KEY, (current) => {
-      const state = normalizeOverlayRequestState(current);
-      const trimmed: Record<string, string> = {};
-      // Entries older than a day can no longer affect the cooldown, so drop
-      // them instead of growing this setting forever. A pending reservation
-      // older than PENDING_STALE_MS is abandoned (crashed send) and is
-      // dropped too, rather than blocking the peer permanently.
-      for (const [email, value] of Object.entries(state.perPeer)) {
-        const { sentAt, pending } = parseOverlayRequestEntry(value);
-        if (sentAt === null || now - sentAt >= DAY_MS) continue;
-        if (pending && now - sentAt > PENDING_STALE_MS) continue;
-        trimmed[email] = value;
-      }
-
-      // The cap is a fixed-window count of sends per UTC day, keyed
-      // separately from the per-peer map: unlike the per-peer map, a resend
-      // to the same peer must still count as a second send against the cap,
-      // not overwrite a single shared slot. Only the current and previous
-      // day are kept so this bucket stays bounded.
-      const dailyCounts: Record<string, number> = {};
-      for (const [key, count] of Object.entries(state.dailyCounts)) {
-        if (key === dayKey || key === overlayRequestDayKey(now - DAY_MS)) {
-          dailyCounts[key] = count;
+    await mutateUserSetting(
+      ownerEmail,
+      OVERLAY_REQUESTS_SETTING_KEY,
+      (current) => {
+        const state = normalizeOverlayRequestState(current);
+        const trimmed: Record<string, string> = {};
+        // Entries older than a day can no longer affect the cooldown, so drop
+        // them instead of growing this setting forever. A pending reservation
+        // older than PENDING_STALE_MS is abandoned (crashed send) and is
+        // dropped too, rather than blocking the peer permanently.
+        for (const [email, value] of Object.entries(state.perPeer)) {
+          const { sentAt, pending } = parseOverlayRequestEntry(value);
+          if (sentAt === null || now - sentAt >= DAY_MS) continue;
+          if (pending && now - sentAt > PENDING_STALE_MS) continue;
+          trimmed[email] = value;
         }
-      }
 
-      const existing = trimmed[peerEmail];
-      if (existing) {
-        const { sentAt, pending } = parseOverlayRequestEntry(existing);
-        // A pending reservation means a send is already in flight for this
-        // peer (held by another call, since this call hasn't reserved yet).
-        // It is not a completed send and must never be reported as one.
-        if (pending) {
-          outcomeRef.current = { kind: "in-progress" };
+        // The cap is a fixed-window count of sends per UTC day, keyed
+        // separately from the per-peer map: unlike the per-peer map, a resend
+        // to the same peer must still count as a second send against the cap,
+        // not overwrite a single shared slot. Only the current and previous
+        // day are kept so this bucket stays bounded.
+        const dailyCounts: Record<string, number> = {};
+        for (const [key, count] of Object.entries(state.dailyCounts)) {
+          if (key === dayKey || key === overlayRequestDayKey(now - DAY_MS)) {
+            dailyCounts[key] = count;
+          }
+        }
+
+        const existing = trimmed[peerEmail];
+        if (existing) {
+          const { sentAt, pending } = parseOverlayRequestEntry(existing);
+          // A pending reservation means a send is already in flight for this
+          // peer (held by another call, since this call hasn't reserved yet).
+          // It is not a completed send and must never be reported as one.
+          if (pending) {
+            outcomeRef.current = { kind: "in-progress" };
+            return { perPeer: trimmed, dailyCounts };
+          }
+          if (sentAt !== null && now - sentAt < COOLDOWN_MS) {
+            outcomeRef.current = { kind: "cooldown", sentAt: existing };
+            return { perPeer: trimmed, dailyCounts };
+          }
+        }
+
+        if ((dailyCounts[dayKey] ?? 0) >= DAILY_CAP) {
+          outcomeRef.current = { kind: "cap" };
           return { perPeer: trimmed, dailyCounts };
         }
-        if (sentAt !== null && now - sentAt < COOLDOWN_MS) {
-          outcomeRef.current = { kind: "cooldown", sentAt: existing };
-          return { perPeer: trimmed, dailyCounts };
-        }
-      }
 
-      if ((dailyCounts[dayKey] ?? 0) >= DAILY_CAP) {
-        outcomeRef.current = { kind: "cap" };
+        // Reserved optimistically now (not on confirmed send) so a burst of
+        // concurrent reservations for distinct peers still can't exceed the
+        // cap while their sends are in flight; released again on failure below.
+        const reservation = PENDING_PREFIX + new Date(now).toISOString();
+        trimmed[peerEmail] = reservation;
+        dailyCounts[dayKey] = (dailyCounts[dayKey] ?? 0) + 1;
+        outcomeRef.current = { kind: "reserved", reservation };
         return { perPeer: trimmed, dailyCounts };
-      }
-
-      // Reserved optimistically now (not on confirmed send) so a burst of
-      // concurrent reservations for distinct peers still can't exceed the
-      // cap while their sends are in flight; released again on failure below.
-      const reservation = PENDING_PREFIX + new Date(now).toISOString();
-      trimmed[peerEmail] = reservation;
-      dailyCounts[dayKey] = (dailyCounts[dayKey] ?? 0) + 1;
-      outcomeRef.current = { kind: "reserved", reservation };
-      return { perPeer: trimmed, dailyCounts };
-    });
+      },
+    );
 
     const outcome = outcomeRef.current;
     if (outcome.kind === "cooldown") {
@@ -248,34 +252,42 @@ export default defineAction({
       // lets another caller reclaim the slot if this one runs long, and that
       // newer reservation/confirmation must not be clobbered by this one
       // finishing late.
-      await mutateUserSetting(ownerEmail, OVERLAY_REQUESTS_SETTING_KEY, (current) => {
-        const state = normalizeOverlayRequestState(current);
-        const perPeer = { ...state.perPeer };
-        const dailyCounts = { ...state.dailyCounts };
-        if (perPeer[peerEmail] === reservation) {
-          delete perPeer[peerEmail];
-          // Only release this call's own reservation slot from the cap; a
-          // newer call may already have reclaimed the peer entry above (in
-          // which case this branch doesn't run) or incremented a later day.
-          dailyCounts[dayKey] = Math.max(0, (dailyCounts[dayKey] ?? 0) - 1);
-        }
-        return { perPeer, dailyCounts };
-      });
+      await mutateUserSetting(
+        ownerEmail,
+        OVERLAY_REQUESTS_SETTING_KEY,
+        (current) => {
+          const state = normalizeOverlayRequestState(current);
+          const perPeer = { ...state.perPeer };
+          const dailyCounts = { ...state.dailyCounts };
+          if (perPeer[peerEmail] === reservation) {
+            delete perPeer[peerEmail];
+            // Only release this call's own reservation slot from the cap; a
+            // newer call may already have reclaimed the peer entry above (in
+            // which case this branch doesn't run) or incremented a later day.
+            dailyCounts[dayKey] = Math.max(0, (dailyCounts[dayKey] ?? 0) - 1);
+          }
+          return { perPeer, dailyCounts };
+        },
+      );
       throw err;
     }
 
     const nowIso = new Date(now).toISOString();
-    await mutateUserSetting(ownerEmail, OVERLAY_REQUESTS_SETTING_KEY, (current) => {
-      const state = normalizeOverlayRequestState(current);
-      const perPeer = { ...state.perPeer };
-      // Same ownership guard as the failure path above: don't overwrite a
-      // newer reservation or confirmation with this late-finishing call's.
-      // The daily count was already incremented at reservation time above,
-      // so a confirmed send doesn't increment it again.
-      if (perPeer[peerEmail] !== reservation) return state;
-      perPeer[peerEmail] = nowIso;
-      return { perPeer, dailyCounts: state.dailyCounts };
-    });
+    await mutateUserSetting(
+      ownerEmail,
+      OVERLAY_REQUESTS_SETTING_KEY,
+      (current) => {
+        const state = normalizeOverlayRequestState(current);
+        const perPeer = { ...state.perPeer };
+        // Same ownership guard as the failure path above: don't overwrite a
+        // newer reservation or confirmation with this late-finishing call's.
+        // The daily count was already incremented at reservation time above,
+        // so a confirmed send doesn't increment it again.
+        if (perPeer[peerEmail] !== reservation) return state;
+        perPeer[peerEmail] = nowIso;
+        return { perPeer, dailyCounts: state.dailyCounts };
+      },
+    );
 
     return { email: peerEmail, requestSentAt: nowIso, emailSent: true };
   },
