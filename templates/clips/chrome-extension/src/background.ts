@@ -432,18 +432,24 @@ async function restoreRuntimeState(): Promise<void> {
       );
     }
 
-    if (
-      offscreenState?.activeSessionId === freshArmingSessionId &&
-      activeNativeRecording
-    ) {
-      // The recorder row was persisted before BEGIN, so a worker restart here
-      // can keep the live recorder without leaving the arming guard stuck on.
-      await setArmingGuard(null);
-      armingRecovered = true;
+    if (offscreenState?.activeSessionId === freshArmingSessionId) {
+      if (activeNativeRecording) {
+        // The recorder row was persisted before BEGIN, so a worker restart here
+        // can keep the live recorder without leaving the arming guard stuck on.
+        await setArmingGuard(null);
+        armingRecovered = true;
+      } else {
+        // Preserve a live recorder if its row was not readable during restore;
+        // cancelling it would lose media that has already crossed BEGIN.
+        console.warn(
+          "[clips-bg] live offscreen recorder has no persisted row:",
+          freshArmingSessionId,
+        );
+      }
     } else if (offscreenState) {
       // The old worker died before BEGIN. Cancel through the normal cleanup
       // path so prepared streams, the server row, and the REC badge all clear.
-      await cancelRecording();
+      await cancelRecording(true);
       await setArmingGuard(null);
       armingRecovered = true;
     }
@@ -1543,6 +1549,14 @@ async function armRecording(args: {
   // script holds it, with its own 12s cap), so the fallback must be generous
   // enough not to start the recorder mid-connect; otherwise a short pre-roll.
   const startDelayMs = cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000;
+  if (
+    armingNativeRecordingSessionId !== sessionId ||
+    activeNativeRecording?.sessionId !== sessionId
+  ) {
+    await abortArming();
+    await clearNativeRecording();
+    throw new Error("Clips recording start was cancelled.");
+  }
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
@@ -1569,7 +1583,7 @@ async function armRecording(args: {
         includeMicrophone: settings.includeMicrophone,
       },
     });
-    await cancelRecording();
+    await cancelRecording(true);
     throw err;
   }
   // Keep the active-recording stop and discard controls behind the popup only
@@ -1857,9 +1871,12 @@ async function stopRecording() {
   }
 }
 
-async function cancelRecording() {
+async function cancelRecording(force = false) {
   const recording = activeNativeRecording;
   if (overlayPhase === "saving") return { ok: false };
+  if (!force && armingNativeRecordingSessionId) {
+    return { ok: false, error: "Clips recording is still starting." };
+  }
   resetOverlay();
   await broadcastUnmount();
   broadcastOverlayState();
@@ -1970,6 +1987,7 @@ async function reconcilePersistedNativeRecording(): Promise<void> {
 
 async function handlePopupStatus() {
   await reconcilePersistedNativeRecording();
+  if (armingNativeRecordingSessionId) await restoreRuntimeState();
   return {
     ok: true,
     activeRecording: activeNativeRecording,
