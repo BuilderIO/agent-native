@@ -86,6 +86,7 @@ const DESIGN_SKILL_DOMAIN_PREPOSITIONS = new Set([
   "with",
 ]);
 const DESIGN_SKILL_CLAUSE_BOUNDARIES = new Set(["also", "and", "but", "then"]);
+const DESIGN_PRONOUN_OBJECT = /^(?:it|this)$/i;
 
 function matchSpans(pattern: RegExp, text: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
@@ -112,12 +113,21 @@ function hasDistinctVerbAndObject(text: string): boolean {
   return matchSpans(
     new RegExp(DESIGN_MUTATION_OBJECTS.source, "gi"),
     text,
-  ).some(([objectStart, objectEnd]) =>
-    verbs.some(
-      ([verbStart, verbEnd]) =>
-        verbEnd <= objectStart || objectEnd <= verbStart,
-    ),
-  );
+  ).some(([objectStart, objectEnd]) => {
+    // `it` and `this` double as determiners and subjects, and English puts an
+    // object after its verb. The `this` in "this design" belongs to `design`,
+    // so pairing the two backwards read "I love this design" as an edit
+    // request. A named object still pairs either way, because it can lead its
+    // verb: "the color palette needs updating".
+    const pronounObject = DESIGN_PRONOUN_OBJECT.test(
+      text.slice(objectStart, objectEnd),
+    );
+    return verbs.some(([verbStart, verbEnd]) =>
+      pronounObject
+        ? verbEnd <= objectStart
+        : verbEnd <= objectStart || objectEnd <= verbStart,
+    );
+  });
 }
 
 function normalizeToolName(name: unknown): string {

@@ -696,6 +696,27 @@ describe("Design final response guard", () => {
     expect(designFinalResponseGuard(guardContext("nice design"))).toBeNull();
   });
 
+  it("reads a pronoun before the verb as a determiner, not an object", () => {
+    // `it` and `this` double as determiners and subjects, so pairing them
+    // backwards let "this design" stand in for verb plus object.
+    expect(looksLikeDesignMutationRequest("I love this design")).toBe(false);
+    expect(looksLikeDesignMutationRequest("this design looks good")).toBe(
+      false,
+    );
+    expect(looksLikeDesignMutationRequest("that design is great")).toBe(false);
+
+    expect(looksLikeDesignMutationRequest("design it")).toBe(true);
+    expect(looksLikeDesignMutationRequest("make it darker")).toBe(true);
+    expect(looksLikeDesignMutationRequest("update this")).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("this is the design, make it darker"),
+    ).toBe(true);
+    // A named object still pairs either way, because it can lead its verb.
+    expect(
+      looksLikeDesignMutationRequest("the color palette needs updating"),
+    ).toBe(true);
+  });
+
   it("still requires proof for a real design change", () => {
     expect(looksLikeDesignMutationRequest("update the design")).toBe(true);
     expect(looksLikeDesignMutationRequest("design a login screen")).toBe(true);
