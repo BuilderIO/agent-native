@@ -32,7 +32,7 @@ describe("portable extension runtime", () => {
     expect(html).toContain("agentNative.host.ready");
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");
-    expect(html).toContain("body.getBoundingClientRect().top");
+    expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
     expect(html).toContain("body.querySelectorAll('*')");
     expect(html).not.toContain("body.scrollHeight");
     expect(html).toContain('<div x-data="{ ready: true }">Hello</div>');

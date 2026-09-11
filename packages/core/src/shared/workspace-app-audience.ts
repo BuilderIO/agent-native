@@ -3,6 +3,7 @@ export const WORKSPACE_APP_AUDIENCES = ["internal", "public"] as const;
 export type WorkspaceAppAudience = (typeof WORKSPACE_APP_AUDIENCES)[number];
 
 export const DEFAULT_WORKSPACE_APP_AUDIENCE: WorkspaceAppAudience = "internal";
+export const DEFAULT_WORKSPACE_APP_HOME_PATH = "/home";
 
 export interface WorkspaceAppRouteAccess {
   publicPaths: string[];
@@ -13,6 +14,19 @@ export function normalizeWorkspaceAppAudience(
   value: unknown,
 ): WorkspaceAppAudience {
   return value === "public" ? "public" : DEFAULT_WORKSPACE_APP_AUDIENCE;
+}
+
+export function normalizeWorkspaceAppHomePath(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (
+    !raw ||
+    !raw.startsWith("/") ||
+    raw.startsWith("//") ||
+    /[\u0000-\u0020\u007f\\?#]/.test(raw)
+  ) {
+    return DEFAULT_WORKSPACE_APP_HOME_PATH;
+  }
+  return raw.replace(/\/+$/, "") || "/";
 }
 
 export function normalizeWorkspaceAppPathList(value: unknown): string[] {

@@ -40,6 +40,7 @@ import {
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppAudience,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromPackageJson,
@@ -110,6 +111,7 @@ interface WorkspaceAppManifestEntry {
   name: string;
   description: string;
   path: string;
+  homePath: string;
   url?: string;
   isDispatch: boolean;
   audience: WorkspaceAppAudience;
@@ -120,6 +122,7 @@ interface WorkspaceAppManifestEntry {
 interface WorkspaceAppManifestOverride {
   id: string;
   url?: string;
+  homePath?: string;
   audience?: WorkspaceAppAudience;
   publicPaths?: string[];
   protectedPaths?: string[];
@@ -1481,6 +1484,7 @@ function readWorkspaceAppManifest(
         name: pkg?.displayName || titleCase(app),
         description: pkg?.description || "",
         path: appPath,
+        homePath: normalizeWorkspaceAppHomePath(explicit?.homePath),
         ...(url ? { url } : {}),
         isDispatch: app === "dispatch",
         audience,
@@ -1549,6 +1553,7 @@ function parseWorkspaceAppsManifest(
       const id = typeof e.id === "string" ? e.id.trim() : "";
       if (!id) return null;
       const url = normalizeWorkspaceAppUrl(e.url);
+      const homePath = normalizeWorkspaceAppHomePath(e.homePath);
       const audience =
         e.audience === undefined
           ? undefined
@@ -1558,6 +1563,7 @@ function parseWorkspaceAppsManifest(
       return {
         id,
         ...(url ? { url } : {}),
+        homePath,
         ...(audience ? { audience } : {}),
         ...(publicPaths.length > 0 ? { publicPaths } : {}),
         ...(protectedPaths.length > 0 ? { protectedPaths } : {}),

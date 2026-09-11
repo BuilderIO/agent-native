@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { coreTemplates, getTemplate } from "../../cli/templates-meta.js";
 import { isTruthyRuntimeValue } from "../../shared/runtime-config.js";
+import { normalizeWorkspaceAppHomePath } from "../../shared/workspace-app-audience.js";
 
 export interface OrgSwitcherAppLink {
   id: string;
@@ -153,6 +154,7 @@ function appEntryToLink(
     typeof record.icon === "string" && record.icon.trim()
       ? record.icon.trim()
       : getTemplate(id)?.icon;
+  const homePath = normalizeWorkspaceAppHomePath(record.homePath);
 
   return {
     id,
@@ -160,7 +162,9 @@ function appEntryToLink(
       typeof record.name === "string" && record.name.trim()
         ? record.name.trim()
         : titleCase(id),
-    href: isDispatch ? appendPath(baseHref, "overview") : baseHref,
+    href: isDispatch
+      ? appendPath(baseHref, "overview")
+      : appendPath(baseHref, homePath),
     description:
       typeof record.description === "string" && record.description.trim()
         ? record.description.trim()
