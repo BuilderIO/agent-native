@@ -424,6 +424,15 @@ const messages = {
       fixed: "固定",
       sticky: "黏著",
     },
+    screenSource: {
+      title: "來源",
+      url: "URL",
+      urlLabel: "畫面 URL",
+      urlPlaceholder: "/plans 或 http://localhost:5173/plans",
+      update: "更新",
+      chooseLocalApp: "選擇本機應用程式",
+      remove: "移除畫面",
+    },
     borderStyleOptions: {
       none: "無",
       solid: "實線",
@@ -964,6 +973,8 @@ const messages = {
     },
     toasts: {
       annotationSendError: "無法傳送註解。你的繪圖仍保留在這裡，請再試一次。",
+      screenSourceUpdated: "畫面來源已更新",
+      screenSourceUpdateFailed: "無法更新畫面來源",
       componentCreated: "元件已建立",
       componentCreateFailed: "無法建立元件",
       tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",

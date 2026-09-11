@@ -378,7 +378,7 @@ export async function writeInlineSourceFile(args: {
         args.expectedVersionHash &&
         args.expectedVersionHash !== sourceContentHash(liveBeforeApply)
       ) {
-        throw new Error(
+        throw new SourceWorkspaceEditConflictError(
           "Source file changed since it was read. Re-read the file and retry.",
         );
       }

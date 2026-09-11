@@ -219,9 +219,7 @@ export function AddLocalhostScreenDialog({
             >
               <SelectTrigger className="h-8 w-full text-xs">
                 <SelectValue
-                  placeholder={
-                    "Choose local app" /* i18n-ignore design screen source placeholder */
-                  }
+                  placeholder={t("editPanel.screenSource.chooseLocalApp")}
                 />
               </SelectTrigger>
               <SelectContent>

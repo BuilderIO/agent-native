@@ -35,6 +35,7 @@ import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
   useActionMutation,
+  actionErrorMessage,
   callAction,
   tryCallActionKeepalive,
   useSession,
@@ -16439,14 +16440,14 @@ function DesignEditor() {
             void queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
-            toast.success(
-              // i18n-ignore design screen source toast
-              "Screen source updated",
-            );
+            toast.success(t("designEditor.toasts.screenSourceUpdated"));
           },
           onError: (error) => {
             toast.error(
-              error instanceof Error ? error.message : t("common.genericError"),
+              actionErrorMessage(error) ??
+                (error instanceof Error && error.message
+                  ? error.message
+                  : t("designEditor.toasts.screenSourceUpdateFailed")),
             );
           },
         },

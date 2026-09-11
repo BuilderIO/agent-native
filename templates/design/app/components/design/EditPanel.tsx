@@ -1320,9 +1320,7 @@ function ScreenGeometryProperties({
     <>
       <PanelSection title={t("editPanel.sections.page")}>
         <div className="design-sidebar-property-group space-y-2">
-          <SubsectionLabel>
-            {t("designEditor.patchProof.source")}
-          </SubsectionLabel>
+          <SubsectionLabel>{t("editPanel.screenSource.title")}</SubsectionLabel>
           <div className="grid grid-cols-2 gap-1 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
             <Button
               type="button"
@@ -1335,6 +1333,10 @@ function ScreenGeometryProperties({
                   setSourceMode("static");
                   return;
                 }
+                // Keep the control pessimistic while a URL-to-static snapshot
+                // is in flight. A failed bridge snapshot must not make the
+                // inspector claim that the screen changed modes.
+                setSourceMode("url");
                 onScreenSourceChange?.(screen.id, { sourceType: "static" });
               }}
             >
@@ -1348,7 +1350,7 @@ function ScreenGeometryProperties({
               disabled={!sourceEditable || screenSourcePending}
               onClick={() => setSourceMode("url")}
             >
-              {"URL" /* i18n-ignore design screen source mode */}
+              {t("editPanel.screenSource.url")}
             </Button>
           </div>
           {sourceMode === "url" ? (
@@ -1368,12 +1370,8 @@ function ScreenGeometryProperties({
                       event.currentTarget.blur();
                     }
                   }}
-                  placeholder={
-                    "/plans or http://localhost:5173/plans" /* i18n-ignore design screen source placeholder */
-                  }
-                  aria-label={
-                    "Screen URL" /* i18n-ignore design screen source label */
-                  }
+                  placeholder={t("editPanel.screenSource.urlPlaceholder")}
+                  aria-label={t("editPanel.screenSource.urlLabel")}
                   disabled={!sourceEditable || screenSourcePending}
                   className="h-7 min-w-0 flex-1 text-[11px]"
                 />
@@ -1388,11 +1386,9 @@ function ScreenGeometryProperties({
                   }
                   onClick={() => commitUrl()}
                 >
-                  {
-                    screenSourcePending
-                      ? "…"
-                      : "Update" /* i18n-ignore design screen source action */
-                  }
+                  {screenSourcePending
+                    ? "…"
+                    : t("editPanel.screenSource.update")}
                 </Button>
               </div>
               {localhostConnections.length > 1 ? (
@@ -1406,9 +1402,7 @@ function ScreenGeometryProperties({
                 >
                   <SelectTrigger className="h-7 w-full min-w-0 text-[11px]">
                     <SelectValue
-                      placeholder={
-                        "Choose local app" /* i18n-ignore design screen source placeholder */
-                      }
+                      placeholder={t("editPanel.screenSource.chooseLocalApp")}
                     />
                   </SelectTrigger>
                   <SelectContent>
@@ -1452,9 +1446,7 @@ function ScreenGeometryProperties({
                 className="size-7 text-muted-foreground hover:text-destructive"
                 disabled={!sourceEditable || screenSourcePending}
                 onClick={onRemoveScreen}
-                aria-label={
-                  "Remove screen" /* i18n-ignore design screen source action */
-                }
+                aria-label={t("editPanel.screenSource.remove")}
               >
                 <IconTrash className="size-3.5" />
               </Button>

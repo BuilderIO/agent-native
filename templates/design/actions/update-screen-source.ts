@@ -13,7 +13,10 @@ import {
   localhostBridgeRequestError,
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
-import { writeInlineSourceFile } from "../server/source-workspace.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+} from "../server/source-workspace.js";
 import { sanitizeMarkup } from "../shared/capture-sanitize.js";
 import { isStandaloneHttpUrl } from "../shared/html-content.js";
 import { designConnectionIdFromData } from "../shared/source-mode.js";
@@ -244,6 +247,8 @@ export default defineAction({
         "Only HTML screens can switch between static and URL mode.",
       );
     }
+    const liveSource = await readLiveSourceFile(file);
+    const currentContent = liveSource.content;
 
     const [design] = await db
       .select({ data: schema.designs.data })
@@ -256,13 +261,13 @@ export default defineAction({
     const currentUrl = [
       currentMetadata.url,
       currentMetadata.previewUrl,
-      file.content,
+      currentContent,
     ].find(
       (value): value is string =>
         typeof value === "string" && isStandaloneHttpUrl(value),
     );
 
-    let nextContent = file.content;
+    let nextContent = currentContent;
     let nextMetadata: Record<string, unknown>;
     let appliedMetadata: Record<string, unknown>;
     let resultConnectionId: string | null = null;
@@ -393,6 +398,7 @@ export default defineAction({
           updatedAt: file.updatedAt,
         },
         content: nextContent,
+        expectedVersionHash: liveSource.versionHash,
         allowUrlBackedTransition: true,
       });
       fileUpdatedAt = writeResult.updatedAt;
@@ -456,7 +462,7 @@ export default defineAction({
       content: nextContent,
       metadata: appliedMetadata,
       updatedAt: fileUpdatedAt ?? persisted.updatedAt,
-      contentChanged: nextContent !== file.content,
+      contentChanged: nextContent !== currentContent,
       dataUpdatedAt: persisted.updatedAt,
     };
   },

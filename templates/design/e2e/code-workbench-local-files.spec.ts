@@ -83,7 +83,13 @@ test.beforeAll(async ({ request }, workerInfo) => {
   fs.writeFileSync(path.join(rootPath, ".prettierrc"), '{"semi":true}\n');
   fs.writeFileSync(path.join(rootPath, ".env"), "EXAMPLE_SECRET=blocked\n");
 
-  devServer = http.createServer((_req, res) => {
+  devServer = http.createServer((req, res) => {
+    if (req.url?.startsWith("/visual-edit-dead")) {
+      // A closed socket models the actual dead-port failure: there is no
+      // document for the iframe or snapshot endpoint to reuse.
+      req.socket.destroy();
+      return;
+    }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end("<!doctype html><main><h1>Local workbench fixture</h1></main>");
   });
@@ -460,4 +466,60 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     page.getByText("Screen source updated", { exact: true }),
   ).toHaveCount(0);
   await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
+});
+
+test("keeps a URL screen selected when its static snapshot fails", async ({
+  page,
+  request,
+}) => {
+  const opened = await postAction(request, "add-localhost-screens", {
+    designId,
+    paths: ["/visual-edit-dead"],
+  });
+  const screenId = opened.screens?.[0]?.id;
+  if (!screenId) throw new Error(`Missing dead-route screen: ${opened}`);
+
+  const readDesign = async () => {
+    const response = await page.request.get(
+      `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `get-design failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    return response.json();
+  };
+
+  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+
+  const screenRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
+  await expect(screenRow).toBeVisible();
+  await screenRow.click();
+  await expect(page.getByLabel("Screen URL")).toHaveValue(/visual-edit-dead/);
+
+  await page.getByRole("button", { name: "Static", exact: true }).click();
+
+  // The failed bridge snapshot must leave the persisted source and the
+  // inspector in URL mode, while still giving the user a visible error.
+  await expect(page.getByLabel("Screen URL")).toBeVisible();
+  await expect
+    .poll(async () => {
+      const design = await readDesign();
+      const data = JSON.parse(design.data ?? "{}") as Record<string, any>;
+      return data.screenMetadata?.[screenId]?.sourceType;
+    })
+    .toBe("localhost");
+  await expect(
+    page
+      .locator("[data-sonner-toast], [role='alert']")
+      .filter({ hasText: /snapshot|bridge|failed|could not/i }),
+  ).toBeVisible({ timeout: 10_000 });
 });
