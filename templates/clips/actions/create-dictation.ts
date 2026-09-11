@@ -4,6 +4,7 @@
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -38,7 +39,7 @@ export default defineAction({
     targetApp: z.string().nullable().optional(),
     startedAt: z.string().datetime().optional(),
   }),
-  run: async (args) => {
+  run: async (args, context) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const orgId = await getActiveOrganizationId().catch(() => null);
@@ -78,6 +79,18 @@ export default defineAction({
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+    track(
+      "dictation_used",
+      {
+        app_name: "clips",
+        template_name: "clips",
+        output_id: id,
+        output_type: "dictation",
+        duration_s: Math.round((args.durationMs ?? 0) / 1000),
+        source: args.source,
+      },
+      context,
+    );
 
     return {
       id,

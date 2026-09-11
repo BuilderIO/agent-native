@@ -8,6 +8,7 @@ import {
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -576,6 +577,7 @@ export function emitPlanCreated(input: {
   title: string;
   kind: PlanKind;
   status: string;
+  blockCount?: number;
   ownerEmail?: string | null;
 }) {
   try {
@@ -591,6 +593,14 @@ export function emitPlanCreated(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
+    track("plan_created", {
+      app_name: "plan",
+      template_name: "plan",
+      output_id: input.planId,
+      output_type: input.kind,
+      block_count: input.blockCount ?? 0,
+      status: input.status,
+    });
   } catch {
     // best-effort — never block plan creation
   }
@@ -639,6 +649,17 @@ export function emitPlanCommented(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
+    track("comment_added", {
+      app_name: "plan",
+      template_name: "plan",
+      output_id: input.planId,
+      output_type: input.kind,
+      comment_count: input.comments.length,
+      resolution_target:
+        resolutionTarget === "agent" || resolutionTarget === "human"
+          ? resolutionTarget
+          : null,
+    });
   } catch {
     // best-effort — never block comment writes
   }
@@ -666,6 +687,14 @@ export function emitPlanPublished(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
+    track("share_link_created", {
+      app_name: "plan",
+      template_name: "plan",
+      output_id: input.planId,
+      output_type: input.kind,
+      visibility: input.requestedVisibility,
+      share_type: "hosted_plan",
+    });
   } catch {
     // best-effort — never block publish
   }
@@ -694,6 +723,14 @@ export function emitPlanStatusChanged(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
+    track("plan_status_changed", {
+      app_name: "plan",
+      template_name: "plan",
+      output_id: input.planId,
+      output_type: input.kind,
+      old_status: input.oldStatus,
+      new_status: input.newStatus,
+    });
   } catch {
     // best-effort — never block status changes
   }

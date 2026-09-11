@@ -10,6 +10,7 @@ import {
   resolveAccess,
   roleSatisfies,
 } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -935,6 +936,18 @@ export default defineAction({
       args.contentPatches.length > 0 ||
       args.markdown !== undefined ||
       args.sections.length > 0;
+    const diffCount =
+      args.contentPatches.length +
+      args.sections.length +
+      [
+        args.title,
+        args.brief,
+        args.status,
+        args.currentFocus,
+        args.html,
+        args.content,
+        args.markdown,
+      ].filter((value) => value !== undefined).length;
     if (!onlyReviewerCommentWork && hasPlanAuthoringChanges) {
       await createPlanVersionSnapshot(args.planId, {
         force: true,
@@ -1157,6 +1170,15 @@ export default defineAction({
     }
 
     const bundle = await loadPlanBundle(args.planId);
+    if (hasPlanAuthoringChanges) {
+      track("plan_updated", {
+        app_name: "plan",
+        template_name: "plan",
+        output_id: bundle.plan.id,
+        output_type: bundle.plan.kind,
+        diff_count: diffCount,
+      });
+    }
     await notifyPlanCommentRecipients({
       bundle,
       insertedCommentIds,

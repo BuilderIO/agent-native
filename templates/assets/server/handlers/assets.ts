@@ -1,6 +1,7 @@
 import { getSession } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
 import {
   createError,
@@ -312,6 +313,16 @@ export const uploadAssets = defineEventHandler(async (event) =>
         skippedDuplicates: deduped.skippedDuplicates,
         errors,
       };
+    }
+    if (assets.length > 0) {
+      track("brand_uploaded", {
+        app_name: "assets",
+        template_name: "assets",
+        output_id: libraryId,
+        output_type: "asset_library",
+        asset_type: category,
+        asset_count: assets.length,
+      });
     }
     return {
       count: assets.length,

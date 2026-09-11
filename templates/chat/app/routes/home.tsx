@@ -2,8 +2,9 @@ import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
@@ -36,6 +37,7 @@ export default function ChatRoute() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const t = useT();
+  const trackedMessageCount = useRef(0);
   const threadUrlSync = threadId
     ? {
         routeThreadId: threadId,
@@ -43,6 +45,13 @@ export default function ChatRoute() {
         navigate,
       }
     : undefined;
+
+  useEffect(() => {
+    trackedMessageCount.current = 0;
+    if (threadId) {
+      trackEvent("thread_resumed", { thread_id: threadId });
+    }
+  }, [threadId]);
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
@@ -78,6 +87,21 @@ export default function ChatRoute() {
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
         composerPlaceholder={t("chat.composerPlaceholder")}
+        onMessageCountChange={(count) => {
+          if (count > trackedMessageCount.current) {
+            if (trackedMessageCount.current === 0) {
+              trackEvent("thread_created", {
+                ...(threadId ? { output_id: threadId } : {}),
+                output_type: "thread",
+              });
+            }
+            trackEvent("message_exchanged", {
+              ...(threadId ? { thread_id: threadId } : {}),
+              msg_count: count,
+            });
+          }
+          trackedMessageCount.current = count;
+        }}
         composerSlot={
           <div className="mx-auto mb-5 max-w-xl px-4 text-center">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">

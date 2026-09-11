@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { markAllLocalUnreadRead, markRead } from "../server/lib/email-state.js";
@@ -85,7 +86,7 @@ export default defineAction({
         });
       }
     }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const ids = args.id
       ?.split(",")
       .map((s) => s.trim())
@@ -139,6 +140,18 @@ export default defineAction({
         error.details = result;
         throw error;
       }
+      track(
+        "inbox_triaged",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          action: "mark_read",
+          items_triaged: result.changedMessages,
+          succeeded: true,
+          scope: "all_unread",
+        },
+        ctx,
+      );
       return result;
     }
 
@@ -194,6 +207,18 @@ export default defineAction({
 
     const action = isRead ? "read" : "unread";
     const succeeded = results.filter((r) => r.success).length;
+    track(
+      "inbox_triaged",
+      {
+        app_name: "mail",
+        template_name: "mail",
+        action: isRead ? "mark_read" : "mark_unread",
+        items_triaged: succeeded,
+        succeeded: true,
+        scope: "explicit",
+      },
+      ctx,
+    );
     return `Marked ${succeeded}/${ids.length} email(s) as ${action}`;
   },
 });

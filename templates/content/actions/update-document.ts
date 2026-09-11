@@ -4,6 +4,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -779,6 +780,21 @@ export default defineAction({
       : parseDocumentFavorite(doc.isFavorite);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+
+    if (isAgentCaller && doc.content !== existing.content) {
+      track(
+        "ai_refine_used",
+        {
+          app_name: "content",
+          template_name: "content",
+          output_id: id,
+          output_type: "document",
+          edit_count: 1,
+          refine_type: "full_update",
+        },
+        ctx,
+      );
+    }
 
     return scopeDocumentAudit(
       {

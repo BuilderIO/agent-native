@@ -1,4 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -134,7 +136,7 @@ export default defineAction({
   schema: z.object({
     runId: z.string(),
   }),
-  run: async ({ runId }) => {
+  run: async ({ runId }, ctx?: ActionRunContext) => {
     const db = getDb();
     const [run] = await db
       .select()
@@ -156,6 +158,25 @@ export default defineAction({
       : { draftPendingApproval: true };
     if ((run.mediaType ?? "image") !== "video") {
       const refreshed = await refreshImageRun(run);
+      if (
+        run.status !== "completed" &&
+        refreshed.run.status === "completed" &&
+        refreshed.assets[0]
+      ) {
+        track(
+          "media_generated",
+          {
+            app_name: "assets",
+            template_name: "assets",
+            output_id: refreshed.assets[0].id,
+            output_type: "asset",
+            media_type: "image",
+            library_id: run.libraryId,
+            source_app: run.callerAppId,
+          },
+          ctx,
+        );
+      }
       return {
         run: serializeGenerationRun(refreshed.run),
         assets: refreshed.assets.map(serializeAsset),
@@ -174,6 +195,21 @@ export default defineAction({
       };
     }
     const refreshed = await completeVideoGenerationRun(run);
+    if (run.status !== "completed" && refreshed.status === "completed") {
+      track(
+        "media_generated",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: refreshed.asset.id,
+          output_type: "asset",
+          media_type: "video",
+          library_id: run.libraryId,
+          source_app: run.callerAppId,
+        },
+        ctx,
+      );
+    }
     return {
       run: serializeGenerationRun(refreshed.run),
       assets:

@@ -5,6 +5,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
@@ -1915,7 +1916,7 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
-  run: async ({ deckId, includeNotes }) => {
+  run: async ({ deckId, includeNotes }, ctx) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail)
       fail("no authenticated user", {
@@ -2197,6 +2198,19 @@ export default defineAction({
       filePath = path.join(exportDir, filename);
       fs.writeFileSync(filePath, buffer);
     }
+
+    track(
+      "deck_exported",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: deckId,
+        output_type: "deck",
+        export_format: "pptx",
+        slide_count: slides.length,
+      },
+      ctx,
+    );
 
     return {
       buffer,

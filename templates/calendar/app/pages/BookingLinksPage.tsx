@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import {
@@ -1158,6 +1159,12 @@ export default function BookingLinksPage({
 
   async function copyPreviewUrl(slug: string) {
     if (await copyTextToClipboard(getBookingUrl(slug))) {
+      trackEvent("booking_link_shared", {
+        app_name: "calendar",
+        template_name: "calendar",
+        booking_type_id: slug,
+        share_method: "copy_link",
+      });
       toast.success(t("bookingLinks.bookingLinkCopied"));
       return;
     }

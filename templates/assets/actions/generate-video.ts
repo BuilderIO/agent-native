@@ -1,8 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -75,7 +77,7 @@ export default defineAction({
     callerAppId: z.string().optional(),
     waitForCompletion: z.coerce.boolean().default(false),
   }),
-  run: async (input) => {
+  run: async (input, context?: ActionRunContext) => {
     const libraryId = input.libraryId;
     if (!libraryId) {
       throw new Error(
@@ -86,6 +88,17 @@ export default defineAction({
       ...input,
       libraryId,
     };
+    track(
+      "generation_started",
+      {
+        app_name: "assets",
+        template_name: "assets",
+        output_type: "asset",
+        media_type: "video",
+        source_app: args.callerAppId,
+      },
+      context,
+    );
     const draftAccess = await assertCanDraft(args.libraryId);
     // Inputs answer to the same author rule as reads: another drafter's
     // candidate must not reach the provider as a source or a reference.
@@ -290,6 +303,19 @@ export default defineAction({
       const completed = await completeVideoGenerationRun(run);
       if (completed.status === "completed") {
         const asset = serializeAsset(completed.asset);
+        track(
+          "media_generated",
+          {
+            app_name: "assets",
+            template_name: "assets",
+            output_id: completed.asset.id,
+            output_type: "asset",
+            media_type: "video",
+            library_id: args.libraryId,
+            source_app: args.callerAppId,
+          },
+          context,
+        );
         return {
           run: serializeGenerationRun(completed.run),
           asset,

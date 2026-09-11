@@ -10,6 +10,7 @@ import {
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { accessFilter } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, gt, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   createError,
@@ -1648,6 +1649,22 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     } catch {
       // best-effort
     }
+    track(
+      "booking_received",
+      {
+        app_name: "calendar",
+        template_name: "calendar",
+        output_id: id,
+        output_type: "booking",
+        booking_type_id: link?.id ?? requestedSlug ?? "default",
+        guest_count: 1 + additionalGuestEmails.length,
+        duration_minutes: Math.round(
+          (requestedRange.end.getTime() - requestedRange.start.getTime()) /
+            60000,
+        ),
+      },
+      { userId: hostEmail },
+    );
     recordBookingsChanged(hostEmail);
 
     setResponseStatus(event, 201);

@@ -8,6 +8,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import {
   delimitUntrustedReference,
   getGenerationCreativeContext,
@@ -1123,6 +1124,33 @@ export default defineAction({
         .where(eq(schema.assetGenerationRuns.id, runId));
       const serialized = serializeAssetSummary(asset);
       const urls = assetUrls(asset);
+      track(
+        "media_generated",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: asset.id,
+          output_type: "asset",
+          media_type: "image",
+          library_id: args.libraryId,
+          source_app: args.callerAppId,
+        },
+        context,
+      );
+      if (args.callerAppId) {
+        track(
+          "cross_app_used",
+          {
+            app_name: "assets",
+            template_name: "assets",
+            source_app: "assets",
+            target_app: args.callerAppId.replace(/^agent-native-/, ""),
+            output_id: asset.id,
+            output_type: "asset",
+          },
+          context,
+        );
+      }
       await upsertVariantSlot({
         runId,
         batchId: args.variantBatchId ?? null,

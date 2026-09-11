@@ -1,4 +1,5 @@
 import { useGuidedQuestionFlow } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
@@ -1101,6 +1102,12 @@ export default function DeckEditor() {
         if (updatedContent !== targetContent) {
           updateSlideContent(targetSlide.id, updatedContent);
         }
+        trackEvent("media_added", {
+          output_id: id,
+          output_type: "deck",
+          media_source: "upload",
+          slide_id: targetSlideId,
+        });
         clearPreview();
       } catch (error) {
         clearPreview();
@@ -1145,6 +1152,12 @@ export default function DeckEditor() {
         );
         if (updatedContent !== currentContent) {
           updateSlideContent(targetSlide.id, updatedContent);
+          trackEvent("media_added", {
+            output_id: id,
+            output_type: "deck",
+            media_source: "generated_asset",
+            slide_id: targetSlide.id,
+          });
         }
         return;
       }
@@ -2728,6 +2741,12 @@ export default function DeckEditor() {
           replaceImageSrc
             ? (newUrl) => {
                 replaceImageInSlide(replaceImageSrc, newUrl);
+                trackEvent("media_added", {
+                  output_id: id,
+                  output_type: "deck",
+                  media_source: "asset_library",
+                  slide_id: currentSlideRef.current?.id,
+                });
                 setReplaceImageSrc(null);
               }
             : undefined

@@ -1,8 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
   credentialKeys,
+  credentialProviderConfigs,
   optionalCredentialKeys,
   partitionCredentialUpdate,
 } from "../server/lib/credential-keys";
@@ -62,7 +65,7 @@ export default defineAction({
       .min(1),
   }),
   agentTool: false,
-  run: async ({ vars }) => {
+  run: async ({ vars }, actionContext?: ActionRunContext) => {
     const recognized = vars.filter((v) => ALLOWED_KEYS.has(v.key));
     if (recognized.length === 0) {
       throw new Error("No recognized credential keys in request");
@@ -116,6 +119,25 @@ export default defineAction({
           err instanceof Error ? err.message : err,
         );
       }
+    }
+
+    const updatedKeys = new Set(toSave.map((entry) => entry.key));
+    for (const provider of credentialProviderConfigs) {
+      const connected =
+        provider.requiredMode === "any"
+          ? provider.requiredKeys.some((key) => updatedKeys.has(key))
+          : provider.requiredKeys.every((key) => updatedKeys.has(key));
+      if (!connected) continue;
+      track(
+        "connector_added",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          connector_name: provider.provider,
+          configured_via: "local_credentials",
+        },
+        actionContext,
+      );
     }
 
     return { saved: toSave.map((v) => v.key), deleted: toDelete };

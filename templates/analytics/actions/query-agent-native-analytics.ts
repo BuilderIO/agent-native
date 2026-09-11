@@ -1,13 +1,17 @@
+import { createHash } from "node:crypto";
+
 import {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   dataTableWidgetResultSchema,
   defineAction,
 } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { createDataTableWidgetResult } from "@agent-native/core/data-widgets";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { queryFirstPartyAnalytics } from "../server/lib/first-party-analytics.js";
@@ -70,10 +74,35 @@ export default defineAction({
   http: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,
-  run: async (args) => {
-    const result = await queryFirstPartyAnalytics(args.sql, resolveScope(), {
+  run: async (args, actionContext?: ActionRunContext) => {
+    const scope = resolveScope();
+    track(
+      "query_asked",
+      {
+        app_name: "analytics",
+        template_name: "analytics",
+        query_mode: "first_party",
+        surface: "agent",
+        query_length: args.sql.length,
+        query_text_hash: createHash("sha256").update(args.sql).digest("hex"),
+      },
+      actionContext,
+    );
+    const result = await queryFirstPartyAnalytics(args.sql, scope, {
       cache: true,
     });
+    track(
+      "query_executed",
+      {
+        app_name: "analytics",
+        template_name: "analytics",
+        query_mode: "first_party",
+        surface: "agent",
+        row_count: result.rows.length,
+        column_count: result.schema.length,
+      },
+      actionContext,
+    );
     return toDataTableResult(result);
   },
 });

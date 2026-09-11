@@ -12,6 +12,7 @@ import {
   isEmailConfigured,
   resolveSecret,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
@@ -100,14 +101,10 @@ export default defineAction({
     }),
     summary: (args) => `Sent proactive ${args.platform || "saved"} message`,
   },
-  run: async ({
-    platform,
-    destinationId,
-    destination,
-    threadRef,
-    tenantId,
-    text,
-  }) => {
+  run: async (
+    { platform, destinationId, destination, threadRef, tenantId, text },
+    ctx,
+  ) => {
     const saved = destinationId
       ? await getDestinationById(destinationId)
       : null;
@@ -141,6 +138,16 @@ export default defineAction({
       label: saved?.name || undefined,
       tenantId,
     });
+    track(
+      "message_sent",
+      {
+        app_name: "dispatch",
+        template_name: "dispatch",
+        channel: resolvedPlatform,
+        ...(resolvedThreadRef ? { thread_id: resolvedThreadRef } : {}),
+      },
+      ctx,
+    );
 
     return {
       ok: true,

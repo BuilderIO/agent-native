@@ -5,6 +5,7 @@ import {
   updateMcpAppModelContext,
   useAgentChatGenerating,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   callAction,
@@ -1259,6 +1260,12 @@ function AllAssetsBrowser({
 
   function chooseAsset(asset: Asset) {
     const payload = assetPayload(asset, "image");
+    trackEvent("asset_selected", {
+      asset_id: asset.id,
+      output_id: asset.id,
+      output_type: asset.mediaType,
+      library_id: asset.libraryId,
+    });
     setStandaloneSelection(payload);
     setStandaloneCopyOk(false);
     void copyStandaloneSelection(payload);
@@ -2858,6 +2865,22 @@ export function AssetPickerSurface() {
 
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
+    trackEvent("asset_selected", {
+      asset_id: asset.id,
+      output_id: asset.id,
+      output_type: asset.mediaType,
+      library_id: asset.libraryId,
+      selection_surface: "picker",
+    });
+    if (hostConfig.callerAppId) {
+      trackEvent("pulled_by_app", {
+        asset_id: asset.id,
+        output_id: asset.id,
+        output_type: asset.mediaType,
+        source_app: "assets",
+        target_app: hostConfig.callerAppId.replace(/^agent-native-/, ""),
+      });
+    }
     if (embedded) {
       if (!mcpChatBridgeActive) {
         postEmbeddedSelectionMessage("chooseAsset", payload);

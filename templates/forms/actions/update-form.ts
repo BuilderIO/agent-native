@@ -1,5 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { getAppProductionUrl } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -56,7 +58,7 @@ export default defineAction({
       .optional()
       .describe("New status"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     await assertAccess("form", args.id, "editor");
 
     return withFormLock(args.id, async () => {
@@ -76,6 +78,9 @@ export default defineAction({
 
       const now = new Date().toISOString();
       const updates: Record<string, unknown> = { updatedAt: now };
+      let fieldsForTracking: FormField[] | undefined;
+      let settingsForTracking: FormSettings | undefined;
+      let integrationSettingsChanged = false;
 
       if (args.title !== undefined) {
         updates.title = args.title;
@@ -103,6 +108,7 @@ export default defineAction({
         parsedFields = normalizeFieldIds(parsedFields);
         assertValidFields(parsedFields);
         updates.fields = JSON.stringify(parsedFields);
+        fieldsForTracking = parsedFields as FormField[];
       }
       if (args.settings !== undefined) {
         let incomingSettings: FormSettings;
@@ -132,6 +138,11 @@ export default defineAction({
         // re-checks at runtime as defense-in-depth.
         assertIntegrationUrlsAllowed(parsedSettings);
         updates.settings = JSON.stringify(parsedSettings);
+        settingsForTracking = parsedSettings;
+        integrationSettingsChanged = Object.prototype.hasOwnProperty.call(
+          incomingSettings,
+          "integrations",
+        );
       }
       if (args.status !== undefined) updates.status = args.status;
 
@@ -180,6 +191,63 @@ export default defineAction({
       const row = { ...existing, ...updates } as typeof existing;
 
       invalidatePublicFormCache(existing, row);
+
+      if (fieldsForTracking) {
+        track(
+          "form_edited",
+          {
+            app_name: "forms",
+            template_name: "forms",
+            output_id: row.id,
+            output_type: "form",
+            form_id: row.id,
+            edit_type: "fields_replace",
+            field_count: fieldsForTracking.length,
+          },
+          ctx,
+        );
+      }
+      if (integrationSettingsChanged) {
+        const destinations = Array.from(
+          new Set(
+            (settingsForTracking?.integrations ?? [])
+              .map((integration) => integration.type)
+              .filter(Boolean),
+          ),
+        );
+        track(
+          "integration_set",
+          {
+            app_name: "forms",
+            template_name: "forms",
+            output_id: row.id,
+            output_type: "form",
+            form_id: row.id,
+            destination:
+              destinations.length === 0
+                ? "none"
+                : destinations.length === 1
+                  ? destinations[0]
+                  : "multiple",
+            integration_count: destinations.length,
+          },
+          ctx,
+        );
+      }
+      if (args.status === "published") {
+        track(
+          "form_published",
+          {
+            app_name: "forms",
+            template_name: "forms",
+            output_id: row.id,
+            output_type: "form",
+            form_id: row.id,
+            public_url: `${getAppProductionUrl()}/f/${encodeURIComponent(row.slug)}`,
+          },
+          ctx,
+        );
+      }
 
       return {
         id: row!.id,

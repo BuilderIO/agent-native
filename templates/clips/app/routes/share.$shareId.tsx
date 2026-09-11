@@ -449,6 +449,15 @@ export default function ShareRoute() {
         ref: attribution.ref,
         via: attribution.via,
       });
+      void trackEvent("clip_viewed", {
+        app_name: "clips",
+        template_name: "clips",
+        output_id: recordingId,
+        output_type: "clip",
+        view_type: "shared",
+        ref: attribution.ref,
+        via: attribution.via,
+      });
     } catch {
       // Never let analytics break the page render.
     }
@@ -1642,7 +1651,20 @@ export default function ShareRoute() {
 
       <Tabs
         value={panel}
-        onValueChange={(value) => setPanel(value as SharePanel)}
+        onValueChange={(value) => {
+          const nextPanel = value as SharePanel;
+          setPanel(nextPanel);
+          if (nextPanel === "agent" && recordingId) {
+            trackEvent("builtin_agent_used", {
+              app_name: "clips",
+              template_name: "clips",
+              output_id: recordingId,
+              output_type: "clip",
+              query_type: "clip",
+              surface: "shared_clip",
+            });
+          }
+        }}
         className="contents"
       >
         <RecordingSidePanel

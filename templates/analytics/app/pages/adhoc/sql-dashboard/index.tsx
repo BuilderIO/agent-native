@@ -1,4 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
@@ -1014,6 +1015,18 @@ function SqlDashboardPageContent({
     ) {
       viewedDashboardIdRef.current = dashboardId;
       incrementItemView("dashboard", dashboardId);
+      trackEvent("dashboard_viewed", {
+        app_name: "analytics",
+        template_name: "analytics",
+        dashboard_id: dashboardId,
+        output_id: dashboardId,
+        output_type: "dashboard",
+        is_owner: Boolean(
+          session?.email &&
+          fetched.createdBy &&
+          session.email.toLowerCase() === fetched.createdBy.toLowerCase(),
+        ),
+      });
     }
   }, [
     dashboardId,

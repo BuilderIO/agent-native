@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { getExportUrl } from "./_app-url.js";
@@ -28,8 +29,8 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
-  run: async ({ deckId, includeNotes }) => {
-    const result = await exportPptxAction.run({ deckId, includeNotes });
+  run: async ({ deckId, includeNotes }, ctx) => {
+    const result = await exportPptxAction.run({ deckId, includeNotes }, ctx);
     const { filename, slideCount } = result;
 
     const downloadUrl = getExportUrl(filename);
@@ -38,6 +39,19 @@ export default defineAction({
     // user to pick the file themselves.
     const googleSlidesImportDialogUrl =
       "https://docs.google.com/presentation/u/0/?usp=import";
+
+    track(
+      "deck_exported",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: deckId,
+        output_type: "deck",
+        export_format: "google_slides",
+        slide_count: slideCount,
+      },
+      ctx,
+    );
 
     return {
       ...result,

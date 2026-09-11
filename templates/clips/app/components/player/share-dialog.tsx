@@ -177,9 +177,13 @@ export function ShareRecordingPopover({
     const didCopy = await writeClipboardText(shareUrl);
     if (!didCopy) return;
     trackEvent("share_link_copied", {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: recordingId,
       resource_type: "recording",
       resource_id: recordingId,
       link_type: "share",
+      link_scope: initialVisibility ?? "private",
     });
     setCopied(true);
     if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
@@ -803,9 +807,13 @@ function AgentTab({
     if (copied === false) return;
 
     trackEvent("share_link_copied", {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: recordingId,
       resource_type: "recording",
       resource_id: recordingId,
       link_type: "agent_context",
+      link_scope: visibility ?? "private",
     });
     toast.success(t("shareUi.copied"));
   };

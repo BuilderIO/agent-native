@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
+
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { track } from "@agent-native/core/tracking";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
@@ -128,7 +131,7 @@ export default defineAction({
       view: "all",
     };
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     if (!args.q) throw new Error("--q is required");
     const view = args.view ?? "all";
     const limit = args.limit ?? 25;
@@ -137,6 +140,19 @@ export default defineAction({
     const accountFilter = args.account?.toLowerCase();
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    track(
+      "smart_search_used",
+      {
+        app_name: "mail",
+        template_name: "mail",
+        query_hash: createHash("sha256")
+          .update(args.q)
+          .digest("hex")
+          .slice(0, 16),
+        view,
+      },
+      ctx,
+    );
 
     if (!(await isConnected(ownerEmail))) {
       const data = await getUserSetting(ownerEmail, "local-emails");
