@@ -101,6 +101,12 @@ onlyBuiltDependencies:
   - sharp
   - workerd
 
+packageExtensions:
+  # node-pty has no Linux prebuild and its install script invokes node-gyp.
+  "node-pty@*":
+    dependencies:
+      node-gyp: "^12.4.0"
+
 allowBuilds:
   "@firebase/util": true
   "@google/genai": true

@@ -16,6 +16,10 @@ import {
   type CommentDraft,
 } from "./comment-drafts";
 
+(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
 describe("comment drafts", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
@@ -271,7 +275,7 @@ describe("comment drafts", () => {
     expect(currentDraft!.draft.text).toBe("");
   });
 
-  it("remembers status for each page and account after remount, without saving drafts", () => {
+  it("remembers status across pages for each account after remount, without saving drafts", () => {
     render({});
     expect(currentPanel).toMatchObject({
       historyStatus: "open",
@@ -287,7 +291,7 @@ describe("comment drafts", () => {
     expect(currentPanel!.historyStatus).toBe("all");
     expect(currentDraft!.draft.text).toBe("");
     render({ documentId: "document-b" });
-    expect(currentPanel!.historyStatus).toBe("open");
+    expect(currentPanel!.historyStatus).toBe("all");
     render({ email: "other@example.com" });
     expect(currentPanel!.historyStatus).toBe("open");
     render({ email: " PERSON@example.com " });

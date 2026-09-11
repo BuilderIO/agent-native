@@ -404,6 +404,15 @@ const messages = {
   "history.searching": "Searching...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Yesterday",
+  "integrations.availableSection": "Available integrations",
+  "integrations.connectedSection": "Connected",
+  "integrations.goToApiKeys": "Go to API keys",
+  "integrations.goToIntegrations": "Go to Integrations",
+  "integrations.lookingForApiKeys": "Looking for an API key instead?",
+  "integrations.lookingForProviders": "Looking for OAuth or MCP providers?",
+  "integrations.manage": "Manage",
+  "integrations.recommended": "Recommended",
+  "integrations.subtitle": "Connect the tools your agent can use.",
   "limit.account": "your account",
   "limit.descriptionAll":
     "The agent used all available steps. Keep going in a fresh turn, or raise the {{scope}} limit first.",
@@ -534,12 +543,18 @@ const messages = {
     "The previous agent stream ended while the run was recovering. Continue or retry to reconnect to the run.",
   "recovery.reconnectBuilder": "Reconnect Builder.io",
   "secrets.addCustomKeyNamed": "Add “{{name}}” as a custom key",
+  "secrets.chooseKey": "Choose a key",
   "secrets.customKey": "Custom key",
   "secrets.customKeyHint": "Add any key by name",
+  "secrets.emptyHint": "Add a key to use your own accounts.",
+  "secrets.emptyMore": "and {{count}} more under New, or add any custom key",
+  "secrets.emptyTitle": "No keys yet.",
   "secrets.fromEnvironment": "Provided by the deployment environment.",
   "secrets.managedInVault":
     "Managed in the workspace Vault. Every app in this workspace uses this value.",
   "secrets.openVault": "Open Vault",
+  "secrets.newKey": "New",
+  "secrets.noKeysFound": "No keys found.",
   "secrets.overridesVault":
     "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
   "secrets.overridesWorkspace":
@@ -549,6 +564,8 @@ const messages = {
   "secrets.sourceVault": "Vault",
   "secrets.sourceWorkspace": "Workspace",
   "secrets.statusUnavailable": "Unavailable",
+  "secrets.required": "Required",
+  "secrets.searchKeys": "Search keys...",
   "secrets.usePersonalKey": "Use a personal key instead",
   "selection.attached": "{{formattedCount}} characters of selection attached",
   "selection.attached_one":

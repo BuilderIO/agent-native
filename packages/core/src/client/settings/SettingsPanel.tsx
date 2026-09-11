@@ -90,17 +90,13 @@ import { useOptionalLocale, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { McpAccessSettings } from "../resources/McpAccessSettings.js";
-import {
-  BuilderConnectCard,
-  BuilderConnectionMenu,
-} from "../setup-connections/BuilderConnectCard.js";
+import { BuilderConnectionMenu } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { cn } from "../utils.js";
 import {
   AGENT_SETTINGS_SECTIONS,
   ALL_SETTINGS_SECTIONS,
-  INTEGRATION_SETTINGS_SECTIONS,
   WORKSPACE_SETTINGS_SECTIONS,
   getAgentSettingsSearchTabs,
   type SettingsSectionId,
@@ -1718,14 +1714,14 @@ function AppDefaultModelPicker({
     ? `${selectedEngine?.label ?? selectedEngine?.name ?? "Provider"} · ${friendlyModelName(selectedModel)}`
     : "Global default";
 
-  const openIntegrations = () => {
+  const openApiKeys = () => {
     setOpen(false);
     if (typeof window !== "undefined") {
       window.history.pushState(
         null,
         "",
         appMountedPath(
-          buildSettingsRoute("integrations"),
+          buildSettingsRoute("keys"),
           STANDARD_APP_ROUTES.settings,
         ),
       );
@@ -1830,12 +1826,12 @@ function AppDefaultModelPicker({
                   })}
                   {!configured && (
                     <CommandItem
-                      value={`configure ${providerLabel} in integrations api keys`}
-                      onSelect={openIntegrations}
+                      value={`configure ${providerLabel} in api keys`}
+                      onSelect={openApiKeys}
                       className="gap-2 text-muted-foreground"
                     >
                       <IconExternalLink size={14} />
-                      Configure in Integrations
+                      Configure in API keys
                     </CommandItem>
                   )}
                 </CommandGroup>
@@ -2217,7 +2213,7 @@ function AppModelDefaultsSectionInner({
 
 // ─── Email Section ──────────────────────────────────────────────────────────
 
-function EmailSectionInner({
+export function EmailSectionInner({
   open,
   onToggle,
 }: {
@@ -3789,26 +3785,15 @@ export function SettingsPanel(props: SettingsPanelProps) {
 }
 
 export function ConnectionsSettingsContent({
-  settingsPanelProps,
+  settingsPanelProps: _settingsPanelProps,
 }: {
   settingsPanelProps: SettingsPanelProps;
 }) {
   return (
-    <div className="w-full space-y-8">
+    <div className="w-full">
       <Suspense fallback={null}>
         <IntegrationsPanel />
       </Suspense>
-      <BuilderConnectCard trackingSource="settings_connections" showManage />
-      <SettingsPanelContent
-        {...settingsPanelProps}
-        surface="page"
-        sections={INTEGRATION_SETTINGS_SECTIONS.filter(
-          (section) => section !== "integrations" && section !== "usage",
-        )}
-        showCapabilityStrip={false}
-        className="w-full"
-        builderConnectionOwnedExternally
-      />
     </div>
   );
 }
@@ -3849,6 +3834,7 @@ export function AgentSettingsContent({
 export function useAgentSettingsTabs(
   options: AgentSettingsTabsOptions = {},
 ): SettingsTabItem[] {
+  const t = useT();
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const { data: org } = useOrg();
   const locale = useOptionalLocale()?.locale ?? "en-US";
@@ -3889,6 +3875,7 @@ export function useAgentSettingsTabs(
       id:
         | "agent"
         | "integrations"
+        | "keys"
         | "mcp"
         | "usage"
         | "organization"
@@ -3900,6 +3887,7 @@ export function useAgentSettingsTabs(
     };
     const agent = searchTab("agent");
     const integrations = searchTab("integrations");
+    const keys = searchTab("keys");
     const mcp = searchTab("mcp");
     const usage = searchTab("usage");
     const organization = searchTab("organization");
@@ -3978,6 +3966,23 @@ export function useAgentSettingsTabs(
         icon: IconPlugConnected,
         group: "integrations",
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
+      },
+      {
+        ...keys,
+        icon: IconKey,
+        group: "integrations",
+        content: (
+          <div className="w-full">
+            <SettingsPanelContent
+              {...baseProps}
+              surface="page"
+              sections={["secrets"]}
+              showCapabilityStrip={false}
+              className="w-full"
+              builderConnectionOwnedExternally
+            />
+          </div>
+        ),
       },
       {
         ...mcp,
@@ -4115,6 +4120,7 @@ export function useAgentSettingsTabs(
     extensionToolsEnabled,
     locale,
     organizationContent,
+    t,
     usageAppId,
     usageViewAllHref,
   ]);

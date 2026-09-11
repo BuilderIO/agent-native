@@ -125,6 +125,38 @@ describe("AppSyncState multi-app isolation", () => {
     expect(ids[0]).not.toBe(ids[1]);
   });
 
+  it("persists a transactional change before publishing it", async () => {
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const schemaDb = makeDb();
+    const transaction = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 1 })),
+    };
+    const state = new AppSyncState({
+      getDb: () => schemaDb,
+      isPostgres: () => false,
+    });
+    const change = await state.prepareTransactionalChange({
+      source: "collab",
+      type: "change",
+      key: "doc-1",
+      resourceType: "document",
+      resourceId: "doc-1",
+    });
+    expect(change.isPersisted()).toBe(false);
+
+    expect(state.getChangesSince(0).events).toEqual([]);
+    const persisted = await change.persist(transaction);
+    expect(change.isPersisted()).toBe(true);
+    expect(state.getChangesSince(0).events).toEqual([]);
+    expect(transaction.execute).toHaveBeenCalledOnce();
+    expect(persisted.resourceId).toBe("doc-1");
+
+    change.publish();
+    expect(state.getChangesSince(0).events).toMatchObject([
+      { source: "collab", resourceId: "doc-1" },
+    ]);
+  });
+
   it("does not reuse an org-A access decision under an org-B session", async () => {
     const flush = async () => {
       for (let i = 0; i < 5; i++) await Promise.resolve();
