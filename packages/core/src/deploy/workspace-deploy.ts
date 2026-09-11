@@ -730,15 +730,12 @@ function copyNetlifyFunctionIntoWorkspace(
   // this emits nothing and the single-function deploy is unchanged.
   const integrationDurableDispatch =
     app === "dispatch" && isIntegrationDurableDispatchConfigured();
+  const durableChat = isDurableBackgroundWorkspaceDeployEnabled();
   const recurringJobs = isRecurringJobsDeployEnabled();
-  if (
-    isDurableBackgroundWorkspaceDeployEnabled() ||
-    integrationDurableDispatch ||
-    recurringJobs
-  ) {
+  if (durableChat || integrationDurableDispatch || recurringJobs) {
     emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
   }
-  if (recurringJobs) {
+  if (recurringJobs || durableChat) {
     emitNetlifyRecurringJobsFunction(workspaceRoot, app);
   }
   if (integrationDurableDispatch) {
