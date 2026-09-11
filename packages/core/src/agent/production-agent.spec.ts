@@ -11054,9 +11054,9 @@ describe("runAgentLoop model fallback", () => {
         "claude-haiku-4-5",
         "claude-sonnet-5",
       ]);
-      // Usage stays attributed to the requested model — the primary-model
-      // attempts accumulated most of this run's tokens, not the fallback.
-      expect(usage.model).toBe("claude-haiku-4-5");
+      // The throttled primary attempts' partial usage is discarded at the
+      // switch, so the aggregate is attributed to the model that answered.
+      expect(usage.model).toBe("claude-sonnet-5");
       expect(
         events.some(
           (event) =>

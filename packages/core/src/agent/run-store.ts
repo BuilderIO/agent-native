@@ -1803,6 +1803,23 @@ async function attemptStaleRunRecovery(
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
 
+  // Serialize every per-turn decision below — the newer-run race check, the
+  // ledger budget, the successor cap and the insert — behind one lock: two
+  // concurrent reapers for the same turn could otherwise both pass the
+  // newer-run check, then serialize here and both insert (the first successor
+  // is still `running`, so the stale-count cap would not see it). On the transactional path `db` is
+  // the caller's open `tx` (see `reapSingleStaleRun`), so this lock is held
+  // until that transaction commits and a second reaper's acquire blocks
+  // until the first reaper's COUNT+INSERT are already visible to it. On the
+  // documented non-transactional fallback path `db` has no open transaction,
+  // so this statement autocommits and the lock releases immediately — that
+  // path's own accepted two-successor race (see its comment above) already
+  // covers this gap, so this is a no-op there rather than a fix.
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [`agent-native:stale-recovery:${turnId}`],
+  });
+
   const { rows: newerRows } = await db.execute({
     sql: `SELECT id FROM agent_runs WHERE turn_id = ? AND id != ? AND started_at > ? LIMIT 1`,
     args: [turnId, runId, startedAt],
@@ -1825,21 +1842,6 @@ async function attemptStaleRunRecovery(
   if (Number.isFinite(turnRunCount) && turnRunLedgerExhausted(turnRunCount)) {
     return { outcome: "budget_exhausted" };
   }
-
-  // Serialize the cap check + successor insert per turn: two concurrent
-  // reapers for the same turn could otherwise both read a stale count under
-  // the cap and both insert a successor. On the transactional path `db` is
-  // the caller's open `tx` (see `reapSingleStaleRun`), so this lock is held
-  // until that transaction commits and a second reaper's acquire blocks
-  // until the first reaper's COUNT+INSERT are already visible to it. On the
-  // documented non-transactional fallback path `db` has no open transaction,
-  // so this statement autocommits and the lock releases immediately — that
-  // path's own accepted two-successor race (see its comment above) already
-  // covers this gap, so this is a no-op there rather than a fix.
-  await db.execute({
-    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-    args: [`agent-native:stale-recovery:${turnId}`],
-  });
 
   // See `STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN`. Counts PRIOR stale_run
   // rows only (`id <> ?` excludes the row being reaped, whether or not its

@@ -5769,9 +5769,18 @@ export async function runAgentLoop(opts: {
             });
             send({ type: "clear" });
             model = fallbackModel;
-            // `usage.model` stays the requested model — token usage already
-            // accumulated on the primary attempts belongs to it, not the
-            // fallback. The `activity` event above is what records the switch.
+            // `usage` is one aggregate attributed to one model. Everything the
+            // throttled primary attempts streamed is discarded here (the
+            // `clear` above drops their text too), so the totals restart and
+            // are attributed to the model that will actually answer. A
+            // rate-limited request bills nothing; a mid-stream 429/529 loses a
+            // partial prefix, which is the honest side of the trade-off versus
+            // pricing a whole answer under the wrong model.
+            usage.inputTokens = 0;
+            usage.outputTokens = 0;
+            usage.cacheReadTokens = 0;
+            usage.cacheWriteTokens = 0;
+            usage.model = fallbackModel;
             retry = -1;
             continue;
           }
