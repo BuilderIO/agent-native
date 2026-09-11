@@ -29,6 +29,7 @@ import {
   getDefaultMcpIntegrations,
   isMcpIntegrationUrl,
   isCustomMcpIntegrationEnabled,
+  mcpUrlRequiresOrganizationScope,
   navigateToMcpOAuthStart,
   requiresMcpIntegrationOrganizationScope,
   resolveMcpIntegrationScope,
@@ -296,6 +297,17 @@ export function McpIntegrationDialog({
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
       setError(validationError);
+      setTestResult(null);
+      return;
+    }
+    // A hand-entered org-only URL has no catalog entry to route it through the
+    // workspace-only flow, so check eligibility here rather than navigating to
+    // an OAuth start the server can only refuse.
+    if (
+      mcpUrlRequiresOrganizationScope(args.url) &&
+      !(hasOrg && canCreateOrgMcp)
+    ) {
+      setError(t("mcpIntegrations.workspaceOnlyDescription"));
       setTestResult(null);
       return;
     }

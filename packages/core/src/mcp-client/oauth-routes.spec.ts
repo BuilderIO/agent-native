@@ -374,12 +374,22 @@ describe("managed MCP OAuth clients", () => {
       expect(mcpUrlRequiresOrganizationScope(raw)).toBe(true);
       expect(resolveMcpOAuthScope(new URL(raw), "user").ok).toBe(false);
     }
+    // A query or fragment takes the URL outside the trusted Builder Publish
+    // match on the server too, so it is a generic server that accepts either
+    // scope. Forcing org here would fail requests the server would allow.
     for (const raw of [
       "https://mcp.builder.io/mcp/fusion",
-      "https://mcp.hubspot.com",
+      "https://mcp.builder.io/mcp/publish?x=1",
+      "https://mcp.builder.io/mcp/publish#frag",
       "https://mcp.example.com/mcp",
-      "not-a-url",
     ]) {
+      expect(mcpUrlRequiresOrganizationScope(raw)).toBe(false);
+      expect(resolveMcpOAuthScope(new URL(raw), "user")).toEqual({
+        ok: true,
+        scope: "user",
+      });
+    }
+    for (const raw of ["https://mcp.hubspot.com", "not-a-url"]) {
       expect(mcpUrlRequiresOrganizationScope(raw)).toBe(false);
     }
   });

@@ -10,6 +10,7 @@ import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 
 const mocks = vi.hoisted(() => ({
   navigateToMcpOAuthStart: vi.fn(),
+  customIntegrationEnabled: vi.fn(() => false),
   mcpServersQuery: {
     data: {
       user: [],
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./mcp-integration-catalog.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./mcp-integration-catalog.js")>()),
   navigateToMcpOAuthStart: mocks.navigateToMcpOAuthStart,
+  isCustomMcpIntegrationEnabled: () => mocks.customIntegrationEnabled(),
 }));
 
 vi.mock("./use-mcp-servers.js", async (importOriginal) => ({
@@ -42,6 +44,7 @@ describe("McpIntegrationDialog", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.navigateToMcpOAuthStart.mockReset().mockReturnValue(true);
+    mocks.customIntegrationEnabled.mockReset().mockReturnValue(false);
     mocks.mcpServersQuery.isSuccess = true;
     mocks.mcpServersQuery.isError = false;
     mocks.mcpServersQuery.error = null;
@@ -656,6 +659,66 @@ describe("McpIntegrationDialog", () => {
       "cannot be connected to just your account",
     );
     expect(document.body.textContent).toContain("Join a workspace first.");
+  });
+
+  it("refuses a hand-entered org-only URL without an eligible workspace", () => {
+    mocks.customIntegrationEnabled.mockReturnValue(true);
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Add your own")
+        ?.click();
+    });
+
+    const setValue = (selector: string, value: string) => {
+      const input = document.body.querySelector(
+        selector,
+      ) as HTMLInputElement | null;
+      expect(input).toBeTruthy();
+      act(() => {
+        if (!input) return;
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set?.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+
+    setValue('input[placeholder="Integration name"]', "Builder.io");
+    setValue(
+      'input[placeholder="https://example.com/agent-integration"]',
+      "https://mcp.builder.io/mcp/publish",
+    );
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Connect")
+        ?.click();
+    });
+
+    // Navigating would hand the user a raw server rejection instead.
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "cannot be connected to just your account",
+    );
   });
 
   it("keeps the initial form out of user scope for an org-only integration", () => {
