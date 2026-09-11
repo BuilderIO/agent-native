@@ -1,9 +1,14 @@
 import {
   deleteOAuthTokens,
+  listOAuthAccounts,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
-import { getOAuthAccounts } from "@agent-native/core/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  getCredentialContext,
+  getOAuthAccounts,
+} from "@agent-native/core/server";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createOAuth2Client,
@@ -19,10 +24,12 @@ import {
   gmailToEmailMessage,
   getAuthUrl,
   getClient,
+  getClientForConnectedAccount,
   getClientsWithErrors,
   listGmailMessages,
   markAllUnreadReadForAccount,
 } from "./google-auth.js";
+import { getMailProviderApiRuntime } from "./provider-api.js";
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   deleteOAuthTokens: vi.fn(),
@@ -97,6 +104,29 @@ vi.mock("./google-api.js", () => ({
   googleFetch: vi.fn(),
   peopleGetProfile: vi.fn(),
 }));
+
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  resolveWorkspaceConnectionForApp: vi.fn(),
+}));
+
+vi.mock("./provider-api.js", () => ({
+  getMailProviderApiRuntime: vi.fn(),
+}));
+
+// Makes `resolveManagedGmailClient()` resolve as if the owner is connected
+// only through the workspace's shared Gmail grant (no per-user OAuth row).
+function mockManagedGrant(email: string, accessToken = "managed-token") {
+  vi.mocked(getCredentialContext).mockReturnValue({ userEmail: email } as any);
+  vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+    available: true,
+  } as any);
+  vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+    resolveOAuthAccessToken: vi.fn().mockResolvedValue({
+      accountId: email,
+      accessToken,
+    }),
+  } as any);
+}
 
 function mockAccount() {
   vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
@@ -1137,6 +1167,137 @@ describe("gmailBatchModifyByAccount", () => {
       );
     },
   );
+});
+
+describe("gmailBatchModifyByAccount — managed workspace grant", () => {
+  const OWNER = "owner@example.com";
+  const MANAGED = "managed@example.com";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(googleFetch).mockResolvedValue({} as any);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    // getCredentialContext's mockReturnValue from mockManagedGrant() would
+    // otherwise leak into later tests in this file (vi.clearAllMocks clears
+    // call history, not implementations set via mockReturnValue).
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+  });
+
+  it("resolves an explicit accountEmail through the managed grant when the owner has no OAuth rows", async () => {
+    mockManagedGrant(MANAGED, "managed-token");
+
+    const result = await gmailBatchModifyByAccount(
+      OWNER,
+      [{ id: "message-managed", accountEmail: MANAGED }],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result).toEqual({ succeeded: ["message-managed"], failed: [] });
+    expect(googleFetch).toHaveBeenCalledWith(
+      expect.stringContaining("messages/batchModify"),
+      "managed-token",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("resolves the managed grant as the default account when none is supplied", async () => {
+    mockManagedGrant(MANAGED, "managed-token");
+
+    const result = await gmailBatchModifyByAccount(
+      OWNER,
+      [{ id: "message-default" }],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result).toEqual({ succeeded: ["message-default"], failed: [] });
+    expect(googleFetch).toHaveBeenCalledWith(
+      expect.stringContaining("messages/batchModify"),
+      "managed-token",
+      expect.any(Object),
+    );
+  });
+
+  it("fails the target when neither an OAuth row nor the managed grant matches", async () => {
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+
+    const result = await gmailBatchModifyByAccount(
+      OWNER,
+      [{ id: "message-orphan", accountEmail: MANAGED }],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toEqual([
+      {
+        id: "message-orphan",
+        error: expect.stringContaining("is not connected for this user"),
+      },
+    ]);
+  });
+});
+
+describe("getClientForConnectedAccount", () => {
+  const OWNER = "owner@example.com";
+  const MANAGED = "managed@example.com";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+  });
+
+  it("returns the OAuth-backed client when a row exists for accountEmail", async () => {
+    vi.mocked(listOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "connected@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "access-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    const result = await getClientForConnectedAccount(
+      "owner@example.com",
+      "connected@example.com",
+    );
+
+    expect(result).toEqual({
+      accessToken: "access-token",
+      email: "connected@example.com",
+    });
+  });
+
+  it("falls back to the managed client when no OAuth row exists but it matches the managed grant", async () => {
+    vi.mocked(listOAuthAccounts).mockResolvedValue([]);
+    mockManagedGrant(MANAGED, "managed-token");
+
+    const result = await getClientForConnectedAccount(OWNER, MANAGED);
+
+    expect(result).toEqual({ accessToken: "managed-token", email: MANAGED });
+  });
+
+  it("returns null when neither an OAuth row nor the managed grant matches", async () => {
+    vi.mocked(listOAuthAccounts).mockResolvedValue([]);
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+
+    const result = await getClientForConnectedAccount(
+      OWNER,
+      "nobody@example.com",
+    );
+
+    expect(result).toBeNull();
+  });
 });
 
 describe("Google OAuth URL construction", () => {

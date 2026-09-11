@@ -17,7 +17,7 @@ import {
   gmailBatchGetThreads,
 } from "./google-api.js";
 import {
-  getClientForAccount,
+  getClientForConnectedAccount,
   getConnectedAccounts,
   getHeader,
   invalidateListCacheForOwner,
@@ -517,7 +517,7 @@ export async function syncInboxAccount(
   try {
     let client: { accessToken: string; email: string } | null;
     try {
-      client = await getClientForAccount(accountEmail);
+      client = await getClientForConnectedAccount(ownerEmail, accountEmail);
     } catch (err) {
       return await failAccount(row, claim.claimId, err);
     }

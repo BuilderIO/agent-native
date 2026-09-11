@@ -127,7 +127,7 @@ describe("list-labels action", () => {
     );
   });
 
-  it("never fails the whole read when one account has no cache and its live fetch fails", async () => {
+  it("never fails the whole read when one account has no cache and no usable client, and reports it in errors", async () => {
     mocks.getConnectedAccounts.mockResolvedValue([
       "broken@gmail.com",
       "ok@gmail.com",
@@ -147,14 +147,14 @@ describe("list-labels action", () => {
         ["ok@gmail.com", new Map([["Label_1", "Clients"]])],
       ]),
     });
-    // broken@gmail.com has no valid token at all (e.g. refresh failed) —
-    // getAccessTokens() silently drops it, same as before this change.
+    // broken@gmail.com has no valid token at all (e.g. refresh failed, or a
+    // managed grant getAccessTokens couldn't resolve) — it must show up in
+    // `errors` instead of silently vanishing from the response.
     mocks.getAccessTokens.mockResolvedValue([]);
 
     const result = await action.run({}, undefined as any);
 
-    // No throw: the cached account's labels still come back, and the
-    // uncached/unresolvable account simply contributes nothing.
+    // No throw: the cached account's labels still come back...
     expect(result.labels).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -164,6 +164,13 @@ describe("list-labels action", () => {
         }),
       ]),
     );
+    // ...and the connected-but-clientless account is reported, not dropped.
+    expect(result.errors).toEqual([
+      {
+        accountEmail: "broken@gmail.com",
+        error: "no credentials available for broken@gmail.com",
+      },
+    ]);
   });
 
   it("reports a bounded, redacted error instead of swallowing a live Gmail fetch failure", async () => {

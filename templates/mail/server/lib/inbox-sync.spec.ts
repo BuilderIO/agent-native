@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
     gmailListHistory: vi.fn(),
     gmailListLabels: vi.fn(),
     gmailBatchGetThreads: vi.fn(),
-    getClientForAccount: vi.fn(),
+    getClientForConnectedAccount: vi.fn(),
     invalidateListCacheForOwner: vi.fn(),
     ensureSyncAccountRow: vi.fn(),
     claimSyncAccount: vi.fn(),
@@ -47,7 +47,7 @@ vi.mock("./google-auth.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./google-auth.js")>();
   return {
     ...actual,
-    getClientForAccount: mocks.getClientForAccount,
+    getClientForConnectedAccount: mocks.getClientForConnectedAccount,
     getConnectedAccounts: mocks.getConnectedAccounts,
     invalidateListCacheForOwner: mocks.invalidateListCacheForOwner,
   };
@@ -135,7 +135,7 @@ beforeEach(() => {
     { accountId: ACCOUNT, displayName: null, tokens: {} },
   ]);
   mocks.getConnectedAccounts.mockResolvedValue([ACCOUNT]);
-  mocks.getClientForAccount.mockResolvedValue({
+  mocks.getClientForConnectedAccount.mockResolvedValue({
     accessToken: "tok",
     email: ACCOUNT,
   });
@@ -463,7 +463,7 @@ describe("ensureInboxFresh — managed workspace grant", () => {
       historyId: "500",
     });
     mocks.ensureSyncAccountRow.mockResolvedValue(currentRow);
-    mocks.getClientForAccount.mockResolvedValue({
+    mocks.getClientForConnectedAccount.mockResolvedValue({
       accessToken: "tok",
       email: "managed@example.com",
     });
@@ -484,5 +484,49 @@ describe("ensureInboxFresh — managed workspace grant", () => {
       OWNER,
       "managed@example.com",
     );
+  });
+});
+
+describe("syncInboxAccount — managed workspace grant", () => {
+  it("syncs a managed-only account by resolving its client through getClientForConnectedAccount(ownerEmail, accountEmail)", async () => {
+    // No OAuth row for the managed account — syncInboxAccount must not
+    // resolve credentials through the OAuth-only getClientForAccount path
+    // (that's exactly the bug this test guards against: a managed-only
+    // owner previously got "Google account not connected" here).
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    currentRow = baseRow({
+      accountEmail: "managed@example.com",
+      historyId: "500",
+    });
+    mocks.getClientForConnectedAccount.mockResolvedValue({
+      accessToken: "managed-tok",
+      email: "managed@example.com",
+    });
+    mocks.gmailListHistory.mockResolvedValue({
+      historyId: "600",
+      history: [],
+    });
+
+    const result = await syncInboxAccount(OWNER, "managed@example.com", {
+      budgetMs: 5_000,
+    });
+
+    expect(result.state).toBe("ready");
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      OWNER,
+      "managed@example.com",
+    );
+  });
+
+  it("fails the account cleanly when neither an OAuth row nor the managed grant resolves a client", async () => {
+    currentRow = baseRow({ accountEmail: "managed@example.com" });
+    mocks.getClientForConnectedAccount.mockResolvedValue(null);
+
+    const result = await syncInboxAccount(OWNER, "managed@example.com", {
+      budgetMs: 5_000,
+    });
+
+    expect(result.state).toBe("error");
+    expect(result.error).toContain("not connected");
   });
 });

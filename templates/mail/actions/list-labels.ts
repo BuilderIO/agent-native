@@ -167,6 +167,9 @@ export default defineAction({
       const accounts = (await getAccessTokens()).filter(({ email }) =>
         uncachedEmails.includes(email.toLowerCase()),
       );
+      const tokenized = new Set(
+        accounts.map(({ email }) => email.toLowerCase()),
+      );
       for (const { email, accessToken } of accounts) {
         try {
           const result = await gmailListLabels(accessToken);
@@ -176,6 +179,18 @@ export default defineAction({
           // labels for this call — reported here instead of swallowed, so
           // callers can tell an incomplete inventory from a complete one.
           errors.push({ accountEmail: email, error: boundedErrorMessage(err) });
+        }
+      }
+      // A connected account with no cache and no usable client (e.g. a
+      // managed grant getAccessTokens couldn't resolve) must still show up
+      // in `errors` — dropping it silently would violate the `{ labels,
+      // errors }` contract by making an incomplete inventory look complete.
+      for (const email of uncachedEmails) {
+        if (!tokenized.has(email)) {
+          errors.push({
+            accountEmail: email,
+            error: `no credentials available for ${email}`,
+          });
         }
       }
     }

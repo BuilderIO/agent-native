@@ -5,6 +5,7 @@ import {
   mailLabelsInclude,
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
+import { inboxTabHref } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
@@ -421,8 +422,11 @@ export function InboxPage() {
   // The inbox view is split server-side (tabs, counts, and the rendered
   // list all come from one `list-inbox-threads` call keyed by the resolved
   // tab id) — see shared/inbox-threads.ts. Every other view still fetches
-  // through `useEmails` below, unchanged.
-  const isInboxView = view === "inbox";
+  // through `useEmails` below, unchanged. A `q` search on /inbox is not a
+  // tab partition the store computes, so it falls through to the same
+  // `useEmails` search path non-inbox views use — the store path is only
+  // for a plain /inbox with no `q`.
+  const isInboxView = view === "inbox" && !searchParams.get("q");
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
@@ -437,7 +441,9 @@ export function InboxPage() {
       limit: INBOX_PAGE_SIZE,
       offset: 0,
     },
-    { enabled: isInboxView },
+    // The tab bar renders from this regardless of an active `q` search, so
+    // it stays keyed on the route alone, not `isInboxView`.
+    { enabled: view === "inbox" },
   );
   const [inboxExtraPageCount, setInboxExtraPageCount] = useState(0);
   useEffect(() => {
@@ -785,9 +791,10 @@ export function InboxPage() {
       // Report the server-resolved tab id (falls back to the raw URL param
       // until the first response lands) so the agent sees the tab that is
       // actually active, including the default tab when the URL has none.
-      activeInboxTab: isInboxView
-        ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)
-        : (activeInboxTab ?? undefined),
+      activeInboxTab:
+        view === "inbox"
+          ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)
+          : (activeInboxTab ?? undefined),
       activeAccounts:
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
       selectedThreadIds:
@@ -843,7 +850,10 @@ export function InboxPage() {
         ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
         : "/settings";
       void navigate(target);
+    } else if (navCommand.tab) {
+      void navigate(inboxTabHref(navCommand.tab));
     } else if (targetFilter) {
+      // Legacy fallback for commands that only ever set `filter`.
       void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
       void navigate(`/${targetView}/${targetThread}`);

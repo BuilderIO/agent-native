@@ -91,6 +91,30 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("falls back to the useEmails search path when /inbox has a `q` param", () => {
+    const source = inboxSource();
+
+    // The store path (list-inbox-threads) has no notion of a free-text
+    // search, so `isInboxView` (which gates rawEmails/pagination between the
+    // store and useEmails) must turn off for a non-empty `q` — only the tab
+    // bar's useInboxThreads stays keyed on the route alone.
+    expect(source).toContain(
+      'const isInboxView = view === "inbox" && !searchParams.get("q");',
+    );
+    expect(source).toContain('{ enabled: view === "inbox" },');
+  });
+
+  it("navigates the inbox tab bar when an agent command sets `tab`", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      'import { inboxTabHref } from "@shared/inbox-threads";',
+    );
+    expect(source).toContain(
+      "} else if (navCommand.tab) {\n      void navigate(inboxTabHref(navCommand.tab));\n    } else if (targetFilter) {",
+    );
+  });
+
   it("normalizes hidden combined-inbox triage routes", () => {
     const source = inboxSource();
 
@@ -120,13 +144,14 @@ describe("Inbox navigation commands", () => {
 
   it("syncs the active inbox partition into agent navigation state", () => {
     expect(navigationHookSource()).toContain("activeInboxTab?: string;");
+    expect(navigationHookSource()).toContain("tab?: string;");
     expect(navigationHookSource()).toContain("filter?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
     // The inbox view reports the server-resolved tab id (falls back to the
     // raw URL param before the first response lands) so the agent sees the
     // actual active tab, including the default when the URL has none.
     expect(inboxSource()).toContain(
-      "activeInboxTab: isInboxView\n        ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)\n        : (activeInboxTab ?? undefined)",
+      'activeInboxTab:\n        view === "inbox"\n          ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)\n          : (activeInboxTab ?? undefined)',
     );
     expect(inboxSource()).toContain("filter: activeFilterId ?? undefined");
     expect(inboxSource()).toContain("const searchQ = searchQuery;");

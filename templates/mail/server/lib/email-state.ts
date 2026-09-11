@@ -24,7 +24,12 @@ import {
   gmailTrashThread,
   gmailUntrashThread,
 } from "./google-api.js";
-import { getOAuth2Credentials, isConnected } from "./google-auth.js";
+import {
+  getClientForConnectedAccount,
+  getConnectedAccounts,
+  getOAuth2Credentials,
+  isConnected,
+} from "./google-auth.js";
 import { syncInboxLabelDelta } from "./inbox-store-sync.js";
 import {
   findAccountForMessage,
@@ -76,12 +81,20 @@ async function refreshIfNeeded(
   return tokens.access_token;
 }
 
-async function getToken(accountId: string): Promise<string | null> {
+async function getToken(
+  accountId: string,
+  ownerEmail: string,
+): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountId)) as unknown as
     | StoredTokens
     | undefined;
-  if (!tokens?.access_token) return null;
-  return refreshIfNeeded(accountId, tokens);
+  if (tokens?.access_token) return refreshIfNeeded(accountId, tokens);
+  // No per-user OAuth row for this accountId — it may be the owner's
+  // managed workspace Gmail grant, which never has one.
+  const managed = await getClientForConnectedAccount(ownerEmail, accountId);
+  return managed && managed.email.toLowerCase() === accountId.toLowerCase()
+    ? managed.accessToken
+    : null;
 }
 
 /**
@@ -95,10 +108,18 @@ export async function resolveAccountEmail(
 ): Promise<string> {
   if (!accountEmail || accountEmail === ownerEmail) return ownerEmail;
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-  if (!accounts.some((a) => a.accountId === accountEmail)) {
-    throw new Error("Account not owned by current user");
+  if (accounts.some((a) => a.accountId === accountEmail)) return accountEmail;
+  // No OAuth row — accept it when it's the owner's managed workspace Gmail
+  // grant (getConnectedAccounts is the single "which accounts exist" source).
+  const connected = await getConnectedAccounts(ownerEmail);
+  if (
+    connected.some(
+      (email) => email.toLowerCase() === accountEmail.toLowerCase(),
+    )
+  ) {
+    return accountEmail;
   }
-  return accountEmail;
+  throw new Error("Account not owned by current user");
 }
 
 /**
@@ -110,7 +131,7 @@ export async function getAccountToken(
   ownerEmail: string,
 ): Promise<string> {
   const acct = await resolveAccountEmail(accountEmail, ownerEmail);
-  const token = await getToken(acct);
+  const token = await getToken(acct, ownerEmail);
   if (!token) throw new Error(`No valid access token for ${acct}`);
   return token;
 }
@@ -141,6 +162,12 @@ export async function resolveMutationAccount(
 
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
   if (accounts.length === 1) return accounts[0].accountId;
+  if (accounts.length === 0) {
+    // No OAuth rows — a managed-only owner has none by design. Fall back to
+    // the managed grant when it's the owner's sole connected account.
+    const connected = await getConnectedAccounts(ownerEmail);
+    if (connected.length === 1) return connected[0];
+  }
 
   throw new Error(
     `Cannot determine which connected account owns thread ${
@@ -186,6 +213,25 @@ export async function resolveMutationAccounts<
     }
   }
   return { resolved, unresolved };
+}
+
+/**
+ * Accounts a single-mutation call (archive/star/trash/mark-read) can try, in
+ * preference order. Same "which accounts exist" boundary as
+ * `resolveMutationAccount`: `listOAuthAccountsByOwner` alone reports zero
+ * accounts for a managed-only owner, so callers that bailed on an empty list
+ * treated a connected managed grant as "no Google account connected". Only
+ * `accountId` is read by callers, so a managed grant is represented as a
+ * plain `{ accountId }` — it has no OAuth row to carry the rest of the shape.
+ */
+async function listMutableAccounts(
+  ownerEmail: string,
+): Promise<Array<{ accountId: string }>> {
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  if (accounts.length > 0) return accounts;
+  return (await getConnectedAccounts(ownerEmail)).map((accountId) => ({
+    accountId,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +350,7 @@ export async function archiveEmail(
 
   // Try accountEmail-scoped account first, then fall through to other accounts
   // for multi-identity agent scenarios.
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = await listMutableAccounts(ownerEmail);
   if (accounts.length === 0) throw new Error("No Google account connected");
 
   const preferred = accountEmail
@@ -316,7 +362,7 @@ export async function archiveEmail(
 
   let lastErr: Error | undefined;
   for (const account of ordered) {
-    const token = await getToken(account.accountId);
+    const token = await getToken(account.accountId, ownerEmail);
     if (!token) continue;
     try {
       let resolvedThreadId = hintThreadId;
@@ -476,7 +522,7 @@ export async function toggleStar(
     });
   }
 
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = await listMutableAccounts(ownerEmail);
   if (accounts.length === 0) throw new Error("No Google account connected");
 
   const preferred = accountEmail
@@ -488,7 +534,7 @@ export async function toggleStar(
 
   let lastErr: Error | undefined;
   for (const account of ordered) {
-    const token = await getToken(account.accountId);
+    const token = await getToken(account.accountId, ownerEmail);
     if (!token) continue;
     try {
       const updated = (await gmailModifyMessage(
@@ -572,7 +618,7 @@ export async function trashEmail(
     });
   }
 
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = await listMutableAccounts(ownerEmail);
   if (accounts.length === 0) throw new Error("No Google account connected");
 
   const preferred = accountEmail
@@ -584,7 +630,7 @@ export async function trashEmail(
 
   let lastErr: Error | undefined;
   for (const account of ordered) {
-    const token = await getToken(account.accountId);
+    const token = await getToken(account.accountId, ownerEmail);
     if (!token) continue;
     try {
       const msg = await gmailGetMessage(token, id, "minimal");
@@ -715,7 +761,7 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
     });
   }
 
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = await listMutableAccounts(ownerEmail);
   if (accounts.length === 0) throw new Error("No Google account connected");
 
   const preferred = accountEmail
@@ -727,7 +773,7 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
 
   let lastErr: Error | undefined;
   for (const account of ordered) {
-    const token = await getToken(account.accountId);
+    const token = await getToken(account.accountId, ownerEmail);
     if (!token) continue;
     try {
       await gmailModifyMessage(

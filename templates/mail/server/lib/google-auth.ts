@@ -417,6 +417,31 @@ export async function getClientFromAccount(account: {
 }
 
 /**
+ * Resolve a client for one of an owner's connected Gmail accounts —
+ * `getConnectedAccounts`' per-account counterpart. `getClientForAccount`
+ * only searches per-user OAuth rows, so a managed-only owner (no OAuth row;
+ * connected only via the workspace's shared Gmail grant) got "not
+ * connected" from every caller that resolved credentials that way. Falls
+ * back to the managed client when its email matches `accountEmail`
+ * (case-insensitive, since Google account ids are not guaranteed to be
+ * stored with consistent casing everywhere they're typed in).
+ */
+export async function getClientForConnectedAccount(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<{ accessToken: string; email: string } | null> {
+  const oauthClient = await getClientForAccount(accountEmail);
+  if (oauthClient) return oauthClient;
+  const managed = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+    resolveManagedGmailClient(),
+  );
+  if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
+    return { accessToken: managed.accessToken, email: managed.email };
+  }
+  return null;
+}
+
+/**
  * Get OAuth credentials. When `forEmail` is provided, returns only that
  * user's credentials (multi-user mode). Otherwise returns an empty array.
  *
@@ -2064,7 +2089,13 @@ async function getDefaultOwnedAccountAccessToken(
       (candidate) =>
         candidate.accountId.toLowerCase() === ownerEmail.toLowerCase(),
     ) ?? accounts[0];
-  if (!account) throw new Error("No Google account connected");
+  if (!account) {
+    // No per-user OAuth row at all — a managed-only owner has no accounts
+    // here by design (see resolveManagedGmailClient).
+    const managed = await resolveManagedGmailClient();
+    if (managed) return managed.accessToken;
+    throw new Error("No Google account connected");
+  }
   const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens?.access_token && !tokens?.refresh_token) {
     throw new Error(`No valid access token for ${account.accountId}`);
@@ -2084,6 +2115,10 @@ async function getOwnedAccountAccessToken(
       candidate.accountId.toLowerCase() === accountEmail.toLowerCase(),
   );
   if (!account) {
+    const managed = await resolveManagedGmailClient();
+    if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
+      return managed.accessToken;
+    }
     throw new Error(`Account ${accountEmail} is not connected for this user`);
   }
   const tokens = account.tokens as unknown as GoogleTokens;
