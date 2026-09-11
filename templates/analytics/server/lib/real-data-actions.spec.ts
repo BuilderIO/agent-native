@@ -608,6 +608,23 @@ describe("coverage-sensitive analytics request classification", () => {
       needsCorpusWorkflowForCoverageSensitiveRequest({
         userText: broadProviderQuestion,
         finalText:
+          "This is a partial answer based on the first 20 calls; I found zero mentions.",
+        toolResults: shortcutOnly,
+      }),
+    ).toBe(false);
+
+    expect(
+      needsCorpusWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText: "Partial coverage. I found zero mentions.",
+        toolResults: shortcutOnly,
+      }),
+    ).toBe(true);
+
+    expect(
+      needsCorpusWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText:
           "I need a provider API/corpus workflow, or I need to label the answer as partial with exact inspected counts and gaps.",
         toolResults: shortcutOnly,
       }),

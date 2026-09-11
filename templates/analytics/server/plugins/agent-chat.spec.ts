@@ -1179,7 +1179,7 @@ describe("realDataFinalGuard", () => {
     });
   });
 
-  it("keeps a bounded provider answer as an explicitly partial draft after retries", () => {
+  it("drops an unscoped absence claim after corpus retries are exhausted", () => {
     const result = realDataFinalGuard(
       guardContext({
         userText:
@@ -1192,8 +1192,9 @@ describe("realDataFinalGuard", () => {
     expect(result).toMatchObject({
       maxRetries: 2,
       expandToolSurface: true,
-      exhaustedDraftPrefix: expect.stringContaining("Partial coverage"),
+      fallbackMessage: expect.stringContaining("exact inspected count"),
     });
+    expect(result).not.toHaveProperty("exhaustedDraftPrefix");
   });
 
   it("treats a completed catalog/dashboard-reference search as discovery, not a dead end", () => {
