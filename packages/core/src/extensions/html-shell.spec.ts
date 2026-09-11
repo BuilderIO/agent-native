@@ -160,6 +160,9 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain(
       "window.getComputedStyle(element).position === 'absolute'",
     );
+    expect(html).toContain("requestAnimationFrame");
+    expect(html).toContain("document.getAnimations()");
+    expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");
     expect(html).toContain("document.createTreeWalker(body, 4)");
     expect(html).toContain("range.getClientRects()");

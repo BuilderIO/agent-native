@@ -723,6 +723,43 @@ export function buildExtensionHtml(
 	          }
 	        });
 	      };
+	      var _enqueueResizeWork = function(callback) {
+	        if (typeof window.requestAnimationFrame === 'function') {
+	          window.requestAnimationFrame(callback);
+	        } else {
+	          window.setTimeout(callback, 16);
+	        }
+	      };
+	      var _resizeWorkScheduled = false;
+	      var _positionMonitorScheduled = false;
+	      var _scheduleResizeWork = function() {
+	        if (_resizeWorkScheduled) return;
+	        _resizeWorkScheduled = true;
+	        _enqueueResizeWork(function() {
+	          _resizeWorkScheduled = false;
+	          _observePositioned();
+	          _reportHeight();
+	        });
+	      };
+	      var _schedulePositionMonitor = function() {
+	        if (_positionMonitorScheduled) return;
+	        _positionMonitorScheduled = true;
+	        _enqueueResizeWork(function() {
+	          _positionMonitorScheduled = false;
+	          _scheduleResizeWork();
+	          if (typeof document.getAnimations !== 'function') return;
+	          var animations = document.getAnimations();
+	          for (var i = 0; i < animations.length; i++) {
+	            if (
+	              animations[i].playState === 'running' ||
+	              animations[i].playState === 'pending'
+	            ) {
+	              _schedulePositionMonitor();
+	              break;
+	            }
+	          }
+	        });
+	      };
 	      var _lastH = 0;
 	      var _reportHeight = function() {
 	        var body = document.body;
@@ -755,17 +792,20 @@ export function buildExtensionHtml(
 	          window.parent.postMessage({ type: 'agent-native-extension-resize', height: h }, '*');
 	        }
 	      };
+	      window.addEventListener('scroll', _scheduleResizeWork, true);
+	      window.addEventListener('resize', _scheduleResizeWork);
+	      document.addEventListener('animationstart', _schedulePositionMonitor, true);
+	      document.addEventListener('animationiteration', _schedulePositionMonitor, true);
+	      document.addEventListener('transitionrun', _schedulePositionMonitor, true);
+	      document.addEventListener('transitionstart', _schedulePositionMonitor, true);
 	      if (typeof ResizeObserver !== 'undefined') {
-	        _ro = new ResizeObserver(function() {
-	          _reportHeight();
-	          _observePositioned();
-	        });
+	        _ro = new ResizeObserver(_scheduleResizeWork);
 	        document.addEventListener('DOMContentLoaded', function() {
 	          _observePositioned();
 	          if (typeof MutationObserver !== 'undefined' && document.body) {
 	            new MutationObserver(function() {
-	              _observePositioned();
-	              _reportHeight();
+	              _scheduleResizeWork();
+	              _schedulePositionMonitor();
 	            }).observe(document.body, {
 	              attributes: true,
 	              characterData: true,

@@ -700,6 +700,43 @@ export function buildAgentNativeExtensionHtml({
           }
         });
       };
+      var enqueueResizeWork = function(callback) {
+        if (typeof window.requestAnimationFrame === 'function') {
+          window.requestAnimationFrame(callback);
+        } else {
+          window.setTimeout(callback, 16);
+        }
+      };
+      var resizeWorkScheduled = false;
+      var positionMonitorScheduled = false;
+      var scheduleResizeWork = function() {
+        if (resizeWorkScheduled) return;
+        resizeWorkScheduled = true;
+        enqueueResizeWork(function() {
+          resizeWorkScheduled = false;
+          observePositioned();
+          reportHeight();
+        });
+      };
+      var schedulePositionMonitor = function() {
+        if (positionMonitorScheduled) return;
+        positionMonitorScheduled = true;
+        enqueueResizeWork(function() {
+          positionMonitorScheduled = false;
+          scheduleResizeWork();
+          if (typeof document.getAnimations !== 'function') return;
+          var animations = document.getAnimations();
+          for (var i = 0; i < animations.length; i++) {
+            if (
+              animations[i].playState === 'running' ||
+              animations[i].playState === 'pending'
+            ) {
+              schedulePositionMonitor();
+              break;
+            }
+          }
+        });
+      };
 
       function reportHeight() {
         try {
@@ -738,17 +775,20 @@ export function buildAgentNativeExtensionHtml({
       }
 
       window.addEventListener('load', reportHeight);
+      window.addEventListener('scroll', scheduleResizeWork, true);
+      window.addEventListener('resize', scheduleResizeWork);
+      document.addEventListener('animationstart', schedulePositionMonitor, true);
+      document.addEventListener('animationiteration', schedulePositionMonitor, true);
+      document.addEventListener('transitionrun', schedulePositionMonitor, true);
+      document.addEventListener('transitionstart', schedulePositionMonitor, true);
       if (typeof ResizeObserver !== 'undefined') {
-        resizeObserver = new ResizeObserver(function() {
-          reportHeight();
-          observePositioned();
-        });
+        resizeObserver = new ResizeObserver(scheduleResizeWork);
         var setupResizeObservation = function() {
           observePositioned();
           if (typeof MutationObserver !== 'undefined' && document.body) {
             new MutationObserver(function() {
-              observePositioned();
-              reportHeight();
+              scheduleResizeWork();
+              schedulePositionMonitor();
             }).observe(document.body, {
               attributes: true,
               characterData: true,
