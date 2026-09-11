@@ -441,6 +441,15 @@ export function validateGoogleCallbackVerificationWorkflow(
         `${reusablePath} Google OAuth verification must use the deployed capability contract instead of a template allowlist`,
       );
     }
+    if (
+      !rollback.includes("id: google_callback_rollback") ||
+      !rollback.includes("restored_deploy_id") ||
+      !rollback.includes("process.env.GITHUB_OUTPUT")
+    ) {
+      issues.push(
+        `${reusablePath} Google OAuth rollback must expose its returned deploy id to failure cleanup`,
+      );
+    }
   }
 
   if (
@@ -826,11 +835,11 @@ if (
   parsedUploadIndex >= parsedPublishWaitIndex ||
   parsedPublishWaitIndex >= parsedPurgeIndex ||
   parsedPurgeIndex >= parsedLockIndex ||
-  parsedLockIndex >= parsedResumeIndex ||
-  parsedResumeIndex >= parsedCleanupIndex
+  parsedLockIndex >= parsedCleanupIndex ||
+  parsedCleanupIndex >= parsedResumeIndex
 ) {
   issues.push(
-    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait before purge before lock before resume before cleanup`,
+    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait before purge before lock before failure-cleanup before resume`,
   );
 }
 const parsedUnlockIf = reusableSteps[parsedUnlockIndex]?.if;
@@ -960,6 +969,10 @@ const pauseStart = reusable.indexOf(
 const cleanupStart = reusable.indexOf(
   "name: Restore the production deploy lock after a failed cutover",
 );
+const resumeStart = reusable.indexOf(
+  "name: Resume automatic Netlify builds after production cutover",
+);
+const cleanupWindow = reusable.slice(cleanupStart, resumeStart);
 if (
   pauseStart < 0 ||
   lockStart < 0 ||
@@ -972,12 +985,37 @@ if (
   !reusable.slice(cleanupStart).includes("cutoverPublishedDeployId") ||
   !reusable.slice(cleanupStart).includes("cutoverNewDeployId") ||
   !reusable.slice(cleanupStart).includes("cutoverWasLocked") ||
-  !reusable.slice(cleanupStart).includes("/lock") ||
-  !reusable.slice(cleanupStart).includes("currentDeployId === newDeployId") ||
-  !reusable.slice(cleanupStart).includes("newly published deploy")
+  !cleanupWindow.includes("id: failure_cleanup") ||
+  !cleanupWindow.includes("cutoverGoogleRollbackDeployId") ||
+  !cleanupWindow.includes("callbackRestoredDeployId") ||
+  !cleanupWindow.includes("currentDeployId !== callbackRestoredDeployId") ||
+  !reusable
+    .slice(cleanupStart)
+    .includes('const action = expectedLocked ? "lock" : "unlock"') ||
+  !cleanupWindow.includes(
+    "/sites/${process.env.NETLIFY_SITE_ID}/deploys/${originalDeployId}/restore",
+  ) ||
+  !cleanupWindow.includes("restoredDeployId = restored?.id") ||
+  !cleanupWindow.includes("waitForPublished(restoredDeployId)") ||
+  !/restoreLockState\(\s*restoredDeployId,/.test(cleanupWindow) ||
+  cleanupWindow.includes("waitForPublished(originalDeployId)") ||
+  !cleanupWindow.includes("let rollbackError") ||
+  !cleanupWindow.includes("let failedDeployLockError") ||
+  !cleanupWindow.includes("rollbackError = error") ||
+  !cleanupWindow.includes("failedDeployLockError = error") ||
+  !cleanupWindow.includes("throw new AggregateError") ||
+  !cleanupWindow.includes("rollbackError && failedDeployLockError") ||
+  !/restoreLockState\(\s*newDeployId,\s*"true"/.test(cleanupWindow) ||
+  !cleanupWindow.includes("currentDeployId === newDeployId") ||
+  !cleanupWindow.includes("newDeployId !== originalDeployId") ||
+  !cleanupWindow.includes("fallbackErrors") ||
+  !cleanupWindow.includes("Failed production deploy") ||
+  !cleanupWindow.includes("quarantined failed deploy") ||
+  !cleanupWindow.includes("Restored previous production deploy") ||
+  !cleanupWindow.includes("Preserved Google callback rollback deploy")
 ) {
   issues.push(
-    `${reusablePath} must pause automatic builds before cutover, lock the new published deploy, and fail-safe the production lock after cutover errors`,
+    `${reusablePath} must pause automatic builds before cutover, restore the prior deploy, lock the failed deploy, and fail-safe the production lock after cutover errors`,
   );
 }
 const pause = reusable.slice(pauseStart, unlockStart);
@@ -994,7 +1032,7 @@ if (
     `${reusablePath} production cutovers must record acquisition before fallible pause verification and preserve the prior stop_builds setting`,
   );
 }
-const cleanup = reusable.slice(cleanupStart);
+const cleanup = cleanupWindow;
 if (!cleanup.includes("cutoverWasPaused") || cleanup.includes("stop_builds")) {
   issues.push(
     `${reusablePath} production cleanup must restore the prior automatic-build setting`,
@@ -1005,13 +1043,15 @@ if (!cleanup.includes("!process.env.cutoverPublishedDeployId")) {
     `${reusablePath} production cleanup must leave lock state unchanged without a recorded unlock state`,
   );
 }
-const resumeStart = reusable.indexOf(
-  "name: Resume automatic Netlify builds after production cutover",
-);
+const resumeWindow = reusable.slice(resumeStart);
 const noCutoverStateCheck = 'process.env.cutoverWasPaused !== "true"';
 if (
   resumeStart < 0 ||
-  !reusable.slice(resumeStart, cleanupStart).includes(noCutoverStateCheck)
+  cleanupStart >= resumeStart ||
+  !resumeWindow.includes(noCutoverStateCheck) ||
+  !resumeWindow.includes("steps.failure_cleanup.outcome == 'success'") ||
+  !resumeWindow.includes("steps.failure_cleanup.outcome == 'skipped'") ||
+  resumeWindow.includes("steps.failure_cleanup.outcome != 'failure'")
 ) {
   issues.push(
     `${reusablePath} production resume must leave automatic builds unchanged when pause state was not acquired`,
