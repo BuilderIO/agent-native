@@ -325,8 +325,12 @@ async function mirrorFigmaImageUrls(
           { maxRedirects: 3, httpsOnly: true },
         );
       } catch (error) {
+        // ssrfSafeFetch names the blocked host and the private address it
+        // resolved to. That is the right thing in a server log and an
+        // internal-network disclosure in a toast, so the cause stays here.
+        console.error("[figma-import] Figma image fetch was blocked:", error);
         failFigmaImport(
-          `Could not securely fetch a Figma image: ${error instanceof Error ? error.message : String(error)}`,
+          "Could not fetch an image from Figma. Try importing again; Figma render URLs expire.",
           FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
           { statusCode: 502 },
         );
@@ -359,8 +363,9 @@ async function mirrorFigmaImageUrls(
         // else here is the download itself dying mid-stream, which is not the
         // same answer and must not be reported as an oversize frame.
         if (isFigmaImportFailure(error)) throw error;
+        console.error("[figma-import] Figma image download failed:", error);
         failFigmaImport(
-          `Could not import a Figma image: ${error instanceof Error ? error.message : String(error)}.`,
+          "Could not finish downloading an image from Figma. Try importing again.",
           FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
           { statusCode: 502 },
         );
@@ -385,8 +390,11 @@ async function mirrorFigmaImageUrls(
           stableUrl: true,
         });
       } catch (error) {
+        // Upload drivers report endpoint, bucket/key, and provider response
+        // text. Keep the setup guidance, leave the driver detail in the log.
+        console.error("[figma-import] Figma image upload failed:", error);
         failFigmaImport(
-          `Could not store a Figma image durably. Check Settings > File uploads and try again. ${error instanceof Error ? error.message : String(error)}`,
+          "Could not store a Figma image durably. Check Settings > File uploads and try again.",
           FIGMA_IMPORT_ERROR_CODES.storageUnavailable,
         );
       }

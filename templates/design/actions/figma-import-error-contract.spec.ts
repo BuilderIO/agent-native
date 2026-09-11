@@ -356,6 +356,107 @@ describe("figma import failure contract", () => {
     expect(failure.message).toBe("No access");
     expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
   });
+
+  it("reports our own provider quota cooldown as a wait, not a Figma rate limit", async () => {
+    // What core's providerQuotaExhaustedResponse synthesizes for its cooldown.
+    mocks.executeProviderApiRequest.mockResolvedValue({
+      response: {
+        ok: false,
+        status: 429,
+        statusText: "Provider quota cooldown",
+        headers: {
+          "retry-after": "42",
+          "x-agent-native-provider-quota": "exhausted",
+        },
+        json: { error: "provider_quota_exhausted", provider: "figma" },
+      },
+    });
+
+    const failure = await captureFailure({
+      fileKey: "abcDEF12345",
+      nodeId: "1:2",
+    });
+    expect(failure.userFacing).toBe(true);
+    expect(failure.errorCode).toBe("figma_provider_quota_cooldown");
+    expect(failure.statusCode).toBe(429);
+    expect(failure.details).toEqual({ retryAfterSeconds: 42 });
+    // Never Figma plan guidance for an app-side wait.
+    expect(failure.message).not.toMatch(/plan|upgrade/i);
+  });
+
+  it("names a malformed 2xx body instead of crashing one frame later", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValue({
+      response: { ok: true, status: 200, json: null },
+    });
+
+    const failure = await captureFailure({
+      fileKey: "abcDEF12345",
+      nodeId: "1:2",
+    });
+    expect(failure.userFacing).toBe(true);
+    expect(failure.errorCode).toBe("figma_request_failed");
+    expect(failure.message).toMatch(/not in the expected format/);
+  });
+
+  it("keeps SSRF and network diagnostics out of the client message", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ path }: any) => {
+        if (path === "/files/abcDEF12345/nodes") {
+          return jsonEnvelope({ nodes: { "1:2": VECTOR_FRAME } });
+        }
+        if (path === "/images/abcDEF12345") {
+          return jsonEnvelope({
+            images: { "1:3": "https://renders.example.test/icon.png" },
+          });
+        }
+        return jsonEnvelope({ images: {} });
+      },
+    );
+    mocks.ssrfSafeFetch.mockRejectedValue(
+      new Error(
+        "SSRF blocked: refusing to fetch private/internal address (http://10.1.2.3/icon.png)",
+      ),
+    );
+
+    const failure = await captureFailure({
+      fileKey: "abcDEF12345",
+      nodeId: "1:2",
+    });
+    expect(failure.errorCode).toBe("figma_asset_unavailable");
+    expect(failure.message).not.toMatch(/10\.1\.2\.3|SSRF|internal address/i);
+  });
+
+  it("keeps storage driver diagnostics out of the client message", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ path }: any) => {
+        if (path === "/files/abcDEF12345/nodes") {
+          return jsonEnvelope({ nodes: { "1:2": VECTOR_FRAME } });
+        }
+        if (path === "/images/abcDEF12345") {
+          return jsonEnvelope({
+            images: { "1:3": "https://renders.example.test/icon.png" },
+          });
+        }
+        return jsonEnvelope({ images: {} });
+      },
+    );
+    mocks.uploadFile.mockRejectedValue(
+      new Error(
+        "S3 PutObject failed for bucket=acme-private key=secret/path.png endpoint=https://s3.internal",
+      ),
+    );
+
+    const failure = await captureFailure({
+      fileKey: "abcDEF12345",
+      nodeId: "1:2",
+    });
+    expect(failure.errorCode).toBe("figma_storage_unavailable");
+    expect(failure.message).not.toMatch(
+      /bucket|acme-private|s3\.internal|key=/i,
+    );
+    // The actionable guidance must survive the redaction.
+    expect(failure.message).toMatch(/Settings > File uploads/);
+  });
 });
 
 describe("image download failures keep their own diagnosis", () => {
@@ -425,6 +526,7 @@ describe("image download failures keep their own diagnosis", () => {
     });
     expect(failure.errorCode).toBe("figma_asset_unavailable");
     expect(failure.statusCode).toBe(502);
-    expect(failure.message).toMatch(/socket hang up/);
+    // Distinguishable from the oversize answer without echoing the cause.
+    expect(failure.message).not.toMatch(/limit|socket hang up/i);
   });
 });

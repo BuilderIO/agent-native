@@ -26,6 +26,11 @@ export const FIGMA_IMPORT_ERROR_CODES = {
   requestFailed: "figma_request_failed",
   /** Figma rate limit; `details` carries retry/plan hints. */
   rateLimited: "figma_rate_limited",
+  /**
+   * Our own provider-API quota governor is cooling down, not Figma. Kept
+   * separate because the remedy is "wait", never "upgrade your Figma plan".
+   */
+  providerQuotaCooldown: "figma_provider_quota_cooldown",
   /** The requested node is absent from the file the token can see. */
   nodeNotFound: "figma_node_not_found",
   /** The frame or its assets exceed an import budget. */
@@ -88,8 +93,22 @@ export function failFigmaRequest(options: {
   detail: string;
   status?: number;
   rateLimit?: FigmaRateLimitDetails;
+  providerQuotaRetryAfterSeconds?: number | null;
 }): never {
   const { label, detail, status, rateLimit } = options;
+  if (options.providerQuotaRetryAfterSeconds !== undefined) {
+    const retryAfterSeconds = options.providerQuotaRetryAfterSeconds;
+    failFigmaImport(
+      "Design is pacing its own Figma requests after hitting a quota limit. Wait for the cooldown and import again.",
+      FIGMA_IMPORT_ERROR_CODES.providerQuotaCooldown,
+      {
+        statusCode: 429,
+        details: {
+          ...(retryAfterSeconds === null ? {} : { retryAfterSeconds }),
+        },
+      },
+    );
+  }
   if (status === 429) {
     const details: Record<string, unknown> = { figmaStatus: 429 };
     if (rateLimit?.retryAfterSeconds !== undefined) {
@@ -175,6 +194,30 @@ function figmaRateLimitDetails(
 }
 
 /**
+ * Retry delay when this 429 came from our own provider-API quota governor
+ * rather than from Figma, or `undefined` when it did not.
+ *
+ * `providerQuotaExhaustedResponse` in `@agent-native/core/provider-api`
+ * synthesizes a 429 envelope for its cooldown, carrying this header and
+ * `json.error`. Reading only the status told the user Figma had rate-limited
+ * them and offered a Figma plan upgrade for an app-side wait.
+ */
+function providerQuotaRetryAfterSeconds(
+  response: NonNullable<FigmaProviderEnvelope["response"]>,
+): number | null | undefined {
+  const isProviderQuota =
+    response.headers?.["x-agent-native-provider-quota"] === "exhausted" ||
+    (response.json as { error?: unknown } | null)?.error ===
+      "provider_quota_exhausted";
+  if (!isProviderQuota) return undefined;
+  const retryAfter = Number.parseInt(
+    response.headers?.["retry-after"] ?? "",
+    10,
+  );
+  return Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null;
+}
+
+/**
  * Unwrap a provider-API envelope into Figma's JSON body, or raise the reason
  * it cannot be. Three Figma entry points each carried their own copy of this
  * reader and two of them never checked `truncated`, so a response the provider
@@ -206,15 +249,34 @@ export function readFigmaProviderJson(
       (typeof jsonBody?.message === "string" && jsonBody.message) ||
       response.statusText ||
       `HTTP ${response.status ?? "error"}`;
+    const providerQuota = providerQuotaRetryAfterSeconds(response);
     failFigmaRequest({
       label,
       detail,
       status: response.status,
+      ...(providerQuota === undefined
+        ? {}
+        : { providerQuotaRetryAfterSeconds: providerQuota }),
       rateLimit:
         response.status === 429
           ? figmaRateLimitDetails(response.headers)
           : undefined,
     });
+  }
+  // A 2xx whose body is null, a primitive, or an array is not the document
+  // shape any caller here reads. Returned unchanged it became a bare
+  // TypeError one frame later ("cannot read properties of null"), which is
+  // the same opaque 500 this module exists to remove.
+  if (
+    !response.json ||
+    typeof response.json !== "object" ||
+    Array.isArray(response.json)
+  ) {
+    failFigmaImport(
+      `Figma ${label} response was not in the expected format.`,
+      FIGMA_IMPORT_ERROR_CODES.requestFailed,
+      { statusCode: 502 },
+    );
   }
   return response.json;
 }
@@ -237,4 +299,52 @@ export function isFigmaImportFailure(err: unknown): boolean {
     typeof (err as { errorCode?: unknown }).errorCode === "string" &&
     (err as { errorCode: string }).errorCode.startsWith("figma_")
   );
+}
+
+/**
+ * Recognize the provider runtime's "no credential available" failures.
+ *
+ * These are raised before any HTTP envelope exists, so they never reach
+ * `readFigmaProviderJson`: a Figma import with no resolvable token escaped as
+ * a bare `Error` and became the same opaque 500 this module removes. That
+ * matters most for the reported case, where the connection badge reads
+ * "Figma connected" from `resolveSecret` while the provider runtime resolves
+ * through a credential context that may not see the same secret.
+ *
+ * Core raises these untyped, so recognition is by message. `figma-credential-
+ * failure.spec.ts` drives the real `createProviderApiRuntime` to pin both
+ * shapes — if core rewords them, that spec fails instead of this quietly
+ * degrading back to a 500.
+ */
+export function isProviderCredentialFailure(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (isFigmaImportFailure(err)) return false;
+  return (
+    /\bcredential not configured\b/i.test(err.message) ||
+    /\bnot configured\b.*\bcredential\b/i.test(err.message) ||
+    /^Cannot resolve credential\b/i.test(err.message) ||
+    /\brequire an authenticated request context\b/i.test(err.message) ||
+    /^[A-Z0-9_]+ not configured\b/.test(err.message)
+  );
+}
+
+/**
+ * Re-raise a provider request failure as a Figma diagnosis when it is one,
+ * and leave anything unexpected untouched so it still reports as a real bug.
+ */
+export function rethrowFigmaProviderFailure(err: unknown): never {
+  if (isProviderCredentialFailure(err)) {
+    // The message names credential keys and scope gaps, not secret values,
+    // but it is internal wiring detail: give the user the action instead.
+    console.error(
+      "[figma-import] Figma credential could not be resolved:",
+      err,
+    );
+    failFigmaImport(
+      "No Figma access token is available for this session. Add a Figma personal access token in Settings, then import again.",
+      FIGMA_IMPORT_ERROR_CODES.authRequired,
+      { statusCode: 401 },
+    );
+  }
+  throw err;
 }
