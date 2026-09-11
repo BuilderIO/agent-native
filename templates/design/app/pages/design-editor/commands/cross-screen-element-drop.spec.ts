@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   absolutePlacePointForDrop,
+  runCrossScreenElementDrop,
   shouldAbsolutePlaceOnEmptyScreen,
 } from "./cross-screen-element-drop";
 
@@ -73,4 +74,79 @@ describe("absolutePlacePointForDrop", () => {
       }),
     ).toEqual({ x: 80, y: 190 });
   });
+});
+
+describe("runCrossScreenElementDrop duplicate routing", () => {
+  it.each(["localhost", "fusion"])(
+    "queues an inline Alt-drag copy for a %s screen",
+    (sourceType) => {
+      const runtimeStructureInsertRevisionRef = { current: 0 };
+      let runtimeStructureInsertRequest: unknown = null;
+
+      runCrossScreenElementDrop(
+        {
+          applyFileContentUpdate: () => {
+            throw new Error("live duplicate must not write stored content");
+          },
+          boardFileId: undefined,
+          canEditDesign: true,
+          clearPendingOverviewLayerSelectionTimer: () => {},
+          codeLayerOwnerByNodeIdRef: { current: new Map() },
+          designSourceType: "inline",
+          getScreenContent: (screenId) =>
+            screenId === "source"
+              ? SCREEN_WITH_FRAME
+              : "http://localhost:5173/",
+          id: undefined,
+          overviewScreens: [
+            {
+              id: "target",
+              filename: "target.html",
+              content: "http://localhost:5173/",
+              updatedAt: "2026-09-11T00:00:00.000Z",
+              heightPinned: false,
+              sourceType,
+            },
+          ],
+          pendingOverviewLayerSelectionRef: { current: null },
+          pendingOverviewScreenSelectionRef: { current: null },
+          recordContentHistoryEntry: () => {},
+          runtimeStructureInsertRevisionRef,
+          sendRuntimeLayerMoveSemanticHandoff: () => {
+            throw new Error("duplicate must not use move-only handoff");
+          },
+          setActiveFileId: () => {},
+          setCreatedOverviewLayerSelection: () => {},
+          setOverviewSelectedScreenIds: () => {},
+          setRuntimeStructureInsertRequest: (value) => {
+            runtimeStructureInsertRequest =
+              typeof value === "function" ? value(null) : value;
+          },
+          setSelectedElement: () => {},
+          setSelectedLayerIdsState: () => {},
+          t: (key) => key,
+          viewModeRef: { current: "overview" },
+        },
+        {
+          sourceSelector: "#source",
+          sourceNodeId: "source-id",
+          sourceScreenId: "source",
+          targetScreenId: "target",
+          targetAnchorSelector: "body",
+          targetAnchorPlacement: "inside",
+          duplicate: true,
+          sourceCloneHtml:
+            '<section data-agent-native-node-id="copy-id"></section>',
+        },
+      );
+
+      expect(runtimeStructureInsertRevisionRef.current).toBe(1);
+      expect(runtimeStructureInsertRequest).toMatchObject({
+        screenId: "target",
+        html: '<section data-agent-native-node-id="copy-id"></section>',
+        anchor: { selector: "body" },
+        placement: "inside",
+      });
+    },
+  );
 });
