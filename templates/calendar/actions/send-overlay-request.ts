@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import {
-  buildDeepLink,
   getAppProductionUrl,
   getRequestUserEmail,
   isEmailConfigured,
@@ -218,20 +217,16 @@ export default defineAction({
     }
     const reservation = outcome.reservation;
 
+    // A dedicated page, not a deep-link-triggered modal: the recipient is a
+    // cold click from an email, often in a fresh tab with no existing
+    // app-state session, and a modal popping open over their calendar with
+    // no explanation is easy to misread as a glitch. A real route keyed only
+    // off this URL avoids the cross-tab/app-state plumbing entirely and
+    // gives the recipient actual context before they act.
+    // The owner, not the peer: the peer is the recipient, being asked to add
+    // the owner back.
     const appLink = toAbsoluteOpenUrl(
-      buildDeepLink({
-        app: "calendar",
-        view: "calendar",
-        // `f_`-prefixed params are forwarded directly onto the redirect
-        // URL's query string (see open-route.ts), so the recipient's first
-        // page load can read it synchronously — unlike a plain param, which
-        // only reaches the client through the cross-tab one-shot `navigate`
-        // app-state command, and a fresh tab from an email link has no
-        // existing tab-scoped session to receive that command reliably.
-        // The owner, not the peer: the peer is the recipient, being asked to
-        // add the owner back.
-        params: { f_addPersonEmail: ownerEmail },
-      }),
+      `/shared-availability/add?email=${encodeURIComponent(ownerEmail)}`,
       getAppProductionUrl(),
     );
 

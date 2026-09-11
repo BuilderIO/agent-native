@@ -37,6 +37,7 @@ const enUS = {
     bookMeeting: "Book a Meeting",
     eventPreview: "Event Preview",
     manageBooking: "Manage Booking",
+    addSharedAvailability: "Add to Calendar — Calendar",
     notFound: "Not Found - Calendar",
     settings: "Settings — Calendar",
     team: "Team — Calendar",
@@ -632,6 +633,15 @@ const enUS = {
     overlayRequestFailed: "Failed to send request",
     overlayRequestEmailNotConfigured: "Email sending isn't set up yet",
     overlayRequestInProgress: "A request to this peer is already in progress",
+    overlayRequestPageTitle: "Add {{email}} to your calendar?",
+    overlayRequestPageDescription:
+      "{{email}} added you to their calendar and has booking links where you're a required host. Right now those links can only see whether you're busy — adding them back lets those links use your real working hours instead.",
+    overlayRequestPageAlreadyAdded:
+      "You've already added {{email}} to your calendar.",
+    overlayRequestPageAdded:
+      "Added. {{email}}'s booking links will now use your real working hours.",
+    overlayRequestPageDismiss: "Not now",
+    overlayRequestPageInvalidLink: "This link is invalid or has expired.",
     addOtherEmail: "Add another email",
     overlayHostsHint:
       "People from your calendar get working-hours-aware scheduling. Other emails are only checked for conflicts.",
@@ -7981,6 +7991,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "预约会议",
       eventPreview: "事件预览",
       manageBooking: "管理预约",
+      addSharedAvailability: "添加到日历 — Calendar",
       notFound: "未找到 - Calendar",
       settings: "设置 — Calendar",
       team: "团队 — Calendar",
@@ -8159,6 +8170,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "Reservar una reunión",
       eventPreview: "Vista previa del evento",
       manageBooking: "Gestionar reserva",
+      addSharedAvailability: "Añadir al calendario — Calendar",
       notFound: "No encontrado - Calendar",
       settings: "Configuración — Calendar",
       team: "Equipo — Calendar",
@@ -8341,6 +8353,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "Réserver une réunion",
       eventPreview: "Aperçu de l'événement",
       manageBooking: "Gérer la réservation",
+      addSharedAvailability: "Ajouter au calendrier — Calendar",
       notFound: "Introuvable - Calendar",
       settings: "Paramètres — Calendar",
       team: "Équipe — Calendar",
@@ -8527,6 +8540,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "Meeting buchen",
       eventPreview: "Ereignisvorschau",
       manageBooking: "Buchung verwalten",
+      addSharedAvailability: "Zum Kalender hinzufügen — Calendar",
       notFound: "Nicht gefunden - Calendar",
       settings: "Einstellungen — Calendar",
       team: "Kalenderteam — Calendar",
@@ -8710,6 +8724,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "会議を予約",
       eventPreview: "イベントプレビュー",
       manageBooking: "予約を管理",
+      addSharedAvailability: "カレンダーに追加 — Calendar",
       notFound: "見つかりません - Calendar",
       settings: "設定 — Calendar",
       team: "チーム — Calendar",
@@ -8889,6 +8904,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "회의 예약",
       eventPreview: "이벤트 미리보기",
       manageBooking: "예약 관리",
+      addSharedAvailability: "캘린더에 추가 — Calendar",
       notFound: "찾을 수 없음 - Calendar",
       settings: "설정 — Calendar",
       team: "팀 — Calendar",
@@ -9070,6 +9086,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "Reservar uma reunião",
       eventPreview: "Prévia do evento",
       manageBooking: "Gerenciar reserva",
+      addSharedAvailability: "Adicionar ao calendário — Calendar",
       notFound: "Não encontrado - Calendar",
       settings: "Configurações — Calendar",
       team: "Equipe — Calendar",
@@ -9250,6 +9267,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "मीटिंग बुक करें",
       eventPreview: "इवेंट पूर्वावलोकन",
       manageBooking: "बुकिंग प्रबंधित करें",
+      addSharedAvailability: "कैलेंडर में जोड़ें — Calendar",
       notFound: "नहीं मिला - Calendar",
       settings: "सेटिंग — Calendar",
       team: "टीम — Calendar",
@@ -9429,6 +9447,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "حجز اجتماع",
       eventPreview: "معاينة الحدث",
       manageBooking: "إدارة الحجز",
+      addSharedAvailability: "إضافة إلى التقويم — Calendar",
       notFound: "غير موجود - Calendar",
       settings: "الإعدادات — Calendar",
       team: "الفريق — Calendar",
@@ -9808,6 +9827,15 @@ const translatedBookingHostAvailability = {
       overlayRequestSentJustNow: "Solicitud enviada ahora mismo",
       overlayRequestSentAgo: "Solicitud enviada {{time}}",
       overlayRequestFailed: "No se pudo enviar la solicitud",
+      overlayRequestPageTitle: "¿Añadir a {{email}} a tu calendario?",
+      overlayRequestPageDescription:
+        "{{email}} te añadió a su calendario y tiene enlaces de reserva donde eres un anfitrión obligatorio. Por ahora esos enlaces solo pueden ver si estás ocupado; añadirlo de vuelta permite que usen tu horario laboral real.",
+      overlayRequestPageAlreadyAdded:
+        "Ya has añadido a {{email}} a tu calendario.",
+      overlayRequestPageAdded:
+        "Añadido. Los enlaces de reserva de {{email}} ahora usarán tu horario laboral real.",
+      overlayRequestPageDismiss: "Ahora no",
+      overlayRequestPageInvalidLink: "Este enlace no es válido o ha caducado.",
       overlayRequestEmailNotConfigured:
         "El envío de correos aún no está configurado",
       overlayRequestInProgress:
@@ -9866,6 +9894,15 @@ const translatedBookingHostAvailability = {
       overlayRequestSentJustNow: "Demande envoyée à l'instant",
       overlayRequestSentAgo: "Demande envoyée {{time}}",
       overlayRequestFailed: "Échec de l'envoi de la demande",
+      overlayRequestPageTitle: "Ajouter {{email}} à votre calendrier ?",
+      overlayRequestPageDescription:
+        "{{email}} vous a ajouté à son calendrier et a des liens de réservation où vous êtes un hôte requis. Pour l'instant, ces liens ne peuvent voir que si vous êtes occupé — l'ajouter en retour leur permet d'utiliser vos horaires de travail réels.",
+      overlayRequestPageAlreadyAdded:
+        "Vous avez déjà ajouté {{email}} à votre calendrier.",
+      overlayRequestPageAdded:
+        "Ajouté. Les liens de réservation de {{email}} utiliseront désormais vos horaires de travail réels.",
+      overlayRequestPageDismiss: "Pas maintenant",
+      overlayRequestPageInvalidLink: "Ce lien est invalide ou a expiré.",
       overlayRequestEmailNotConfigured:
         "L'envoi d'e-mails n'est pas encore configuré",
       overlayRequestInProgress:
@@ -9923,6 +9960,15 @@ const translatedBookingHostAvailability = {
       overlayRequestSentJustNow: "Anfrage gerade gesendet",
       overlayRequestSentAgo: "Anfrage {{time}} gesendet",
       overlayRequestFailed: "Anfrage konnte nicht gesendet werden",
+      overlayRequestPageTitle: "{{email}} zu deinem Kalender hinzufügen?",
+      overlayRequestPageDescription:
+        "{{email}} hat dich zu seinem/ihrem Kalender hinzugefügt und hat Buchungslinks, bei denen du ein erforderlicher Gastgeber bist. Diese Links können derzeit nur sehen, ob du beschäftigt bist — wenn du die Person zurückfügst, nutzen sie deine tatsächlichen Arbeitszeiten.",
+      overlayRequestPageAlreadyAdded:
+        "Du hast {{email}} bereits zu deinem Kalender hinzugefügt.",
+      overlayRequestPageAdded:
+        "Hinzugefügt. Die Buchungslinks von {{email}} verwenden jetzt deine tatsächlichen Arbeitszeiten.",
+      overlayRequestPageDismiss: "Nicht jetzt",
+      overlayRequestPageInvalidLink: "Dieser Link ist ungültig oder abgelaufen.",
       overlayRequestEmailNotConfigured:
         "E-Mail-Versand ist noch nicht eingerichtet",
       overlayRequestInProgress:
@@ -9979,6 +10025,15 @@ const translatedBookingHostAvailability = {
       overlayRequestSentJustNow: "Solicitação enviada agora",
       overlayRequestSentAgo: "Solicitação enviada {{time}}",
       overlayRequestFailed: "Falha ao enviar a solicitação",
+      overlayRequestPageTitle: "Adicionar {{email}} ao seu calendário?",
+      overlayRequestPageDescription:
+        "{{email}} adicionou você ao calendário dele(a) e tem links de agendamento em que você é um anfitrião obrigatório. No momento, esses links só conseguem ver se você está ocupado — adicioná-lo de volta permite que usem seu horário de trabalho real.",
+      overlayRequestPageAlreadyAdded:
+        "Você já adicionou {{email}} ao seu calendário.",
+      overlayRequestPageAdded:
+        "Adicionado. Os links de agendamento de {{email}} agora usarão seu horário de trabalho real.",
+      overlayRequestPageDismiss: "Agora não",
+      overlayRequestPageInvalidLink: "Este link é inválido ou expirou.",
       overlayRequestEmailNotConfigured:
         "O envio de e-mails ainda não foi configurado",
       overlayRequestInProgress:
@@ -10031,6 +10086,14 @@ const translatedBookingHostAvailability = {
       overlayRequestSentJustNow: "请求刚刚已发送",
       overlayRequestSentAgo: "请求已于{{time}}发送",
       overlayRequestFailed: "请求发送失败",
+      overlayRequestPageTitle: "要将 {{email}} 添加到你的日历吗？",
+      overlayRequestPageDescription:
+        "{{email}} 已将你添加到他们的日历，并且有预订链接需要你作为必需主持人。目前这些链接只能看到你是否忙碌——把他们添加回来后，链接就能使用你真实的工作时间。",
+      overlayRequestPageAlreadyAdded: "你已经将 {{email}} 添加到你的日历中。",
+      overlayRequestPageAdded:
+        "已添加。{{email}} 的预订链接现在将使用你真实的工作时间。",
+      overlayRequestPageDismiss: "暂不",
+      overlayRequestPageInvalidLink: "此链接无效或已过期。",
       overlayRequestEmailNotConfigured: "邮件发送尚未配置",
       overlayRequestInProgress: "已经有一个针对该联系人的请求正在处理中",
       addOtherEmail: "添加其他邮箱",
@@ -10084,6 +10147,15 @@ const translatedBookingHostAvailability = {
       overlayRequestSentJustNow: "リクエストを送信しました",
       overlayRequestSentAgo: "{{time}}にリクエストを送信しました",
       overlayRequestFailed: "リクエストの送信に失敗しました",
+      overlayRequestPageTitle: "{{email}} をカレンダーに追加しますか？",
+      overlayRequestPageDescription:
+        "{{email}} があなたを自分のカレンダーに追加し、あなたが必須ホストになっている予約リンクがあります。現在、そのリンクはあなたが忙しいかどうかしか確認できません。追加し返すと、実際の勤務時間が使われるようになります。",
+      overlayRequestPageAlreadyAdded:
+        "{{email}} はすでにカレンダーに追加されています。",
+      overlayRequestPageAdded:
+        "追加しました。{{email}} の予約リンクは今後、あなたの実際の勤務時間を使用します。",
+      overlayRequestPageDismiss: "今はしない",
+      overlayRequestPageInvalidLink: "このリンクは無効か期限切れです。",
       overlayRequestEmailNotConfigured: "メール送信がまだ設定されていません",
       overlayRequestInProgress: "この相手へのリクエストはすでに進行中です",
       addOtherEmail: "別のメールアドレスを追加",
@@ -10136,6 +10208,14 @@ const translatedBookingHostAvailability = {
       overlayRequestSentJustNow: "방금 요청을 보냈습니다",
       overlayRequestSentAgo: "{{time}}에 요청을 보냈습니다",
       overlayRequestFailed: "요청을 보내지 못했습니다",
+      overlayRequestPageTitle: "{{email}}님을 캘린더에 추가하시겠어요?",
+      overlayRequestPageDescription:
+        "{{email}}님이 회원님을 자신의 캘린더에 추가했으며, 회원님이 필수 호스트로 지정된 예약 링크가 있습니다. 현재 해당 링크는 회원님의 바쁨 여부만 확인할 수 있습니다. 다시 추가하면 실제 근무 시간을 사용하게 됩니다.",
+      overlayRequestPageAlreadyAdded: "이미 {{email}}님을 캘린더에 추가했습니다.",
+      overlayRequestPageAdded:
+        "추가되었습니다. 이제 {{email}}님의 예약 링크가 회원님의 실제 근무 시간을 사용합니다.",
+      overlayRequestPageDismiss: "나중에",
+      overlayRequestPageInvalidLink: "이 링크는 유효하지 않거나 만료되었습니다.",
       overlayRequestEmailNotConfigured:
         "이메일 발송이 아직 설정되지 않았습니다",
       overlayRequestInProgress:
@@ -10190,6 +10270,15 @@ const translatedBookingHostAvailability = {
       overlayRequestSentJustNow: "अनुरोध अभी भेजा गया",
       overlayRequestSentAgo: "अनुरोध {{time}} भेजा गया",
       overlayRequestFailed: "अनुरोध भेजने में विफल",
+      overlayRequestPageTitle: "क्या {{email}} को अपने कैलेंडर में जोड़ें?",
+      overlayRequestPageDescription:
+        "{{email}} ने आपको अपने कैलेंडर में जोड़ा है और उनके पास बुकिंग लिंक हैं जहाँ आप एक आवश्यक होस्ट हैं। अभी वे लिंक केवल यह देख सकते हैं कि आप व्यस्त हैं या नहीं — उन्हें वापस जोड़ने पर वे आपके असली कार्य घंटों का उपयोग कर सकेंगे।",
+      overlayRequestPageAlreadyAdded:
+        "आपने {{email}} को पहले ही अपने कैलेंडर में जोड़ लिया है।",
+      overlayRequestPageAdded:
+        "जोड़ा गया। {{email}} के बुकिंग लिंक अब आपके असली कार्य घंटों का उपयोग करेंगे।",
+      overlayRequestPageDismiss: "अभी नहीं",
+      overlayRequestPageInvalidLink: "यह लिंक अमान्य है या समाप्त हो गया है।",
       overlayRequestEmailNotConfigured: "ईमेल भेजना अभी सेट नहीं है",
       overlayRequestInProgress: "इस व्यक्ति के लिए अनुरोध पहले से ही प्रगति पर है",
       addOtherEmail: "एक और ईमेल जोड़ें",
@@ -10240,6 +10329,14 @@ const translatedBookingHostAvailability = {
       overlayRequestSentJustNow: "تم إرسال الطلب الآن",
       overlayRequestSentAgo: "تم إرسال الطلب {{time}}",
       overlayRequestFailed: "فشل إرسال الطلب",
+      overlayRequestPageTitle: "هل تريد إضافة {{email}} إلى تقويمك؟",
+      overlayRequestPageDescription:
+        "أضافك {{email}} إلى تقويمه ولديه روابط حجز أنت فيها مضيف مطلوب. حاليًا يمكن لتلك الروابط رؤية ما إذا كنت مشغولاً فقط — إضافته إليك مرة أخرى تتيح لتلك الروابط استخدام ساعات عملك الفعلية.",
+      overlayRequestPageAlreadyAdded: "لقد أضفت {{email}} بالفعل إلى تقويمك.",
+      overlayRequestPageAdded:
+        "تمت الإضافة. ستستخدم روابط حجز {{email}} الآن ساعات عملك الفعلية.",
+      overlayRequestPageDismiss: "ليس الآن",
+      overlayRequestPageInvalidLink: "هذا الرابط غير صالح أو منتهي الصلاحية.",
       overlayRequestEmailNotConfigured:
         "لم يتم إعداد إرسال البريد الإلكتروني بعد",
       overlayRequestInProgress:

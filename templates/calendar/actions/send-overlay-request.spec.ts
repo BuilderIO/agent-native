@@ -12,7 +12,6 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   isEmailConfigured: isEmailConfiguredMock,
   sendEmail: sendEmailMock,
-  buildDeepLink: (input: unknown) => `/open?${JSON.stringify(input)}`,
   toAbsoluteOpenUrl: (path: string) => `https://example.com${path}`,
   getAppProductionUrl: () => "https://example.com",
 }));
@@ -25,12 +24,15 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 // Email content is covered by overlay-request-emails.spec.ts; this spec is
 // about the action's identity, rate-limit, and configuration guardrails.
-vi.mock("../server/lib/overlay-request-emails.js", () => ({
-  renderOverlayRequestEmail: () => ({
+const renderOverlayRequestEmailMock = vi.hoisted(() =>
+  vi.fn(() => ({
     subject: "sample subject",
     html: "<p>sample</p>",
     text: "sample",
-  }),
+  })),
+);
+vi.mock("../server/lib/overlay-request-emails.js", () => ({
+  renderOverlayRequestEmail: renderOverlayRequestEmailMock,
 }));
 vi.mock("../server/lib/emails.js", () => ({
   CALENDAR_OVERLAY_REQUEST_EMAIL_ID: "calendar.overlay-request",
@@ -146,6 +148,16 @@ describe("send-overlay-request", () => {
     expect(typeof result.requestSentAt).toBe("string");
     expect(requestsStore[OWNER]?.perPeer?.[PEER]).toBe(result.requestSentAt);
     expect(requestsStore[OWNER]?.dailyCounts?.[todayKey()]).toBe(1);
+
+    // The CTA is a dedicated confirmation page, not a deep-link-triggered
+    // modal — the recipient (peer) needs a plain, single-purpose URL that
+    // renders correctly on a cold click from an email client, prefilled with
+    // the owner's email (who they're being asked to add back).
+    expect(renderOverlayRequestEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appLink: `https://example.com/shared-availability/add?email=${encodeURIComponent(OWNER)}`,
+      }),
+    );
   });
 
   it("returns the existing timestamp without resending inside the cooldown", async () => {

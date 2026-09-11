@@ -33,6 +33,7 @@ const messages = {
     bookMeeting: "預約會議",
     eventPreview: "事件預覽",
     manageBooking: "管理預約",
+    addSharedAvailability: "加入行事曆 — Calendar",
     notFound: "未找到 - Calendar",
     settings: "設定 — Calendar",
     team: "團隊 — Calendar",
@@ -595,6 +596,14 @@ const messages = {
     overlayRequestFailed: "請求傳送失敗",
     overlayRequestEmailNotConfigured: "電子郵件傳送尚未設定",
     overlayRequestInProgress: "已經有一個針對這位聯絡人的請求正在處理中",
+    overlayRequestPageTitle: "要將 {{email}} 加入你的行事曆嗎？",
+    overlayRequestPageDescription:
+      "{{email}} 已將你加入他們的行事曆，並且有預約連結需要你擔任必要主持人。目前這些連結只能看到你是否忙碌——把他們加回來後，連結就能使用你真實的工作時間。",
+    overlayRequestPageAlreadyAdded: "你已經將 {{email}} 加入你的行事曆。",
+    overlayRequestPageAdded:
+      "已加入。{{email}} 的預約連結現在將使用你真實的工作時間。",
+    overlayRequestPageDismiss: "暫不",
+    overlayRequestPageInvalidLink: "此連結無效或已過期。",
     addOtherEmail: "新增其他電子郵件",
     overlayHostsHint:
       "來自你行事曆的聯絡人會依照他們的工作時間安排行程。其他電子郵件僅用於檢查衝突。",
