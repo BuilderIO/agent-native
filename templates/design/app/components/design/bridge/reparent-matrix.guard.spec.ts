@@ -812,6 +812,60 @@ describe("Chromium reparent matrix", () => {
       await page.close();
     },
   );
+
+  it(
+    "inserts a live copy into the screen root when the hit-test has no anchor identity",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(
+        `<!doctype html><html><body><div id="existing">Existing</div></body></html>`,
+      );
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 43,
+              html: '<div data-agent-native-node-id="root-copy">Copy</div>',
+              anchorSelector: "",
+              anchorSourceId: "",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+
+      const result = await page.evaluate(() => {
+        const copy = document.querySelector(
+          '[data-agent-native-node-id="root-copy"]',
+        );
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        return {
+          parent: copy?.parentElement?.tagName ?? null,
+          rejected: messages.filter(
+            (message) => message.type === "runtime-structure-insert-rejected",
+          ),
+          structures: messages.filter(
+            (message) => message.type === "visual-structure-change",
+          ),
+        };
+      });
+
+      expect(result.parent).toBe("BODY");
+      expect(result.rejected).toHaveLength(0);
+      expect(result.structures).toHaveLength(1);
+      await page.close();
+    },
+  );
 });
 
 describe("cross-screen source and runtime matrix", () => {

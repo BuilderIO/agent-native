@@ -5312,7 +5312,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       refreshOverlays();
       postNodeHtmlPreviewApplied(proposalId);
     }
-    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId) {
+    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId, allowDocumentBody = false) {
       var matches = /* @__PURE__ */ new Set();
       if (typeof pendingId === "string" && pendingId) {
         try {
@@ -5321,7 +5321,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           if (pendingMatches.length === 1) {
             var pendingMatch = pendingMatches[0];
-            if (pendingMatch !== document.body && pendingMatch !== document.documentElement && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
+            if (pendingMatch !== document.documentElement && (allowDocumentBody || pendingMatch !== document.body) && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
               return pendingMatch;
             }
           }
@@ -5351,15 +5351,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (matches.size > 1) return null;
         if (matches.size === 1) {
           var sourceMatch = Array.from(matches)[0];
-          return sourceMatch && sourceMatch !== document.body && sourceMatch !== document.documentElement && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
+          return sourceMatch && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
         }
       }
-      if (typeof selector !== "string" || !selector) return null;
+      if (typeof selector !== "string" || !selector) {
+        return allowDocumentBody ? document.body : null;
+      }
       try {
         var selectorMatches = document.querySelectorAll(selector);
         if (selectorMatches.length !== 1) return null;
         var selectorMatch = selectorMatches[0];
-        return selectorMatch !== document.body && selectorMatch !== document.documentElement && !isOverlayElement(selectorMatch) && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
+        return selectorMatch !== document.documentElement && (allowDocumentBody || selectorMatch !== document.body) && !isOverlayElement(selectorMatch) && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
       } catch (_err) {
         return null;
       }
@@ -8411,8 +8413,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           ctrl: Boolean(e.ctrlKey),
           target: dndTarget(currentTarget)
         });
-        var reorderSelector = getSelector(reorderEl);
-        var reorderSourceId = getSourceId(reorderEl);
         crossScreenClaimedByHost = false;
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
         var reorderRect = reorderEl.getBoundingClientRect();
@@ -10958,7 +10958,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var insertAnchor = findUniqueRuntimeStructureTarget(
           String(e.data.anchorSelector || ""),
           typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
-          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : ""
+          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : "",
+          true
         );
         if (!insertAnchor) {
           rejectInsert("anchor-unresolved");

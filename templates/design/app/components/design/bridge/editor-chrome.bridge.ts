@@ -7311,7 +7311,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // is only safe when it identifies exactly one live element. Prefer the
   // runtime projection's stable source id and fall back to the selector only
   // when that id has no match at all.
-  function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId?) {
+  function findUniqueRuntimeStructureTarget(
+    selector,
+    sourceId,
+    pendingId?,
+    allowDocumentBody = false,
+  ) {
     var matches = new Set<Element>();
     // Pending ids are deliberately NOT part of the stable-id list below: they
     // are minted per hit-test and only ever stamped on the live DOM, so they
@@ -7325,8 +7330,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (pendingMatches.length === 1) {
           var pendingMatch = pendingMatches[0];
           if (
-            pendingMatch !== document.body &&
             pendingMatch !== document.documentElement &&
+            (allowDocumentBody || pendingMatch !== document.body) &&
             !isOverlayElement(pendingMatch) &&
             !isLayerInteractionBlocked(pendingMatch)
           ) {
@@ -7358,21 +7363,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (matches.size === 1) {
         var sourceMatch = Array.from(matches)[0];
         return sourceMatch &&
-          sourceMatch !== document.body &&
           sourceMatch !== document.documentElement &&
+          (allowDocumentBody || sourceMatch !== document.body) &&
           !isOverlayElement(sourceMatch) &&
           !isLayerInteractionBlocked(sourceMatch)
           ? sourceMatch
           : null;
       }
     }
-    if (typeof selector !== "string" || !selector) return null;
+    if (typeof selector !== "string" || !selector) {
+      return allowDocumentBody ? document.body : null;
+    }
     try {
       var selectorMatches = document.querySelectorAll(selector);
       if (selectorMatches.length !== 1) return null;
       var selectorMatch = selectorMatches[0];
-      return selectorMatch !== document.body &&
-        selectorMatch !== document.documentElement &&
+      return selectorMatch !== document.documentElement &&
+        (allowDocumentBody || selectorMatch !== document.body) &&
         !isOverlayElement(selectorMatch) &&
         !isLayerInteractionBlocked(selectorMatch)
         ? selectorMatch
@@ -15754,6 +15761,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof e.data.anchorPendingNodeId === "string"
           ? e.data.anchorPendingNodeId
           : "",
+        true,
       );
       if (!insertAnchor) {
         rejectInsert("anchor-unresolved");
