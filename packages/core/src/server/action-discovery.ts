@@ -41,7 +41,9 @@ async function getFs(): Promise<typeof import("fs")> {
   }
   return _fs;
 }
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+
+import { importRuntimeSourceModule } from "./runtime-source-module.js";
 
 /** Files to skip during auto-discovery (no extension). */
 const SKIP_FILES = new Set([
@@ -281,29 +283,6 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.allowPersistentApproval = entry.allowPersistentApproval;
   }
   return out;
-}
-
-function shouldRetryWithJiti(filePath: string, err: unknown): boolean {
-  if (!filePath.endsWith(".ts")) return false;
-  const candidate = err as { code?: unknown; message?: unknown } | undefined;
-  if (candidate?.code === "ERR_UNKNOWN_FILE_EXTENSION") return true;
-  return /Unknown file extension ".ts"/.test(String(candidate?.message ?? ""));
-}
-
-async function importRuntimeSourceModule(
-  filePath: string,
-): Promise<Record<string, any>> {
-  try {
-    return await import(/* @vite-ignore */ pathToFileURL(filePath).href);
-  } catch (err) {
-    if (!shouldRetryWithJiti(filePath, err)) throw err;
-
-    const { createJiti } = await import("jiti");
-    const jiti = createJiti(pathToFileURL(filePath).href, {
-      interopDefault: true,
-    });
-    return (await jiti.import(filePath)) as Record<string, any>;
-  }
 }
 
 /**

@@ -18,9 +18,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
+import { importRuntimeSourceModule } from "../server/runtime-source-module.js";
 
 const BOOTSTRAP_DIRS = ["actions", "scripts"];
 const BOOTSTRAP_EXTENSIONS = [".ts", ".js", ".mjs"];
@@ -41,11 +41,18 @@ export function resolveCliBootstrapFile(cwd = process.cwd()): string | null {
  * provider if the app left it free. A bootstrap that throws fails the CLI run
  * rather than being swallowed: an app that registers storage and silently gets
  * none is the failure this whole path exists to prevent.
+ *
+ * The import goes through the shared runtime-source loader, not a bare
+ * `import()`: the
+ * installed CLI runs `dist/` under plain Node, where a `.ts` bootstrap is
+ * `ERR_UNKNOWN_FILE_EXTENSION` unless jiti picks it up. `agent-native action`
+ * would not have shown this — it runs through `tsx` — but `agent-native agent`
+ * does not.
  */
 export async function loadCliBootstrap(cwd = process.cwd()): Promise<void> {
   const file = resolveCliBootstrapFile(cwd);
   if (file) {
-    await import(pathToFileURL(file).href);
+    await importRuntimeSourceModule(file);
   }
   ensureS3FileUploadProvider();
 }
