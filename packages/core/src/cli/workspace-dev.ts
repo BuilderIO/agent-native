@@ -9,7 +9,6 @@ import { fileURLToPath } from "node:url";
 
 import * as Sentry from "@sentry/node";
 
-import { readConfiguredWorkspaceAppHomePath } from "../app-config/workspace-app-config.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -18,6 +17,7 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
 import {
   attachGatewaySocketErrorSink,
   normalizeOrigin,

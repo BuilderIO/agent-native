@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readConfiguredWorkspaceAppHomePath } from "../app-config/workspace-app-config.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -13,6 +12,7 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 

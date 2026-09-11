@@ -24,7 +24,8 @@ export async function readConfiguredWorkspaceAppHomePath(
   if (pluginPaths.length === 0) return undefined;
 
   const { createJiti } = await import("jiti");
-  const { getAppConfig, resetAppConfigForTests } = await import("./index.js");
+  const { getAppConfig, resetAppConfigForTests } =
+    await import("./app-config/index.js");
   const globals = globalThis as typeof globalThis & {
     __agentNativeAppConfig?: {
       layers: Record<string, unknown>;

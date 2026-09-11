@@ -27,7 +27,6 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
-import { readConfiguredWorkspaceAppHomePath } from "../app-config/workspace-app-config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -50,6 +49,7 @@ import {
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
+import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
 import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
