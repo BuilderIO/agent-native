@@ -8,7 +8,11 @@ import {
   IconDeviceDesktop,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { type ReactNode, useSyncExternalStore } from "react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useSyncExternalStore,
+} from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
@@ -69,11 +73,16 @@ function desktopOsIcon(): typeof IconDeviceDesktop {
   return IconDeviceDesktop;
 }
 
+export function DesktopPlatformIcon(
+  props: ComponentProps<typeof IconDeviceDesktop>,
+) {
+  const DesktopIcon = desktopOsIcon();
+  return <DesktopIcon {...props} />;
+}
+
 function InstallOptionsContent({ desktopHref = "/download" }) {
   const t = useT();
   const chromeAvailable = Boolean(clipsChromeExtensionUrl);
-  const DesktopIcon = desktopOsIcon();
-
   return (
     <div className="grid gap-2">
       {chromeAvailable ? (
@@ -112,7 +121,7 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
         href={appPath(desktopHref)}
         className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
       >
-        <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <DesktopPlatformIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">
             {t("captureInstall.desktopTitle")}

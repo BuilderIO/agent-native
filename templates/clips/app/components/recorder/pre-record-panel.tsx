@@ -69,7 +69,11 @@ import {
 } from "@/lib/recorder-preferences";
 import { cn } from "@/lib/utils";
 
-import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
+import {
+  CameraVisualizer,
+  type CameraTestStatus,
+  type CameraVisualizerHandle,
+} from "./camera-visualizer";
 import {
   MicrophoneVisualizer,
   friendlyMicError,
@@ -390,6 +394,7 @@ export function PreRecordPanel({
   const [cameraPickerOpen, setCameraPickerOpen] = useState(false);
   const [microphonePickerOpen, setMicrophonePickerOpen] = useState(false);
   const cameraMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const cameraVisualizerRef = useRef<CameraVisualizerHandle>(null);
   const microphoneMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const dropdownInputModalityRef = useRef<"keyboard" | "pointer">("pointer");
   const [enumError, setEnumError] = useState<string | null>(null);
@@ -1077,6 +1082,15 @@ export function PreRecordPanel({
                       </DropdownMenuItem>
                     </>
                   ) : null}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={busy || cameraTest.status === "starting"}
+                    onSelect={() => cameraVisualizerRef.current?.startTest()}
+                  >
+                    {cameraTest.status === "starting"
+                      ? t("cameraVisualizer.opening")
+                      : t("cameraVisualizer.test")}
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
@@ -1104,6 +1118,7 @@ export function PreRecordPanel({
 
           {needsCamera ? (
             <CameraVisualizer
+              ref={cameraVisualizerRef}
               deviceId={cameraId === "default" ? null : cameraId}
               disabled={busy}
               size="sm"
