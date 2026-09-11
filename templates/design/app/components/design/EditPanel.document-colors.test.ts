@@ -262,6 +262,86 @@ describe("extractDocumentColorPalette", () => {
     );
   });
 
+  it("handles escaped newlines in URL function names", () => {
+    const content = String.raw`<div style='background-image: u\
+rl(#0066ff); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(String.raw`<div style='background-image: u\
+rl(#0066ff); color:#ff0000'></div>`);
+  });
+
+  it("handles CRLF terminators after escaped hex digits", () => {
+    const content =
+      String.raw`<div style='background-image: u\72` +
+      "\r\n" +
+      String.raw`l(#0066ff); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      String.raw`<div style='background-image: u\72` +
+        "\r\n" +
+        String.raw`l(#0066ff); color:#ff0000'></div>`,
+    );
+  });
+
+  it("does not treat escaped parentheses in URLs as colors", () => {
+    const content = String.raw`<div style='background-image: url(sprite\)#0066ff.svg); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      String.raw`<div style='background-image: url(sprite\)#0066ff.svg); color:#ff0000'></div>`,
+    );
+  });
+
+  it("stops style scanning at raw-text closing tags", () => {
+    const content =
+      '<style>.card::before { content: "</style>"; color:#0066ff }</style>' +
+      '<div style="color:#00ff00"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#00FF00",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#00ff00",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<style>.card::before { content: "</style>"; color:#0066ff }</style>' +
+        '<div style="color:#ff0000"></div>',
+    );
+  });
+
   it("does not throw on invalid CSS escape code points", () => {
     const content = String.raw`<div style='background-image: u\ffffffl(#0066ff)'></div>`;
 

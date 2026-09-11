@@ -128,16 +128,28 @@ function htmlTagSpans(content: string): HtmlTagSpan[] {
 
 function styleBlockSpans(content: string): StyleBlockSpan[] {
   const blocks: StyleBlockSpan[] = [];
-  let openingTag: HtmlTagSpan | null = null;
-  for (const tag of htmlTagSpans(content)) {
-    if (!openingTag) {
-      if (/^<style\b/i.test(tag.value)) openingTag = tag;
-      continue;
+  const tags = htmlTagSpans(content);
+  const closingTag = /<\/style\s*>/gi;
+  let tagIndex = 0;
+  let searchStart = 0;
+  while (tagIndex < tags.length) {
+    const openingTag = tags[tagIndex];
+    tagIndex += 1;
+    if (openingTag.start < searchStart) continue;
+    if (!/^<style\b/i.test(openingTag.value)) continue;
+
+    const openingEnd = openingTag.start + openingTag.value.length;
+    closingTag.lastIndex = openingEnd;
+    const closingMatch = closingTag.exec(content);
+    if (!closingMatch) break;
+    blocks.push({
+      start: openingEnd,
+      value: content.slice(openingEnd, closingMatch.index),
+    });
+    searchStart = closingMatch.index + closingMatch[0].length;
+    while (tagIndex < tags.length && tags[tagIndex].start < searchStart) {
+      tagIndex += 1;
     }
-    if (!/^<\/style\s*>/i.test(tag.value)) continue;
-    const start = openingTag.start + openingTag.value.length;
-    blocks.push({ start, value: content.slice(start, tag.start) });
-    openingTag = null;
   }
   return blocks;
 }
@@ -292,7 +304,23 @@ function readCssIdentifier(
         (codePoint >= 0xd800 && codePoint <= 0xdfff)
           ? "\uFFFD"
           : String.fromCodePoint(codePoint);
-      if (/\s/.test(value[cursor] ?? "")) cursor += 1;
+      if (/\s/.test(value[cursor] ?? "")) {
+        if (value[cursor] === "\r" && value[cursor + 1] === "\n") {
+          cursor += 2;
+        } else {
+          cursor += 1;
+        }
+      }
+    } else if (
+      value[cursor] === "\r" ||
+      value[cursor] === "\n" ||
+      value[cursor] === "\f"
+    ) {
+      if (value[cursor] === "\r" && value[cursor + 1] === "\n") {
+        cursor += 2;
+      } else {
+        cursor += 1;
+      }
     } else {
       name += value[cursor];
       cursor += 1;
@@ -334,6 +362,11 @@ function isInsideUrl(value: string, index: number): boolean {
         cursor = identifier.end;
         continue;
       }
+    }
+    if (character === "\\") {
+      escaped = true;
+      cursor += 1;
+      continue;
     }
     if (character === "(") {
       functions.push(false);
