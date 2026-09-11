@@ -151,6 +151,8 @@ const enUS = {
     googleCalendarSettings: "Google Calendar settings",
     hideCalendar: "Hide calendar",
     myCalendars: "My Calendars",
+    feedsGroup: "Feeds",
+    managePeerAvailability: "Manage shared availability",
     nextYear: "Next year",
     otherCalendars: "Other Calendars",
     otherCalendarsDescription:
@@ -596,6 +598,40 @@ const enUS = {
     overlayHostsEmpty: "No one found.",
     noOverlayPeopleYet: "You haven't added any peers to your calendar yet.",
     addOverlayPersonCta: "Add a peer's calendar",
+    sharedAvailability: "Shared availability",
+    sharedAvailabilityDescription:
+      "Add peers as required hosts. Their free/busy always applies, and their working hours do too once they add you back.",
+    sharedAvailabilityEmpty:
+      "No one on your calendar yet. Add a peer to use their working hours for booking links.",
+    workingHoursAppliedLabel: "Working hours applied",
+    workingHoursPendingScheduleLabel: "No working hours saved",
+    workingHoursNotAppliedLabel: "Hasn't added you back",
+    removePeerAriaLabel: "Remove {{email}} from your calendar",
+    removePeerConfirm:
+      "Remove {{name}}? Their events leave your calendar and their working hours stop applying to your booking links.",
+    removePeerConfirmAction: "Remove",
+    workingHoursAppliedTooltip:
+      "{{name}}'s working hours ({{timezone}}) are applied to this link.",
+    workingHoursAppliedAriaLabel: "{{email}}'s working hours are applied",
+    workingHoursPendingScheduleTooltip:
+      "{{name}} hasn't set up their working hours yet, so only their free/busy is checked.",
+    workingHoursPendingScheduleAriaLabel:
+      "{{email}} hasn't set up their working hours yet",
+    workingHoursNotAppliedWarning:
+      "{{name}} hasn't added you back to their calendar yet, so only their free/busy is checked, not their working hours.",
+    workingHoursNotAppliedAriaLabel:
+      "{{email}} hasn't added you back to their calendar",
+    workingHoursManualHost:
+      "{{name}} isn't on your calendar, so only their free/busy is checked, not their working hours.",
+    workingHoursManualHostAriaLabel: "{{email}} isn't on your calendar",
+    addHostToMyCalendar: "Add to my calendar",
+    sendOverlayRequest: "Send request",
+    resendOverlayRequest: "Resend request",
+    overlayRequestSentJustNow: "Request sent just now",
+    overlayRequestSentAgo: "Request sent {{time}}",
+    overlayRequestFailed: "Failed to send request",
+    overlayRequestEmailNotConfigured: "Email sending isn't set up yet",
+    overlayRequestInProgress: "A request to this peer is already in progress",
     addOtherEmail: "Add another email",
     overlayHostsHint:
       "People from your calendar get working-hours-aware scheduling. Other emails are only checked for conflicts.",
@@ -6452,6 +6488,8 @@ const translatedCalendarRemainingRaw = {
       googleCalendarSettings: "Google Calendar 设置",
       hideCalendar: "隐藏日历",
       myCalendars: "我的日历",
+      feedsGroup: "订阅源",
+      managePeerAvailability: "管理共享空闲时间",
       nextYear: "下一年",
       otherCalendars: "其他日历",
       otherCalendarsDescription: "添加队友的日历或订阅公共日历 URL",
@@ -6580,6 +6618,8 @@ const translatedCalendarRemainingRaw = {
       googleCalendarSettings: "Ajustes de Google Calendar",
       hideCalendar: "Ocultar calendario",
       myCalendars: "Mis calendarios",
+      feedsGroup: "Suscripciones",
+      managePeerAvailability: "Gestionar disponibilidad compartida",
       nextYear: "Año siguiente",
       otherCalendars: "Otros calendarios",
       otherCalendarsDescription:
@@ -6867,6 +6907,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Paramètres Google Calendar",
       hideCalendar: "Masquer le calendrier",
       myCalendars: "Mes calendriers",
+      feedsGroup: "Flux",
+      managePeerAvailability: "Gérer la disponibilité partagée",
       nextYear: "Année suivante",
       otherCalendars: "Autres calendriers",
       otherCalendarsDescription:
@@ -7024,6 +7066,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Google Calendar-Einstellungen",
       hideCalendar: "Kalender ausblenden",
       myCalendars: "Meine Kalender",
+      feedsGroup: "Feeds",
+      managePeerAvailability: "Gemeinsame Verfügbarkeit verwalten",
       nextYear: "Nächstes Jahr",
       otherCalendars: "Andere Kalender",
       otherCalendarsDescription:
@@ -7173,6 +7217,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Google Calendar 設定",
       hideCalendar: "カレンダーを非表示",
       myCalendars: "マイカレンダー",
+      feedsGroup: "フィード",
+      managePeerAvailability: "共有の空き時間を管理",
       nextYear: "翌年",
       otherCalendars: "その他のカレンダー",
       otherCalendarsDescription:
@@ -7319,6 +7365,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Google Calendar 설정",
       hideCalendar: "캘린더 숨기기",
       myCalendars: "내 캘린더",
+      feedsGroup: "피드",
+      managePeerAvailability: "공유 예약 가능 시간 관리",
       nextYear: "다음 해",
       otherCalendars: "다른 캘린더",
       otherCalendarsDescription:
@@ -7478,6 +7526,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Configurações do Google Calendar",
       hideCalendar: "Ocultar calendário",
       myCalendars: "Meus calendários",
+      feedsGroup: "Feeds",
+      managePeerAvailability: "Gerenciar disponibilidade compartilhada",
       nextYear: "Próximo ano",
       otherCalendars: "Outros calendários",
       otherCalendarsDescription:
@@ -7625,6 +7675,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Google Calendar सेटिंग",
       hideCalendar: "कैलेंडर छिपाएं",
       myCalendars: "मेरे कैलेंडर",
+      feedsGroup: "फ़ीड",
+      managePeerAvailability: "साझा उपलब्धता प्रबंधित करें",
       nextYear: "अगला वर्ष",
       otherCalendars: "अन्य कैलेंडर",
       otherCalendarsDescription:
@@ -7792,6 +7844,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "إعدادات Google Calendar",
       hideCalendar: "إخفاء التقويم",
       myCalendars: "تقويماتي",
+      feedsGroup: "الخلاصات",
+      managePeerAvailability: "إدارة التوفر المشترك",
       nextYear: "السنة التالية",
       otherCalendars: "تقويمات أخرى",
       otherCalendarsDescription: "أضف تقويم زميل أو اشترك في URL تقويم عام",
@@ -9722,6 +9776,42 @@ const translatedBookingHostAvailability = {
       noOverlayPeopleYet:
         "Aún no has añadido a ningún compañero a tu calendario.",
       addOverlayPersonCta: "Añadir el calendario de un compañero",
+      sharedAvailability: "Disponibilidad compartida",
+      sharedAvailabilityDescription:
+        "Añade compañeros como anfitriones obligatorios. Su disponibilidad siempre cuenta y, si te añaden, también su horario laboral.",
+      sharedAvailabilityEmpty:
+        "Aún no hay nadie en tu calendario. Añade a un compañero para usar su horario laboral en los enlaces de reserva.",
+      workingHoursAppliedLabel: "Horario laboral aplicado",
+      workingHoursPendingScheduleLabel: "Sin horario laboral guardado",
+      workingHoursNotAppliedLabel: "No te ha añadido",
+      removePeerAriaLabel: "Quitar {{email}} de tu calendario",
+      removePeerConfirm:
+        "¿Quitar a {{name}}? Sus eventos saldrán de tu calendario y su horario laboral dejará de aplicarse a tus enlaces de reserva.",
+      removePeerConfirmAction: "Quitar",
+      workingHoursAppliedTooltip:
+        "El horario laboral de {{name}} ({{timezone}}) se aplica a este enlace.",
+      workingHoursAppliedAriaLabel: "Se aplica el horario laboral de {{email}}",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} aún no ha configurado su horario laboral, así que solo se comprueba su disponibilidad.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} aún no ha configurado su horario laboral",
+      workingHoursNotAppliedWarning:
+        "{{name}} todavía no te ha añadido a su calendario, así que solo se comprueba su disponibilidad, no su horario laboral.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} todavía no te ha añadido a su calendario",
+      workingHoursManualHost:
+        "{{name}} no está en tu calendario, así que solo se comprueba su disponibilidad, no su horario laboral.",
+      workingHoursManualHostAriaLabel: "{{email}} no está en tu calendario",
+      addHostToMyCalendar: "Añadir a mi calendario",
+      sendOverlayRequest: "Enviar solicitud",
+      resendOverlayRequest: "Reenviar solicitud",
+      overlayRequestSentJustNow: "Solicitud enviada ahora mismo",
+      overlayRequestSentAgo: "Solicitud enviada {{time}}",
+      overlayRequestFailed: "No se pudo enviar la solicitud",
+      overlayRequestEmailNotConfigured:
+        "El envío de correos aún no está configurado",
+      overlayRequestInProgress:
+        "Ya hay una solicitud en curso para este compañero",
       addOtherEmail: "Añadir otro correo",
       overlayHostsHint:
         "Las personas de tu calendario obtienen una programación que respeta su horario laboral. Otros correos solo se verifican por conflictos.",
@@ -9742,6 +9832,44 @@ const translatedBookingHostAvailability = {
       noOverlayPeopleYet:
         "Vous n'avez pas encore ajouté de collègues à votre calendrier.",
       addOverlayPersonCta: "Ajouter le calendrier d'un collègue",
+      sharedAvailability: "Disponibilité partagée",
+      sharedAvailabilityDescription:
+        "Ajoutez des collègues comme hôtes requis. Leur disponibilité compte toujours et, s'ils vous ajoutent, leurs horaires de travail aussi.",
+      sharedAvailabilityEmpty:
+        "Personne dans votre calendrier pour l'instant. Ajoutez un collègue pour utiliser ses horaires de travail dans les liens de réservation.",
+      workingHoursAppliedLabel: "Horaires de travail appliqués",
+      workingHoursPendingScheduleLabel: "Aucun horaire de travail enregistré",
+      workingHoursNotAppliedLabel: "Ne vous a pas ajouté en retour",
+      removePeerAriaLabel: "Retirer {{email}} de votre calendrier",
+      removePeerConfirm:
+        "Retirer {{name}} ? Ses événements quitteront votre calendrier et ses horaires de travail ne s'appliqueront plus à vos liens de réservation.",
+      removePeerConfirmAction: "Retirer",
+      workingHoursAppliedTooltip:
+        "Les horaires de travail de {{name}} ({{timezone}}) s'appliquent à ce lien.",
+      workingHoursAppliedAriaLabel:
+        "Les horaires de travail de {{email}} s'appliquent",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} n'a pas encore défini ses horaires de travail, seules ses disponibilités sont vérifiées.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} n'a pas encore défini ses horaires de travail",
+      workingHoursNotAppliedWarning:
+        "{{name}} ne vous a pas encore ajouté à son calendrier, seules ses disponibilités sont vérifiées, pas ses horaires de travail.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} ne vous a pas encore ajouté à son calendrier",
+      workingHoursManualHost:
+        "{{name}} n'est pas dans votre calendrier, seules ses disponibilités sont vérifiées, pas ses horaires de travail.",
+      workingHoursManualHostAriaLabel:
+        "{{email}} n'est pas dans votre calendrier",
+      addHostToMyCalendar: "Ajouter à mon calendrier",
+      sendOverlayRequest: "Envoyer la demande",
+      resendOverlayRequest: "Renvoyer la demande",
+      overlayRequestSentJustNow: "Demande envoyée à l'instant",
+      overlayRequestSentAgo: "Demande envoyée {{time}}",
+      overlayRequestFailed: "Échec de l'envoi de la demande",
+      overlayRequestEmailNotConfigured:
+        "L'envoi d'e-mails n'est pas encore configuré",
+      overlayRequestInProgress:
+        "Une demande à ce collègue est déjà en cours",
       addOtherEmail: "Ajouter un autre e-mail",
       overlayHostsHint:
         "Les personnes de votre calendrier bénéficient d'une planification tenant compte de leurs horaires. Les autres e-mails ne sont vérifiés que pour les conflits.",
@@ -9762,6 +9890,43 @@ const translatedBookingHostAvailability = {
       noOverlayPeopleYet:
         "Du hast deinem Kalender noch keine Kolleg:innen hinzugefügt.",
       addOverlayPersonCta: "Kalender einer Kollegin/eines Kollegen hinzufügen",
+      sharedAvailability: "Gemeinsame Verfügbarkeit",
+      sharedAvailabilityDescription:
+        "Füge Kolleg:innen als erforderliche Gastgeber hinzu. Ihr Frei/Gebucht-Status gilt immer, ihre Arbeitszeiten zusätzlich, sobald sie dich hinzufügen.",
+      sharedAvailabilityEmpty:
+        "Noch niemand in deinem Kalender. Füge Kolleg:innen hinzu, um ihre Arbeitszeiten für Buchungslinks zu nutzen.",
+      workingHoursAppliedLabel: "Arbeitszeiten werden angewendet",
+      workingHoursPendingScheduleLabel: "Keine Arbeitszeiten gespeichert",
+      workingHoursNotAppliedLabel: "Hat dich nicht hinzugefügt",
+      removePeerAriaLabel: "{{email}} aus deinem Kalender entfernen",
+      removePeerConfirm:
+        "{{name}} entfernen? Die Termine verschwinden aus deinem Kalender und die Arbeitszeiten gelten nicht mehr für deine Buchungslinks.",
+      removePeerConfirmAction: "Entfernen",
+      workingHoursAppliedTooltip:
+        "Die Arbeitszeiten von {{name}} ({{timezone}}) gelten für diesen Link.",
+      workingHoursAppliedAriaLabel:
+        "Die Arbeitszeiten von {{email}} werden angewendet",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} hat noch keine Arbeitszeiten festgelegt, daher wird nur die Verfügbarkeit geprüft.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} hat noch keine Arbeitszeiten festgelegt",
+      workingHoursNotAppliedWarning:
+        "{{name}} hat dich noch nicht zum eigenen Kalender hinzugefügt, daher wird nur die Verfügbarkeit geprüft, nicht die Arbeitszeiten.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} hat dich noch nicht zum eigenen Kalender hinzugefügt",
+      workingHoursManualHost:
+        "{{name}} ist nicht in deinem Kalender, daher wird nur die Verfügbarkeit geprüft, nicht die Arbeitszeiten.",
+      workingHoursManualHostAriaLabel: "{{email}} ist nicht in deinem Kalender",
+      addHostToMyCalendar: "Zu meinem Kalender hinzufügen",
+      sendOverlayRequest: "Anfrage senden",
+      resendOverlayRequest: "Anfrage erneut senden",
+      overlayRequestSentJustNow: "Anfrage gerade gesendet",
+      overlayRequestSentAgo: "Anfrage {{time}} gesendet",
+      overlayRequestFailed: "Anfrage konnte nicht gesendet werden",
+      overlayRequestEmailNotConfigured:
+        "E-Mail-Versand ist noch nicht eingerichtet",
+      overlayRequestInProgress:
+        "Eine Anfrage an diese Person läuft bereits",
       addOtherEmail: "Weitere E-Mail hinzufügen",
       overlayHostsHint:
         "Personen aus deinem Kalender erhalten eine Terminplanung, die ihre Arbeitszeiten berücksichtigt. Andere E-Mails werden nur auf Konflikte geprüft.",
@@ -9781,6 +9946,43 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "Ninguém encontrado.",
       noOverlayPeopleYet: "Você ainda não adicionou colegas ao seu calendário.",
       addOverlayPersonCta: "Adicionar o calendário de um colega",
+      sharedAvailability: "Disponibilidade compartilhada",
+      sharedAvailabilityDescription:
+        "Adicione colegas como anfitriões obrigatórios. A disponibilidade deles sempre vale e, se te adicionarem, o horário de trabalho também.",
+      sharedAvailabilityEmpty:
+        "Ainda não há ninguém no seu calendário. Adicione um colega para usar o horário de trabalho dele nos links de agendamento.",
+      workingHoursAppliedLabel: "Horário de trabalho aplicado",
+      workingHoursPendingScheduleLabel: "Nenhum horário de trabalho salvo",
+      workingHoursNotAppliedLabel: "Não te adicionou de volta",
+      removePeerAriaLabel: "Remover {{email}} do seu calendário",
+      removePeerConfirm:
+        "Remover {{name}}? Os eventos dessa pessoa saem do seu calendário e o horário de trabalho dela deixa de valer nos seus links de agendamento.",
+      removePeerConfirmAction: "Remover",
+      workingHoursAppliedTooltip:
+        "O horário de trabalho de {{name}} ({{timezone}}) se aplica a este link.",
+      workingHoursAppliedAriaLabel:
+        "O horário de trabalho de {{email}} é aplicado",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} ainda não configurou o horário de trabalho, então apenas a disponibilidade é verificada.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} ainda não configurou o horário de trabalho",
+      workingHoursNotAppliedWarning:
+        "{{name}} ainda não te adicionou ao calendário dele, então apenas a disponibilidade é verificada, não o horário de trabalho.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} ainda não te adicionou ao calendário dele",
+      workingHoursManualHost:
+        "{{name}} não está no seu calendário, então apenas a disponibilidade é verificada, não o horário de trabalho.",
+      workingHoursManualHostAriaLabel: "{{email}} não está no seu calendário",
+      addHostToMyCalendar: "Adicionar ao meu calendário",
+      sendOverlayRequest: "Enviar solicitação",
+      resendOverlayRequest: "Reenviar solicitação",
+      overlayRequestSentJustNow: "Solicitação enviada agora",
+      overlayRequestSentAgo: "Solicitação enviada {{time}}",
+      overlayRequestFailed: "Falha ao enviar a solicitação",
+      overlayRequestEmailNotConfigured:
+        "O envio de e-mails ainda não foi configurado",
+      overlayRequestInProgress:
+        "Já existe uma solicitação em andamento para esse colega",
       addOtherEmail: "Adicionar outro e-mail",
       overlayHostsHint:
         "Pessoas do seu calendário recebem agendamento que respeita o horário de trabalho delas. Outros e-mails são verificados apenas quanto a conflitos.",
@@ -9799,6 +10001,38 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "未找到任何人。",
       noOverlayPeopleYet: "你还没有向日历添加任何同事。",
       addOverlayPersonCta: "添加同事的日历",
+      sharedAvailability: "共享空闲时间",
+      sharedAvailabilityDescription:
+        "将同事加为必需主持人。始终检查其空闲/忙碌状态；对方也把你加入后，还会应用其工作时间。",
+      sharedAvailabilityEmpty:
+        "日历中还没有其他人。添加同事后即可在预约链接中使用其工作时间。",
+      workingHoursAppliedLabel: "已应用工作时间",
+      workingHoursPendingScheduleLabel: "尚未保存工作时间",
+      workingHoursNotAppliedLabel: "尚未把你加入日历",
+      removePeerAriaLabel: "从你的日历中移除 {{email}}",
+      removePeerConfirm:
+        "要移除 {{name}} 吗？其日程将不再显示在你的日历中，其工作时间也不再应用于你的预约链接。",
+      removePeerConfirmAction: "移除",
+      workingHoursAppliedTooltip:
+        "{{name}} 的工作时间（{{timezone}}）已应用于此链接。",
+      workingHoursAppliedAriaLabel: "已应用 {{email}} 的工作时间",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} 尚未设置工作时间，因此仅检查其忙闲状态。",
+      workingHoursPendingScheduleAriaLabel: "{{email}} 尚未设置工作时间",
+      workingHoursNotAppliedWarning:
+        "{{name}} 还没有把你加入他们的日历，因此仅检查其忙闲状态，而非工作时间。",
+      workingHoursNotAppliedAriaLabel: "{{email}} 还没有把你加入他们的日历",
+      workingHoursManualHost:
+        "{{name}} 不在你的日历中，因此仅检查其忙闲状态，而非工作时间。",
+      workingHoursManualHostAriaLabel: "{{email}} 不在你的日历中",
+      addHostToMyCalendar: "添加到我的日历",
+      sendOverlayRequest: "发送请求",
+      resendOverlayRequest: "重新发送请求",
+      overlayRequestSentJustNow: "请求刚刚已发送",
+      overlayRequestSentAgo: "请求已于{{time}}发送",
+      overlayRequestFailed: "请求发送失败",
+      overlayRequestEmailNotConfigured: "邮件发送尚未配置",
+      overlayRequestInProgress: "已经有一个针对该联系人的请求正在处理中",
       addOtherEmail: "添加其他邮箱",
       overlayHostsHint:
         "来自你日历的联系人会按照他们的工作时间安排日程。其他邮箱仅用于检查冲突。",
@@ -9817,6 +10051,41 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "見つかりませんでした。",
       noOverlayPeopleYet: "まだカレンダーに同僚を追加していません。",
       addOverlayPersonCta: "同僚のカレンダーを追加",
+      sharedAvailability: "共有の空き時間",
+      sharedAvailabilityDescription:
+        "同僚を必須ホストに追加できます。空き/予約済みは常に適用され、相手があなたを追加すると勤務時間も適用されます。",
+      sharedAvailabilityEmpty:
+        "カレンダーにはまだ誰もいません。同僚を追加すると、その勤務時間を予約リンクで利用できます。",
+      workingHoursAppliedLabel: "勤務時間を適用中",
+      workingHoursPendingScheduleLabel: "勤務時間が未保存",
+      workingHoursNotAppliedLabel: "あなたを追加していません",
+      removePeerAriaLabel: "{{email}} をカレンダーから削除",
+      removePeerConfirm:
+        "{{name}} を削除しますか？予定はカレンダーから消え、勤務時間も予約リンクに適用されなくなります。",
+      removePeerConfirmAction: "削除",
+      workingHoursAppliedTooltip:
+        "{{name}} の勤務時間（{{timezone}}）がこのリンクに適用されます。",
+      workingHoursAppliedAriaLabel: "{{email}} の勤務時間が適用されています",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} はまだ勤務時間を設定していないため、空き状況のみを確認します。",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} はまだ勤務時間を設定していません",
+      workingHoursNotAppliedWarning:
+        "{{name}} はまだあなたを自分のカレンダーに追加していないため、勤務時間ではなく空き状況のみを確認します。",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} はまだあなたを自分のカレンダーに追加していません",
+      workingHoursManualHost:
+        "{{name}} はあなたのカレンダーにいないため、勤務時間ではなく空き状況のみを確認します。",
+      workingHoursManualHostAriaLabel:
+        "{{email}} はあなたのカレンダーにいません",
+      addHostToMyCalendar: "自分のカレンダーに追加",
+      sendOverlayRequest: "リクエストを送信",
+      resendOverlayRequest: "リクエストを再送信",
+      overlayRequestSentJustNow: "リクエストを送信しました",
+      overlayRequestSentAgo: "{{time}}にリクエストを送信しました",
+      overlayRequestFailed: "リクエストの送信に失敗しました",
+      overlayRequestEmailNotConfigured: "メール送信がまだ設定されていません",
+      overlayRequestInProgress: "この相手へのリクエストはすでに進行中です",
       addOtherEmail: "別のメールアドレスを追加",
       overlayHostsHint:
         "カレンダーに登録された人には勤務時間を考慮したスケジュールが適用されます。それ以外のメールアドレスは競合の確認のみに使用されます。",
@@ -9835,6 +10104,42 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "찾을 수 없습니다.",
       noOverlayPeopleYet: "아직 캘린더에 동료를 추가하지 않았습니다.",
       addOverlayPersonCta: "동료의 캘린더 추가",
+      sharedAvailability: "공유 예약 가능 시간",
+      sharedAvailabilityDescription:
+        "동료를 필수 주최자로 추가하세요. 한가함/바쁨은 항상 적용되고, 상대방이 나를 추가하면 근무 시간도 적용됩니다.",
+      sharedAvailabilityEmpty:
+        "캘린더에 아직 아무도 없습니다. 동료를 추가하면 예약 링크에 그 사람의 근무 시간을 사용할 수 있습니다.",
+      workingHoursAppliedLabel: "근무 시간 적용됨",
+      workingHoursPendingScheduleLabel: "근무 시간 미저장",
+      workingHoursNotAppliedLabel: "나를 추가하지 않음",
+      removePeerAriaLabel: "{{email}}을 내 캘린더에서 제거",
+      removePeerConfirm:
+        "{{name}}을 제거할까요? 해당 일정이 캘린더에서 사라지고 근무 시간도 예약 링크에 더 이상 적용되지 않습니다.",
+      removePeerConfirmAction: "제거",
+      workingHoursAppliedTooltip:
+        "{{name}}의 근무 시간({{timezone}})이 이 링크에 적용됩니다.",
+      workingHoursAppliedAriaLabel: "{{email}}의 근무 시간이 적용됨",
+      workingHoursPendingScheduleTooltip:
+        "{{name}}이(가) 아직 근무 시간을 설정하지 않아 여유/바쁨만 확인합니다.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}}이(가) 아직 근무 시간을 설정하지 않았습니다",
+      workingHoursNotAppliedWarning:
+        "{{name}}이(가) 아직 나를 자신의 캘린더에 추가하지 않아 근무 시간이 아닌 여유/바쁨만 확인합니다.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}}이(가) 아직 나를 자신의 캘린더에 추가하지 않았습니다",
+      workingHoursManualHost:
+        "{{name}}이(가) 내 캘린더에 없어 근무 시간이 아닌 여유/바쁨만 확인합니다.",
+      workingHoursManualHostAriaLabel: "{{email}}이(가) 내 캘린더에 없습니다",
+      addHostToMyCalendar: "내 캘린더에 추가",
+      sendOverlayRequest: "요청 보내기",
+      resendOverlayRequest: "요청 다시 보내기",
+      overlayRequestSentJustNow: "방금 요청을 보냈습니다",
+      overlayRequestSentAgo: "{{time}}에 요청을 보냈습니다",
+      overlayRequestFailed: "요청을 보내지 못했습니다",
+      overlayRequestEmailNotConfigured:
+        "이메일 발송이 아직 설정되지 않았습니다",
+      overlayRequestInProgress:
+        "이 상대방에게 보낸 요청이 이미 진행 중입니다",
       addOtherEmail: "다른 이메일 추가",
       overlayHostsHint:
         "캘린더에 있는 사람은 근무 시간을 반영한 일정이 적용됩니다. 다른 이메일은 일정 충돌만 확인합니다.",
@@ -9853,6 +10158,40 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "कोई नहीं मिला।",
       noOverlayPeopleYet: "आपने अभी तक अपने कैलेंडर में कोई सहकर्मी नहीं जोड़ा है।",
       addOverlayPersonCta: "किसी सहकर्मी का कैलेंडर जोड़ें",
+      sharedAvailability: "साझा उपलब्धता",
+      sharedAvailabilityDescription:
+        "सहकर्मियों को आवश्यक होस्ट के रूप में जोड़ें। उनकी व्यस्त/खाली स्थिति हमेशा लागू होती है, और वे आपको जोड़ें तो कार्य घंटे भी।",
+      sharedAvailabilityEmpty:
+        "आपके कैलेंडर में अभी कोई नहीं है। बुकिंग लिंक में किसी सहकर्मी के कार्य घंटे उपयोग करने के लिए उन्हें जोड़ें।",
+      workingHoursAppliedLabel: "कार्य घंटे लागू",
+      workingHoursPendingScheduleLabel: "कार्य घंटे सहेजे नहीं गए",
+      workingHoursNotAppliedLabel: "आपको जोड़ा नहीं है",
+      removePeerAriaLabel: "{{email}} को अपने कैलेंडर से हटाएँ",
+      removePeerConfirm:
+        "{{name}} को हटाएँ? उनके इवेंट आपके कैलेंडर से हट जाएँगे और उनके कार्य घंटे आपके बुकिंग लिंक पर लागू नहीं होंगे।",
+      removePeerConfirmAction: "हटाएँ",
+      workingHoursAppliedTooltip:
+        "{{name}} के कार्य घंटे ({{timezone}}) इस लिंक पर लागू होते हैं।",
+      workingHoursAppliedAriaLabel: "{{email}} के कार्य घंटे लागू हैं",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} ने अभी अपने कार्य घंटे सेट नहीं किए हैं, इसलिए केवल उनकी व्यस्तता जाँची जाती है।",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} ने अभी अपने कार्य घंटे सेट नहीं किए हैं",
+      workingHoursNotAppliedWarning:
+        "{{name}} ने अभी आपको अपने कैलेंडर में नहीं जोड़ा है, इसलिए उनके कार्य घंटे नहीं, केवल व्यस्तता जाँची जाती है।",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} ने अभी आपको अपने कैलेंडर में नहीं जोड़ा है",
+      workingHoursManualHost:
+        "{{name}} आपके कैलेंडर में नहीं हैं, इसलिए उनके कार्य घंटे नहीं, केवल व्यस्तता जाँची जाती है।",
+      workingHoursManualHostAriaLabel: "{{email}} आपके कैलेंडर में नहीं हैं",
+      addHostToMyCalendar: "मेरे कैलेंडर में जोड़ें",
+      sendOverlayRequest: "अनुरोध भेजें",
+      resendOverlayRequest: "अनुरोध फिर भेजें",
+      overlayRequestSentJustNow: "अनुरोध अभी भेजा गया",
+      overlayRequestSentAgo: "अनुरोध {{time}} भेजा गया",
+      overlayRequestFailed: "अनुरोध भेजने में विफल",
+      overlayRequestEmailNotConfigured: "ईमेल भेजना अभी सेट नहीं है",
+      overlayRequestInProgress: "इस व्यक्ति के लिए अनुरोध पहले से ही प्रगति पर है",
       addOtherEmail: "एक और ईमेल जोड़ें",
       overlayHostsHint:
         "आपके कैलेंडर के लोगों के लिए scheduling उनके काम के घंटों को ध्यान में रखती है। अन्य ईमेल केवल conflicts के लिए जाँचे जाते हैं।",
@@ -9871,6 +10210,40 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "لم يتم العثور على أحد.",
       noOverlayPeopleYet: "لم تقم بإضافة أي زملاء إلى تقويمك بعد.",
       addOverlayPersonCta: "إضافة تقويم زميل",
+      sharedAvailability: "التوفر المشترك",
+      sharedAvailabilityDescription:
+        "أضف الزملاء كمضيفين مطلوبين. تُطبَّق حالة توفرهم دائمًا، وتُطبَّق ساعات عملهم أيضًا عندما يضيفونك.",
+      sharedAvailabilityEmpty:
+        "لا يوجد أحد في تقويمك بعد. أضف زميلاً لاستخدام ساعات عمله في روابط الحجز.",
+      workingHoursAppliedLabel: "ساعات العمل مُطبَّقة",
+      workingHoursPendingScheduleLabel: "لم يتم حفظ ساعات العمل",
+      workingHoursNotAppliedLabel: "لم يضِفك بدوره",
+      removePeerAriaLabel: "إزالة {{email}} من تقويمك",
+      removePeerConfirm:
+        "إزالة {{name}}؟ ستختفي أحداثه من تقويمك ولن تُطبَّق ساعات عمله على روابط الحجز الخاصة بك.",
+      removePeerConfirmAction: "إزالة",
+      workingHoursAppliedTooltip:
+        "تُطبَّق ساعات عمل {{name}} ({{timezone}}) على هذا الرابط.",
+      workingHoursAppliedAriaLabel: "ساعات عمل {{email}} مُطبَّقة",
+      workingHoursPendingScheduleTooltip:
+        "لم يحدد {{name}} ساعات عمله بعد، لذا يتم التحقق من حالة الانشغال فقط.",
+      workingHoursPendingScheduleAriaLabel: "لم يحدد {{email}} ساعات عمله بعد",
+      workingHoursNotAppliedWarning:
+        "لم يضِفك {{name}} إلى تقويمه بعد، لذا يتم التحقق من حالة الانشغال فقط وليس ساعات العمل.",
+      workingHoursNotAppliedAriaLabel: "لم يضِفك {{email}} إلى تقويمه بعد",
+      workingHoursManualHost:
+        "{{name}} ليس في تقويمك، لذا يتم التحقق من حالة الانشغال فقط وليس ساعات العمل.",
+      workingHoursManualHostAriaLabel: "{{email}} ليس في تقويمك",
+      addHostToMyCalendar: "إضافة إلى تقويمي",
+      sendOverlayRequest: "إرسال الطلب",
+      resendOverlayRequest: "إعادة إرسال الطلب",
+      overlayRequestSentJustNow: "تم إرسال الطلب الآن",
+      overlayRequestSentAgo: "تم إرسال الطلب {{time}}",
+      overlayRequestFailed: "فشل إرسال الطلب",
+      overlayRequestEmailNotConfigured:
+        "لم يتم إعداد إرسال البريد الإلكتروني بعد",
+      overlayRequestInProgress:
+        "هناك طلب قيد التنفيذ بالفعل لهذا الشخص",
       addOtherEmail: "إضافة بريد إلكتروني آخر",
       overlayHostsHint:
         "يحصل الأشخاص من تقويمك على جدولة تراعي ساعات عملهم. يتم التحقق من رسائل البريد الإلكتروني الأخرى بحثًا عن التعارضات فقط.",
