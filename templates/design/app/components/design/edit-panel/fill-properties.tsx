@@ -12,7 +12,7 @@ import {
   IconMinus,
   IconPlus,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import {
@@ -84,6 +84,16 @@ const EXISTING_LAYER_PAINT_TYPES: DesignPaintType[] = [
   "noise",
   "pattern",
 ];
+
+// Stable identity for a fill-layer row's own DesignColorPicker, independent
+// of both the layer's position (which shifts under a preceding row's
+// reorder/removal) and its CSS content (rewritten by every edit, including a
+// paint-type switch). See the layerKeysRef sync below.
+let layerKeyCounter = 0;
+function nextLayerKey(): string {
+  layerKeyCounter += 1;
+  return `fill-layer-${layerKeyCounter}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 /**
  * The four `backgroundImage`/`backgroundSize`/`backgroundRepeat`/
@@ -177,6 +187,22 @@ export function FillProperties({
     Record<string, string>
   >({});
   const fillStashKey = elementStableKey(element);
+  // Per-layer row identity, keyed to survive content edits but NOT survive a
+  // reorder/removal at a different position. key={index} alone (this row's
+  // earlier fix for the content-derived-key remount bug) attaches the row's
+  // uncontrolled DesignColorPicker instance to a position rather than a
+  // layer, so removing or reordering a preceding row leaves an open
+  // picker's local paint-type/gradient/selected-stop state attached to
+  // whatever layer now occupies that position. reorderFillLayers,
+  // removeLayer, and the "+" add handler below explicitly keep this array
+  // in lockstep with the same splice/insert they apply to the CSS layers -
+  // the resync below only reseeds it (fresh ids, positionally) when the
+  // selected element changes, or the count drifts out of sync with those
+  // tracked mutations (e.g. an external/agent-driven style edit).
+  const layerKeysRef = useRef<{ elementKey: string; keys: string[] }>({
+    elementKey: "",
+    keys: [],
+  });
   const fillValue = isTextFillElement
     ? styles.color || ""
     : isVectorFillElement
@@ -207,6 +233,20 @@ export function FillProperties({
   const hasBackgroundLayer = !isSolidFillElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextFillElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
+  if (
+    layerKeysRef.current.elementKey !== fillStashKey ||
+    layerKeysRef.current.keys.length !== backgroundLayers.length
+  ) {
+    const previousKeys =
+      layerKeysRef.current.elementKey === fillStashKey
+        ? layerKeysRef.current.keys
+        : [];
+    layerKeysRef.current = {
+      elementKey: fillStashKey,
+      keys: backgroundLayers.map((_, i) => previousKeys[i] ?? nextLayerKey()),
+    };
+  }
+  const layerKeys = layerKeysRef.current.keys;
 
   // Non-destructive fill hide: instead of stashing the pre-hide color in
   // React state (lost on unmount — e.g. deselect then reselect the same
@@ -255,6 +295,7 @@ export function FillProperties({
       next.splice(to, 0, moved);
       return next;
     };
+    layerKeysRef.current.keys = reorder(layerKeysRef.current.keys);
     const patch = {
       backgroundImage: joinCssLayers(reorder(backgroundLayers)),
       backgroundSize: joinCssLayers(reorder(backgroundSizeLayers)),
@@ -345,17 +386,20 @@ export function FillProperties({
                 );
                 return;
               }
-              commitStylePatch(
-                addFillLayerPatch({
-                  backgroundColor: styles.backgroundColor,
-                  backgroundLayers,
-                  backgroundSizeLayers,
-                  backgroundRepeatLayers,
-                  backgroundPositionLayers,
-                }),
-                onStyleChange,
-                onStylesChange,
-              );
+              const addFillPatch = addFillLayerPatch({
+                backgroundColor: styles.backgroundColor,
+                backgroundLayers,
+                backgroundSizeLayers,
+                backgroundRepeatLayers,
+                backgroundPositionLayers,
+              });
+              if (addFillPatch.backgroundImage !== undefined) {
+                layerKeysRef.current.keys = [
+                  nextLayerKey(),
+                  ...layerKeysRef.current.keys,
+                ];
+              }
+              commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
             }}
           >
             <IconPlus className="size-3.5" />
@@ -537,6 +581,7 @@ export function FillProperties({
                     },
                     index,
                   );
+                  layerKeysRef.current.keys.splice(index, 1);
                   if (onStylesChange) {
                     onStylesChange(patch);
                     return;
@@ -593,14 +638,15 @@ export function FillProperties({
                 return (
                   /* design row: [grip] [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
                   <InspectorPaintRow
-                    // Keyed by position, not by the layer's own CSS content:
-                    // switching this row's fill type (or editing a stop/
-                    // color) rewrites `layer` immediately, and a
-                    // content-derived key would remount this row's
-                    // DesignColorPicker on every edit — dropping its open
-                    // popover, its in-progress paint-type selection, and any
-                    // pending gradient-editor state.
-                    key={index}
+                    // Keyed by a stable per-layer id (see layerKeysRef
+                    // above), not by position and not by the layer's own CSS
+                    // content: a content-derived key remounts this row's
+                    // DesignColorPicker on every edit (dropping its open
+                    // popover/paint-type selection/gradient-editor state),
+                    // and a plain positional key transfers that same state
+                    // onto whichever layer now occupies this position after
+                    // a reorder or a preceding row's removal.
+                    key={layerKeys[index]}
                     draggable
                     {...fillDrag.getRowProps(index)}
                   >

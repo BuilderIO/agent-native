@@ -102,6 +102,21 @@ function gradientStopsBar(): HTMLElement | null {
   return document.querySelector('[role="group"][aria-label="Gradient stops"]');
 }
 
+const RADIAL_LAYER =
+  "radial-gradient(circle at center, #00ff00 0%, #ff00ff 100%)";
+
+function twoLayerElement(): ElementInfo {
+  return element({
+    computedStyles: {
+      backgroundColor: "rgba(0, 0, 0, 0)",
+      backgroundImage: [GRADIENT_LAYER, RADIAL_LAYER].join(", "),
+      backgroundSize: "",
+      backgroundRepeat: "",
+      backgroundPosition: "",
+    },
+  });
+}
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -288,5 +303,49 @@ describe("FillProperties — existing layer fill popover", () => {
     // Sanity check: other structurally-supported tabs are still present.
     expect(document.querySelector('[aria-label="Radial"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Image"]')).not.toBeNull();
+  });
+
+  it("does not leave a removed layer picker attached to the layer at its old position", () => {
+    act(() => {
+      root.render(
+        <FillProperties
+          element={twoLayerElement()}
+          onStyleChange={vi.fn()}
+          onStylesChange={vi.fn()}
+        />,
+      );
+    });
+
+    act(() => {
+      findButtonByText(container, "Linear gradient 1")!.click();
+    });
+    expect(gradientStopsBar()).not.toBeNull();
+
+    const removeButtons = document.querySelectorAll(
+      '[aria-label="editPanel.labels.removeLayer"]',
+    );
+    expect(removeButtons.length).toBe(2);
+    act(() => {
+      (removeButtons[0] as HTMLButtonElement).click();
+    });
+
+    act(() => {
+      root.render(
+        <FillProperties
+          element={gradientLayerElement(RADIAL_LAYER)}
+          onStyleChange={vi.fn()}
+          onStylesChange={vi.fn()}
+        />,
+      );
+    });
+
+    const survivorTrigger = findButtonByText(container, "Radial gradient 1");
+    expect(survivorTrigger).not.toBeNull();
+    expect(gradientStopsBar()).toBeNull();
+
+    act(() => {
+      (survivorTrigger as HTMLButtonElement).click();
+    });
+    expect(gradientStopsBar()).not.toBeNull();
   });
 });
