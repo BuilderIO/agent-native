@@ -46,6 +46,11 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
+  matchesPathPrefix,
+  normalizeFrameworkRoutePrefix,
+} from "../shared/framework-route-prefix.js";
+import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   MCP_EMBED_STATIC_ASSET_HEADERS,
@@ -2510,19 +2515,31 @@ export function stripMountedDevApiPath(
   return isApiDevPath(stripped) ? stripped : reqUrl;
 }
 
+function devFrameworkRoutePrefixes(): string[] {
+  const configured = normalizeFrameworkRoutePrefix(
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() ||
+      undefined,
+    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+  );
+  return configured === FRAMEWORK_INTERNAL_ROUTE_PREFIX
+    ? [FRAMEWORK_INTERNAL_ROUTE_PREFIX]
+    : [FRAMEWORK_INTERNAL_ROUTE_PREFIX, configured];
+}
+
 export function isFrameworkDevPath(
   reqUrl: string,
   base: string | undefined,
 ): boolean {
   const pathname = devPathname(reqUrl);
-  if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) {
-    return true;
-  }
-  if (!base || base === "/") return false;
-  const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
-  return (
-    pathname === `${normalizedBase}/_agent-native` ||
-    pathname.startsWith(`${normalizedBase}/_agent-native/`)
+  const normalizedBase =
+    !base || base === "/" ? "" : base.endsWith("/") ? base.slice(0, -1) : base;
+  // Vite's own middleware runs before the h3 boundary translates the public
+  // prefix, so both names must be recognised here.
+  return devFrameworkRoutePrefixes().some(
+    (prefix) =>
+      matchesPathPrefix(pathname, prefix) ||
+      (normalizedBase !== "" &&
+        matchesPathPrefix(pathname, `${normalizedBase}${prefix}`)),
   );
 }
 
@@ -3796,6 +3813,16 @@ function createAgentNativeConfig(
       : appConfig;
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
+  // The public framework route prefix is resolved exactly here, once. The
+  // browser bundle reads it from the serialized config; the server bundle
+  // reads one literal env key (`server/framework-route-prefix.ts`), embedded
+  // below for `vite build` and set on this process for the in-process Nitro
+  // dev server. An empty string is "not configured", never a prefix.
+  const frameworkRoutePrefix =
+    resolvedAppConfig.runtime?.frameworkRoutePrefix ?? "";
+  // guard:allow-env-mutation — Vite config phase, set once before the in-process Nitro dev server accepts a request
+  process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+    frameworkRoutePrefix;
 
   // Preload workspace-root .env into process.env so Nitro server code sees
   // shared keys during dev (Nitro reads process.env, not vite's envDir).
@@ -3895,6 +3922,8 @@ function createAgentNativeConfig(
         options.clientCompatibilityVersion?.trim() || "",
       ),
       __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(resolvedAppConfig),
+      "process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX":
+        JSON.stringify(frameworkRoutePrefix),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),

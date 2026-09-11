@@ -235,6 +235,7 @@ import {
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
 import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
@@ -2511,7 +2512,9 @@ export function createAgentChatPlugin(
               callId: approval.toolCallId ?? crypto.randomUUID(),
             });
             const baseUrl = resolveArtifactBaseUrl(context.event);
-            const approvalPath = `/_agent-native/a2a/approvals/${encodeURIComponent(pending.id)}`;
+            const approvalPath = publicFrameworkPath(
+              `/_agent-native/a2a/approvals/${encodeURIComponent(pending.id)}`,
+            );
             const approvalUrl = baseUrl
               ? `${baseUrl}${approvalPath}`
               : approvalPath;

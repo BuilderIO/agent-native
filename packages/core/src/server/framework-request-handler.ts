@@ -30,6 +30,11 @@ import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
 import { getDisabledDefaultPlugins } from "./default-plugins.js";
 import {
+  getFrameworkRoutePrefix,
+  internalFrameworkPath,
+  isRetiredInternalFrameworkPath,
+} from "./framework-route-prefix.js";
+import {
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
 } from "./http-response-telemetry.js";
@@ -53,6 +58,8 @@ const EARLY_FRAMEWORK_PATHS_KEY = "_agentNativeEarlyFrameworkPaths";
 const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
 const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
+const PUBLIC_PATHNAME_CONTEXT_KEY = "_frameworkPublicPathname";
+const RETIRED_PATH_CONTEXT_KEY = "_frameworkRetiredPathname";
 
 const CANONICAL_AUTH_EARLY_PATHS = [
   "/",
@@ -124,6 +131,57 @@ function resolveMountMatch(
 }
 
 /**
+ * Translate a request under the PUBLIC framework prefix to the INTERNAL
+ * pathname every mount is registered on, once per request.
+ *
+ * This is the only place the public namespace exists on the server. It runs
+ * before route selection, before the readiness gates, before CSRF and before
+ * any handler, so everything downstream sees `/_agent-native/...` exactly as
+ * it does on a default deployment. The original public pathname is kept in
+ * `event.context._frameworkPublicPathname` for the callers that need the URL
+ * the browser actually used (origin checks, OAuth state); the query, method,
+ * headers and body are untouched.
+ *
+ * When a custom prefix is configured, a request that names the INTERNAL
+ * prefix is marked retired instead: the deployment declared one namespace,
+ * and serving both would leave an undeclared second one reachable.
+ */
+function translatePublicFrameworkRequest(event: H3Event): void {
+  const eventAny = event as any;
+  const context = (eventAny.context ??= {});
+  if (
+    context[PUBLIC_PATHNAME_CONTEXT_KEY] !== undefined ||
+    context[RETIRED_PATH_CONTEXT_KEY] !== undefined
+  ) {
+    return;
+  }
+  const pathname = event.url?.pathname ?? "";
+  const internal = internalFrameworkPath(pathname);
+  if (internal !== null) {
+    context[PUBLIC_PATHNAME_CONTEXT_KEY] = pathname;
+    try {
+      event.url.pathname = internal;
+      eventAny.path = `${internal}${event.url.search || ""}`;
+    } catch {
+      // coercion-ok: event.url is read-only on some runtimes, the same case
+      // registerMiddleware's mount stripping tolerates; the public pathname
+      // stays recorded in context and no mount can match it, so the request
+      // falls through to a 404 rather than being served under the wrong name.
+    }
+    return;
+  }
+  if (isRetiredInternalFrameworkPath(pathname)) {
+    context[RETIRED_PATH_CONTEXT_KEY] = pathname;
+  }
+}
+
+/** The public pathname the browser requested, when the boundary rewrote it. */
+export function getPublicFrameworkPathname(event: H3Event): string | undefined {
+  const value = (event as any).context?.[PUBLIC_PATHNAME_CONTEXT_KEY];
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
  * Wrapper around Nitro's h3 instance that exposes a v1-style `.use()` API
  * for registering path-prefix middleware.
  */
@@ -183,6 +241,9 @@ export function markFrameworkRoutesReadyBeforeBootstrap(
  */
 export function getH3App(nitroApp: any): H3AppShim {
   if (!nitroApp) throw new Error("getH3App: nitroApp is required");
+  // A malformed deployment value must fail here, at boot, not on the first
+  // request that happens to build a URL.
+  getFrameworkRoutePrefix();
   ensureGlobalMiddlewareDispatch(nitroApp);
   installHttpResponseTelemetryHooks(nitroApp);
 
@@ -288,6 +349,7 @@ export function getH3App(nitroApp: any): H3AppShim {
     // init is missing from the request and 404s. The middleware gate stays as a
     // fallback for runtimes where `onRequest` isn't wired.
     nitroApp.hooks?.hook?.("request", async (event: H3Event) => {
+      translatePublicFrameworkRequest(event);
       const reqPath = event.url?.pathname ?? "";
       if (
         resolveMountMatch(reqPath, FRAMEWORK_PREFIX) ||
@@ -334,6 +396,14 @@ function registerRequestContextBoundary(nitroApp: any): void {
   if (h3[REQUEST_CONTEXT_BOUNDARY_KEY]) return;
 
   const middleware = (event: H3Event, next: () => unknown) => {
+    // The `request` hook above normally ran first; this is the fallback for
+    // runtimes where Nitro does not bridge it. Idempotent either way.
+    translatePublicFrameworkRequest(event);
+    if ((event as any).context?.[RETIRED_PATH_CONTEXT_KEY] !== undefined) {
+      setResponseStatus(event, 404);
+      setResponseHeader(event, "content-type", "application/json");
+      return { error: "Not found" };
+    }
     if (hasRequestContext()) return next();
     return runWithRequestContext(
       {

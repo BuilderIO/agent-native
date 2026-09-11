@@ -6,10 +6,12 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
+import { frameworkRoutePrefix } from "./api-path.js";
 
 let installed = false;
 let memoryToken: string | null = null;
@@ -382,10 +384,11 @@ function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
 }
 
 function isAgentNativeRuntimePath(pathname: string): boolean {
-  return (
-    pathname === "/_agent-native" ||
-    pathname.endsWith("/_agent-native") ||
-    pathname.includes("/_agent-native/")
+  return [FRAMEWORK_INTERNAL_ROUTE_PREFIX, frameworkRoutePrefix()].some(
+    (prefix) =>
+      pathname === prefix ||
+      pathname.endsWith(prefix) ||
+      pathname.includes(`${prefix}/`),
   );
 }
 

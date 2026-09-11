@@ -1,3 +1,10 @@
+import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
+
+// Toolkit names framework routes by their internal path; the host swaps in
+// the public prefix before the base path is applied.
+function publicFrameworkPathInBrowser(path: string): string {
+  return toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() });
+}
 import {
   ComposerRuntimeAdaptersProvider,
   type ComposerRuntimeAdapters,
@@ -19,7 +26,7 @@ import {
   setAgentChatContextItem,
 } from "../agent-chat.js";
 import { SIDEBAR_STATE_CHANGE_EVENT } from "../agent-sidebar-state.js";
-import { appPath } from "../api-path.js";
+import { appPath, frameworkRoutePrefix } from "../api-path.js";
 import { readClientAppState, setClientAppState } from "../application-state.js";
 import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
@@ -58,7 +65,7 @@ function subscribeSidebarState(
 }
 
 const coreComposerAdapters: Omit<ComposerRuntimeAdapters, "translate"> = {
-  resolvePath: (path) => appPath(path),
+  resolvePath: (path) => appPath(publicFrameworkPathInBrowser(path)),
   models: {
     useChatModels,
     useAgentEngineConfigured,

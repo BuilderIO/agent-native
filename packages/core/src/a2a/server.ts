@@ -14,6 +14,7 @@ import {
 } from "../integrations/internal-token.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isSameOriginRequest } from "../server/request-origin.js";
 import { generateAgentCard } from "./agent-card.js";
@@ -347,7 +348,7 @@ export function mountA2A(
       return generateAgentCard(
         { ...config, skills },
         baseUrl,
-        `${routePrefix}/a2a`,
+        publicFrameworkPath(`${routePrefix}/a2a`),
       );
     }),
   );

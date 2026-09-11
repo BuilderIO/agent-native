@@ -63,7 +63,7 @@ import {
   normalizeDocumentTitle,
 } from "../shared/document-title.js";
 import { getSsrBetaRedirectScriptBody } from "../shared/ssr-beta-redirect.js";
-import { agentNativePath } from "./api-path.js";
+import { agentNativePath, frameworkRoutePrefix } from "./api-path.js";
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
@@ -181,6 +181,7 @@ function EarlyBetaRedirectScript() {
       dangerouslySetInnerHTML={{
         __html: getSsrBetaRedirectScriptBody(
           agentNativePath("/_agent-native/auth/session"),
+          frameworkRoutePrefix(),
         ),
       }}
     />
