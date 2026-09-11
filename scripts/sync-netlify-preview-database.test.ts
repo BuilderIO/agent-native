@@ -68,6 +68,12 @@ describe("parseNetlifyDatabaseVariables", () => {
           values: [
             { context: "production", id: "production-id", value: "masked" },
             { context: "deploy-preview", id: "preview-id", value: "masked" },
+            {
+              context: "branch-deploy",
+              context_parameter: "named-branch",
+              id: "named-branch-id",
+              value: "masked",
+            },
           ],
         },
         { key: "BETTER_AUTH_SECRET", values: [] },
@@ -78,6 +84,11 @@ describe("parseNetlifyDatabaseVariables", () => {
           values: [
             { context: "production", id: "production-id" },
             { context: "deploy-preview", id: "preview-id" },
+            {
+              context: "branch-deploy",
+              context_parameter: "named-branch",
+              id: "named-branch-id",
+            },
           ],
         },
       ],
@@ -96,8 +107,13 @@ describe("mirrorProductionDatabaseVariables", () => {
       token: "test-token",
       request: async (url, options) => {
         requests.push({ url, options });
-        if (options?.method === "DELETE")
-          return new Response(null, { status: 204 });
+        if (options?.method === "DELETE") {
+          const deleteCount = requests.filter(
+            ({ options: requestOptions }) =>
+              requestOptions?.method === "DELETE",
+          ).length;
+          return new Response(null, { status: deleteCount === 1 ? 404 : 204 });
+        }
         if (options?.method === "POST")
           return new Response(null, { status: 201 });
         if (options?.method === "PATCH")
@@ -114,6 +130,12 @@ describe("mirrorProductionDatabaseVariables", () => {
               {
                 context: "deploy-preview",
                 id: "database-preview",
+                value: "masked",
+              },
+              {
+                context: "branch-deploy",
+                context_parameter: "named-branch",
+                id: "database-named-branch",
                 value: "masked",
               },
             ],

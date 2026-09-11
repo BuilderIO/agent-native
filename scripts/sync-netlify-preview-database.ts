@@ -15,6 +15,7 @@ type Requester = (url: string, options?: RequestInit) => Promise<Response>;
 
 type NetlifyEnvValue = {
   context: string;
+  context_parameter?: string;
   id?: string;
 };
 
@@ -134,6 +135,9 @@ export function parseNetlifyDatabaseVariables(
       }
       values.push({
         context: value.context,
+        ...(typeof value.context_parameter === "string"
+          ? { context_parameter: value.context_parameter }
+          : {}),
         ...(typeof value.id === "string" ? { id: value.id } : {}),
       });
     }
@@ -180,18 +184,23 @@ async function deletePreviewValue({
   value: NetlifyEnvValue;
 }): Promise<void> {
   if (!value.id) {
-    throw new Error(`${key}: deploy-preview value has no Netlify id.`);
+    throw new Error(`${key}: preview value has no Netlify id.`);
   }
-  await assertResponse(
-    await request(netlifyEnvUrl(accountId, siteId, key, value.id), {
+  const response = await request(
+    netlifyEnvUrl(accountId, siteId, key, value.id),
+    {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${token}`,
         "User-Agent": "agent-native-netlify-preview-database-sync",
       },
-    }),
-    `${key} deploy-preview value deletion`,
+    },
   );
+  if (response.status === 404) {
+    await response.arrayBuffer();
+    return;
+  }
+  await assertResponse(response, `${key} preview value deletion`);
 }
 
 export async function mirrorProductionDatabaseVariables({
@@ -279,7 +288,8 @@ export async function mirrorProductionDatabaseVariables({
     }
 
     const previewValues = current.values.filter(
-      ({ context }) => context === PREVIEW_CONTEXT,
+      ({ context, context_parameter }) =>
+        context === PREVIEW_CONTEXT && !context_parameter,
     );
     await assertResponse(
       await request(netlifyEnvUrl(accountId, siteId, variable.key), {
@@ -296,7 +306,8 @@ export async function mirrorProductionDatabaseVariables({
     for (const value of [
       ...previewValues.slice(1),
       ...current.values.filter(
-        ({ context }) => context === LEGACY_PREVIEW_CONTEXT,
+        ({ context, context_parameter }) =>
+          context === LEGACY_PREVIEW_CONTEXT && !context_parameter,
       ),
     ]) {
       await deletePreviewValue({
@@ -315,8 +326,9 @@ export async function mirrorProductionDatabaseVariables({
   // removed.
   for (const variable of existing) {
     if (desiredKeys.has(variable.key)) continue;
-    for (const value of variable.values.filter(({ context }) =>
-      PREVIEW_CONTEXTS.includes(context),
+    for (const value of variable.values.filter(
+      ({ context, context_parameter }) =>
+        PREVIEW_CONTEXTS.includes(context) && !context_parameter,
     )) {
       await deletePreviewValue({
         accountId,
