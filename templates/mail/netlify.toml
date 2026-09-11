@@ -9,6 +9,10 @@ GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
+# Every deploy changes hashed chunk URLs; a shell cached for the default 10
+# minutes keeps preloading the previous build's chunks, which 404 and force a
+# full page reload mid-triage.
+AGENT_NATIVE_SSR_CACHE = "30s"
 
 [context.production.environment]
 AGENT_NATIVE_HOSTED_HARNESS = "true"

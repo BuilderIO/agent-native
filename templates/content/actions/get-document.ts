@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { roleSatisfies } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
@@ -74,7 +75,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  run: async (args) => {
+  run: async (args, ctx) => {
     if (!args.id) throw new Error("--id is required");
 
     const access = await resolveDocumentAccess(args.id);
@@ -206,6 +207,18 @@ export default defineAction({
       hasInlineDatabase,
     });
     const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
+
+    track(
+      "document_viewed",
+      {
+        app_name: "content",
+        template_name: "content",
+        output_id: doc.id,
+        output_type: "document",
+        is_owner: access.role === "owner",
+      },
+      ctx,
+    );
 
     return {
       id: doc.id,

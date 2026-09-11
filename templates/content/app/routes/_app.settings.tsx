@@ -14,13 +14,13 @@ import {
   createCreativeContextAgentTab,
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
-import { CONTENT_EXPERIMENTS } from "@shared/experiments";
+import { CONTENT_LABS } from "@shared/labs";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
 import { Switch } from "@/components/ui/switch";
 import { useContentPrefs } from "@/hooks/use-content-prefs";
-import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -31,7 +31,7 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const creativeContextEnabled = useCreativeContextExperiment();
+  const creativeContextEnabled = useCreativeContextLab();
   const agentAdditionalTabFactories = useMemo(
     () => (creativeContextEnabled ? [createCreativeContextAgentTab] : []),
     [creativeContextEnabled],
@@ -42,16 +42,16 @@ export default function SettingsRoute() {
   useSetPageTitle(t("settings.title"));
   const { prefs, loading: prefsLoading, save: savePrefs } = useContentPrefs();
 
-  const experiments = useMemo(
+  const labs = useMemo(
     () =>
-      CONTENT_EXPERIMENTS.map((experiment) => ({
-        ...experiment,
-        displayName: t("settings.experimentCreativeContext", {
-          defaultValue: experiment.displayName ?? "Creative Context",
+      CONTENT_LABS.map((lab) => ({
+        ...lab,
+        displayName: t("settings.labCreativeContext", {
+          defaultValue: lab.displayName ?? "Creative Context",
         }),
-        description: t("settings.experimentCreativeContextDescription", {
+        description: t("settings.labCreativeContextDescription", {
           defaultValue:
-            experiment.description ??
+            lab.description ??
             "Connect and reuse governed reference context in Content.",
         }),
       })),
@@ -82,12 +82,12 @@ export default function SettingsRoute() {
         account={<AccountSettingsCard />}
         teamLabel={t("team.pageTitle")}
         extraTabs={agentSettingsTabs}
-        experiments={experiments}
-        experimentsIntro={t("settings.experimentsIntro", {
+        labs={labs}
+        labsIntro={t("settings.labsIntro", {
           defaultValue: "Preview experimental features before they ship.",
         })}
-        experimentsLabel={t("settings.experiments", {
-          defaultValue: "Experiments",
+        labsLabel={t("settings.labs", {
+          defaultValue: "Labs",
         })}
         generalSearchEntries={generalSearchEntries}
         general={

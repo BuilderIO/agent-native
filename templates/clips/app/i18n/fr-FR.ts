@@ -674,9 +674,11 @@ const messages = {
     downloadAgain: "Cela n’a pas fonctionné ? Réessayez de télécharger",
     alsoFor: "Également disponible pour {{platform}}",
     backToLibrary: "Retour à la bibliothèque",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Télécharger Clips",
     stable: "Stable",
     nightly: "Nightly",
+    allPlatforms: "Toutes les plateformes",
+    releaseChannel: "Canal de publication",
     switchToNightly: "Passer aux versions Nightly",
     switchToStable: "Passer aux versions stables",
     retry: "Réessayer",
@@ -727,17 +729,16 @@ const messages = {
     agentTitle: "Gérer l’agent",
     title: "Paramètres",
     pageTitle: "Paramètres · Clips",
-    experiments: "Expériences",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
-    experimentVideoEditing: "Montage vidéo",
-    experimentVideoEditingDescription: "Essayez le nouvel éditeur vidéo.",
-    experimentMeetings: "Réunions et transcription",
-    experimentMeetingsDescription:
+    labVideoEditing: "Montage vidéo",
+    labVideoEditingDescription: "Essayez le nouvel éditeur vidéo.",
+    labMeetings: "Réunions et transcription",
+    labMeetingsDescription:
       "Essayez la capture et la transcription automatiques des réunions.",
-    experimentWisprFlow: "Dictée vocale",
-    experimentWisprFlowDescription:
-      "Essayez la nouvelle fonction de dictée vocale.",
+    labWisprFlow: "Dictée vocale",
+    labWisprFlowDescription: "Essayez la nouvelle fonction de dictée vocale.",
     intro: "Préférences et services connectés pour cet espace Clips.",
     preferencesTitle: "Préférences",
     languageTitle: "Langue",
@@ -1372,12 +1373,12 @@ const messages = {
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (Localisé)",
     chromeTitle: "Chrome extension (Localisé)",
     chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (Localisé)",
+      "Capturez les onglets du navigateur avec l’extension Chrome.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (Localisé)",
     desktopTitle: "Desktop app (Localisé)",
     desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Localisé)",
+      "Enregistrez avec des raccourcis globaux et l’audio du système.",
     openDesktopApp: "Open desktop app (Localisé)",
   },
   editableTitle: {
@@ -1871,6 +1872,7 @@ const messages = {
       "{{consoleCount}} problèmes de console · {{networkCount}} requêtes échouées",
     noFailures: "Aucun échec détecté",
     failuresPresent: "Des erreurs de navigateur ont été détectées",
+    unviewedCount: "{{count}} non consultés",
     captureSuccessful: "Diagnostics capturés avec succès",
     capturedFrom: "Capturé depuis {{source}}",
     browserCapture: "Capture du navigateur",

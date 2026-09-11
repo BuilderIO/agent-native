@@ -8,6 +8,7 @@ import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 import {
   createRealtimeVoiceGreetingEvent,
   createRealtimeVoiceGreetingStarter,
+  createRealtimeVoiceLanguageUpdate,
   createRealtimeVoicePreferenceUpdate,
   createRealtimeVoiceResponseCoordinator,
   createRealtimeVoiceSession,
@@ -123,6 +124,30 @@ describe("Realtime voice client transport", () => {
           output: { voice: "cedar" },
         },
       },
+    });
+  });
+
+  it("updates GPT-Live reasoning without sending startup-only audio fields", () => {
+    expect(
+      createRealtimeVoicePreferenceUpdate(
+        { language: "es", intelligence: "deep", voice: "cedar" },
+        { protocol: "live", includeVoice: true },
+      ),
+    ).toEqual({
+      type: "session.update",
+      session: {
+        delegation: {
+          responses: { reasoning: { effort: "medium" } },
+        },
+      },
+    });
+  });
+
+  it("updates the active GPT-Live language through appended instructions", () => {
+    expect(createRealtimeVoiceLanguageUpdate("auto", ["es-MX"])).toEqual({
+      type: "session.instructions.append",
+      delegation_id: null,
+      content: "Speak in es unless the user asks to switch languages.",
     });
   });
 
@@ -286,6 +311,8 @@ describe("Realtime voice client transport", () => {
           headers: {
             "Content-Type": "application/sdp",
             "X-Agent-Native-Realtime-Capability": "capability-1",
+            "X-Agent-Native-Realtime-Protocol": "live",
+            "X-Agent-Native-Realtime-Model": "gpt-live-1",
           },
         }),
     );
@@ -307,6 +334,8 @@ describe("Realtime voice client transport", () => {
     ).resolves.toEqual({
       sdp: "answer-sdp",
       capability: "capability-1",
+      protocol: "live",
+      model: "gpt-live-1",
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/_agent-native/realtime-voice/session",
@@ -316,6 +345,7 @@ describe("Realtime voice client transport", () => {
         headers: {
           "Content-Type": "application/sdp",
           "X-Agent-Native-Browser-Tab": "tab-1",
+          "X-Agent-Native-Realtime-Protocol": "realtime",
           "X-Agent-Native-Realtime-Language": "en",
           "X-Agent-Native-Realtime-Intelligence": "instant",
           "X-Agent-Native-Realtime-Voice": "marin",
@@ -328,6 +358,7 @@ describe("Realtime voice client transport", () => {
   });
 
   it("sends function calls to the authenticated Agent-Native tool bridge", async () => {
+    const signal = new AbortController().signal;
     const fetchMock = vi.fn(async () =>
       Response.json({
         callId: "call-1",
@@ -345,6 +376,7 @@ describe("Realtime voice client transport", () => {
         sessionId: "session-1",
         browserTabId: "tab-1",
         capability: "capability-1",
+        signal,
       }),
     ).resolves.toEqual({
       callId: "call-1",
@@ -355,6 +387,7 @@ describe("Realtime voice client transport", () => {
       "/_agent-native/realtime-voice/tool",
       expect.objectContaining({
         method: "POST",
+        signal,
         headers: expect.objectContaining({
           "X-Agent-Native-Browser-Tab": "tab-1",
           "X-Agent-Native-Realtime-Capability": "capability-1",
@@ -384,6 +417,12 @@ describe("Realtime voice dynamic tool manifests", () => {
       extractRealtimeVoiceSessionTools({
         type: "session.updated",
         session: { tools },
+      }),
+    ).toEqual(tools);
+    expect(
+      extractRealtimeVoiceSessionTools({
+        type: "session.started",
+        session: { delegation: { responses: { tools } } },
       }),
     ).toEqual(tools);
     expect(
@@ -471,6 +510,72 @@ describe("Realtime voice dynamic tool manifests", () => {
     ) as Record<string, unknown>;
     expect(output.output).toBe('{"matches":["open-dashboard"]}');
     expect(output).not.toHaveProperty("expandedTools");
+  });
+
+  it("uses Responses event shapes for GPT-Live tool discovery", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceToolManifestCoordinator((event) =>
+      sent.push(event),
+    );
+    coordinator.setProtocol("live");
+    coordinator.setSessionTools([realtimeTool("tool-search")]);
+    coordinator.enqueue({
+      callId: "call-live-search",
+      status: "completed",
+      output: "Found the dashboard tool.",
+      expandedTools: [realtimeTool("open-dashboard")],
+    });
+
+    expect(sent[0]).toMatchObject({
+      type: "session.update",
+      session: {
+        delegation: {
+          responses: { tools: expect.any(Array), tool_choice: "auto" },
+        },
+      },
+    });
+    const updateTools = (
+      sent[0]?.session as {
+        delegation: { responses: { tools: RealtimeVoiceFunctionTool[] } };
+      }
+    ).delegation.responses.tools;
+    coordinator.setSessionTools(updateTools);
+    expect(sent.map((event) => event.type)).toEqual([
+      "session.update",
+      "response.item.create",
+      "response.create",
+    ]);
+  });
+
+  it("preserves the active session tools when resetting failed Live work", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceToolManifestCoordinator((event) =>
+      sent.push(event),
+    );
+    coordinator.setProtocol("live");
+    coordinator.setSessionTools([realtimeTool("navigate")]);
+    coordinator.reset({ preserveSessionTools: true });
+    coordinator.setProtocol("live");
+    coordinator.enqueue({
+      callId: "call-live-after-failure",
+      status: "completed",
+      output: "Done",
+      expandedTools: [realtimeTool("open-dashboard")],
+    });
+
+    expect(sent[0]).toMatchObject({
+      type: "session.update",
+      session: {
+        delegation: {
+          responses: {
+            tools: [
+              expect.objectContaining({ name: "navigate" }),
+              expect.objectContaining({ name: "open-dashboard" }),
+            ],
+          },
+        },
+      },
+    });
   });
 
   it("handles a rejected manifest update without failing the voice session", () => {
@@ -619,6 +724,40 @@ describe("extractRealtimeVoiceFunctionCalls", () => {
     ]);
   });
 
+  it("unwraps GPT-Live Responses function output items", () => {
+    expect(
+      extractRealtimeVoiceFunctionCalls({
+        type: "response.event",
+        event: {
+          type: "response.output_item.done",
+          item: {
+            type: "function_call",
+            name: "navigate",
+            call_id: "call-live-output",
+            arguments: '{"path":"/home"}',
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        name: "navigate",
+        callId: "call-live-output",
+        argumentsText: '{"path":"/home"}',
+      },
+    ]);
+    expect(
+      extractRealtimeVoiceFunctionCalls({
+        type: "response.event",
+        event: {
+          type: "response.function_call_arguments.done",
+          name: "navigate",
+          call_id: "call-live-output",
+          arguments: "{}",
+        },
+      }),
+    ).toEqual([]);
+  });
+
   it("ignores function items from failed or cancelled responses", () => {
     const output = [
       {
@@ -711,6 +850,34 @@ describe("Realtime voice startup and transcript ordering", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
+  it("waits for GPT-Live to acknowledge the greeting instructions", () => {
+    const send = vi.fn();
+    const greeting = createRealtimeVoiceGreetingStarter(send, "live");
+
+    expect(greeting.start()).toBe(true);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "session.instructions.append",
+        event_id: "realtime_voice_greeting_instructions",
+      }),
+    );
+    greeting.handleEvent({
+      type: "session.instructions.appended",
+      client_event_id: "realtime_voice_greeting_instructions",
+    });
+    expect(send).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: "session.commentary.append",
+        delegation_id: null,
+      }),
+    );
+    greeting.handleEvent({
+      type: "session.instructions.appended",
+      client_event_id: "realtime_voice_greeting_instructions",
+    });
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it("queues response requests behind the active response and retries a rejected request", () => {
     const sent: Record<string, unknown>[] = [];
     const coordinator = createRealtimeVoiceResponseCoordinator((event) =>
@@ -750,6 +917,25 @@ describe("Realtime voice startup and transcript ordering", () => {
     coordinator.request();
     coordinator.handleEvent({
       type: "response.done",
+      response: { status: "failed" },
+    });
+
+    expect(sent).toHaveLength(1);
+    coordinator.request();
+    expect(sent).toHaveLength(2);
+  });
+
+  it("drops queued work after a failed GPT-Live completed response", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceResponseCoordinator((event) =>
+      sent.push(event),
+    );
+
+    coordinator.request();
+    coordinator.handleEvent({ type: "response.created" });
+    coordinator.request();
+    coordinator.handleEvent({
+      type: "response.completed",
       response: { status: "failed" },
     });
 
@@ -830,6 +1016,39 @@ describe("Realtime voice startup and transcript ordering", () => {
 
     expect(published).toEqual([
       expect.objectContaining({ role: "assistant", text: "Still here." }),
+    ]);
+  });
+
+  it("preserves queued transcripts while resetting failed work", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-1", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.output_audio_transcript.done",
+      item_id: "assistant-1",
+      transcript: "Confirmed before failure.",
+    });
+
+    sequencer.reset({ preserveQueuedTranscripts: true });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "user-1",
+      transcript: "Recovered question.",
+    });
+
+    expect(published.map(({ text }) => text)).toEqual([
+      "Recovered question.",
+      "Confirmed before failure.",
     ]);
   });
 
@@ -916,6 +1135,80 @@ describe("Realtime voice startup and transcript ordering", () => {
       "Only once.",
       "After interruption.",
     ]);
+  });
+
+  it("keeps overlapping GPT-Live transcript roles independent", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "session.input_transcript.delta",
+      delta: "Can you help ",
+      start_ms: 0,
+      end_ms: 400,
+    });
+    sequencer.handle({
+      type: "session.input_transcript.delta",
+      delta: "me?",
+      start_ms: 400,
+      end_ms: 500,
+    });
+    sequencer.handle({
+      type: "session.output_transcript.delta",
+      delta: "Absolutely.",
+      start_ms: 300,
+      end_ms: 900,
+    });
+    expect(published).toEqual([]);
+
+    sequencer.handle({
+      type: "response.event",
+      event: { type: "response.completed" },
+    });
+    expect(published).toEqual([]);
+
+    sequencer.handle({
+      type: "session.input_transcript.delta",
+      delta: "Next question.",
+      start_ms: 2_000,
+      end_ms: 2_200,
+    });
+    sequencer.handle({
+      type: "session.output_transcript.delta",
+      delta: "Next answer.",
+      start_ms: 2_300,
+      end_ms: 2_500,
+    });
+    expect(published).toEqual([
+      { role: "user", text: "Can you help me?" },
+      { role: "assistant", text: "Absolutely." },
+    ]);
+
+    sequencer.handle({ type: "session.closed" });
+    expect(published).toEqual([
+      { role: "user", text: "Can you help me?" },
+      { role: "assistant", text: "Absolutely." },
+      { role: "user", text: "Next question." },
+      { role: "assistant", text: "Next answer." },
+    ]);
+  });
+
+  it("discards unconfirmed GPT-Live transcript buffers on reset", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "session.output_transcript.delta",
+      delta: "Possibly incomplete.",
+    });
+    sequencer.reset();
+    sequencer.flush();
+
+    expect(published).toEqual([]);
   });
 });
 

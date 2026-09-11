@@ -638,7 +638,7 @@ describe("pending React source anchors", () => {
     });
   });
 
-  it("keeps an absolute Fiber path only in local state and redacts it from prompts", () => {
+  it("keeps a bounded absolute Fiber path marked outside the connected root", () => {
     const anchor = reactSourceAnchorForPendingEdit({
       info: {
         provenance: {
@@ -675,9 +675,10 @@ describe("pending React source anchors", () => {
       ],
     });
 
-    expect(prompt).not.toContain("/Users/private");
+    expect(prompt).toContain("/Users/private/work/app/Card.tsx");
+    expect(prompt).toContain('"sourcePathStatus": "outside-connected-root"');
     expect(prompt).toContain('"line": 4');
-    expect(prompt).not.toContain('"sourceFile"');
+    expect(prompt).toContain('"sourceFile"');
   });
 
   it("resolves absolute provenance against the authenticated connection root", () => {
@@ -982,7 +983,7 @@ describe("pending React source anchors", () => {
     expect(prompt).toContain('"x": 300');
   });
 
-  it("includes a safe handoff failure without leaking an unresolved absolute path", () => {
+  it("includes a safe handoff failure with an unresolved path marked outside the root", () => {
     const prompt = formatPendingVisualStylePrompt({
       edits: [],
       liveEdits: [
@@ -1017,7 +1018,8 @@ describe("pending React source anchors", () => {
     expect(prompt).toContain('"semanticHandoffFailure"');
     expect(prompt).toContain('"code": "unsafe-source-path"');
     expect(prompt).toContain("does not include a safe project-relative path");
-    expect(prompt).not.toContain("/Users/private");
+    expect(prompt).toContain("/Users/private/work/app/Card.tsx");
+    expect(prompt).toContain('"sourcePathStatus": "outside-connected-root"');
   });
 });
 
@@ -1096,7 +1098,7 @@ describe("owner provenance survives the coding-agent handoff", () => {
     });
   });
 
-  it("redacts the absolute owner path and labels the owner position honestly", () => {
+  it("keeps the absolute owner path marked outside the connected root", () => {
     const anchor = reactSourceAnchorForPendingEdit({
       info: mappedInfo,
       rootPath: "/Users/example/project",
@@ -1110,16 +1112,22 @@ describe("owner provenance survives the coding-agent handoff", () => {
     });
     expect(JSON.stringify(redacted)).not.toContain("/Users/example");
 
-    // No safe project-relative owner path yet: drop the owner LOCATION rather
-    // than leak the Fiber path, but keep the identity fields that are not
-    // locations — the key is still what separates the siblings.
+    // No safe project-relative owner path yet: keep the bounded Fiber path and
+    // mark it explicitly so the coding agent can inspect read-only or request
+    // the correct connection without mistaking it for a project-relative path.
     const unresolved = redactReactSourceAnchor(
       reactSourceAnchorForPendingEdit({ info: mappedInfo }),
     );
     expect(unresolved?.ownerRelPath).toBeUndefined();
-    expect(unresolved?.ownerLine).toBeUndefined();
+    expect(unresolved).toMatchObject({
+      ownerSourceFile: "/Users/example/project/src/App.jsx",
+      ownerSourcePathStatus: "outside-connected-root",
+      ownerLine: 55,
+      ownerColumn: 51,
+      ownerMethod: "debug-stack",
+    });
     expect(unresolved?.ownerKey).toBe("b");
-    expect(JSON.stringify(unresolved)).not.toContain("/Users/example");
+    expect(JSON.stringify(unresolved)).toContain("/Users/example/project");
   });
 
   it("emits the owner site on the exact anchor with its own precision", () => {

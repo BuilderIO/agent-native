@@ -27,6 +27,7 @@ import {
   defaultAutomationConfig,
   readFactoryAutomationConfig,
   replaceUserPrompt,
+  restoreFactoryAutomationIdentityFields,
   scheduleCron,
   seedNameForTemplate,
   slugifyAutomationLeaf,
@@ -590,6 +591,11 @@ export async function ensureFactoryAutomations(
       repaired = replaceUserPrompt(
         repaired,
         stripInjectedAutomationBlocks(repaired),
+      );
+      repaired = restoreFactoryAutomationIdentityFields(
+        existing.content,
+        repaired,
+        leafName,
       );
       if (repaired === existing.content) return;
 

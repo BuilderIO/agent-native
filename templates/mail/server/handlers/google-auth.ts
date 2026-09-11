@@ -27,6 +27,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
   getHeader,
@@ -300,6 +301,17 @@ export const handleGoogleCallback = defineEventHandler(
       const email = await exchangeCode(code, undefined, redirectUri, owner);
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
+      track(
+        "account_connected",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          connector_name: "google_mail",
+          is_additional_account: isAddAccount,
+          source: "oauth",
+        },
+        { userId: owner ?? email },
+      );
       if (!isAddAccount) await syncGoogleSignInIdentity(email);
 
       // 2b. Auto-populate display name in settings if not set
@@ -526,6 +538,17 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         undefined,
         redirectUri,
         ownerEmail,
+      );
+      track(
+        "account_connected",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          connector_name: "google_mail",
+          is_additional_account: true,
+          source: "oauth",
+        },
+        { userId: ownerEmail },
       );
 
       return oauthCallbackResponse(event, addedEmail, {

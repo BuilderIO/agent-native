@@ -289,6 +289,38 @@ export const analyticsEvents = table("analytics_events", {
   orgId: text("org_id"),
 });
 
+/** Temporary Postgres receipts for events waiting on the BigQuery sink. */
+export const analyticsBigQueryDeliveryQueue = table(
+  "analytics_bigquery_delivery_queue",
+  {
+    eventId: text("event_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    tableRef: text("table_ref"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at").notNull().default(now()),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: text("lease_expires_at"),
+    deliveredAt: text("delivered_at"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    dueIdx: index("analytics_bigquery_delivery_queue_due_idx").on(
+      t.deliveredAt,
+      t.nextAttemptAt,
+      t.leaseExpiresAt,
+      t.createdAt,
+    ),
+    scopeIdx: index("analytics_bigquery_delivery_queue_scope_idx").on(
+      t.orgId,
+      t.ownerEmail,
+      t.createdAt,
+    ),
+  }),
+);
+
 /**
  * Compact daily event counts. The tenant key is non-null so the natural key
  * remains unique for both organization-scoped and personal analytics keys.

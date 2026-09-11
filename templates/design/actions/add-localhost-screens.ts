@@ -442,6 +442,7 @@ export default defineAction({
       height: 680,
     }),
   },
+  capabilityScopes: ["visual-edit"],
   run: async (
     {
       designId,
@@ -458,7 +459,9 @@ export default defineAction({
   ) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
-    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
+      designId,
+    });
     const db = getDb();
 
     const scopeClauses = [

@@ -83,6 +83,7 @@ describe("EnvironmentBadge render", () => {
     );
     expect(badge?.className).toContain("bottom-3");
     expect(badge?.className).toContain("left-3");
+    expect(badge?.className).toContain("pointer-events-none");
     expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
   });
@@ -112,6 +113,29 @@ describe("EnvironmentBadge render", () => {
     expect(badge?.className).toContain("h-5");
     expect(badge?.className).not.toContain("fixed");
     expect(badge?.className).not.toContain("bottom-3");
+  });
+
+  it("shrinks only alpha labels in collapsed inline slots", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge placement="inline" collapsed />));
+
+    expect(container.querySelector('[role="status"]')?.className).toContain(
+      "text-[9px]",
+    );
+
+    act(() =>
+      root.render(
+        <EnvironmentBadge placement="inline" collapsed badgeText="beta" />,
+      ),
+    );
+
+    const betaBadge = container.querySelector('[role="status"]');
+    expect(betaBadge?.className).toContain("text-[10px]");
+    expect(betaBadge?.className).not.toContain("text-[9px]");
   });
 
   it("defers the alpha pill to a post-mount effect so the first client commit matches SSR's null output", async () => {

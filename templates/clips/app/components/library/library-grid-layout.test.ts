@@ -89,6 +89,7 @@ describe("selected library actions layout", () => {
     );
     expect(layoutSource).toContain("<AppSidebarHeader");
     expect(layoutSource).toContain("<AppSidebarFooter");
+    expect(layoutSource).toContain("animateDesktop={false}");
     expect(layoutSource).toContain("primaryNavItems.map");
     expect(layoutSource).toContain("lifecycleNavItems.map");
     expect(layoutSource).toContain(

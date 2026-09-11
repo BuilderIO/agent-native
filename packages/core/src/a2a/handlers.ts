@@ -161,7 +161,7 @@ async function trustedSourceContext(
     return undefined;
   }
 
-  const dispatch = findWorkspaceDispatchAgent();
+  const dispatch = await findWorkspaceDispatchAgent();
   if (!dispatch) return undefined;
   const orgDomain = event?.context?.__a2aOrgDomain as string | undefined;
   let orgSecret: string | undefined;

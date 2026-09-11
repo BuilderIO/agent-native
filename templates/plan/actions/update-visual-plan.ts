@@ -10,6 +10,7 @@ import {
   resolveAccess,
   roleSatisfies,
 } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -685,6 +686,7 @@ export default defineAction({
     let bundleAtLoad: Awaited<ReturnType<typeof loadPlanBundle>> | null = null;
 
     if (
+      args.status !== undefined ||
       args.content !== undefined ||
       args.contentPatches.length > 0 ||
       args.html !== undefined ||
@@ -935,6 +937,18 @@ export default defineAction({
       args.contentPatches.length > 0 ||
       args.markdown !== undefined ||
       args.sections.length > 0;
+    const diffCount =
+      args.contentPatches.length +
+      args.sections.length +
+      [
+        args.title,
+        args.brief,
+        args.status,
+        args.currentFocus,
+        args.html,
+        args.content,
+        args.markdown,
+      ].filter((value) => value !== undefined).length;
     if (!onlyReviewerCommentWork && hasPlanAuthoringChanges) {
       await createPlanVersionSnapshot(args.planId, {
         force: true,
@@ -1157,6 +1171,19 @@ export default defineAction({
     }
 
     const bundle = await loadPlanBundle(args.planId);
+    if (hasPlanAuthoringChanges) {
+      track(
+        "plan_updated",
+        {
+          app_name: "plan",
+          template_name: "plan",
+          output_id: bundle.plan.id,
+          output_type: bundle.plan.kind,
+          diff_count: diffCount,
+        },
+        ctx,
+      );
+    }
     await notifyPlanCommentRecipients({
       bundle,
       insertedCommentIds,
@@ -1184,12 +1211,16 @@ export default defineAction({
       });
     }
     // Emit plan.status.changed when the status was explicitly changed
-    if (args.status) {
+    if (
+      args.status &&
+      bundleAtLoad?.plan.status !== undefined &&
+      args.status !== bundleAtLoad.plan.status
+    ) {
       emitPlanStatusChanged({
         planId: bundle.plan.id,
         title: bundle.plan.title,
         kind: bundle.plan.kind,
-        oldStatus: null, // status before update is not re-fetched here; use null as unknown-prior
+        oldStatus: bundleAtLoad.plan.status,
         newStatus: bundle.plan.status,
         changedBy: requesterEmail,
         ownerEmail: bundle.access.ownerEmail,

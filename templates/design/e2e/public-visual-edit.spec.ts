@@ -152,6 +152,30 @@ test.describe.serial("public visual edit", () => {
       status: { state: "ready" },
     });
     expect((await readWebMcpState()).toolCount).toBeGreaterThan(0);
+    const promptCall = await page.evaluate(async () => {
+      const helper = (
+        window as typeof window & {
+          __agentNativeWebMcp?: {
+            call: (
+              name: string,
+              args?: Record<string, unknown>,
+            ) => Promise<unknown>;
+          };
+        }
+      ).__agentNativeWebMcp;
+      if (!helper) throw new Error("WebMCP page helper missing");
+      return helper.call("get-visual-edit-prompt", {});
+    });
+    expect(promptCall).toMatchObject({
+      state: "done",
+      ok: true,
+      tool: "get-visual-edit-prompt",
+      result: {
+        designId,
+        pendingEditCount: 0,
+        status: "empty",
+      },
+    });
   });
 
   test("public /design/:id renders read-only and stays crash-free", async ({
