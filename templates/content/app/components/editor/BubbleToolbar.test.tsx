@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
+import { docToNfm, nfmToDoc } from "@shared/nfm";
+import { BubbleMenuView } from "@tiptap/extension-bubble-menu";
+import type { Transaction } from "@tiptap/pm/state";
 import { Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { act, type ReactNode } from "react";
@@ -13,31 +18,37 @@ import {
   setSelectionNotionSpanAttribute,
   shouldShowBubbleToolbar,
 } from "./BubbleToolbar";
+import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import {
   CompatibleCode,
   NotionInlineAtom,
   NotionSpanMark,
 } from "./extensions/NotionExtensions";
+import {
+  isUserInitiatedCollaborativeEditorUpdate,
+  shouldPersistCollaborativeEditorUpdate,
+} from "./VisualEditor";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@tiptap/react/menus", () => ({
-  BubbleMenu: ({
-    children,
-    className,
-    updateDelay,
-  }: {
-    children: ReactNode;
-    className?: string;
-    updateDelay?: number;
-  }) => (
-    <div className={className} data-update-delay={updateDelay}>
-      {children}
-    </div>
-  ),
-}));
+const menuHarness = vi.hoisted(() => ({ real: false }));
+
+vi.mock("@tiptap/react/menus", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tiptap/react/menus")>();
+  return {
+    ...actual,
+    BubbleMenu: (props: React.ComponentProps<typeof actual.BubbleMenu>) =>
+      menuHarness.real ? (
+        <actual.BubbleMenu {...props} />
+      ) : (
+        <div className={props.className} data-update-delay={props.updateDelay}>
+          {props.children}
+        </div>
+      ),
+  };
+});
 
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
@@ -96,6 +107,244 @@ describe("BubbleToolbar", () => {
     root = null;
     editorElement = null;
     toolbarElement = null;
+  });
+  it("delivers coalesced resize positioning to the real BubbleMenu without changing content or selection and cleans up", () => {
+    menuHarness.real = true;
+    const positionUpdates = vi
+      .spyOn(BubbleMenuView.prototype, "updatePosition")
+      .mockImplementation(() => {});
+    const callbacks: ResizeObserverCallback[] = [];
+    const disconnect = vi.fn();
+    const observe = vi.fn();
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          callbacks.push(callback);
+        }
+        observe = observe;
+        disconnect = disconnect;
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    const cancel = vi.fn((id: number) => frames.delete(id));
+    vi.stubGlobal("cancelAnimationFrame", cancel);
+    try {
+      editorElement = document.createElement("div");
+      toolbarElement = document.createElement("div");
+      document.body.append(editorElement, toolbarElement);
+      editor = new Editor({
+        element: editorElement,
+        extensions: [StarterKit],
+        content: "<p>Italic sample.</p>",
+      });
+      editor.commands.setTextSelection({ from: 1, to: 7 });
+      const content = editor.getJSON();
+      const selection = editor.state.selection.toJSON();
+      root = createRoot(toolbarElement);
+      act(() => root!.render(<BubbleToolbar editor={editor!} />));
+      positionUpdates.mockClear();
+      const transactions: Transaction[] = [];
+      editor.on("transaction", ({ transaction }) =>
+        transactions.push(transaction),
+      );
+      expect(observe).toHaveBeenCalledWith(editor.view.dom);
+      const resize = (width: number) =>
+        callbacks[0]!(
+          [
+            {
+              target: editor!.view.dom,
+              contentRect: new DOMRectReadOnly(0, 0, width, 320),
+              borderBoxSize: [],
+              contentBoxSize: [],
+              devicePixelContentBoxSize: [],
+            },
+          ],
+          {} as ResizeObserver,
+        );
+      act(() => {
+        resize(760);
+        resize(600);
+        resize(600);
+      });
+      expect(frames.size).toBe(1);
+      const flush = () => {
+        const pending = [...frames.values()];
+        frames.clear();
+        act(() => pending.forEach((callback) => callback(0)));
+      };
+      flush();
+      expect(positionUpdates).toHaveBeenCalledTimes(1);
+      expect(transactions).toHaveLength(1);
+      expect(transactions[0]!.docChanged).toBe(false);
+      expect(transactions[0]!.selectionSet).toBe(false);
+      expect(editor.getJSON()).toEqual(content);
+      expect(editor.state.selection.toJSON()).toEqual(selection);
+      act(() => resize(600));
+      expect(frames.size).toBe(0);
+      act(() => resize(590));
+      expect(frames.size).toBe(1);
+      act(() => root!.unmount());
+      root = null;
+      expect(disconnect).toHaveBeenCalledOnce();
+      expect(cancel).toHaveBeenCalledOnce();
+      flush();
+      expect(frames.size).toBe(0);
+      resize(580);
+      expect(frames.size).toBe(0);
+      expect(positionUpdates).toHaveBeenCalledTimes(1);
+    } finally {
+      menuHarness.real = false;
+      positionUpdates.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+  it("layers the toolbar above the block grip and preserves a second-paragraph SVG click selection", () => {
+    const css = readFileSync("app/global.css", "utf8");
+    const style = document.createElement("style");
+    const grip = document.createElement("div");
+    grip.className = "drag-handle";
+    const gripPress = vi.fn();
+    grip.addEventListener("mousedown", gripPress);
+    const rules = ["drag-handle", "bubble-toolbar"].map((name) => {
+      const rule = css.match(new RegExp(`\\.${name} \\{[^}]+\\}`))?.[0];
+      expect(rule).toBeDefined();
+      return rule;
+    });
+    style.textContent = rules.join("\n");
+    document.head.append(style);
+    document.body.append(grip);
+    try {
+      editorElement = document.createElement("div");
+      toolbarElement = document.createElement("div");
+      document.body.append(editorElement, toolbarElement);
+      editor = new Editor({
+        element: editorElement,
+        extensions: [StarterKit],
+        content: "<p>Bold sample.</p><p>Italic sample.</p>",
+      });
+      editor.commands.setTextSelection({ from: 15, to: 21 });
+      editor.view.focus();
+      root = createRoot(toolbarElement);
+      act(() => root!.render(<BubbleToolbar editor={editor!} />));
+      const toolbar =
+        toolbarElement.querySelector<HTMLElement>(".bubble-toolbar")!;
+      expect(Number(getComputedStyle(toolbar).zIndex)).toBeGreaterThan(
+        Number(getComputedStyle(grip).zIndex),
+      );
+      const button = toolbar.querySelector<HTMLButtonElement>(
+        'button[aria-label="editor.italic"]',
+      )!;
+      const icon = button.querySelector("path")!;
+      const press = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        icon.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+        icon.dispatchEvent(press);
+        icon.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        icon.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, detail: 1 }),
+        );
+      });
+      expect(press.defaultPrevented).toBe(true);
+      expect(gripPress).not.toHaveBeenCalled();
+      expect(editor.state.selection.from).toBe(15);
+      expect(editor.state.selection.to).toBe(21);
+      expect(docToNfm(editor.getJSON())).toBe("Bold sample.\n*Italic* sample.");
+    } finally {
+      style.remove();
+      grip.remove();
+    }
+  });
+  it("opens an existing link destination for change and explicit removal", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: '<p><a href="https://example.test/old">Echo</a> sample.</p>',
+    });
+    editor.commands.setTextSelection({ from: 1, to: 5 });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+    act(() =>
+      toolbarElement!
+        .querySelector<HTMLButtonElement>('button[aria-label="editor.link"]')!
+        .click(),
+    );
+    const input = toolbarElement.querySelector<HTMLInputElement>(
+      'input[aria-label="editor.pasteLink"]',
+    )!;
+    expect(input.value).toBe("https://example.test/old");
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "https://example.test/new");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    act(() =>
+      [...toolbarElement!.querySelectorAll("button")]
+        .find((button) => button.textContent === "editor.apply")!
+        .click(),
+    );
+    expect(editor.getAttributes("link").href).toBe("https://example.test/new");
+    act(() =>
+      toolbarElement!
+        .querySelector<HTMLButtonElement>('button[aria-label="editor.link"]')!
+        .click(),
+    );
+    act(() =>
+      [...toolbarElement!.querySelectorAll("button")]
+        .find((button) => button.textContent === "editor.removeLink")!
+        .click(),
+    );
+    expect(editor.isActive("link")).toBe(false);
+    expect(editor.state.doc.textContent).toBe("Echo sample.");
+  });
+  it("adds and removes underline through its visible control before and after NFM reload", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, NotionSpanMark],
+      content: "<p>Echo sample.</p><p>Other paragraph.</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 5 });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+    const button = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.underline"]',
+    );
+    expect(button).not.toBeNull();
+    act(() => button!.click());
+    const marked = docToNfm(editor.state.doc.toJSON());
+    expect(marked).toBe(
+      '<span underline="true">Echo</span> sample.\nOther paragraph.',
+    );
+    act(() => {
+      editor!.commands.setContent(nfmToDoc(marked));
+      editor!.commands.setTextSelection({ from: 1, to: 5 });
+    });
+    act(() => button!.click());
+    expect(docToNfm(editor.state.doc.toJSON())).toBe(
+      "Echo sample.\nOther paragraph.",
+    );
+    act(() => editor!.commands.setUnderline());
+    act(() => button!.click());
+    expect(docToNfm(editor.state.doc.toJSON())).toBe(
+      "Echo sample.\nOther paragraph.",
+    );
   });
 
   it("starts a comment from selected text on Mod+Shift+M", () => {
@@ -201,6 +450,54 @@ describe("BubbleToolbar", () => {
     expect(editor.getHTML()).toContain(
       '<a target="_blank" rel="noopener noreferrer nofollow" href="https://www.builder.io/">Builder</a>',
     );
+  });
+
+  it("makes an unfocused link removal persistable through exact transaction provenance", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: '<p><a href="https://example.com/second">Link</a> sample.</p>',
+    });
+    editor.commands.setTextSelection({ from: 1, to: 5 });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    act(() => {
+      toolbarElement!
+        .querySelector<HTMLButtonElement>('button[aria-label="editor.link"]')!
+        .click();
+    });
+    const input = toolbarElement.querySelector<HTMLInputElement>(
+      'input[aria-label="editor.pasteLink"]',
+    )!;
+    expect(document.activeElement).toBe(input);
+
+    let persistenceAllowed = false;
+    editor.on("update", ({ editor: updatedEditor, transaction }) => {
+      const editorFocused = updatedEditor.isFocused;
+      const userInitiated = isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused,
+        explicitUserEdit:
+          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
+        recentUserEditIntent: false,
+        transactionUiEvent: transaction.getMeta("uiEvent"),
+      });
+      persistenceAllowed = shouldPersistCollaborativeEditorUpdate({
+        collab: true,
+        editorFocused,
+        userInitiated,
+      });
+    });
+    const removeButton = [...toolbarElement.querySelectorAll("button")].find(
+      (button) => button.textContent === "editor.removeLink",
+    )!;
+    act(() => removeButton.click());
+
+    expect(editor.getHTML()).not.toContain("href=");
+    expect(persistenceAllowed).toBe(true);
   });
 
   it("opens the link input on pointer-down before the menu can reconcile", () => {

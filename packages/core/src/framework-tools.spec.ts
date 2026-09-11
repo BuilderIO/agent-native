@@ -157,6 +157,16 @@ describe("isFrameworkGroupedAction", () => {
 });
 
 describe("group membership resolves by name, not only by tag", () => {
+  it("keeps suggestion amendments in the review group", () => {
+    expect(CORE_ACTION_GROUPS["update-resource-suggestion"]).toBe("review");
+    expect(
+      filterFrameworkToolGroups(
+        { "update-resource-suggestion": {} },
+        new Set<FrameworkToolGroup>(["review"]),
+      ),
+    ).toEqual({});
+  });
+
   // The guard this file was missing. Every test above stamped `frameworkGroup`
   // by hand, so the filter looked correct while the tag was reaching almost no
   // real registry: it is written only by `mergeCoreSharingActions`, which runs

@@ -56,6 +56,10 @@ test("previews the docs site for app changes but skips prose and hidden template
     [],
   );
   assert.deepEqual(previewSitesForChangedPaths(["templates/crm/app.tsx"]), []);
+  assert.deepEqual(
+    previewSitesForChangedPaths(["templates/factory/app.tsx"]),
+    [],
+  );
   assert.deepEqual(previewSitesForChangedPaths(["docs/netlify.md"]), []);
 });
 

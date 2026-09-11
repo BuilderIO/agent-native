@@ -128,6 +128,24 @@ export interface GitHubComment {
   htmlUrl: string;
 }
 
+export interface GitHubIssueCommentObservation {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  htmlUrl: string;
+}
+
+/**
+ * `truncated` is a cannot-confirm marker, not a hint. A capped page proves
+ * nothing about a body it did not return, so a caller asking "have we already
+ * posted this?" must refuse rather than read a short list as "no".
+ */
+export interface GitHubIssueCommentPage {
+  comments: readonly GitHubIssueCommentObservation[];
+  truncated: boolean;
+}
+
 export class GitHubRequestError extends Error {
   constructor(
     message: string,
@@ -178,6 +196,7 @@ export interface GitHubOpenItemPage<T> {
 }
 
 const MAX_REVIEW_PAGES = 5;
+const MAX_ISSUE_COMMENT_PAGES = 5;
 
 interface JsonResponse {
   ok: boolean;
@@ -339,6 +358,20 @@ function parseReviewComment(value: unknown): ReviewCommentObservation {
         : undefined,
     line: typeof line === "number" && Number.isFinite(line) ? line : undefined,
     createdAt: requiredString(item.created_at, "review comment created time"),
+  };
+}
+
+function parseIssueComment(value: unknown): GitHubIssueCommentObservation {
+  const item = record(value);
+  return {
+    id: String(requiredNumber(item.id, "issue comment id")),
+    author: loginFromUser(item.user, "issue comment"),
+    body:
+      typeof item.body === "string"
+        ? item.body
+        : requiredString(item.body, "issue comment body"),
+    createdAt: requiredString(item.created_at, "issue comment created time"),
+    htmlUrl: requiredString(item.html_url, "issue comment URL"),
   };
 }
 
@@ -647,6 +680,29 @@ export function createGitHubClient(options: GitHubClientOptions) {
         comments,
         commentsTruncated: comments.length >= MAX_PAGE_SIZE,
       };
+    },
+
+    async listIssueComments(
+      repository: GitHubRepositoryRef,
+      issueNumber: number,
+    ): Promise<GitHubIssueCommentPage> {
+      if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+        throw new Error("GitHub issue number must be a positive integer");
+      }
+      const comments: GitHubIssueCommentObservation[] = [];
+      let truncated = false;
+      for (let page = 1; page <= MAX_ISSUE_COMMENT_PAGES; page += 1) {
+        const payload = requireArray(
+          await request<unknown>(
+            `${repositoryPath(repository)}/issues/${issueNumber}/comments?per_page=${pageSize()}&page=${page}`,
+          ),
+          "issue comment",
+        );
+        comments.push(...payload.map(parseIssueComment));
+        if (payload.length < MAX_PAGE_SIZE) break;
+        if (page === MAX_ISSUE_COMMENT_PAGES) truncated = true;
+      }
+      return { comments, truncated };
     },
 
     async getPullRequestEvidence(
