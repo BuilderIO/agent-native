@@ -2761,8 +2761,14 @@ export async function startDesignConnectBridge(
               previewSessionCookies,
             );
             const contentType = proxied.headers.get("content-type") ?? "";
+            // A frame navigating to the app's own routes is a document too:
+            // without the bridge injection here, a redirect or home link
+            // inside a visual-edit frame would silently drop live editing.
+            const navigationDest = readHeader(req, "sec-fetch-dest");
             const documentNavigation =
-              readHeader(req, "sec-fetch-dest") === "document";
+              navigationDest === "document" ||
+              navigationDest === "iframe" ||
+              navigationDest === "frame";
             const responseBody =
               documentNavigation && contentType.includes("html")
                 ? Buffer.from(

@@ -1109,7 +1109,11 @@ describe("design connect bridge endpoints", () => {
       });
       expect(framed.status).toBe(200);
       expect(framed.headers.get("content-type") ?? "").toContain("text/html");
-      expect(await framed.text()).toContain("app root");
+      const framedHtml = await framed.text();
+      expect(framedHtml).toContain("app root");
+      // The frame keeps live editing after navigating: the proxy must inject
+      // the bridge into iframe navigations, not only top-level documents.
+      expect(framedHtml).toContain("data-agent-native-live-edit-location");
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
