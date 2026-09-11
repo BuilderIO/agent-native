@@ -27,6 +27,23 @@ describe("extractLayerPosition", () => {
       ),
     ).toEqual({ x: 12, y: 18 });
   });
+
+  it("does not apply an authored translation twice when positioning a clone", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="source" style="position:absolute;left:40px;top:120px;transform:translate(16px, 24px) rotate(2deg)">Source</div>',
+      ],
+      { positions: [{ x: 66, y: 154 }] },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect((clone as HTMLElement).style.left).toBe("50px");
+    expect((clone as HTMLElement).style.top).toBe("130px");
+    expect((clone as HTMLElement).style.transform).toBe(
+      "translate(16px, 24px) rotate(2deg)",
+    );
+  });
 });
 
 function parseFragment(html: string): Element {
