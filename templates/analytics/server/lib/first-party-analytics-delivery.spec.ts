@@ -70,6 +70,7 @@ describe("BigQuery delivery queue", () => {
     const db = {
       execute: vi
         .fn()
+        .mockResolvedValueOnce({ rowsAffected: 0 })
         .mockResolvedValueOnce({ rows: [eventRow] })
         .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({ rowsAffected: 1 })
@@ -123,6 +124,7 @@ describe("BigQuery delivery queue", () => {
     const db = {
       execute: vi
         .fn()
+        .mockResolvedValueOnce({ rowsAffected: 0 })
         .mockResolvedValueOnce({ rows: [eventRow] })
         .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({ rowsAffected: 1 })

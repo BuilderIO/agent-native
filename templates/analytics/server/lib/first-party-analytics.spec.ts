@@ -22,6 +22,8 @@ const exceptionMocks = vi.hoisted(() => ({
 }));
 const deliveryMocks = vi.hoisted(() => ({
   queueMissing: vi.fn(),
+  fallbackKey: (eventId: string) =>
+    `first-party-analytics-bigquery-fallback:${eventId}`,
 }));
 const analyticsDbMocks = vi.hoisted(() => {
   const getDb = vi.fn();
@@ -31,6 +33,7 @@ const analyticsDbMocks = vi.hoisted(() => {
   const updateWhere = vi.fn();
   const updateReturning = vi.fn();
   const db: Record<string, any> = {};
+  db.execute = vi.fn();
   db.transaction = vi.fn(async (callback: (transaction: unknown) => unknown) =>
     callback(db),
   );
@@ -61,6 +64,7 @@ const analyticsDbMocks = vi.hoisted(() => {
     insertOnConflictDoNothing,
     updateWhere,
     updateReturning,
+    transactionExecute: db.execute,
     db,
   };
 });
@@ -86,6 +90,7 @@ vi.mock("./first-party-analytics-health.js", () => ({
   recordFirstPartyAnalyticsQueryPressure: healthMocks.record,
 }));
 vi.mock("./first-party-analytics-delivery.js", () => ({
+  firstPartyAnalyticsDeliveryFallbackKey: deliveryMocks.fallbackKey,
   isFirstPartyAnalyticsDeliveryQueueMissingError: deliveryMocks.queueMissing,
 }));
 vi.mock("./first-party-analytics-backend.js", () => ({
@@ -111,6 +116,7 @@ beforeEach(() => {
   analyticsDbMocks.getDb.mockReset();
   analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
   analyticsDbMocks.db.transaction.mockClear();
+  analyticsDbMocks.transactionExecute.mockReset();
   analyticsDbMocks.selectLimit.mockReset();
   analyticsDbMocks.insertValues.mockReset();
   analyticsDbMocks.insertOnConflictDoNothing.mockReset();
@@ -419,6 +425,7 @@ describe("recordAnalyticsEvents", () => {
 
     expect(analyticsDbMocks.db.transaction).toHaveBeenCalledTimes(2);
     expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
+    expect(analyticsDbMocks.transactionExecute).toHaveBeenCalledOnce();
     expect(backendMocks.insert).toHaveBeenCalledWith(
       [expect.objectContaining({ eventName: "pageview" })],
       "builder-3b0a2.analytics.first_party_analytics_events_raw",

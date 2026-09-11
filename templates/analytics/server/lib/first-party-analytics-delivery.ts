@@ -17,6 +17,14 @@ const DELIVERY_RETRY_BASE_MS = 60 * 1000;
 const DELIVERY_RETRY_MAX_MS = 60 * 60 * 1000;
 const DELIVERY_CLEANUP_RETENTION_MS = 10 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_STALE_MS = 10 * 60 * 1000;
+export const FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX =
+  "first-party-analytics-bigquery-fallback:";
+
+export function firstPartyAnalyticsDeliveryFallbackKey(
+  eventId: string,
+): string {
+  return `${FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX}${eventId}`;
+}
 
 type Query =
   | string
@@ -302,6 +310,50 @@ async function claimPendingDeliveryRows(
   });
 }
 
+async function reconcileMigrationFallbackRows(
+  db: Executor,
+  now: string,
+): Promise<void> {
+  await db.execute({
+    sql: `WITH fallback AS (
+             SELECT key, value::jsonb AS metadata
+               FROM settings
+              WHERE key LIKE $1 || '%'
+              ORDER BY updated_at ASC, key ASC
+              LIMIT $2
+           )
+           INSERT INTO ${DELIVERY_TABLE} (
+             event_id, owner_email, org_id, table_ref,
+             next_attempt_at, created_at, updated_at
+           )
+           SELECT substring(fallback.key FROM char_length($1) + 1),
+                  event.owner_email,
+                  event.org_id,
+                  fallback.metadata ->> 'tableRef',
+                  COALESCE(NULLIF(fallback.metadata ->> 'receivedAt', ''), event.received_at, $3),
+                  COALESCE(NULLIF(fallback.metadata ->> 'receivedAt', ''), event.received_at, $3),
+                  $3
+             FROM fallback
+             JOIN analytics_events AS event
+               ON event.id = substring(fallback.key FROM char_length($1) + 1)
+            WHERE event.owner_email = fallback.metadata ->> 'ownerEmail'
+              AND event.org_id IS NOT DISTINCT FROM NULLIF(fallback.metadata ->> 'orgId', '')
+              AND NOT EXISTS (
+                SELECT 1
+                  FROM ${DELIVERY_TABLE} AS queued
+                 WHERE queued.event_id = event.id
+              )
+           ON CONFLICT (event_id) DO NOTHING`,
+    args: [
+      FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX,
+      DELIVERY_BATCH_SIZE,
+      now,
+    ],
+    timeoutMs: 10_000,
+    maxAttempts: 1,
+  });
+}
+
 async function hydrateDeliveryRows(
   db: Executor,
   rows: DeliveryQueueRow[],
@@ -477,6 +529,13 @@ async function cleanupDeliveredRows(db: Executor): Promise<number> {
       timeoutMs: 5_000,
       maxAttempts: 1,
     });
+    await tx.execute({
+      sql: `DELETE FROM settings
+             WHERE key IN (${idPlaceholders(1, ids.length)})`,
+      args: ids.map(firstPartyAnalyticsDeliveryFallbackKey),
+      timeoutMs: 5_000,
+      maxAttempts: 1,
+    });
     const deleted = await tx.execute({
       sql: `DELETE FROM ${DELIVERY_TABLE}
              WHERE delivered_at IS NOT NULL
@@ -509,6 +568,7 @@ export async function runFirstPartyAnalyticsBigQueryDeliveryOnce(): Promise<Firs
   }
 
   const db = executor();
+  await reconcileMigrationFallbackRows(db, new Date().toISOString());
   let batches = 0;
   let delivered = 0;
   let retryScheduled = false;

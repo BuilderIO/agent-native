@@ -1,6 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { getDb, schema } from "../db/index.js";
@@ -21,7 +21,10 @@ import {
   firstPartyCacheKey,
   withFirstPartyCache,
 } from "./first-party-analytics-cache.js";
-import { isFirstPartyAnalyticsDeliveryQueueMissingError } from "./first-party-analytics-delivery.js";
+import {
+  firstPartyAnalyticsDeliveryFallbackKey,
+  isFirstPartyAnalyticsDeliveryQueueMissingError,
+} from "./first-party-analytics-delivery.js";
 import {
   classifyFirstPartyAnalyticsQuery,
   queryOutcomeFromError,
@@ -147,6 +150,19 @@ async function persistBigQueryRowsWithMigrationFallback(
     );
     await db.transaction(async (tx: any) => {
       await tx.insert(schema.analyticsEvents).values(rows);
+      const marker = JSON.stringify({
+        ownerEmail: scope.userEmail,
+        orgId: scope.orgId,
+        tableRef: table,
+        receivedAt,
+      });
+      for (const row of rows) {
+        await tx.execute(
+          sql`INSERT INTO settings (key, value, updated_at)
+              VALUES (${firstPartyAnalyticsDeliveryFallbackKey(row.id)}, ${marker}, ${Date.now()})
+              ON CONFLICT (key) DO NOTHING`,
+        );
+      }
     });
     try {
       await runWithRequestContext(
