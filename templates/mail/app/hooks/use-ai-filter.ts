@@ -6,6 +6,9 @@ import type {
 } from "@shared/ai-filter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
+import { invalidateInboxThreads } from "@/hooks/use-inbox-threads";
+
 export function useAiFilter() {
   const changeVersion = useChangeVersions(["settings", "action"]);
   return useQuery<AiFilterState>({
@@ -36,7 +39,8 @@ export function useManageAiFilter() {
       void queryClient.invalidateQueries({ queryKey: ["ai-filter"] });
       void queryClient.invalidateQueries({ queryKey: ["automations"] });
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
-      void queryClient.invalidateQueries({ queryKey: ["labels"] });
+      void queryClient.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      void invalidateInboxThreads(queryClient);
     },
   });
 }
