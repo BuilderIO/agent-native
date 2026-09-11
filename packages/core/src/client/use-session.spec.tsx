@@ -77,6 +77,11 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  // The session cache is module state keyed on Date.now(), and fake timers
+  // advance Date.now() inside a test. Without an explicit reset, a test that
+  // advances further than the per-test clock bump leaves a cache the next test
+  // reads as fresh, and that test silently never fetches.
+  notifySessionInvalidated();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -215,7 +220,12 @@ describe("useSession", () => {
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(true);
   });
 
-  it("stops retrying and reports unavailable when the endpoint keeps failing", async () => {
+  it("keeps retrying an instantly-failing endpoint for the whole time budget", async () => {
+    // The reported Analytics failure: the session endpoint answered 503 with no
+    // latency (cold database, deploy swap, pool blip), so an attempt-counted
+    // loop spent its whole budget in ~6s and told a signed-in visitor the
+    // server was unreachable. Patience must be measured in wall-clock time, so
+    // a fast failure is no less patient than a hung one.
     vi.useFakeTimers();
     const failingFetch = vi.fn(async () => new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", failingFetch);
@@ -227,13 +237,123 @@ describe("useSession", () => {
     expect(container.textContent).toBe("loading");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    // Still trying 20s in, where the old attempt-counted loop had long given up.
+    expect(container.textContent).toBe("loading");
+    expect(failingFetch.mock.calls.length).toBeGreaterThan(4);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
     });
 
     expect(container.textContent).toBe("unavailable");
-    expect(failingFetch).toHaveBeenCalledTimes(4);
     // An unreadable endpoint must never be reported as a signed-out visitor.
     expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
+  });
+
+  it("reports unavailable at the budget boundary, not after the request's own timeout", async () => {
+    // Build up elapsed time with fast failures until an attempt starts right
+    // before the 30s budget expires, then hang that read. It must not be
+    // allowed to run for its own full 15s request timeout on top of that,
+    // which would leave the gate on "loading" until ~42.5s instead of ~30s.
+    vi.useFakeTimers();
+    let callCount = 0;
+    const fetchMock = vi.fn(() => {
+      callCount += 1;
+      if (callCount < 9) {
+        return Promise.resolve(new Response(null, { status: 503 }));
+      }
+      return new Promise<Response>(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toBe("loading");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(35_000);
+    });
+
+    expect(container.textContent).toBe("unavailable");
+  });
+
+  it("issues a fresh request on retry instead of reusing the timed-out shared read", async () => {
+    // Build up elapsed time with fast failures until an attempt starts right
+    // before the 30s budget expires, then hang that one specific call: its
+    // own Promise will never resolve, no matter what the mock does later. A
+    // fix that reused it would stay on "unavailable"/"loading" forever; only
+    // a brand new fetch call (from the auto re-ask this invalidation
+    // triggers, or from a manual retry) can ever reach "authenticated" below.
+    vi.useFakeTimers();
+    let callCount = 0;
+    const fetchMock = vi.fn(() => {
+      callCount += 1;
+      if (callCount < 9) {
+        return Promise.resolve(new Response(null, { status: 503 }));
+      }
+      if (callCount === 9) return new Promise<Response>(() => {});
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            userId: "user-retry",
+            email: "retry-fresh@example.com",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RetryConsumer />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(35_000);
+    });
+
+    expect(container.querySelector('[data-testid="status"]')?.textContent).toBe(
+      "authenticated",
+    );
+  });
+
+  it("recovers on its own when a cold backend comes back mid-budget", async () => {
+    // A backend that fails fast for 10s and then answers must never reach the
+    // notice: the visitor should see the app, not a retry screen.
+    vi.useFakeTimers();
+    let elapsed = 0;
+    const fetchMock = vi.fn(async () => {
+      if (elapsed < 10_000) return new Response(null, { status: 503 });
+      return new Response(
+        JSON.stringify({
+          userId: "user-cold-start",
+          email: "cold-start@example.com",
+          name: "Cold Start",
+          orgId: "org-cold-start",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await Promise.resolve();
+    });
+
+    while (elapsed < 25_000 && container.textContent === "loading") {
+      await act(async () => {
+        elapsed += 500;
+        await vi.advanceTimersByTimeAsync(500);
+      });
+    }
+
+    expect(container.textContent).toBe("authenticated");
   });
 
   it("keeps legacy isLoading consumers from misreading unavailable as signed-out", async () => {
@@ -249,19 +369,18 @@ describe("useSession", () => {
     });
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(40_000);
     });
 
-    expect(failingFetch).toHaveBeenCalledTimes(4);
+    expect(failingFetch.mock.calls.length).toBeGreaterThan(4);
     expect(container.textContent).toBe("loading");
   });
 
   it("retries successfully after the unavailable notice is shown", async () => {
     vi.useFakeTimers();
-    let attempts = 0;
+    let recovered = false;
     const fetchMock = vi.fn(async () => {
-      attempts += 1;
-      if (attempts < 5) return new Response(null, { status: 503 });
+      if (!recovered) return new Response(null, { status: 503 });
       return new Response(
         JSON.stringify({
           userId: "user-recovered",
@@ -280,20 +399,19 @@ describe("useSession", () => {
     });
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(40_000);
     });
 
     expect(container.querySelector('[data-testid="status"]')?.textContent).toBe(
       "unavailable",
     );
-    expect(fetchMock).toHaveBeenCalledTimes(4);
 
+    recovered = true;
     await act(async () => {
       container.querySelector<HTMLButtonElement>("button")?.click();
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(container.querySelector('[data-testid="status"]')?.textContent).toBe(
       "authenticated",
     );
