@@ -1,6 +1,12 @@
+import { chromium } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
+
+type BridgeMessage = {
+  type?: string;
+  payload?: { provenance?: { method?: string; [key: string]: unknown } };
+};
 
 /**
  * Exercises the REAL `frameworkDebugProvenance` shipped inside
@@ -32,9 +38,10 @@ interface FrameworkDebugProvenance {
     | "data-attribute"
     | "debug-source"
     | "debug-stack"
+    | "debug-stack-remapped"
     | "vue-inspector"
     | "svelte-meta";
-  ownerMethod?: "debug-source" | "debug-stack";
+  ownerMethod?: "debug-source" | "debug-stack" | "debug-stack-remapped";
   unavailableReason?: "not-framework" | "no-debug-info";
 }
 
@@ -93,6 +100,20 @@ function viteStack(frame: string): { stack: string } {
       "    at renderWithHooks (http://localhost:8220/node_modules/.vite/deps/react-dom_client.js?v=712ea63d:4213:19)",
     ].join("\n"),
   };
+}
+
+function hydratedBridgeScript(): string {
+  return editorChromeBridgeScript
+    .replace("__READ_ONLY__", "false")
+    .replace("__TEXT_EDITING_ENABLED__", "false")
+    .replace("__EDITOR_CHROME_SCALE_X__", "1")
+    .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("provenance"))
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
 /** Host fiber for a <button> inside Card, rendered by a <Card> in App.jsx. */
@@ -197,6 +218,157 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
       column: 32,
     });
   });
+
+  it("derives a component name from an anonymous frame's source basename", () => {
+    const provenance = frameworkDebugProvenance(
+      elementWithFiber({
+        type: () => null,
+        key: null,
+        _debugStack: viteStack(
+          "    at http://localhost:8220/src/AnonymousWidget.tsx:7:9",
+        ),
+        return: null,
+      }),
+    );
+
+    expect(provenance).toMatchObject({
+      sourceFile: "src/AnonymousWidget.tsx",
+      component: "AnonymousWidget",
+    });
+  });
+
+  it("never borrows an ancestor frame when the leaf stack has only noise", () => {
+    const provenance = frameworkDebugProvenance(
+      elementWithFiber({
+        type: "h1",
+        key: null,
+        _debugStack: viteStack(
+          "    at exports.createElement (http://localhost:8220/node_modules/.vite/deps/react.js:20:1)",
+        ),
+        return: {
+          type: Card,
+          key: null,
+          _debugStack: viteStack(
+            "    at MarketingHome (http://localhost:8220/src/MarketingHome.tsx:163:41)",
+          ),
+          return: null,
+        },
+      }),
+    );
+
+    expect(provenance).toEqual({
+      framework: "react",
+      unavailableReason: "no-debug-info",
+    });
+  });
+
+  it("keeps a local Vite /@fs dist frame available for source-map remapping", () => {
+    const provenance = frameworkDebugProvenance(
+      elementWithFiber({
+        type: "h1",
+        key: null,
+        _debugStack: viteStack(
+          "    at AuthPage (http://localhost:8220/@fs/Users/dev/app/packages/core/dist/client/auth/AuthPage.js:1810:15)",
+        ),
+        return: null,
+      }),
+    );
+
+    expect(provenance).toMatchObject({
+      framework: "react",
+      sourceFile: "/Users/dev/app/packages/core/dist/client/auth/AuthPage.js",
+      line: 1810,
+      column: 15,
+      method: "debug-stack",
+    });
+  });
+
+  it(
+    "remaps a transformed local Vite frame through the served module sourcemap",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html><body>
+          <div id="target" style="width:160px;height:80px">Welcome</div>
+          <script>window.__bridgeMessages = [];
+            window.addEventListener("message", (event) => {
+              window.__bridgeMessages.push(event.data);
+            });
+          </script>
+        </body></html>`);
+        await page.route(
+          "http://localhost:8220/@fs/Users/dev/app/packages/core/dist/client/auth/AuthPage.js.map",
+          (route) =>
+            route.fulfill({
+              contentType: "application/json",
+              headers: { "access-control-allow-origin": "*" },
+              body: JSON.stringify({
+                version: 3,
+                file: "AuthPage.js",
+                sources: ["../../../src/client/auth/AuthPage.tsx"],
+                names: [],
+                mappings: "AAAA",
+              }),
+            }),
+        );
+        await page.evaluate(() => {
+          const target = document.getElementById("target") as HTMLElement;
+          (target as unknown as Record<string, unknown>)[
+            "__reactFiber$provenance"
+          ] = {
+            type: "h1",
+            key: null,
+            _debugStack: {
+              stack: [
+                "Error: react-stack-top-frame",
+                "    at AuthPage (http://localhost:8220/@fs/Users/dev/app/packages/core/dist/client/auth/AuthPage.js:1:1)",
+              ].join("\n"),
+            },
+            return: null,
+          };
+        });
+        await page.addScriptTag({ content: hydratedBridgeScript() });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await page.mouse.click(80, 40);
+        await page.waitForFunction(
+          () =>
+            (
+              (window as unknown as { __bridgeMessages?: BridgeMessage[] })
+                .__bridgeMessages ?? []
+            ).some(
+              (message) =>
+                message?.type === "element-select" &&
+                message?.payload?.provenance?.method === "debug-stack-remapped",
+            ),
+          undefined,
+          { timeout: 5_000 },
+        );
+
+        const selection = await page.evaluate(() =>
+          (
+            (window as unknown as { __bridgeMessages?: BridgeMessage[] })
+              .__bridgeMessages ?? []
+          )
+            .map((message) => message?.payload?.provenance)
+            .find(
+              (provenance) => provenance?.method === "debug-stack-remapped",
+            ),
+        );
+        expect(selection).toMatchObject({
+          sourceFile:
+            "/Users/dev/app/packages/core/src/client/auth/AuthPage.tsx",
+          line: 1,
+          column: 1,
+          method: "debug-stack-remapped",
+          component: "AuthPage",
+        });
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 
   it("separates a directly-authored instance from .map() siblings by owner line and ownerKey", () => {
     const direct = frameworkDebugProvenance(mappedCardButton(null));

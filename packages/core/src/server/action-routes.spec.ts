@@ -3069,6 +3069,72 @@ describe("mountWebMcpActionRoutes", () => {
     expect(privateRun).not.toHaveBeenCalled();
   });
 
+  it("filters signed-out WebMCP actions to the matching capability scope", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthorized"), {
+      statusCode: 401,
+    });
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "visual-edit": {
+          tool: { description: "Visual edit", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["visual-edit"],
+        } as any,
+        "other-capability": {
+          tool: { description: "Other capability", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["other"],
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "visual-edit",
+        title: "Visual edit",
+        description: "Visual edit",
+        inputSchema: {},
+        readOnly: false,
+      },
+    ]);
+
+    const otherRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/other-capability",
+    );
+    await expect(
+      otherRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+  });
+
   it("does not treat a synthetic anonymous owner as authenticated", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

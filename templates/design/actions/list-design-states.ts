@@ -38,6 +38,7 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   run: async ({ designId, kind, sourceRef }) => {
     const db = getDb();

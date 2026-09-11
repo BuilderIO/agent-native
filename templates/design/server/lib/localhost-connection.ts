@@ -25,14 +25,17 @@
 
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
+  getRequestAuthCapability,
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
 const CONNECT_HINT = "npx @agent-native/core@latest design connect";
+const VISUAL_EDIT_CAPABILITY_PREFIX = "capability:visual-edit:design:";
 
 export interface LocalhostConnectionScope {
   ownerEmail: string;
@@ -40,16 +43,57 @@ export interface LocalhostConnectionScope {
 }
 
 /** Owner + org partition for connection and write-grant rows. */
-export async function resolveLocalhostConnectionScope(): Promise<LocalhostConnectionScope> {
+export async function resolveLocalhostConnectionScope(options?: {
+  designId?: string;
+}): Promise<LocalhostConnectionScope> {
   const ownerEmail = getRequestUserEmail();
-  if (!ownerEmail) throw new Error("no authenticated user");
-  const requestOrgId = getRequestOrgId();
+  if (ownerEmail) {
+    const requestOrgId = getRequestOrgId();
+    return {
+      ownerEmail,
+      // resolveOrgIdForEmail honors an explicit Personal selection, so this
+      // cannot promote a caller into an org they left.
+      orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
+    };
+  }
+
+  const capability = getRequestAuthCapability();
+  const designId = options?.designId;
+  if (
+    !designId ||
+    !capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) ||
+    decodeCapabilityDesignId(capability) !== designId
+  ) {
+    throw new Error("no authenticated user");
+  }
+
+  const access = await resolveAccess("design", designId);
+  const resource = access?.resource as
+    | { ownerEmail?: unknown; orgId?: unknown }
+    | undefined;
+  if (
+    !access ||
+    access.role !== "editor" ||
+    typeof resource?.ownerEmail !== "string" ||
+    !resource.ownerEmail
+  ) {
+    throw new Error("visual-edit capability is not valid for this design");
+  }
+
   return {
-    ownerEmail,
-    // resolveOrgIdForEmail honors an explicit Personal selection, so this
-    // cannot promote a caller into an org they left.
-    orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
+    ownerEmail: resource.ownerEmail,
+    orgId: typeof resource.orgId === "string" ? resource.orgId : null,
   };
+}
+
+function decodeCapabilityDesignId(capability: string): string | null {
+  try {
+    const encoded = capability.slice(VISUAL_EDIT_CAPABILITY_PREFIX.length);
+    return encoded ? decodeURIComponent(encoded) : null;
+  } catch {
+    // coercion-ok: malformed capability tokens are invalid
+    return null;
+  }
 }
 
 export type LocalhostConnectionErrorCode =

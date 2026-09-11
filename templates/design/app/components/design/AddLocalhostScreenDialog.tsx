@@ -9,7 +9,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type ViewportChoice = "desktop" | "mobile";
@@ -73,19 +80,41 @@ export function AddLocalhostScreenDialog({
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [viewport, setViewport] = useState<ViewportChoice>("desktop");
+  const [selectedConnectionId, setSelectedConnectionId] = useState(
+    connectionId ?? "",
+  );
 
   const { data: connectionResult } = useActionQuery<{
     connections?: Array<{
       id: string;
+      name?: string | null;
+      devServerUrl?: string | null;
       routes?: Array<{ path: string; title?: string }>;
     }>;
-  }>("list-localhost-connections", connectionId ? { id: connectionId } : {}, {
-    enabled: open && Boolean(connectionId),
-  });
+  }>(
+    "list-localhost-connections",
+    { designId, ...(connectionId ? { id: connectionId } : {}) },
+    { enabled: open },
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    if (connectionId) {
+      setSelectedConnectionId(connectionId);
+      return;
+    }
+    const connections = connectionResult?.connections ?? [];
+    if (connections.length === 1) {
+      setSelectedConnectionId(connections[0]?.id ?? "");
+    }
+  }, [connectionId, connectionResult?.connections, open]);
+
+  const effectiveConnectionId = connectionId || selectedConnectionId;
+  const availableConnections = connectionResult?.connections ?? [];
 
   const routes = useMemo<LocalhostRouteOption[]>(() => {
     const manifestRoutes = connectionResult?.connections?.find(
-      (connection) => connection.id === connectionId,
+      (connection) => connection.id === effectiveConnectionId,
     )?.routes;
     if (manifestRoutes && manifestRoutes.length > 0) {
       return manifestRoutes.map((route) => ({
@@ -94,7 +123,7 @@ export function AddLocalhostScreenDialog({
       }));
     }
     return (fallbackPaths ?? []).map((path) => ({ path }));
-  }, [connectionId, connectionResult, fallbackPaths]);
+  }, [connectionResult, effectiveConnectionId, fallbackPaths]);
 
   const filteredRoutes = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -113,12 +142,12 @@ export function AddLocalhostScreenDialog({
   const addScreensMutation = useActionMutation("add-localhost-screens");
 
   const handleAdd = (path: string) => {
-    if (addScreensMutation.isPending) return;
+    if (addScreensMutation.isPending || !effectiveConnectionId) return;
     const { width, height } = VIEWPORT_SIZES[viewport];
     addScreensMutation.mutate(
       {
         designId,
-        connectionId,
+        connectionId: effectiveConnectionId,
         routes: [
           { path, width, height, x: position?.x ?? 0, y: position?.y ?? 0 },
         ],
@@ -182,6 +211,35 @@ export function AddLocalhostScreenDialog({
             {t("designEditor.addLocalhostScreen.viewportMobile")}
           </Button>
         </div>
+        {availableConnections.length > 1 && !connectionId ? (
+          <div className="px-4 pt-2">
+            <Select
+              value={selectedConnectionId}
+              onValueChange={setSelectedConnectionId}
+            >
+              <SelectTrigger className="h-8 w-full text-xs">
+                <SelectValue
+                  placeholder={
+                    "Choose local app" /* i18n-ignore design screen source placeholder */
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {availableConnections.map((connection) => (
+                  <SelectItem
+                    key={connection.id}
+                    value={connection.id}
+                    className="text-xs"
+                  >
+                    {connection.name ||
+                      connection.devServerUrl ||
+                      connection.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
         <Command shouldFilter={false} className="mt-2 rounded-none border-t">
           <CommandInput
             value={search}
