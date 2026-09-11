@@ -67,7 +67,19 @@ describe("runScript package actions", () => {
       path.join(tmpDir, "actions", "run.ts"),
       `
         import { writeFileSync } from "node:fs";
+        import { registerFileUploadProvider } from ${JSON.stringify(pathToFileURL(fileUploadIndex).href)};
         import { runScript } from ${JSON.stringify(pathToFileURL(runnerSource).href)};
+
+        // A template registers its own provider from its actions/run.ts, the
+        // way its Nitro plugin does on a server.
+        if (process.env.FIXTURE_APP_UPLOAD_PROVIDER) {
+          registerFileUploadProvider({
+            id: "s3",
+            name: "Fixture app storage",
+            isConfigured: () => true,
+            upload: async () => ({ url: "https://app.example/a", provider: "s3" }),
+          });
+        }
 
         runScript({
           packageActionLabel: "Fixture package actions",
@@ -112,7 +124,10 @@ describe("runScript package actions", () => {
                 const provider = await getActiveFileUploadProviderForRequest();
                 writeFileSync(
                   "package-upload.json",
-                  JSON.stringify({ provider: provider?.id ?? null }),
+                  JSON.stringify({
+                    name: provider?.name ?? null,
+                    provider: provider?.id ?? null,
+                  }),
                 );
                 return "upload-ok";
               },
@@ -241,7 +256,36 @@ describe("runScript package actions", () => {
       JSON.parse(
         fs.readFileSync(path.join(tmpDir, "package-upload.json"), "utf8"),
       ),
-    ).toEqual({ provider: "s3" });
+    ).toEqual({ name: "S3-compatible object storage", provider: "s3" });
+  }, 40_000);
+
+  // Claiming the slot for CLI runs must not take it from an app that holds the
+  // same conventional id with its own configuration rules — a template whose
+  // provider accepts a setup the framework's rejects would otherwise resolve
+  // nothing from `pnpm action` even though its own storage is configured.
+  it("leaves an app's own provider in place for a CLI run", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-upload"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+          FIXTURE_APP_UPLOAD_PROVIDER: "1",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.stdout).toContain("upload-ok");
+    expect(result.status).toBe(0);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-upload.json"), "utf8"),
+      ),
+    ).toEqual({ name: "Fixture app storage", provider: "s3" });
   }, 40_000);
 
   it("marks a signed-out local action invocation as CLI without inventing an account user", () => {
