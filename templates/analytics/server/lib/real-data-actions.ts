@@ -221,6 +221,9 @@ const DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_CREATION_TERMS =
 const DASHBOARD_REFRESH_JOB_AUTOMATION_TERMS =
   /\b(?:create|make|build|set up|setup|configure|add|schedule)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\s+refresh\s+(?:job|schedule)\b/i;
 
+const DASHBOARD_GENERIC_SCHEDULE_AUTOMATION_TERMS =
+  /\b(?:create|make|set up|setup|add|configure|define)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:schedule|schedules|scheduling)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b|\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:schedule|schedules|scheduling)\b)/i;
+
 const DASHBOARD_DASHBOARD_SCHEDULED_REFRESH_TERMS =
   /\b(?:create|make|build|set up|setup|configure|add|schedule)\b(?:(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+refresh\b|(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\b)/i;
 
@@ -301,6 +304,7 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
       " automation ",
     )
     .replace(DASHBOARD_REFRESH_JOB_AUTOMATION_TERMS, " automation ")
+    .replace(DASHBOARD_GENERIC_SCHEDULE_AUTOMATION_TERMS, " automation ")
     .replace(DASHBOARD_DASHBOARD_SCHEDULED_REFRESH_TERMS, " automation ")
     .replace(DASHBOARD_CADENCE_DASHBOARD_REFRESH_TERMS, " automation ")
     .replace(DASHBOARD_CRON_SCHEDULED_DASHBOARD_UPDATE_TERMS, " automation ");
@@ -317,9 +321,29 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
     }
     return DASHBOARD_AUTOMATION_SUBJECT_TERMS.test(match);
   });
+  const hasIndependentDashboardConstructionObject = constructionRequestText
+    .split(/[.!?;,\n]+|\b(?:and|or|then|plus|but)\b/)
+    .some((clause) => {
+      const candidate = clause.trim();
+      if (!candidate || isDashboardRefreshRateQuery(candidate)) return false;
+      return [...candidate.matchAll(DASHBOARD_CONSTRUCTION_OBJECT_TERMS)].some(
+        ([match]) => {
+          if (
+            !match ||
+            !/\b(?:automation|automations|workflow|workflows|job|recurring job|scheduled job|cron(?:\s+job)?)\b/.test(
+              match,
+            )
+          ) {
+            return Boolean(match);
+          }
+          return DASHBOARD_AUTOMATION_SUBJECT_TERMS.test(match);
+        },
+      );
+    });
   if (
     isDashboardRefreshRateQuery(lower) &&
-    !DASHBOARD_CONSTRUCTION_AFTER_REFRESH_RATE_QUERY_TERMS.test(lower)
+    !DASHBOARD_CONSTRUCTION_AFTER_REFRESH_RATE_QUERY_TERMS.test(lower) &&
+    !hasIndependentDashboardConstructionObject
   ) {
     return false;
   }
@@ -495,6 +519,8 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
     DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_CREATION_TERMS.test(lower);
   const hasDashboardRefreshJobAutomation =
     DASHBOARD_REFRESH_JOB_AUTOMATION_TERMS.test(lower);
+  const hasGenericDashboardScheduleAutomation =
+    DASHBOARD_GENERIC_SCHEDULE_AUTOMATION_TERMS.test(lower);
   const hasDashboardScheduledRefreshAutomation =
     DASHBOARD_DASHBOARD_SCHEDULED_REFRESH_TERMS.test(lower);
   const hasDashboardCadenceAutomation =
@@ -516,6 +542,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
     hasScheduledDashboardRefresh ||
     hasScheduledDashboardRefreshCreation ||
     hasDashboardRefreshJobAutomation ||
+    hasGenericDashboardScheduleAutomation ||
     hasDashboardScheduledRefreshAutomation ||
     hasDashboardCadenceAutomation ||
     hasCronScheduledDashboardUpdate ||
@@ -629,7 +656,8 @@ function hasIndependentAnalyticsDataClause(lower: string): boolean {
         isDashboardRefreshRateQuery(candidate) ||
         (ANALYTICS_RESULT_TERMS.test(candidate) &&
           (ANALYTICS_INTENT_TERMS.test(candidate) ||
-            METRIC_RESULT_INTENT.test(candidate))) ||
+            METRIC_RESULT_INTENT.test(candidate) ||
+            /\btell\s+me(?:\s+about)?\b/.test(candidate))) ||
         (ANALYTICS_DOMAIN_ENTITY_TERMS.test(candidate) &&
           (ANALYTICS_INTENT_TERMS.test(candidate) ||
             SOURCE_SEARCH_INTENT_TERMS.test(candidate) ||

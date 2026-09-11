@@ -1300,11 +1300,15 @@ describe("incomplete evidence detection", () => {
       "Create a dashboard refresh schedule",
       "Create a job to refresh the dashboard",
       "Set up a job for the dashboard",
+      "Create a schedule for the dashboard",
       "Create a job that refreshes the dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
     }
+    expect(
+      looksLikeDashboardConstructionRequest("Create a scheduled dashboard"),
+    ).toBe(true);
   });
 
   it("keeps refresh-rate questions as analytics requests", () => {
@@ -1448,6 +1452,17 @@ describe("incomplete evidence detection", () => {
     expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
   });
 
+  it("preserves a preceding dashboard build beside a refresh-rate query", () => {
+    for (const request of [
+      "Build a Sales dashboard and show the dashboard refresh rate",
+      "Build a Sales dashboard, then show the dashboard refresh rate",
+      "Build a Sales dashboard. What is the dashboard refresh rate?",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
   it("preserves a dashboard build after a semicolon refresh-rate report", () => {
     const request =
       "Create a report showing the dashboard refresh rate; build a Sales dashboard";
@@ -1462,6 +1477,7 @@ describe("incomplete evidence detection", () => {
       "Create an automation and show the conversion rate last week",
       "Create an automation, then show the conversion rate last week",
       "What was the conversion rate last week? Then create an automation to send it",
+      "Create an automation to send the weekly summary and tell me the revenue",
     ]) {
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
     }
