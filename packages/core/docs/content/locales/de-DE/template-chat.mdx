@@ -30,14 +30,26 @@ Erleben Sie Chat live: Beginnen Sie ein echtes Gespräch mit dem Agenten, keine 
   loop={true}
 />
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Wie kann ich helfen?</h1><p class='wf-muted' style='margin:10px 0 0'>Chatte über alles. Füge Aktionen, Komponenten, Seiten, Jobs oder dein eigenes Backend hinzu.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Nachricht an den Agenten...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · Hoch</span><span class='wf-pill'>Handeln</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+## Einstieg {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+Siehe [Chat: Entwicklerhandbuch](/docs/template-chat-developers#quick-start)
+für Installation, ersten Start und die Anbindung eines LLM. Für
+automation-first Arbeit ganz ohne Browser-Oberfläche erstellen Sie das Gerüst
+stattdessen mit `--headless`:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+Nutzen Sie dies für geplante Jobs, Queues, CLI-Schleifen oder
+externe-Agent-Workflows, in denen Chat und App-Seiten noch nicht nützlich
+sind. Die zentrale Invariante bleibt gleich: Aktionen sind die gemeinsame
+Oberfläche für Chat, UI, HTTP, MCP, A2A und CLI. Siehe
+[Automation-First Apps](/docs/pure-agent-apps) für diesen Weg im Detail.
 
 ## Was enthalten ist {#what-ships}
 
@@ -73,7 +85,7 @@ Erleben Sie Chat live: Beginnen Sie ein echtes Gespräch mit dem Agenten, keine 
 
 </Comparison>
 
-Genau das ist der Punkt. Chat ist eine schlanke, nützliche Standard-Shell für
+Chat ist eine schlanke, nützliche Standard-Shell für
 Ihren eigenen Agenten, kein Domänenprodukt, das sich als generisch ausgibt.
 
 <Diagram id="doc-block-chat2" title="Was in der Chat-Shell enthalten ist" summary={"Eine schlanke Chat-Oberfläche über der Standardlaufzeit des Frameworks — Aktionen, dauerhafte Threads, Live-Synchronisierung und Authentifizierung — mit Platz für Ihre eigene Oberfläche."}>
@@ -151,45 +163,3 @@ Ihren eigenen Agenten, kein Domänenprodukt, das sich als generisch ausgibt.
   die Bereitstellungsform von Agent-Native behalten.
 - **Sie prototypisieren ein individuelles internes Tool**, das zu keiner
   Domänenvorlage passt.
-
-## Einstieg {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-Siehe [Chat: Entwicklerhandbuch](/docs/template-chat-developers#quick-start)
-für Installation, ersten Start und die Anbindung eines LLM. Für
-automation-first Arbeit ganz ohne Browser-Oberfläche erstellen Sie das Gerüst
-stattdessen mit `--headless`:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-Nutzen Sie dies für geplante Jobs, Queues, CLI-Schleifen oder
-externe-Agent-Workflows, in denen Chat und App-Seiten noch nicht nützlich
-sind. Die zentrale Invariante bleibt gleich: Aktionen sind die gemeinsame
-Oberfläche für Chat, UI, HTTP, MCP, A2A und CLI. Siehe
-[Automation-First Apps](/docs/pure-agent-apps) für diesen Weg im Detail.
-
-## Wie geht es weiter?
-
-- [**Ihre erste Funktion in Chat**](/docs/template-chat-first-edits) — die
-  Chat-Startroute, kommentiert, sowie eine vollständige Anleitung zum
-  Hinzufügen einer echten Funktion
-- [**Chat: Entwicklerhandbuch**](/docs/template-chat-developers) —
-  Schnellstart, Aktionen, Kerntabellen, Authentifizierung und die
-  standardmäßig mitgelieferten Admin-Seiten
-- [**Erste Schritte**](/docs/getting-started) — den chat-first Weg von der
-  Aktion über das Inline-Ergebnis bis zur App-Seite aufbauen
-- [**Vorlagen**](/docs/cloneable-saas) — das Cloneable-SaaS-Modell und jede
-  Domänenvorlage, mit der Sie stattdessen starten können
-- [**Agent-Oberflächen**](/docs/agent-surfaces) — Chat, Inline-UI, App-Seiten,
-  eingebettete, automatisierte und externe-Agent-Muster
-- [**Aktionen**](/docs/actions-overview) — das Aktionssystem, das Chat und
-  Oberfläche beide aufrufen
-- [**Native Chat-Oberfläche**](/docs/native-chat-ui) — Chat-Oberflächen-
-  Primitive und Laufzeitoptionen
-- [**Automation-First Apps**](/docs/pure-agent-apps) — browserlose Workflows
-  für Jobs, Queues, Skripte und externe Agenten

@@ -35,14 +35,26 @@ nenhuma configuração.
   loop={true}
 />
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Como posso ajudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Converse sobre qualquer coisa. Adicione actions, componentes, páginas, jobs ou seu próprio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Envie uma mensagem ao agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · Alto</span><span class='wf-pill'>Agir</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+## Comece agora {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+Veja [Chat: Guia do desenvolvedor](/docs/template-chat-developers#quick-start)
+para instalação, primeira execução e conexão com um LLM. Para trabalhos
+automation-first sem nenhuma UI de navegador, faça o scaffold com `--headless`
+em vez disso:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+Use isso para jobs agendados, filas, loops de CLI ou fluxos de trabalho de
+agentes externos onde o chat e as páginas de app ainda não são úteis. O
+invariante principal permanece o mesmo: actions são a superfície
+compartilhada para chat, UI, HTTP, MCP, A2A e CLI. Veja [Automation-First
+Apps](/docs/pure-agent-apps) para esse caminho em profundidade.
 
 ## O que vem incluído {#what-ships}
 
@@ -77,7 +89,7 @@ nenhuma configuração.
 
 </Comparison>
 
-Esse é o ponto. Chat é um shell padrão fino e útil para o seu próprio agente,
+Chat é um shell padrão fino e útil para o seu próprio agente,
 não um produto de domínio fingindo ser genérico.
 
 <Diagram id="doc-block-chat2" title="O que vem incluído no shell do Chat" summary={"Uma superfície de chat fina sobre o runtime padrão do framework — actions, threads duráveis, sincronização ao vivo e autenticação — com espaço para adicionar sua própria UI."}>
@@ -155,45 +167,3 @@ não um produto de domínio fingindo ser genérico.
   deploy do Agent-Native.
 - **Você está prototipando uma ferramenta interna personalizada** que não se
   encaixa em nenhum template de domínio.
-
-## Comece agora {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-Veja [Chat: Guia do desenvolvedor](/docs/template-chat-developers#quick-start)
-para instalação, primeira execução e conexão com um LLM. Para trabalhos
-automation-first sem nenhuma UI de navegador, faça o scaffold com `--headless`
-em vez disso:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-Use isso para jobs agendados, filas, loops de CLI ou fluxos de trabalho de
-agentes externos onde o chat e as páginas de app ainda não são úteis. O
-invariante principal permanece o mesmo: actions são a superfície
-compartilhada para chat, UI, HTTP, MCP, A2A e CLI. Veja [Automation-First
-Apps](/docs/pure-agent-apps) para esse caminho em profundidade.
-
-## O que vem a seguir
-
-- [**Seu primeiro recurso no Chat**](/docs/template-chat-first-edits) — a
-  rota de chat inicial, anotada, mais um passo a passo completo de como
-  adicionar um recurso real
-- [**Chat: Guia do desenvolvedor**](/docs/template-chat-developers) — início
-  rápido, actions, tabelas centrais, autenticação e as páginas de
-  administração que vêm por padrão
-- [**Primeiros passos**](/docs/getting-started) — construa o caminho
-  chat-first desde a action até o resultado inline e a página de app
-- [**Templates**](/docs/cloneable-saas) — o modelo Cloneable SaaS, e todos
-  os templates de domínio para começar em vez deste
-- [**Superfícies do agente**](/docs/agent-surfaces) — chat, UI inline,
-  páginas de app, incorporado, automação e padrões de agentes externos
-- [**Actions**](/docs/actions-overview) — o sistema de actions que o chat e
-  a UI chamam
-- [**Native Chat UI**](/docs/native-chat-ui) — primitivas da superfície de
-  chat e opções de runtime
-- [**Automation-First Apps**](/docs/pure-agent-apps) — fluxos de trabalho
-  sem navegador para jobs, filas, scripts e agentes externos
