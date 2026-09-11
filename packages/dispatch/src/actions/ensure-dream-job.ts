@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
@@ -75,5 +76,18 @@ export default defineAction({
       .default(1)
       .describe("Skip recurring report creation below this candidate count."),
   }),
-  run: async (input) => ensureDreamJob(input),
+  run: async (input, ctx) => {
+    const result = await ensureDreamJob(input);
+    track(
+      "cron_created",
+      {
+        app_name: "dispatch",
+        template_name: "dispatch",
+        job_id: result.path,
+        cadence: result.schedule,
+      },
+      ctx,
+    );
+    return result;
+  },
 });

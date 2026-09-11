@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer } from "./assets.js";
@@ -52,16 +52,23 @@ async function markRunCompletedWithAsset(
     completedAt,
     metadata: stringifyJson(nextMetadata),
   };
-  await db
+  const [completedRun] = await db
     .update(schema.assetGenerationRuns)
     .set({
       status: "completed",
       completedAt,
       metadata: nextRun.metadata,
     })
-    .where(eq(schema.assetGenerationRuns.id, run.id));
-  await notifyGenerationRunFinished(nextRun, "completed");
-  return nextRun;
+    .where(
+      and(
+        eq(schema.assetGenerationRuns.id, run.id),
+        ne(schema.assetGenerationRuns.status, "completed"),
+      ),
+    )
+    .returning();
+  if (!completedRun) return { run: nextRun, completionClaimed: false };
+  await notifyGenerationRunFinished(completedRun, "completed");
+  return { run: completedRun, completionClaimed: true };
 }
 
 export async function completeVideoGenerationRun(
@@ -70,23 +77,30 @@ export async function completeVideoGenerationRun(
   | {
       status: "processing";
       run: typeof schema.assetGenerationRuns.$inferSelect;
+      completionClaimed: false;
     }
   | {
       status: "completed";
       run: typeof schema.assetGenerationRuns.$inferSelect;
       asset: typeof schema.assets.$inferSelect;
+      completionClaimed: boolean;
     }
 > {
   const metadata = parseJson<Record<string, unknown>>(run.metadata, {});
   const existingAsset = await findAssetForRun(getDb(), run.id);
   if (existingAsset) {
-    const nextRun = await markRunCompletedWithAsset(
+    const completed = await markRunCompletedWithAsset(
       getDb(),
       run,
       metadata,
       existingAsset,
     );
-    return { status: "completed", run: nextRun, asset: existingAsset };
+    return {
+      status: "completed",
+      run: completed.run,
+      asset: existingAsset,
+      completionClaimed: completed.completionClaimed,
+    };
   }
 
   const operationName =
@@ -115,14 +129,14 @@ export async function completeVideoGenerationRun(
           metadata: nextRun.metadata,
         })
         .where(eq(schema.assetGenerationRuns.id, run.id));
-      return { status: "processing", run: nextRun };
+      return { status: "processing", run: nextRun, completionClaimed: false };
     }
 
     try {
       return await getDb().transaction(async (tx) => {
         const existing = await findAssetForRun(tx, run.id);
         if (existing) {
-          const nextRun = await markRunCompletedWithAsset(
+          const completed = await markRunCompletedWithAsset(
             tx,
             run,
             metadata,
@@ -135,8 +149,9 @@ export async function completeVideoGenerationRun(
           );
           return {
             status: "completed" as const,
-            run: nextRun,
+            run: completed.run,
             asset: existing,
+            completionClaimed: completed.completionClaimed,
           };
         }
 
@@ -185,7 +200,7 @@ export async function completeVideoGenerationRun(
           },
           category: category as any,
         });
-        const nextRun = await markRunCompletedWithAsset(
+        const completed = await markRunCompletedWithAsset(
           tx,
           run,
           metadata,
@@ -196,12 +211,17 @@ export async function completeVideoGenerationRun(
             operationName,
           },
         );
-        return { status: "completed" as const, run: nextRun, asset };
+        return {
+          status: "completed" as const,
+          run: completed.run,
+          asset,
+          completionClaimed: completed.completionClaimed,
+        };
       });
     } catch (err) {
       const existing = await findAssetForRun(getDb(), run.id);
       if (existing) {
-        const nextRun = await markRunCompletedWithAsset(
+        const completed = await markRunCompletedWithAsset(
           getDb(),
           run,
           metadata,
@@ -212,7 +232,12 @@ export async function completeVideoGenerationRun(
             operationName,
           },
         );
-        return { status: "completed", run: nextRun, asset: existing };
+        return {
+          status: "completed",
+          run: completed.run,
+          asset: existing,
+          completionClaimed: completed.completionClaimed,
+        };
       }
       throw err;
     }

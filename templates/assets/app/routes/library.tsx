@@ -5,6 +5,7 @@ import {
   updateMcpAppModelContext,
   useAgentChatGenerating,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   callAction,
@@ -115,7 +116,11 @@ import type {
   ImageQualityTier,
   StyleStrength,
 } from "../../shared/api";
-import { MODEL_ASPECT_RATIOS, type AssetAccessRole } from "../../shared/api";
+import {
+  MODEL_ASPECT_RATIOS,
+  normalizeCallerAppId,
+  type AssetAccessRole,
+} from "../../shared/api";
 import {
   DEFAULT_LIBRARY_PRESETS,
   LibraryPreset,
@@ -1259,6 +1264,12 @@ function AllAssetsBrowser({
 
   function chooseAsset(asset: Asset) {
     const payload = assetPayload(asset, "image");
+    trackEvent("asset_selected", {
+      asset_id: asset.id,
+      output_id: asset.id,
+      output_type: asset.mediaType,
+      library_id: asset.libraryId,
+    });
     setStandaloneSelection(payload);
     setStandaloneCopyOk(false);
     void copyStandaloneSelection(payload);
@@ -2858,6 +2869,23 @@ export function AssetPickerSurface() {
 
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
+    trackEvent("asset_selected", {
+      asset_id: asset.id,
+      output_id: asset.id,
+      output_type: asset.mediaType,
+      library_id: asset.libraryId,
+      selection_surface: "picker",
+    });
+    const callerAppId = normalizeCallerAppId(hostConfig.callerAppId);
+    if (callerAppId) {
+      trackEvent("pulled_by_app", {
+        asset_id: asset.id,
+        output_id: asset.id,
+        output_type: asset.mediaType,
+        source_app: "assets",
+        target_app: callerAppId,
+      });
+    }
     if (embedded) {
       if (!mcpChatBridgeActive) {
         postEmbeddedSelectionMessage("chooseAsset", payload);

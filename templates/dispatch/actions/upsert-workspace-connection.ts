@@ -4,6 +4,7 @@ import {
   type WorkspaceConnectionProvider,
 } from "@agent-native/core/connections";
 import { isOrgMember } from "@agent-native/core/org";
+import { track } from "@agent-native/core/tracking";
 import {
   assertWorkspaceUserGroupIds,
   normalizeWorkspaceConnectionAllowedUsers,
@@ -170,12 +171,26 @@ export default defineAction({
       ctx?.orgId,
     );
 
-    return upsertWorkspaceConnection({
+    const result = await upsertWorkspaceConnection({
       ...args,
       status: args.status as WorkspaceConnectionStatus,
       allowedUsers,
       allowedUserGroups,
       credentialRefs: normalizeCredentialRefs(args.credentialRefs, provider),
     });
+    const channel = args.provider.trim().toLowerCase();
+    if (channel === "slack" || channel === "telegram") {
+      track(
+        "messenger_connected",
+        {
+          app_name: "dispatch",
+          template_name: "dispatch",
+          channel,
+          connection_id: result.id,
+        },
+        ctx,
+      );
+    }
+    return result;
   },
 });

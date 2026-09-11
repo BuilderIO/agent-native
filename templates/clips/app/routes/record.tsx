@@ -2159,6 +2159,19 @@ export default function RecordRoute() {
         resource_type: "recording",
         resource_id: pendingRef.current?.id,
       });
+      trackEvent("recording_started", {
+        app_name: "clips",
+        template_name: "clips",
+        output_id: pendingRef.current?.id,
+        capture_type:
+          recordingMode === "camera"
+            ? "camera"
+            : resolvedDisplaySurface === "browser"
+              ? "tab"
+              : "screen",
+        has_extension: Boolean(extensionCapture),
+        surface: "recorder",
+      });
       countdownAudioCueRef.current?.cleanup();
       countdownAudioCueRef.current = null;
       browserDiagnosticsRef.current?.dispose();
@@ -2194,7 +2207,12 @@ export default function RecordRoute() {
       setUiState("error");
       showRecordingErrorToast(message);
     }
-  }, [extensionCapture, showRecordingErrorToast]);
+  }, [
+    extensionCapture,
+    recordingMode,
+    resolvedDisplaySurface,
+    showRecordingErrorToast,
+  ]);
 
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.
