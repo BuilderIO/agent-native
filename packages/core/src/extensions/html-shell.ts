@@ -754,6 +754,8 @@ export function buildExtensionHtml(
 	      var _positionMonitorScheduled = false;
 	      var _positionMonitorActive = false;
 	      var _activeCssMotionCount = 0;
+      // ponytail: cap polling for motion without a reliable completion signal.
+      var _positionMonitorFramesRemaining = 0;
 	      var _activeAnimations = function() {
 	        if (typeof document.getAnimations !== 'function') return null;
 	        var animations;
@@ -825,16 +827,29 @@ export function buildExtensionHtml(
           if (!body) return;
           _reportHeight();
           var animations = _activeAnimations();
-          var hasActiveAnimation = false;
+          var hasFiniteAnimation = false;
+          var hasIndefiniteAnimation = _activeCssMotionCount > 0;
           if (animations) {
             animations.forEach(function(animation) {
               var effect = animation.effect;
               _trackPositionedElement(effect && effect.target);
               _watchAnimationCompletion(animation);
-              hasActiveAnimation = true;
+              var timing =
+                effect && typeof effect.getComputedTiming === 'function'
+                  ? effect.getComputedTiming()
+                  : null;
+              if (timing && timing.endTime !== Infinity) {
+                hasFiniteAnimation = true;
+              } else {
+                hasIndefiniteAnimation = true;
+              }
             });
           }
-          if (hasActiveAnimation || _activeCssMotionCount > 0) {
+          if (hasIndefiniteAnimation) _positionMonitorFramesRemaining -= 1;
+          if (
+            hasFiniteAnimation ||
+            (hasIndefiniteAnimation && _positionMonitorFramesRemaining > 0)
+          ) {
             _schedulePositionMonitor();
             return;
           }
@@ -846,14 +861,14 @@ export function buildExtensionHtml(
 	      var _startPositionMonitor = function(event) {
 	        _trackPositionedElement(event && event.target);
 	        if (
-	          event &&
-	          (event.type === 'animationstart' ||
-	            event.type === 'transitionrun' ||
-	            event.type === 'transitionstart')
+            event &&
+            (event.type === 'animationstart' ||
+              event.type === 'transitionrun')
 	        ) {
 	          _activeCssMotionCount += 1;
 	        }
 	        _positionMonitorActive = true;
+	        _positionMonitorFramesRemaining = 120;
 	        _schedulePositionObservation();
 		        _scheduleResizeWork();
 	        _schedulePositionMonitor();
@@ -861,13 +876,14 @@ export function buildExtensionHtml(
 	      var _startPositionMonitorIfActive = function() {
 	        var animations = _activeAnimations();
 	        if (animations && animations.length) {
+	          var newlyObserved = false;
 	          animations.forEach(function(animation) {
 	            var effect = animation.effect;
             _trackPositionedElement(effect && effect.target);
-            _watchAnimationCompletion(animation);
+            if (_watchAnimationCompletion(animation)) newlyObserved = true;
           });
-	          if (!_positionMonitorActive) _startPositionMonitor();
-          else _schedulePositionMonitor();
+	          if (newlyObserved) _startPositionMonitor();
+          else if (_positionMonitorActive) _schedulePositionMonitor();
         }
       };
 	      var _finishPositionMonitor = function(event) {
@@ -907,17 +923,9 @@ export function buildExtensionHtml(
           var bodyStyle = window.getComputedStyle(body);
           var paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
           var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
-          var documentElement = document.documentElement;
-          var scrollHeight = Math.max(
-            body.scrollHeight > body.clientHeight ? body.scrollHeight : 0,
-            documentElement && documentElement.scrollHeight > documentElement.clientHeight
-              ? documentElement.scrollHeight
-              : 0,
-          );
           var contentBottom = Math.max(
             paddingTop,
             bodyRect.height - paddingBottom,
-            scrollHeight - paddingBottom,
             _measurePositionedContent(body, bodyRect.top),
           );
           var h = Math.ceil(contentBottom + paddingBottom);

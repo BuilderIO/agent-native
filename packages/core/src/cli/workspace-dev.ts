@@ -1380,6 +1380,7 @@ export async function runWorkspaceDev(
             audience: app.audience,
             publicPaths: app.publicPaths,
             protectedPaths: app.protectedPaths,
+            homePath: app.homePath,
             port: app.port,
             running: Boolean(app.process && !app.process.killed),
           })),

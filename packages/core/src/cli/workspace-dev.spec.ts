@@ -481,16 +481,18 @@ describe("workspace dev startup", () => {
       openBrowser: false,
     });
     const { url } = await handle.ready;
-    makeApp(tmpDir, "todo");
+    makeApp(tmpDir, "todo", { homePath: "/inbox" });
 
     const apps = (await (
       await fetch(`${url}/_workspace/apps`)
     ).json()) as Array<{
       id: string;
       running: boolean;
+      homePath: string;
     }>;
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "todo"]);
     expect(apps.find((app) => app.id === "todo")?.running).toBe(false);
+    expect(apps.find((app) => app.id === "todo")?.homePath).toBe("/inbox");
     expect(fake.startedApps()).toEqual(["dispatch"]);
 
     await fetch(`${url}/todo`, { headers: { accept: "text/html" } });

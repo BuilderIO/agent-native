@@ -172,6 +172,7 @@ describe("buildExtensionHtml", () => {
     expect(html).not.toContain(
       "document.addEventListener('animationiteration'",
     );
+    expect(html).toContain("_positionMonitorFramesRemaining");
     expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");
     expect(html).not.toContain("document.createTreeWalker(body, 4");
@@ -192,7 +193,7 @@ describe("buildExtensionHtml", () => {
     expect(html.slice(reportStart, reportEnd)).not.toContain(
       "document.createTreeWalker(body, 4)",
     );
-    expect(html).toContain("body.scrollHeight");
+    expect(html).not.toContain("body.scrollHeight");
   });
 
   it("serializes authenticated extension binding metadata", () => {

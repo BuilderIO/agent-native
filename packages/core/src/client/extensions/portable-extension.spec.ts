@@ -55,6 +55,7 @@ describe("portable extension runtime", () => {
     expect(html).not.toContain(
       "document.addEventListener('animationiteration'",
     );
+    expect(html).toContain("positionMonitorFramesRemaining");
     expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");
     const reportStart = html.indexOf("function reportHeight()");
@@ -79,7 +80,6 @@ describe("portable extension runtime", () => {
     expect(html).toContain(
       "document.addEventListener('DOMContentLoaded', setupResizeObservation)",
     );
-    expect(html).toContain("body.scrollHeight");
     expect(html).toContain('<div x-data="{ ready: true }">Hello</div>');
     expect(html).toContain("cus_123");
   });

@@ -731,6 +731,8 @@ export function buildAgentNativeExtensionHtml({
       var positionMonitorScheduled = false;
       var positionMonitorActive = false;
       var activeCssMotionCount = 0;
+      // ponytail: cap polling for motion without a reliable completion signal.
+      var positionMonitorFramesRemaining = 0;
       var activeAnimations = function() {
         if (typeof document.getAnimations !== 'function') return null;
         var animations;
@@ -802,16 +804,29 @@ export function buildAgentNativeExtensionHtml({
           if (!body) return;
           reportHeight();
           var animations = activeAnimations();
-          var hasActiveAnimation = false;
+          var hasFiniteAnimation = false;
+          var hasIndefiniteAnimation = activeCssMotionCount > 0;
           if (animations) {
             animations.forEach(function(animation) {
               var effect = animation.effect;
               trackPositionedElement(effect && effect.target);
               watchAnimationCompletion(animation);
-              hasActiveAnimation = true;
+              var timing =
+                effect && typeof effect.getComputedTiming === 'function'
+                  ? effect.getComputedTiming()
+                  : null;
+              if (timing && timing.endTime !== Infinity) {
+                hasFiniteAnimation = true;
+              } else {
+                hasIndefiniteAnimation = true;
+              }
             });
           }
-          if (hasActiveAnimation || activeCssMotionCount > 0) {
+          if (hasIndefiniteAnimation) positionMonitorFramesRemaining -= 1;
+          if (
+            hasFiniteAnimation ||
+            (hasIndefiniteAnimation && positionMonitorFramesRemaining > 0)
+          ) {
             schedulePositionMonitor();
             return;
           }
@@ -825,12 +840,12 @@ export function buildAgentNativeExtensionHtml({
         if (
           event &&
           (event.type === 'animationstart' ||
-            event.type === 'transitionrun' ||
-            event.type === 'transitionstart')
+            event.type === 'transitionrun')
         ) {
           activeCssMotionCount += 1;
         }
         positionMonitorActive = true;
+        positionMonitorFramesRemaining = 120;
         schedulePositionObservation();
         scheduleResizeWork();
         schedulePositionMonitor();
@@ -838,13 +853,14 @@ export function buildAgentNativeExtensionHtml({
       var startPositionMonitorIfActive = function() {
         var animations = activeAnimations();
         if (animations && animations.length) {
+          var newlyObserved = false;
           animations.forEach(function(animation) {
             var effect = animation.effect;
             trackPositionedElement(effect && effect.target);
-            watchAnimationCompletion(animation);
+            if (watchAnimationCompletion(animation)) newlyObserved = true;
           });
-          if (!positionMonitorActive) startPositionMonitor();
-          else schedulePositionMonitor();
+          if (newlyObserved) startPositionMonitor();
+          else if (positionMonitorActive) schedulePositionMonitor();
         }
       };
       var finishPositionMonitor = function(event) {
@@ -894,17 +910,9 @@ export function buildAgentNativeExtensionHtml({
           var bodyStyle = window.getComputedStyle(body);
           var paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
           var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
-          var documentElement = document.documentElement;
-          var scrollHeight = Math.max(
-            body.scrollHeight > body.clientHeight ? body.scrollHeight : 0,
-            documentElement && documentElement.scrollHeight > documentElement.clientHeight
-              ? documentElement.scrollHeight
-              : 0,
-          );
           var contentBottom = Math.max(
             paddingTop,
             bodyRect.height - paddingBottom,
-            scrollHeight - paddingBottom,
             measurePositionedContent(body, bodyRect.top),
           );
           postHeight(Math.ceil(contentBottom + paddingBottom));
