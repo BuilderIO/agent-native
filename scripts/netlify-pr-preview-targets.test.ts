@@ -55,6 +55,24 @@ test("normalizes shared paths before selecting the preview matrix", () => {
   );
 });
 
+test("expands root build files to every docs app site", () => {
+  assert.deepEqual(previewSitesForChangedPaths(["package.json"]), [
+    "analytics",
+    "assets",
+    "calendar",
+    "clips",
+    "content",
+    "design",
+    "dispatch",
+    "forms",
+    "mail",
+    "plan",
+    "slides",
+    "starter",
+    "fw",
+  ]);
+});
+
 test("previews the docs site for app changes but skips prose and hidden templates", () => {
   assert.deepEqual(
     previewSitesForChangedPaths(["packages/docs/app/routes/apps.tsx"]),
