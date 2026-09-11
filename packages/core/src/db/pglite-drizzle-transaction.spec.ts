@@ -12,7 +12,6 @@ describe("Drizzle-opened PGlite transactions register with the shared exec", () 
   afterEach(async () => {
     const { closeDbExec } = await import("./client.js");
     await closeDbExec();
-    Reflect.deleteProperty(globalThis as object, "__agentNativeDbExecState");
     Reflect.deleteProperty(globalThis as object, "__agentNativePgliteClients");
     Reflect.deleteProperty(
       globalThis as object,

@@ -1668,19 +1668,8 @@ function disposePostgresPoolEventually(
 // Singleton client — lazy-initialized on first execute() call
 // ---------------------------------------------------------------------------
 
-// Vite dev evaluates this module once per module runner ("nitro" and "ssr"),
-// so a plain module-scoped singleton is duplicated; two execs over one
-// PGlite engine deadlock, so this state lives on globalThis instead.
-const dbExecGlobal = globalThis as typeof globalThis & {
-  __agentNativeDbExecState?: {
-    exec: DbExec | undefined;
-    initPromise: Promise<void> | undefined;
-  };
-};
-const dbExecState = (dbExecGlobal.__agentNativeDbExecState ??= {
-  exec: undefined,
-  initPromise: undefined,
-});
+let _exec: DbExec | undefined;
+let _initPromise: Promise<void> | undefined;
 
 async function executePglite(
   client: {
@@ -2268,14 +2257,14 @@ function guardSchemaMutations(exec: DbExec): DbExec {
 }
 
 async function initClient(): Promise<void> {
-  if (dbExecState.exec) return;
+  if (_exec) return;
 
   if (isHostedFunctionInvocationRuntime() && isLocalDatabase()) {
     throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
   }
 
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
-  dbExecState.exec = await createDbExecInternal({ url }, true);
+  _exec = await createDbExecInternal({ url }, true);
 }
 
 /**
@@ -2312,7 +2301,7 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
 }
 
 export function getDbExec(): DbExec {
-  if (dbExecState.exec) return dbExecState.exec;
+  if (_exec) return _exec;
 
   // Sanitize args because PostgreSQL parameters cannot be undefined.
   function sanitize(
@@ -2329,7 +2318,7 @@ export function getDbExec(): DbExec {
   ): ReturnType<DbExec["execute"]> {
     assertSchemaMutationAllowed(s);
     try {
-      return await dbExecState.exec!.execute(sanitize(s));
+      return await _exec!.execute(sanitize(s));
     } catch (err) {
       throw annotateMissingTable(err, s);
     }
@@ -2339,33 +2328,31 @@ export function getDbExec(): DbExec {
   const proxy: DbExec = {
     async execute(sql) {
       assertSchemaMutationAllowed(sql);
-      if (!dbExecState.initPromise) dbExecState.initPromise = initClient();
+      if (!_initPromise) _initPromise = initClient();
       try {
-        await dbExecState.initPromise;
+        await _initPromise;
       } catch (err) {
         // A failed/hung init must not poison the singleton for the life of
         // the process — drop it so the next call retries a fresh connection
         // instead of re-awaiting a permanently rejected/pending promise.
-        dbExecState.initPromise = undefined;
-        dbExecState.exec = undefined;
+        _initPromise = undefined;
+        _exec = undefined;
         throw err;
       }
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => execAnnotated(s),
-        atomicBatch: dbExecState.exec!.atomicBatch
+        atomicBatch: _exec!.atomicBatch
           ? async (statements) => {
               for (const statement of statements) {
                 assertSchemaMutationAllowed(statement);
               }
-              return dbExecState.exec!.atomicBatch!(
-                statements.map((s) => sanitize(s)),
-              );
+              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
             }
           : undefined,
-        transaction: dbExecState.exec!.transaction
+        transaction: _exec!.transaction
           ? (fn) =>
-              dbExecState.exec!.transaction!((tx) =>
+              _exec!.transaction!((tx) =>
                 fn({
                   execute: (s) => {
                     assertSchemaMutationAllowed(s);
@@ -2380,29 +2367,27 @@ export function getDbExec(): DbExec {
       return execAnnotated(sql);
     },
     async transaction(fn) {
-      if (!dbExecState.initPromise) dbExecState.initPromise = initClient();
+      if (!_initPromise) _initPromise = initClient();
       try {
-        await dbExecState.initPromise;
+        await _initPromise;
       } catch (err) {
-        dbExecState.initPromise = undefined;
-        dbExecState.exec = undefined;
+        _initPromise = undefined;
+        _exec = undefined;
         throw err;
       }
       const wrapper: DbExec = {
         execute: (s) => execAnnotated(s),
-        atomicBatch: dbExecState.exec!.atomicBatch
+        atomicBatch: _exec!.atomicBatch
           ? async (statements) => {
               for (const statement of statements) {
                 assertSchemaMutationAllowed(statement);
               }
-              return dbExecState.exec!.atomicBatch!(
-                statements.map((s) => sanitize(s)),
-              );
+              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
             }
           : undefined,
-        transaction: dbExecState.exec!.transaction
+        transaction: _exec!.transaction
           ? (innerFn) =>
-              dbExecState.exec!.transaction!((tx) =>
+              _exec!.transaction!((tx) =>
                 innerFn({
                   execute: (s) => {
                     assertSchemaMutationAllowed(s);
@@ -2414,8 +2399,8 @@ export function getDbExec(): DbExec {
           : undefined,
       };
       Object.assign(proxy, wrapper);
-      if (dbExecState.exec!.transaction) {
-        return dbExecState.exec!.transaction((tx) =>
+      if (_exec!.transaction) {
+        return _exec!.transaction((tx) =>
           fn({
             execute: (s) => {
               assertSchemaMutationAllowed(s);
@@ -2425,7 +2410,7 @@ export function getDbExec(): DbExec {
           }),
         );
       }
-      if (dbExecState.exec!.atomicBatch) {
+      if (_exec!.atomicBatch) {
         throw new Error(
           "This database supports atomic batches, not interactive transactions.",
         );
@@ -2436,24 +2421,22 @@ export function getDbExec(): DbExec {
       for (const statement of statements) {
         assertSchemaMutationAllowed(statement);
       }
-      if (!dbExecState.initPromise) dbExecState.initPromise = initClient();
+      if (!_initPromise) _initPromise = initClient();
       try {
-        await dbExecState.initPromise;
+        await _initPromise;
       } catch (err) {
-        dbExecState.initPromise = undefined;
-        dbExecState.exec = undefined;
+        _initPromise = undefined;
+        _exec = undefined;
         throw err;
       }
-      if (!dbExecState.exec!.atomicBatch) {
+      if (!_exec!.atomicBatch) {
         throw new Error("This database does not support atomic batches.");
       }
       const batch = async (items: typeof statements) => {
         for (const item of items) {
           assertSchemaMutationAllowed(item);
         }
-        return dbExecState.exec!.atomicBatch!(
-          items.map((item) => sanitize(item)),
-        );
+        return _exec!.atomicBatch!(items.map((item) => sanitize(item)));
       };
       Object.assign(proxy, { atomicBatch: batch });
       return batch(statements);
@@ -2468,6 +2451,6 @@ export async function closeDbExec(): Promise<void> {
   // to them.
   await closeSharedDbPools();
   await closePgliteClients();
-  dbExecState.exec = undefined;
-  dbExecState.initPromise = undefined;
+  _exec = undefined;
+  _initPromise = undefined;
 }
