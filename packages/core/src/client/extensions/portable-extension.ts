@@ -695,6 +695,22 @@ export function buildAgentNativeExtensionHtml({
             var rect = element.getBoundingClientRect();
             contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
           });
+          var textWalker = document.createTreeWalker(body, 4);
+          var textNode;
+          while ((textNode = textWalker.nextNode())) {
+            if (!textNode.nodeValue || !textNode.nodeValue.trim()) continue;
+            var range = document.createRange();
+            range.selectNodeContents(textNode);
+            Array.prototype.forEach.call(range.getClientRects(), function(rect) {
+              var ancestor = textNode.parentElement;
+              while (ancestor && ancestor !== body) {
+                var ancestorStyle = window.getComputedStyle(ancestor);
+                if (/^(?:auto|scroll|overlay|hidden|clip)$/.test(ancestorStyle.overflowY)) return;
+                ancestor = ancestor.parentElement;
+              }
+              contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+            });
+          }
           var height = Math.ceil(contentBottom + paddingBottom);
           window.parent.postMessage({
             type: messageTypes.extension.RESIZE,

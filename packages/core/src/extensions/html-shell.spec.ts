@@ -156,6 +156,8 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("body.querySelectorAll('*')");
     expect(html).toContain("ancestorStyle.overflowY");
     expect(html).toContain("auto|scroll|overlay|hidden|clip");
+    expect(html).toContain("document.createTreeWalker(body, 4)");
+    expect(html).toContain("range.getClientRects()");
     expect(html).not.toContain("body.scrollHeight");
   });
 
