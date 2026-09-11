@@ -6,6 +6,8 @@ import type { ElementInfo } from "@/components/design/types";
 import type { SelectedLayerTarget } from "@/pages/design-editor/code-layer-state";
 import { shouldSkipVisualStyleCommitForPreview } from "@/pages/design-editor/editor-state";
 
+import { styleWriteTarget } from "./style-write-target";
+
 export interface StyleChangeArgs {
   commitInteractionStateStyles: (
     state: InteractionState,
@@ -79,6 +81,7 @@ export function runStyleChange(
     return;
   }
   const selector = selectedElement?.selector ?? "body";
+  const target = styleWriteTarget({ selector, selectedElement });
   if (
     textEditingState.active &&
     textEditingState.hasRange &&
@@ -114,7 +117,7 @@ export function runStyleChange(
   ) {
     const sendStyleChange = (window as any).__designCanvasSendStyle;
     if (typeof sendStyleChange === "function") {
-      sendStyleChange(selector, property, value, {
+      sendStyleChange(target, property, value, {
         selectorCandidates: selectedCanvasSelectorCandidates,
         nodeId: selectedElement?.sourceId,
       });
@@ -148,5 +151,5 @@ export function runStyleChange(
   // background/font edit away from the body.
   if (selectedElement && commitStylesToSelectedLayers({ [property]: value }))
     return;
-  commitVisualStyles(selector, { [property]: value });
+  commitVisualStyles(target, { [property]: value });
 }

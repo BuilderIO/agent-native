@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 import {
+  canvasZoom,
   readSeedDesignId,
   gotoEditor,
   designFrame,
@@ -439,14 +440,19 @@ test("spacing handles stay visible at rest and remain draggable", async ({
     .last()
     .boundingBox();
   if (!frameBox) throw new Error("missing design iframe bounds");
+  // The iframe is CSS-scaled by the canvas zoom, but clientX/clientY inside it
+  // are unscaled content px. Passing the host-space offset straight through
+  // lands the click near the screen's origin — on <body>, which CLEARS the
+  // selection instead of selecting anything.
+  const zoom = await canvasZoom(page);
   await designFrame(page)
     .locator('[data-agent-native-edit-overlay="shield"]')
     .first()
     .dispatchEvent("click", {
       bubbles: true,
       cancelable: true,
-      clientX: box.x - frameBox.x + 12,
-      clientY: box.y - frameBox.y + 12,
+      clientX: (box.x - frameBox.x) / zoom + 12,
+      clientY: (box.y - frameBox.y) / zoom + 12,
       detail: 1,
     });
   const selected = await waitForBridge(page, "element-select");

@@ -68,11 +68,13 @@ import { ComponentSection } from "./edit-panel/component-section";
 import {
   type DocumentColorSourceFile,
   extractDocumentColorPalette,
+  type SelectionColorScope,
   selectionColorValues,
   selectionDisplayHex,
 } from "./edit-panel/document-colors";
 import { EffectsProperties } from "./edit-panel/effects-properties";
 import {
+  elementHasComponentAnnotation,
   elementIsComponentSelection,
   inspectorObjectTitle,
   isContainerElement,
@@ -145,6 +147,7 @@ import {
   type BreakpointOverrideFieldContext,
   type MotionKeyframeFieldContext,
   type ApplyLayoutFlowHandler,
+  type SelectionColorChangeHandler,
   type StyleChangeHandler,
   type StyleChangeMeta,
   type StylesChangeHandler,
@@ -224,7 +227,13 @@ export { authoredStyleValue, resolveInteractionStateValue };
 export { isTextElement };
 export { ComponentSection };
 export { extractDocumentColorPalette, type DocumentColorSourceFile };
-export type { StyleChangeHandler, StyleChangeMeta, StylesChangeHandler };
+export type {
+  SelectionColorChangeHandler,
+  SelectionColorScope,
+  StyleChangeHandler,
+  StyleChangeMeta,
+  StylesChangeHandler,
+};
 
 export function mergeOptimisticInteractionStateStyles(
   persisted: Record<string, string> | undefined,
@@ -284,6 +293,10 @@ interface EditPanelProps {
    *  properties at once; without this they degrade to one-at-a-time writes
    *  that each rebuild from the same stale projection. */
   onSelectedScreenStylesChange?: StylesChangeHandler;
+  /** Source ranges covered by the current selection for Figma-style color
+   *  replacement. Multiple scopes may belong to one file or several screens. */
+  selectionColorScopes?: SelectionColorScope[];
+  onSelectionColorChange?: SelectionColorChangeHandler;
   zoom?: number;
   headerTrailing?: ReactNode;
   /** Draws the inspector's canonical 28-column / 8px baseline overlay. */
@@ -1066,6 +1079,7 @@ function SelectionHeader({
   /** Data for the "Inspect code" popover. When omitted the button renders disabled. */
   inspectCode?: InspectCodeData;
 }) {
+  const t = useT();
   if (!element) return null;
 
   const title =
@@ -1074,6 +1088,10 @@ function SelectionHeader({
       : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
   const isComponentSelection = elementIsComponentSelection(element);
+  // One row of a repeat is one source element, so an edit here reaches every
+  // row. Without this the propagation is invisible until the canvas changes.
+  const repeatCount =
+    selectedCount > 1 ? 0 : (element.repeat?.instanceCount ?? 0);
 
   return (
     <div className="shrink-0 border-b border-border/90 px-2">
@@ -1091,6 +1109,11 @@ function SelectionHeader({
               )}
             />
             <span className="truncate">{title}</span>
+            {repeatCount > 1 ? (
+              <span className="shrink-0 rounded-sm bg-[var(--design-editor-panel-raised-bg)] px-1 text-[10px] text-muted-foreground">
+                {t("editPanel.repeatAffectsAll", { count: repeatCount })}
+              </span>
+            ) : null}
           </div>
         </InspectorGridCell>
         {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
@@ -1661,17 +1684,19 @@ function ExportPreviewDisclosure({
 }
 
 function SelectionColorsProperties({
-  element,
-  onStyleChange,
+  elements,
+  scopes,
+  onColorChange,
 }: {
-  element: ElementInfo;
-  onStyleChange: StyleChangeHandler;
+  elements: ElementInfo[];
+  scopes?: SelectionColorScope[];
+  onColorChange?: SelectionColorChangeHandler;
 }) {
   // M6 · the design editor's Selection colors collapses to a single "Show selection colors"
   // affordance, expanding to one editable [swatch · hex · opacity] row per
   // unique color — matching the Fill row grammar instead of a swatch strip.
   const [expanded, setExpanded] = useState(false);
-  const colors = selectionColorValues(element);
+  const colors = selectionColorValues(elements, scopes);
   if (!colors.length) return null;
 
   return (
@@ -1684,13 +1709,14 @@ function SelectionColorsProperties({
             const parsed = parseCssColor(color.value);
             const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
             return (
-              <InspectorGridCell key={`${color.value}-${index}`} span={28}>
+              <InspectorGridCell key={index} span={28}>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
                       className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
                       aria-label={color.value}
+                      disabled={!onColorChange}
                     >
                       <span
                         className="size-4 shrink-0 rounded-[3px] border border-border/60"
@@ -1702,6 +1728,11 @@ function SelectionColorsProperties({
                       <span className="shrink-0 tabular-nums text-muted-foreground">
                         {opacity}%
                       </span>
+                      {color.count && color.count > 1 ? (
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          ×{color.count}
+                        </span>
+                      ) : null}
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
@@ -1719,15 +1750,16 @@ function SelectionColorsProperties({
                       // commit on gesture-end — same split as ColorInput's
                       // setNext (see its PF12 comment above).
                       onChange={(value) =>
-                        onStyleChange(color.property, value, {
+                        onColorChange?.(color.value, value, {
                           phase: "preview",
                         })
                       }
                       onChangeComplete={(value) =>
-                        onStyleChange(color.property, value, {
+                        onColorChange?.(color.value, value, {
                           phase: "commit",
                         })
                       }
+                      disabled={!onColorChange}
                     />
                   </PopoverContent>
                 </Popover>
@@ -1790,6 +1822,8 @@ export const EditPanel = memo(function EditPanel({
   selectedScreenElement,
   onSelectedScreenStyleChange,
   onSelectedScreenStylesChange,
+  selectionColorScopes = [],
+  onSelectionColorChange: onSelectionColorChangeProp,
   viewMode,
   mode,
   headerTrailing,
@@ -1919,7 +1953,7 @@ export const EditPanel = memo(function EditPanel({
   const selectionAlreadyComponent =
     selectedCount === 1 &&
     (selectedElementAlreadyComponent ||
-      elementIsComponentSelection(selectedElement));
+      elementHasComponentAnnotation(selectedElement));
   const canCreateComponent = Boolean(
     onCreateComponent &&
     selectedElement &&
@@ -2117,6 +2151,15 @@ export const EditPanel = memo(function EditPanel({
       );
     },
     [onStylesChangeProp, interactionState],
+  );
+  const onSelectionColorChange = useCallback<SelectionColorChangeHandler>(
+    (from, to, meta) =>
+      onSelectionColorChangeProp?.(
+        from,
+        to,
+        interactionState ? { ...meta, interactionState } : meta,
+      ),
+    [interactionState, onSelectionColorChangeProp],
   );
 
   // Breakpoint override indicators — see `breakpointContext` on
@@ -2358,9 +2401,32 @@ export const EditPanel = memo(function EditPanel({
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                       />
+                      <SelectionColorsProperties
+                        elements={[selectedScreenElement]}
+                        scopes={selectionColorScopes}
+                        onColorChange={
+                          readOnly || interactionState
+                            ? undefined
+                            : onSelectionColorChange
+                        }
+                      />
                     </>
                   ) : null}
                 </>
+              ) : null}
+
+              {!inspectorElement &&
+              !selectedScreenGeometry &&
+              selectionColorScopes.length > 0 ? (
+                <SelectionColorsProperties
+                  elements={[]}
+                  scopes={selectionColorScopes}
+                  onColorChange={
+                    readOnly || interactionState
+                      ? undefined
+                      : onSelectionColorChange
+                  }
+                />
               ) : null}
 
               {!inspectorElement &&
@@ -2446,8 +2512,13 @@ export const EditPanel = memo(function EditPanel({
                     motionKeyframeContext={motionKeyframeFieldContext}
                   />
                   <SelectionColorsProperties
-                    element={stateResolvedInspectorElement ?? inspectorElement}
-                    onStyleChange={onStyleChange}
+                    elements={effectiveSelectedElements}
+                    scopes={selectionColorScopes}
+                    onColorChange={
+                      readOnly || interactionState
+                        ? undefined
+                        : onSelectionColorChange
+                    }
                   />
                   {selectionHasContainerElement ? (
                     <LayoutGuideProperties

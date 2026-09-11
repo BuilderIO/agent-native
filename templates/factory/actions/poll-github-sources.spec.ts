@@ -27,10 +27,6 @@ vi.mock("../server/db/index.js", () => ({
   getDb: getDbMock,
 }));
 
-vi.mock("../server/lib/factory-automation-repair.js", () => ({
-  repairFactoryAutomationsFromConfig: vi.fn(),
-}));
-
 vi.mock("../server/lib/factory-automation-caller.js", () => ({
   readCallingFactoryAutomation: readCallingFactoryAutomationMock,
 }));

@@ -21,6 +21,7 @@ import {
   commitElementMinMax,
   commitElementSizing,
   componentNameForElementInfo,
+  elementHasComponentAnnotation,
   inferElementSizing,
   isContainerElement,
   measuredElementSize,
@@ -625,5 +626,46 @@ describe("isVectorShapeElement", () => {
       ),
     ).toBe(false);
     expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+  });
+});
+
+describe("elementHasComponentAnnotation", () => {
+  it("is true only for an explicit annotation", () => {
+    expect(
+      elementHasComponentAnnotation({ componentName: "Button" } as never),
+    ).toBe(true);
+  });
+
+  it("ignores React provenance, which names the renderer not the element", () => {
+    expect(
+      elementHasComponentAnnotation({
+        provenance: { component: "Card" },
+      } as never),
+    ).toBe(false);
+    expect(elementHasComponentAnnotation(null)).toBe(false);
+  });
+});
+
+describe("a tag that usually carries text but holds none", () => {
+  const row = (hasOwnText?: boolean): ElementInfo => ({
+    tagName: "li",
+    classes: [],
+    computedStyles: {},
+    boundingRect: { x: 0, y: 0, width: 260, height: 40 },
+    isFlexChild: true,
+    isFlexContainer: false,
+    ...(hasOwnText === undefined ? {} : { hasOwnText }),
+  });
+
+  it("is a container, so its Fill is a background", () => {
+    expect(isTextElement(row(false))).toBe(false);
+  });
+
+  it("is still text when it holds text directly", () => {
+    expect(isTextElement(row(true))).toBe(true);
+  });
+
+  it("keeps the tag-only reading when the payload does not say", () => {
+    expect(isTextElement(row())).toBe(true);
   });
 });

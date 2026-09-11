@@ -7,6 +7,7 @@ import {
   isConnectionError,
   getPgliteClient,
   loadPgliteDrizzle,
+  pgliteDrizzleClient,
   pgPoolOptions,
   neonPoolOptions,
   guardNeonPool,
@@ -367,7 +368,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     if (isPgliteUrl(url)) {
       _dbReady = loadPgliteDrizzle().then(async ({ drizzle }) => {
         const client = await getPgliteClient(url);
-        _db = drizzle({ client, schema });
+        _db = drizzle({ client: pgliteDrizzleClient(url, client), schema });
         return _db;
       });
       return _dbReady;

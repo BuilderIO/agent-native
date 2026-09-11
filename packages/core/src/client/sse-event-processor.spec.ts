@@ -2028,8 +2028,10 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({
         type: "agent-chat:run-error",
         detail: {
-          message: "Forbidden",
+          message:
+            "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
           errorCode: "http_403",
+          details: "Forbidden",
           tabId: "tab-http-403",
         },
       }),
@@ -2075,8 +2077,10 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({
         type: "agent-chat:run-error",
         detail: {
-          message: "Forbidden",
+          message:
+            "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
           errorCode: "http_403",
+          details: "Forbidden",
           recoverable: true,
           tabId: "tab-http-403",
         },

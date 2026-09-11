@@ -128,7 +128,7 @@ describe("responsive Interact wiring", () => {
 
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
     expect(source).toContain(
-      "const minimalUiByDefault = embedded && !hostOwnsChrome;",
+      "embedded && !hostOwnsChrome && !embedChromeRequested",
     );
     // Minimal mode auto-opens the floating inspector from selection — no
     // manual right-rail toggle (the flipped LayoutSidebar icon was that control).
@@ -145,6 +145,13 @@ describe("responsive Interact wiring", () => {
     );
     expect(source).toContain(
       "isMobileViewport && minimalInspectorHasSelection",
+    );
+  });
+
+  it("resets chrome mode when same-design navigation changes embed mode", () => {
+    expect(source).toContain("setMinimalUi(minimalUiByDefault);");
+    expect(source).toContain(
+      "}, [minimalUiByDefault, embedChromeRequested, hostOwnsChrome]);",
     );
   });
 

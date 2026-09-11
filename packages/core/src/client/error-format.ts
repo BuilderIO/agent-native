@@ -296,7 +296,9 @@ export function isProviderAuthenticationError(
   return (
     code === "authentication_error" ||
     code === "http_401" ||
+    code === "http_403" ||
     /^401 status code(?:\s*\(no body\))?$/i.test(text) ||
+    /^403 status code(?:\s*\(no body\))?$/i.test(text) ||
     /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
       text,
     ) ||
@@ -396,7 +398,7 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderAuthenticationError(text, errorCode)) {
+  if (isProviderAuthenticationError(text, code)) {
     return {
       message: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
       details: text,

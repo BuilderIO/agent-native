@@ -5,6 +5,7 @@ import {
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
+import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
@@ -26,6 +27,7 @@ import type {
   ResponsiveEditScope,
   SelectedCanvasLayerSnapshot,
 } from "@/pages/design-editor/command-types";
+import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
 import { applyScopedVisualStyleEdit } from "@/pages/design-editor/pending-edits";
 import { removeElementFromHtml } from "@/pages/design-editor/text-edit-utils";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -114,6 +116,7 @@ export interface DeleteSelectionArgs {
   setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
+  t: (key: string, options?: Record<string, unknown>) => string;
   syncLiveScreenSnapshotPreview: (screenId: string, html: string) => void;
   undoManagerRef: RefObject<Y.UndoManager | null>;
   updateLiveScreenSnapshotContent: (
@@ -149,6 +152,7 @@ export function runDeleteSelection({
   setSelectedElement,
   setSelectedLayerIdsState,
   syncLiveScreenSnapshotPreview,
+  t,
   undoManagerRef,
   updateLiveScreenSnapshotContent,
   viewModeRef,
@@ -158,6 +162,38 @@ export function runDeleteSelection({
   // U19: delete is a discrete one-shot action — see the matching note in
   // handlePasteSelection.
   undoManagerRef.current?.stopCapturing();
+  // A repeat's rows are data. Removing the markup deletes the one authored row
+  // every rendered row is stamped from, and leaves the collection saying the
+  // rows are still there.
+  if (activeFile && selectedElement?.repeat) {
+    const edit = runRepeatItemEdit({
+      content: getFreshActiveContent(),
+      target: selectedElement.repeat,
+      operation: { kind: "remove" },
+    });
+    if (edit.status === "written") {
+      applyLocalContentUpdate(edit.content, {
+        forcePreviewFullDocument: true,
+      });
+      setSelectedElement(null);
+      setSelectedLayerIdsState([]);
+      return;
+    }
+    if (edit.status === "refused") {
+      trace("structure", "repeat-item-refused", {
+        operation: "remove",
+        reason: edit.reason,
+      });
+      toast.error(
+        t(
+          edit.refusal === "no-item"
+            ? "designEditor.toasts.repeatRowPickOnCanvas"
+            : "designEditor.toasts.repeatListNotEditable",
+        ),
+      );
+      return;
+    }
+  }
   // BUG-DELETE-LIVE-NAMESPACE: the projections below are built from the
   // fetched source snapshot, whose node ids are a different namespace from
   // the live document's — see liveDeleteSelectorGroups for why a selector

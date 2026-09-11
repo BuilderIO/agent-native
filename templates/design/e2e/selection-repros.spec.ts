@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import { expandAllLayers } from "./helpers";
+import { EDGE_HANDLE_HIT_INWARD_PX } from "../app/components/design/multi-screen/handle-hit-zones";
+import { canvasZoom, expandAllLayers } from "./helpers";
 
 /**
  * Selection reachability: everything a click can select, a rubber band must be
@@ -116,6 +117,15 @@ async function screenCard(page: Page) {
   return box;
 }
 
+/**
+ * Leftmost x that is screen background rather than chrome. The frame's edge
+ * resize handles keep a constant on-screen inward reach, so a sweep that
+ * starts nearer the edge than that grabs a resize and selects the frame.
+ */
+function insideScreenX(card: { x: number }, preferred: number): number {
+  return Math.max(card.x + EDGE_HANDLE_HIT_INWARD_PX + 2, preferred);
+}
+
 /** Sweeps a rubber band between two page points, clamped inside the screen. */
 async function sweep(
   page: Page,
@@ -168,10 +178,11 @@ test.describe("marquee reachability", () => {
     const a = (await node(page, "box-a").boundingBox())!;
     const b = (await node(page, "box-b").boundingBox())!;
     const card = await screenCard(page);
+    const px = await canvasZoom(page);
     await sweep(
       page,
-      { x: Math.max(card.x + 4, a.x - 10), y: a.y - 20 },
-      { x: b.x + b.width + 10, y: b.y + b.height + 10 },
+      { x: insideScreenX(card, a.x - 10 * px), y: a.y - 20 * px },
+      { x: b.x + b.width + 10 * px, y: b.y + b.height + 10 * px },
     );
 
     const names = await selectedRows(page).allTextContents();
@@ -199,17 +210,23 @@ test.describe("marquee reachability", () => {
       .first()
       .boundingBox())!;
     const card = await screenCard(page);
+    const px = await canvasZoom(page);
     await sweep(
       page,
-      { x: Math.max(card.x + 4, target.x - 10), y: target.y - 14 },
-      { x: target.x + target.width + 10, y: target.y + target.height + 14 },
+      { x: insideScreenX(card, target.x - 10 * px), y: target.y - 14 * px },
+      {
+        x: target.x + target.width + 10 * px,
+        y: target.y + target.height + 14 * px,
+      },
     );
 
     const swept = (await selectedRows(page).allTextContents()).join("|");
+    // Naming the target is what makes this fail for the bug it exists to
+    // catch: "not empty" is also satisfied by the frame selecting itself.
     expect(
       swept,
       "an id attribute is a persistence detail; a click selects this element, so a band must too",
-    ).not.toBe("");
+    ).toContain("Unnamed");
     expect(swept, "the enclosing wrapper is not the target").not.toContain(
       "Wrapper",
     );
@@ -220,10 +237,11 @@ test.describe("marquee reachability", () => {
     await openEditor(page, id);
     const flat = (await node(page, "flat").boundingBox())!;
     const card = await screenCard(page);
+    const px = await canvasZoom(page);
     await sweep(
       page,
-      { x: Math.max(card.x + 4, flat.x - 10), y: flat.y - 18 },
-      { x: flat.x + flat.width + 10, y: flat.y + 30 },
+      { x: insideScreenX(card, flat.x - 10 * px), y: flat.y - 18 * px },
+      { x: flat.x + flat.width + 10 * px, y: flat.y + 30 * px },
     );
 
     expect(
@@ -556,7 +574,7 @@ test.describe("hidden layers", () => {
     const card = await screenCard(page);
     await sweep(
       page,
-      { x: Math.max(card.x + 4, a.x - 10), y: a.y + a.height + 4 },
+      { x: insideScreenX(card, a.x - 10), y: a.y + a.height + 4 },
       { x: rule.x + rule.width, y: rule.y - 4 },
     );
 

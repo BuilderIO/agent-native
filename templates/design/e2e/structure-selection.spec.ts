@@ -31,8 +31,13 @@ const FIXTURE = `<!doctype html>
          style="position:absolute;left:20px;top:520px;width:120px;height:80px;background:#a855f7"></div>
     <div data-agent-native-node-id="loose-b" data-agent-native-layer-name="Loose B"
          style="position:absolute;left:170px;top:520px;width:120px;height:80px;background:#ec4899"></div>
-  </body>
+</body>
 </html>`;
+
+const BOARD_FIXTURE = FIXTURE.replace("loose-a", "board-a")
+  .replace("Loose A", "Board A")
+  .replace("loose-b", "board-b")
+  .replace("Loose B", "Board B");
 
 let baseURL = "";
 
@@ -67,6 +72,28 @@ async function newDesign(page: Page): Promise<string> {
     filename: "index.html",
     content: FIXTURE,
     fileType: "html",
+  });
+  return id;
+}
+
+async function newBoardDesign(page: Page): Promise<string> {
+  const created = await postAction(page, "create-design", {
+    title: "group fill board surface",
+    projectType: "prototype",
+  });
+  const id = created?.id ?? created?.data?.id;
+  if (!id) throw new Error("create-design returned no id");
+  const board = await postAction(page, "create-file", {
+    designId: id,
+    filename: "__board__.html",
+    content: BOARD_FIXTURE,
+    fileType: "html",
+  });
+  const boardFileId = board?.id ?? board?.data?.id;
+  if (!boardFileId) throw new Error("create-file returned no board id");
+  await postAction(page, "update-design", {
+    id,
+    dataOperations: [{ op: "set", path: ["boardFileId"], value: boardFileId }],
   });
   return id;
 }
@@ -357,6 +384,35 @@ test.describe("groups", () => {
     ).toBeCloseTo(expectedWidth, -1.4);
   });
 
+  test("a group fill is visible on the board surface", async ({ page }) => {
+    const id = await newBoardDesign(page);
+    await openEditor(page, id);
+    await multiSelect(page, ["Board A", "Board B"]);
+    await page.keyboard.press(`${MOD}+g`);
+    await expect(
+      layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
+    ).toHaveCount(1);
+
+    const fillSection = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })
+      .first();
+    await expect(fillSection).toBeVisible();
+    await fillSection.getByRole("button", { name: "Add fill" }).click();
+
+    const group = page
+      .locator("iframe[data-design-preview-iframe]")
+      .first()
+      .contentFrame()
+      .locator('[data-agent-native-layer-name="Group"]')
+      .first();
+    await expect
+      .poll(() =>
+        group.evaluate((element) => getComputedStyle(element).backgroundColor),
+      )
+      .toBe("rgb(255, 255, 255)");
+  });
+
   test("Cmd+Shift+G ungroups", async ({ page }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
@@ -493,14 +549,17 @@ test.describe("multi-selection", () => {
 
     const aDelta =
       aBefore - styleNum(styleOf(await indexHtml(page, id), "loose-a"), "top");
-    // Snapping is on, so the drop is pulled up to SNAP_THRESHOLD_PX (6) onto
-    // an alignment guide. Cmd is Figma's snap bypass but is overloaded with
-    // deep-select here, so an exact-delta drag is not expressible.
+    // Snapping is on, so the drop is pulled onto an alignment guide. The
+    // bridge holds SNAP_THRESHOLD_PX (6) constant on SCREEN, so zoomed out it
+    // spans 6/s content px — the delta is measured in content px. Cmd is
+    // Figma's snap bypass but is overloaded with deep-select here, so an
+    // exact-delta drag is not expressible.
+    const tolerance = Math.ceil(6 / s);
     expect(
       Math.abs(100 - aDelta),
-      `dragging 100px up landed ${aDelta}, which is further than the 6px snap ` +
-        `threshold can account for`,
-    ).toBeLessThanOrEqual(6);
+      `dragging 100px up landed ${aDelta}; at zoom ${s} the 6px screen snap ` +
+        `threshold spans ${tolerance} content px, which cannot account for it`,
+    ).toBeLessThanOrEqual(tolerance);
   });
 
   test("a multi-selection shows one combined bounding box", async ({

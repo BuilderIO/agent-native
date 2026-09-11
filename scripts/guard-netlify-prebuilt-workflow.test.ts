@@ -452,6 +452,21 @@ describe("production Netlify site concurrency guard", () => {
       },
     );
     assert.equal((beta.permissions as Workflow).contents, "read");
+    const betaBuild = (beta.jobs as Workflow).build as Workflow;
+    assert.equal(
+      betaBuild.uses,
+      "./.github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(betaBuild.needs, ["resolve-source", "discover-sites"]);
+    assert.equal((betaBuild.with as Workflow).target, "beta");
+    assert.equal((betaBuild.with as Workflow).deploy, false);
+    assert.equal((betaBuild.with as Workflow).deploy_mode, "draft");
+    assert.equal((betaBuild.with as Workflow).artifact_upload, true);
+    assert.match(
+      String((betaBuild.with as Workflow).artifact_name),
+      /github\.run_id/,
+    );
+    assert.equal((betaBuild.strategy as Workflow)["max-parallel"], 16);
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
       8,
@@ -465,7 +480,13 @@ describe("production Netlify site concurrency guard", () => {
     assert.deepEqual((beta.jobs as Workflow).deploy.needs, [
       "resolve-source",
       "discover-sites",
+      "build",
     ]);
+    assert.equal((beta.jobs as Workflow).deploy.with.artifact_download, true);
+    assert.match(
+      String((beta.jobs as Workflow).deploy.with.artifact_name),
+      /github\.run_id/,
+    );
     assert.equal((beta.jobs as Workflow)["schema-gate"], undefined);
     const production = readWorkflow(
       ".github/workflows/deploy-production-sites-prebuilt.yml",
@@ -552,6 +573,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       String((reusable.concurrency as Workflow).group),
       /inputs\.target == 'beta'[\s\S]*agent-native-production-site-\{0\}/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /netlify-prebuilt-beta-build-\{0\}-\{1\}/,
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
