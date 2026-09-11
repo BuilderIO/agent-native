@@ -717,6 +717,7 @@ export function emitPlanStatusChanged(input: {
   changedBy?: string | null;
   ownerEmail?: string | null;
 }) {
+  if (input.oldStatus === input.newStatus) return;
   try {
     emit(
       "plan.status.changed",

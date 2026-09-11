@@ -88,17 +88,6 @@ export default defineAction({
       ...input,
       libraryId,
     };
-    track(
-      "generation_started",
-      {
-        app_name: "assets",
-        template_name: "assets",
-        output_type: "asset",
-        media_type: "video",
-        source_app: args.callerAppId,
-      },
-      context,
-    );
     const draftAccess = await assertCanDraft(args.libraryId);
     // Inputs answer to the same author rule as reads: another drafter's
     // candidate must not reach the provider as a source or a reference.
@@ -299,9 +288,22 @@ export default defineAction({
       .set({ status: "processing", metadata: run.metadata })
       .where(eq(schema.assetGenerationRuns.id, runId));
 
+    track(
+      "generation_started",
+      {
+        app_name: "assets",
+        template_name: "assets",
+        output_id: runId,
+        output_type: "asset",
+        media_type: "video",
+        source_app: args.callerAppId,
+      },
+      context,
+    );
+
     if (args.waitForCompletion) {
       const completed = await completeVideoGenerationRun(run);
-      if (completed.status === "completed") {
+      if (completed.status === "completed" && completed.completionClaimed) {
         const asset = serializeAsset(completed.asset);
         track(
           "media_generated",

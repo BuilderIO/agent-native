@@ -144,7 +144,7 @@ export default defineAction({
         app_name: "dispatch",
         template_name: "dispatch",
         channel: resolvedPlatform,
-        ...(resolvedThreadRef ? { thread_id: resolvedThreadRef } : {}),
+        has_thread_ref: Boolean(resolvedThreadRef),
       },
       ctx,
     );

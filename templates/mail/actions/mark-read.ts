@@ -207,6 +207,7 @@ export default defineAction({
 
     const action = isRead ? "read" : "unread";
     const succeeded = results.filter((r) => r.success).length;
+    const failed = results.length - succeeded;
     track(
       "inbox_triaged",
       {
@@ -214,7 +215,9 @@ export default defineAction({
         template_name: "mail",
         action: isRead ? "mark_read" : "mark_unread",
         items_triaged: succeeded,
-        succeeded: true,
+        succeeded: failed === 0,
+        partial: succeeded > 0 && failed > 0,
+        failed_count: failed,
         scope: "explicit",
       },
       ctx,

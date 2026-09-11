@@ -452,7 +452,6 @@ export default function ShareRoute() {
       void trackEvent("clip_viewed", {
         app_name: "clips",
         template_name: "clips",
-        output_id: recordingId,
         output_type: "clip",
         view_type: "shared",
         ref: attribution.ref,
@@ -1658,7 +1657,6 @@ export default function ShareRoute() {
             trackEvent("builtin_agent_used", {
               app_name: "clips",
               template_name: "clips",
-              output_id: recordingId,
               output_type: "clip",
               query_type: "clip",
               surface: "shared_clip",
