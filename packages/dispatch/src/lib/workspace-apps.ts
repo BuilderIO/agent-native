@@ -372,8 +372,8 @@ export function workspaceAppDirectHref(
 
   if (absoluteBase) {
     absoluteBase.pathname = resolvedPath;
-    absoluteBase.search = targetUrl.search;
-    absoluteBase.hash = targetUrl.hash;
+    if (target.includes("?")) absoluteBase.search = targetUrl.search;
+    if (target.includes("#")) absoluteBase.hash = targetUrl.hash;
     return absoluteBase.toString();
   }
 
