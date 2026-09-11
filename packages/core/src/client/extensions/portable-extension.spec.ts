@@ -33,6 +33,9 @@ describe("portable extension runtime", () => {
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");
     expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
+    expect(html).toContain(
+      "Math.max(paddingTop, bodyRect.height - paddingBottom)",
+    );
     expect(html).toContain("body.querySelectorAll('*')");
     expect(html).not.toContain("body.scrollHeight");
     expect(html).toContain('<div x-data="{ ready: true }">Hello</div>');

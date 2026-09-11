@@ -668,7 +668,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
   it("opens the app in the top window for a native desktop host", async () => {
     const topWindow = { location: { href: "" } } as unknown as Window;
-    const expectedUrl = new URL("/mail", window.location.href).href;
+    const expectedUrl = new URL("/mail/inbox", window.location.href).href;
     clientState.clientSurface = "electron";
     Object.defineProperty(window, "top", {
       configurable: true,
@@ -677,7 +677,14 @@ describe("WorkspaceAppKeepAlive", () => {
 
     await act(async () => {
       root.render(
-        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            homePath: "/inbox",
+          }}
+        />,
       );
       await Promise.resolve();
     });
@@ -707,7 +714,7 @@ describe("WorkspaceAppKeepAlive", () => {
       await Promise.resolve();
     });
 
-    expect(navigateToTopWindow).toHaveBeenCalledWith("/mail");
+    expect(navigateToTopWindow).toHaveBeenCalledWith("/mail/home");
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "mail",
       path: "/mail",
@@ -750,7 +757,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
   it("opens the app in the top window for a Builder webview", async () => {
     const topWindow = { location: { href: "" } } as unknown as Window;
-    const expectedUrl = new URL("/mail", window.location.href).href;
+    const expectedUrl = new URL("/mail/home", window.location.href).href;
     clientState.inBuilderFrame = true;
     Object.defineProperty(window, "top", {
       configurable: true,

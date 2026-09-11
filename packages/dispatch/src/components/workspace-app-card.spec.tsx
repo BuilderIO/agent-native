@@ -138,7 +138,9 @@ describe("WorkspaceAppCard", () => {
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ).find((item) => item.textContent?.includes("Open in new tab"));
     expect(newTabItem).not.toBeUndefined();
-    expect(newTabItem?.getAttribute("href")).toBe("/analytics");
+    expect(newTabItem?.getAttribute("href")).toBe(
+      "https://analytics.agent-native.com/home",
+    );
     expect(newTabItem?.getAttribute("target")).toBe("_blank");
     const openMenu = document.querySelector<HTMLElement>('[role="menu"]');
     expect(openMenu?.className).toContain("w-48");
@@ -188,6 +190,7 @@ describe("WorkspaceAppCard", () => {
                   id: "feedback-leaderboard",
                   name: "Feedback leaderboard",
                   path: "/feedback-leaderboard",
+                  homePath: "/",
                   url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
                   status: "ready",
                 }}

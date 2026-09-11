@@ -707,7 +707,7 @@ export function buildExtensionHtml(
 	        var bodyStyle = window.getComputedStyle(body);
 	        var paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
 	        var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
-	        var contentBottom = paddingTop;
+        var contentBottom = Math.max(paddingTop, bodyRect.height - paddingBottom);
 	        Array.prototype.forEach.call(body.querySelectorAll('*'), function(element) {
 	          var rect = element.getBoundingClientRect();
 	          contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);

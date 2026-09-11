@@ -338,12 +338,8 @@ export function WorkspaceAppFrame({
       );
     }
 
-    const target = workspaceAppEmbedTarget({
-      path: app.path ?? "",
-      url: app.url,
-    });
-    return target.url ?? target.path ?? null;
-  }, [app.path, app.url, embedPath, initialPath]);
+    return appHref;
+  }, [appHref, embedPath, initialPath]);
   const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
   const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${initialPath ?? ""}\u0000${embedAttempt}`;
   const topWindowSsoAttemptedRef = useRef<string | null>(null);
