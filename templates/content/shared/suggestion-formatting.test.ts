@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 import {
   suggestionFormattingChanges,
   suggestionFormattingSourceSlice,
   suggestionFormattingSourceRange,
+  suggestionMarkedSourceRanges,
 } from "./suggestion-formatting";
+
+const L = (...lines: string[]) => lines.join("\n");
 
 describe("formatting source ranges", () => {
   it.each([
@@ -247,5 +251,283 @@ describe("formatting source ranges", () => {
       suggestionFormattingSourceRange(link, hrefText, hrefText + 2),
     ).toBeNull();
     expect(suggestionFormattingSourceRange("**Bold**", 1, 2)).toBeNull();
+  });
+});
+
+// A code fence emits its body unescaped and sizes its own delimiter from the
+// body's longest backtick run, so the inline escaping every other run restores
+// from silently made any page holding real code non-suggestable.
+describe("code fences stay mappable", () => {
+  const bold = "Intro **bold** text";
+  const mappable = (source: string) => {
+    // Only a fixpoint can be compared byte-for-byte against its own mapping.
+    expect(canonicalizeNfm(source)).toBe(source);
+    expect(docToNfm(nfmToDoc(source))).toBe(source);
+    return suggestionMarkedSourceRanges(source);
+  };
+
+  it.each([
+    ["angle brackets and braces", "<Foo bar={1} />"],
+    ["a pipe", "ls | grep x"],
+    ["an asterisk", "return x * 2"],
+    ["brackets", "items[0]"],
+    ["a dollar sign", "export A=$B"],
+    ["a tilde", "cd ~/src"],
+    ["a backslash", 'const path = "C:\\\\tmp";'],
+    ["a caret", "2 ^ 8"],
+    ["every escapable character", "\\ * ~ $ [ ] < > { } | ^"],
+  ])("maps a code body containing %s", (_name, body) => {
+    expect(mappable(L("```ts", body, "```"))).toEqual([]);
+    expect(mappable(L(bold, "```ts", body, "```"))).toEqual([
+      { from: 6, to: 14 },
+    ]);
+  });
+
+  it("keeps the fence length a body backtick run forces", () => {
+    const source = L("````", "a ```b``` c", "````");
+    expect(mappable(source)).toEqual([]);
+    expect(mappable(L(bold, "````", "a ```b``` c", "````"))).toEqual([
+      { from: 6, to: 14 },
+    ]);
+  });
+
+  it.each([
+    [
+      "a toggle",
+      L(
+        "<details>",
+        "<summary>S</summary>",
+        "\t```ts",
+        "\tone",
+        "\ttwo",
+        "\t```",
+        "</details>",
+      ),
+    ],
+    [
+      "a toggle heading",
+      L('## S {toggle="true"}', "\t```ts", "\tone", "\ttwo", "\t```"),
+    ],
+    [
+      "a callout",
+      L(
+        '<callout icon="i">',
+        "\t```ts",
+        "\tone",
+        "\ttwo",
+        "\t```",
+        "</callout>",
+      ),
+    ],
+    [
+      "a column",
+      L(
+        "<columns>",
+        "\t<column>",
+        "\t\t```ts",
+        "\t\tone",
+        "\t\ttwo",
+        "\t\t```",
+        "\t</column>",
+        "\t<column>",
+        "\t\tRight",
+        "\t</column>",
+        "</columns>",
+      ),
+    ],
+  ])(
+    "reapplies the indentation of a multiline code body inside %s",
+    (_name, nested) => {
+      expect(mappable(nested)).toEqual([]);
+      expect(mappable(`${bold}\n${nested}`)).toEqual([{ from: 6, to: 14 }]);
+    },
+  );
+
+  it("maps source offsets inside an indented multiline code body", () => {
+    const source = L(
+      "<details>",
+      "<summary>S</summary>",
+      "\t```ts",
+      "\tone",
+      "\ttwo",
+      "\t```",
+      "</details>",
+    );
+    const two = source.indexOf("two");
+    // A toggle's summary is an attribute, so the code body alone is the text
+    // the editor sees; the second line's own tab is structural.
+    expect(suggestionFormattingSourceRange(source, two, two + 3)).toMatchObject(
+      {
+        from: "one\ntwo".indexOf("two"),
+        to: "one\ntwo".length,
+      },
+    );
+  });
+
+  it("still proposes a mark change on a page that holds a code fence", () => {
+    const before = L("Echo other", "```ts", "const a = {};", "```");
+    const after = L("**Echo** other", "```ts", "const a = {};", "```");
+    expect(suggestionFormattingChanges(before, after)).toEqual([
+      { before: { from: 0, to: 4 }, after: { from: 0, to: 8 } },
+    ]);
+  });
+
+  it("maps past an astral character in a code body by code unit", () => {
+    const source = L(
+      "<details>",
+      "<summary>S</summary>",
+      "\t```ts",
+      '\tconst a = "\u{1F600}";',
+      "\tconst b = 2;",
+      "\t```",
+      "</details>",
+    );
+    const target = source.indexOf("const b");
+    const text = 'const a = "\u{1F600}";\nconst b = 2;';
+    expect(mappable(source)).toEqual([]);
+    expect(
+      suggestionFormattingSourceRange(source, target, target + 7),
+    ).toMatchObject({
+      from: text.indexOf("const b"),
+      to: text.indexOf("const b") + 7,
+    });
+  });
+
+  it("leaves an empty code fence mappable", () => {
+    expect(mappable(L(bold, "```", "", "```"))).toEqual([{ from: 6, to: 14 }]);
+  });
+});
+// Nothing pinned which page shapes are suggestable, so a whole-page refusal
+// could regress silently. Every source here is a canonical NFM fixpoint.
+describe("page shapes stay suggestable", () => {
+  const bold = "Intro **bold** text";
+  const mappable = (source: string) => {
+    expect(canonicalizeNfm(source)).toBe(source);
+    expect(docToNfm(nfmToDoc(source))).toBe(source);
+    return suggestionMarkedSourceRanges(source);
+  };
+
+  it.each([
+    ["an image", "![A caption](https://cdn.example.com/x.png)"],
+    ["an uncaptioned image", "![](https://cdn.example.com/x.png)"],
+    ["an image URL holding parens", "![cap](https://x.com/a_(1).png)"],
+    [
+      "a toggle",
+      L(
+        "<details>",
+        "<summary>A toggle</summary>",
+        "\tHidden child",
+        "</details>",
+      ),
+    ],
+    [
+      "a toggle heading",
+      L(
+        '## Toggle Heading Two {toggle="true"}',
+        "\tChild under toggle heading",
+      ),
+    ],
+    [
+      "a toggle holding an image",
+      L(
+        "<details>",
+        "<summary>A toggle</summary>",
+        "\t![diagram](https://example.com/d.png)",
+        "</details>",
+      ),
+    ],
+    [
+      "nested toggles",
+      L(
+        "<details>",
+        "<summary>Outer</summary>",
+        "\t<details>",
+        "\t<summary>Inner</summary>",
+        "\t\tinner child",
+        "\t</details>",
+        "</details>",
+      ),
+    ],
+    [
+      "a table",
+      L(
+        '<table header-row="true">',
+        "<tr>",
+        "<td>H1</td>",
+        "<td>H2</td>",
+        "</tr>",
+        "<tr>",
+        "<td>r1c1</td>",
+        "<td>r1c2</td>",
+        "</tr>",
+        "</table>",
+      ),
+    ],
+    [
+      "a callout",
+      L(
+        '<callout icon="i" color="blue_bg">',
+        "\tCallout body",
+        "\t- callout item",
+        "</callout>",
+      ),
+    ],
+    [
+      "columns",
+      L(
+        "<columns>",
+        "\t<column>",
+        "\t\tLeft column text",
+        "\t</column>",
+        "\t<column>",
+        "\t\tRight column text",
+        "\t</column>",
+        "</columns>",
+      ),
+    ],
+    ["a block equation", L("$$", "\\int_0^1 x^2 dx = \\frac{1}{3}", "$$")],
+    [
+      "a synced block",
+      L(
+        '<synced_block url="https://www.notion.so/s">',
+        "\tShared content",
+        "</synced_block>",
+      ),
+    ],
+    ["a quote", "> A single real quote block"],
+    ["a divider", "---"],
+    ["an empty block", L("above", "<empty-block/>", "below")],
+    ["a page atom", '<page url="https://www.notion.so/abc">Child Page</page>'],
+    [
+      "a mention",
+      '<mention-page url="https://www.notion.so/abc">A Page</mention-page>',
+    ],
+    ["a table of contents", "<table_of_contents/>"],
+  ])("keeps a page holding %s suggestable", (_name, construct) => {
+    expect(mappable(`${bold}\n${construct}`)).toEqual([{ from: 6, to: 14 }]);
+  });
+
+  it("maps the reported page shape: images and toggles beside real code", () => {
+    const source = L(
+      "# Release notes",
+      "Shipped **three** things this week.",
+      "![Screenshot of the dashboard](https://cdn.example.com/shot.png)",
+      "<details>",
+      "<summary>Implementation detail</summary>",
+      "\tWe changed the [loader](https://example.test).",
+      "\t```tsx",
+      "\tconst el = <Foo bar={1} />;",
+      "\treturn el;",
+      "\t```",
+      "</details>",
+      '<callout icon="i">',
+      "\tSee the ~~old~~ notes.",
+      "</callout>",
+    );
+    // Each marked run must still resolve to its own delimited source span,
+    // with the code fence between them contributing none.
+    expect(
+      mappable(source)?.map((range) => source.slice(range.from, range.to)),
+    ).toEqual(["**three**", "[loader](https://example.test)", "~~old~~"]);
   });
 });
