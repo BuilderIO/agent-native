@@ -414,8 +414,6 @@ describe("extractImportUrls", () => {
 });
 
 describe("mirrorPreviewWebFonts import chains and budget", () => {
-  const FONT_FACE_RULE = 5;
-
   function crossOriginPreview(href: string): Document {
     const preview = document.implementation.createHTMLDocument("preview");
     Object.defineProperty(preview, "styleSheets", {
