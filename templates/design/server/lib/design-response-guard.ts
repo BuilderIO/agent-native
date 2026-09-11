@@ -86,7 +86,11 @@ const DESIGN_SKILL_DOMAIN_PREPOSITIONS = new Set([
   "with",
 ]);
 const DESIGN_SKILL_CLAUSE_BOUNDARIES = new Set(["also", "and", "but", "then"]);
-const DESIGN_PRONOUN_OBJECT = /^(?:it|this)$/i;
+const DESIGN_AMBIGUOUS_VERB = /^(?:design|designing)$/i;
+const DESIGN_REQUEST_LEAD_IN =
+  /\b(?:please|kindly|also|and|then|now|to|let'?s)$|\b(?:can|could|would|will)\s+you(?:\s+please)?$|\bi(?:'d|\s+would)?\s+(?:like|want|need)\s+(?:you\s+)?to$/i;
+const DESIGN_FINITE_VERB_FOLLOWS =
+  /^\s*(?:is|are|was|were|be|been|being|has|have|had|will|would|can|could|should|may|might|must|does|do|did)\b/i;
 
 function matchSpans(pattern: RegExp, text: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
@@ -98,36 +102,45 @@ function matchSpans(pattern: RegExp, text: string): Array<[number, number]> {
 }
 
 /**
- * `design` is the one token present in both the verb and the object pattern,
- * so testing the two independently lets a single word satisfy both halves of
- * the conjunction. Every message that merely mentions a design then read as a
- * request that had to persist one — including this guard's own save-failure
- * notice, which is why pasting it back produced the same notice again.
+ * `design` is the only token in both the verb and the object pattern, and in
+ * this app it is far more often the noun. Let it supply the verb only where a
+ * verb can stand: opening the message or a clause, or after a request lead-in,
+ * and never in front of a finite verb of its own ("design is ..." is a
+ * statement about designs). Every other mutation verb is unambiguous.
+ */
+function suppliesMutationVerb(
+  text: string,
+  [start, end]: [number, number],
+): boolean {
+  if (!DESIGN_AMBIGUOUS_VERB.test(text.slice(start, end))) return true;
+  if (DESIGN_FINITE_VERB_FOLLOWS.test(text.slice(end))) return false;
+  const prefix = text.slice(0, start).replace(/\s+$/, "");
+  if (prefix === "" || /[.!?,;:]$/.test(prefix)) return true;
+  return DESIGN_REQUEST_LEAD_IN.test(prefix);
+}
+
+/**
+ * Testing the verb and object patterns independently let a single `design`
+ * token satisfy both halves of the conjunction, so every message that merely
+ * mentioned a design read as a request that had to persist one — including
+ * this guard's own save-failure notice, which is why pasting it back produced
+ * the same notice again.
  */
 function hasDistinctVerbAndObject(text: string): boolean {
   const verbs = matchSpans(
     new RegExp(DESIGN_MUTATION_VERBS.source, "gi"),
     text,
-  );
+  ).filter((span) => suppliesMutationVerb(text, span));
   if (verbs.length === 0) return false;
   return matchSpans(
     new RegExp(DESIGN_MUTATION_OBJECTS.source, "gi"),
     text,
-  ).some(([objectStart, objectEnd]) => {
-    // `it` and `this` double as determiners and subjects, and English puts an
-    // object after its verb. The `this` in "this design" belongs to `design`,
-    // so pairing the two backwards read "I love this design" as an edit
-    // request. A named object still pairs either way, because it can lead its
-    // verb: "the color palette needs updating".
-    const pronounObject = DESIGN_PRONOUN_OBJECT.test(
-      text.slice(objectStart, objectEnd),
-    );
-    return verbs.some(([verbStart, verbEnd]) =>
-      pronounObject
-        ? verbEnd <= objectStart
-        : verbEnd <= objectStart || objectEnd <= verbStart,
-    );
-  });
+  ).some(([objectStart, objectEnd]) =>
+    verbs.some(
+      ([verbStart, verbEnd]) =>
+        verbEnd <= objectStart || objectEnd <= verbStart,
+    ),
+  );
 }
 
 function normalizeToolName(name: unknown): string {

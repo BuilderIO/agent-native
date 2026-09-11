@@ -696,24 +696,46 @@ describe("Design final response guard", () => {
     expect(designFinalResponseGuard(guardContext("nice design"))).toBeNull();
   });
 
-  it("reads a pronoun before the verb as a determiner, not an object", () => {
-    // `it` and `this` double as determiners and subjects, so pairing them
-    // backwards let "this design" stand in for verb plus object.
+  it("lets `design` supply the verb only where a verb can stand", () => {
+    // The noun is the common use in this app, so a mention must not supply
+    // the verb even when some other word supplies the object.
     expect(looksLikeDesignMutationRequest("I love this design")).toBe(false);
     expect(looksLikeDesignMutationRequest("this design looks good")).toBe(
       false,
     );
     expect(looksLikeDesignMutationRequest("that design is great")).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("I love this design, but it needs work"),
+    ).toBe(false);
+    expect(looksLikeDesignMutationRequest("Design is the design system")).toBe(
+      false,
+    );
 
     expect(looksLikeDesignMutationRequest("design it")).toBe(true);
+    expect(looksLikeDesignMutationRequest("design a login screen")).toBe(true);
+    expect(looksLikeDesignMutationRequest("can you design a hero")).toBe(true);
+    expect(looksLikeDesignMutationRequest("and then design a footer")).toBe(
+      true,
+    );
+    expect(looksLikeDesignMutationRequest("I need you to design a hero")).toBe(
+      true,
+    );
+    expect(looksLikeDesignMutationRequest("make this design darker")).toBe(
+      true,
+    );
+  });
+
+  it("keeps a pronoun subject with a trailing verb a mutation request", () => {
+    expect(looksLikeDesignMutationRequest("this needs updating")).toBe(true);
+    expect(looksLikeDesignMutationRequest("it needs fixing")).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("the color palette needs updating"),
+    ).toBe(true);
+
     expect(looksLikeDesignMutationRequest("make it darker")).toBe(true);
     expect(looksLikeDesignMutationRequest("update this")).toBe(true);
     expect(
       looksLikeDesignMutationRequest("this is the design, make it darker"),
-    ).toBe(true);
-    // A named object still pairs either way, because it can lead its verb.
-    expect(
-      looksLikeDesignMutationRequest("the color palette needs updating"),
     ).toBe(true);
   });
 
