@@ -11,7 +11,7 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -677,9 +677,7 @@ function isWithin(root, candidate) {
 }
 
 function isAbsoluteLinkTarget(target) {
-  return (
-    isAbsolute(target) || /^[A-Za-z]:[\\/]/.test(target) || /^\\\\/.test(target)
-  );
+  return isAbsolute(target) || win32.isAbsolute(target);
 }
 
 function resolveSourceSkill(skill) {
