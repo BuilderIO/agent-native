@@ -75,6 +75,14 @@ export {
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
 export {
+  LabsSettings,
+  useLab,
+  useLabState,
+  useLabs,
+  type LabValues,
+  type LabsSettingsProps,
+} from "./labs/index.js";
+export {
   ExperimentsSettings,
   useExperiment,
   useExperimentState,

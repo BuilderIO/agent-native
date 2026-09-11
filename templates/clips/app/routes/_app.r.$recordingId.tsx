@@ -9,7 +9,6 @@ import {
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import { useExperiment } from "@agent-native/core/client/experiments";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -21,6 +20,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -34,8 +34,8 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
-import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/experiments";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
+import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -109,6 +109,7 @@ import {
   ViewerTabsTrigger,
 } from "@/components/player/viewer-controls";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
@@ -142,6 +143,7 @@ import { useCompletionAudioCue } from "@/hooks/use-completion-audio-cue";
 import { useFolders, useSpaces } from "@/hooks/use-library";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
+import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
@@ -556,8 +558,8 @@ export default function RecordingPage() {
   const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
   const panelParam = searchParams.get("panel");
   const { session, isLoading: sessionLoading } = useSession();
-  const videoEditingExperimentEnabled = useExperiment(CLIPS_VIDEO_EDITING.key);
-  const meetingsExperimentEnabled = useExperiment(CLIPS_MEETINGS.key);
+  const videoEditingLabEnabled = useLab(CLIPS_VIDEO_EDITING.key);
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
 
@@ -978,11 +980,10 @@ export default function RecordingPage() {
     recordingId === VIEWER_REDESIGN_PREVIEW_ID
       ? VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS
       : (recording?.durationMs ?? 0);
-  const hasBrowserDiagnosticFailures = Boolean(
-    browserDiagnostics &&
-    (browserDiagnostics.summary.consoleErrorCount > 0 ||
-      browserDiagnostics.summary.consoleWarnCount > 0 ||
-      browserDiagnostics.summary.networkFailureCount > 0),
+  const unviewedDebugEventCount = useUnviewedDebugEventCount(
+    recordingId,
+    browserDiagnostics?.summary ?? null,
+    panel === "debug",
   );
   // Reaching this page already requires a signed-in session with at least
   // viewer access to the recording, so any resolved role qualifies to
@@ -1243,7 +1244,7 @@ export default function RecordingPage() {
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor =
-    canEdit && videoEditingExperimentEnabled && !isLoomEmbedBacked;
+    canEdit && videoEditingLabEnabled && !isLoomEmbedBacked;
   const canDelete = role === "owner";
   const canDownloadRecording = Boolean(
     recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
@@ -1995,11 +1996,16 @@ export default function RecordingPage() {
         <ViewerTabsTrigger value="debug">
           <span className="flex items-center justify-center gap-1.5">
             {t("browserDiagnostics.debug")}
-            {hasBrowserDiagnosticFailures ? (
-              <span
-                className="size-1.5 rounded-full bg-destructive"
-                aria-label={t("browserDiagnostics.failuresPresent")}
-              />
+            {unviewedDebugEventCount > 0 ? (
+              <Badge
+                variant="secondary"
+                className="h-4 min-w-4 justify-center rounded-full px-1 py-0 text-[10px] leading-none"
+                aria-label={t("browserDiagnostics.unviewedCount", {
+                  count: unviewedDebugEventCount,
+                })}
+              >
+                {unviewedDebugEventCount}
+              </Badge>
             ) : null}
           </span>
         </ViewerTabsTrigger>
@@ -2588,7 +2594,7 @@ export default function RecordingPage() {
                     </div>
                     {/* G9 — "From meeting" badge surfaced when this recording is
                       attached to a meeting (server fix 6 attaches `meeting`). */}
-                    {meetingsExperimentEnabled && playerDataQ.data?.meeting ? (
+                    {meetingsLabEnabled && playerDataQ.data?.meeting ? (
                       <NavLink
                         to={`/meetings/${playerDataQ.data.meeting.id}`}
                         className="mb-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
