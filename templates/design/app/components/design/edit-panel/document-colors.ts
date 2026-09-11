@@ -130,11 +130,11 @@ function styleBlockSpans(content: string): StyleBlockSpan[] {
   const blocks: StyleBlockSpan[] = [];
   let openingTag: HtmlTagSpan | null = null;
   for (const tag of htmlTagSpans(content)) {
-    if (/^<style\b/i.test(tag.value)) {
-      openingTag = tag;
+    if (!openingTag) {
+      if (/^<style\b/i.test(tag.value)) openingTag = tag;
       continue;
     }
-    if (!openingTag || !/^<\/style\s*>/i.test(tag.value)) continue;
+    if (!/^<\/style\s*>/i.test(tag.value)) continue;
     const start = openingTag.start + openingTag.value.length;
     blocks.push({ start, value: content.slice(start, tag.start) });
     openingTag = null;
@@ -258,44 +258,86 @@ function declarationValueSpans(
   return declarations;
 }
 
+function readCssIdentifier(
+  value: string,
+  start: number,
+  limit: number,
+): { end: number; name: string } | null {
+  let cursor = start;
+  let name = "";
+  while (cursor < limit) {
+    const character = value[cursor];
+    if (/[A-Za-z0-9_-]/.test(character)) {
+      name += character;
+      cursor += 1;
+      continue;
+    }
+    if (character !== "\\") break;
+
+    cursor += 1;
+    if (cursor >= limit) break;
+    const escapeStart = cursor;
+    while (
+      cursor < limit &&
+      cursor - escapeStart < 6 &&
+      /[0-9a-f]/i.test(value[cursor])
+    ) {
+      cursor += 1;
+    }
+    if (cursor > escapeStart) {
+      name += String.fromCodePoint(
+        parseInt(value.slice(escapeStart, cursor), 16),
+      );
+      if (/\s/.test(value[cursor] ?? "")) cursor += 1;
+    } else {
+      name += value[cursor];
+      cursor += 1;
+    }
+  }
+  return name ? { end: cursor, name: name.toLowerCase() } : null;
+}
+
 function isInsideUrl(value: string, index: number): boolean {
   const functions: boolean[] = [];
   let quote: string | null = null;
   let escaped = false;
-  for (let cursor = 0; cursor < index; cursor += 1) {
+  for (let cursor = 0; cursor < index; ) {
     const character = value[cursor];
     if (escaped) {
       escaped = false;
-      continue;
-    }
-    if (character === "\\") {
-      escaped = true;
+      cursor += 1;
       continue;
     }
     if (quote) {
       if (character === quote) quote = null;
+      if (character === "\\") escaped = true;
+      cursor += 1;
       continue;
     }
     if (character === '"' || character === "'") {
       quote = character;
+      cursor += 1;
       continue;
     }
+    if (/[A-Za-z_\\-]/.test(character)) {
+      const identifier = readCssIdentifier(value, cursor, index);
+      if (identifier) {
+        if (value[identifier.end] === "(") {
+          functions.push(identifier.name === "url");
+          cursor = identifier.end + 1;
+          continue;
+        }
+        cursor = identifier.end;
+        continue;
+      }
+    }
     if (character === "(") {
-      let nameEnd = cursor;
-      while (nameEnd > 0 && /\s/.test(value[nameEnd - 1] ?? "")) {
-        nameEnd -= 1;
-      }
-      let nameStart = nameEnd;
-      while (
-        nameStart > 0 &&
-        /[A-Za-z0-9_-]/.test(value[nameStart - 1] ?? "")
-      ) {
-        nameStart -= 1;
-      }
-      functions.push(value.slice(nameStart, nameEnd).toLowerCase() === "url");
+      functions.push(false);
+      cursor += 1;
       continue;
     }
     if (character === ")") functions.pop();
+    cursor += 1;
   }
   return functions.includes(true);
 }

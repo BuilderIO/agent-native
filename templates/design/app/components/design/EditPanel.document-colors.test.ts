@@ -207,6 +207,25 @@ describe("extractDocumentColorPalette", () => {
     );
   });
 
+  it("does not parse style-like CSS strings as nested tags", () => {
+    const content =
+      '<style>.card::before { content: "<style>"; color:#0066ff }</style>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<style>.card::before { content: "<style>"; color:#ff0000 }</style>',
+    );
+  });
+
   it("does not treat quoted URL fragments as colors", () => {
     const content = `<div style='background-image: url("sprite)#0066ff.svg"); color:#0066ff'></div>`;
 
@@ -222,6 +241,24 @@ describe("extractDocumentColorPalette", () => {
       ),
     ).toBe(
       `<div style='background-image: url("sprite)#0066ff.svg"); color:#ff0000'></div>`,
+    );
+  });
+
+  it("does not treat escaped URL function names as colors", () => {
+    const content = String.raw`<div style='background-image: u\72 l(#0066ff); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      String.raw`<div style='background-image: u\72 l(#0066ff); color:#ff0000'></div>`,
     );
   });
 });
