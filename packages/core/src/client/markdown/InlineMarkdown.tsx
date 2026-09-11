@@ -18,6 +18,8 @@ const INLINE_MARKDOWN_ELEMENTS = [
   "strong",
 ] as const;
 
+const BLOCK_MARKDOWN_ELEMENTS = [...INLINE_MARKDOWN_ELEMENTS, "li", "ol", "ul"];
+
 export interface InlineMarkdownProps {
   content: string;
   className?: string;
@@ -41,8 +43,8 @@ export interface InlineMarkdownProtectedSpan {
 /**
  * Render user-authored Markdown for compact text surfaces.
  *
- * This intentionally has no block-level Markdown elements: headings, lists,
- * quotes, and raw HTML are either flattened to their text or omitted.
+ * Compact inline renders omit block-level Markdown. Block renders preserve
+ * ordered and unordered lists; headings, quotes, and raw HTML stay omitted.
  */
 export function InlineMarkdown({
   content,
@@ -104,6 +106,8 @@ export function InlineMarkdown({
     ),
     p: ({ children }) =>
       inline ? <span>{children}</span> : <p className="m-0">{children}</p>,
+    ul: ({ children }) => <ul className="list-disc ps-5">{children}</ul>,
+    ol: ({ children }) => <ol className="list-decimal ps-5">{children}</ol>,
   };
 
   const Root = inline ? "span" : "div";
@@ -111,7 +115,9 @@ export function InlineMarkdown({
   return (
     <Root className={cn("whitespace-pre-wrap break-words", className)}>
       <ReactMarkdown
-        allowedElements={INLINE_MARKDOWN_ELEMENTS}
+        allowedElements={
+          inline ? INLINE_MARKDOWN_ELEMENTS : BLOCK_MARKDOWN_ELEMENTS
+        }
         components={components}
         remarkPlugins={[remarkGfm]}
         skipHtml
