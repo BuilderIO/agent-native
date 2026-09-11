@@ -1,0 +1,57 @@
+name: Sync framework beta branch
+
+# The dedicated beta Netlify projects all build the beta branch. Mirroring
+# main here keeps beta current for every merged app change, not only package
+# changes handled by beta-publish.yml.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-framework-beta
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Mirror main to beta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Mirror source ref to beta
+        run: |
+          set -euo pipefail
+
+          pushed=false
+          for attempt in 1 2 3 4 5; do
+            if git fetch origin beta --depth=1 >/dev/null 2>&1; then
+              expected="$(git rev-parse refs/remotes/origin/beta)"
+              if git push --force-with-lease="refs/heads/beta:${expected}" \
+                origin "HEAD:refs/heads/beta"; then
+                pushed=true
+                break
+              fi
+            elif git push origin "HEAD:refs/heads/beta"; then
+              pushed=true
+              break
+            fi
+
+            if [ "$attempt" -lt 5 ]; then
+              echo "Beta moved during attempt $attempt; refetching before retry."
+              sleep $((attempt * 2))
+            fi
+          done
+
+          if [ "$pushed" != true ]; then
+            echo "::error::Unable to mirror main to beta after five lease-safe attempts."
+            exit 1
+          fi
+
+          echo "Mirrored $(git rev-parse HEAD) to beta."

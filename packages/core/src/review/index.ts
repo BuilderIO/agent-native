@@ -1,0 +1,67 @@
+export type {
+  ReviewActorKind,
+  ReviewComment,
+  ReviewCommentKind,
+  ReviewCommentStatus,
+  ReviewCommentReaction,
+  ReviewThreadPreference,
+  ReviewDiscussionState,
+  ReviewMention,
+  ReviewResolutionTarget,
+  ReviewResourceAccess,
+  ReviewResourceContext,
+  ReviewResourceRole,
+  ReviewScope,
+  ReviewStatus,
+  ReviewStatusEntry,
+  ReviewableResourceRegistration,
+} from "./types.js";
+export {
+  redactPublicReviewCommentIdentity,
+  redactPublicReviewStatusIdentity,
+  reviewAuthorNameFromContext,
+  shouldRedactReviewIdentity,
+} from "./identity.js";
+export { extractReviewMentions, normalizeReviewMentions } from "./mentions.js";
+export {
+  notifyReviewComment,
+  REVIEW_NOTIFICATION_PREFS_KEY,
+  type ReviewNotificationResult,
+} from "./notifications.js";
+export {
+  __resetReviewableResourcesForTests,
+  assertReviewableResourceAccess,
+  getReviewableResource,
+  listReviewableResources,
+  registerReviewableResource,
+  resolveReviewableResourceAccess,
+} from "./registry.js";
+export {
+  __resetReviewInitForTests,
+  ensureReviewTables,
+  getReviewCommentById,
+  getReviewStatus,
+  getReviewThreadSummary,
+  getReviewThreadRoot,
+  queryReviewComments,
+  routeReviewThread,
+  sendReviewThreadToAgent,
+} from "./store.js";
+export * from "./suggestions/types.js";
+export {
+  registerSuggestionAdapter,
+  getSuggestionAdapter,
+  listSuggestionAdapters,
+  __resetSuggestionAdaptersForTests,
+} from "./suggestions/registry.js";
+export {
+  ensureSuggestionTables,
+  getDecision,
+  getSuggestion,
+  listSuggestions,
+  __resetSuggestionTablesForTests,
+} from "./suggestions/store.js";
+export type {
+  GetReviewThreadSummaryInput,
+  ReviewThreadSummary,
+} from "./store.js";

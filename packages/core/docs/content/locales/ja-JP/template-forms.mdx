@@ -1,0 +1,135 @@
+---
+title: "フォーム"
+description: "Typeform と Google Forms を、あなたが所有する 1 つのアプリに置き換える、エージェント主導のフォームビルダー。チャットで欲しいフォームを説明し、保護されたリンクを公開すれば、回答は自動的にルーティング、エクスポート、要約されます。"
+---
+
+# フォーム
+
+フォームは、コードを書かずに情報を集めたい人のためのフォームビルダーです。サインアップ、フィードバック、登録、アンケートなどに使えます。欲しいフォームをエージェントに説明し、より直接的な制御をしたいときはビジュアルエディターで微調整し、誰でも記入できるリンクを公開しましょう。
+
+<Cards columns={1}>
+
+### [今すぐ試す →](https://forms.agent-native.com)
+
+実際に動くフォームを見て、本物のフォームを公開してみましょう。
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70338a3cf0cc402580858a409dd5bd6a?alt=media&token=f2c7c8e9-6cf3-4e03-865d-abc499d87ff6&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="フォームアプリケーションの簡単なツアーです。"
+  caption="フォームアプリケーションの簡単なツアーです。"
+  autoplay={true}
+  loop={true}
+/>
+
+新しいセッションは必ず **Ask Forms** というチャットから始まり、そこで欲しいものを説明します。エージェントがあなたに代わってフォームを作成します。その後はいつでもビジュアルエディターに移動して、フィールド、検証、公開設定を手作業で調整できます。どちらの編集方法も同じフォームを更新するので、内容が食い違うことはありません。
+
+<Diagram id="doc-block-forms2" title="構築、公開、収集" summary={"エージェントとビジュアルエディターは同じフォームを編集します。誰でもサインインせずに公開の入力ページを開くことができ、新しい送信は自動的にあなたの送信先へ届きます。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Ask Forms チャット<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      ビジュアルエディター<br /><small class="diagram-muted"
+        >ラベル、検証、順序</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · patch-form-fields</span
+    ><small class="diagram-muted">フィールド JSON、設定 JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">Drizzle 経由の SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      公開の入力ページ<br /><small class="diagram-muted">unauthenticated</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / Sheets</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 置き換えるもの
+
+<Comparison>
+
+### 導入前
+
+- 回答を集めるために Typeform、Google Forms、または自作のフォームを使う
+- 新しい送信を手作業で Slack やスプレッドシートにコピーする
+- 届いた内容を要約するためだけの別のツール
+- Sheets や webhook に回答を送るために Zapier の自動化を設定する
+
+### 導入後
+
+- エージェントとビジュアルエディターの両方が更新する 1 つのフォーム
+- 新しい回答は届いた瞬間に Slack、Discord、Sheets、または webhook へ送られる
+- 要約を頼めば、別のツールなしでチャートやテーブル、あるいはその両方が返ってくる
+- 条件付きフィールド、スパム保護、匿名モードはすべて同じビルダーに組み込まれている
+
+</Comparison>
+
+## マルチアプリ ワークスペースでのフォーム
+
+[Dispatch](/docs/template-dispatch) のもとで他のアプリと一緒にフォームを動かしている場合、フォームは単に手作業で開くページではなくなります。フォームのエージェントは他のアプリに関する質問を引き継ぐことができ、他のアプリはフレームワーク自体のフィードバックボタンと同じ方法で、あなたのフォームに直接回答を送信できます。この仕組みについては [マルチアプリ ワークスペースでのフォームのクロスアプリ利用](/docs/template-forms-integrations) を参照してください。
+
+## それを使って何ができるか
+
+- **会話形式でフォームを作成する。** 「連絡先フォームを作成して」「NPS スコアの質問を追加して」「メールフィールドを必須にして」のようなプロンプトを試してみてください。[利用できるフィールドタイプ](/docs/template-forms-features#field-types) も参照してください。
+- **視覚的に微調整する。** より直接的な制御をしたいときは、フォームビルダーでラベル、プレースホルダー、必須項目、選択肢、フィールドの順序を直接編集できます。
+- **公開フォームを公開して保護する。** 公開リンクを共有し、必要に応じてスパム保護や完全な匿名回答をオンにできます。[機能](/docs/template-forms-features) を参照してください。
+- **回答を確認し、分析を依頼する。** 「今週の送信を要約して」「送信を日別にチャートにして」のようなプロンプトを試してみてください。[機能](/docs/template-forms-features#response-insights) を参照してください。
+- **送信を自動的にルーティングする。** Slack、Discord、Google Sheets、または汎用の webhook の URL を貼り付ければ、新しい回答は届いた瞬間にそこへ送られます。
+
+## 次は何ですか
+
+- [**機能**](/docs/template-forms-features) — フィールドタイプ、条件付きロジック、公開、保護、回答、分析、ルーティングと、それぞれの設定手順
+- [**Agent との対話**](/docs/template-forms-agent) — タスク別のプロンプトと、エージェントがあなたの画面をどう見ているか
+- [**マルチアプリ ワークスペースでのフォームのクロスアプリ利用**](/docs/template-forms-integrations) — 委任と、他のアプリが使う公開の送信エンドポイント
+- [**開発者ガイド**](/docs/template-forms-developers) — 開発者向けの SQL スキーマ、action リファレンス、ルート
+- [**テンプレート**](/docs/cloneable-saas) — Cloneable SaaS モデル
+- [**はじめに**](/docs/getting-started) — actions、アプリケーション状態、ライブ同期というフレームワークの基礎
+- [**Actions**](/docs/actions-overview) — ビルダーを動かす action システム
+- [**メッセージング**](/docs/messaging) — Slack やその他の送信先
+- [**共有**](/docs/sharing) — フォームの共有が基盤とする共有権限モデル

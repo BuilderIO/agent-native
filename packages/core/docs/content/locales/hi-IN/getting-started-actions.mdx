@@ -1,0 +1,93 @@
+---
+title: "एक Action जोड़ें"
+description: "अपना पहला action define करें और उसके result को सीधे chat में chart के रूप में render करें।"
+---
+
+# एक Action जोड़ें
+
+यह Getting Started series का दूसरा भाग है। [शुरुआत करें](/docs/getting-started)
+में आपने Chat ऐप बनाया। यहाँ आप एक typed text analyzer define करेंगे और उसके
+result को chat में render करेंगे।
+
+## एक action जोड़ें {#add-an-action}
+
+Action एक typed operation है जिसे agent और आपका UI दोनों call कर सकते हैं। Actions
+`actions/` directory में रहते हैं और chat, React components, CLI तथा अन्य callers
+के लिए shared operation surface होते हैं।
+
+`actions/analyze-text.ts` बनाएं:
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Count words, sentences, and paragraphs in a block of text.",
+  schema: z.object({
+    text: z.string().default("The quick brown fox jumps over the lazy dog."),
+  }),
+  outputSchema: dataChartWidgetResultSchema,
+  http: { method: "GET" },
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER,
+    title: "Text stats",
+  },
+  readOnly: true,
+  run: async ({ text }) => {
+    const summary = {
+      characters: text.length,
+      words: text.split(/\s+/).filter(Boolean).length,
+      sentences: text.split(/[.!?]+/).filter(Boolean).length,
+      paragraphs: text.split(/\n\n+/).filter(Boolean).length,
+    };
+    const points = [
+      { label: "Characters", value: summary.characters },
+      { label: "Words", value: summary.words },
+      {
+        label: "Sentences",
+        value: summary.sentences,
+      },
+      {
+        label: "Paragraphs",
+        value: summary.paragraphs,
+      },
+    ];
+
+    return createDataChartWidgetResult({
+      title: "Text statistics",
+      summary,
+      chartSeries: {
+        type: "bar",
+        xKey: "label",
+        series: [{ key: "value", label: "Count" }],
+        data: points,
+      },
+    });
+  },
+});
+```
+
+इसे app directory से चलाएं:
+
+```bash
+pnpm action analyze-text --text "Hello world. How are you today?"
+```
+
+या chat में agent से कहें:
+
+> Run the analyze-text action on "Hello world. How are you today?"
+
+जब agent इस action को chat में चलाता है, built-in `data-chart` renderer structured
+result को transcript में chart में बदल देता है। कोई renderer file या
+`app/root.tsx` import जोड़ने की आवश्यकता नहीं है।
+Custom native components के लिए [Native Chat UI](/docs/native-chat-ui) देखें।
+
+## आगे बढ़ें
+
+[एक page जोड़ें](/docs/getting-started-pages) पर आगे बढ़ें और उसी action को
+transcript के बाहर इस्तेमाल करें।

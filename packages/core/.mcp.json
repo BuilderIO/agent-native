@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agent-native-assets": {
+      "type": "http",
+      "url": "https://assets.agent-native.com/_agent-native/mcp"
+    }
+  }
+}

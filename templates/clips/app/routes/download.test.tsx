@@ -1,0 +1,208 @@
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { fetchMock, markDownloaded } = vi.hoisted(() => ({
+  fetchMock: vi.fn(),
+  markDownloaded: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => "",
+  appPath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string, values?: { platform?: string }) => {
+    const messages: Record<string, string> = {
+      "downloadRoute.backToLibrary": "Back to library",
+      "downloadRoute.clipsDesktop": "Clips Desktop",
+      "downloadRoute.heroDescription": "Record your screen.",
+      "downloadRoute.downloadFor": "Download for {{platform}}",
+      "downloadRoute.downloadStarted": "Download started",
+      "downloadRoute.downloadAgain": "Didn't work? Try downloading again",
+      "downloadRoute.retry": "Try again",
+      "downloadRoute.stable": "Stable",
+      "downloadRoute.nightly": "Nightly",
+      "downloadRoute.switchToNightly": "Switch to Nightly builds",
+      "downloadRoute.switchToStable": "Switch to stable builds",
+      "downloadRoute.chromeTitle": "Chrome extension for browser logs",
+      "captureInstall.chromeDescription":
+        "Best when you want redacted console and network diagnostics from the browser tab.",
+    };
+    return (messages[key] ?? key).replace(
+      "{{platform}}",
+      values?.platform ?? "",
+    );
+  },
+}));
+
+vi.mock("@/lib/capture-install-options", () => ({
+  clipsChromeExtensionUrl: "https://chromewebstore.google.com/detail/example",
+  markDesktopAppDownloaded: markDownloaded,
+  useClipsChromeExtensionEnabled: () => true,
+}));
+
+vi.mock("@/lib/download-release-channel", () => ({
+  getDefaultDownloadChannel: () => "production",
+}));
+
+import DownloadPage from "./download";
+
+const stableManifest = {
+  version: "0.1.10",
+  tag: "clips-v0.1.10",
+  pub_date: null,
+  assets: [
+    {
+      name: "Clips-universal.dmg",
+      url: "https://downloads.example.com/stable-mac.dmg",
+      size: 1,
+      kind: "mac-universal",
+    },
+    {
+      name: "Clips-x64.msi",
+      url: "https://downloads.example.com/stable-windows.msi",
+      size: 1,
+      kind: "windows-msi",
+    },
+    {
+      name: "Clips.AppImage",
+      url: "https://downloads.example.com/stable-linux.AppImage",
+      size: 1,
+      kind: "linux-appimage",
+    },
+  ],
+};
+
+const nightlyManifest = {
+  ...stableManifest,
+  version: "0.1.11-nightly.1",
+  tag: "clips-nightly-v0.1.11-1",
+  assets: stableManifest.assets.map((asset) => ({
+    ...asset,
+    url: asset.url.replace("stable", "nightly"),
+  })),
+};
+
+async function flushEffects() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+describe("Clips download page", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    window.localStorage.clear();
+    fetchMock.mockImplementation(async (input: string) => ({
+      ok: true,
+      json: async () =>
+        input.includes("channel=nightly") ? nightlyManifest : stableManifest,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)",
+    });
+    await act(async () => {
+      root.render(<DownloadPage />);
+    });
+    await flushEffects();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("selects platforms with direct downloads and switches to Nightly", async () => {
+    expect(container.querySelector("h1")?.textContent).toBe("Clips Desktop");
+    expect(container.querySelector("a[download]")?.textContent).toContain(
+      "Download for macOS",
+    );
+    expect(container.querySelector("a[download]")?.getAttribute("href")).toBe(
+      stableManifest.assets[0].url,
+    );
+    expect(
+      container
+        .querySelector('button[aria-label="macOS"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(container.textContent).not.toContain(stableManifest.version);
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Windows"]')
+        ?.click();
+    });
+    expect(container.querySelector("a[download]")?.textContent).toContain(
+      "Download for Windows",
+    );
+    expect(container.querySelector("a[download]")?.getAttribute("href")).toBe(
+      stableManifest.assets[1].url,
+    );
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[role="switch"]')
+        ?.click();
+    });
+    await flushEffects();
+
+    expect(container.querySelector("h1")?.textContent).toBe(
+      "Clips Desktop Nightly",
+    );
+    expect(container.querySelector("a[download]")?.getAttribute("href")).toBe(
+      nightlyManifest.assets[1].url,
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/clips-latest.json?channel=nightly",
+    );
+    expect(
+      container
+        .querySelector('button[role="switch"]')
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  it("confirms the download and offers a retry link after clicking", () => {
+    const download = container.querySelector<HTMLAnchorElement>("a[download]");
+    expect(download).toBeTruthy();
+
+    act(() => {
+      download?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(markDownloaded).toHaveBeenCalledTimes(1);
+    expect(download?.textContent).toContain("Download started");
+    expect(container.textContent).toContain(
+      "Didn't work? Try downloading again",
+    );
+  });
+
+  it("keeps the extension explanation compact and links to its docs", () => {
+    expect(container.textContent).toContain(
+      "Best when you want redacted console and network diagnostics from the browser tab.",
+    );
+    const docsLink = container.querySelector<HTMLAnchorElement>(
+      'a[aria-label="Chrome extension for browser logs"]',
+    );
+    expect(docsLink?.getAttribute("href")).toBe(
+      "https://www.agent-native.com/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension",
+    );
+    expect(docsLink?.querySelector("svg")).toBeTruthy();
+  });
+});

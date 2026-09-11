@@ -1,0 +1,32 @@
+import { defineAction } from "@agent-native/core/action";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
+
+import {
+  assertDerivedAudienceAccess,
+  serializeKnowledge,
+} from "../server/lib/brain.js";
+
+export default defineAction({
+  description: "Get one Brain knowledge item by ID.",
+  schema: z.object({
+    id: z.string().min(1),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: true,
+    isConsequential: false,
+  },
+  run: async ({ id }) => {
+    const access = await resolveAccess("brain-knowledge", id);
+    if (!access) return { knowledge: null };
+    await assertDerivedAudienceAccess(access.resource);
+    return {
+      knowledge: serializeKnowledge(access.resource),
+      accessRole: access.role,
+    };
+  },
+});

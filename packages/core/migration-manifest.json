@@ -1,0 +1,1362 @@
+{
+  "sinceVersion": "0.110.0",
+  "moves": {
+    "@agent-native/core/client": {
+      "to": "@agent-native/core/client/agent-chat",
+      "symbols": {
+        "AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AGENT_PROMPT_MAX_INLINE_TEXT_CHARS": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AgentChatHome": "AgentChatHome",
+        "AgentChatMessage": "AgentChatMessage",
+        "AgentChatSurface": "AgentChatSurface",
+        "AgentComposerFrame": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AgentComposerFrameProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AgentComposerLayoutVariant": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AgentNativeI18nCatalog": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "AgentNativeI18nProvider": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "AgentPageScope": "AgentPageScope",
+        "AgentPanel": "AgentPanel",
+        "AgentPresenceChip": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "AgentPresenceChipProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "AgentPromptAttachment": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AgentSidebar": "AgentSidebar",
+        "AgentSidebarStateChangeDetail": "AgentSidebarStateChangeDetail",
+        "AgentTabsPage": "AgentTabsPage",
+        "AgentToggleButton": "AgentToggleButton",
+        "AppProviders": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "AppearancePicker": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "AppearancePresetId": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "AssistantChat": "AssistantChat",
+        "AttributedRecentEdit": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "AuthSession": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "BubbleToolbar": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "BubbleToolbarItem": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "BubbleToolbarProps": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "BuildRegistryBlockSlashItemsOptions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "BuilderSetupCard": "BuilderSetupCard",
+        "ChangelogDialog": {
+          "to": "@agent-native/core/client/changelog"
+        },
+        "ChangelogSettingsCard": {
+          "to": "@agent-native/core/client/changelog"
+        },
+        "ChatHistoryItem": "ChatHistoryItem",
+        "ChatHistoryList": "ChatHistoryList",
+        "ChatThreadSummary": "ChatThreadSummary",
+        "ClientIntegrationInstallation": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "ClientIntegrationScope": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "ClientIntegrationStatus": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "ClientIntegrationUsageBudget": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "ClientOnly": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "CodeAgentChatController": "CodeAgentChatController",
+        "CodeBlockClassNames": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "CodeLanguageOption": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "CollabUser": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "CommandMenu": {
+          "to": "@agent-native/core/client/navigation"
+        },
+        "ComposerSubmitIntent": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "CreateCodeBlockNodeOptions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "CreateRegistryBlockNodeOptions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "CreateRichMarkdownExtensionsOptions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "CreateSharedEditorExtensionsOptions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "DEFAULT_CODE_LANGUAGES": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "DEFAULT_LOCALE": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "DEFAULT_SLASH_COMMANDS": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "DbAdminPage": {
+          "to": "@agent-native/core/client/db-admin"
+        },
+        "DefaultSpinner": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "DevDatabaseLink": {
+          "to": "@agent-native/core/client/db-admin"
+        },
+        "DevOverlay": {
+          "to": "@agent-native/core/client/dev-overlay"
+        },
+        "DragHandle": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "DragHandleDropContext": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "DragHandleDropPlacement": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "DragHandleOptions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "ErrorBoundary": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "ErrorReportActions": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "ErrorReportDebugItem": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "FeatureFlagMetadata": {
+          "to": "@agent-native/core/client/feature-flags"
+        },
+        "FeatureFlagsEditor": {
+          "to": "@agent-native/core/client/feature-flags"
+        },
+        "FeedbackButton": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "FileReference": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "FileResult": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "GuidedQuestion": "GuidedQuestion",
+        "GuidedQuestionAnswers": "GuidedQuestionAnswers",
+        "GuidedQuestionFlow": "GuidedQuestionFlow",
+        "GuidedQuestionOption": "GuidedQuestionOption",
+        "ImageUploadFn": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "IntegrationEnvStatus": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "JSONContent": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "LOCALE_HYDRATION_GLOBAL": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "LOCALE_METADATA": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "LOCALE_STORAGE_KEY": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "LanguagePicker": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "LiveCursorOverlay": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "LiveCursorOverlayProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "LocalOpUndoController": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "LocalOpUndoEntry": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "LocaleCode": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "LocaleMessages": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "LocalePreference": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "LocalizationPreference": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "MARKDOWN_DIALECT_CONFIG": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "MentionItem": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "MentionPopover": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "MentionReference": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "NewWorkspaceAppFlow": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "ObservabilityDashboard": {
+          "to": "@agent-native/core/client/observability"
+        },
+        "OpenSourceBadge": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "PoweredByBadge": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "PresenceBar": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "PresenceBarProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "PromptComposer": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "PromptComposerFile": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "PromptComposerProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "PromptComposerSubmitOptions": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RUN_ID_NODE_TYPES": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "ReadAgentPromptAttachmentOptions": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeApi": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeBoundary": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeCopy": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeDock": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeDockProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeEntry": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeEntryProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeInlineSettings": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeProvider": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeProviderProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeSelectSetting": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeSettingOption": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeState": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceSessionAnswer": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceToolResult": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RecentEditHighlights": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "RecentEditHighlightsProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "Reference": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RegistryBlockDataProvider": {
+          "to": "@agent-native/core/blocks"
+        },
+        "RegistryBlockDataValue": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RegistryBlockNodeView": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RegistryBlockSideMapBlock": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RemoteSelectionRings": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "RemoteSelectionRingsProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "ReviewCommentComposer": {
+          "to": "@agent-native/core/client/review"
+        },
+        "ReviewStatusBadge": {
+          "to": "@agent-native/core/client/review"
+        },
+        "ReviewThread": {
+          "to": "@agent-native/core/client/review"
+        },
+        "ReviewThreadPanel": {
+          "to": "@agent-native/core/client/review"
+        },
+        "RichMarkdownCollabUser": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RichMarkdownDialect": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RichMarkdownEditor": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RichMarkdownEditorPreset": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RichMarkdownEditorProps": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RunId": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "SESSION_REPLAY_IFRAME_ATTRIBUTE": {
+          "to": "@agent-native/core/client/host"
+        },
+        "SIDEBAR_STATE_CHANGE_EVENT": "SIDEBAR_STATE_CHANGE_EVENT",
+        "SendToAgentChatAndConfirmResult": "SendToAgentChatAndConfirmResult",
+        "SetFeatureFlagInput": {
+          "to": "@agent-native/core/client/feature-flags"
+        },
+        "SettingsSearchEntry": {
+          "to": "@agent-native/core/client/settings"
+        },
+        "SettingsTabItem": {
+          "to": "@agent-native/core/client/settings"
+        },
+        "SettingsTabsPage": {
+          "to": "@agent-native/core/client/settings"
+        },
+        "ShareButton": {
+          "to": "@agent-native/core/client/sharing"
+        },
+        "SharedEditorCollab": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "SharedEditorFeatures": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "SharedImage": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "SharedImageOptions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "SharedRichEditor": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "SharedRichEditorProps": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "SkillReference": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "SkillResult": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "SlashCommand": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "SlashCommandItem": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "SlashCommandMenu": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "SlashCommandMenuProps": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "StarfieldBackground": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "TiptapComposer": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "TiptapComposerHandle": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "TiptapComposerProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "TiptapComposerSubmitOptions": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "ToolRendererContext": "ToolRendererContext",
+        "ToolRendererProps": "ToolRendererProps",
+        "TopLevelDiff": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "Turnstile": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "UseCollabReconcileOptions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "UseCollabReconcileResult": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "UseCollaborativeDocResult": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "UserInfo": {
+          "to": "@agent-native/core/client/host"
+        },
+        "VisibilityBadge": {
+          "to": "@agent-native/toolkit/sharing"
+        },
+        "VisualColorPicker": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualControlOption": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualControlRow": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualControlValue": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualInspectorPanel": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualInspectorSection": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualScrubInput": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualSegmentedControl": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualSliderControl": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualSwatchControl": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualToggleControl": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualTweakControl": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "VisualTweakDefinition": {
+          "to": "@agent-native/toolkit/design-tweaks"
+        },
+        "agentNativePath": {
+          "to": "@agent-native/core/client/api-path"
+        },
+        "appApiPath": {
+          "to": "@agent-native/core/client/api-path"
+        },
+        "appBasePath": {
+          "to": "@agent-native/core/client/api-path"
+        },
+        "appPath": {
+          "to": "@agent-native/core/client/api-path"
+        },
+        "appendAgentChatContextToMessage": "appendAgentChatContextToMessage",
+        "applyDocSurgically": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "askUserQuestion": "askUserQuestion",
+        "buildDefaultBubbleItems": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "buildRegistryBlockSlashItems": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "buildRepositoryFromCodeAgentTranscript": "buildRepositoryFromCodeAgentTranscript",
+        "buildReviewThreads": {
+          "to": "@agent-native/core/client/review"
+        },
+        "buildSignInReturnHref": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "callAction": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "canSubmitComposerContent": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "captureClientException": {
+          "to": "@agent-native/core/client/analytics"
+        },
+        "captureError": {
+          "to": "@agent-native/core/client/analytics"
+        },
+        "captureException": {
+          "to": "@agent-native/core/client/analytics"
+        },
+        "cn": {
+          "to": "@agent-native/toolkit/utils"
+        },
+        "codeAgentTranscriptHasPendingApproval": "codeAgentTranscriptHasPendingApproval",
+        "configureTracking": {
+          "to": "@agent-native/core/client/analytics"
+        },
+        "createAgentNativeQueryClient": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "createCodeAgentChatAdapter": "createCodeAgentChatAdapter",
+        "createCodeBlockNode": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "createImageExtension": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "createImageSlashCommand": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "createLocalOpUndoController": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "createRealtimeVoiceSession": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "createRealtimeVoiceSessionWithCapability": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "createRegistryBlockNode": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "createRichMarkdownExtensions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "createSharedEditorExtensions": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "defaultParseValue": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "deleteClientAppState": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "diffTopLevel": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "disconnectManagedIntegrationInstallation": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "displayableComposerModeMessage": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "emailToColor": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "emailToName": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "enterStyleEditing": {
+          "to": "@agent-native/core/client/host"
+        },
+        "enterTextEditing": {
+          "to": "@agent-native/core/client/host"
+        },
+        "escapePromptAttachmentAttribute": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "executeRealtimeVoiceTool": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "exitSelectionMode": {
+          "to": "@agent-native/core/client/host"
+        },
+        "extractRealtimeVoiceFunctionCalls": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "focusAgentChat": "focusAgentChat",
+        "formatGuidedAnswersForAgent": "formatGuidedAnswersForAgent",
+        "formatPromptWithAttachments": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "generateTabId": "generateTabId",
+        "getAgentSettingsSearchTabs": {
+          "to": "@agent-native/core/client/settings"
+        },
+        "getBrowserTabId": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "getComposerSubmitIntentForEnterKey": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "getEditorMarkdown": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "getEmbedAuthToken": {
+          "to": "@agent-native/core/client/host"
+        },
+        "getFrameOrigin": {
+          "to": "@agent-native/core/client/host"
+        },
+        "getLocaleInitScript": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "getOtherGuidedAnswerText": "getOtherGuidedAnswerText",
+        "getRegistryBlockSlashDescription": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "getRegistryBlockSlashSearchText": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "getThemeInitScript": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "gfmToProseJSON": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "handleComposerFileDrop": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "hasGuidedAnswer": "hasGuidedAnswer",
+        "injectSessionReplayIframeBootstrap": {
+          "to": "@agent-native/core/client/host"
+        },
+        "insertAgentComposerReference": "insertAgentComposerReference",
+        "insertComposerHardBreakAndScrollIntoView": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "installRouteChunkRecovery": {
+          "to": "@agent-native/core/client/route-chunk-recovery"
+        },
+        "isAgentChatHomeHandoffActive": "isAgentChatHomeHandoffActive",
+        "isCodeAgentRunActive": "isCodeAgentRunActive",
+        "isCredentialGapCodeAgentEvent": "isCredentialGapCodeAgentEvent",
+        "isEmbedAuthActive": {
+          "to": "@agent-native/core/client/host"
+        },
+        "isEmbedMcpChatBridgeActive": {
+          "to": "@agent-native/core/client/host"
+        },
+        "isInAgentEmbed": {
+          "to": "@agent-native/core/client/navigation"
+        },
+        "isInBuilderFrame": {
+          "to": "@agent-native/core/client/host"
+        },
+        "isInlineableAgentPromptFile": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "isOtherGuidedAnswer": "isOtherGuidedAnswer",
+        "isReconcileLeadClient": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "listIntegrationEnvStatuses": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "listIntegrationStatuses": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "listManagedIntegrationBudgets": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "listManagedIntegrationInstallations": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "listManagedIntegrationScopes": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "localeDirection": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "makeOtherGuidedAnswer": "makeOtherGuidedAnswer",
+        "managedIntegrationOAuthUrl": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "managedSlackAgentManifestUrl": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "markAgentChatHomeHandoff": "markAgentChatHomeHandoff",
+        "mergeCodeAgentTranscriptEvents": "mergeCodeAgentTranscriptEvents",
+        "navigateWithAgentChatViewTransition": "navigateWithAgentChatViewTransition",
+        "normalizeGuidedAnswers": "normalizeGuidedAnswers",
+        "normalizeLocaleCode": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "normalizeLocalizationPreference": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "oauthRedirectUri": {
+          "to": "@agent-native/core/client/host"
+        },
+        "openAgentSidebar": {
+          "to": "@agent-native/core/client/navigation"
+        },
+        "openBuilderConnectPopup": {
+          "to": "@agent-native/core/client/settings"
+        },
+        "pickAndInsertImage": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "postNavigate": {
+          "to": "@agent-native/core/client/navigation"
+        },
+        "proseJSONToGfm": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "readAgentPromptAttachment": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "readClientAppState": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "readRealtimeVoiceContext": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "registerActionChatRenderer": "registerActionChatRenderer",
+        "removeAgentChatContextItem": "removeAgentChatContextItem",
+        "requestAgentChatThreadOpen": "requestAgentChatThreadOpen",
+        "requestAgentTaskOpen": "requestAgentTaskOpen",
+        "requestUserInfo": {
+          "to": "@agent-native/core/client/host"
+        },
+        "resolveLocaleFromCandidates": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "saveIntegrationEnvVars": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "saveManagedIntegrationBudget": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "saveManagedIntegrationScope": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "sendMcpAppHostMessage": "sendMcpAppHostMessage",
+        "sendToAgentChat": "sendToAgentChat",
+        "sendToAgentChatAndConfirm": "sendToAgentChatAndConfirm",
+        "setAgentChatContextItem": "setAgentChatContextItem",
+        "setClientAppState": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "setIntegrationEnabled": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "setupIntegration": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "testManagedIntegrationInstallation": {
+          "to": "@agent-native/core/client/integrations"
+        },
+        "track": {
+          "to": "@agent-native/core/client/analytics"
+        },
+        "trackEvent": {
+          "to": "@agent-native/core/client/analytics"
+        },
+        "updateMcpAppModelContext": "updateMcpAppModelContext",
+        "uploadEditorImage": {
+          "to": "@agent-native/core/client/uploads"
+        },
+        "useActionMutation": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "useActionQuery": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "useAgentChatContext": "useAgentChatContext",
+        "useAgentChatGenerating": "useAgentChatGenerating",
+        "useAgentChatHomeHandoff": "useAgentChatHomeHandoff",
+        "useAgentChatHomeHandoffLinks": "useAgentChatHomeHandoffLinks",
+        "useAgentEngineConfigured": "useAgentEngineConfigured",
+        "useAgentRouteState": {
+          "to": "@agent-native/core/client/navigation"
+        },
+        "useAgentSettingsTabs": {
+          "to": "@agent-native/core/client/settings"
+        },
+        "useAppearanceSync": {
+          "to": "@agent-native/core/client/ui"
+        },
+        "useAvatarUrl": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "useBuilderConnectFlow": {
+          "to": "@agent-native/core/client/settings"
+        },
+        "useBuilderStatus": {
+          "to": "@agent-native/core/client/settings"
+        },
+        "useChangeVersion": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "useChangeVersions": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "useChatModels": "useChatModels",
+        "useChatThreads": "useChatThreads",
+        "useCodeMode": "useCodeMode",
+        "useCollabReconcile": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "useCollaborativeDoc": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "useCommandMenuShortcut": {
+          "to": "@agent-native/core/client/navigation"
+        },
+        "useCreateReviewComment": {
+          "to": "@agent-native/core/client/review"
+        },
+        "useDbSync": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "useDemoModeStatus": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "useDevMode": "useDevMode",
+        "useFeatureFlag": {
+          "to": "@agent-native/core/client/feature-flags"
+        },
+        "useFormatters": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "useGuidedQuestionFlow": "useGuidedQuestionFlow",
+        "useLocale": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "useMentionSearch": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "usePinchZoom": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "usePresence": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "useRealtimeVoiceMode": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "useRealtimeVoiceModeCopy": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "useRealtimeVoiceModeOptional": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "useRecentEdits": {
+          "to": "@agent-native/core/client/collab"
+        },
+        "useReconciledState": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "useRegistryBlockData": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "useReplyReviewComment": {
+          "to": "@agent-native/core/client/review"
+        },
+        "useResolveReviewThread": {
+          "to": "@agent-native/core/client/review"
+        },
+        "useReviewComments": {
+          "to": "@agent-native/core/client/review"
+        },
+        "useSemanticNavigationState": {
+          "to": "@agent-native/core/client/navigation"
+        },
+        "useSendToAgentChat": "useSendToAgentChat",
+        "useSession": {
+          "to": "@agent-native/core/client/hooks"
+        },
+        "useSetReviewStatus": {
+          "to": "@agent-native/core/client/review"
+        },
+        "useT": {
+          "to": "@agent-native/core/client/i18n"
+        },
+        "useUploadResource": {
+          "to": "@agent-native/core/client/resources"
+        },
+        "writeClientAppState": {
+          "to": "@agent-native/core/client/hooks"
+        }
+      }
+    },
+    "@agent-native/core/client/chat": {
+      "to": "@agent-native/core/client/agent-chat",
+      "symbols": {
+        "AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AGENT_PROMPT_MAX_INLINE_TEXT_CHARS": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AgentComposerFrame": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AgentComposerFrameProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AgentComposerLayoutVariant": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "AgentPromptAttachment": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "ComposerSubmitIntent": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "FileReference": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "FileResult": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "MentionItem": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "MentionPopover": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "MentionReference": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "PromptComposer": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "PromptComposerFile": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "PromptComposerProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "PromptComposerSubmitOptions": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "ReadAgentPromptAttachmentOptions": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeApi": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeBoundary": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeCopy": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeDock": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeDockProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeEntry": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeEntryProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeInlineSettings": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeProvider": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeProviderProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeSelectSetting": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeSettingOption": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceModeState": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceSessionAnswer": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "RealtimeVoiceToolResult": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "Reference": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "SkillReference": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "SkillResult": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "SlashCommand": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "TiptapComposer": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "TiptapComposerHandle": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "TiptapComposerProps": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "TiptapComposerSubmitOptions": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "canSubmitComposerContent": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "createRealtimeVoiceSession": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "createRealtimeVoiceSessionWithCapability": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "displayableComposerModeMessage": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "escapePromptAttachmentAttribute": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "executeRealtimeVoiceTool": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "extractRealtimeVoiceFunctionCalls": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "formatPromptWithAttachments": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "getComposerSubmitIntentForEnterKey": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "handleComposerFileDrop": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "insertComposerHardBreakAndScrollIntoView": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "isInlineableAgentPromptFile": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "readAgentPromptAttachment": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "readRealtimeVoiceContext": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "useMentionSearch": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "useRealtimeVoiceMode": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "useRealtimeVoiceModeCopy": {
+          "to": "@agent-native/core/client/composer"
+        },
+        "useRealtimeVoiceModeOptional": {
+          "to": "@agent-native/core/client/composer"
+        }
+      }
+    },
+    "@agent-native/core/client/editor": {
+      "to": "@agent-native/toolkit/editor",
+      "symbols": {
+        "applyDocSurgically": "applyDocSurgically",
+        "BubbleToolbar": "BubbleToolbar",
+        "buildDefaultBubbleItems": "buildDefaultBubbleItems",
+        "createCodeBlockNode": "createCodeBlockNode",
+        "createImageExtension": "createImageExtension",
+        "createImageSlashCommand": "createImageSlashCommand",
+        "createRichMarkdownExtensions": "createRichMarkdownExtensions",
+        "createSharedEditorExtensions": "createSharedEditorExtensions",
+        "DEFAULT_CODE_LANGUAGES": "DEFAULT_CODE_LANGUAGES",
+        "DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR": "DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR",
+        "DEFAULT_SLASH_COMMANDS": "DEFAULT_SLASH_COMMANDS",
+        "defaultParseValue": "defaultParseValue",
+        "diffTopLevel": "diffTopLevel",
+        "DragHandle": "DragHandle",
+        "getEditorMarkdown": "getEditorMarkdown",
+        "gfmToProseJSON": "gfmToProseJSON",
+        "MARKDOWN_DIALECT_CONFIG": "MARKDOWN_DIALECT_CONFIG",
+        "pickAndInsertImage": "pickAndInsertImage",
+        "proseJSONToGfm": "proseJSONToGfm",
+        "RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION": "RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION",
+        "RichMarkdownEditor": "RichMarkdownEditor",
+        "RunId": "RunId",
+        "RUN_ID_NODE_TYPES": "RUN_ID_NODE_TYPES",
+        "SharedImage": "SharedImage",
+        "SharedRichEditor": "SharedRichEditor",
+        "SlashCommandMenu": "SlashCommandMenu",
+        "useCollabReconcile": "useCollabReconcile",
+        "BubbleToolbarItem": "BubbleToolbarItem",
+        "BubbleToolbarProps": "BubbleToolbarProps",
+        "CodeBlockClassNames": "CodeBlockClassNames",
+        "CodeLanguageOption": "CodeLanguageOption",
+        "CreateCodeBlockNodeOptions": "CreateCodeBlockNodeOptions",
+        "CreateRichMarkdownExtensionsOptions": "CreateRichMarkdownExtensionsOptions",
+        "CreateSharedEditorExtensionsOptions": "CreateSharedEditorExtensionsOptions",
+        "DragHandleDropContext": "DragHandleDropContext",
+        "DragHandleDropPlacement": "DragHandleDropPlacement",
+        "DragHandleOptions": "DragHandleOptions",
+        "ImageUploadFn": "ImageUploadFn",
+        "RichMarkdownCollabUser": "RichMarkdownCollabUser",
+        "RichMarkdownDialect": "RichMarkdownDialect",
+        "RichMarkdownEditorPreset": "RichMarkdownEditorPreset",
+        "RichMarkdownEditorProps": "RichMarkdownEditorProps",
+        "SharedEditorCollab": "SharedEditorCollab",
+        "SharedEditorFeatures": "SharedEditorFeatures",
+        "SharedImageOptions": "SharedImageOptions",
+        "SharedRichEditorProps": "SharedRichEditorProps",
+        "SlashCommandItem": "SlashCommandItem",
+        "SlashCommandMenuProps": "SlashCommandMenuProps",
+        "TopLevelDiff": "TopLevelDiff",
+        "UseCollabReconcileOptions": "UseCollabReconcileOptions",
+        "UseCollabReconcileResult": "UseCollabReconcileResult",
+        "createRegistryBlockNode": "createRegistryBlockNode",
+        "RegistryBlockNodeView": "RegistryBlockNodeView",
+        "RegistryBlockDataProvider": {
+          "to": "@agent-native/core/blocks"
+        },
+        "useRegistryBlockData": "useRegistryBlockData",
+        "CreateRegistryBlockNodeOptions": "CreateRegistryBlockNodeOptions",
+        "RegistryBlockDataValue": "RegistryBlockDataValue",
+        "RegistryBlockSideMapBlock": "RegistryBlockSideMapBlock",
+        "buildRegistryBlockSlashItems": "buildRegistryBlockSlashItems",
+        "getRegistryBlockSlashDescription": "getRegistryBlockSlashDescription",
+        "getRegistryBlockSlashSearchText": "getRegistryBlockSlashSearchText",
+        "BuildRegistryBlockSlashItemsOptions": "BuildRegistryBlockSlashItemsOptions",
+        "uploadEditorImage": {
+          "to": "@agent-native/core/client/uploads"
+        }
+      }
+    },
+    "@agent-native/core/client/rich-markdown-editor": {
+      "to": "@agent-native/toolkit/editor",
+      "symbols": {
+        "applyDocSurgically": "applyDocSurgically",
+        "BubbleToolbar": "BubbleToolbar",
+        "buildDefaultBubbleItems": "buildDefaultBubbleItems",
+        "createCodeBlockNode": "createCodeBlockNode",
+        "createImageExtension": "createImageExtension",
+        "createImageSlashCommand": "createImageSlashCommand",
+        "createRichMarkdownExtensions": "createRichMarkdownExtensions",
+        "createSharedEditorExtensions": "createSharedEditorExtensions",
+        "DEFAULT_CODE_LANGUAGES": "DEFAULT_CODE_LANGUAGES",
+        "DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR": "DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR",
+        "DEFAULT_SLASH_COMMANDS": "DEFAULT_SLASH_COMMANDS",
+        "defaultParseValue": "defaultParseValue",
+        "diffTopLevel": "diffTopLevel",
+        "DragHandle": "DragHandle",
+        "getEditorMarkdown": "getEditorMarkdown",
+        "gfmToProseJSON": "gfmToProseJSON",
+        "MARKDOWN_DIALECT_CONFIG": "MARKDOWN_DIALECT_CONFIG",
+        "pickAndInsertImage": "pickAndInsertImage",
+        "proseJSONToGfm": "proseJSONToGfm",
+        "RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION": "RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION",
+        "RichMarkdownEditor": "RichMarkdownEditor",
+        "RunId": "RunId",
+        "RUN_ID_NODE_TYPES": "RUN_ID_NODE_TYPES",
+        "SharedImage": "SharedImage",
+        "SharedRichEditor": "SharedRichEditor",
+        "SlashCommandMenu": "SlashCommandMenu",
+        "useCollabReconcile": "useCollabReconcile",
+        "BubbleToolbarItem": "BubbleToolbarItem",
+        "BubbleToolbarProps": "BubbleToolbarProps",
+        "CodeBlockClassNames": "CodeBlockClassNames",
+        "CodeLanguageOption": "CodeLanguageOption",
+        "CreateCodeBlockNodeOptions": "CreateCodeBlockNodeOptions",
+        "CreateRichMarkdownExtensionsOptions": "CreateRichMarkdownExtensionsOptions",
+        "CreateSharedEditorExtensionsOptions": "CreateSharedEditorExtensionsOptions",
+        "DragHandleDropContext": "DragHandleDropContext",
+        "DragHandleDropPlacement": "DragHandleDropPlacement",
+        "DragHandleOptions": "DragHandleOptions",
+        "ImageUploadFn": "ImageUploadFn",
+        "RichMarkdownCollabUser": "RichMarkdownCollabUser",
+        "RichMarkdownDialect": "RichMarkdownDialect",
+        "RichMarkdownEditorPreset": "RichMarkdownEditorPreset",
+        "RichMarkdownEditorProps": "RichMarkdownEditorProps",
+        "SharedEditorCollab": "SharedEditorCollab",
+        "SharedEditorFeatures": "SharedEditorFeatures",
+        "SharedImageOptions": "SharedImageOptions",
+        "SharedRichEditorProps": "SharedRichEditorProps",
+        "SlashCommandItem": "SlashCommandItem",
+        "SlashCommandMenuProps": "SlashCommandMenuProps",
+        "TopLevelDiff": "TopLevelDiff",
+        "UseCollabReconcileOptions": "UseCollabReconcileOptions",
+        "UseCollabReconcileResult": "UseCollabReconcileResult",
+        "createRegistryBlockNode": "createRegistryBlockNode",
+        "RegistryBlockNodeView": "RegistryBlockNodeView",
+        "RegistryBlockDataProvider": {
+          "to": "@agent-native/core/blocks"
+        },
+        "useRegistryBlockData": "useRegistryBlockData",
+        "CreateRegistryBlockNodeOptions": "CreateRegistryBlockNodeOptions",
+        "RegistryBlockDataValue": "RegistryBlockDataValue",
+        "RegistryBlockSideMapBlock": "RegistryBlockSideMapBlock",
+        "buildRegistryBlockSlashItems": "buildRegistryBlockSlashItems",
+        "getRegistryBlockSlashDescription": "getRegistryBlockSlashDescription",
+        "getRegistryBlockSlashSearchText": "getRegistryBlockSlashSearchText",
+        "BuildRegistryBlockSlashItemsOptions": "BuildRegistryBlockSlashItemsOptions",
+        "uploadEditorImage": {
+          "to": "@agent-native/core/client/uploads"
+        }
+      }
+    },
+    "@agent-native/core/testing": {
+      "to": "@agent-native/core/testing",
+      "symbols": {
+        "DragHandle": {
+          "to": "@agent-native/toolkit/editor"
+        }
+      }
+    },
+    "@agent-native/core/client/collab": {
+      "to": "@agent-native/core/client/collab",
+      "symbols": {
+        "AgentPresenceChip": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "AgentPresenceChipProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "LiveCursorOverlay": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "LiveCursorOverlayProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "PresenceBar": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "PresenceBarProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "RecentEditHighlights": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "RecentEditHighlightsProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "RemoteSelectionRings": {
+          "to": "@agent-native/toolkit/collab-ui"
+        },
+        "RemoteSelectionRingsProps": {
+          "to": "@agent-native/toolkit/collab-ui"
+        }
+      }
+    },
+    "@agent-native/core/client/sharing": {
+      "to": "@agent-native/core/client/sharing",
+      "symbols": {
+        "VisibilityBadge": {
+          "to": "@agent-native/toolkit/sharing"
+        }
+      }
+    },
+    "@agent-native/core/client/components/ui/dialog": {
+      "to": "@agent-native/toolkit/ui/dialog"
+    },
+    "@agent-native/core/client/components/ui/dropdown-menu": {
+      "to": "@agent-native/toolkit/ui/dropdown-menu"
+    },
+    "@agent-native/core/client/components/ui/hover-card": {
+      "to": "@agent-native/toolkit/ui/hover-card"
+    },
+    "@agent-native/core/client/components/ui/popover": {
+      "to": "@agent-native/toolkit/ui/popover"
+    },
+    "@agent-native/core/client/components/ui/sheet": {
+      "to": "@agent-native/toolkit/ui/sheet"
+    },
+    "@agent-native/core/client/components/ui/tooltip": {
+      "to": "@agent-native/toolkit/ui/tooltip"
+    },
+    "@agent-native/core/client/components/AgentPresenceChip": {
+      "to": "@agent-native/toolkit/collab-ui"
+    },
+    "@agent-native/core/client/components/LiveCursorOverlay": {
+      "to": "@agent-native/toolkit/collab-ui"
+    },
+    "@agent-native/core/client/components/PresenceBar": {
+      "to": "@agent-native/toolkit/collab-ui"
+    },
+    "@agent-native/core/client/components/RecentEditHighlights": {
+      "to": "@agent-native/toolkit/collab-ui"
+    },
+    "@agent-native/core/client/components/RemoteSelectionRings": {
+      "to": "@agent-native/toolkit/collab-ui"
+    },
+    "@agent-native/core/client/visual-style-controls": {
+      "to": "@agent-native/toolkit/design-tweaks"
+    }
+  }
+}

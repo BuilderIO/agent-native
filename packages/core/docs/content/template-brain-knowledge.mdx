@@ -1,0 +1,50 @@
+---
+title: "Brain: Asking, Citations & Knowledge"
+description: "How to ask Brain a cited question, browse distilled company knowledge, and review a pending proposal before it publishes."
+---
+
+# Brain: Asking, Citations & Knowledge
+
+This page is for anyone using Brain day to day: asking a question, browsing what Brain already knows, or reviewing something before it becomes official company knowledge.
+
+## Asking a cited question
+
+Ask is the front door. Type a plain-English question — "why did we retire the freemium tier?" — and Brain answers from approved company knowledge, with links back to the Slack thread, meeting, transcript, issue, or webhook capture that supports the answer. Open any citation to see a source timeline: when the underlying decision was captured, when supporting evidence was added, and when it was approved.
+
+<Callout tone="info">
+
+**Brain won't guess.** If nothing in approved knowledge (or, depending on settings, in raw source material) supports an answer, Brain says so instead of inventing one. A confident-sounding wrong answer is worse than an honest "I don't have evidence for that yet."
+
+</Callout>
+
+## Where Search fits next to Ask
+
+Ask is a conversation. Search is a filterable list — useful when you want to scan everything Brain has on a topic rather than get one synthesized answer. It's a separate page (not in the main sidebar; open it from the Cmd+K command menu or navigate directly) with filters for project, record type (knowledge, capture, or source), source, and status, so you can narrow down to exactly the record you're looking for before opening it.
+
+## Browsing distilled Knowledge
+
+The Knowledge page lists every distilled, approved entry: what kind it is (decision, rationale, how something works, a plain fact, an open question, a process, a risk, or a policy), its topic, a confidence score, the evidence it cites, and — when a newer entry replaces an older one — a link showing what it supersedes.
+
+<WireframeBlock id="doc-block-brain3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><h1 style='margin:0'>Knowledge</h1><span class='wf-pill'>Kind: All</span><span class='wf-pill'>Topic: All</span><span class='wf-pill'>Tier: All</span><div style='flex:1'></div><span class='wf-pill accent'>42 entries</span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>Decision</span><strong style='flex:1'>Retiring the freemium tier</strong><span class='wf-pill'>92% confidence</span></div><p class='wf-muted' style='margin:0'>Freemium signups converted at a fraction of trial signups; support cost per account exceeded contribution margin.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill'>Pricing RFC</span><span class='wf-pill'>Launch retro</span><span class='wf-pill warn'>Supersedes: Freemium v1 policy</span></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill'>Process</span><strong style='flex:1'>How Decision Digest works</strong><span class='wf-pill'>88% confidence</span></div><p class='wf-muted' style='margin:0'>Weekly digest compiles approved decisions from the prior seven days and posts a summary to product.</p></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill'>Policy</span><strong style='flex:1'>Support tickets never quote pricing</strong><span class='wf-pill'>95% confidence</span></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## Reviewing and approving a pending proposal
+
+Not everything Brain distills publishes immediately. High-confidence, non-sensitive entries can publish right away, but anything sensitive, low-confidence, or set to company-wide visibility queues as a proposal first. Review shows the proposed title and body, the rationale, and the exact evidence it's based on, so a reviewer can edit wording, inspect the source, and approve or reject before it becomes something the whole company can be told as fact.
+
+## Mirroring approved knowledge as ambient context
+
+An approved, canonical entry can also be mirrored into a shared workspace resource, so other apps (Dispatch, and anything else in the workspace) can use it as ambient context without asking Brain directly. Turning this on is a deliberate choice per entry — reserved for durable decisions, policies, or product facts that are genuinely safe to hand to every app in the workspace — and Brain always shows the exact text that will be written or removed before it happens.
+
+## What's next
+
+- [**Brain overview**](/docs/template-brain) — what Brain is and when to pick it
+- [**Connecting & Reviewing Sources**](/docs/template-brain-sources) — where this knowledge comes from and how sources are kept healthy
+- [**Talking to the Agent & Cross-App Use**](/docs/template-brain-agent) — example prompts for asking, reviewing, and checking source health
+- [**Developer Guide**](/docs/template-brain-developers) — the knowledge and proposal data model and full action reference

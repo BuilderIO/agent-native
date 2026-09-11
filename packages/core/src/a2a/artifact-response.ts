@@ -1,0 +1,2210 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+import {
+  artifactKindsForTool,
+  detectArtifactReceipts,
+  isArtifactReceipt,
+  parseArtifactReferenceUrl,
+  type ArtifactReceipt,
+  type ArtifactReference,
+  type ArtifactReferenceKind,
+} from "../artifacts/detect.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
+
+function a2aSecret(): string | undefined {
+  return readDeployCredentialEnv("A2A_SECRET");
+}
+
+function a2aSecrets(): readonly string[] {
+  const secret = a2aSecret();
+  return secret ? [secret] : [];
+}
+
+export interface A2AToolResultSummary {
+  tool: string;
+  result: string;
+  isError?: boolean;
+  completedSideEffect?: boolean;
+  artifacts?: ArtifactReceipt[];
+}
+
+export interface A2AArtifactResponseOptions {
+  baseUrl?: string;
+  includeReferencedArtifacts?: boolean;
+  includePersistedArtifactMarker?: boolean;
+  persistedArtifactSecret?: string;
+  delegatedTaskId?: string;
+}
+
+export interface GuardedA2AArtifactResponse {
+  text: string;
+  rejectedUnverifiedArtifactReferences: boolean;
+}
+
+export interface A2AArtifactIdentityOptions {
+  persistedArtifactSecrets?: readonly string[];
+  expectedDelegatedTaskId?: string;
+  baseUrl?: string;
+}
+
+export interface A2AArtifactIdentity {
+  resourceType:
+    | "document"
+    | "deck"
+    | "dashboard"
+    | "analysis"
+    | "image"
+    | "design"
+    | "monitor"
+    | "form";
+  id: string;
+  sourceAction: string;
+  titleAtAction?: string;
+  url?: string;
+}
+
+export interface A2APersistedMutationReceipt {
+  receiptId: string;
+  sourceAction: string;
+  operation: string;
+  outcome: string;
+  target: {
+    authorityScopeKind: "personal" | "organization";
+    authorityScopeId: string;
+    spaceId: string;
+    databaseId: string;
+    databaseDocumentId: string;
+    itemId?: string;
+    rowDocumentId?: string;
+    propertyId?: string;
+  };
+  row: {
+    itemId?: string;
+    documentId: string;
+    urlPath: string;
+  };
+  idempotency: {
+    key: string;
+    result: "applied" | "replayed";
+    payloadDigest: string;
+  };
+  revisions: {
+    before?: string | null;
+    after?: string;
+    rowBefore?: string;
+    rowAfter?: string;
+    fieldBefore?: number;
+    fieldAfter?: number;
+  };
+  affected?: {
+    title?: boolean;
+    propertyIds?: string[];
+    blockIds?: string[];
+    deletedBlockIds?: string[];
+    order?: string[];
+  };
+  readbackVerified: true;
+}
+
+const PERSISTED_ARTIFACT_MARKER = "agent-native:persisted-artifacts=";
+const PERSISTED_ARTIFACT_MARKER_PATTERN =
+  /\s*<!--\s*agent-native:persisted-artifacts=[A-Za-z0-9_-]+\.[a-f0-9]{64}\s*-->/g;
+const ARTIFACT_RESOURCE_TYPES = new Set<A2AArtifactIdentity["resourceType"]>([
+  "document",
+  "deck",
+  "dashboard",
+  "analysis",
+  "image",
+  "design",
+  "monitor",
+  "form",
+]);
+
+interface PersistedArtifactLedger {
+  version: 1;
+  identities: A2AArtifactIdentity[];
+  mutationReceipts: A2APersistedMutationReceipt[];
+  delegatedTaskId?: string;
+}
+
+function persistedArtifactLedgerFromMarker(
+  result: string,
+  secrets: readonly string[] = a2aSecrets(),
+  expectedDelegatedTaskId?: string,
+): PersistedArtifactLedger | null {
+  if (secrets.length === 0) return null;
+  const matches = result.matchAll(
+    /<!--\s*agent-native:persisted-artifacts=([A-Za-z0-9_-]+)\.([a-f0-9]{64})\s*-->/g,
+  );
+  for (const match of matches) {
+    try {
+      const payload = match[1];
+      const supplied = Buffer.from(match[2], "hex");
+      const verified = secrets.some((secret) => {
+        const expected = createHmac("sha256", secret).update(payload).digest();
+        return (
+          supplied.length === expected.length &&
+          timingSafeEqual(supplied, expected)
+        );
+      });
+      if (!verified) continue;
+      const parsed: unknown = JSON.parse(
+        Buffer.from(payload, "base64url").toString(),
+      );
+      if (Array.isArray(parsed)) {
+        return { version: 1, identities: parsed, mutationReceipts: [] };
+      }
+      const ledger = asRecord(parsed);
+      if (!ledger || ledger.version !== 1) continue;
+      const parsedLedger = {
+        version: 1,
+        identities: Array.isArray(ledger.identities) ? ledger.identities : [],
+        mutationReceipts: Array.isArray(ledger.mutationReceipts)
+          ? ledger.mutationReceipts
+          : [],
+        ...(typeof ledger.delegatedTaskId === "string"
+          ? { delegatedTaskId: ledger.delegatedTaskId }
+          : {}),
+      } as PersistedArtifactLedger;
+      if (
+        expectedDelegatedTaskId &&
+        parsedLedger.delegatedTaskId !== expectedDelegatedTaskId
+      ) {
+        continue;
+      }
+      return parsedLedger;
+    } catch {
+      // coercion-ok: malformed signed-marker payloads are untrusted absence, never a successful receipt ledger
+      continue;
+    }
+  }
+  return null;
+}
+
+function persistedArtifactIdentitiesFromMarker(
+  result: string,
+  secrets: readonly string[] = a2aSecrets(),
+): A2AArtifactIdentity[] {
+  return (persistedArtifactLedgerFromMarker(result, secrets)?.identities ?? [])
+    .slice(0, 12)
+    .filter((identity): identity is A2AArtifactIdentity => {
+      const item = asRecord(identity);
+      return (
+        !!item &&
+        ARTIFACT_RESOURCE_TYPES.has(
+          item.resourceType as A2AArtifactIdentity["resourceType"],
+        ) &&
+        typeof item.id === "string" &&
+        typeof item.sourceAction === "string"
+      );
+    });
+}
+
+function withPersistedArtifactMarker(
+  text: string,
+  toolResults: A2AToolResultSummary[],
+  secret = a2aSecret(),
+  delegatedTaskId?: string,
+  baseUrl?: string,
+): string {
+  const verificationSecrets = [secret, a2aSecret()].filter(
+    (value, index, values): value is string =>
+      !!value && values.indexOf(value) === index,
+  );
+  const identities = extractA2AArtifactIdentities(toolResults, {
+    persistedArtifactSecrets: verificationSecrets,
+    baseUrl,
+  }).slice(0, 12);
+  const mutationReceipts = extractA2APersistedMutationReceipts(toolResults, {
+    persistedArtifactSecrets: secret ? [secret] : [],
+    expectedDelegatedTaskId: delegatedTaskId,
+  }).slice(0, 12);
+  if ((identities.length === 0 && mutationReceipts.length === 0) || !secret)
+    return text;
+  const payload = Buffer.from(
+    JSON.stringify({
+      version: 1,
+      identities,
+      mutationReceipts,
+      ...(delegatedTaskId ? { delegatedTaskId } : {}),
+    }),
+  ).toString("base64url");
+  const signature = createHmac("sha256", secret).update(payload).digest("hex");
+  const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${payload}.${signature} -->`;
+  return text ? `${text}\n\n${marker}` : marker;
+}
+
+export function stripA2APersistedArtifactMarkers(text: string): string {
+  return text.replace(PERSISTED_ARTIFACT_MARKER_PATTERN, "").trim();
+}
+
+interface CreatedDocumentArtifact {
+  id: string;
+  title?: string;
+  url?: string;
+}
+
+interface CreatedDesignShell {
+  id: string;
+  title?: string;
+}
+
+interface GeneratedDesignArtifact {
+  id: string;
+  fileCount: number;
+  url?: string;
+}
+
+interface CreatedDeckArtifact {
+  id: string;
+  url?: string;
+}
+
+interface CreatedDashboardArtifact {
+  id: string;
+  title?: string;
+  url?: string;
+}
+
+interface CreatedAnalysisArtifact {
+  id: string;
+  title?: string;
+  url?: string;
+}
+
+interface CreatedImageArtifact {
+  id: string;
+  runId?: string;
+  title?: string;
+  url?: string;
+}
+
+interface CreatedMonitorArtifact {
+  id: string;
+  name?: string;
+  url: string;
+}
+
+interface CreatedFormArtifact {
+  id: string;
+  title?: string;
+  url: string;
+  anonymous: boolean;
+}
+
+type ReferencedArtifactKind = ArtifactReferenceKind;
+type ReferencedArtifact = ArtifactReference;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+type ParsedToolResult =
+  | { status: "parsed"; value: Record<string, unknown> }
+  | { status: "not-json" }
+  | { status: "truncated" };
+
+function parseToolResultJson(result: string): ParsedToolResult {
+  const trimmed = result.trim();
+  if (!trimmed || /^Error(?:\s|:)/i.test(trimmed)) {
+    return { status: "not-json" };
+  }
+
+  try {
+    const value = asRecord(JSON.parse(trimmed));
+    return value ? { status: "parsed", value } : { status: "not-json" };
+  } catch {
+    // Dev shell wrappers may include console output before the returned JSON.
+    const firstBrace = trimmed.indexOf("{");
+    const lastBrace = trimmed.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      try {
+        const value = asRecord(
+          JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)),
+        );
+        if (value) return { status: "parsed", value };
+      } catch {
+        // Continue to the explicit truncation and balance checks below.
+      }
+    }
+    const hasTruncationMarker =
+      trimmed.includes("...[truncated —") ||
+      trimmed.includes("...[ledger truncated at");
+    if (hasTruncationMarker) return { status: "truncated" };
+    if (firstBrace < 0) return { status: "not-json" };
+    const jsonish = trimmed.slice(firstBrace);
+    const opens = (jsonish.match(/[\[{]/g) ?? []).length;
+    const closes = (jsonish.match(/[\]}]/g) ?? []).length;
+    return opens > closes ? { status: "truncated" } : { status: "not-json" };
+  }
+}
+
+function normalizeBaseUrl(baseUrl: string | undefined): string | undefined {
+  const trimmed = baseUrl?.trim();
+  return trimmed ? trimmed.replace(/\/+$/, "") : undefined;
+}
+
+function artifactUrl(baseUrl: string | undefined, path: string): string {
+  const base = normalizeBaseUrl(baseUrl);
+  return base ? `${base}${path}` : path;
+}
+
+function artifactUrlFromResult(
+  parsed: Record<string, unknown>,
+  fallbackPath: string,
+  baseUrl: string | undefined,
+): string {
+  const explicitUrl = stringValue(parsed.url) ?? stringValue(parsed.urlPath);
+  if (!explicitUrl) return artifactUrl(baseUrl, fallbackPath);
+  if (explicitUrl.startsWith("/")) return artifactUrl(baseUrl, explicitUrl);
+  try {
+    return new URL(explicitUrl).toString();
+  } catch {
+    return artifactUrl(baseUrl, fallbackPath);
+  }
+}
+
+function responseAlreadyMentionsPath(text: string, path: string): boolean {
+  return text.includes(path);
+}
+
+function responseMentionsDesignShell(
+  text: string,
+  shell: CreatedDesignShell,
+): boolean {
+  if (!text.trim()) return true;
+  return text.includes(shell.id) || text.includes(`/design/${shell.id}`);
+}
+
+function responseAlreadyWarnsIncompleteDesign(text: string): boolean {
+  return /(?:not ready|still working|processing|no renderable|no files|failed|could not|cannot|can't)/i.test(
+    text,
+  );
+}
+
+function isRenderableDesignFile(value: unknown): boolean {
+  const file = asRecord(value);
+  if (!file) return false;
+
+  const filename = stringValue(file.filename);
+  const fileType = stringValue(file.fileType);
+  const hasRenderableType =
+    fileType === "html" ||
+    fileType === "jsx" ||
+    filename?.endsWith(".html") ||
+    filename?.endsWith(".jsx");
+  if (!hasRenderableType) return false;
+
+  return typeof file.content !== "string" || file.content.trim().length > 0;
+}
+
+function countRenderableDesignFiles(files: unknown): number {
+  if (!Array.isArray(files)) return 0;
+  return files.filter(isRenderableDesignFile).length;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function deckIdValue(parsed: Record<string, unknown>): string | undefined {
+  return stringValue(parsed.id) ?? stringValue(parsed.deckId);
+}
+
+function dashboardIdValue(parsed: Record<string, unknown>): string | undefined {
+  return stringValue(parsed.id) ?? stringValue(parsed.dashboardId);
+}
+
+function analysisIdValue(parsed: Record<string, unknown>): string | undefined {
+  return stringValue(parsed.id) ?? stringValue(parsed.analysisId);
+}
+
+function contentDatabaseSubmissionArtifact(
+  parsed: Record<string, unknown>,
+): CreatedDocumentArtifact | null {
+  const id = stringValue(parsed.createdDocumentId);
+  if (!id) return null;
+
+  const verification = asRecord(parsed.verification);
+  const candidates = [
+    stringValue(parsed.url),
+    stringValue(parsed.urlPath),
+    stringValue(parsed.createdDocumentUrl),
+    stringValue(verification?.url),
+    stringValue(verification?.urlPath),
+  ].filter((value): value is string => !!value);
+  const url = candidates.find((candidate) =>
+    artifactUrlReferencesId(candidate, "document", id),
+  );
+
+  const items = Array.isArray(parsed.items) ? parsed.items : [];
+  const createdItem = items.map(asRecord).find((item) => {
+    const document = asRecord(item?.document);
+    return stringValue(document?.id) === id;
+  });
+  const createdDocument = asRecord(createdItem?.document);
+
+  return {
+    id,
+    title:
+      stringValue(parsed.createdDocumentTitle) ??
+      stringValue(createdDocument?.title),
+    url,
+  };
+}
+
+function documentUrlForId(
+  parsed: Record<string, unknown>,
+  id: string,
+  additionalCandidates: Array<string | undefined> = [],
+  options: { requireContentOrigin?: boolean } = {},
+): string | undefined {
+  const candidates = [
+    stringValue(parsed.url),
+    stringValue(parsed.urlPath),
+    stringValue(parsed.deepLink),
+    stringValue(parsed.pageUrl),
+    stringValue(parsed.documentUrl),
+    ...additionalCandidates,
+  ].filter((value): value is string => !!value);
+
+  return candidates.find((candidate) => {
+    if (!artifactUrlReferencesId(candidate, "document", id)) return false;
+    return !options.requireContentOrigin || isContentDocumentUrl(candidate);
+  });
+}
+
+function isContentDocumentUrl(rawUrl: string): boolean {
+  try {
+    return new URL(rawUrl).origin === "https://content.agent-native.com";
+  } catch {
+    return false;
+  }
+}
+
+function addDocumentReadArtifact(
+  documents: Map<string, CreatedDocumentArtifact>,
+  parsed: Record<string, unknown>,
+  options: {
+    allowWithoutUrl: boolean;
+    additionalUrlCandidates?: Array<string | undefined>;
+    requireContentOrigin?: boolean;
+  },
+): void {
+  const id = stringValue(parsed.documentId) ?? stringValue(parsed.id);
+  if (!id) return;
+
+  const url = documentUrlForId(parsed, id, options.additionalUrlCandidates, {
+    requireContentOrigin: options.requireContentOrigin,
+  });
+  if (!url && !options.allowWithoutUrl) return;
+
+  documents.set(id, {
+    id,
+    title: stringValue(parsed.title) ?? stringValue(parsed.name),
+    url,
+  });
+}
+
+function addContentDatabaseReadArtifacts(
+  documents: Map<string, CreatedDocumentArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  const resultUrls = [
+    stringValue(parsed.url),
+    stringValue(parsed.urlPath),
+    stringValue(parsed.deepLink),
+  ];
+  const database = asRecord(parsed.database);
+  if (database) {
+    addDocumentReadArtifact(documents, database, {
+      allowWithoutUrl: true,
+      requireContentOrigin: true,
+      additionalUrlCandidates: resultUrls,
+    });
+  } else {
+    // Unavailable database reads still return a documentId, but they do not
+    // prove that the page exists and must not authorize an artifact URL.
+    if (parsed.available !== false) {
+      addDocumentReadArtifact(documents, parsed, {
+        allowWithoutUrl: true,
+        requireContentOrigin: true,
+      });
+    }
+  }
+
+  if (!Array.isArray(parsed.items)) return;
+  for (const item of parsed.items) {
+    const itemRecord = asRecord(item);
+    const document = asRecord(itemRecord?.document);
+    if (!document) continue;
+    addDocumentReadArtifact(documents, document, {
+      allowWithoutUrl: true,
+      requireContentOrigin: true,
+      additionalUrlCandidates: [
+        stringValue(itemRecord?.url),
+        stringValue(itemRecord?.urlPath),
+        stringValue(itemRecord?.deepLink),
+      ],
+    });
+  }
+}
+
+function isGenericReadTool(tool: string): boolean {
+  return /^(?:find|get|list|query|read|search)-/i.test(tool);
+}
+
+function addGenericDocumentReadArtifact(
+  documents: Map<string, CreatedDocumentArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  // Unknown read actions are accepted only when their result pairs a document
+  // ID with a canonical page URL containing that exact ID. An ID by itself is
+  // insufficient, preserving the fabrication guard for unrelated actions.
+  addDocumentReadArtifact(documents, parsed, {
+    allowWithoutUrl: false,
+    requireContentOrigin: true,
+  });
+
+  const document = asRecord(parsed.document);
+  if (!document) return;
+  addDocumentReadArtifact(documents, document, {
+    allowWithoutUrl: false,
+    requireContentOrigin: true,
+    additionalUrlCandidates: [
+      stringValue(parsed.url),
+      stringValue(parsed.urlPath),
+      stringValue(parsed.deepLink),
+    ],
+  });
+}
+
+function addDeckArtifact(
+  decks: Map<string, CreatedDeckArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  const id = deckIdValue(parsed);
+  if (!id) return;
+  decks.set(id, {
+    id,
+    url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+  });
+}
+
+// Deck writes are spread across a dozen actions (create-deck, add-slide,
+// patch-deck, save-deck, update-slide, import-*, restore-deck-version), so a
+// per-tool allow-list refuses a real deck URL every time an action is added.
+// Trust any successful result that names a deck the way the deck routes do: an
+// explicit deckId, or a canonical /deck/<id> URL the action itself returned.
+function addDeckArtifactFromAnyResult(
+  decks: Map<string, CreatedDeckArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  const url = stringValue(parsed.url) ?? stringValue(parsed.urlPath);
+  const deckId = stringValue(parsed.deckId);
+  if (deckId) {
+    decks.set(deckId, {
+      id: deckId,
+      url:
+        url && artifactUrlReferencesId(url, "deck", deckId) ? url : undefined,
+    });
+  }
+
+  const reference = url ? parseArtifactReferenceUrl(url) : null;
+  if (reference?.kind === "deck") {
+    decks.set(reference.id, { id: reference.id, url });
+  }
+}
+
+function addListedDeckArtifacts(
+  decks: Map<string, CreatedDeckArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  const items = parsed.decks;
+  if (!Array.isArray(items)) return;
+  for (const item of items) {
+    const deck = asRecord(item);
+    if (!deck) continue;
+    addDeckArtifact(decks, deck);
+  }
+}
+
+function artifactReceiptOriginAllowed(
+  rawUrl: string,
+  kind: ArtifactReceipt["kind"],
+  baseUrl: string | undefined,
+): boolean {
+  const origin = safeOrigin(rawUrl);
+  if (!origin) return true;
+  const baseOrigin = safeOrigin(baseUrl);
+  if (baseOrigin && origin === baseOrigin) return true;
+  const hostname = safeHostnameFromOrigin(origin);
+  return !!hostname && KNOWN_AGENT_NATIVE_ARTIFACT_HOSTS[kind].has(hostname);
+}
+
+function verifiedArtifactReceiptUrl(
+  rawUrl: string | undefined,
+  kind: ArtifactReferenceKind,
+  id: string,
+  baseUrl: string | undefined,
+): string | undefined {
+  if (!rawUrl || !artifactReceiptOriginAllowed(rawUrl, kind, baseUrl)) {
+    return undefined;
+  }
+  const reference = parseArtifactReferenceUrl(rawUrl);
+  return reference?.kind === kind && reference.id === id ? rawUrl : undefined;
+}
+
+function addArtifactReceipt(
+  value: unknown,
+  sourceTool: string,
+  baseUrl: string | undefined,
+  collections: {
+    documents: Map<string, CreatedDocumentArtifact>;
+    decks: Map<string, CreatedDeckArtifact>;
+    dashboards: Map<string, CreatedDashboardArtifact>;
+    analyses: Map<string, CreatedAnalysisArtifact>;
+    images: Map<string, CreatedImageArtifact>;
+    designShells: Map<string, CreatedDesignShell>;
+    generatedDesigns: Map<string, GeneratedDesignArtifact>;
+    monitors: Map<string, CreatedMonitorArtifact>;
+    forms: Map<string, CreatedFormArtifact>;
+  },
+): void {
+  if (!isArtifactReceipt(value)) return;
+  const artifact = value;
+  const id = artifact.id.trim();
+  const reference = artifact.url
+    ? parseArtifactReferenceUrl(artifact.url)
+    : null;
+  const sourceCanProduceKind = artifactKindsForTool(sourceTool).includes(
+    artifact.kind,
+  );
+  const originAllowed =
+    !artifact.url ||
+    artifactReceiptOriginAllowed(artifact.url, artifact.kind, baseUrl);
+  const validatedUrl =
+    artifact.kind === "monitor" || artifact.kind === "form"
+      ? undefined
+      : verifiedArtifactReceiptUrl(artifact.url, artifact.kind, id, baseUrl);
+  if (
+    artifact.url &&
+    (artifact.kind === "monitor" || artifact.kind === "form") &&
+    !originAllowed
+  ) {
+    return;
+  }
+  if (
+    artifact.url &&
+    artifact.kind !== "monitor" &&
+    artifact.kind !== "form" &&
+    ((reference !== null &&
+      (reference.kind !== artifact.kind || reference.id !== id)) ||
+      ((!reference || !originAllowed) && !sourceCanProduceKind))
+  ) {
+    return;
+  }
+
+  if (artifact.kind === "document") {
+    if (isGenericReadTool(sourceTool)) {
+      const canonicalReadUrl =
+        validatedUrl && isContentDocumentUrl(validatedUrl)
+          ? validatedUrl
+          : undefined;
+      const knownContentRead =
+        sourceTool === "get-document" ||
+        sourceTool === "get-content-document" ||
+        sourceTool === "get-content-database";
+      if (!knownContentRead && !canonicalReadUrl) return;
+      collections.documents.set(id, {
+        id,
+        title: artifact.title,
+        url: canonicalReadUrl,
+      });
+      return;
+    }
+    collections.documents.set(id, {
+      id,
+      title: artifact.title,
+      url: validatedUrl,
+    });
+  } else if (artifact.kind === "deck") {
+    collections.decks.set(id, { id, url: validatedUrl });
+  } else if (artifact.kind === "dashboard") {
+    collections.dashboards.set(id, {
+      id,
+      title: artifact.title,
+      url: validatedUrl,
+    });
+  } else if (artifact.kind === "analysis") {
+    collections.analyses.set(id, {
+      id,
+      title: artifact.title,
+      url: validatedUrl,
+    });
+  } else if (artifact.kind === "image") {
+    collections.images.set(id, {
+      id,
+      title: artifact.title,
+      runId: artifact.runId,
+      url: validatedUrl,
+    });
+  } else if (artifact.kind === "design") {
+    if (artifact.fileCount !== undefined && artifact.fileCount > 0) {
+      collections.generatedDesigns.set(id, {
+        id,
+        url: validatedUrl,
+        fileCount: artifact.fileCount,
+      });
+    } else {
+      collections.designShells.set(id, { id, title: artifact.title });
+    }
+  } else if (artifact.kind === "monitor" && artifact.url) {
+    collections.monitors.set(id, {
+      id,
+      name: artifact.title,
+      url: artifact.url,
+    });
+  } else if (artifact.kind === "form" && artifact.url) {
+    collections.forms.set(id, {
+      id,
+      title: artifact.title,
+      url: artifact.url,
+      anonymous: false,
+    });
+  }
+}
+
+function collectArtifacts(
+  results: A2AToolResultSummary[],
+  baseUrl?: string,
+): {
+  documents: CreatedDocumentArtifact[];
+  decks: CreatedDeckArtifact[];
+  dashboards: CreatedDashboardArtifact[];
+  analyses: CreatedAnalysisArtifact[];
+  images: CreatedImageArtifact[];
+  designShells: CreatedDesignShell[];
+  generatedDesigns: GeneratedDesignArtifact[];
+  monitors: CreatedMonitorArtifact[];
+  forms: CreatedFormArtifact[];
+  truncatedTools: Array<{
+    tool: string;
+    kinds: ReferencedArtifactKind[];
+  }>;
+} {
+  const documents = new Map<string, CreatedDocumentArtifact>();
+  const decks = new Map<string, CreatedDeckArtifact>();
+  const dashboards = new Map<string, CreatedDashboardArtifact>();
+  const analyses = new Map<string, CreatedAnalysisArtifact>();
+  const images = new Map<string, CreatedImageArtifact>();
+  const designShells = new Map<string, CreatedDesignShell>();
+  const generatedDesigns = new Map<string, GeneratedDesignArtifact>();
+  const monitors = new Map<string, CreatedMonitorArtifact>();
+  const forms = new Map<string, CreatedFormArtifact>();
+  const truncatedTools = new Map<string, ReferencedArtifactKind[]>();
+  const collections = {
+    documents,
+    decks,
+    dashboards,
+    analyses,
+    images,
+    designShells,
+    generatedDesigns,
+    monitors,
+    forms,
+  };
+
+  for (const toolResult of results) {
+    if (toolResult.isError === true || toolResult.completedSideEffect === false)
+      continue;
+    if (toolResult.artifacts !== undefined) {
+      for (const artifact of toolResult.artifacts) {
+        addArtifactReceipt(artifact, toolResult.tool, baseUrl, collections);
+      }
+      continue;
+    }
+    if (toolResult.tool === "call-agent") {
+      for (const artifact of parseDownstreamArtifactBlock(toolResult.result)) {
+        if (artifact.kind === "deck") {
+          decks.set(artifact.id, {
+            id: artifact.id,
+            url: artifact.url,
+          });
+        } else if (artifact.kind === "document") {
+          documents.set(artifact.id, {
+            id: artifact.id,
+            title: artifact.title,
+            url: artifact.url,
+          });
+        } else if (artifact.kind === "dashboard") {
+          dashboards.set(artifact.id, {
+            id: artifact.id,
+            title: artifact.title,
+            url: artifact.url,
+          });
+        } else if (artifact.kind === "analysis") {
+          analyses.set(artifact.id, {
+            id: artifact.id,
+            title: artifact.title,
+            url: artifact.url,
+          });
+        } else if (artifact.kind === "image") {
+          images.set(artifact.id, {
+            id: artifact.id,
+            title: artifact.title,
+            url: artifact.url,
+            runId: artifact.runId,
+          });
+        } else if (artifact.kind === "design" && artifact.fileCount > 0) {
+          generatedDesigns.set(artifact.id, {
+            id: artifact.id,
+            fileCount: artifact.fileCount,
+            url: artifact.url,
+          });
+        }
+      }
+      continue;
+    }
+
+    const parsedResult = parseToolResultJson(toolResult.result);
+    if (parsedResult.status !== "parsed") {
+      if (
+        parsedResult.status === "truncated" &&
+        !isGenericReadTool(toolResult.tool)
+      ) {
+        const kinds = artifactKindsForTool(toolResult.tool).filter(
+          (kind): kind is ReferencedArtifactKind =>
+            kind !== "monitor" && kind !== "form",
+        );
+        if (kinds.length > 0) truncatedTools.set(toolResult.tool, [...kinds]);
+      }
+      continue;
+    }
+    const parsed = parsedResult.value;
+
+    for (const artifact of detectArtifactReceipts(parsed, toolResult.tool)) {
+      if (artifact.kind === "image") {
+        addArtifactReceipt(artifact, toolResult.tool, baseUrl, collections);
+      }
+    }
+
+    addDeckArtifactFromAnyResult(decks, parsed);
+
+    if (toolResult.tool === "save-monitor") {
+      const id = stringValue(parsed.id);
+      const url = stringValue(parsed.monitorAppUrl);
+      if (id && url) {
+        monitors.set(id, {
+          id,
+          name: stringValue(parsed.name),
+          url,
+        });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "create-form") {
+      const id = stringValue(parsed.id);
+      const url = stringValue(parsed.publicUrl);
+      if (id && url && stringValue(parsed.status) === "published") {
+        const settings = asRecord(parsed.settings);
+        forms.set(id, {
+          id,
+          title: stringValue(parsed.title),
+          url,
+          anonymous: settings?.anonymous === true,
+        });
+      }
+      continue;
+    }
+
+    if (
+      toolResult.tool === "submit-content-database-form" ||
+      toolResult.tool === "add-database-item"
+    ) {
+      const artifact = contentDatabaseSubmissionArtifact(parsed);
+      if (artifact) documents.set(artifact.id, artifact);
+      continue;
+    }
+
+    if (
+      toolResult.tool === "upsert-database-item-by-key" ||
+      toolResult.tool === "mutate-content-database-block"
+    ) {
+      const receipt = asRecord(parsed.receipt);
+      const receiptRow = asRecord(receipt?.row);
+      const receiptTarget = asRecord(receipt?.target);
+      const rowLink = asRecord(receipt?.rowLink);
+      const rowDocumentId =
+        stringValue(receiptRow?.documentId) ??
+        stringValue(receiptTarget?.rowDocumentId);
+      if (rowDocumentId) {
+        documents.set(rowDocumentId, {
+          id: rowDocumentId,
+          url:
+            stringValue(receiptRow?.urlPath) ?? stringValue(rowLink?.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (
+      toolResult.tool === "create-document" ||
+      toolResult.tool === "update-document"
+    ) {
+      if (parsed.conflict === true) continue;
+      const id = stringValue(parsed.id);
+      if (id) {
+        documents.set(id, {
+          id,
+          title: stringValue(parsed.title),
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "set-document-property") {
+      const id = stringValue(parsed.documentId);
+      if (id) {
+        documents.set(id, {
+          id,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (
+      toolResult.tool === "get-document" ||
+      toolResult.tool === "get-content-document"
+    ) {
+      const document = asRecord(parsed.document);
+      addDocumentReadArtifact(documents, document ?? parsed, {
+        allowWithoutUrl: true,
+        requireContentOrigin: true,
+        additionalUrlCandidates: document
+          ? [
+              stringValue(parsed.url),
+              stringValue(parsed.urlPath),
+              stringValue(parsed.deepLink),
+            ]
+          : [],
+      });
+      continue;
+    }
+
+    if (toolResult.tool === "get-content-database") {
+      addContentDatabaseReadArtifacts(documents, parsed);
+      continue;
+    }
+
+    if (isGenericReadTool(toolResult.tool)) {
+      addGenericDocumentReadArtifact(documents, parsed);
+    }
+
+    if (
+      toolResult.tool === "create-deck" ||
+      toolResult.tool === "duplicate-deck" ||
+      toolResult.tool === "get-deck"
+    ) {
+      addDeckArtifact(decks, parsed);
+      continue;
+    }
+
+    if (toolResult.tool === "list-decks") {
+      addListedDeckArtifacts(decks, parsed);
+      continue;
+    }
+
+    if (
+      toolResult.tool === "update-dashboard" ||
+      toolResult.tool === "rename-dashboard" ||
+      toolResult.tool === "get-dashboard"
+    ) {
+      const id = dashboardIdValue(parsed);
+      if (id) {
+        dashboards.set(id, {
+          id,
+          title: stringValue(parsed.name) ?? stringValue(parsed.title),
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (
+      toolResult.tool === "save-analysis" ||
+      toolResult.tool === "get-analysis"
+    ) {
+      const id = analysisIdValue(parsed);
+      if (id) {
+        analyses.set(id, {
+          id,
+          title: stringValue(parsed.name) ?? stringValue(parsed.title),
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "create-design") {
+      const id = stringValue(parsed.id);
+      if (id) {
+        designShells.set(id, { id, title: stringValue(parsed.title) });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "get-design") {
+      const id = stringValue(parsed.id);
+      if (!id) continue;
+
+      const renderableFileCount = countRenderableDesignFiles(parsed.files);
+      if (renderableFileCount > 0) {
+        generatedDesigns.set(id, {
+          id,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+          fileCount: Array.isArray(parsed.files)
+            ? parsed.files.length
+            : renderableFileCount,
+        });
+      } else {
+        designShells.set(id, { id, title: stringValue(parsed.title) });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "generate-design") {
+      const id = stringValue(parsed.designId);
+      if (!id) continue;
+
+      const savedFiles = Array.isArray(parsed.savedFiles)
+        ? parsed.savedFiles
+        : [];
+      const fileCount = numberValue(parsed.fileCount) ?? savedFiles.length;
+
+      if (fileCount > 0) {
+        generatedDesigns.set(id, {
+          id,
+          fileCount,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "create-file") {
+      const id = stringValue(parsed.designId);
+      if (!id) continue;
+      const renderable =
+        parsed.renderable === true ||
+        stringValue(parsed.fileType) === "html" ||
+        stringValue(parsed.fileType) === "jsx";
+
+      if (renderable) {
+        const previous = generatedDesigns.get(id);
+        generatedDesigns.set(id, {
+          id,
+          url:
+            stringValue(parsed.url) ??
+            stringValue(parsed.urlPath) ??
+            previous?.url,
+          fileCount: (previous?.fileCount ?? 0) + 1,
+        });
+      }
+    }
+
+    if (toolResult.tool === "duplicate-design") {
+      const id = stringValue(parsed.id);
+      const fileCount = numberValue(parsed.fileCount);
+      if (id && fileCount && fileCount > 0) {
+        generatedDesigns.set(id, {
+          id,
+          fileCount,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+    }
+  }
+
+  return {
+    documents: [...documents.values()],
+    decks: [...decks.values()],
+    dashboards: [...dashboards.values()],
+    analyses: [...analyses.values()],
+    images: [...images.values()],
+    designShells: [...designShells.values()],
+    generatedDesigns: [...generatedDesigns.values()],
+    monitors: [...monitors.values()],
+    forms: [...forms.values()],
+    truncatedTools: [...truncatedTools].map(([tool, kinds]) => ({
+      tool,
+      kinds,
+    })),
+  };
+}
+
+/**
+ * Extract a compact, verified identity ledger from successful artifact tools.
+ * The ledger deliberately excludes raw tool results so it is safe to retain in
+ * long-lived thread context and stable even when a resource is later renamed.
+ */
+export function extractA2AArtifactIdentities(
+  results: A2AToolResultSummary[],
+  options: A2AArtifactIdentityOptions = {},
+): A2AArtifactIdentity[] {
+  const identities = new Map<string, A2AArtifactIdentity>();
+
+  const remember = (identity: A2AArtifactIdentity) => {
+    identities.set(`${identity.resourceType}:${identity.id}`, identity);
+  };
+
+  for (const result of results) {
+    if (result.isError === true || result.completedSideEffect === false)
+      continue;
+    if (result.tool === "call-agent") {
+      for (const identity of persistedArtifactIdentitiesFromMarker(
+        result.result,
+        options.persistedArtifactSecrets,
+      )) {
+        remember({ ...identity, sourceAction: "call-agent" });
+      }
+      continue;
+    }
+    if (isGenericReadTool(result.tool)) continue;
+    const trustedKinds = new Set(artifactKindsForTool(result.tool));
+    if (trustedKinds.size === 0) continue;
+    const artifacts = collectArtifacts([result], options.baseUrl);
+    for (const document of artifacts.documents) {
+      if (!trustedKinds.has("document")) continue;
+      remember({
+        resourceType: "document",
+        id: document.id,
+        sourceAction: result.tool,
+        titleAtAction: document.title,
+        url: verifiedArtifactReceiptUrl(
+          document.url,
+          "document",
+          document.id,
+          options.baseUrl,
+        ),
+      });
+    }
+    for (const deck of artifacts.decks) {
+      if (!trustedKinds.has("deck")) continue;
+      remember({
+        resourceType: "deck",
+        id: deck.id,
+        sourceAction: result.tool,
+        url: verifiedArtifactReceiptUrl(
+          deck.url,
+          "deck",
+          deck.id,
+          options.baseUrl,
+        ),
+      });
+    }
+    for (const dashboard of artifacts.dashboards) {
+      if (!trustedKinds.has("dashboard")) continue;
+      remember({
+        resourceType: "dashboard",
+        id: dashboard.id,
+        sourceAction: result.tool,
+        titleAtAction: dashboard.title,
+        url: verifiedArtifactReceiptUrl(
+          dashboard.url,
+          "dashboard",
+          dashboard.id,
+          options.baseUrl,
+        ),
+      });
+    }
+    for (const analysis of artifacts.analyses) {
+      if (!trustedKinds.has("analysis")) continue;
+      remember({
+        resourceType: "analysis",
+        id: analysis.id,
+        sourceAction: result.tool,
+        titleAtAction: analysis.title,
+        url: verifiedArtifactReceiptUrl(
+          analysis.url,
+          "analysis",
+          analysis.id,
+          options.baseUrl,
+        ),
+      });
+    }
+    for (const image of artifacts.images) {
+      if (!trustedKinds.has("image")) continue;
+      remember({
+        resourceType: "image",
+        id: image.id,
+        sourceAction: result.tool,
+        titleAtAction: image.title,
+        url: verifiedArtifactReceiptUrl(
+          image.url,
+          "image",
+          image.id,
+          options.baseUrl,
+        ),
+      });
+    }
+    for (const design of artifacts.designShells) {
+      if (!trustedKinds.has("design")) continue;
+      remember({
+        resourceType: "design",
+        id: design.id,
+        sourceAction: result.tool,
+        titleAtAction: design.title,
+      });
+    }
+    for (const design of artifacts.generatedDesigns) {
+      if (!trustedKinds.has("design")) continue;
+      remember({
+        resourceType: "design",
+        id: design.id,
+        sourceAction: result.tool,
+        url: verifiedArtifactReceiptUrl(
+          design.url,
+          "design",
+          design.id,
+          options.baseUrl,
+        ),
+      });
+    }
+    for (const monitor of artifacts.monitors) {
+      if (!trustedKinds.has("monitor")) continue;
+      remember({
+        resourceType: "monitor",
+        id: monitor.id,
+        sourceAction: result.tool,
+        titleAtAction: monitor.name,
+        url: artifactReceiptOriginAllowed(
+          monitor.url,
+          "monitor",
+          options.baseUrl,
+        )
+          ? monitor.url
+          : undefined,
+      });
+    }
+    for (const form of artifacts.forms) {
+      if (!trustedKinds.has("form")) continue;
+      remember({
+        resourceType: "form",
+        id: form.id,
+        sourceAction: result.tool,
+        titleAtAction: form.title,
+        url: artifactReceiptOriginAllowed(form.url, "form", options.baseUrl)
+          ? form.url
+          : undefined,
+      });
+    }
+  }
+
+  return [...identities.values()];
+}
+
+function boundedStrings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value
+    .map(stringValue)
+    .filter((item): item is string => !!item)
+    .slice(0, 50);
+}
+
+function parsePersistedMutationReceipt(
+  value: unknown,
+  sourceAction: string,
+): A2APersistedMutationReceipt | null {
+  const receipt = asRecord(value);
+  const target = asRecord(receipt?.target);
+  const authorityScope = asRecord(target?.authorityScope);
+  const row = asRecord(receipt?.row);
+  const rowLink = asRecord(receipt?.rowLink);
+  const idempotency = asRecord(receipt?.idempotency);
+  const revisions = asRecord(receipt?.revisions);
+  const rowRevisions = asRecord(revisions?.row);
+  const fieldRevisions = asRecord(revisions?.field);
+  const affected = asRecord(receipt?.affected);
+  const readback = asRecord(receipt?.readback);
+  const authorityScopeKind =
+    stringValue(authorityScope?.kind) ??
+    stringValue(target?.authorityScopeKind);
+  const idempotencyResult = stringValue(idempotency?.result);
+  const rowDocumentId =
+    stringValue(row?.documentId) ?? stringValue(target?.rowDocumentId);
+  const urlPath = stringValue(row?.urlPath) ?? stringValue(rowLink?.urlPath);
+  const receiptId = stringValue(receipt?.receiptId);
+  const operation = stringValue(receipt?.operation);
+  const outcome = stringValue(receipt?.outcome);
+  const authorityScopeId =
+    stringValue(authorityScope?.id) ?? stringValue(target?.authorityScopeId);
+  const spaceId = stringValue(target?.spaceId);
+  const databaseId = stringValue(target?.databaseId);
+  const databaseDocumentId = stringValue(target?.databaseDocumentId);
+  const idempotencyKey = stringValue(idempotency?.key);
+  const payloadDigest = stringValue(idempotency?.payloadDigest);
+
+  if (
+    !receipt ||
+    !target ||
+    (authorityScopeKind !== "personal" &&
+      authorityScopeKind !== "organization") ||
+    (idempotencyResult !== "applied" && idempotencyResult !== "replayed") ||
+    (readback?.verified !== true && receipt.readbackVerified !== true) ||
+    !receiptId ||
+    !operation ||
+    !outcome ||
+    !authorityScopeId ||
+    !spaceId ||
+    !databaseId ||
+    !databaseDocumentId ||
+    !idempotencyKey ||
+    !payloadDigest ||
+    !rowDocumentId ||
+    !urlPath
+  ) {
+    return null;
+  }
+
+  const propertyIds = boundedStrings(affected?.propertyIds);
+  const blockIds = boundedStrings(affected?.blockIds);
+  const deletedBlockIds = boundedStrings(affected?.deletedBlockIds);
+  const order = boundedStrings(affected?.order);
+  const compactAffected = {
+    ...(typeof affected?.title === "boolean" ? { title: affected.title } : {}),
+    ...(propertyIds ? { propertyIds } : {}),
+    ...(blockIds ? { blockIds } : {}),
+    ...(deletedBlockIds ? { deletedBlockIds } : {}),
+    ...(order ? { order } : {}),
+  };
+  const itemId = stringValue(row?.itemId) ?? stringValue(target.itemId);
+  const targetItemId = stringValue(target.itemId);
+  const targetRowDocumentId = stringValue(target.rowDocumentId);
+  const targetPropertyId = stringValue(target.propertyId);
+  const after = stringValue(revisions?.after);
+  const rowBefore =
+    stringValue(rowRevisions?.before) ?? stringValue(revisions?.rowBefore);
+  const rowAfter =
+    stringValue(rowRevisions?.after) ?? stringValue(revisions?.rowAfter);
+
+  return {
+    receiptId,
+    sourceAction,
+    operation,
+    outcome,
+    target: {
+      authorityScopeKind,
+      authorityScopeId,
+      spaceId,
+      databaseId,
+      databaseDocumentId,
+      ...(targetItemId ? { itemId: targetItemId } : {}),
+      ...(targetRowDocumentId ? { rowDocumentId: targetRowDocumentId } : {}),
+      ...(targetPropertyId ? { propertyId: targetPropertyId } : {}),
+    },
+    row: {
+      ...(itemId ? { itemId } : {}),
+      documentId: rowDocumentId,
+      urlPath,
+    },
+    idempotency: {
+      key: idempotencyKey,
+      result: idempotencyResult,
+      payloadDigest,
+    },
+    revisions: {
+      ...(revisions?.before === null || typeof revisions?.before === "string"
+        ? { before: revisions.before as string | null }
+        : {}),
+      ...(after ? { after } : {}),
+      ...(rowBefore ? { rowBefore } : {}),
+      ...(rowAfter ? { rowAfter } : {}),
+      ...(typeof (fieldRevisions?.before ?? revisions?.fieldBefore) === "number"
+        ? {
+            fieldBefore: (fieldRevisions?.before ??
+              revisions?.fieldBefore) as number,
+          }
+        : {}),
+      ...(typeof (fieldRevisions?.after ?? revisions?.fieldAfter) === "number"
+        ? {
+            fieldAfter: (fieldRevisions?.after ??
+              revisions?.fieldAfter) as number,
+          }
+        : {}),
+    },
+    ...(Object.keys(compactAffected).length > 0
+      ? { affected: compactAffected }
+      : {}),
+    readbackVerified: true,
+  };
+}
+
+/**
+ * Extract bounded, read-back-verified mutation receipts. Nested agent results
+ * are accepted only through the signed persisted ledger.
+ */
+export function extractA2APersistedMutationReceipts(
+  results: A2AToolResultSummary[],
+  options: A2AArtifactIdentityOptions = {},
+): A2APersistedMutationReceipt[] {
+  const receipts = new Map<string, A2APersistedMutationReceipt>();
+  for (const result of results) {
+    if (result.isError === true || result.completedSideEffect === false)
+      continue;
+    if (result.tool === "call-agent") {
+      const nested = persistedArtifactLedgerFromMarker(
+        result.result,
+        options.persistedArtifactSecrets,
+        options.expectedDelegatedTaskId,
+      );
+      for (const receipt of nested?.mutationReceipts ?? []) {
+        const parsed = parsePersistedMutationReceipt(receipt, "call-agent");
+        if (parsed) receipts.set(parsed.receiptId, parsed);
+      }
+      continue;
+    }
+    if (
+      result.tool !== "upsert-database-item-by-key" &&
+      result.tool !== "mutate-content-database-block"
+    ) {
+      continue;
+    }
+    const parsedResult = parseToolResultJson(result.result);
+    const receipt = parsePersistedMutationReceipt(
+      parsedResult.status === "parsed" ? parsedResult.value.receipt : undefined,
+      result.tool,
+    );
+    if (receipt) receipts.set(receipt.receiptId, receipt);
+  }
+  return [...receipts.values()].slice(0, 12);
+}
+
+export function appendA2APersistedMutationReceipts(
+  text: string,
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string {
+  const receiptSecret = options.persistedArtifactSecret ?? a2aSecret();
+  const receipts = extractA2APersistedMutationReceipts(toolResults, {
+    persistedArtifactSecrets: receiptSecret ? [receiptSecret] : [],
+    expectedDelegatedTaskId: options.delegatedTaskId,
+  }).filter((receipt) => !text.includes(receipt.receiptId));
+  if (receipts.length === 0) return text;
+  const lines = receipts.map((receipt) => {
+    const url = artifactUrl(options.baseUrl, receipt.row.urlPath);
+    const item = receipt.row.itemId ? `; item ID: ${receipt.row.itemId}` : "";
+    return (
+      `- ${receipt.receiptId}: ${receipt.outcome} via ${receipt.sourceAction}; ` +
+      `row ${url} (document ID: ${receipt.row.documentId}${item}); ` +
+      `idempotency: ${receipt.idempotency.result}`
+    );
+  });
+  const section = ["Mutation receipts:", ...lines].join("\n");
+  return text.trim() ? `${text.trim()}\n\n${section}` : section;
+}
+
+type DownstreamArtifact =
+  | { kind: "deck"; id: string; url: string }
+  | { kind: "document"; id: string; url: string; title?: string }
+  | { kind: "dashboard"; id: string; url: string; title?: string }
+  | { kind: "analysis"; id: string; url: string; title?: string }
+  | { kind: "image"; id: string; url: string; title?: string; runId?: string }
+  | { kind: "design"; id: string; url: string; fileCount: number };
+
+function parseDownstreamArtifactBlock(result: string): DownstreamArtifact[] {
+  const artifacts: DownstreamArtifact[] = [];
+  for (const line of downstreamArtifactLines(result)) {
+    const deck = line.match(
+      /^- Deck(?:\s+"[^"]+")?(?:\s+\([^)]*\))?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/,
+    );
+    if (deck) {
+      const id = deck[2];
+      if (!artifactUrlReferencesId(deck[1], "deck", id)) continue;
+      artifacts.push({
+        kind: "deck",
+        url: deck[1],
+        id,
+      });
+      continue;
+    }
+
+    const document = line.match(
+      /^- Document(?:\s+"([^"]+)")?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/,
+    );
+    if (document) {
+      const id = document[3];
+      if (!artifactUrlReferencesId(document[2], "document", id)) continue;
+      artifacts.push({
+        kind: "document",
+        title: document[1],
+        url: document[2],
+        id,
+      });
+      continue;
+    }
+
+    const dashboard = line.match(
+      /^- Dashboard(?:\s+"([^"]+)")?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/,
+    );
+    if (dashboard) {
+      const id = dashboard[3];
+      if (!artifactUrlReferencesId(dashboard[2], "dashboard", id)) continue;
+      artifacts.push({
+        kind: "dashboard",
+        title: dashboard[1],
+        url: dashboard[2],
+        id,
+      });
+      continue;
+    }
+
+    const analysis = line.match(
+      /^- (?:Analysis|Report)(?:\s+"([^"]+)")?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/,
+    );
+    if (analysis) {
+      const id = analysis[3];
+      if (!artifactUrlReferencesId(analysis[2], "analysis", id)) continue;
+      artifacts.push({
+        kind: "analysis",
+        title: analysis[1],
+        url: analysis[2],
+        id,
+      });
+      continue;
+    }
+
+    const image = line.match(
+      /^- Image(?:\s+"([^"]+)")?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)(?:,\s*Run:\s*([A-Za-z0-9_-]+))?\)$/,
+    );
+    if (image) {
+      const id = image[3];
+      if (!artifactUrlReferencesId(image[2], "image", id)) continue;
+      artifacts.push({
+        kind: "image",
+        title: image[1],
+        url: image[2],
+        id,
+        runId: image[4],
+      });
+      continue;
+    }
+
+    const design = line.match(
+      /^- Design:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+),\s*(\d+)\s+files?\)$/,
+    );
+    if (design) {
+      const id = design[2];
+      if (!artifactUrlReferencesId(design[1], "design", id)) continue;
+      artifacts.push({
+        kind: "design",
+        url: design[1],
+        id,
+        fileCount: Number(design[3]),
+      });
+    }
+  }
+  return artifacts;
+}
+
+function downstreamArtifactLines(result: string): string[] {
+  const lines = result.split(/\r?\n/);
+  const artifactLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].trim() !== "Artifacts:") continue;
+
+    let sawBlockLine = false;
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const trimmed = lines[j].trim();
+      if (!trimmed) {
+        if (!sawBlockLine) continue;
+        break;
+      }
+      if (!trimmed.startsWith("- ")) break;
+      sawBlockLine = true;
+      artifactLines.push(trimmed);
+    }
+  }
+
+  return artifactLines;
+}
+
+function artifactUrlReferencesId(
+  rawUrl: string,
+  kind: ReferencedArtifactKind,
+  id: string,
+): boolean {
+  const reference = parseArtifactReferenceUrl(rawUrl);
+  return reference?.kind === kind && reference.id === id;
+}
+
+function formatDocumentLine(
+  document: CreatedDocumentArtifact,
+  baseUrl: string | undefined,
+): string {
+  const label = document.title ? `Document "${document.title}"` : "Document";
+  return `- ${label}: ${artifactUrlFromResult({ url: document.url }, `/page/${document.id}`, baseUrl)} (ID: ${document.id})`;
+}
+
+function formatDeckLine(
+  deck: CreatedDeckArtifact,
+  baseUrl: string | undefined,
+): string {
+  return `- Deck: ${artifactUrlFromResult({ url: deck.url }, `/deck/${deck.id}`, baseUrl)} (ID: ${deck.id})`;
+}
+
+function formatDashboardLine(
+  dashboard: CreatedDashboardArtifact,
+  baseUrl: string | undefined,
+): string {
+  const label = dashboard.title
+    ? `Dashboard "${dashboard.title}"`
+    : "Dashboard";
+  return `- ${label}: ${artifactUrlFromResult({ url: dashboard.url }, `/adhoc/${dashboard.id}`, baseUrl)} (ID: ${dashboard.id})`;
+}
+
+function formatAnalysisLine(
+  analysis: CreatedAnalysisArtifact,
+  baseUrl: string | undefined,
+): string {
+  const label = analysis.title ? `Report "${analysis.title}"` : "Report";
+  return `- ${label}: ${artifactUrlFromResult({ url: analysis.url }, `/analyses/${analysis.id}`, baseUrl)} (ID: ${analysis.id})`;
+}
+
+function formatImageLine(
+  image: CreatedImageArtifact,
+  baseUrl: string | undefined,
+): string {
+  const label = image.title ? `Image "${image.title}"` : "Image";
+  const run = image.runId ? `, Run: ${image.runId}` : "";
+  return `- ${label}: ${artifactUrlFromResult({ url: image.url }, `/image/${image.id}`, baseUrl)} (ID: ${image.id}${run})`;
+}
+
+function formatDesignLine(
+  design: GeneratedDesignArtifact,
+  baseUrl: string | undefined,
+): string {
+  const fileLabel =
+    design.fileCount === 1 ? "1 file" : `${design.fileCount} files`;
+  return `- Design: ${artifactUrlFromResult({ url: design.url }, `/design/${design.id}`, baseUrl)} (ID: ${design.id}, ${fileLabel})`;
+}
+
+function formatMonitorLine(monitor: CreatedMonitorArtifact): string {
+  const label = monitor.name ? `Monitor "${monitor.name}"` : "Monitor";
+  return `- ${label}: ${monitor.url} (ID: ${monitor.id})`;
+}
+
+function formatFormLine(form: CreatedFormArtifact): string {
+  const kind = form.anonymous ? "Anonymous form" : "Public form";
+  const label = form.title ? `${kind} "${form.title}"` : kind;
+  return `- ${label}: ${form.url} (ID: ${form.id})`;
+}
+
+function formatIncompleteDesignMessage(shells: CreatedDesignShell[]): string {
+  const ids = shells.map((shell) => shell.id).join(", ");
+  const noun = shells.length === 1 ? "project shell" : "project shells";
+  return (
+    `The design is not ready yet. Design ${noun} ${ids} ` +
+    "exists, but no renderable files were saved, so I cannot return it as a completed artifact."
+  );
+}
+
+function collectReferencedArtifacts(
+  text: string,
+  baseUrl: string | undefined,
+): ReferencedArtifact[] {
+  const refs = new Map<string, ReferencedArtifact>();
+  const baseOrigin = safeOrigin(baseUrl);
+  const artifactUrlPattern =
+    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(deck|design|page|adhoc|analyses|image|asset|assets)\/([A-Za-z0-9_-]+)/g;
+
+  for (const match of text.matchAll(artifactUrlPattern)) {
+    const origin = safeOrigin(match[1]);
+    const reference = parseArtifactReferenceUrl(match[0]);
+    if (
+      !reference ||
+      !shouldValidateArtifactReference(origin, baseOrigin, reference.kind)
+    ) {
+      continue;
+    }
+    refs.set(`${reference.kind}:${reference.id}`, reference);
+  }
+
+  return [...refs.values()];
+}
+
+function safeOrigin(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+const KNOWN_AGENT_NATIVE_ARTIFACT_HOSTS: Record<
+  ArtifactReceipt["kind"],
+  ReadonlySet<string>
+> = {
+  deck: new Set(["slides.agent-native.com"]),
+  design: new Set(["design.agent-native.com"]),
+  document: new Set(["content.agent-native.com"]),
+  dashboard: new Set(["analytics.agent-native.com"]),
+  analysis: new Set(["analytics.agent-native.com"]),
+  image: new Set(["assets.agent-native.com", "images.agent-native.com"]),
+  monitor: new Set(["analytics.agent-native.com"]),
+  form: new Set(["forms.agent-native.com"]),
+};
+
+function safeHostnameFromOrigin(
+  origin: string | undefined,
+): string | undefined {
+  if (!origin) return undefined;
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function shouldValidateArtifactReference(
+  origin: string | undefined,
+  baseOrigin: string | undefined,
+  kind: ArtifactReceipt["kind"],
+): boolean {
+  if (!origin || !baseOrigin || origin === baseOrigin) return true;
+
+  const hostname = safeHostnameFromOrigin(origin);
+  return !!hostname && KNOWN_AGENT_NATIVE_ARTIFACT_HOSTS[kind].has(hostname);
+}
+
+function findUnverifiedArtifactReferences(
+  references: ReferencedArtifact[],
+  documents: CreatedDocumentArtifact[],
+  decks: CreatedDeckArtifact[],
+  dashboards: CreatedDashboardArtifact[],
+  analyses: CreatedAnalysisArtifact[],
+  images: CreatedImageArtifact[],
+  generatedDesigns: GeneratedDesignArtifact[],
+): ReferencedArtifact[] {
+  const documentIds = new Set(documents.map((document) => document.id));
+  const deckIds = new Set(decks.map((deck) => deck.id));
+  const dashboardIds = new Set(dashboards.map((dashboard) => dashboard.id));
+  const analysisIds = new Set(analyses.map((analysis) => analysis.id));
+  const imageIds = new Set(images.map((image) => image.id));
+  const designIds = new Set(generatedDesigns.map((design) => design.id));
+
+  return references.filter((ref) => {
+    if (ref.kind === "document") return !documentIds.has(ref.id);
+    if (ref.kind === "deck") return !deckIds.has(ref.id);
+    if (ref.kind === "dashboard") return !dashboardIds.has(ref.id);
+    if (ref.kind === "analysis") return !analysisIds.has(ref.id);
+    if (ref.kind === "image") return !imageIds.has(ref.id);
+    return !designIds.has(ref.id);
+  });
+}
+
+function formatUnverifiedArtifactMessage(
+  refs: ReferencedArtifact[],
+  documents: CreatedDocumentArtifact[],
+  decks: CreatedDeckArtifact[],
+  dashboards: CreatedDashboardArtifact[],
+  analyses: CreatedAnalysisArtifact[],
+  images: CreatedImageArtifact[],
+  generatedDesigns: GeneratedDesignArtifact[],
+  baseUrl: string | undefined,
+): string {
+  const hasOnlyDesigns = refs.every((ref) => ref.kind === "design");
+  const hasOnlyDocuments = refs.every((ref) => ref.kind === "document");
+  const hasOnlyDecks = refs.every((ref) => ref.kind === "deck");
+  const hasOnlyDashboards = refs.every((ref) => ref.kind === "dashboard");
+  const hasOnlyAnalyses = refs.every((ref) => ref.kind === "analysis");
+  const hasOnlyImages = refs.every((ref) => ref.kind === "image");
+  const label = hasOnlyDesigns
+    ? "design URL"
+    : hasOnlyDocuments
+      ? "document URL"
+      : hasOnlyDecks
+        ? "deck URL"
+        : hasOnlyDashboards
+          ? "dashboard URL"
+          : hasOnlyAnalyses
+            ? "report URL"
+            : hasOnlyImages
+              ? "image URL"
+              : "artifact URL";
+  const plural = refs.length === 1 ? label : `${label}s`;
+  const message = `I could not verify the ${plural} in the final answer against a successful artifact action that saved app data, so I cannot return it.`;
+  const verifiedLines = formatVerifiedArtifactLines(
+    documents,
+    decks,
+    dashboards,
+    analyses,
+    images,
+    generatedDesigns,
+    baseUrl,
+  );
+
+  return verifiedLines.length > 0
+    ? `${message}\n\nArtifacts:\n${verifiedLines.join("\n")}`
+    : message;
+}
+
+function formatVerifiedArtifactLines(
+  documents: CreatedDocumentArtifact[],
+  decks: CreatedDeckArtifact[],
+  dashboards: CreatedDashboardArtifact[],
+  analyses: CreatedAnalysisArtifact[],
+  images: CreatedImageArtifact[],
+  generatedDesigns: GeneratedDesignArtifact[],
+  baseUrl: string | undefined,
+): string[] {
+  return [
+    ...documents.map((document) => formatDocumentLine(document, baseUrl)),
+    ...decks.map((deck) => formatDeckLine(deck, baseUrl)),
+    ...dashboards.map((dashboard) => formatDashboardLine(dashboard, baseUrl)),
+    ...analyses.map((analysis) => formatAnalysisLine(analysis, baseUrl)),
+    ...images.map((image) => formatImageLine(image, baseUrl)),
+    ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
+  ];
+}
+
+const ARTIFACT_READ_ACTION: Record<ReferencedArtifactKind, string> = {
+  document: "get-document",
+  deck: "get-deck",
+  dashboard: "get-dashboard",
+  analysis: "get-analysis",
+  image: "get-asset",
+  design: "get-design",
+};
+
+function formatTruncatedArtifactMessage(
+  tools: string[],
+  refs: ReferencedArtifact[],
+  verifiedLines: string[],
+): string {
+  const toolLabel = tools.join(", ");
+  const readActions = [
+    ...new Set(refs.map((ref) => ARTIFACT_READ_ACTION[ref.kind])),
+  ];
+  const reread = readActions.join(" or ");
+  const message = `${toolLabel} completed, but its result was truncated before the artifact IDs could be read, so I cannot confirm these URLs. Re-read the artifact with ${reread} and answer again.`;
+  return verifiedLines.length > 0
+    ? `${message}\n\nArtifacts:\n${verifiedLines.join("\n")}`
+    : message;
+}
+
+export function guardA2AArtifactResponse(
+  responseText: string,
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): GuardedA2AArtifactResponse {
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const includeReferencedArtifacts =
+    options.includeReferencedArtifacts ?? false;
+  const finalize = (value: string) => {
+    const withReceipts = appendA2APersistedMutationReceipts(
+      value,
+      toolResults,
+      options,
+    );
+    return options.includePersistedArtifactMarker
+      ? withPersistedArtifactMarker(
+          withReceipts,
+          toolResults,
+          options.persistedArtifactSecret ?? a2aSecret(),
+          options.delegatedTaskId,
+          baseUrl,
+        )
+      : withReceipts;
+  };
+  const {
+    documents,
+    decks,
+    dashboards,
+    analyses,
+    images,
+    designShells,
+    generatedDesigns,
+    monitors,
+    forms,
+    truncatedTools,
+  } = collectArtifacts(toolResults, baseUrl);
+  const generatedDesignIds = new Set(
+    generatedDesigns.map((design) => design.id),
+  );
+  const incompleteShells = designShells.filter(
+    (shell) => !generatedDesignIds.has(shell.id),
+  );
+
+  let text = responseText.trim() === "(no response)" ? "" : responseText.trim();
+  const referencedArtifacts = collectReferencedArtifacts(text, baseUrl);
+  const responseMentionsArtifact = (
+    kind: ReferencedArtifactKind,
+    id: string,
+  ): boolean =>
+    referencedArtifacts.some(
+      (reference) => reference.kind === kind && reference.id === id,
+    );
+
+  if (
+    generatedDesigns.length === 0 &&
+    incompleteShells.length > 0 &&
+    !responseAlreadyWarnsIncompleteDesign(text) &&
+    (incompleteShells.some((shell) =>
+      responseMentionsDesignShell(text, shell),
+    ) ||
+      /\b(?:done|created|ready|here(?:'s| is)|complete|finished)\b/i.test(text))
+  ) {
+    return {
+      text: finalize(formatIncompleteDesignMessage(incompleteShells)),
+      rejectedUnverifiedArtifactReferences: false,
+    };
+  }
+
+  const unverifiedRefs = findUnverifiedArtifactReferences(
+    referencedArtifacts,
+    documents,
+    decks,
+    dashboards,
+    analyses,
+    images,
+    generatedDesigns,
+  );
+  if (unverifiedRefs.length > 0) {
+    const relevantTruncatedTools = truncatedTools
+      .filter(({ kinds }) =>
+        unverifiedRefs.some((reference) => kinds.includes(reference.kind)),
+      )
+      .map(({ tool }) => tool);
+    const verifiedLines = formatVerifiedArtifactLines(
+      documents,
+      decks,
+      dashboards,
+      analyses,
+      images,
+      generatedDesigns,
+      baseUrl,
+    );
+    return {
+      text: finalize(
+        relevantTruncatedTools.length > 0
+          ? formatTruncatedArtifactMessage(
+              relevantTruncatedTools,
+              unverifiedRefs,
+              verifiedLines,
+            )
+          : formatUnverifiedArtifactMessage(
+              unverifiedRefs,
+              documents,
+              decks,
+              dashboards,
+              analyses,
+              images,
+              generatedDesigns,
+              baseUrl,
+            ),
+      ),
+      rejectedUnverifiedArtifactReferences: true,
+    };
+  }
+
+  const missingLines: string[] = [];
+  for (const document of documents) {
+    if (
+      includeReferencedArtifacts ||
+      !responseMentionsArtifact("document", document.id)
+    ) {
+      missingLines.push(formatDocumentLine(document, baseUrl));
+    }
+  }
+  for (const deck of decks) {
+    if (
+      includeReferencedArtifacts ||
+      !responseMentionsArtifact("deck", deck.id)
+    ) {
+      missingLines.push(formatDeckLine(deck, baseUrl));
+    }
+  }
+  for (const dashboard of dashboards) {
+    if (
+      includeReferencedArtifacts ||
+      !responseMentionsArtifact("dashboard", dashboard.id)
+    ) {
+      missingLines.push(formatDashboardLine(dashboard, baseUrl));
+    }
+  }
+  for (const analysis of analyses) {
+    if (
+      includeReferencedArtifacts ||
+      !responseMentionsArtifact("analysis", analysis.id)
+    ) {
+      missingLines.push(formatAnalysisLine(analysis, baseUrl));
+    }
+  }
+  for (const image of images) {
+    if (
+      includeReferencedArtifacts ||
+      !responseMentionsArtifact("image", image.id)
+    ) {
+      missingLines.push(formatImageLine(image, baseUrl));
+    }
+  }
+  for (const design of generatedDesigns) {
+    if (
+      includeReferencedArtifacts ||
+      !responseMentionsArtifact("design", design.id)
+    ) {
+      missingLines.push(formatDesignLine(design, baseUrl));
+    }
+  }
+  for (const monitor of monitors) {
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, monitor.url)
+    ) {
+      missingLines.push(formatMonitorLine(monitor));
+    }
+  }
+  for (const form of forms) {
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, form.url)
+    ) {
+      missingLines.push(formatFormLine(form));
+    }
+  }
+
+  if (missingLines.length === 0) {
+    return {
+      text: finalize(text),
+      rejectedUnverifiedArtifactReferences: false,
+    };
+  }
+
+  const artifactBlock = `Artifacts:\n${missingLines.join("\n")}`;
+  return {
+    text: finalize(text ? `${text}\n\n${artifactBlock}` : artifactBlock),
+    rejectedUnverifiedArtifactReferences: false,
+  };
+}
+
+export function appendA2AArtifactLinks(
+  responseText: string,
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string {
+  return guardA2AArtifactResponse(responseText, toolResults, options).text;
+}
+
+export function buildA2ARecoverableArtifactMessage(
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string | null {
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const {
+    documents,
+    decks,
+    dashboards,
+    analyses,
+    images,
+    generatedDesigns,
+    monitors,
+    forms,
+  } = collectArtifacts(toolResults, baseUrl);
+  const lines = [
+    ...documents.map((document) => formatDocumentLine(document, baseUrl)),
+    ...decks.map((deck) => formatDeckLine(deck, baseUrl)),
+    ...dashboards.map((dashboard) => formatDashboardLine(dashboard, baseUrl)),
+    ...analyses.map((analysis) => formatAnalysisLine(analysis, baseUrl)),
+    ...images.map((image) => formatImageLine(image, baseUrl)),
+    ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
+    ...monitors.map(formatMonitorLine),
+    ...forms.map(formatFormLine),
+  ];
+
+  if (lines.length === 0) return null;
+  return [
+    "The agent is still working on the full response, but these verified artifacts already exist:",
+    "",
+    "Artifacts:",
+    ...lines,
+  ].join("\n");
+}
+
+function mutationReceiptUrl(
+  identity: A2AArtifactIdentity,
+  baseUrl: string | undefined,
+): string | undefined {
+  if (
+    identity.sourceAction === "call-agent" &&
+    (!identity.url || identity.url.startsWith("/"))
+  ) {
+    return undefined;
+  }
+  if (identity.url) {
+    return identity.url.startsWith("/")
+      ? artifactUrl(baseUrl, identity.url)
+      : identity.url;
+  }
+
+  const path =
+    identity.resourceType === "document"
+      ? `/page/${identity.id}`
+      : identity.resourceType === "deck"
+        ? `/deck/${identity.id}`
+        : identity.resourceType === "dashboard"
+          ? `/adhoc/${identity.id}`
+          : identity.resourceType === "analysis"
+            ? `/analyses/${identity.id}`
+            : identity.resourceType === "image"
+              ? `/image/${identity.id}`
+              : identity.resourceType === "design"
+                ? `/design/${identity.id}`
+                : undefined;
+  return path ? artifactUrl(baseUrl, path) : undefined;
+}
+
+/**
+ * Build a bounded participant-facing receipt from authenticated artifact writes.
+ * Unlike generic artifact recovery, this only trusts identities extracted from
+ * successful write actions (or a signed downstream write ledger), so a read or
+ * an unverified URL cannot be rounded up to a successful mutation.
+ */
+export function buildA2AVerifiedMutationReceipt(
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string | null {
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const identities = extractA2AArtifactIdentities(toolResults);
+  if (identities.length === 0) return null;
+
+  const lines = identities.map((identity) => {
+    const label =
+      identity.resourceType.charAt(0).toUpperCase() +
+      identity.resourceType.slice(1);
+    const url = mutationReceiptUrl(identity, baseUrl);
+    return url
+      ? `- ${label}: ${url} (ID: ${identity.id})`
+      : `- ${label} ID: ${identity.id}`;
+  });
+
+  return [
+    "A verified change was saved, but I couldn't generate the detailed summary.",
+    "",
+    "Saved artifacts:",
+    ...lines,
+  ].join("\n");
+}

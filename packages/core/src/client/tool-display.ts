@@ -1,0 +1,172 @@
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  "delete-file": "remove screen",
+  "get-design-snapshot": "get screen snapshot",
+  "edit-design": "edit screen",
+};
+
+export function humanizeToolName(toolName: string | undefined): string {
+  const raw = (toolName ?? "").trim();
+  if (!raw) return "tool";
+  const displayName = TOOL_DISPLAY_NAMES[raw];
+  if (displayName) return displayName;
+
+  let name = raw;
+  if (name.startsWith("mcp__")) {
+    const parts = name.split("__").filter(Boolean);
+    name = parts[parts.length - 1] ?? name;
+  }
+
+  name = name
+    .replace(/^_+/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return (name || "tool").toLowerCase();
+}
+
+export function runningToolLabel(toolName: string | undefined): string {
+  return `Running ${humanizeToolName(toolName)}`;
+}
+
+export function humanizeToolLabelText(
+  label: string,
+  toolName: string | undefined,
+): string {
+  const text = label.trim();
+  const tool = (toolName ?? "").trim();
+  if (!tool) return text;
+  return text.split(tool).join(humanizeToolName(tool));
+}
+
+type ToolDisplayPart = {
+  type?: string;
+  toolCallId?: string;
+  toolName?: string;
+  argsText?: string;
+  args?: Record<string, unknown>;
+  result?: unknown;
+  outcome?: "unknown";
+  activity?: boolean;
+  structuredMeta?: Record<string, unknown>;
+};
+
+const ACTIVE_AGENT_ACTIVITY_PHASES = new Set([
+  "reasoning",
+  "tool",
+  "responding",
+]);
+
+export function isDelegatedAgentToolCall(part: ToolDisplayPart): boolean {
+  return (
+    part.type === "tool-call" && part.toolName?.startsWith("agent:") === true
+  );
+}
+
+function hasActiveDelegatedAgentActivity(part: ToolDisplayPart): boolean {
+  const snapshot = part.structuredMeta?.agentActivity;
+  if (!snapshot || typeof snapshot !== "object") return false;
+
+  const record = snapshot as {
+    activePhase?: unknown;
+    toolCalls?: unknown;
+  };
+  if (
+    typeof record.activePhase === "string" &&
+    ACTIVE_AGENT_ACTIVITY_PHASES.has(record.activePhase)
+  ) {
+    return true;
+  }
+
+  return (
+    Array.isArray(record.toolCalls) &&
+    record.toolCalls.some(
+      (tool) =>
+        tool != null &&
+        typeof tool === "object" &&
+        (tool as { status?: unknown }).status === "running",
+    )
+  );
+}
+
+/** True when a tool has not reported a result and the stream did not mark it unknown. */
+export function isToolCallInFlight(part: ToolDisplayPart): boolean {
+  if (part.type !== "tool-call") return false;
+  if (part.result !== undefined || part.outcome === "unknown") return false;
+  return part.activity !== true || isDelegatedAgentToolCall(part);
+}
+
+/** True when the UI must not present this tool as finished. */
+export function isToolCallActive(part: ToolDisplayPart): boolean {
+  if (isToolCallInFlight(part)) return true;
+  return (
+    isDelegatedAgentToolCall(part) &&
+    part.outcome !== "unknown" &&
+    (part.structuredMeta?.agentPending === true ||
+      hasActiveDelegatedAgentActivity(part))
+  );
+}
+
+function normalizedAgentName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.trim().toLowerCase();
+  return name || null;
+}
+
+function callAgentTarget(part: ToolDisplayPart): string | null {
+  const parsedTarget = normalizedAgentName(part.args?.agent);
+  if (parsedTarget) return parsedTarget;
+  if (!part.argsText) return null;
+
+  try {
+    const args = JSON.parse(part.argsText) as Record<string, unknown>;
+    return normalizedAgentName(args.agent);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `call-agent` emits both its ordinary tool row and a richer `agent:<name>`
+ * progress row. Keep the ordinary part in message state for tool completion
+ * and history, but let presentation code suppress it once the richer row is
+ * available.
+ */
+export function isCallAgentToolCallShadowed(
+  parts: readonly ToolDisplayPart[],
+  index: number,
+): boolean {
+  const part = parts[index];
+  if (part?.type !== "tool-call" || part.toolName !== "call-agent") {
+    return false;
+  }
+
+  const agentRows = parts.filter((candidate) => {
+    if (
+      candidate.type !== "tool-call" ||
+      !candidate.toolName?.startsWith("agent:")
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const target = callAgentTarget(part);
+  if (!target) return agentRows.length > 0;
+
+  return agentRows.some(
+    (candidate) => normalizedAgentName(candidate.toolName?.slice(6)) === target,
+  );
+}
+
+export function shadowedCallAgentToolCallIds(
+  parts: readonly ToolDisplayPart[],
+): Set<string> {
+  const ids = new Set<string>();
+  parts.forEach((part, index) => {
+    if (part.toolCallId && isCallAgentToolCallShadowed(parts, index)) {
+      ids.add(part.toolCallId);
+    }
+  });
+  return ids;
+}

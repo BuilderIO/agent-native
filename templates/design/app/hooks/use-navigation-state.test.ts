@@ -1,0 +1,162 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  designEditorCommandKeysForTab,
+  designSelectionCleanupKeysForTab,
+  designSelectionStateKeysForTab,
+  editorCommandFromNavigate,
+  editorPathFromCommand,
+} from "./use-navigation-state";
+
+describe("design navigation state", () => {
+  it("defaults focused screen navigation to a readable zoom", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      editorView: "single" as const,
+      filename: "empty-state.html",
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe(
+      "/design/design_123?view=single&mode=interact&screen=empty-state.html&zoom=100",
+    );
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      editorView: "single",
+      mode: "interact",
+      filename: "empty-state.html",
+      zoom: 100,
+      path,
+    });
+  });
+
+  it("round-trips the active design tool through editor navigation", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      editorView: "overview" as const,
+      tool: "pen",
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123?view=overview&tool=pen");
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      editorView: "overview",
+      tool: "pen",
+      path,
+    });
+  });
+
+  it("round-trips selected layer state through editor navigation", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      editorView: "overview" as const,
+      screen: "screen-abc",
+      selection: "node-def",
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe(
+      "/design/design_123?view=overview&screen=screen-abc&selection=node-def",
+    );
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      editorView: "overview",
+      screen: "screen-abc",
+      selection: "node-def",
+      path,
+    });
+  });
+
+  it("round-trips an enabled left rail panel through editor navigation", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      leftPanel: "import" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123?panel=import");
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      leftPanel: "import",
+      path,
+    });
+  });
+
+  it("drops gated left rail panels from editor navigation", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      leftPanel: "assets" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123");
+    expect(editorCommandFromNavigate(command, path!)).not.toMatchObject({
+      leftPanel: expect.anything(),
+    });
+  });
+
+  it("drops the legacy extensions inspector alias when Tools is gated", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      inspectorTab: "extensions" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123");
+    expect(editorCommandFromNavigate(command, path!)).not.toMatchObject({
+      inspectorTab: expect.anything(),
+      leftPanel: expect.anything(),
+    });
+  });
+
+  it("ignores unknown design tools in navigation commands", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      editorView: "overview" as const,
+      tool: "lasso",
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123?view=overview");
+    expect(editorCommandFromNavigate(command, path!)).not.toMatchObject({
+      tool: expect.anything(),
+    });
+  });
+
+  it("keeps editor commands scoped to the active browser tab", () => {
+    expect(designEditorCommandKeysForTab("tab-123")).toEqual([
+      "design-editor-command:tab-123",
+    ]);
+    expect(designEditorCommandKeysForTab()).toEqual(["design-editor-command"]);
+  });
+
+  it("clears design selection for both the active browser tab and global fallback", () => {
+    expect(designSelectionStateKeysForTab("tab-123")).toEqual([
+      "design-selection:tab-123",
+      "design-selection",
+    ]);
+    expect(designSelectionStateKeysForTab()).toEqual(["design-selection"]);
+  });
+
+  it("limits route cleanup to the active tab so another editor keeps the global fallback", () => {
+    expect(designSelectionCleanupKeysForTab("tab-123")).toEqual([
+      "design-selection:tab-123",
+    ]);
+    expect(designSelectionCleanupKeysForTab()).toEqual(["design-selection"]);
+  });
+});
