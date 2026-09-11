@@ -1340,6 +1340,8 @@ function addPartitionPrunedEventDeduplication(
         break;
       }
     }
+    // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
+    // for physical exactly-once if the warehouse contract requires it.
     result +=
       sql.slice(cursor, predicateEnd) +
       " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +

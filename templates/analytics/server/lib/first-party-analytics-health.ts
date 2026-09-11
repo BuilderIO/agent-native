@@ -11,6 +11,7 @@ import {
 import {
   firstPartyAnalyticsDeliveryNeedsAttention,
   getFirstPartyAnalyticsDeliveryHealth,
+  isFirstPartyAnalyticsDeliveryQueueMissingError,
   type FirstPartyAnalyticsDeliveryHealth,
 } from "./first-party-analytics-delivery.js";
 import type { AnalyticsScope } from "./first-party-analytics.js";
@@ -152,6 +153,13 @@ function emptyDeliveryHealth(): FirstPartyAnalyticsDeliveryHealth {
     oldestPendingAt: null,
     lastDeliveredAt: null,
     lastError: null,
+  };
+}
+
+function unavailableDeliveryHealth(): FirstPartyAnalyticsDeliveryHealth {
+  return {
+    ...emptyDeliveryHealth(),
+    lastError: "BigQuery delivery queue migration is pending",
   };
 }
 
@@ -363,6 +371,20 @@ export async function getFirstPartyAnalyticsHealth(
             ),
           );
 
+  const deliveryPromise =
+    backend.sink === "bigquery"
+      ? getFirstPartyAnalyticsDeliveryHealth(scope).catch((error) => {
+          if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) {
+            throw error;
+          }
+          console.warn(
+            "[first-party-analytics] Delivery health is degraded until the queue migration runs:",
+            error,
+          );
+          return unavailableDeliveryHealth();
+        })
+      : Promise.resolve(emptyDeliveryHealth());
+
   const [rollupRows, pressureRows, externalBackends, delivery] =
     await Promise.all([
       rollupRowsPromise,
@@ -383,9 +405,7 @@ export async function getFirstPartyAnalyticsHealth(
           ),
         ),
       externalBackendStatuses(scope),
-      backend.sink === "bigquery"
-        ? getFirstPartyAnalyticsDeliveryHealth(scope)
-        : Promise.resolve(emptyDeliveryHealth()),
+      deliveryPromise,
     ]);
 
   const bigQuery = externalBackends.find(
