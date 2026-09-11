@@ -21,6 +21,7 @@ import { IntegrationConnectionChoice } from "../integrations/IntegrationConnecti
 import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
 import { cn } from "../utils.js";
 import {
+  allowsMcpIntegrationPersonalScope,
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   filterMcpIntegrations,
@@ -28,7 +29,9 @@ import {
   getDefaultMcpIntegrations,
   isMcpIntegrationUrl,
   isCustomMcpIntegrationEnabled,
+  mcpUrlRequiresOrganizationScope,
   navigateToMcpOAuthStart,
+  requiresMcpIntegrationOrganizationScope,
   resolveMcpIntegrationScope,
   shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
@@ -104,7 +107,9 @@ function resolveIntegrationScope(
   canCreateOrgMcp: boolean,
 ): McpServerScope {
   return resolveMcpIntegrationScope(
-    defaultScope,
+    integration && requiresMcpIntegrationOrganizationScope(integration)
+      ? "org"
+      : defaultScope,
     hasOrg,
     canCreateOrgMcp,
     !integration ||
@@ -199,9 +204,14 @@ export function McpIntegrationDialog({
       createMcpIntegrationFormDefaults(initialIntegration);
     const initialNeedsScopeChoice = Boolean(
       initialIntegration &&
-      hasOrg &&
-      requiresMcpIntegrationSetup(initialIntegration) &&
-      supportsMcpIntegrationOrganizationScope(initialIntegration),
+      // Org-only integrations reach the choice screen regardless of workspace
+      // membership: the form would otherwise offer a personal connection the
+      // server rejects, and with no workspace there is nothing else to explain
+      // why the only option is unavailable.
+      (requiresMcpIntegrationOrganizationScope(initialIntegration) ||
+        (hasOrg &&
+          requiresMcpIntegrationSetup(initialIntegration) &&
+          supportsMcpIntegrationOrganizationScope(initialIntegration))),
     );
     setMode(
       initialNeedsScopeChoice
@@ -289,6 +299,17 @@ export function McpIntegrationDialog({
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
       setError(validationError);
+      setTestResult(null);
+      return;
+    }
+    // A hand-entered org-only URL has no catalog entry to route it through the
+    // workspace-only flow, so check eligibility here rather than navigating to
+    // an OAuth start the server can only refuse.
+    if (
+      mcpUrlRequiresOrganizationScope(args.url) &&
+      !(hasOrg && canCreateOrgMcp)
+    ) {
+      setError(t("mcpIntegrations.workspaceOnlyDescription"));
       setTestResult(null);
       return;
     }
@@ -407,7 +428,25 @@ export function McpIntegrationDialog({
     });
   };
 
+  // Org-only integrations have no personal connection to fall back to, so they
+  // must never reach the user-scoped paths below. When the workspace connection
+  // is available we start it directly; otherwise the choice screen is the only
+  // surface that can explain why nothing here is actionable yet.
+  const routeOrganizationOnlyIntegration = (
+    integration: DefaultMcpIntegration,
+  ): boolean => {
+    if (!requiresMcpIntegrationOrganizationScope(integration)) return false;
+    if (hasOrg && canCreateOrgMcp) {
+      connectWorkspace(integration);
+      return true;
+    }
+    setSelected(integration);
+    setMode("choice");
+    return true;
+  };
+
   const quickConnect = (integration: DefaultMcpIntegration) => {
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
@@ -441,6 +480,7 @@ export function McpIntegrationDialog({
 
   const selectCatalogConnection = (integration: DefaultMcpIntegration) => {
     if (!mcpServersQuery.isSuccess) return;
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
@@ -479,6 +519,7 @@ export function McpIntegrationDialog({
     if (!integration) return;
     if (integration.authMode === "oauth" && !oauthReady) return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (
       integration.authMode === "oauth" &&
       !(hasOrg && supportsMcpIntegrationOrganizationScope(integration))
@@ -509,6 +550,7 @@ export function McpIntegrationDialog({
     const attemptKey = `connect:${connectIntegrationId}`;
     if (quickConnectAttemptedRef.current === attemptKey) return;
     quickConnectAttemptedRef.current = attemptKey;
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
@@ -619,8 +661,25 @@ export function McpIntegrationDialog({
     }
   };
 
+  // The org-only rule covers the shared OAuth grant, so it applies to the OAuth
+  // connection modes only. A header connection carries the user's own token and
+  // stays legitimately personal, exactly as the server treats it.
+  const formRequiresOrganizationScope = selected
+    ? selected.authMode === "oauth" &&
+      requiresMcpIntegrationOrganizationScope(selected)
+    : customAuthMode === "oauth" && mcpUrlRequiresOrganizationScope(url);
+
   const renderScopeSelector = () => {
     if (selected?.managedOAuth) return null;
+    // Offering a personal choice here would be a lie: the connection can only
+    // be created for the workspace, so say that instead of showing a toggle.
+    if (formRequiresOrganizationScope) {
+      return (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {t("mcpIntegrations.workspaceOnlyDescription")}
+        </p>
+      );
+    }
     const canSelectScope = selected
       ? shouldOfferMcpIntegrationOrganizationScope(
           selected,
@@ -723,18 +782,28 @@ export function McpIntegrationDialog({
                   imageClassName="size-full p-1"
                 />
               }
+              showPersonalOption={allowsMcpIntegrationPersonalScope(selected)}
               showWorkspaceOption={supportsMcpIntegrationOrganizationScope(
                 selected,
               )}
               workspaceOptionDisabled={!canCreateOrgMcp}
               workspaceOptionDisabledReason={
                 !canCreateOrgMcp
-                  ? t("mcpIntegrations.workspaceAdminRequired")
+                  ? t(
+                      hasOrg
+                        ? "mcpIntegrations.workspaceAdminRequired"
+                        : "mcpIntegrations.workspaceJoinRequired",
+                    )
                   : undefined
               }
               personalOnlyReason={
                 !supportsMcpIntegrationOrganizationScope(selected)
                   ? t("mcpIntegrations.personalOnlyDescription")
+                  : undefined
+              }
+              workspaceOnlyReason={
+                requiresMcpIntegrationOrganizationScope(selected)
+                  ? t("mcpIntegrations.workspaceOnlyDescription")
                   : undefined
               }
               busy={busy}

@@ -10,6 +10,7 @@ import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 
 const mocks = vi.hoisted(() => ({
   navigateToMcpOAuthStart: vi.fn(),
+  customIntegrationEnabled: vi.fn(() => false),
   mcpServersQuery: {
     data: {
       user: [],
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./mcp-integration-catalog.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./mcp-integration-catalog.js")>()),
   navigateToMcpOAuthStart: mocks.navigateToMcpOAuthStart,
+  isCustomMcpIntegrationEnabled: () => mocks.customIntegrationEnabled(),
 }));
 
 vi.mock("./use-mcp-servers.js", async (importOriginal) => ({
@@ -42,6 +44,7 @@ describe("McpIntegrationDialog", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.navigateToMcpOAuthStart.mockReset().mockReturnValue(true);
+    mocks.customIntegrationEnabled.mockReset().mockReturnValue(false);
     mocks.mcpServersQuery.isSuccess = true;
     mocks.mcpServersQuery.isError = false;
     mocks.mcpServersQuery.error = null;
@@ -616,6 +619,290 @@ describe("McpIntegrationDialog", () => {
     const url = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
     expect(
       new URL(url, "https://analytics.example.com").searchParams.get("scope"),
+    ).toBe("org");
+  });
+
+  it("never offers a personal connection for an org-only integration", () => {
+    const builder = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "builder-cms",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    expect(builder.organizationScopeOnly).toBe(true);
+
+    // A brand-new account with no workspace is the reported case: the old code
+    // sent scope=user here and the server answered with a personal-scope error.
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="builder-cms"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[builder]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    expect(personal).toBeUndefined();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "cannot be connected to just your account",
+    );
+    expect(document.body.textContent).toContain("Join a workspace first.");
+  });
+
+  it("routes the suggestion quick-connect away from the personal form", () => {
+    const builder = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "builder-cms",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="builder-cms"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[builder]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    expect(personal).toBeUndefined();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+    expectOrgOnlyChoiceScreen();
+  });
+
+  it("refuses a hand-entered org-only URL without an eligible workspace", () => {
+    mocks.customIntegrationEnabled.mockReturnValue(true);
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Add your own")
+        ?.click();
+    });
+
+    const setValue = (selector: string, value: string) => {
+      const input = document.body.querySelector(
+        selector,
+      ) as HTMLInputElement | null;
+      expect(input).toBeTruthy();
+      act(() => {
+        if (!input) return;
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set?.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+
+    setValue('input[placeholder="Integration name"]', "Builder.io");
+    setValue(
+      'input[placeholder="https://example.com/agent-integration"]',
+      "https://mcp.builder.io/mcp/publish",
+    );
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Connect")
+        ?.click();
+    });
+
+    // Navigating would hand the user a raw server rejection instead.
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "cannot be connected to just your account",
+    );
+  });
+
+  const expectOrgOnlyChoiceScreen = () => {
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).toContain(
+      "cannot be connected to just your account",
+    );
+    const workspace = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Set up for workspace") ?? false,
+    );
+    expect(workspace).toBeTruthy();
+    // The form would expose a URL field and a personal scope toggle instead.
+    expect(
+      document.body.querySelector(
+        'input[placeholder="https://example.com/agent-integration"]',
+      ),
+    ).toBeNull();
+  };
+
+  const openCustomFormWithBuilderUrl = () => {
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Add your own")
+        ?.click();
+    });
+    const input = document.body.querySelector(
+      'input[placeholder="https://example.com/agent-integration"]',
+    ) as HTMLInputElement | null;
+    expect(input).toBeTruthy();
+    act(() => {
+      if (!input) return;
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "https://mcp.builder.io/mcp/publish");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  const renderCustomForm = () => {
+    mocks.customIntegrationEnabled.mockReturnValue(true);
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="org"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn().mockResolvedValue(undefined)}
+            integrations={[]}
+          />
+        </TooltipProvider>,
+      );
+    });
+  };
+
+  it("offers an admin no personal OAuth choice it would silently promote", () => {
+    renderCustomForm();
+    openCustomFormWithBuilderUrl();
+
+    // buildMcpOAuthStartUrl forces org for this URL, so presenting "Personal"
+    // would create a workspace credential the admin did not consent to.
+    const personalToggle = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Personal",
+    );
+    expect(personalToggle).toBeUndefined();
+    expect(document.body.textContent).toContain(
+      "cannot be connected to just your account",
+    );
+  });
+
+  it("keeps the personal choice for a header connection to the same URL", () => {
+    renderCustomForm();
+    openCustomFormWithBuilderUrl();
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent?.includes("API key"))
+        ?.click();
+    });
+
+    // The org-only rule covers the shared OAuth grant, not a token the user
+    // supplies themselves, and the server allows this too.
+    const personalToggle = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Personal",
+    );
+    expect(personalToggle).toBeTruthy();
+  });
+
+  it("keeps the initial form out of user scope for an org-only integration", () => {
+    const builder = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "builder-cms",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    // McpConnectionSuggestion opens the dialog this way from the agent chat,
+    // which used to land on the form and submit scope=user.
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="builder-cms"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[builder]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    expect(personal).toBeUndefined();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+    expectOrgOnlyChoiceScreen();
+  });
+
+  it("starts the workspace connection directly for an org-only integration", () => {
+    const builder = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "builder-cms",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="builder-cms"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[builder]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
+    const url = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    expect(
+      new URL(url, "https://clips.example.com").searchParams.get("scope"),
     ).toBe("org");
   });
 

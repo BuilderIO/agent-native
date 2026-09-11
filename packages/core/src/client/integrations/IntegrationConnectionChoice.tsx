@@ -7,10 +7,16 @@ import { cn } from "../utils.js";
 export interface IntegrationConnectionChoiceProps {
   name: string;
   logo?: ReactNode;
+  /**
+   * Set false when the provider refuses personal connections. Rendering a
+   * personal option the server rejects is worse than rendering no option.
+   */
+  showPersonalOption?: boolean;
   showWorkspaceOption: boolean;
   workspaceOptionDisabled?: boolean;
   workspaceOptionDisabledReason?: string;
   personalOnlyReason?: string;
+  workspaceOnlyReason?: string;
   busy?: boolean;
   compact?: boolean;
   onPersonal: () => void;
@@ -21,10 +27,12 @@ export interface IntegrationConnectionChoiceProps {
 export function IntegrationConnectionChoice({
   name,
   logo,
+  showPersonalOption = true,
   showWorkspaceOption,
   workspaceOptionDisabled = false,
   workspaceOptionDisabledReason,
   personalOnlyReason,
+  workspaceOnlyReason,
   busy = false,
   compact = false,
   onPersonal,
@@ -72,21 +80,23 @@ export function IntegrationConnectionChoice({
           </p>
 
           <div className={cn("grid gap-2.5", compact ? "mt-5" : "mt-8")}>
-            <button
-              type="button"
-              onClick={onPersonal}
-              disabled={busy}
-              aria-busy={busy}
-              className="flex min-h-12 items-center gap-3 rounded-lg bg-primary px-4 py-3 text-left text-primary-foreground transition-[background-color,opacity] hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-wait disabled:opacity-60"
-            >
-              <IconUser className="size-4 shrink-0 opacity-75" />
-              <span className="min-w-0 flex-1 text-sm font-medium">
-                {t("mcpIntegrations.connectForMe")}
-              </span>
-              {busy ? (
-                <IconLoader2 className="size-4 shrink-0 animate-spin" />
-              ) : null}
-            </button>
+            {showPersonalOption ? (
+              <button
+                type="button"
+                onClick={onPersonal}
+                disabled={busy}
+                aria-busy={busy}
+                className="flex min-h-12 items-center gap-3 rounded-lg bg-primary px-4 py-3 text-left text-primary-foreground transition-[background-color,opacity] hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-wait disabled:opacity-60"
+              >
+                <IconUser className="size-4 shrink-0 opacity-75" />
+                <span className="min-w-0 flex-1 text-sm font-medium">
+                  {t("mcpIntegrations.connectForMe")}
+                </span>
+                {busy ? (
+                  <IconLoader2 className="size-4 shrink-0 animate-spin" />
+                ) : null}
+              </button>
+            ) : null}
 
             {showWorkspaceOption ? (
               <button
@@ -115,9 +125,9 @@ export function IntegrationConnectionChoice({
               </button>
             ) : null}
           </div>
-          {personalOnlyReason ? (
+          {(personalOnlyReason ?? workspaceOnlyReason) ? (
             <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-              {personalOnlyReason}
+              {personalOnlyReason ?? workspaceOnlyReason}
             </p>
           ) : null}
         </div>

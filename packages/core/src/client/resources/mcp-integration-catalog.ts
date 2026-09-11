@@ -52,6 +52,12 @@ export interface DefaultMcpIntegration {
    * semantics are verified.
    */
   supportsOrganizationScope?: boolean;
+  /**
+   * The server refuses personal connections, so the workspace connection is the
+   * only one that can succeed. Builder Publish is org-only because its OAuth
+   * grant is shared with Content database sources rather than held by one user.
+   */
+  organizationScopeOnly?: boolean;
   docsUrl?: string;
   setupNoteKey?: string;
   apiFallback?: {
@@ -812,6 +818,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     logoUrl: mcpIntegrationLogo("builder-cms"),
     docsUrl: "https://www.builder.io/c/docs/mcp-builder-server/",
     setupNoteKey: "mcpIntegrations.catalog.builder.setupNote",
+    organizationScopeOnly: true,
     keywords: [
       "Builder",
       "content",
@@ -961,6 +968,22 @@ export function mcpIntegrationAuthLabel(mode: McpIntegrationAuthMode): string {
   return "OAuth";
 }
 
+/**
+ * Mirrors `resolveMcpOAuthScope` on the server, which keys its org-only rule on
+ * the server URL rather than on a catalog entry. Matching by URL also covers
+ * custom servers pasted by hand, which have no catalog entry to carry a flag.
+ */
+export function mcpUrlRequiresOrganizationScope(rawUrl: string): boolean {
+  if (!URL.canParse(rawUrl)) return false;
+  const url = new URL(rawUrl);
+  return (
+    url.origin === "https://mcp.builder.io" &&
+    url.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !url.search &&
+    !url.hash
+  );
+}
+
 export function buildMcpOAuthStartUrl({
   name,
   url,
@@ -972,7 +995,9 @@ export function buildMcpOAuthStartUrl({
     name,
     url,
     description,
-    scope,
+    // Every client OAuth start is built here, so this is the one place that can
+    // keep a personal scope off a server that only accepts a workspace one.
+    scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
   });
   return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
@@ -1020,6 +1045,26 @@ export function supportsMcpIntegrationOrganizationScope(
     integration.supportsOrganizationScope === true &&
     integration.managedOAuth !== true
   );
+}
+
+/**
+ * Mirrors the server's org-only rule in `resolveMcpOAuthScope`. Offering a
+ * personal connection the server will reject is what produced the misleading
+ * scope error users hit on Builder.io.
+ */
+export function requiresMcpIntegrationOrganizationScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return (
+    integration.organizationScopeOnly === true ||
+    mcpUrlRequiresOrganizationScope(integration.url)
+  );
+}
+
+export function allowsMcpIntegrationPersonalScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return !requiresMcpIntegrationOrganizationScope(integration);
 }
 
 export function shouldOfferMcpIntegrationOrganizationScope(

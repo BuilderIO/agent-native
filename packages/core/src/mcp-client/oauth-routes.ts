@@ -67,6 +67,19 @@ function isBuilderPublishMcpServer(serverUrl: URL): boolean {
   return resolveTrustedMcpOAuthAuthorizationScope(serverUrl) !== undefined;
 }
 
+/**
+ * Which side of the scope contract the request broke. Builder Publish shares one
+ * workspace grant with Content database sources, so it is org-only; managed
+ * OAuth clients authorize one human at a time, so they are personal-only.
+ */
+export type McpOAuthScopeViolation =
+  | "organization-scope-required"
+  | "personal-scope-required";
+
+export type McpOAuthScopeResolution =
+  | { ok: true; scope: RemoteMcpScope }
+  | { ok: false; violation: McpOAuthScopeViolation };
+
 const FLOW_TTL_SECONDS = 10 * 60;
 const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 
@@ -258,16 +271,15 @@ async function handleMcpOAuthStart(
     return { error: "MCP server name is invalid." };
   }
 
-  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope, {
+  const resolvedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope, {
     allowManagedOrgReconnect:
       reconnectScope === "org" && Boolean(reconnectServer),
   });
-  if (!requestedScope) {
+  if (!resolvedScope.ok) {
     setResponseStatus(event, 400);
-    return {
-      error: "Managed MCP OAuth connections must use personal scope.",
-    };
+    return { error: describeMcpOAuthScopeViolation(resolvedScope.violation) };
   }
+  const requestedScope = resolvedScope.scope;
   const requestedOrgId = text(query.orgId);
   const org =
     requestedScope === "org"
@@ -423,18 +435,28 @@ export function resolveMcpOAuthScope(
   serverUrl: URL,
   requestedScope: unknown,
   options?: { allowManagedOrgReconnect?: boolean },
-): RemoteMcpScope | null {
+): McpOAuthScopeResolution {
   if (isBuilderPublishMcpServer(serverUrl)) {
-    return requestedScope === "org" ? "org" : null;
+    return requestedScope === "org"
+      ? { ok: true, scope: "org" }
+      : { ok: false, violation: "organization-scope-required" };
   }
   if (
     isManagedMcpOAuthServer(serverUrl) &&
     requestedScope === "org" &&
     !options?.allowManagedOrgReconnect
   ) {
-    return null;
+    return { ok: false, violation: "personal-scope-required" };
   }
-  return requestedScope === "org" ? "org" : "user";
+  return { ok: true, scope: requestedScope === "org" ? "org" : "user" };
+}
+
+export function describeMcpOAuthScopeViolation(
+  violation: McpOAuthScopeViolation,
+): string {
+  return violation === "organization-scope-required"
+    ? "This connection must be set up for your workspace instead of a personal account. Ask a workspace owner or admin to set it up for the workspace."
+    : "This connection must be set up as a personal connection instead of a workspace connection. Connect your own account to continue.";
 }
 
 export function stripMcpOAuthAppBasePath(
