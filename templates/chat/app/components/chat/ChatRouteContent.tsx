@@ -28,9 +28,16 @@ import {
   McpConnectionSuggestion,
 } from "@agent-native/core/client/agentkit-chat/suggestions";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconLayoutSidebarRight } from "@tabler/icons-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -40,7 +47,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
-import { clearChatHomeThreadId } from "@/lib/chat-home-thread";
+import { consumeChatHomeThreadId } from "@/lib/chat-home-thread";
 import { TAB_ID } from "@/lib/tab-id";
 
 function chatThreadPath(threadId: string | null) {
@@ -83,10 +90,6 @@ function ChatThreadRouteContent({
   const t = useT();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
 
-  useEffect(() => {
-    clearChatHomeThreadId();
-  }, []);
-
   const [transport] = useState(() =>
     createAgentNativeAgentKitTransport({
       browserTabId: TAB_ID,
@@ -123,6 +126,7 @@ function ChatThreadRouteContent({
             }}
             onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}
           >
+            <ChatLifecycleTracking threadId={resolvedThreadId} />
             <ChatMcpConnectionResume />
             <ChatCanvas
               workspaceOpen={workspaceOpen}
@@ -147,6 +151,58 @@ function ChatThreadRouteContent({
       </aside>
     </div>
   );
+}
+
+function ChatLifecycleTracking({ threadId }: { threadId: string }) {
+  const thread = useAgentThread(threadId);
+  const lifecycleRef = useRef({
+    threadId: "",
+    pendingCreation: false,
+    observedMessages: false,
+    messageCount: 0,
+  });
+
+  useEffect(() => {
+    const pendingCreation = consumeChatHomeThreadId(threadId);
+    lifecycleRef.current = {
+      threadId,
+      pendingCreation,
+      observedMessages: false,
+      messageCount: 0,
+    };
+    if (!pendingCreation) {
+      trackEvent("thread_resumed", { thread_id: threadId });
+    }
+  }, [threadId]);
+
+  useEffect(() => {
+    const lifecycle = lifecycleRef.current;
+    if (lifecycle.threadId !== threadId) return;
+    const count = thread.messages.length;
+    const initialObservation = !lifecycle.observedMessages;
+    lifecycle.observedMessages = true;
+    if (count <= lifecycle.messageCount) {
+      lifecycle.messageCount = count;
+      return;
+    }
+    const pendingCreation = lifecycle.pendingCreation;
+    if (pendingCreation) {
+      lifecycle.pendingCreation = false;
+      trackEvent("thread_created", {
+        output_id: threadId,
+        output_type: "thread",
+      });
+    }
+    if (!initialObservation || pendingCreation) {
+      trackEvent("message_exchanged", {
+        thread_id: threadId,
+        msg_count: count,
+      });
+    }
+    lifecycle.messageCount = count;
+  }, [thread.messages.length, threadId]);
+
+  return null;
 }
 
 function ChatAgentFooter({ children }: { children: ReactNode }) {

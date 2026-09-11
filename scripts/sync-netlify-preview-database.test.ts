@@ -68,6 +68,12 @@ describe("parseNetlifyDatabaseVariables", () => {
           values: [
             { context: "production", id: "production-id", value: "masked" },
             { context: "deploy-preview", id: "preview-id", value: "masked" },
+            {
+              context: "branch-deploy",
+              context_parameter: "named-branch",
+              id: "named-branch-id",
+              value: "masked",
+            },
           ],
         },
         { key: "BETTER_AUTH_SECRET", values: [] },
@@ -78,6 +84,11 @@ describe("parseNetlifyDatabaseVariables", () => {
           values: [
             { context: "production", id: "production-id" },
             { context: "deploy-preview", id: "preview-id" },
+            {
+              context: "branch-deploy",
+              context_parameter: "named-branch",
+              id: "named-branch-id",
+            },
           ],
         },
       ],
@@ -96,8 +107,13 @@ describe("mirrorProductionDatabaseVariables", () => {
       token: "test-token",
       request: async (url, options) => {
         requests.push({ url, options });
-        if (options?.method === "DELETE")
-          return new Response(null, { status: 204 });
+        if (options?.method === "DELETE") {
+          const deleteCount = requests.filter(
+            ({ options: requestOptions }) =>
+              requestOptions?.method === "DELETE",
+          ).length;
+          return new Response(null, { status: deleteCount === 1 ? 404 : 204 });
+        }
         if (options?.method === "POST")
           return new Response(null, { status: 201 });
         if (options?.method === "PATCH")
@@ -114,6 +130,12 @@ describe("mirrorProductionDatabaseVariables", () => {
               {
                 context: "deploy-preview",
                 id: "database-preview",
+                value: "masked",
+              },
+              {
+                context: "branch-deploy",
+                context_parameter: "named-branch",
+                id: "database-named-branch",
                 value: "masked",
               },
             ],
@@ -158,20 +180,16 @@ describe("mirrorProductionDatabaseVariables", () => {
       ],
       removedKeys: ["OLD_DATABASE_URL"],
     });
-    assert.equal(requests.length, 7);
-    const deleteIndex = requests.findIndex(
-      ({ options }) => options?.method === "DELETE",
-    );
-    assert(deleteIndex > 0);
-    assert(
-      requests
-        .slice(0, deleteIndex)
-        .every(({ options }) => options?.method !== "DELETE"),
-    );
-    assert.match(
-      requests[deleteIndex].url,
-      /\/env\/OLD_DATABASE_URL\/value\/stale-preview/,
-    );
+    assert.equal(requests.length, 9);
+    const deleteUrls = requests
+      .filter(({ options }) => options?.method === "DELETE")
+      .map(({ url }) => url)
+      .sort();
+    assert.deepEqual(deleteUrls, [
+      "https://api.netlify.com/api/v1/accounts/builder-io/env/DATABASE_URL/value/database-preview?site_id=site",
+      "https://api.netlify.com/api/v1/accounts/builder-io/env/NETLIFY_DATABASE_URL/value/netlify-preview?site_id=site",
+      "https://api.netlify.com/api/v1/accounts/builder-io/env/OLD_DATABASE_URL/value/stale-preview?site_id=site",
+    ]);
 
     const createKeys = requests
       .filter(({ options }) => options?.method === "POST")
@@ -189,7 +207,7 @@ describe("mirrorProductionDatabaseVariables", () => {
     );
     assert(databaseUpdate);
     assert.deepEqual(JSON.parse(String(databaseUpdate.options?.body)), {
-      context: "deploy-preview",
+      context: "branch-deploy",
       value: "postgresql://preview.example/db",
     });
   });

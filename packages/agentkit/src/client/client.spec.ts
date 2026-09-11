@@ -78,6 +78,79 @@ describe("AgentKitClient", () => {
     });
   });
 
+  it("resubscribes the same run after a connection continuation", async () => {
+    let subscriptionCount = 0;
+    const resolveConnectionRequest = vi.fn(async () => undefined);
+    const connectionRequest = {
+      id: "connection-1",
+      provider: "slack",
+      reason: "connect" as const,
+      status: "requested" as const,
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const transport: AgentTransport = {
+      capabilities: { connectionRequests: true },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun() {
+        subscriptionCount += 1;
+        if (subscriptionCount === 1) {
+          yield protocolEvent(1, { type: "run.started" });
+          yield protocolEvent(2, {
+            type: "run.status",
+            status: "awaiting_input",
+          });
+          yield protocolEvent(3, {
+            type: "connection.requested",
+            request: connectionRequest,
+          });
+          return;
+        }
+        yield protocolEvent(4, {
+          type: "connection.updated",
+          request: {
+            ...connectionRequest,
+            status: "connected",
+            updatedAt: "2026-08-29T00:00:01.000Z",
+          },
+        });
+        yield protocolEvent(5, { type: "run.status", status: "running" });
+        yield protocolEvent(6, { type: "run.completed" });
+      },
+      resolveConnectionRequest,
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Verify Slack",
+    });
+    await run.completed;
+    expect(client.getThread("thread-1").runs["run-1"]?.status).toBe(
+      "awaiting_input",
+    );
+
+    await client.resolveConnectionRequest({
+      threadId: "thread-1",
+      runId: "run-1",
+      requestId: "connection-1",
+      response: {
+        status: "connected",
+        connectionId: "workspace-slack",
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-1"]?.status).toBe(
+        "completed",
+      ),
+    );
+    expect(subscriptionCount).toBe(2);
+    expect(resolveConnectionRequest).toHaveBeenCalledOnce();
+  });
+
   it("preserves both conversations across consecutive distinct runs", async () => {
     let runCount = 0;
     const transport: AgentTransport = {

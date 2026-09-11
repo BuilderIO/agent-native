@@ -917,6 +917,15 @@ export class AgentKitClient implements AgentKitController {
       resolveConnectionRequest(input, context),
     );
     this.assertActive();
+    const key = this.runKey(input.threadId, input.runId);
+    const existingConsumer = this.consumers.get(key);
+    if (existingConsumer) await existingConsumer.catch(() => undefined);
+    if (this.consumers.has(key)) return;
+    this.trackConsumer(
+      input.threadId,
+      input.runId,
+      this.consume(input.threadId, input.runId),
+    );
   }
 
   public async invokeAction(
@@ -1411,8 +1420,10 @@ export class AgentKitClient implements AgentKitController {
     const abortController = new AbortController();
     this.consumerAbortControllers.set(key, abortController);
     let attempt = 0;
-    let interruptedForApproval =
-      this.getThread(threadId).runs[runId]?.status === "awaiting_approval";
+    let interruptedForContinuation = [
+      "awaiting_approval",
+      "awaiting_input",
+    ].includes(this.getThread(threadId).runs[runId]?.status ?? "");
     try {
       while (true) {
         const afterSequence =
@@ -1446,10 +1457,19 @@ export class AgentKitClient implements AgentKitController {
               );
             }
             this.applyEvent(event);
-            if (event.type === "approval.requested") {
-              interruptedForApproval = true;
+            if (
+              event.type === "approval.requested" ||
+              event.type === "connection.requested"
+            ) {
+              interruptedForContinuation = true;
             } else if (event.type === "approval.resolved") {
-              interruptedForApproval = false;
+              interruptedForContinuation = false;
+            } else if (
+              event.type === "connection.updated" &&
+              (event.request.status === "connected" ||
+                event.request.status === "declined")
+            ) {
+              interruptedForContinuation = false;
             }
             if (
               event.type === "run.completed" ||
@@ -1460,7 +1480,7 @@ export class AgentKitClient implements AgentKitController {
             }
           }
           if (!terminalEvent) {
-            if (interruptedForApproval) {
+            if (interruptedForContinuation) {
               this.setConnection("connected");
               return;
             }

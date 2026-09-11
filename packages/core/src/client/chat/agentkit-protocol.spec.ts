@@ -5,6 +5,7 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   createAgentKitProtocolVersionOffer,
+  parseAgentEvent,
   resumeEntryFromApproval,
 } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
@@ -221,6 +222,7 @@ describe("createAgentKitProtocolAdapter", () => {
         status: "requested",
       },
     });
+    expect((await iterator.next()).done).toBe(true);
 
     await transport.resolveConnectionRequest?.({
       threadId: "thread-1",
@@ -228,7 +230,13 @@ describe("createAgentKitProtocolAdapter", () => {
       requestId: "connection-1",
       response: { status: "connected", connectionId: "workspace-slack" },
     });
-    await drain({ [Symbol.asyncIterator]: () => iterator });
+    const resumed = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId,
+        afterSequence: observed.at(-1)?.sequence,
+      }),
+    );
 
     expect(continueTurn).toHaveBeenCalledWith({
       turnId: "turn-1",
@@ -239,6 +247,7 @@ describe("createAgentKitProtocolAdapter", () => {
         message: undefined,
       },
     });
+    expect(resumed.at(-1)?.type).toBe("run.completed");
   });
 
   it("translates Core turn events and supports in-process sequence replay", async () => {
@@ -1520,6 +1529,55 @@ describe("createAgentKitProtocolAdapter", () => {
         label: "Publish release",
         scope: "workspace",
         object: { id: "release-1", uri: "/releases/release-1" },
+      },
+    });
+  });
+
+  it("keeps failed action events valid when the runtime omits an error", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "opaque_runtime_tool",
+          metadata: {
+            "x-agent-native": {
+              action: {
+                name: "publish-release",
+                invocationId: "invocation-1",
+              },
+            },
+          },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "opaque_runtime_tool",
+        status: "failed",
+        resultText: "Provider rejected the release.",
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const failedAction = result.find((event) => event.type === "action.failed");
+
+    expect(parseAgentEvent(failedAction)).toMatchObject({
+      type: "action.failed",
+      result: {
+        invocationId: "invocation-1",
+        status: "failed",
+        error: {
+          code: "tool_error",
+          message: "Provider rejected the release.",
+        },
       },
     });
   });

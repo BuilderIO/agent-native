@@ -37,6 +37,7 @@ const createTransport = vi.hoisted(() =>
   }),
 );
 const markHandoff = vi.hoisted(() => vi.fn());
+const trackEvent = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/agentkit-chat/rail", () => ({
   markAgentChatHomeHandoff: markHandoff,
@@ -44,6 +45,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/rail", () => ({
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `${routeState.basePath}${path}`,
 }));
+vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 
 vi.mock("@agent-native/core/client/agentkit-chat/composer", () => ({
   CoreComposerRuntimeProvider: ({
@@ -153,6 +155,8 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.sendMessage.mockReset();
     createTransport.mockClear();
     markHandoff.mockClear();
+    trackEvent.mockClear();
+    window.sessionStorage.clear();
     locationReplace = vi
       .spyOn(window.location, "replace")
       .mockImplementation(() => undefined);
@@ -283,10 +287,39 @@ describe("ChatRoute AgentKit surface", () => {
     expect(toggle).not.toBeNull();
     expect(panel?.dataset.state).toBe("closed");
     expect(markHandoff).not.toHaveBeenCalled();
+    expect(trackEvent).toHaveBeenCalledWith("thread_resumed", {
+      thread_id: "thread-one",
+    });
 
     act(() => toggle?.click());
     expect(panel?.dataset.state).toBe("open");
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("attributes a pending home handoff as a created thread", () => {
+    routeState.threadId = "chat-new";
+    window.sessionStorage.setItem(
+      "agent-native.chat-home-thread",
+      JSON.stringify({ id: "chat-new", issuedAt: Date.now() }),
+    );
+
+    act(() => root.render(<ChatRoute />));
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "thread_resumed",
+      expect.anything(),
+    );
+
+    routeState.messages = [{ id: "user-1" }];
+    act(() => root.render(<ChatRoute />));
+
+    expect(trackEvent).toHaveBeenCalledWith("thread_created", {
+      output_id: "chat-new",
+      output_type: "thread",
+    });
+    expect(trackEvent).toHaveBeenCalledWith("message_exchanged", {
+      thread_id: "chat-new",
+      msg_count: 1,
+    });
   });
 
   it("keeps the full-page Chat route as a flat canvas", () => {

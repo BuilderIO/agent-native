@@ -569,6 +569,7 @@ const KNOWN_CAPABILITY_IDS = new Set([
   "citations",
   "clientEffects",
   "codeExecution",
+  "connectionRequests",
   "durableThreadSnapshots",
   "feedback",
   "messageQueue",

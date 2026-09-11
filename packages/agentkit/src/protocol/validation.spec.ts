@@ -330,12 +330,17 @@ describe("AgentKit protocol validation", () => {
     expect(
       parseAgentCapabilities({
         protocolVersion: AGENTKIT_PROTOCOL_VERSION,
+        connectionRequests: true,
         feedback: true,
         multiAgentActivity: true,
         widgets: true,
         "x-host-preview": { version: 2 },
       }),
-    ).toMatchObject({ feedback: true, widgets: true });
+    ).toMatchObject({
+      connectionRequests: true,
+      feedback: true,
+      widgets: true,
+    });
     expect(() => parseAgentCapabilities({ widgets: "yes" })).toThrow(
       AgentProtocolValidationError,
     );

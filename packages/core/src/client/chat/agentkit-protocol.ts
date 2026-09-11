@@ -866,20 +866,30 @@ function actionResultFromTool(input: {
   error?: AgentError;
   metadata?: Record<string, unknown>;
 }): AgentActionResult {
+  const status =
+    input.status === "completed"
+      ? "completed"
+      : input.status === "cancelled"
+        ? "cancelled"
+        : "failed";
+  const error =
+    status === "failed"
+      ? (input.error ?? {
+          code: "tool_error",
+          message:
+            input.resultText?.trim() ||
+            `Action ${input.invocation.action} failed.`,
+        })
+      : input.error;
   return {
     invocationId: input.invocation.id,
-    status:
-      input.status === "completed"
-        ? "completed"
-        : input.status === "cancelled"
-          ? "cancelled"
-          : "failed",
+    status,
     ...(input.result !== undefined
       ? { data: input.result }
       : input.resultText !== undefined
         ? { data: input.resultText }
         : {}),
-    ...(input.error ? { error: input.error } : {}),
+    ...(error ? { error } : {}),
     ...(input.metadata ? { metadata: input.metadata } : {}),
   };
 }
@@ -1660,6 +1670,7 @@ export function createAgentKitProtocolAdapter(
         }
         run.waitingForContinuation = true;
         run.pendingConnectionRequestId = event.requestId;
+        run.streamClosed = true;
         return [
           { type: "run.status", ...base, status: "awaiting_input" },
           {
@@ -2735,6 +2746,7 @@ export function createAgentKitProtocolAdapter(
         run.waitingForContinuation = false;
         run.pendingConnectionRequestId = undefined;
         run.turn = nextTurn;
+        run.streamClosed = false;
         update(input.response.status);
         append(run, { type: "run.status", status: "running" });
         ensurePump(run);

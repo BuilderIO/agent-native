@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
@@ -10,5 +11,18 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Approval request id"),
   }),
-  run: async ({ id }) => approveRequest(id),
+  run: async ({ id }, ctx) => {
+    const result = await approveRequest(id);
+    track(
+      "approval_actioned",
+      {
+        app_name: "dispatch",
+        template_name: "dispatch",
+        action_type: result.changeType,
+        decision: "approved",
+      },
+      ctx,
+    );
+    return result;
+  },
 });

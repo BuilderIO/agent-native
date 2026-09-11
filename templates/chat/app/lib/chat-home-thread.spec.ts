@@ -2,7 +2,11 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { clearChatHomeThreadId, getChatHomeThreadId } from "./chat-home-thread";
+import {
+  clearChatHomeThreadId,
+  consumeChatHomeThreadId,
+  getChatHomeThreadId,
+} from "./chat-home-thread";
 
 describe("chat home handoff thread", () => {
   beforeEach(() => {
@@ -22,5 +26,18 @@ describe("chat home handoff thread", () => {
     clearChatHomeThreadId();
 
     expect(getChatHomeThreadId()).not.toBe(first);
+  });
+
+  it("consumes only a matching pending home handoff", () => {
+    const pending = getChatHomeThreadId();
+
+    expect(consumeChatHomeThreadId(pending)).toBe(true);
+    expect(consumeChatHomeThreadId(pending)).toBe(false);
+  });
+
+  it("does not attribute a different routed thread to the pending handoff", () => {
+    getChatHomeThreadId();
+
+    expect(consumeChatHomeThreadId("chat-other")).toBe(false);
   });
 });

@@ -255,6 +255,38 @@ describe("browser analytics pageviews", () => {
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
   });
 
+  it("emits return usage after a seven-day gap between app entries", async () => {
+    const { localStorage } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    const now = Date.parse("2026-09-10T12:00:00.000Z");
+    vi.setSystemTime(now);
+    localStorage.setItem(
+      "agent-native.app_last_entry:mail",
+      String(now - 8 * 86_400_000),
+    );
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-mail",
+      }),
+    });
+    await tick();
+
+    const returnUsage = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "return_usage");
+    expect(returnUsage).toMatchObject({
+      properties: {
+        app_name: "mail",
+        template_name: "mail",
+        days_since_last: 8,
+      },
+    });
+  });
+
   it("deduplicates app entry per app and session across app switches", async () => {
     const { history, localStorage } = installBrowser();
     const { analyticsCalls } = installFetch();
