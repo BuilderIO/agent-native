@@ -76,6 +76,17 @@ type FactoryAuditItem = {
   firstSeenThisRun?: boolean;
   builderAlreadyStarted?: boolean;
   userLabels?: Record<string, string>;
+  babysitRecommendation?: string | null;
+  babysitBecause?: string | null;
+  babysitDecision?: string | null;
+  babysitVeto?: string | null;
+  babysitBuilderActive?: boolean | null;
+  babysitOpenBotThreads?: number | null;
+  babysitOpenHumanThreads?: number | null;
+  babysitCiBlocking?: string | null;
+  babysitAgentMatched?: boolean | null;
+  babysitBotThreadSummaries?: string[] | null;
+  babysitHumanThreadSummaries?: string[] | null;
 };
 
 type FactoryAuditTraceStep = {
@@ -601,6 +612,7 @@ function AuditItemRow({
       </summary>
       <div className="bg-muted/20 px-4 pb-4 pt-3">
         <AuditDecisionFacts item={item} />
+        <BabysitDecisionFacts item={item} />
         {item.summary ? (
           <div
             className={`rounded-md border border-border bg-background px-3 py-2 ${
@@ -616,12 +628,13 @@ function AuditItemRow({
         ) : null}
         <div className={item.summary || hasAuditFacts(item) ? "mt-3" : ""}>
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {item.rationale || item.dispatchError
+            {item.babysitBecause || item.rationale || item.dispatchError
               ? t("factoryRoute.auditWhy")
               : t("factoryRoute.auditWhatHappened")}
           </p>
           <p className="mt-1 text-sm leading-6">
             {item.dispatchError ??
+              item.babysitBecause ??
               item.rationale ??
               t("factoryRoute.auditInspectedOnly")}
           </p>
@@ -640,8 +653,13 @@ function AuditItemRow({
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <AuditStatus status={entry.status} compact />
-                    <span className="truncate">
-                      {formatAuditAction(entry.action)}
+                    <span className="min-w-0 truncate">
+                      <span>{formatAuditAction(entry.action)}</span>
+                      {formatAuditEventHint(entry) ? (
+                        <span className="block truncate text-[11px] text-muted-foreground/80">
+                          {formatAuditEventHint(entry)}
+                        </span>
+                      ) : null}
                     </span>
                   </span>
                   <time className="shrink-0">
@@ -682,13 +700,102 @@ function hasAuditFacts(item: FactoryAuditItem): boolean {
     item.clearBug !== null ||
     item.productUx !== null ||
     Boolean(item.ownerArea) ||
-    Boolean(item.guards)
+    Boolean(item.guards) ||
+    hasBabysitFacts(item)
+  );
+}
+
+function hasBabysitFacts(item: FactoryAuditItem): boolean {
+  return (
+    Boolean(item.babysitRecommendation) ||
+    Boolean(item.babysitDecision) ||
+    Boolean(item.babysitBecause) ||
+    Boolean(item.babysitVeto) ||
+    item.babysitBuilderActive === true ||
+    typeof item.babysitOpenBotThreads === "number" ||
+    typeof item.babysitOpenHumanThreads === "number" ||
+    Boolean(item.babysitCiBlocking)
+  );
+}
+
+function BabysitDecisionFacts({ item }: { item: FactoryAuditItem }) {
+  const t = useT();
+  if (!hasBabysitFacts(item)) return null;
+
+  return (
+    <div className="flex flex-wrap content-start gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      {item.babysitRecommendation && (
+        <AuditFact
+          label={t("factoryRoute.auditBabysitRecommendation")}
+          value={item.babysitRecommendation}
+        />
+      )}
+      {item.babysitDecision && (
+        <AuditFact
+          label={t("factoryRoute.auditBabysitDecision")}
+          value={item.babysitDecision}
+        />
+      )}
+      {item.babysitAgentMatched === false && (
+        <AuditFact
+          label={t("factoryRoute.auditBabysitAgentMismatch")}
+          value={yesNo(true)}
+        />
+      )}
+      {typeof item.babysitOpenBotThreads === "number" && (
+        <AuditFact
+          label={t("factoryRoute.auditBabysitOpenBotThreads")}
+          value={String(item.babysitOpenBotThreads)}
+        />
+      )}
+      {typeof item.babysitOpenHumanThreads === "number" && (
+        <AuditFact
+          label={t("factoryRoute.auditBabysitOpenHumanThreads")}
+          value={String(item.babysitOpenHumanThreads)}
+        />
+      )}
+      {item.babysitBuilderActive === true && (
+        <AuditFact
+          label={t("factoryRoute.auditBabysitBuilderActive")}
+          value={yesNo(true)}
+        />
+      )}
+      {item.babysitCiBlocking && (
+        <AuditFact
+          label={t("factoryRoute.auditBabysitCiBlocking")}
+          value={item.babysitCiBlocking}
+        />
+      )}
+      {item.babysitVeto && (
+        <AuditFact
+          label={t("factoryRoute.auditBabysitVeto")}
+          value={item.babysitVeto}
+        />
+      )}
+      {(item.babysitBotThreadSummaries?.length ?? 0) > 0 && (
+        <div className="w-full space-y-1 pt-1">
+          {item.babysitBotThreadSummaries?.map((summary) => (
+            <p
+              key={summary}
+              className="text-[11px] leading-5 text-muted-foreground"
+            >
+              {summary}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
 function AuditDecisionFacts({ item }: { item: FactoryAuditItem }) {
   const t = useT();
-  if (!hasAuditFacts(item)) {
+  if (
+    item.clearBug === null &&
+    item.productUx === null &&
+    !item.ownerArea &&
+    !item.guards
+  ) {
     return null;
   }
 
@@ -954,6 +1061,19 @@ function formatAutomationName(value: string): string {
 
 function formatAuditAction(value: string): string {
   return formatAuditLabel(value).replace(/^Poll /, "Check ");
+}
+
+function formatAuditEventHint(event: FactoryAuditEvent): string | null {
+  if (
+    event.action !== "babysit-factory-pull-request" &&
+    event.action !== "propose-pr-babysit-status"
+  ) {
+    return null;
+  }
+  return (
+    readStringDetail(event.details, "because") ??
+    readStringDetail(event.details, "veto")
+  );
 }
 
 function formatAuditAge(value: string | number, nowLabel: string) {

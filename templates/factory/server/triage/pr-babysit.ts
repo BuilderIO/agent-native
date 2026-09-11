@@ -47,15 +47,29 @@ export interface BabysitInput {
 
 export interface BabysitProposal {
   unansweredComments: ReviewCommentObservation[];
+  unansweredBotComments: ReviewCommentObservation[];
   failingChecks: PullRequestCheckObservation[];
+  informationalChecks: PullRequestCheckObservation[];
   missingChangesetPackages: string[];
   pendingChecks: PullRequestCheckObservation[];
   checksCoverage: TriageCoverage;
   commentsTruncated: boolean;
   reviewsTruncated: boolean;
   humanReviewBodyKeys: string[];
+  botReviewBodyKeys: string[];
   isClean: boolean;
 }
+
+export const BABYSIT_BUILDER_QUIET_WINDOW_MS = 20 * 60_000;
+
+export type BabysitRecommendation =
+  | "ping"
+  | "defer"
+  | "already_asked"
+  | "stuck"
+  | "clean";
+
+export type BabysitAgentDecision = "ping" | "defer" | "already_asked" | "stuck";
 
 /**
  * `mergeConflict` is the caller's resolved answer, not a raw GitHub reading.
@@ -99,13 +113,75 @@ export const DEFAULT_BABYSIT_PR_COMMENT =
 /** Shared by the read-only briefing and the write action so their verdicts cannot diverge. */
 export const MIN_BABYSIT_COMMENT_INTERVAL_MS = 90_000;
 
-/** How many times Factory's own hardcoded request is already on the pull request. */
+/** How many times the hardcoded request appears on the pull request from any author. */
 export function countBabysitComments(
   comments: readonly { body: string }[],
   body: string = DEFAULT_BABYSIT_PR_COMMENT,
 ): number {
   const target = body.trim();
   return comments.filter((comment) => comment.body.trim() === target).length;
+}
+
+/** Factory-only duplicate detection: human copies of the template must not block re-ping. */
+export function countFactoryBabysitComments(
+  comments: readonly { body: string; author: string }[],
+  factoryAuthorLogin: string | null | undefined,
+  body: string = DEFAULT_BABYSIT_PR_COMMENT,
+): number {
+  const factoryAuthor = factoryAuthorLogin?.trim().toLowerCase();
+  if (!factoryAuthor) return 0;
+  const target = body.trim();
+  return comments.filter(
+    (comment) =>
+      comment.body.trim() === target &&
+      comment.author.trim().toLowerCase() === factoryAuthor,
+  ).length;
+}
+
+export function botReviewBodyKeys(
+  comments: readonly ReviewCommentObservation[],
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): string[] {
+  const repliedToIds = new Set(
+    comments
+      .map((comment) => comment.inReplyToId)
+      .filter((id): id is string => id !== null),
+  );
+  return comments
+    .filter(
+      (comment) =>
+        comment.inReplyToId === null &&
+        isBabysitBotAuthor(comment.author, botAuthors) &&
+        !isAnswered(comment, repliedToIds),
+    )
+    .map((comment) => `${comment.id}:${comment.body.slice(0, 120)}`)
+    .sort();
+}
+
+export function summarizeReviewThreads(
+  comments: readonly ReviewCommentObservation[],
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+  limit = 3,
+): { human: string[]; bot: string[] } {
+  const repliedToIds = new Set(
+    comments
+      .map((comment) => comment.inReplyToId)
+      .filter((id): id is string => id !== null),
+  );
+  const human: string[] = [];
+  const bot: string[] = [];
+  for (const comment of comments) {
+    if (comment.inReplyToId !== null) continue;
+    if (isAnswered(comment, repliedToIds)) continue;
+    const summary = comment.body.trim().slice(0, 160);
+    if (!summary) continue;
+    if (isBabysitBotAuthor(comment.author, botAuthors)) {
+      if (bot.length < limit) bot.push(summary);
+    } else if (human.length < limit) {
+      human.push(summary);
+    }
+  }
+  return { human, bot };
 }
 
 export function mergeabilityComputed(input: {
@@ -166,12 +242,15 @@ export function hasNewDefiniteMergeConflict(input: {
 export type BabysitPingReason =
   | "first-ask"
   | "new-human-work"
+  | "new-bot-work"
   | "new-definite-conflict"
   | "comment-scan-truncated"
   | "too-soon"
   | "duplicate-comment"
   | "mergeability-uncomputed"
-  | "already-asked";
+  | "already-asked"
+  | "builder-active"
+  | "head-sha-changed";
 
 export interface BabysitPingDecision {
   allowed: boolean;
@@ -188,16 +267,22 @@ export function decideBabysitPing(input: {
   lastCommentAtMs: number | null;
   nowMs: number;
   minCommentIntervalMs: number;
-  existingBabysitCommentCount: number;
+  existingFactoryBabysitCommentCount: number;
   commentScanTruncated: boolean;
   newHumanWork: boolean;
+  newBotWork: boolean;
   newDefiniteMergeConflict: boolean;
   mergeabilityComputed: boolean;
+  builderActive?: boolean;
+  headShaChangedSinceLastPing?: boolean;
 }): BabysitPingDecision {
   // A capped page cannot prove the hardcoded comment is absent, and absence is
   // what authorizes a first ask.
   if (input.commentScanTruncated) {
     return { allowed: false, reason: "comment-scan-truncated" };
+  }
+  if (input.builderActive) {
+    return { allowed: false, reason: "builder-active" };
   }
   if (
     input.lastCommentAtMs !== null &&
@@ -205,18 +290,22 @@ export function decideBabysitPing(input: {
   ) {
     return { allowed: false, reason: "too-soon" };
   }
-  const alreadyAskedOnGitHub = input.existingBabysitCommentCount > 0;
+  const alreadyAskedOnGitHub = input.existingFactoryBabysitCommentCount > 0;
   const neverAskedThisEpisode =
     input.lastCommentAtMs === null || input.previousState === "clean";
   if (neverAskedThisEpisode && !alreadyAskedOnGitHub) {
     return { allowed: true, reason: "first-ask" };
   }
   if (input.newHumanWork) return { allowed: true, reason: "new-human-work" };
+  if (input.newBotWork) return { allowed: true, reason: "new-bot-work" };
   if (input.newDefiniteMergeConflict) {
     return { allowed: true, reason: "new-definite-conflict" };
   }
-  if (alreadyAskedOnGitHub) {
+  if (alreadyAskedOnGitHub && !input.headShaChangedSinceLastPing) {
     return { allowed: false, reason: "duplicate-comment" };
+  }
+  if (input.headShaChangedSinceLastPing) {
+    return { allowed: true, reason: "head-sha-changed" };
   }
   if (!input.mergeabilityComputed) {
     return { allowed: false, reason: "mergeability-uncomputed" };
@@ -226,12 +315,21 @@ export function decideBabysitPing(input: {
 
 /** POST-path duplicate scans must follow the same new-work override as decideBabysitPing. */
 export function shouldVetoDuplicateBabysitComment(input: {
-  existingBabysitCommentCount: number;
+  existingFactoryBabysitCommentCount: number;
   newHumanWork: boolean;
+  newBotWork: boolean;
   newDefiniteMergeConflict: boolean;
+  headShaChangedSinceLastPing?: boolean;
 }): boolean {
-  if (input.existingBabysitCommentCount === 0) return false;
-  if (input.newHumanWork || input.newDefiniteMergeConflict) return false;
+  if (input.existingFactoryBabysitCommentCount === 0) return false;
+  if (input.headShaChangedSinceLastPing) return false;
+  if (
+    input.newHumanWork ||
+    input.newBotWork ||
+    input.newDefiniteMergeConflict
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -245,6 +343,7 @@ export const PARKED_BABYSIT_STATES = [
   "quiet",
   "clean",
   "stuck",
+  "defer",
 ] as const;
 
 export function babysitLeavesReviewWindow(
@@ -356,6 +455,19 @@ export interface HumanReviewWorkComparison {
   nextHumanReviewBodyCount?: number | null | undefined;
   storedReviewsTruncated?: boolean;
   nextReviewsTruncated?: boolean;
+  storedBotReviewBodyKeys?: readonly string[];
+  nextBotReviewBodyKeys?: readonly string[];
+}
+
+export function hasNewBotReviewWork(input: {
+  storedBotReviewBodyKeys?: readonly string[];
+  nextBotReviewBodyKeys?: readonly string[];
+}): boolean {
+  const stored = new Set(input.storedBotReviewBodyKeys ?? []);
+  for (const key of input.nextBotReviewBodyKeys ?? []) {
+    if (!stored.has(key)) return true;
+  }
+  return (input.nextBotReviewBodyKeys?.length ?? 0) > stored.size;
 }
 
 /** New top-level human review work. Author replies, bot replies, and truncated totals do not count. */
@@ -390,9 +502,12 @@ export function shouldReopenParkedBabysit(
     parked: boolean;
     parkedState?: string | null;
     newDefiniteMergeConflict: boolean;
+    botErrorAfterPing?: boolean;
   },
 ): boolean {
   if (!input.parked) return false;
+  if (input.botErrorAfterPing && input.parkedState !== "stuck") return true;
+  if (hasNewBotReviewWork(input)) return true;
   // `stuck` is the agent's judgement that another ask cannot help, so a
   // conflict appearing on it is not news. Only a human reopens it.
   if (input.parkedState !== "stuck" && input.newDefiniteMergeConflict) {
@@ -426,6 +541,7 @@ export function babysitFingerprint(input: {
     commentsTruncated: input.snapshot.commentsTruncated,
     reviewsTruncated: input.snapshot.reviewsTruncated,
     humanReviewBodyKeys: input.snapshot.humanReviewBodyKeys,
+    botReviewBodyKeys: input.snapshot.botReviewBodyKeys,
     changesRequested: hasChangesRequested(input.reviewStates),
   });
 }
@@ -469,10 +585,19 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
     (comment) =>
       comment.inReplyToId === null &&
       !isAnswered(comment, repliedToIds) &&
-      !botAuthors.has(comment.author),
+      !isBabysitBotAuthor(comment.author, [...botAuthors]),
+  );
+  const unansweredBotComments = input.comments.filter(
+    (comment) =>
+      comment.inReplyToId === null &&
+      !isAnswered(comment, repliedToIds) &&
+      isBabysitBotAuthor(comment.author, [...botAuthors]),
   );
   const failingChecks = input.checks.filter(
     (check) => check.state === "failed" || check.state === "cancelled",
+  );
+  const informationalChecks = input.checks.filter(
+    (check) => check.state === "informational",
   );
   const pendingChecks = input.checks.filter(
     (check) => check.state === "queued" || check.state === "in_progress",
@@ -487,25 +612,66 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
   const reviewsTruncated = input.reviewsTruncated === true;
   const reviewBots = input.botAuthors ?? [...DEFAULT_BABYSIT_BOT_AUTHORS];
   const reviewBodyKeys = humanReviewBodyKeys(input.reviews ?? [], reviewBots);
+  const botBodyKeys = botReviewBodyKeys(input.comments, reviewBots);
 
   return {
     unansweredComments,
+    unansweredBotComments,
     failingChecks,
+    informationalChecks,
     missingChangesetPackages,
     pendingChecks,
     checksCoverage,
     commentsTruncated,
     reviewsTruncated,
     humanReviewBodyKeys: reviewBodyKeys,
+    botReviewBodyKeys: botBodyKeys,
     isClean:
       hasCompletePassingChecks(input) &&
       !commentsTruncated &&
       !hasHumanReviewWork(input.reviews, reviewsTruncated, reviewBots) &&
       unansweredComments.length === 0 &&
+      unansweredBotComments.length === 0 &&
       failingChecks.length === 0 &&
       missingChangesetPackages.length === 0 &&
       pendingChecks.length === 0,
   };
+}
+
+const BOT_ERROR_AFTER_PING =
+  /\b(error|failed|could not|unable to|exception|timeout)\b/i;
+
+export function detectBotErrorAfterPing(input: {
+  comments: readonly ReviewCommentObservation[];
+  lastCommentAtMs: number | null;
+  botAuthors?: readonly string[];
+}): boolean {
+  if (input.lastCommentAtMs === null) return false;
+  const bots = input.botAuthors ?? DEFAULT_BABYSIT_BOT_AUTHORS;
+  return input.comments.some(
+    (comment) =>
+      isBabysitBotAuthor(comment.author, bots) &&
+      Date.parse(comment.createdAt) >= input.lastCommentAtMs! &&
+      BOT_ERROR_AFTER_PING.test(comment.body),
+  );
+}
+
+export function detectBuilderActive(input: {
+  checks: readonly PullRequestCheckObservation[];
+  lastBuilderActivityAtMs?: number | null;
+  nowMs: number;
+  quietWindowMs?: number;
+}): { active: boolean; untilMs: number | null } {
+  const quietWindowMs = input.quietWindowMs ?? BABYSIT_BUILDER_QUIET_WINDOW_MS;
+  const ciRunning = input.checks.some(
+    (check) => check.state === "queued" || check.state === "in_progress",
+  );
+  const activityMs = ciRunning
+    ? input.nowMs
+    : (input.lastBuilderActivityAtMs ?? null);
+  if (activityMs === null) return { active: false, untilMs: null };
+  const untilMs = activityMs + quietWindowMs;
+  return { active: input.nowMs < untilMs, untilMs };
 }
 
 export function formatBabysitAuditSummary(
@@ -528,13 +694,18 @@ export function babysitOutOfScopeClause(author: string | null): string {
 const BABYSIT_PING_REASON_CLAUSES: Record<BabysitPingReason, string> = {
   "first-ask": "this is the first request of the episode",
   "new-human-work": "there is new human review feedback",
+  "new-bot-work": "there is new unresolved bot review feedback",
   "new-definite-conflict": "a merge conflict appeared on a clean branch",
   "comment-scan-truncated":
     "the comment list was capped, so an earlier request cannot be ruled out",
   "too-soon": "the minimum interval since the last request has not elapsed",
-  "duplicate-comment": "the same request is already on the pull request",
+  "duplicate-comment":
+    "Factory already posted the same request on this branch head",
   "mergeability-uncomputed": "GitHub has not finished computing mergeability",
-  "already-asked": "Factory already asked and there is no new human feedback",
+  "already-asked": "Factory already asked and there is no new review feedback",
+  "builder-active":
+    "Builder is still active on the pull request within the quiet window",
+  "head-sha-changed": "the branch head changed since the last Factory request",
 };
 
 export function babysitPingReasonClause(reason: BabysitPingReason): string {
@@ -551,4 +722,8 @@ export function babysitAlreadyAskedClause(): string {
 
 export function babysitStuckClause(): string {
   return "stuck; another request cannot unblock it, so it needs a human.";
+}
+
+export function babysitDeferClause(): string {
+  return "deferred; Builder is active, so Factory is holding the request.";
 }

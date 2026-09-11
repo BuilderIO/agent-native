@@ -95,6 +95,20 @@ trust decision only - never auto-merge. Never claim ignored checks or feedback
 are resolved, and record one concise disposition for every PR that entered the
 evidence sweep.`;
 
+const BABYSIT_ALIGNMENT = `## PR babysit contract
+
+Follow the fixed poll → list → propose → babysit path only. Read
+\`recommendation\` and \`because\` from propose-pr-babysit-status and match
+the babysit decision unless the briefing clearly contradicts them.
+
+Allowed decisions: ping, defer, already_asked, stuck. Unresolved bot review
+threads count as work. Factory-only duplicate detection ignores human copies of
+the template comment. Defer while Builder is active within the 20-minute quiet
+window. Mark stuck when bot errors after a ping make another ask useless.
+
+Do not review diffs, call govern-factory-pull-request, or use ad-hoc GitHub
+tools. Never approve or merge.`;
+
 export type FactoryAutomationName =
   | "factory-slack-feedback"
   | "factory-sentry-errors"
@@ -113,6 +127,7 @@ export function managedReviewSkillAlignment(
     return FEEDBACK_ALIGNMENT;
   }
   if (name === "factory-pr-governance") return PR_ALIGNMENT;
+  if (name === "factory-pr-babysit") return BABYSIT_ALIGNMENT;
   return undefined;
 }
 

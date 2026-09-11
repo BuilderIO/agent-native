@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BABYSIT_DECISION_INSTRUCTION,
+  BABYSIT_FIXED_PATH,
   BABYSIT_LIST_BOUND,
   BABYSIT_SCOPE_INSTRUCTION,
   BABYSIT_WORK_RETRIGGER,
@@ -34,6 +35,8 @@ ${obsoleteBound}
 
     expect(repaired).toContain(BABYSIT_LIST_BOUND);
     expect(repaired).toContain(BABYSIT_SCOPE_INSTRUCTION);
+    expect(repaired).toContain(BABYSIT_FIXED_PATH);
+    expect(repaired).toContain(BABYSIT_DECISION_INSTRUCTION);
   });
 
   it("replaces the old commit-retriggers-a-poke sentence", () => {
@@ -46,7 +49,7 @@ window.
 
     expect(repaired).toContain(BABYSIT_WORK_RETRIGGER);
     expect(repaired).not.toContain("A changed commit, new unresolved feedback");
-    expect(repaired).toContain("Do not ask the bot to poll");
+    expect(repaired).toContain("bot review feedback");
   });
 
   it("rewrites the retired babysit-agent-native-pull-request name", () => {
@@ -65,17 +68,14 @@ evidence, the hardcoded comment, and the quiet window. Never approve or merge.
 `);
 
     expect(repaired).toContain(BABYSIT_DECISION_INSTRUCTION);
-    expect(repaired).not.toContain("the quiet window");
     expect(repaired).toContain("Never approve or merge.");
   });
 
-  // The action throws without a decision, so a prompt that never teaches one
-  // turns every scheduled babysit run into an error.
-  it("teaches the decision flow even when no obsolete sentence matched", () => {
+  it("teaches the recommendation flow even when no obsolete sentence matched", () => {
     const repaired = repairPrBabysitPrompt("# Factory PR babysitting\n");
 
-    expect(repaired).toContain("propose-pr-babysit-status");
-    expect(repaired).toContain("already_asked");
+    expect(repaired).toContain("read recommendation and because");
+    expect(repaired).toContain("defer");
     expect(repaired).toContain("stuck");
   });
 
@@ -87,7 +87,7 @@ evidence, the hardcoded comment, and the quiet window. Never approve or merge.
     expect(twice.split(BABYSIT_DECISION_INSTRUCTION).length - 1).toBe(1);
   });
 
-  it("upgrades the decision instruction to include first-ask", () => {
+  it("upgrades the legacy decision instruction to the recommendation flow", () => {
     const legacy = `# Factory PR babysitting
 
 For every in-scope item call propose-pr-babysit-status, then call babysit-factory-pull-request with decision. Use ping only for new human review feedback, or for a merge conflict that appeared after the branch was known to be conflict-free; GitHub finishing its merge calculation is not new work. Use already_asked when Factory already asked during this round of work. Use stuck when another request cannot unblock the pull request, so a human has to look.
@@ -95,7 +95,10 @@ For every in-scope item call propose-pr-babysit-status, then call babysit-factor
 
     const repaired = repairPrBabysitPrompt(legacy);
 
-    expect(repaired).toContain("first-ask");
+    expect(repaired).toContain("read recommendation and because");
     expect(repaired).toContain(BABYSIT_DECISION_INSTRUCTION);
+    expect(repaired).not.toContain(
+      "Use ping only for new human review feedback",
+    );
   });
 });

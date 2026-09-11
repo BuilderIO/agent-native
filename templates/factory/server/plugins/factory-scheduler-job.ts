@@ -55,7 +55,9 @@ import {
 import { persistGitHubRepository } from "../lib/github-repository.js";
 import {
   BABYSIT_DECISION_INSTRUCTION,
+  BABYSIT_FIXED_PATH,
   BABYSIT_SCOPE_INSTRUCTION,
+  BABYSIT_WORK_RETRIGGER,
   repairPrBabysitPrompt,
 } from "../lib/pr-babysit-prompt.js";
 import {
@@ -358,17 +360,16 @@ confirms it.
     schedule: "*/5 * * * *",
     legacySchedules: ["*/2 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
-    maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
+    maxIterations: 12,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
 # Factory PR babysitting
 
-Call poll-github-sources with includeIssues false and includePullRequests true.
-List at most 3 new or changed pull requests by passing needsReview true, source
-github, and limit 3. Never list the full queue or use the action's default page
-size. Each item includes author.
+${BABYSIT_FIXED_PATH}
 
 ${BABYSIT_SCOPE_INSTRUCTION}
+
+${BABYSIT_WORK_RETRIGGER}
 
 ${BABYSIT_DECISION_INSTRUCTION}
 
