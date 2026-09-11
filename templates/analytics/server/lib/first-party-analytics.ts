@@ -15,6 +15,7 @@ import {
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
+  insertFirstPartyAnalyticsRowsWithResults,
   queryFirstPartyAnalyticsInBigQuery,
 } from "./first-party-analytics-backend.js";
 import {
@@ -151,6 +152,7 @@ async function persistBigQueryRowsWithMigrationFallback(
     await db.transaction(async (tx: any) => {
       await tx.insert(schema.analyticsEvents).values(rows);
       const marker = JSON.stringify({
+        deliveryState: "pending",
         ownerEmail: scope.userEmail,
         orgId: scope.orgId,
         tableRef: table,
@@ -165,13 +167,58 @@ async function persistBigQueryRowsWithMigrationFallback(
       }
     });
     try {
-      await runWithRequestContext(
+      const result = await runWithRequestContext(
         {
           userEmail: scope.userEmail,
           orgId: scope.orgId ?? undefined,
         },
-        () => insertFirstPartyAnalyticsRows(rows, table),
+        () => insertFirstPartyAnalyticsRowsWithResults(rows, table),
       );
+      const acceptedIds = new Set(result.acceptedIds);
+      const rejectedIds = new Set(result.rejectedIds);
+      const rowIds = new Set(rows.map((row) => row.id));
+      if (
+        acceptedIds.size + rejectedIds.size !== rows.length ||
+        [...acceptedIds, ...rejectedIds].some((id) => !rowIds.has(id)) ||
+        [...acceptedIds].some((id) => rejectedIds.has(id)) ||
+        rows.some((row) => !acceptedIds.has(row.id) && !rejectedIds.has(row.id))
+      ) {
+        throw new Error(
+          "BigQuery fallback delivery returned an incomplete row result",
+        );
+      }
+      if (acceptedIds.size) {
+        const deliveredAt = new Date().toISOString();
+        await db.transaction(async (tx: any) => {
+          for (const row of rows) {
+            if (!acceptedIds.has(row.id)) continue;
+            const deliveredMarker = JSON.stringify({
+              deliveryState: "delivered",
+              deliveredAt,
+              ownerEmail: scope.userEmail,
+              orgId: scope.orgId,
+              tableRef: table,
+              receivedAt,
+            });
+            const updated = await tx.execute(
+              sql`UPDATE settings
+                     SET value = ${deliveredMarker}, updated_at = ${Date.now()}
+                   WHERE key = ${firstPartyAnalyticsDeliveryFallbackKey(row.id)}`,
+            );
+            if (Number(updated.rowsAffected) !== 1) {
+              throw new Error(
+                `BigQuery fallback marker for ${row.id} was not updated`,
+              );
+            }
+          }
+        });
+      }
+      if (rejectedIds.size) {
+        console.error(
+          "[first-party-analytics] BigQuery fallback rejected rows; retaining markers for retry:",
+          result.error ?? `BigQuery rejected ${rejectedIds.size} event row(s)`,
+        );
+      }
     } catch (deliveryError) {
       console.error(
         "[first-party-analytics] BigQuery fallback delivery failed; Postgres event retained:",

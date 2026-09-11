@@ -333,12 +333,13 @@ async function reconcileMigrationFallbackRows(
                   COALESCE(NULLIF(fallback.metadata ->> 'receivedAt', ''), event.received_at, $3),
                   COALESCE(NULLIF(fallback.metadata ->> 'receivedAt', ''), event.received_at, $3),
                   $3
-             FROM fallback
-             JOIN analytics_events AS event
-               ON event.id = substring(fallback.key FROM char_length($1) + 1)
-            WHERE event.owner_email = fallback.metadata ->> 'ownerEmail'
-              AND event.org_id IS NOT DISTINCT FROM NULLIF(fallback.metadata ->> 'orgId', '')
-              AND NOT EXISTS (
+           FROM fallback
+            JOIN analytics_events AS event
+              ON event.id = substring(fallback.key FROM char_length($1) + 1)
+           WHERE event.owner_email = fallback.metadata ->> 'ownerEmail'
+             AND event.org_id IS NOT DISTINCT FROM NULLIF(fallback.metadata ->> 'orgId', '')
+             AND fallback.metadata ->> 'deliveryState' IS DISTINCT FROM 'delivered'
+             AND NOT EXISTS (
                 SELECT 1
                   FROM ${DELIVERY_TABLE} AS queued
                  WHERE queued.event_id = event.id
@@ -501,6 +502,7 @@ async function cleanupDeliveredRows(db: Executor): Promise<number> {
   const cutoff = new Date(
     Date.now() - DELIVERY_CLEANUP_RETENTION_MS,
   ).toISOString();
+  const markerCutoff = Date.now() - DELIVERY_CLEANUP_RETENTION_MS;
   return db.transaction(async (tx) => {
     const selected = await tx.execute({
       sql: `SELECT event_id
@@ -521,31 +523,62 @@ async function cleanupDeliveredRows(db: Executor): Promise<number> {
           : "",
       )
       .filter(Boolean);
-    if (!ids.length) return 0;
+    const selectedFallback = await tx.execute({
+      sql: `SELECT substring(key FROM char_length($1) + 1) AS event_id
+              FROM settings
+             WHERE key LIKE $1 || '%'
+               AND value::jsonb ->> 'deliveryState' = 'delivered'
+               AND updated_at <= $2
+             ORDER BY updated_at ASC, key ASC
+             LIMIT $3
+             FOR UPDATE SKIP LOCKED`,
+      args: [
+        FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX,
+        markerCutoff,
+        DELIVERY_BATCH_SIZE,
+      ],
+      timeoutMs: 5_000,
+      maxAttempts: 1,
+    });
+    const fallbackIds = (selectedFallback.rows ?? [])
+      .map((row) =>
+        row && typeof row === "object"
+          ? stringValue(row as Record<string, unknown>, "event_id", "eventId")
+          : "",
+      )
+      .filter(Boolean);
+    const uniqueIds = [...new Set([...ids, ...fallbackIds])];
+    if (!uniqueIds.length) return 0;
     await tx.execute({
       sql: `DELETE FROM analytics_events
-             WHERE id IN (${idPlaceholders(1, ids.length)})`,
-      args: ids,
+             WHERE id IN (${idPlaceholders(1, uniqueIds.length)})`,
+      args: uniqueIds,
       timeoutMs: 5_000,
       maxAttempts: 1,
     });
     await tx.execute({
       sql: `DELETE FROM settings
-             WHERE key IN (${idPlaceholders(1, ids.length)})`,
-      args: ids.map(firstPartyAnalyticsDeliveryFallbackKey),
+             WHERE key IN (${idPlaceholders(1, uniqueIds.length)})`,
+      args: uniqueIds.map(firstPartyAnalyticsDeliveryFallbackKey),
       timeoutMs: 5_000,
       maxAttempts: 1,
     });
-    const deleted = await tx.execute({
-      sql: `DELETE FROM ${DELIVERY_TABLE}
-             WHERE delivered_at IS NOT NULL
-               AND event_id IN (${idPlaceholders(1, ids.length)})`,
-      args: ids,
-      timeoutMs: 5_000,
-      maxAttempts: 1,
-    });
-    requireRowsAffected(deleted, ids.length, "Cleaning BigQuery delivery rows");
-    return ids.length;
+    if (ids.length) {
+      const deleted = await tx.execute({
+        sql: `DELETE FROM ${DELIVERY_TABLE}
+               WHERE delivered_at IS NOT NULL
+                 AND event_id IN (${idPlaceholders(1, ids.length)})`,
+        args: ids,
+        timeoutMs: 5_000,
+        maxAttempts: 1,
+      });
+      requireRowsAffected(
+        deleted,
+        ids.length,
+        "Cleaning BigQuery delivery rows",
+      );
+    }
+    return uniqueIds.length;
   });
 }
 

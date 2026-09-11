@@ -15,6 +15,7 @@ const backendMocks = vi.hoisted(() => ({
   get: vi.fn(),
   table: vi.fn(),
   insert: vi.fn(),
+  insertWithResults: vi.fn(),
   query: vi.fn(),
 }));
 const exceptionMocks = vi.hoisted(() => ({
@@ -97,6 +98,7 @@ vi.mock("./first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsBackend: backendMocks.get,
   getFirstPartyAnalyticsTable: backendMocks.table,
   insertFirstPartyAnalyticsRows: backendMocks.insert,
+  insertFirstPartyAnalyticsRowsWithResults: backendMocks.insertWithResults,
   queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
 }));
 
@@ -117,6 +119,7 @@ beforeEach(() => {
   analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
   analyticsDbMocks.db.transaction.mockClear();
   analyticsDbMocks.transactionExecute.mockReset();
+  analyticsDbMocks.transactionExecute.mockResolvedValue({ rowsAffected: 1 });
   analyticsDbMocks.selectLimit.mockReset();
   analyticsDbMocks.insertValues.mockReset();
   analyticsDbMocks.insertOnConflictDoNothing.mockReset();
@@ -144,6 +147,13 @@ beforeEach(() => {
   backendMocks.get.mockReset();
   backendMocks.table.mockReset();
   backendMocks.insert.mockReset();
+  backendMocks.insertWithResults
+    .mockReset()
+    .mockImplementation(async (rows: Array<{ id: string }>) => ({
+      acceptedIds: rows.map((row) => row.id),
+      rejectedIds: [],
+      error: null,
+    }));
   backendMocks.query.mockReset();
   exceptionMocks.ingest.mockReset();
   deliveryMocks.queueMissing.mockReset();
@@ -423,10 +433,13 @@ describe("recordAnalyticsEvents", () => {
       recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
     ).resolves.toMatchObject({ accepted: 1 });
 
-    expect(analyticsDbMocks.db.transaction).toHaveBeenCalledTimes(2);
+    expect(analyticsDbMocks.db.transaction).toHaveBeenCalledTimes(3);
     expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
-    expect(analyticsDbMocks.transactionExecute).toHaveBeenCalledOnce();
-    expect(backendMocks.insert).toHaveBeenCalledWith(
+    expect(analyticsDbMocks.transactionExecute).toHaveBeenCalledTimes(2);
+    expect(analyticsDbMocks.transactionExecute).toHaveBeenLastCalledWith(
+      expect.objectContaining({ queryChunks: expect.any(Array) }),
+    );
+    expect(backendMocks.insertWithResults).toHaveBeenCalledWith(
       [expect.objectContaining({ eventName: "pageview" })],
       "builder-3b0a2.analytics.first_party_analytics_events_raw",
     );

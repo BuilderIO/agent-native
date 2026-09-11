@@ -110,6 +110,11 @@ describe("BigQuery delivery queue", () => {
       [eventRow],
       queueRow.table_ref,
     );
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("deliveryState"),
+      }),
+    );
   });
 
   it("records a retry and exposes the failed receipt to the canary", async () => {
