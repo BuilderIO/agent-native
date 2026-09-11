@@ -1518,6 +1518,16 @@ function SqlDashboardPageContent({
     return { ...(dashboard?.variables ?? {}), ...filterValues };
   }, [dashboard?.variables, dashboard?.filters, searchParams]);
 
+  const dashboardExtensionContext = useMemo<Record<string, unknown>>(
+    () => ({
+      dashboardId,
+      dashboardName: dashboard?.name ?? "",
+      dashboardDescription: dashboard?.description ?? null,
+      filters: vars,
+    }),
+    [dashboardId, dashboard?.name, dashboard?.description, vars],
+  );
+
   const currentReportFilters = useMemo<Record<string, string>>(() => {
     const out = dashboard?.filters
       ? extractFilterParams(dashboard.filters, searchParams)
@@ -2554,13 +2564,9 @@ function SqlDashboardPageContent({
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}
-                                dashboardExtensionContext={{
-                                  dashboardId,
-                                  dashboardName: dashboard.name,
-                                  dashboardDescription:
-                                    dashboard.description ?? null,
-                                  filters: vars,
-                                }}
+                                dashboardExtensionContext={
+                                  dashboardExtensionContext
+                                }
                               />
                               <DashboardDropLine
                                 slot={{
