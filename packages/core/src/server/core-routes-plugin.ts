@@ -71,9 +71,8 @@ import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
-  registerFileUploadProvider,
 } from "../file-upload/index.js";
-import { s3FileUploadProvider } from "../file-upload/s3.js";
+import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -1773,16 +1772,7 @@ function wireRouteErrorCapture(nitroApp: any): void {
   );
 }
 
-export function ensureS3FileUploadProvider(): void {
-  if (
-    listFileUploadProviders().some(
-      (provider) => provider.id === s3FileUploadProvider.id,
-    )
-  ) {
-    return;
-  }
-  registerFileUploadProvider(s3FileUploadProvider);
-}
+export { ensureS3FileUploadProvider };
 
 export interface OAuthCustodyBuilderKeyStatus {
   privateKeyConfigured: boolean;

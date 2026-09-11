@@ -18,6 +18,7 @@ import { pathToFileURL } from "url";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import { closeDbExec } from "../db/client.js";
+import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import {
   actionCallIsReadOnly,
   notifyActionChange,
@@ -297,6 +298,14 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   // `process.env.AGENT_USER_EMAIL` because env mutation leaks across
   // boundaries — see the cautionary comment in
   // `server/request-context.ts` about exactly that pattern.
+
+  // A CLI run mounts no Nitro plugins, so nothing has claimed the file upload
+  // slot that `createCoreRoutesPlugin` and the onboarding plugin claim on a
+  // server. Without this an action calling `uploadFile()` from `pnpm action`
+  // finds no provider and fails with storage fully configured — the same action
+  // works from the dev server and in production.
+  ensureS3FileUploadProvider();
+
   const userEmail = await resolveDevUserEmail();
   const orgId = process.env.AGENT_ORG_ID || undefined;
 

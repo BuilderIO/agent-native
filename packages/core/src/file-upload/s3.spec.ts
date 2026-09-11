@@ -6,7 +6,13 @@ vi.mock("../server/credential-provider.js", () => ({
   resolveSecret: (...args: unknown[]) => resolveSecretMock(...args),
 }));
 
-import { s3FileUploadProvider } from "./s3.js";
+import {
+  listFileUploadProviders,
+  registerFileUploadProvider,
+  unregisterFileUploadProvider,
+} from "./registry.js";
+import { ensureS3FileUploadProvider, s3FileUploadProvider } from "./s3.js";
+import type { FileUploadProvider } from "./types.js";
 
 describe("s3FileUploadProvider", () => {
   const originalEnv = { ...process.env };
@@ -133,5 +139,41 @@ describe("s3FileUploadProvider", () => {
       }),
     ).resolves.toMatchObject({ provider: "s3" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ensureS3FileUploadProvider", () => {
+  afterEach(() => {
+    unregisterFileUploadProvider("s3");
+  });
+
+  it("claims the slot when it is free", () => {
+    ensureS3FileUploadProvider();
+    expect(listFileUploadProviders()).toContain(s3FileUploadProvider);
+  });
+
+  it("is idempotent", () => {
+    ensureS3FileUploadProvider();
+    ensureS3FileUploadProvider();
+    expect(
+      listFileUploadProviders().filter((provider) => provider.id === "s3"),
+    ).toHaveLength(1);
+  });
+
+  // An app registers its own implementation under the conventional `s3` id,
+  // and every later bootstrap that reaches this helper has to leave it there.
+  it("leaves an app's own provider in the slot", () => {
+    const appProvider: FileUploadProvider = {
+      id: "s3",
+      name: "App storage",
+      isConfigured: () => true,
+      upload: async () => ({
+        url: "https://app.example.com/a",
+        provider: "s3",
+      }),
+    };
+    registerFileUploadProvider(appProvider);
+    ensureS3FileUploadProvider();
+    expect(listFileUploadProviders()).toStrictEqual([appProvider]);
   });
 });

@@ -15,6 +15,7 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
+import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { loadEnv } from "../scripts/utils.js";
@@ -159,6 +160,9 @@ export async function runAgent(
 ): Promise<number> {
   loadEnv();
   registerBuiltinEngines();
+  // No Nitro plugins run here either, so the app actions this loop discovers
+  // need the upload slot claimed the same way `runScript` claims it.
+  ensureS3FileUploadProvider();
 
   const stdout = io.stdout ?? console.log;
   const stderr = io.stderr ?? console.error;

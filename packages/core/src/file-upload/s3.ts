@@ -7,6 +7,10 @@
  */
 
 import { resolveSecret } from "../server/credential-provider.js";
+import {
+  listFileUploadProviders,
+  registerFileUploadProvider,
+} from "./registry.js";
 import type { FileUploadProvider } from "./types.js";
 
 interface S3Config {
@@ -330,3 +334,23 @@ export const s3FileUploadProvider: FileUploadProvider = {
     return deleteObject(config, id);
   },
 };
+
+/**
+ * Put the built-in provider in the `s3` slot unless something already holds it.
+ *
+ * An app may register its own implementation under the same conventional id —
+ * the plugin comment in `core-routes-plugin.ts` says so — and that explicit
+ * registration has to survive every later bootstrap that reaches this code, in
+ * whatever order they run. Callers that want to *replace* the slot call
+ * `registerFileUploadProvider` directly.
+ */
+export function ensureS3FileUploadProvider(): void {
+  if (
+    listFileUploadProviders().some(
+      (provider) => provider.id === s3FileUploadProvider.id,
+    )
+  ) {
+    return;
+  }
+  registerFileUploadProvider(s3FileUploadProvider);
+}

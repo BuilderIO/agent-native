@@ -11,6 +11,7 @@ import { openCliHandoff } from "./runner.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
 const runnerSource = path.resolve(__dirname, "runner.ts");
+const fileUploadIndex = path.resolve(__dirname, "../file-upload/index.ts");
 
 // `tsx` is a transitive (not declared) dependency, so the hoisted
 // `node_modules/.bin/tsx` shim exists under a local non-strict install but
@@ -97,6 +98,23 @@ describe("runScript package actions", () => {
                   }),
                 );
                 return "context-ok";
+              },
+            },
+            "package-upload": {
+              tool: {
+                description: "Fixture package action upload",
+                parameters: { type: "object", properties: {} },
+              },
+              run: async () => {
+                const { getActiveFileUploadProviderForRequest } = await import(
+                  ${JSON.stringify(pathToFileURL(fileUploadIndex).href)}
+                );
+                const provider = await getActiveFileUploadProviderForRequest();
+                writeFileSync(
+                  "package-upload.json",
+                  JSON.stringify({ provider: provider?.id ?? null }),
+                );
+                return "upload-ok";
               },
             },
             "package-handoff": {
@@ -190,6 +208,40 @@ describe("runScript package actions", () => {
       sourceIds: ["mail", "calendar"],
       limit: "8",
     });
+  }, 40_000);
+
+  // A CLI run mounts no Nitro plugins, so nothing claims the upload slot that
+  // `createCoreRoutesPlugin` and the onboarding plugin claim on a server. Before
+  // `runScript` claimed it, this resolved no provider at all and every action
+  // that stores a file failed with storage fully configured.
+  it("resolves the built-in S3 provider with no server plugins mounted", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-upload"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+          S3_ENDPOINT: "https://s3.example.com",
+          S3_BUCKET: "uploads-example",
+          S3_ACCESS_KEY_ID: "access-example",
+          S3_SECRET_ACCESS_KEY: "secret-example",
+          S3_REGION: "us-east-1",
+          S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.stdout).toContain("upload-ok");
+    expect(result.status).toBe(0);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-upload.json"), "utf8"),
+      ),
+    ).toEqual({ provider: "s3" });
   }, 40_000);
 
   it("marks a signed-out local action invocation as CLI without inventing an account user", () => {

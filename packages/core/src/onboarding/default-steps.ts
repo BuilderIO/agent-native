@@ -15,11 +15,8 @@ import {
   isAgentEngineSettingConfigured,
 } from "../agent/engine/registry.js";
 import { getAppConfig } from "../app-config/index.js";
-import {
-  getActiveFileUploadProviderForRequest,
-  registerFileUploadProvider,
-} from "../file-upload/registry.js";
-import { s3FileUploadProvider } from "../file-upload/s3.js";
+import { getActiveFileUploadProviderForRequest } from "../file-upload/registry.js";
+import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
@@ -486,9 +483,10 @@ export function registerDefaultOnboardingSteps(): void {
   if (registered) return;
   registered = true;
   // The framework provides a generic S3/R2 implementation for the custom-key
-  // onboarding path. Templates may replace the same provider id with a
-  // domain-specific implementation after this default plugin mounts.
-  registerFileUploadProvider(s3FileUploadProvider);
+  // onboarding path. A template may hold the same provider id with a
+  // domain-specific implementation, and this plugin mounts in no fixed order
+  // relative to that registration, so claim the slot only when it is free.
+  ensureS3FileUploadProvider();
   registerOnboardingStep(llmStep);
   registerOnboardingStep(fileStorageStep);
   registerOnboardingStep(databaseStep);
