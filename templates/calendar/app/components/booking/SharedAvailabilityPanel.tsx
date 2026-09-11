@@ -191,10 +191,7 @@ export function SharedAvailabilityPanel() {
                           type="button"
                           size="sm"
                           variant="destructive"
-                          disabled={
-                            removePerson.isPending &&
-                            removePerson.variables === person.email
-                          }
+                          disabled={removePerson.isPending}
                           onClick={() =>
                             removePerson.mutate(person.email, {
                               onError: () =>

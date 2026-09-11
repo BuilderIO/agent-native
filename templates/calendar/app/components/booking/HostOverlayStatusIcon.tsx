@@ -77,8 +77,7 @@ export function HostOverlayStatusIcon({
   }, [status?.requestSentAt]);
 
   if (variant === "manual") {
-    const isAdding =
-      addPerson.isPending && addPerson.variables?.email === email;
+    const isAdding = addPerson.isPending;
     return (
       <Popover>
         <PopoverTrigger asChild>
@@ -227,9 +226,7 @@ export function HostOverlayStatusIcon({
             mutation
               .mutateAsync({ email, bookingLinkId })
               .then((data) => setLocalResult(data))
-              .catch(() =>
-                toast.error(t("bookingLinks.overlayRequestFailed")),
-              )
+              .catch(() => toast.error(t("bookingLinks.overlayRequestFailed")))
               .finally(() => setIsSending(false));
           }}
         >

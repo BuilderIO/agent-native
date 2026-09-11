@@ -726,7 +726,7 @@ export function Sidebar({
       const existing = items.get(mapKey);
       items.set(mapKey, {
         key: mapKey,
-        label: existing ? existing.label : person.email,
+        label: person.name || (existing ? existing.label : person.email),
         google: existing ? existing.google : undefined,
         person,
       });
@@ -972,9 +972,11 @@ export function Sidebar({
                             >
                               <button
                                 type="button"
-                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                                aria-label={`${t("eventForm.color")}: ${item.label}`}
+                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               >
                                 <span
+                                  aria-hidden="true"
                                   className={cn(
                                     "block h-2.5 w-2.5 rounded-full",
                                     !visible && "opacity-40",
