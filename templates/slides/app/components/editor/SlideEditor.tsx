@@ -1766,7 +1766,7 @@ export default function SlideEditor({
         `Available content area inside the slide's padding: ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px.`,
         `Natural rendered content: ${overflowInfo.contentWidth}x${overflowInfo.contentHeight}px inside a ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px content area.`,
         ``,
-        `Please use \`view-screen\` to read the current slide HTML, then make one bounded \`update-slide --fullContent\` repair so its rendered content fits within ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
+        `Please use \`view-screen\` to confirm the overflow, then call \`get-deck\` with slideId \`${slide.id}\` to read the complete current HTML and contentHash. Make one bounded \`update-slide --fullContent\` repair with that contentHash as \`baseContentHash\` so its rendered content fits within ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
         `1. Tighten copy — shorten headings/body, drop low-value bullets, replace prose with terse phrases.`,
         `2. Reduce vertical density — fewer stacked cards, smaller gaps, smaller body font (don't go below 16px), shorter labels.`,
         `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px) if the layout is genuinely tight.`,
@@ -1865,7 +1865,14 @@ export default function SlideEditor({
       // `<div class="mermaid">` markup from the untouched source before saving.
       const clone = slideContent.cloneNode(true) as HTMLElement;
       if (activeHtml !== null && activePath) {
-        const activeClone = resolveElementPath(clone, activePath);
+        // The live DOM can be restructured under an active edit (autofit
+        // wraps the slide's children when the canvas resizes), so the path
+        // captured at edit start is only trustworthy for the static snapshot.
+        // The editing block itself is marked; find it by that mark first, or
+        // the editor's own markup would be serialized as slide content.
+        const activeClone =
+          clone.querySelector<HTMLElement>('[data-editing-block="true"]') ??
+          resolveElementPath(clone, activePath);
         if (activeClone) {
           restoreSlideTextContainerContent(
             activeClone,
@@ -6254,6 +6261,18 @@ export default function SlideEditor({
         editingEl?.contains(e.target as Node) ?? false;
       if (editingEl) {
         if (targetIsEditingBlock && !additive && multiSelection.size === 0) {
+          // The editor is only as tall as its text, so a press in the block's
+          // remaining area lands on the block; keep the caret instead of
+          // letting the browser blur it.
+          const editor = richTextEditorRef.current?.getEditor();
+          if (
+            editor &&
+            !editor.isDestroyed &&
+            !editor.view.dom.contains(target)
+          ) {
+            e.preventDefault();
+            editor.commands.focus("end");
+          }
           return;
         }
         exitInlineEdit();

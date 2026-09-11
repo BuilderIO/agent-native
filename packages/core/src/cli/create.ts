@@ -15,13 +15,18 @@ import {
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
-import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
+import {
+  ensureNodePtyBuildDependency,
+  parseWorkspaceScope,
+  workspacifyApp,
+} from "./workspacify.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
+const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
@@ -1984,6 +1989,7 @@ function postProcessStandalone(
   // catalog: references only resolve inside a pnpm workspace with a catalog
   // defined in pnpm-workspace.yaml — standalone scaffolds don't have one.
   const catalog = loadCatalog();
+  let hasNodePty = false;
   const pkgPath = path.join(targetDir, "package.json");
   if (fs.existsSync(pkgPath)) {
     try {
@@ -2011,8 +2017,15 @@ function postProcessStandalone(
         }
       }
       pkg.dependencies = pkg.dependencies ?? {};
+      pkg.dependencies["@electric-sql/pglite"] ??= PGLITE_DEPENDENCY_VERSION;
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
+      hasNodePty = [
+        pkg.dependencies,
+        pkg.devDependencies,
+        pkg.peerDependencies,
+        pkg.optionalDependencies,
+      ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {}
   }
@@ -2068,6 +2081,7 @@ function postProcessStandalone(
       fs.writeFileSync(wsPath, updated);
     }
   } catch {}
+  if (hasNodePty) ensureNodePtyBuildDependency(targetDir);
 
   fixStandaloneTsconfig(targetDir, templateName);
 

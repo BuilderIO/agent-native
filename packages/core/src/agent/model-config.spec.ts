@@ -11,6 +11,7 @@ import {
   DEFAULT_OPENAI_MODEL,
   getContextWindowForModel,
   getMaxOutputTokensForModel,
+  resolveFallbackModel,
 } from "./model-config.js";
 
 describe("agent model config catalog", () => {
@@ -135,7 +136,7 @@ describe("agent model config catalog", () => {
     );
   });
 
-  it("exposes only GPT-5.6 Sol, Terra, and Luna in OpenAI-backed catalogs", () => {
+  it("keeps OpenAI-backed catalogs aligned to their curated model ids", () => {
     expect(
       (BUILDER_MODEL_CONFIG.supportedModels as readonly string[]).filter(
         (model) => model.startsWith("gpt-"),
@@ -154,6 +155,8 @@ describe("agent model config catalog", () => {
       "openai/gpt-5.6-luna",
       "openai/gpt-5.6-terra",
       "openai/gpt-5.6-sol",
+      "openai/gpt-6-astra",
+      "openai/gpt-6-astra-pro",
     ]);
   });
 
@@ -197,6 +200,17 @@ describe("agent model config catalog", () => {
         : "anthropic/claude-sonnet-4.6",
     );
     expect(openrouterModels).toContain("google/gemini-2.5-flash");
+    expect(openrouterModels).toEqual(
+      expect.arrayContaining([
+        "openai/gpt-6-astra",
+        "openai/gpt-6-astra-pro",
+        "anthropic/claude-fable-5.1",
+        "google/gemini-3.8-flash",
+        "qwen/qwen3.8-max-0902",
+        "meta/muse-spark-1.3",
+        "inception/mercury-2.5",
+      ]),
+    );
     expect(openrouterModels).toContain("z-ai/glm-5.2");
   });
 });
@@ -305,5 +319,80 @@ describe("getMaxOutputTokensForModel", () => {
     expect(getMaxOutputTokensForModel("unknown-model-xyz")).toBe(64_000);
     expect(getMaxOutputTokensForModel("")).toBe(64_000);
     expect(getMaxOutputTokensForModel(undefined)).toBe(64_000);
+  });
+});
+
+describe("resolveFallbackModel", () => {
+  it("swaps haiku and sonnet for each other on the Builder catalog", () => {
+    expect(
+      resolveFallbackModel(
+        "claude-haiku-4-5",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe(CLAUDE_SONNET_MODEL_ID);
+    expect(
+      resolveFallbackModel(
+        CLAUDE_SONNET_MODEL_ID,
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe("claude-haiku-4-5");
+  });
+
+  it("falls back opus to sonnet on the Builder catalog", () => {
+    expect(
+      resolveFallbackModel(
+        "claude-opus-4-8",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe(CLAUDE_SONNET_MODEL_ID);
+  });
+
+  it("resolves by family against the direct Anthropic engine's dated ids", () => {
+    // The direct Anthropic engine advertises a dated haiku id
+    // ("claude-haiku-4-5-20251001") that never appears in the Builder
+    // catalog — the resolver must match by family, not by literal id.
+    expect(
+      resolveFallbackModel(
+        CLAUDE_SONNET_MODEL_ID,
+        ANTHROPIC_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe("claude-haiku-4-5-20251001");
+    expect(
+      resolveFallbackModel(
+        "claude-haiku-4-5-20251001",
+        ANTHROPIC_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe(CLAUDE_SONNET_MODEL_ID);
+  });
+
+  it("returns undefined for an unknown model family", () => {
+    expect(
+      resolveFallbackModel("auto", BUILDER_MODEL_CONFIG.supportedModels),
+    ).toBeUndefined();
+    expect(
+      resolveFallbackModel(
+        "gpt-5-6-luna",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBeUndefined();
+    expect(
+      resolveFallbackModel(
+        "gemini-3-5-flash",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBeUndefined();
+    expect(
+      resolveFallbackModel(
+        "unknown-model-xyz",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when supportedModels has no sibling in the target family", () => {
+    expect(
+      resolveFallbackModel("claude-haiku-4-5", ["claude-haiku-4-5"]),
+    ).toBeUndefined();
+    expect(resolveFallbackModel("claude-haiku-4-5", undefined)).toBeUndefined();
   });
 });

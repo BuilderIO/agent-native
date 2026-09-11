@@ -190,7 +190,7 @@ export default function TrashRoute() {
   return (
     <div className="flex flex-1 flex-col min-h-0">
       <PageHeader>
-        <PageBreadcrumb label={t("trashRoute.title")} />
+        <PageBreadcrumb items={[{ label: t("trashRoute.title") }]} />
         <div className="ms-auto flex items-center gap-2">
           {selectedIds.length > 0 && (
             <>

@@ -19,12 +19,15 @@ export interface DashboardRevision {
   createdBy: string | null;
 }
 
-export function useDashboardRevisions(dashboardId: string | null) {
+export function useDashboardRevisions(
+  dashboardId: string | null,
+  options: { enabled?: boolean } = {},
+) {
   const { session } = useSession();
   const scope = dashboardCacheScope(session);
   return useQuery({
     queryKey: ["dashboard-revisions", dashboardId, scope],
-    enabled: !!dashboardId,
+    enabled: options.enabled ?? !!dashboardId,
     queryFn: async () => {
       if (!dashboardId) return [];
       const data = await callAction(

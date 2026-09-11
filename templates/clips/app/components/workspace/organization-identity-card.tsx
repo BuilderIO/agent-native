@@ -1,5 +1,6 @@
 import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import { useMemo } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,11 +32,28 @@ export function OrganizationIdentityCard() {
   const t = useT();
   const { session } = useSession();
   const email = session?.email ?? "";
+  const {
+    data: orgInfo,
+    isLoading: orgLoading,
+    isError: isOrgError,
+  } = useOrg();
+  // Personal scope owns this surface: the framework Team card below already
+  // renders "create an organization", so an org-scoped branding fetch here
+  // has nothing to read and its failure reads as a broken page. A failed org
+  // lookup also leaves `orgInfo` undefined, so it must stay distinguishable
+  // from a loaded `orgId: null` instead of silently hiding the section.
+  const activeOrgId = orgInfo?.orgId ?? null;
+  const hasActiveOrg = Boolean(activeOrgId);
 
+  // Scope the request - and therefore the query key - to the active org.
+  // An unscoped key hands the next organization the previous one's cached
+  // branding while it refetches, which `BrandingEditor` would then seed its
+  // form with and save back under the new org's id.
   const { data, isPending, isError } =
     useActionQuery<OrganizationStateResponse>(
       "list-organization-state",
-      undefined,
+      activeOrgId ? { organizationId: activeOrgId } : undefined,
+      { enabled: hasActiveOrg },
     );
 
   const organization = data?.organization ?? null;
@@ -48,9 +66,9 @@ export function OrganizationIdentityCard() {
     return role === "admin" || role === "owner";
   }, [members, email, organization?.ownerEmail]);
 
-  if (isPending) return <Skeleton className="h-64 w-full" />;
-  // A failed load must not look like "this org has no branding".
-  if (isError) {
+  // A failed load must not look like "this org has no branding", and an
+  // unreadable organization must not look like not having one.
+  if (isOrgError || isError) {
     return (
       <Card>
         <CardContent className="py-6 text-center text-sm text-muted-foreground">
@@ -59,6 +77,9 @@ export function OrganizationIdentityCard() {
       </Card>
     );
   }
+  if (orgLoading) return <Skeleton className="h-64 w-full" />;
+  if (!hasActiveOrg) return null;
+  if (isPending) return <Skeleton className="h-64 w-full" />;
   if (!organization) return null;
 
   if (!isAdmin) {
@@ -96,7 +117,10 @@ export function OrganizationIdentityCard() {
   }
 
   return (
+    // Remount per organization: the editor seeds its form state from these
+    // props once, so a reused instance keeps the previous org's values.
     <BrandingEditor
+      key={organization.id}
       organizationId={organization.id}
       initialName={organization.name}
       initialBrandColor={organization.brandColor}

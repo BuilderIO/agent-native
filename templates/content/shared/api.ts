@@ -37,6 +37,7 @@ export interface Document {
   accessRole?: DocumentAccessRole;
   canView?: boolean;
   canComment?: boolean;
+  canSuggest?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
   source?: DocumentSourceInfo;
@@ -50,6 +51,7 @@ export interface Document {
   /** Opaque token for optimistic document-body reconciliation. */
   revision?: string;
   bodyRevision?: number;
+  collabContentRevision?: string | null;
   contentHash?: string;
   contentFidelity?: NfmFidelityReport;
 }
@@ -436,6 +438,7 @@ export interface ContentDatabaseMembership {
   databaseId: string | null;
   databaseDocumentId: string | null;
   databaseTitle: string | null;
+  systemRole?: string | null;
   position: number | null;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;

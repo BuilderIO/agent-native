@@ -53,10 +53,11 @@ export async function fetchVideoStorageStatus(): Promise<VideoStorageStatus> {
   };
 }
 
-export function useVideoStorageStatus() {
+export function useVideoStorageStatus(enabled = true) {
   return useQuery({
     queryKey: VIDEO_STORAGE_STATUS_KEY,
     queryFn: fetchVideoStorageStatus,
+    enabled,
     staleTime: 60_000,
   });
 }

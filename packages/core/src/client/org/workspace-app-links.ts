@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { coreTemplates, getTemplate } from "../../cli/templates-meta.js";
 import { isTruthyRuntimeValue } from "../../shared/runtime-config.js";
+import { normalizeWorkspaceAppHomePath } from "../../shared/workspace-app-audience.js";
 
 export interface OrgSwitcherAppLink {
   id: string;
@@ -153,6 +154,9 @@ function appEntryToLink(
     typeof record.icon === "string" && record.icon.trim()
       ? record.icon.trim()
       : getTemplate(id)?.icon;
+  const explicitHomePath =
+    typeof record.homePath === "string" ? record.homePath.trim() : "";
+  const homePath = normalizeWorkspaceAppHomePath(record.homePath);
 
   return {
     id,
@@ -160,7 +164,13 @@ function appEntryToLink(
       typeof record.name === "string" && record.name.trim()
         ? record.name.trim()
         : titleCase(id),
-    href: isDispatch ? appendPath(baseHref, "overview") : baseHref,
+    href: isDispatch
+      ? appendPath(baseHref, "overview")
+      : homePath === "/"
+        ? baseHref
+        : explicitUrl && !explicitHomePath
+          ? baseHref
+          : appendPath(baseHref, homePath),
     description:
       typeof record.description === "string" && record.description.trim()
         ? record.description.trim()
@@ -252,22 +262,35 @@ export function isWorkspaceAppEnvironment(
   );
 }
 
+function dispatchPageHref(
+  apps: OrgSwitcherAppLink[],
+  page: "overview" | "apps" | "vault",
+  env: RuntimeEnv,
+): string {
+  const dispatch = apps.find((app) => app.isDispatch);
+  if (dispatch) return appendPath(dispatchBaseHref(dispatch.href), page);
+  return appendPath(workspaceHref("/dispatch", null, env), page);
+}
+
 export function dispatchOverviewHref(
   apps: OrgSwitcherAppLink[],
   env: RuntimeEnv = runtimeEnv(),
 ): string {
-  const dispatch = apps.find((app) => app.isDispatch);
-  if (dispatch) return appendPath(dispatchBaseHref(dispatch.href), "overview");
-  return appendPath(workspaceHref("/dispatch", null, env), "overview");
+  return dispatchPageHref(apps, "overview", env);
 }
 
 export function dispatchAppsHref(
   apps: OrgSwitcherAppLink[],
   env: RuntimeEnv = runtimeEnv(),
 ): string {
-  const dispatch = apps.find((app) => app.isDispatch);
-  if (dispatch) return appendPath(dispatchBaseHref(dispatch.href), "apps");
-  return appendPath(workspaceHref("/dispatch", null, env), "apps");
+  return dispatchPageHref(apps, "apps", env);
+}
+
+export function dispatchVaultHref(
+  apps: OrgSwitcherAppLink[],
+  env: RuntimeEnv = runtimeEnv(),
+): string {
+  return dispatchPageHref(apps, "vault", env);
 }
 
 export function visibleOrgAppLinks(
@@ -331,6 +354,7 @@ export interface UseOrgSwitcherAppLinksResult {
   isLoading: boolean;
   dispatchHref: string;
   dispatchAllAppsHref: string;
+  dispatchVaultHref: string;
 }
 
 export function useOrgSwitcherAppLinks(
@@ -384,5 +408,6 @@ export function useOrgSwitcherAppLinks(
     isLoading,
     dispatchHref: dispatchOverviewHref(apps, env),
     dispatchAllAppsHref: dispatchAppsHref(apps, env),
+    dispatchVaultHref: dispatchVaultHref(apps, env),
   };
 }

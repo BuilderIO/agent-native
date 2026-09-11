@@ -2133,6 +2133,7 @@ describe("agent-native skills", () => {
       "design-exploration",
       "visual-edit",
       "context-xray",
+      "turn-into-app",
     ]);
     expect(context?.initialTargets).toEqual(PLANS_SKILL_NAMES);
     // Both selected installs the whole plan bundle (one shared MCP connector).
@@ -2221,6 +2222,7 @@ describe("agent-native skills", () => {
       "design-exploration",
       "visual-edit",
       "context-xray",
+      "turn-into-app",
       "quick-recap",
     ]);
     expect(allContext?.initialTargets).toEqual(PLANS_SKILL_NAMES);

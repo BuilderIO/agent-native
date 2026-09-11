@@ -290,7 +290,12 @@ export default defineAction({
 
       for (const event of matched) {
         const display: BulkEventResult = {
-          id: event.googleEventId ? `google-${event.googleEventId}` : event.id,
+          id:
+            event.overlayEmail || event.calendarReadOnly
+              ? event.id
+              : event.googleEventId
+                ? `google-${event.googleEventId}`
+                : event.id,
           title: event.title,
           start: event.start,
           weekday: eventWeekday(event.start, range.timezone),

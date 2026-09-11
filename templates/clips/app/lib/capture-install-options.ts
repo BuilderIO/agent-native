@@ -138,6 +138,7 @@ export function supportsPublishedClipsChromeExtensionHost(
   const normalized = normalizeHostname(hostname);
   return (
     normalized === "clips.agent-native.com" ||
+    normalized === "beta.clips.agent-native.com" ||
     normalized === "localhost" ||
     normalized === "127.0.0.1"
   );
@@ -163,7 +164,7 @@ const chromeExtensionUrl =
   import.meta.env.VITE_CLIPS_CHROME_EXTENSION_URL?.trim() ??
   "https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn";
 
-// The published extension manifest only trusts first-party Clips/local origins.
+// The published extension manifest only trusts first-party Clips beta/local origins.
 // Custom deployments can opt in after publishing a matching extension/listing.
 export function useClipsChromeExtensionEnabled(): boolean {
   const [enabled, setEnabled] = useState(false);

@@ -1,14 +1,19 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { summarizeArchiveFailures } from "@shared/archive-errors.js";
 import { z } from "zod";
 
-import { archiveEmail } from "../server/lib/email-state.js";
+import {
+  archiveEmail,
+  resolveMutationAccounts,
+} from "../server/lib/email-state.js";
 import {
   gmailBatchModifyByAccount,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { syncInboxLabelDeltaForTargets } from "../server/lib/inbox-store-sync.js";
 import { invalidateThreadCache } from "../server/lib/thread-cache.js";
 
 function userFacingActionError(message: string, statusCode: number): Error {
@@ -49,7 +54,7 @@ export default defineAction({
         "Per-id thread ID hints, comma-separated and positionally matched to --id (bulk UI calls only)",
       ),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const ids = args.id
       .split(",")
       .map((s) => s.trim())
@@ -86,13 +91,20 @@ export default defineAction({
         threadId: threadIdFor(i),
         accountEmail: accountEmailFor(i),
       }));
-      const { succeeded, failed } = await gmailBatchModifyByAccount(
+      // Resolve every target's account once, up front, with the same rule
+      // used by the single-item path — so the Gmail mutation below and the
+      // store mirror after it never group by different accounts.
+      const { resolved, unresolved } = await resolveMutationAccounts(
         ownerEmail,
         targets,
+      );
+      const { succeeded, failed } = await gmailBatchModifyByAccount(
+        ownerEmail,
+        resolved,
         undefined,
         ["INBOX"],
       );
-      const threadIdById = new Map(targets.map((t) => [t.id, t.threadId]));
+      const threadIdById = new Map(resolved.map((t) => [t.id, t.threadId]));
       for (const id of succeeded) {
         const tid = threadIdById.get(id);
         if (tid) invalidateThreadCache(ownerEmail, tid);
@@ -100,6 +112,13 @@ export default defineAction({
       }
       for (const f of failed)
         results.push({ id: f.id, success: false, error: f.error });
+      for (const u of unresolved)
+        results.push({ id: u.id, success: false, error: u.error });
+      await syncInboxLabelDeltaForTargets(
+        ownerEmail,
+        resolved.filter((t) => succeeded.includes(t.id)),
+        { remove: ["INBOX"] },
+      );
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
@@ -131,6 +150,17 @@ export default defineAction({
       });
       throw userFacingActionError(summary.message, summary.statusCode);
     }
+    track(
+      "inbox_triaged",
+      {
+        app_name: "mail",
+        template_name: "mail",
+        action: "archive",
+        items_triaged: succeeded,
+        succeeded: true,
+      },
+      ctx,
+    );
     return `Archived ${succeeded} email(s) successfully`;
   },
 });

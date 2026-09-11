@@ -1,6 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { getDb, schema } from "../db/index.js";
@@ -15,12 +15,17 @@ import {
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
+  insertFirstPartyAnalyticsRowsWithResults,
   queryFirstPartyAnalyticsInBigQuery,
 } from "./first-party-analytics-backend.js";
 import {
   firstPartyCacheKey,
   withFirstPartyCache,
 } from "./first-party-analytics-cache.js";
+import {
+  firstPartyAnalyticsDeliveryFallbackKey,
+  isFirstPartyAnalyticsDeliveryQueueMissingError,
+} from "./first-party-analytics-delivery.js";
 import {
   classifyFirstPartyAnalyticsQuery,
   queryOutcomeFromError,
@@ -108,6 +113,119 @@ function randomHex(bytes: number): string {
 
 function id(prefix: string): string {
   return `${prefix}_${randomHex(12)}`;
+}
+
+async function persistBigQueryRowsWithMigrationFallback(
+  db: any,
+  rows: Array<{
+    id: string;
+    ownerEmail: string;
+    orgId: string | null;
+    [key: string]: unknown;
+  }>,
+  table: string | null,
+  scope: AnalyticsScope,
+  receivedAt: string,
+): Promise<void> {
+  try {
+    await db.transaction(async (tx: any) => {
+      await tx.insert(schema.analyticsEvents).values(rows);
+      await tx.insert(schema.analyticsBigQueryDeliveryQueue).values(
+        rows.map((row) => ({
+          eventId: row.id,
+          ownerEmail: row.ownerEmail,
+          orgId: row.orgId,
+          tableRef: table,
+          nextAttemptAt: receivedAt,
+          createdAt: receivedAt,
+          updatedAt: receivedAt,
+        })),
+      );
+    });
+  } catch (error) {
+    if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
+
+    console.error(
+      "[first-party-analytics] Delivery queue migration is pending; retaining event in Postgres and attempting direct BigQuery delivery:",
+      error,
+    );
+    await db.transaction(async (tx: any) => {
+      await tx.insert(schema.analyticsEvents).values(rows);
+      const marker = JSON.stringify({
+        deliveryState: "pending",
+        ownerEmail: scope.userEmail,
+        orgId: scope.orgId,
+        tableRef: table,
+        receivedAt,
+      });
+      for (const row of rows) {
+        await tx.execute(
+          sql`INSERT INTO settings (key, value, updated_at)
+              VALUES (${firstPartyAnalyticsDeliveryFallbackKey(row.id)}, ${marker}, ${Date.now()})
+              ON CONFLICT (key) DO NOTHING`,
+        );
+      }
+    });
+    try {
+      const result = await runWithRequestContext(
+        {
+          userEmail: scope.userEmail,
+          orgId: scope.orgId ?? undefined,
+        },
+        () => insertFirstPartyAnalyticsRowsWithResults(rows, table),
+      );
+      const acceptedIds = new Set(result.acceptedIds);
+      const rejectedIds = new Set(result.rejectedIds);
+      const rowIds = new Set(rows.map((row) => row.id));
+      if (
+        acceptedIds.size + rejectedIds.size !== rows.length ||
+        [...acceptedIds, ...rejectedIds].some((id) => !rowIds.has(id)) ||
+        [...acceptedIds].some((id) => rejectedIds.has(id)) ||
+        rows.some((row) => !acceptedIds.has(row.id) && !rejectedIds.has(row.id))
+      ) {
+        throw new Error(
+          "BigQuery fallback delivery returned an incomplete row result",
+        );
+      }
+      if (acceptedIds.size) {
+        const deliveredAt = new Date().toISOString();
+        await db.transaction(async (tx: any) => {
+          for (const row of rows) {
+            if (!acceptedIds.has(row.id)) continue;
+            const deliveredMarker = JSON.stringify({
+              deliveryState: "delivered",
+              deliveredAt,
+              ownerEmail: scope.userEmail,
+              orgId: scope.orgId,
+              tableRef: table,
+              receivedAt,
+            });
+            const updated = await tx.execute(
+              sql`UPDATE settings
+                     SET value = ${deliveredMarker}, updated_at = ${Date.now()}
+                   WHERE key = ${firstPartyAnalyticsDeliveryFallbackKey(row.id)}`,
+            );
+            if (Number(updated.rowsAffected) !== 1) {
+              throw new Error(
+                `BigQuery fallback marker for ${row.id} was not updated`,
+              );
+            }
+          }
+        });
+      }
+      if (rejectedIds.size) {
+        console.error(
+          "[first-party-analytics] BigQuery fallback rejected rows; retaining markers for retry:",
+          result.error ?? `BigQuery rejected ${rejectedIds.size} event row(s)`,
+        );
+      }
+    } catch (deliveryError) {
+      console.error(
+        "[first-party-analytics] BigQuery fallback delivery failed; Postgres event retained:",
+        deliveryError,
+      );
+    }
+  }
 }
 
 export function generateAnalyticsPublicKey(): string {
@@ -589,8 +707,7 @@ export async function recordAnalyticsEvents(
     orgId: key.orgId ?? null,
   });
 
-  let bigQueryInsertError: unknown = null;
-  if (rows.length && (backend.sink === "dual" || backend.sink === "bigquery")) {
+  if (rows.length && backend.sink === "dual") {
     try {
       await runWithRequestContext(
         {
@@ -600,46 +717,49 @@ export async function recordAnalyticsEvents(
         () => insertFirstPartyAnalyticsRows(rows, backend.table),
       );
     } catch (error) {
-      if (backend.sink === "bigquery") {
-        // Keep SQL-only exception issues, public-key metadata, and session
-        // replay links durable even when the warehouse is temporarily down.
-        // The request still fails below so callers do not mistake a warehouse
-        // outage for a successful BigQuery write.
-        bigQueryInsertError = error;
-      }
       // Dual-write mode keeps Postgres as the recoverable source until the
       // backfill has completed. A BigQuery outage must not lose live events.
-      if (backend.sink === "dual") {
-        console.error(
-          "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
-          error,
-        );
-      }
+      console.error(
+        "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
+        error,
+      );
     }
   }
 
-  let postgresInsertError: unknown = null;
-  if (rows.length && backend.sink !== "bigquery") {
+  let persistenceError: unknown = null;
+  if (rows.length) {
     try {
-      await db.transaction(async (tx: any) => {
-        if (backend.sink === "postgres" || backend.sink === "dual") {
-          await reserveFirstPartyPostgresEventVolume(
-            tx,
-            {
-              ownerEmail: key.ownerEmail,
-              orgId: key.orgId ?? null,
-              receivedAt,
-            },
-            rows.length,
-          );
-        }
-        await tx.insert(schema.analyticsEvents).values(rows);
-        await upsertFirstPartyAnalyticsRollups(rows, tx);
-      });
+      if (backend.sink === "bigquery") {
+        // BigQuery-mode events stay in SQL until the scheduled worker confirms
+        // delivery. This is the recoverable boundary after warehouse cutover.
+        await persistBigQueryRowsWithMigrationFallback(
+          db,
+          rows,
+          backend.table,
+          { userEmail: key.ownerEmail, orgId: key.orgId ?? null },
+          receivedAt,
+        );
+      } else {
+        await db.transaction(async (tx: any) => {
+          if (backend.sink === "postgres" || backend.sink === "dual") {
+            await reserveFirstPartyPostgresEventVolume(
+              tx,
+              {
+                ownerEmail: key.ownerEmail,
+                orgId: key.orgId ?? null,
+                receivedAt,
+              },
+              rows.length,
+            );
+          }
+          await tx.insert(schema.analyticsEvents).values(rows);
+          await upsertFirstPartyAnalyticsRollups(rows, tx);
+        });
+      }
     } catch (error) {
       // Preserve SQL-only exception issues and public-key metadata below even
       // when a Postgres volume reservation or insert rejects the batch.
-      postgresInsertError = error;
+      persistenceError = error;
     }
   }
   if (rows.length) {
@@ -665,8 +785,7 @@ export async function recordAnalyticsEvents(
     }
   }
 
-  if (bigQueryInsertError) throw bigQueryInsertError;
-  if (postgresInsertError) throw postgresInsertError;
+  if (persistenceError) throw persistenceError;
 
   return { accepted: rows.length, keyId: key.id };
 }

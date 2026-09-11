@@ -424,6 +424,15 @@ export function CommandMenu({
       if (!React.isValidElement(child)) return child;
       const props = child.props as Record<string, unknown>;
 
+      if (child.type === React.Fragment) {
+        const fragmentChildren = filterChildren(props.children as ReactNode);
+        if (React.Children.count(fragmentChildren) === 0) return null;
+        return React.cloneElement(child, {
+          ...props,
+          children: fragmentChildren,
+        } as Record<string, unknown>);
+      }
+
       // If it's a CommandGroup, filter its children
       if (child.type === CommandGroup) {
         const groupChildren = filterChildren(props.children as ReactNode);
@@ -487,16 +496,15 @@ export function CommandMenu({
           aria-describedby={undefined}
           hideClose
           motion="instant"
-          overlayClassName="fixed inset-0 z-50 bg-black/50 backdrop-blur-none transition-none"
+          overlayClassName="fixed inset-0 backdrop-blur-none transition-none"
           overlayStyle={{
-            zIndex: 50,
             backgroundColor: "rgb(0 0 0 / 0.5)",
             backdropFilter: "none",
             animation: "none",
             transition: "none",
           }}
           className={cn(
-            "fixed left-1/2 top-[15vh] !z-50 !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
+            "fixed left-1/2 top-[15vh] !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
@@ -667,6 +675,11 @@ export function useCommandMenuShortcut(
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        // Claim the shortcut before checking the focused element so an outer
+        // host cannot open its own command menu while this one is focused.
+        e.preventDefault();
+        e.stopPropagation();
+
         // Don't trigger if user is typing in a native form control.
         const target = e.target instanceof HTMLElement ? e.target : null;
         const isContentEditable = target?.isContentEditable;
@@ -678,7 +691,6 @@ export function useCommandMenuShortcut(
         ) {
           return;
         }
-        e.preventDefault();
         onOpen();
       }
     };

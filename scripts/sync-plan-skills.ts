@@ -44,6 +44,7 @@ const rootDir = join(scriptDir, "..");
 const planEntry = BUILT_IN_APP_SKILLS["visual-plans"];
 const designEntry = BUILT_IN_APP_SKILLS.design;
 const agentNativeEntry = BUILT_IN_APP_SKILLS["agent-native"];
+const turnIntoAppEntry = BUILT_IN_APP_SKILLS["turn-into-app"];
 
 /** One exported app skill's source body, reference files, and target dirs. */
 type GeneratedSkill = {
@@ -110,6 +111,12 @@ const GENERATED_SKILLS: GeneratedSkill[] = [
       join("templates", "design", ".agents", "skills", "visual-edit"),
     ],
   },
+  {
+    skill: "turn-into-app",
+    body: turnIntoAppEntry.skillMarkdown,
+    references: turnIntoAppEntry.extraFiles?.["turn-into-app"] ?? {},
+    targetDirs: [join("skills", "turn-into-app")],
+  },
 ];
 
 const check = process.argv.includes("--check");
@@ -142,6 +149,10 @@ const REPO_SKILL_SYMLINKS: ExpectedSymlink[] = [
   {
     rel: join(".agents", "skills", "visual-edit"),
     target: "../../skills/visual-edit",
+  },
+  {
+    rel: join(".agents", "skills", "turn-into-app"),
+    target: "../../skills/turn-into-app",
   },
 ];
 

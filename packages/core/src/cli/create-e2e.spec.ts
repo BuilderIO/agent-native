@@ -292,9 +292,10 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     }
   });
 
-  it("includes the Postgres runtime for hosted SQL databases", async () => {
+  it("includes local and hosted SQL runtimes", async () => {
     await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
+    expect(pkg.dependencies?.["@electric-sql/pglite"]).toBeDefined();
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
 
@@ -322,6 +323,8 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(pkg.pnpm).toBeUndefined();
     expect(workspaceYaml).toContain("allowBuilds:");
     expect(workspaceYaml).toContain("node-pty: true");
+    expect(workspaceYaml).toContain("node-pty@*:");
+    expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
     expect(workspaceYaml).toContain("tesseract.js: true");
     expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
   });

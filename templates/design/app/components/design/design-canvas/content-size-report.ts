@@ -91,7 +91,7 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     }
   }
 
-  function measure() {
+  function rawMeasure() {
     var doc = document.documentElement;
     var body = document.body;
     return Math.max(
@@ -99,6 +99,38 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
       body ? body.scrollHeight : 0,
       body ? body.offsetHeight : 0,
     );
+  }
+
+  // The editor's overlays are chrome, not content. A selection handle sits a
+  // few px outside the box it marks, so once a selection reaches the bottom
+  // edge the handle overhangs the document: the frame grows to fit it, which
+  // moves the handle down, which grows the frame again. Re-measure without the
+  // chrome only when the chrome is what the height rests on — hiding and
+  // restoring within one frame never paints, but it does force a second
+  // layout, so it must not run on every ordinary report.
+  function measure() {
+    var raw = rawMeasure();
+    var chrome = document.querySelectorAll("[data-agent-native-edit-overlay]");
+    if (!chrome.length) return raw;
+    var chromeBottom = 0;
+    var scrollY = window.scrollY || 0;
+    for (var i = 0; i < chrome.length; i++) {
+      var bottom = chrome[i].getBoundingClientRect().bottom + scrollY;
+      if (bottom > chromeBottom) chromeBottom = bottom;
+    }
+    if (chromeBottom < raw - 1) return raw;
+    var prior = [];
+    for (var j = 0; j < chrome.length; j++) {
+      prior.push(chrome[j].style.display);
+      chrome[j].style.display = "none";
+    }
+    try {
+      return rawMeasure();
+    } finally {
+      for (var k = 0; k < chrome.length; k++) {
+        chrome[k].style.display = prior[k];
+      }
+    }
   }
 
   var lastHeight = -1;

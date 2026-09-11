@@ -89,6 +89,36 @@ describe("createServer", () => {
     ]);
   });
 
+  it("marks non-credential env keys as non-secret without flagging credentials", async () => {
+    vi.stubEnv("ENABLE_BUILDER", "true");
+    vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
+    const { app } = createServer({
+      envKeys: [
+        { key: "ENABLE_BUILDER", label: "Enable Builder.io", secret: false },
+        { key: "DATABASE_URL", label: "Database URL" },
+      ],
+    });
+
+    const res = await app.request("http://localhost/_agent-native/env-status");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      {
+        key: "ENABLE_BUILDER",
+        label: "Enable Builder.io",
+        required: false,
+        configured: true,
+        secret: false,
+      },
+      {
+        key: "DATABASE_URL",
+        label: "Database URL",
+        required: false,
+        configured: true,
+      },
+    ]);
+  });
+
   it("reports a Netlify database through the effective URL status", async () => {
     vi.stubEnv("APP_NAME", "forms");
     vi.stubEnv("FORMS_DATABASE_URL", "");

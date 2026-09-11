@@ -52,7 +52,10 @@ const bridgeDir = __dirname;
 const generatedDir = join(designRoot, ".generated", "bridge");
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
-  "editor-chrome.bridge.ts": ["@agent-native/toolkit/canvas-interactions"],
+  "editor-chrome.bridge.ts": [
+    "@agent-native/toolkit/canvas-interactions",
+    "@jridgewell/trace-mapping",
+  ],
 };
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -7704,7 +7707,7 @@ it(
   </head>
   <body>
     <ul>
-      <template x-for="t in items"></template>
+      <template x-for="t in items"><li></li></template>
       <li>Alpha</li>
       <li>Beta</li>
     </ul>
@@ -7833,7 +7836,7 @@ it(
   </head>
   <body>
     <ul data-agent-native-node-id="list">
-      <template x-for="t in items"></template>
+      <template x-for="t in items"><li></li></template>
       <li>Alpha</li>
       <li>Beta</li>
     </ul>
@@ -9303,7 +9306,7 @@ it(
   </head>
   <body>
     <div id="filterCard" data-agent-native-node-id="filterCard">
-      <template x-for="f in filters"></template>
+      <template x-for="f in filters"><div class="tab"></div></template>
       <div class="tab">All</div>
       <div class="tab">Active</div>
       <div class="tab">Done</div>
@@ -9421,7 +9424,7 @@ it(
   </head>
   <body>
     <div id="list" data-agent-native-node-id="list">
-      <template x-for="r in rows"></template>
+      <template x-for="r in rows"><div class="row"></div></template>
       <div class="row">Clone One</div>
       <div class="row">Clone Two</div>
       <div class="row" id="staticItem" data-agent-native-node-id="staticItem">Static</div>
@@ -9493,7 +9496,7 @@ it(
   </head>
   <body>
     <div id="filterCard" data-agent-native-node-id="filterCard">
-      <template x-for="f in filters"></template>
+      <template x-for="f in filters"><div class="tab"></div></template>
       <div class="tab">All</div>
       <div class="tab">Active</div>
       <div class="tab">Done</div>
@@ -9625,7 +9628,7 @@ it(
   </head>
   <body>
     <div id="list" data-agent-native-node-id="list">
-      <template x-for="r in rows"></template>
+      <template x-for="r in rows"><div class="row"></div></template>
       <div class="row">Clone One</div>
       <div class="row">Clone Two</div>
       <div class="row" data-agent-native-node-id="staticItem">Static</div>

@@ -139,6 +139,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         description: e.description,
         defaultModel: e.defaultModel,
         supportedModels: e.supportedModels,
+        preserveCustomModels: await resolveEnginePreservesCustomModels(e),
         capabilities: e.capabilities,
         requiredEnvVars: e.requiredEnvVars,
         installPackage: e.installPackage,

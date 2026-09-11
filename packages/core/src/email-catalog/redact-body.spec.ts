@@ -96,10 +96,16 @@ describe("redactSensitiveEmailBodyContent", () => {
   });
 
   it("redacts a JWT-shaped token", () => {
-    const text =
-      "Session token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+    const fakeJwt = [
+      Buffer.from(JSON.stringify({ alg: "HS256" })).toString("base64url"),
+      Buffer.from(JSON.stringify({ sub: "example-user" })).toString(
+        "base64url",
+      ),
+      Buffer.from("not-a-signature").toString("base64url"),
+    ].join(".");
+    const text = `Session token: ${fakeJwt}`;
     const redacted = redactSensitiveEmailBodyContent(text);
-    expect(redacted).not.toContain("eyJhbGciOiJIUzI1NiJ9");
+    expect(redacted).not.toContain(fakeJwt);
     expect(redacted).toContain("[REDACTED]");
     expect(redacted).toContain("Session token:");
   });

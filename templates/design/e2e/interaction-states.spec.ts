@@ -215,6 +215,23 @@ test.describe("element interaction states", () => {
     await selectInteractionState(page, "default");
     await expect(button).not.toHaveAttribute("data-an-state-preview", /.+/);
 
+    // Interact reloads the screen from the saved file, so every authored rule
+    // has to be PERSISTED before switching. Without this the reloaded iframe
+    // can carry no :hover rule at all, and the hover assertion below reports a
+    // plain opacity of 1 — which reads as a broken cascade rather than a
+    // write that had not landed yet.
+    await expect
+      .poll(
+        async () => {
+          const content = await fileContent(page);
+          return Object.values(STATE_OPACITY).every((opacity) =>
+            content.includes(String(opacity)),
+          );
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+
     // Real browser state semantics belong to Interact mode. Edit mode
     // intentionally forwards Tab/arrow/delete shortcuts to the Figma-like
     // editor host, while Interact removes that bridge and lets the app receive

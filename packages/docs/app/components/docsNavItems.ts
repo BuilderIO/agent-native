@@ -192,6 +192,16 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "cloneable-saas",
       },
       {
+        id: "creating-templates",
+        labelKey: "creatingTemplates",
+        slug: "creating-templates",
+      },
+      {
+        id: "syncing-template-changes",
+        labelKey: "syncingTemplateChanges",
+        slug: "syncing-template-changes",
+      },
+      {
         id: "pure-agent-apps",
         labelKey: "pureAgentApps",
         slug: "pure-agent-apps",
@@ -521,24 +531,29 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-dispatch",
           },
           {
-            id: "template-dispatch-messaging-routing",
-            labelKey: "dispatchMessagingRouting",
-            slug: "template-dispatch-messaging-routing",
+            id: "template-dispatch-features",
+            labelKey: "dispatchFeatures",
+            slug: "template-dispatch-features",
           },
           {
-            id: "template-dispatch-operations",
-            labelKey: "dispatchOperations",
-            slug: "template-dispatch-operations",
+            id: "template-dispatch-agent",
+            labelKey: "dispatchAgent",
+            slug: "template-dispatch-agent",
           },
           {
-            id: "template-dispatch-vault-integrations",
-            labelKey: "dispatchVaultIntegrations",
-            slug: "template-dispatch-vault-integrations",
+            id: "template-dispatch-integrations",
+            labelKey: "dispatchIntegrations",
+            slug: "template-dispatch-integrations",
           },
           {
             id: "template-dispatch-developers",
             labelKey: "dispatchDevelopers",
             slug: "template-dispatch-developers",
+          },
+          {
+            id: "template-dispatch-reference",
+            labelKey: "dispatchReference",
+            slug: "template-dispatch-reference",
           },
         ],
       },
@@ -789,6 +804,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "generative-ui",
       },
       {
+        id: "embedding-sdk",
+        labelKey: "embeddingSdk",
+        slug: "embedding-sdk",
+      },
+      {
         id: "real-time-collaboration",
         labelKey: "realTimeCollaboration",
         slug: "real-time-collaboration",
@@ -803,6 +823,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "agent-resources-overview",
         labelKey: "agentResourcesOverview",
         slug: "agent-resources",
+      },
+      {
+        id: "writing-agent-instructions",
+        labelKey: "writingAgentInstructions",
+        slug: "writing-agent-instructions",
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {
@@ -899,29 +924,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "workspaceConnections",
         slug: "workspace-connections",
       },
-    ],
-  },
-  {
-    id: "build-apps",
-    titleKey: "buildApps",
-    items: [
-      {
-        id: "creating-templates",
-        labelKey: "creatingTemplates",
-        slug: "creating-templates",
-      },
-      {
-        id: "syncing-template-changes",
-        labelKey: "syncingTemplateChanges",
-        slug: "syncing-template-changes",
-      },
-      {
-        id: "writing-agent-instructions",
-        labelKey: "writingAgentInstructions",
-        slug: "writing-agent-instructions",
-      },
-      { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
-      { id: "frames", labelKey: "frames", slug: "frames" },
     ],
   },
   {

@@ -310,17 +310,18 @@ function serializeInline(nodes: PMNode[] | undefined): string {
   return nodes.map(serializeInlineNode).join("");
 }
 
-function serializeInlineNode(node: PMNode): string {
-  if (node.type === "hardBreak") return "<br>";
-  if (node.type === "notionInlineAtom") return serializeInlineAtom(node);
-  if (node.type !== "text") {
-    // Unknown inline node — best-effort textContent.
-    return node.text ? escapeInlineText(node.text) : "";
-  }
-
+function serializeInlineTextNode(
+  node: PMNode,
+  collectOffsets: boolean,
+): {
+  source: string;
+  textOffsets: number[] | null;
+} | null {
+  if (node.type !== "text") return null;
   const raw = node.text ?? "";
   const code = markOf(node, "code");
   let out: string;
+  let textOffsets: number[] | null = collectOffsets ? [0] : null;
   if (code) {
     const codeText = raw.replace(/\n/g, "<br>");
     // CommonMark-style variable-length code span delimiter: use a backtick
@@ -348,25 +349,47 @@ function serializeInlineNode(node: PMNode): string {
         codeText.endsWith(" "));
     const body = needsPadding ? ` ${codeText} ` : codeText;
     out = delim + body + delim;
+    if (textOffsets) {
+      let contentOffset = delim.length + (needsPadding ? 1 : 0);
+      textOffsets = [contentOffset];
+      for (let index = 0; index < raw.length; index += 1) {
+        contentOffset += raw[index] === "\n" ? "<br>".length : 1;
+        textOffsets.push(contentOffset);
+      }
+    }
   } else {
     out = escapeInlineText(raw);
+    if (textOffsets) {
+      let contentOffset = 0;
+      textOffsets = [contentOffset];
+      for (let index = 0; index < raw.length; index += 1) {
+        contentOffset += escapeInlineText(raw[index]!).length;
+        textOffsets.push(contentOffset);
+      }
+    }
   }
+
+  const wrap = (prefix: string, suffix: string) => {
+    out = prefix + out + suffix;
+    if (textOffsets)
+      textOffsets = textOffsets.map((offset) => prefix.length + offset);
+  };
 
   const bold = markOf(node, "bold");
   const italic = markOf(node, "italic");
   if (bold && italic) {
-    out = "***" + out + "***";
+    wrap("***", "***");
   } else {
-    if (markOf(node, "strike")) out = "~~" + out + "~~";
-    if (italic) out = "*" + out + "*";
-    if (bold) out = "**" + out + "**";
+    if (markOf(node, "strike")) wrap("~~", "~~");
+    if (italic) wrap("*", "*");
+    if (bold) wrap("**", "**");
   }
   if (!(bold && italic) && markOf(node, "strike") && (bold || italic)) {
     // strike already applied above; nothing to do
   }
   // strike for the bold+italic branch
   if (bold && italic && markOf(node, "strike")) {
-    out = "~~" + out + "~~";
+    wrap("~~", "~~");
   }
 
   const span = markOf(node, "notionSpan");
@@ -388,14 +411,33 @@ function serializeInlineNode(node: PMNode): string {
       ["bg_color", foregroundColor ? backgroundColor : null],
       ["underline", underlined ? "true" : null],
     ]);
-    if (attrStr) out = `<span${attrStr}>${out}</span>`;
+    if (attrStr) wrap(`<span${attrStr}>`, "</span>");
   }
 
   const link = markOf(node, "link");
   if (link?.attrs?.href) {
-    out = `[${out}](${serializeUrlForParens(link.attrs.href)})`;
+    wrap("[", `](${serializeUrlForParens(link.attrs.href)})`);
   }
-  return out;
+  return { source: out, textOffsets };
+}
+
+export function serializeInlineTextNodeWithOffsets(node: PMNode): {
+  source: string;
+  textOffsets: number[];
+} | null {
+  const serialized = serializeInlineTextNode(node, true);
+  return serialized?.textOffsets
+    ? { source: serialized.source, textOffsets: serialized.textOffsets }
+    : null;
+}
+
+export function serializeInlineNode(node: PMNode): string {
+  if (node.type === "hardBreak") return "<br>";
+  if (node.type === "notionInlineAtom") return serializeInlineAtom(node);
+  const textNode = serializeInlineTextNode(node, false);
+  if (textNode) return textNode.source;
+  // Unknown inline node — best-effort textContent.
+  return node.text ? escapeInlineText(node.text) : "";
 }
 
 // ════════════════════════════════════════════════════════════════════

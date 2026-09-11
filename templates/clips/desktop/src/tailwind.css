@@ -245,6 +245,7 @@
   --ui-ring: 0 0% 40%;
   /* macOS convention for an engaged switch, and the one accent the tray uses. */
   --ui-success: 142 71% 45%;
+  --ui-success-foreground: 0 0% 100%;
   /* Reserved for explicit "there is something new here" alerts and notices. */
   --ui-info: 217 91% 55%;
 }
@@ -271,6 +272,7 @@
     --ui-input: 0 0% 32%;
     --ui-ring: 0 0% 60%;
     --ui-success: 142 60% 52%;
+    --ui-success-foreground: 0 0% 100%;
     --ui-info: 217 91% 65%;
   }
 }
@@ -333,6 +335,7 @@
   --color-card-foreground: hsl(var(--ui-card-foreground));
 
   --color-success: hsl(var(--ui-success));
+  --color-success-foreground: hsl(var(--ui-success-foreground));
   --color-info: hsl(var(--ui-info));
 
   --radius-lg: var(--radius);

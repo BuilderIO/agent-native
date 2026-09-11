@@ -164,8 +164,9 @@ export function buildSitemapPaths(rootDir: string): string[] {
  *   canonically-draft slug, matching `loadDocRespectingDraftVisibility`.
  * - the Getting Started roots, whose `?tab=cloud` variant must reach SSR
  *   instead of inheriting the local guide from a static file.
- * - the community catalog, which is read from Builder at request time so new
- *   published listings do not get frozen into the prerendered HTML.
+ * - community detail paths, so newly published app slugs remain available
+ *   without waiting for the next docs build. The catalog index itself is a
+ *   prerendered seed shell and refreshes published listings after hydration.
  *
  * Redirected and draft paths keep falling through to the SSR function, which
  * still answers 301/404. Published docs stay prerendered because the Netlify
@@ -193,11 +194,7 @@ export function isDynamicCommunityPath(pagePath: string): boolean {
   const pathWithoutLocale = normalizeLocaleCode(segments[0])
     ? `/${segments.slice(1).join("/")}`
     : pagePath;
-  return (
-    pathWithoutLocale === "/apps" ||
-    pathWithoutLocale === "/apps/" ||
-    pathWithoutLocale.startsWith("/apps/community/")
-  );
+  return pathWithoutLocale.startsWith("/apps/community/");
 }
 
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {

@@ -237,6 +237,11 @@ export function FormBuilderPage() {
   const setBuilderTab = useCallback(
     (value: string) => {
       const nextTab = normalizeFormBuilderTab(value);
+      trackEvent("form_builder_tab_changed", {
+        app_name: "forms",
+        template_name: "forms",
+        tab: nextTab,
+      });
       setActiveTab(nextTab);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("tab", formBuilderTabSearchParam(nextTab));
@@ -528,6 +533,11 @@ export function FormBuilderPage() {
   // integrations. The role is set by `get-form` based on ownership + shares.
 
   function addField(type: AppFormFieldType) {
+    trackEvent("form_field_type_selected", {
+      app_name: "forms",
+      template_name: "forms",
+      field_type: type,
+    });
     const fieldTypeDefaults = getFieldTypeDefaults(t);
     const defaults = fieldTypeDefaults[type] || {};
     const newField = {
@@ -714,7 +724,17 @@ export function FormBuilderPage() {
                   className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   asChild
                 >
-                  <a href={publishedFormUrl} target="_blank" rel="noopener">
+                  <a
+                    href={publishedFormUrl}
+                    target="_blank"
+                    rel="noopener"
+                    onClick={() =>
+                      trackEvent("form_preview_opened", {
+                        app_name: "forms",
+                        template_name: "forms",
+                      })
+                    }
+                  >
                     <IconExternalLink className="h-4 w-4" />
                   </a>
                 </Button>

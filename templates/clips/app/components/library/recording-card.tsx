@@ -461,7 +461,7 @@ export function RecordingCard({
 
           {/* Body */}
           <div className="relative z-10 flex flex-1 flex-col gap-2 p-4 pointer-events-none">
-            <div className="flex items-start gap-3">
+            <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
                 {hasDefaultTitle ? (
                   <Skeleton
@@ -473,60 +473,6 @@ export function RecordingCard({
                     {displayTitle}
                   </div>
                 )}
-                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span className="inline-flex min-w-0 items-center gap-1.5">
-                    <ClipsAvatar
-                      email={recording.ownerEmail}
-                      alt={displayOwnerName}
-                      fallback={ownerInitials}
-                      className="h-4 w-4 shrink-0"
-                      fallbackClassName="bg-primary/15 text-[8px] text-primary"
-                    />
-                    <span className="min-w-0 truncate">{displayOwnerName}</span>
-                  </span>
-                  <span aria-hidden className="text-muted-foreground/60">
-                    •
-                  </span>
-                  <time dateTime={recording.createdAt} className="shrink-0">
-                    {relative}
-                  </time>
-                </div>
-                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1.5">
-                    <PrivacyIcon
-                      visibility={recording.visibility}
-                      className="shrink-0"
-                    />
-                    <span>{visibilityLabel}</span>
-                  </span>
-                  <span aria-hidden className="text-muted-foreground/60">
-                    •
-                  </span>
-                  {recording.viewCount > 0 && !readOnly ? (
-                    <ViewedByPopover
-                      recordingId={recording.id}
-                      className="pointer-events-auto underline-offset-2 hover:underline hover:text-foreground"
-                    >
-                      {t("clipsFinalRaw.viewsCount", {
-                        count: recording.viewCount,
-                      })}
-                    </ViewedByPopover>
-                  ) : (
-                    <span>
-                      {t("clipsFinalRaw.viewsCount", {
-                        count: recording.viewCount,
-                      })}
-                    </span>
-                  )}
-                  {recording.agentViewCount > 0 ? (
-                    <AgentViewCount
-                      count={recording.agentViewCount}
-                      label={t("recordingInsights.agentViewsCount", {
-                        count: recording.agentViewCount,
-                      })}
-                    />
-                  ) : null}
-                </div>
               </div>
 
               {showActions && (
@@ -628,6 +574,63 @@ export function RecordingCard({
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
+            </div>
+
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <ClipsAvatar
+                  email={recording.ownerEmail}
+                  alt={displayOwnerName}
+                  fallback={ownerInitials}
+                  className="h-4 w-4 shrink-0"
+                  fallbackClassName="bg-primary/15 text-[8px] text-primary"
+                />
+                <span className="min-w-0 truncate">{displayOwnerName}</span>
+              </div>
+
+              <div className="flex items-center justify-self-end gap-x-2 whitespace-nowrap">
+                {recording.viewCount > 0 && !readOnly ? (
+                  <ViewedByPopover
+                    recordingId={recording.id}
+                    className="pointer-events-auto underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    {t("clipsFinalRaw.viewsCount", {
+                      count: recording.viewCount,
+                    })}
+                  </ViewedByPopover>
+                ) : (
+                  <span>
+                    {t("clipsFinalRaw.viewsCount", {
+                      count: recording.viewCount,
+                    })}
+                  </span>
+                )}
+                {recording.agentViewCount > 0 ? (
+                  <AgentViewCount
+                    count={recording.agentViewCount}
+                    label={t("recordingInsights.agentViewsCount", {
+                      count: recording.agentViewCount,
+                    })}
+                  />
+                ) : null}
+              </div>
+
+              <time
+                dateTime={recording.createdAt}
+                className="whitespace-nowrap"
+              >
+                {relative}
+              </time>
+
+              <div className="flex items-center justify-self-end gap-1.5 whitespace-nowrap">
+                <span className="inline-flex items-center gap-1.5">
+                  <PrivacyIcon
+                    visibility={recording.visibility}
+                    className="shrink-0"
+                  />
+                  <span>{visibilityLabel}</span>
+                </span>
+              </div>
             </div>
 
             {recording.tags.length > 0 && (

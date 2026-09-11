@@ -1727,6 +1727,8 @@ export async function listOverlayEvents(
             eventType: event.eventType || "default",
             accountEmail: client.email,
             overlayEmail,
+            calendarPrimary: false,
+            calendarReadOnly: true,
             ...mapColor(event),
             attendees: mapAttendees(event),
             organizer: mapOrganizer(event),

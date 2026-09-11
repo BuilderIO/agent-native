@@ -64,6 +64,7 @@ const messages = {
     extensions: "Erweiterungen",
     newRecording: "Neue Aufnahme",
     folders: "Ordner",
+    recordings: "Aufnahmen",
     newFolder: "Neuer Ordner",
     noSpaces: "Noch keine Bereiche",
     desktopCta: "Desktop-App laden",
@@ -522,6 +523,11 @@ const messages = {
     shareLink: "Teillink",
     shareWithHumans: "Mit Menschen teilen",
     shareWithAgents: "Mit Agenten teilen",
+    people: "Personen",
+    agents: "Agenten",
+    openInClaude: "In Claude öffnen",
+    openInClaudeCode: "In Claude Code öffnen",
+    openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
       "Rufe diese Clips-Agent-Kontext-URL ab: {{agentContextUrl}}. Verwende transcript.segments fuer den gesprochenen Kontext, rufe recommendedFrames oder die Frame-API-URLs ab, um den Bildschirm zu sehen, und pruefe browserDiagnostics, falls vorhanden, fuer redigierte Konsolenprotokolle und fetch/XHR-Anfragemetadaten.",
@@ -673,9 +679,11 @@ const messages = {
     downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",
     alsoFor: "Auch verfügbar für {{platform}}",
     backToLibrary: "Zurück zur Bibliothek",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips herunterladen",
     stable: "Stabil",
     nightly: "Nightly",
+    allPlatforms: "Alle Plattformen",
+    releaseChannel: "Release-Kanal",
     switchToNightly: "Zu Nightly-Builds wechseln",
     switchToStable: "Zu stabilen Builds wechseln",
     retry: "Erneut versuchen",
@@ -728,16 +736,16 @@ const messages = {
     agentTitle: "Agent verwalten",
     title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
-    experiments: "Experimente",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
-    experimentVideoEditing: "Videobearbeitung",
-    experimentVideoEditingDescription: "Teste den neuen Videoeditor.",
-    experimentMeetings: "Meetings und Transkription",
-    experimentMeetingsDescription:
+    labVideoEditing: "Videobearbeitung",
+    labVideoEditingDescription: "Teste den neuen Videoeditor.",
+    labMeetings: "Meetings und Transkription",
+    labMeetingsDescription:
       "Teste die automatische Erfassung und Transkription von Meetings.",
-    experimentWisprFlow: "Sprachdiktat",
-    experimentWisprFlowDescription: "Teste die neue Sprachdiktierfunktion.",
+    labWisprFlow: "Sprachdiktat",
+    labWisprFlowDescription: "Teste die neue Sprachdiktierfunktion.",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
     preferencesTitle: "Voreinstellungen",
@@ -1369,13 +1377,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (Lokalisiert)",
     chromeTitle: "Chrome extension (Lokalisiert)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (Lokalisiert)",
+    chromeDescription: "Nimm Browser-Tabs mit der Chrome-Erweiterung auf.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (Lokalisiert)",
     desktopTitle: "Desktop app (Lokalisiert)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Lokalisiert)",
+    desktopDescription: "Nimm mit globalen Tastenkürzeln und Systemaudio auf.",
     openDesktopApp: "Open desktop app (Lokalisiert)",
   },
   editableTitle: {
@@ -1759,6 +1765,7 @@ const messages = {
     donePageTitle: "Fehlerbericht gesendet · Clips",
     eyebrow: "Fehlerbericht",
     title: "Fehlerbericht aufnehmen",
+    sidebarCta: "Feedback senden",
     description:
       "Nimm eine kurze Reproduktion mit Bildschirm, Stimme und redigiertem Browserkontext für dein Team auf.",
     issueTitleLabel: "Titel des Problems",
@@ -1869,6 +1876,7 @@ const messages = {
       "{{consoleCount}} Konsolenprobleme · {{networkCount}} fehlgeschlagene Anfragen",
     noFailures: "Keine Fehler erkannt",
     failuresPresent: "Browserfehler erkannt",
+    unviewedCount: "{{count}} ungesehen",
     captureSuccessful: "Diagnosedaten erfolgreich erfasst",
     capturedFrom: "Erfasst von {{source}}",
     browserCapture: "Browseraufnahme",

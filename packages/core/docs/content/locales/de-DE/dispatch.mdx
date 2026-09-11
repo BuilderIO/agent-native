@@ -89,7 +89,7 @@ Sieben Funktionen, die alle auf derselben Workspace-Datenbank basieren, die auch
 
 | Fähigkeit                         | Was es Ihnen bietet                                                                                      | Einrichten                                                                  |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| **Zentraler Posteingang**         | Slack, E-Mail, Telegram, WhatsApp erreichen alle einen Agenten mit gemeinsamem Speicher + Tools          | **Einstellungen → Nachrichten** ([Messaging](/docs/messaging))              |
+| **Zentraler Posteingang**         | Slack, E-Mail, Telegram, WhatsApp erreichen alle einen Agenten mit gemeinsamem Speicher + Tools          | **Verwaltung → Nachrichten** ([Messaging](/docs/messaging))              |
 | **Geheimer Tresor**               | Speichern Sie jeden Berechtigungsnachweis einmal. rotieren an einer Stelle in jeder App                  | **Vault** + Zugriffsmodus (alle Apps oder manuell)                          |
 | **App-übergreifende Delegierung** | Leitet eine Anfrage über A2A an die richtige Fach-App weiter und antwortet im Thread                     | Automatisch ([A2A](/docs/a2a-protocol))                                     |
 | **Einheitliches MCP-Gateway**     | Ein MCP-Connector für externe Agenten erreicht jede gewährte Workspace-App                               | [External Agents](/docs/external-agents)                                    |
@@ -101,7 +101,7 @@ Jedes wird unten detailliert beschrieben.
 
 ### Zentraler Posteingang
 
-Slack, E-Mail, Telegram und WhatsApp fließen alle in die Agentenschleife von Dispatch ein. Verbinden Sie jede Plattform einmal unter **Einstellungen → Nachrichten** und jeder Kanal erreicht denselben Agenten mit demselben Speicher und denselben Tools. Eine Slack-DM und eine E-Mail an `agent@yourcompany.com` enden als zwei Oberflächen in einem Gesprächsverlauf und nicht als zwei getrennte Bots. Siehe [Messaging](/docs/messaging) für die Anmeldeinformationen und Webhooks URLs.
+Slack, E-Mail, Telegram und WhatsApp fließen alle in die Agentenschleife von Dispatch ein. Verbinden Sie jede Plattform einmal unter **Verwaltung → Nachrichten** und jeder Kanal erreicht denselben Agenten mit demselben Speicher und denselben Tools. Eine Slack-DM und eine E-Mail an `agent@yourcompany.com` enden als zwei Oberflächen in einem Gesprächsverlauf und nicht als zwei getrennte Bots. Siehe [Messaging](/docs/messaging) für die Anmeldeinformationen und Webhooks URLs.
 
 ### Geheimer Tresor
 
@@ -256,7 +256,7 @@ Die gesamte Pipeline ist so konzipiert, dass sie auf jedem serverlosen Host (Net
 Drei kurze Schritte:
 
 1. **Bauen Sie ein Gerüst für einen Arbeitsbereich auf, der Dispatch enthält.** Führen Sie `npx @agent-native/core@latest create my-company-platform` aus und wählen Sie `dispatch` neben den gewünschten Domänenvorlagen aus. Dispatch befindet sich bei `apps/dispatch` und die restlichen Apps befinden sich daneben. Siehe [Multi-App Workspace](/docs/multi-app-workspace).
-2. **Messaging verbinden.** Öffnen Sie **Einstellungen → Messaging** in Dispatch und klicken Sie auf Verbinden für Slack, E-Mail, Telegram oder WhatsApp. Die Formularfelder stimmen mit den Umgebungsvariablen im Dokument [Messaging](/docs/messaging) überein – siehe dort, was die einzelnen Plattformen benötigen.
+2. **Messaging verbinden.** Öffnen Sie **Verwaltung → Messaging** in Dispatch und klicken Sie auf Verbinden für Slack, E-Mail, Telegram oder WhatsApp. Die Formularfelder stimmen mit den Umgebungsvariablen im Dokument [Messaging](/docs/messaging) überein – siehe dort, was die einzelnen Plattformen benötigen.
 3. **Andere Apps hinzufügen.** Führen Sie `npx @agent-native/core@latest add-app` vom Arbeitsbereichsstammverzeichnis für jede Domänen-App aus. Sie erscheinen automatisch als A2A-Peers in `list-workspace-apps` von Dispatch – keine manuelle Registrierung, keine Bearbeitung der Agentenkarte. Dispatch beginnt mit der Delegierung an sie, sobald ihre Agentenkarten erreichbar sind.
 
 Fügen Sie dann Anmeldeinformationen zum Tresor hinzu und erstellen Sie (optional) globale Arbeitsbereichsressourcen unter **Ressourcen**. Tresorschlüssel können je nach Zugriffsmodus weiterhin synchronisiert oder gewährt werden; Alle App-Arbeitsbereichsressourcen werden automatisch geerbt. Wenn Sie eine Geheimisolierung pro App benötigen, stellen Sie die Tresorzugriffseinstellung auf „Manuell“ um, bevor Sie einzelne Apps gewähren.

@@ -3499,6 +3499,14 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
   const aboutShell = screenShell(page, "About");
   const aboutBoxBeforeMove = await aboutShell.boundingBox();
   if (!aboutBoxBeforeMove) throw new Error("no about shell before move");
+  // A frame is dragged by the drag surface inside its selection box, and that
+  // box only exists once the frame is selected — so an unselected frame's
+  // first press only selects it, and a single press-and-move goes nowhere.
+  await page.mouse.click(
+    aboutBoxBeforeMove.x + aboutBoxBeforeMove.width * 0.34,
+    aboutBoxBeforeMove.y + 12,
+  );
+  await expect(page.locator("[data-frame-drag-surface]")).toHaveCount(1);
   await dragBetween(
     page,
     {

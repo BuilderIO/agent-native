@@ -58,6 +58,7 @@ const input = {
   itemId: "item-1",
   factoryId: "testingfactory",
   inScope: true,
+  decision: "ping" as const,
 };
 
 function automation(repository: string | null) {
@@ -76,24 +77,29 @@ beforeEach(() => {
     role: "owner",
   });
   requireFactoryAutomationMock.mockResolvedValue(undefined);
-  getDbMock.mockReturnValue({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: async () => [
-            {
-              id: "item-1",
-              factoryId: "testingfactory",
-              source: "github",
-              repository: "BuilderIO/agent-native",
-              pullRequestNumber: 3749,
-              sourceUrl: "https://github.com/BuilderIO/agent-native/pull/3749",
-              metadataJson: "{}",
-            },
-          ],
-        }),
+  const triageRow = {
+    id: "item-1",
+    factoryId: "testingfactory",
+    source: "github",
+    repository: "BuilderIO/agent-native",
+    pullRequestNumber: 3749,
+    sourceUrl: "https://github.com/BuilderIO/agent-native/pull/3749",
+    metadataJson: "{}",
+  };
+  const select = () => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => [triageRow],
+        for: async () => undefined,
       }),
     }),
+  });
+  const update = () => ({ set: () => ({ where: async () => undefined }) });
+  const tx = { select, update };
+  getDbMock.mockReturnValue({
+    select,
+    update,
+    transaction: async (run: (tx: unknown) => Promise<void>) => run(tx),
   });
   // Reaching the GitHub client is the signal that the repository gate passed;
   // the evidence fetch itself is not what these cases exercise.
@@ -142,5 +148,35 @@ describe("babysit-factory-pull-request repository scope", () => {
     await expect(action.run(input, context)).rejects.toThrow(
       "PR babysitting is restricted to the configured Factory repository.",
     );
+  });
+});
+
+describe("babysit-factory-pull-request decision", () => {
+  it("throws instead of guessing when in-scope work arrives without a decision", async () => {
+    const { default: action } =
+      await import("./babysit-factory-pull-request.js");
+    readCallingFactoryAutomationMock.mockResolvedValue(
+      automation("BuilderIO/agent-native"),
+    );
+    readTriageConfigRowMock.mockResolvedValue({ repository: null });
+
+    await expect(
+      action.run({ ...input, decision: undefined }, context),
+    ).rejects.toThrow(
+      "PR babysitting requires decision (ping, already_asked, or stuck) when inScope is true.",
+    );
+  });
+
+  it("does not require a decision for an out-of-scope skip", async () => {
+    const { default: action } =
+      await import("./babysit-factory-pull-request.js");
+    readCallingFactoryAutomationMock.mockResolvedValue(
+      automation("BuilderIO/agent-native"),
+    );
+    readTriageConfigRowMock.mockResolvedValue({ repository: null });
+
+    await expect(
+      action.run({ ...input, inScope: false, decision: undefined }, context),
+    ).resolves.toMatchObject({ ok: true, action: "skipped" });
   });
 });

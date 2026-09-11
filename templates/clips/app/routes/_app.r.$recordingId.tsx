@@ -1,10 +1,14 @@
-import { AgentPanel } from "@agent-native/core/client/agent-chat";
+import {
+  requestAgentSidebarOpen,
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
+} from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import { useExperiment } from "@agent-native/core/client/experiments";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -16,6 +20,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -29,8 +34,8 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
-import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/experiments";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
+import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -46,7 +51,6 @@ import {
   IconBolt,
   IconMessage,
   IconExternalLink,
-  IconFolder,
   IconMoodSmile,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -64,7 +68,11 @@ import { toast } from "sonner";
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
-import { PageHeader } from "@/components/library/page-header";
+import {
+  PageBreadcrumb,
+  PageHeader,
+  type PageBreadcrumbItem,
+} from "@/components/library/page-header";
 import {
   BrowserDiagnosticsPanel,
   isFullBrowserDiagnostics,
@@ -101,14 +109,7 @@ import {
   ViewerTabsTrigger,
 } from "@/components/player/viewer-controls";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
@@ -142,6 +143,7 @@ import { useCompletionAudioCue } from "@/hooks/use-completion-audio-cue";
 import { useFolders, useSpaces } from "@/hooks/use-library";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
+import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
@@ -419,8 +421,34 @@ export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
 
-type SidePanel = "transcript" | "comments" | "agent" | "debug" | "settings";
+type SidePanel = "transcript" | "comments" | "debug" | "settings";
 type ToolbarPanel = Exclude<SidePanel, "comments">;
+
+function useGlobalAgentSidebarOpen() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const handleStateChange = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (detail && typeof detail.open === "boolean") {
+        setOpen(detail.open);
+      }
+    };
+
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
+    const mountedPanel = document.querySelector<HTMLElement>(
+      ".agent-sidebar-panel[data-agent-sidebar-state='open']",
+    );
+    setOpen(Boolean(mountedPanel));
+
+    return () => {
+      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
+    };
+  }, []);
+
+  return open;
+}
 
 const WORKFLOW_MENU_ITEMS: Array<{
   kind: WorkflowKind;
@@ -530,12 +558,13 @@ export default function RecordingPage() {
   const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
   const panelParam = searchParams.get("panel");
   const { session, isLoading: sessionLoading } = useSession();
-  const videoEditingExperimentEnabled = useExperiment(CLIPS_VIDEO_EDITING.key);
-  const meetingsExperimentEnabled = useExperiment(CLIPS_MEETINGS.key);
+  const videoEditingLabEnabled = useLab(CLIPS_VIDEO_EDITING.key);
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
 
-  const [panel, setPanel] = useState<SidePanel | null>("transcript");
+  const [panel, setPanel] = useState<SidePanel | null>("comments");
+  const globalAgentSidebarOpen = useGlobalAgentSidebarOpen();
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(startMs);
@@ -555,6 +584,14 @@ export default function RecordingPage() {
   // the player, so nothing needs to scroll there.
   const openSidePanel = useCallback(
     (next: ToolbarPanel) => {
+      if (panel !== next) {
+        trackEvent("clip_panel_opened", {
+          app_name: "clips",
+          template_name: "clips",
+          surface: "recording_page",
+          panel: next,
+        });
+      }
       setPanel(next);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("panel", next);
@@ -566,23 +603,43 @@ export default function RecordingPage() {
           ?.scrollIntoView({ block: "start" });
       });
     },
-    [isCompactLayout, searchParams, setSearchParams],
+    [isCompactLayout, panel, searchParams, setSearchParams],
   );
   const openCommentsPanel = useCallback(() => {
+    if (panel !== "comments") {
+      trackEvent("clip_panel_opened", {
+        app_name: "clips",
+        template_name: "clips",
+        surface: "recording_page",
+        panel: "comments",
+      });
+    }
     setPanel("comments");
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("panel", "comments");
     setSearchParams(nextParams, { replace: true });
-    requestAnimationFrame(() => {
-      commentsSectionRef.current?.scrollIntoView({
-        block: "start",
-        behavior: "smooth",
+    if (isCompactLayout) {
+      requestAnimationFrame(() => {
+        commentsSectionRef.current?.scrollIntoView({
+          block: "start",
+          behavior: "smooth",
+        });
       });
-    });
-  }, [searchParams, setSearchParams]);
+    }
+  }, [isCompactLayout, panel, searchParams, setSearchParams]);
   const openAgentPanel = useCallback(() => {
-    openSidePanel("agent");
-  }, [openSidePanel]);
+    if (recordingId) {
+      trackEvent("builtin_agent_used", {
+        app_name: "clips",
+        template_name: "clips",
+        output_id: recordingId,
+        output_type: "clip",
+        query_type: "clip",
+        surface: "recording_page",
+      });
+    }
+    requestAgentSidebarOpen();
+  }, [recordingId]);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -809,6 +866,20 @@ export default function RecordingPage() {
     | "commenter"
     | "viewer"
     | undefined;
+  const clipViewFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!recording?.id || role === undefined) return;
+    if (clipViewFiredRef.current === recording.id) return;
+    clipViewFiredRef.current = recording.id;
+    trackEvent("clip_viewed", {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: recording.id,
+      output_type: "clip",
+      is_owner: role === "owner",
+      view_type: "recording_page",
+    });
+  }, [recording?.id, role]);
   const directAgentContextUrl = useMemo(() => {
     if (
       typeof window === "undefined" ||
@@ -909,11 +980,10 @@ export default function RecordingPage() {
     recordingId === VIEWER_REDESIGN_PREVIEW_ID
       ? VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS
       : (recording?.durationMs ?? 0);
-  const hasBrowserDiagnosticFailures = Boolean(
-    browserDiagnostics &&
-    (browserDiagnostics.summary.consoleErrorCount > 0 ||
-      browserDiagnostics.summary.consoleWarnCount > 0 ||
-      browserDiagnostics.summary.networkFailureCount > 0),
+  const unviewedDebugEventCount = useUnviewedDebugEventCount(
+    recordingId,
+    browserDiagnostics?.summary ?? null,
+    panel === "debug",
   );
   // Reaching this page already requires a signed-in session with at least
   // viewer access to the recording, so any resolved role qualifies to
@@ -922,24 +992,31 @@ export default function RecordingPage() {
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
-      (!browserDiagnostics && panel === "debug")
+      (!browserDiagnostics && panel === "debug") ||
+      (recording && !recording.enableComments && panel === "comments")
     ) {
       setPanel("transcript");
     }
-  }, [browserDiagnostics, canEdit, panel]);
+  }, [browserDiagnostics, canEdit, panel, recording]);
 
   useEffect(() => {
+    if (panelParam === "agent") {
+      setPanel("transcript");
+      requestAgentSidebarOpen();
+      return;
+    }
     if (panelParam === "comments") {
-      setPanel("comments");
-      requestAnimationFrame(() => {
-        commentsSectionRef.current?.scrollIntoView({ block: "start" });
-      });
+      setPanel(recording?.enableComments ? "comments" : "transcript");
+      if (isCompactLayout) {
+        requestAnimationFrame(() => {
+          commentsSectionRef.current?.scrollIntoView({ block: "start" });
+        });
+      }
       return;
     }
     if (
       (panelParam === "transcript" ||
         panelParam === "insights" ||
-        panelParam === "agent" ||
         panelParam === "debug" ||
         panelParam === "settings") &&
       (panelParam !== "settings" || canEdit) &&
@@ -947,7 +1024,13 @@ export default function RecordingPage() {
     ) {
       setPanel(panelParam === "insights" ? "transcript" : panelParam);
     }
-  }, [browserDiagnostics, canEdit, panelParam]);
+  }, [
+    browserDiagnostics,
+    canEdit,
+    isCompactLayout,
+    panelParam,
+    recording?.enableComments,
+  ]);
 
   const builderCredits =
     (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
@@ -965,55 +1048,30 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  const recordingBreadcrumbItems: PageBreadcrumbItem[] = [
+    ...(recordingSpace
+      ? [
+          { label: t("navigation.spaces"), to: "/spaces" },
+          {
+            label: recordingSpace.name,
+            to: `/spaces/${recordingSpace.id}`,
+          },
+        ]
+      : [{ label: t("navigation.library"), to: "/library" }]),
+    ...(recordingFolder
+      ? [
+          {
+            label: recordingFolder.name,
+            to: recordingFolder.spaceId
+              ? `/spaces/${recordingFolder.spaceId}/folder/${recordingFolder.id}`
+              : `/library/folder/${recordingFolder.id}`,
+          },
+        ]
+      : []),
+    { label: visibleTitle },
+  ];
   const recordingBreadcrumb = (
-    <Breadcrumb aria-label={t("navigation.library")} className="min-w-0">
-      <BreadcrumbList className="flex-nowrap overflow-hidden">
-        <BreadcrumbItem className="shrink-0">
-          <BreadcrumbLink asChild>
-            <NavLink to="/library">{t("navigation.library")}</NavLink>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        {recordingSpace ? (
-          <>
-            <BreadcrumbSeparator className="shrink-0" />
-            <BreadcrumbItem className="min-w-0">
-              <BreadcrumbLink asChild>
-                <NavLink
-                  to={`/spaces/${recordingSpace.id}`}
-                  className="truncate"
-                >
-                  {recordingSpace.name}
-                </NavLink>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-          </>
-        ) : null}
-        {recordingFolder ? (
-          <>
-            <BreadcrumbSeparator className="shrink-0" />
-            <BreadcrumbItem className="min-w-0">
-              <BreadcrumbLink asChild>
-                <NavLink
-                  to={
-                    recordingFolder.spaceId
-                      ? `/spaces/${recordingFolder.spaceId}/folder/${recordingFolder.id}`
-                      : `/library/folder/${recordingFolder.id}`
-                  }
-                  className="flex min-w-0 items-center gap-1.5"
-                >
-                  <IconFolder className="size-4 shrink-0" />
-                  <span className="truncate">{recordingFolder.name}</span>
-                </NavLink>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-          </>
-        ) : null}
-        <BreadcrumbSeparator className="shrink-0" />
-        <BreadcrumbItem className="min-w-0">
-          <BreadcrumbPage className="truncate">{visibleTitle}</BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
+    <PageBreadcrumb items={recordingBreadcrumbItems} />
   );
   // Attribution `via` must never point at someone who isn't the owner, so it
   // is only tagged when the viewer is the owner (same rule as the share dialog).
@@ -1185,7 +1243,7 @@ export default function RecordingPage() {
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor =
-    canEdit && videoEditingExperimentEnabled && !isLoomEmbedBacked;
+    canEdit && videoEditingLabEnabled && !isLoomEmbedBacked;
   const canDelete = role === "owner";
   const canDownloadRecording = Boolean(
     recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
@@ -1925,26 +1983,31 @@ export default function RecordingPage() {
 
   const renderPanelTabs = () => (
     <ViewerTabsList className="min-w-0 shrink-0 bg-sidebar">
-      {isCompactLayout ? (
-        <ViewerTabsTrigger value="comments">
+      {recording.enableComments ? (
+        <ViewerTabsTrigger
+          value="comments"
+          className="px-0 data-[state=active]:after:inset-x-0"
+        >
           {t("playerSettings.comments")}
         </ViewerTabsTrigger>
       ) : null}
       <ViewerTabsTrigger value="transcript">
         {t("recordingPage.transcript")}
       </ViewerTabsTrigger>
-      <ViewerTabsTrigger value="agent">
-        {t("recordingPage.agent")}
-      </ViewerTabsTrigger>
       {browserDiagnostics ? (
         <ViewerTabsTrigger value="debug">
           <span className="flex items-center justify-center gap-1.5">
             {t("browserDiagnostics.debug")}
-            {hasBrowserDiagnosticFailures ? (
-              <span
-                className="size-1.5 rounded-full bg-destructive"
-                aria-label={t("browserDiagnostics.failuresPresent")}
-              />
+            {unviewedDebugEventCount > 0 ? (
+              <Badge
+                variant="secondary"
+                className="h-4 min-w-4 justify-center rounded-full px-1 py-0 text-[10px] leading-none"
+                aria-label={t("browserDiagnostics.unviewedCount", {
+                  count: unviewedDebugEventCount,
+                })}
+              >
+                {unviewedDebugEventCount}
+              </Badge>
             ) : null}
           </span>
         </ViewerTabsTrigger>
@@ -1964,14 +2027,9 @@ export default function RecordingPage() {
         "scroll-mt-14",
         compact
           ? "flex min-h-0 flex-1 flex-col px-4 pb-5 pt-4"
-          : "flex min-h-0 flex-1 flex-col px-1 pb-5 pt-4",
+          : "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3",
       )}
     >
-      {!compact ? (
-        <h2 className="mb-3 shrink-0 text-sm font-semibold">
-          {t("playerSettings.comments")}
-        </h2>
-      ) : null}
       <CommentsPanel
         recordingId={recording.id}
         comments={comments}
@@ -1992,9 +2050,18 @@ export default function RecordingPage() {
     </section>
   );
 
-  const renderSidePanel = () => {
+  const renderSidePanel = (compact = false) => {
     return (
       <>
+        {recording.enableComments ? (
+          <TabsContent
+            forceMount
+            value="comments"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+          >
+            {renderCommentsSection(compact)}
+          </TabsContent>
+        ) : null}
         <TabsContent
           value="transcript"
           className="mt-0 flex-1 min-h-0 data-[state=inactive]:hidden"
@@ -2035,26 +2102,6 @@ export default function RecordingPage() {
             isRegenerating={requestTranscript.isPending}
           />
         </TabsContent>
-        <TabsContent
-          value="agent"
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto data-[state=inactive]:hidden"
-        >
-          <AgentPanel
-            emptyStateText={t("recordingPage.askAboutClip")}
-            dynamicSuggestions={false}
-            scope={{ type: "recording", id: recording.id }}
-            missingApiKeySetupLayout="sidebar"
-            suggestions={[
-              t("recordingPage.summarizeClip"),
-              t("recordingPage.findKeyMoments"),
-              t("recordingPage.listFollowUpActions"),
-              t("recordingPage.draftQuestions"),
-            ]}
-            browserTabId={browserTabId}
-            showHeader={false}
-            showTabBar={false}
-          />
-        </TabsContent>
         {browserDiagnostics ? (
           <TabsContent
             value="debug"
@@ -2091,6 +2138,7 @@ export default function RecordingPage() {
         <RecordingViewsBadge
           recordingId={recording.id}
           viewCount={playerDataQ.data?.viewCount ?? 0}
+          agentViewCount={playerDataQ.data?.agentViewCount ?? 0}
           reactionCount={reactions.length}
           defaultOpen={canEdit && panelParam === "insights"}
           canViewDetails={canEdit}
@@ -2392,7 +2440,7 @@ export default function RecordingPage() {
           }
           openSidePanel(value as ToolbarPanel);
         }}
-        className="clips-recording-view grid h-full min-h-0 w-full max-w-full grid-cols-1 overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background"
+        className="clips-recording-view grid h-full min-h-0 w-full max-w-full grid-cols-1 overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden"
       >
         {/* Main video column */}
         <div className="contents">
@@ -2407,11 +2455,11 @@ export default function RecordingPage() {
             {editing && canUseNativeEditor ? (
               <EditorLayout recordingId={recording.id} className="flex-1" />
             ) : (
-              <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[calc(177.778dvh-35.556rem)]">
+              <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]">
                 <div className="flex w-full shrink-0 justify-center">
-                  {/* A 16:9 width derived from 100dvh - 20rem keeps the
-                    recording context and start of the discussion in view on
-                    displays that are both very wide and very tall. */}
+                  {/* Let the viewer grow on wide displays without pushing the
+                    discussion below the first scrollable viewport. The comments
+                    list owns the desktop scroll so the player stays in context. */}
                   <div className="relative aspect-video w-full overflow-hidden bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
                     <VideoPlayer
                       ref={playerRef}
@@ -2479,7 +2527,7 @@ export default function RecordingPage() {
                               onDraftChange={setCommentDraft}
                               onClose={() => setCommentOpen(false)}
                               onAdded={() => {
-                                setPanel("comments");
+                                if (isCompactLayout) setPanel("comments");
                                 void playerDataQ.refetch();
                               }}
                             />
@@ -2543,7 +2591,7 @@ export default function RecordingPage() {
                     </div>
                     {/* G9 — "From meeting" badge surfaced when this recording is
                       attached to a meeting (server fix 6 attaches `meeting`). */}
-                    {meetingsExperimentEnabled && playerDataQ.data?.meeting ? (
+                    {meetingsLabEnabled && playerDataQ.data?.meeting ? (
                       <NavLink
                         to={`/meetings/${playerDataQ.data.meeting.id}`}
                         className="mb-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
@@ -2588,26 +2636,22 @@ export default function RecordingPage() {
                   </div>
                 </div>
 
-                {isCompactLayout ? (
+                {isCompactLayout && !globalAgentSidebarOpen ? (
                   <RecordingSidePanel
                     id="clip-activity-panel"
                     className="mt-2 lg:hidden"
                     tabs={renderPanelTabs()}
                   >
-                    {panel === "comments"
-                      ? renderCommentsSection(true)
-                      : renderSidePanel()}
+                    {renderSidePanel(true)}
                   </RecordingSidePanel>
-                ) : (
-                  renderCommentsSection()
-                )}
+                ) : null}
               </div>
             )}
           </div>
         </div>
 
         {/* Side panel */}
-        {!editing && !isCompactLayout && panel && panel !== "comments" ? (
+        {!editing && !isCompactLayout && !globalAgentSidebarOpen && panel ? (
           <RecordingSidePanel
             className="hidden lg:col-start-2 lg:row-start-1 lg:flex lg:w-[360px] xl:w-[420px] 2xl:w-[440px]"
             tabs={renderPanelTabs()}

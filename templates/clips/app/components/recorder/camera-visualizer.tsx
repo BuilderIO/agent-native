@@ -7,6 +7,8 @@ import {
 } from "@tabler/icons-react";
 import {
   type CSSProperties,
+  forwardRef,
+  useImperativeHandle,
   useCallback,
   useEffect,
   useRef,
@@ -14,7 +16,6 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   createBackgroundBlurStream,
   DEFAULT_BLUR_PX,
@@ -35,7 +36,6 @@ export interface CameraVisualizerProps {
   /** Background blur radius (px) reflected live in the test preview. */
   blurRadius?: number;
   size?: CameraBubbleSize;
-  onSizeChange?: (size: CameraBubbleSize) => void;
   onStatusChange?: (
     status: CameraTestStatus,
     detail?: { error?: string | null },
@@ -43,17 +43,15 @@ export interface CameraVisualizerProps {
   onPreviewChange?: (hasPreview: boolean) => void;
 }
 
+export interface CameraVisualizerHandle {
+  startTest: () => void;
+}
+
 const CAMERA_BUBBLE_SIZE_PX: Record<CameraBubbleSize, number> = {
   sm: 120,
   md: 200,
   lg: 320,
 };
-
-const CAMERA_SIZE_OPTIONS: Array<{ value: CameraBubbleSize; label: string }> = [
-  { value: "sm", label: "S" },
-  { value: "md", label: "M" },
-  { value: "lg", label: "L" },
-];
 
 const CAMERA_FRAME_TIMEOUT_MS = 5_000;
 
@@ -183,17 +181,22 @@ async function friendlyCameraError(
   return cameraErrorMessage(t, "startFailed");
 }
 
-export function CameraVisualizer({
-  deviceId,
-  disabled,
-  className,
-  blur = false,
-  blurRadius = DEFAULT_BLUR_PX,
-  size = "md",
-  onSizeChange,
-  onStatusChange,
-  onPreviewChange,
-}: CameraVisualizerProps) {
+export const CameraVisualizer = forwardRef<
+  CameraVisualizerHandle,
+  CameraVisualizerProps
+>(function CameraVisualizer(
+  {
+    deviceId,
+    disabled,
+    className,
+    blur = false,
+    blurRadius = DEFAULT_BLUR_PX,
+    size = "md",
+    onStatusChange,
+    onPreviewChange,
+  },
+  ref,
+) {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -473,9 +476,14 @@ export function CameraVisualizer({
     blurHandleRef.current?.setBlurPx(blurRadius);
   }, [blurRadius]);
 
+  useImperativeHandle(ref, () => ({ startTest: () => void startTest() }), [
+    startTest,
+  ]);
+
   const live = status === "live";
   const starting = status === "starting";
   const showBubble = live || starting;
+  if (status === "idle" && !error && !hasFrame) return null;
   const sizePx = CAMERA_BUBBLE_SIZE_PX[size];
   const statusLabel = disabled
     ? t("preRecord.cameraOff")
@@ -487,7 +495,7 @@ export function CameraVisualizer({
           ? hasFrame
             ? t("cameraVisualizer.live")
             : t("cameraVisualizer.waiting")
-          : t("cameraVisualizer.bubble");
+          : t("cameraVisualizer.preview");
   return (
     <div className={cn("grid gap-2", className)}>
       <div className="flex items-center justify-between gap-2">
@@ -527,30 +535,6 @@ export function CameraVisualizer({
           )}
           <span className="truncate">{statusLabel}</span>
         </div>
-        <ToggleGroup
-          type="single"
-          value={size}
-          onValueChange={(value) => {
-            if (value) onSizeChange?.(value as CameraBubbleSize);
-          }}
-          variant="outline"
-          aria-label={t("cameraVisualizer.bubble")}
-          className="grid shrink-0 grid-cols-3 gap-0.5 rounded-md bg-muted p-0.5"
-        >
-          {CAMERA_SIZE_OPTIONS.map((option) => (
-            <ToggleGroupItem
-              key={option.value}
-              value={option.value}
-              disabled={disabled}
-              aria-label={t("cameraVisualizer.setBubbleSize", {
-                size: option.label,
-              })}
-              className="h-6 min-w-6 rounded border-0 px-1.5 text-[11px] text-muted-foreground shadow-none data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
-            >
-              {option.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
         <Button
           type="button"
           variant={live ? "outline" : "secondary"}
@@ -623,4 +607,4 @@ export function CameraVisualizer({
       ) : null}
     </div>
   );
-}
+});

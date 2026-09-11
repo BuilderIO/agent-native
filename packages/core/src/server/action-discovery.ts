@@ -244,6 +244,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.toolCallable = entry.toolCallable;
   }
   if (
+    Array.isArray(entry.capabilityScopes) &&
+    entry.capabilityScopes.length > 0 &&
+    entry.capabilityScopes.every((scope: unknown) => typeof scope === "string")
+  ) {
+    out.capabilityScopes = entry.capabilityScopes;
+  }
+  if (
     entry.publicAgent &&
     typeof entry.publicAgent === "object" &&
     !Array.isArray(entry.publicAgent)
@@ -718,6 +725,8 @@ export async function mergeCoreSharingActions(
       "set-feature-flag",
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
+    ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),
@@ -890,6 +899,42 @@ export async function mergeCoreSharingActions(
     [
       "send-review-thread-to-agent",
       () => import("../review/actions/send-review-thread-to-agent.js"),
+    ],
+    [
+      "react-to-review-comment",
+      () => import("../review/actions/react-to-review-comment.js"),
+    ],
+    [
+      "set-review-thread-unread",
+      () => import("../review/actions/set-review-thread-unread.js"),
+    ],
+    [
+      "set-review-thread-muted",
+      () => import("../review/actions/set-review-thread-muted.js"),
+    ],
+    [
+      "create-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/create-resource-suggestion.js"),
+    ],
+    [
+      "list-resource-suggestions",
+      () =>
+        import("../review/suggestions/actions/list-resource-suggestions.js"),
+    ],
+    [
+      "update-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/update-resource-suggestion.js"),
+    ],
+    [
+      "get-resource-suggestion",
+      () => import("../review/suggestions/actions/get-resource-suggestion.js"),
+    ],
+    [
+      "decide-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/decide-resource-suggestion.js"),
     ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.

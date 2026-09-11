@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -108,31 +109,26 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
     return () => cancelAnimationFrame(frame);
   }, [focusSearchInput, routeRequestsFocus, setSearchParams]);
 
-  // "/" is the inline search shortcut. Cmd+K belongs to the app command menu.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (
-        e.key === "/" &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        (e.target as HTMLElement)?.tagName?.toLowerCase() !== "input" &&
-        (e.target as HTMLElement)?.tagName?.toLowerCase() !== "textarea" &&
-        !(e.target as HTMLElement)?.isContentEditable
-      ) {
-        e.preventDefault();
-        focusSearchInput();
-      }
-      if (e.key === "Escape") {
-        setOpen(false);
-        inputRef.current?.blur();
-      }
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      inputRef.current?.blur();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusSearchInput]);
+  }, []);
 
   function pickResult(hit: SearchHit) {
+    trackEvent("recording_search_result_opened", {
+      app_name: "clips",
+      template_name: "clips",
+      surface: "library",
+      match_type: hit.matchType,
+      has_match_time:
+        typeof hit.matchMs === "number" && Number.isFinite(hit.matchMs),
+      has_match_panel: Boolean(hit.matchPanel),
+    });
     setOpen(false);
     setQuery("");
     const params = new URLSearchParams();
@@ -184,7 +180,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
                 aria-hidden="true"
                 className="absolute end-1.5 top-1/2 h-5 -translate-y-1/2 px-1 font-mono text-[10px]"
               >
-                {shortcutLabel("/")}
+                {shortcutLabel("cmd+k")}
               </Kbd>
             )}
           </div>

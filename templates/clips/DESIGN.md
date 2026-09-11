@@ -54,10 +54,11 @@ transcript, agent, insights, and settings.
 
 ## Progressive disclosure
 
-The viewer presents jobs, not inventories. Sharing starts with one header-level
-copy-link action, invitations, and current access. Social destinations and
-embed publishing replace the body as focused secondary views; embed
-configuration and agent context links stay collapsed until requested. The
+The viewer presents jobs, not inventories. Human sharing and agent continuity
+are separate jobs: Share owns invitations, durable access policy, password,
+expiry, social destinations, and embed publishing; a quiet adjacent Send to
+agent action owns ephemeral handoff to an agent destination. Secondary sharing
+destinations replace the Share body as focused views. The
 overflow leads with recording cleanup actions, while maintenance and
 document-generation commands live in named submenus. A generic AI-tools
 launcher does not compete with Share. The editor opens in transcript mode and
@@ -65,9 +66,11 @@ reveals the precision timeline as a peer mode instead of stacking both
 workspaces under the player.
 
 Share is the viewer toolbar's sole labeled primary action and the product-led
-growth entry point. Copy link is the first action inside Share, never a competing
-toolbar button. Edit, download, and overflow use equal compact icon controls
-with accessible names and tooltips; their visual weight must not rival Share.
+growth entry point. Send to agent is an accessible secondary icon action that
+opens one compact handoff menu; it must not become a second sharing/settings dialog. Copy
+link stays inside Share, never as a competing toolbar button. Edit, download,
+and overflow use equal compact icon controls with accessible names and tooltips;
+their visual weight must not rival Share.
 
 Viewer identity uses one avatar grammar everywhere. People use profile images or
 initials; agents use the same circular avatar shape with the assistant mark.

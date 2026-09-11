@@ -55,6 +55,7 @@ export type PageOwnedDocumentCachePatch = Pick<
   | "visibility"
   | "accessRole"
   | "canComment"
+  | "canSuggest"
   | "canEdit"
   | "canManage"
   | "source"
@@ -273,6 +274,9 @@ export function mergeDocumentIntoDocumentCache(
     visibility: document.visibility,
     accessRole: document.accessRole,
     canComment: document.canComment,
+    ...(document.canSuggest !== undefined
+      ? { canSuggest: document.canSuggest }
+      : {}),
     canEdit: document.canEdit,
     canManage: document.canManage,
     source: document.source,
@@ -554,11 +558,14 @@ export interface PreviewDocumentDraftRecord {
   updatedAt: string;
 }
 
-export function usePreviewDocumentDraft(documentId: string | null) {
+export function usePreviewDocumentDraft(
+  documentId: string | null,
+  options: { enabled?: boolean } = {},
+) {
   return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
     "get-preview-document-draft",
     documentId ? { documentId } : undefined,
-    { enabled: !!documentId, retry: false },
+    { enabled: !!documentId && options.enabled !== false, retry: false },
   );
 }
 

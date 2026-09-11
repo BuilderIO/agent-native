@@ -72,6 +72,8 @@ configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-slides",
+    app_name: "slides",
+    template_name: "slides",
   }),
 });
 
@@ -273,9 +275,21 @@ function AppContent() {
         changelogKey="slides"
       >
         <CommandMenu.Group heading={t("root.commandPresentations")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.searchDecks")}
-          </CommandMenu.Item>
+          {isDeckEditor ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/design-systems")}>
+              {t("navigation.designSystems")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/design-systems") ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
