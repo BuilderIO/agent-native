@@ -1,5 +1,5 @@
 export const AGENTKIT_PROTOCOL_NAME = "agentkit" as const;
-export const AGENTKIT_PROTOCOL_VERSION = 1 as const;
+export const AGENTKIT_PROTOCOL_VERSION = 2 as const;
 export const AGENTKIT_SUPPORTED_PROTOCOL_VERSIONS = [
   AGENTKIT_PROTOCOL_VERSION,
 ] as const;

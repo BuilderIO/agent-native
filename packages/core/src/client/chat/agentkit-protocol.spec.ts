@@ -3,7 +3,10 @@ import type {
   AgentEvent,
   AgentMessage,
 } from "@agent-native/agentkit/protocol";
-import { createAgentKitProtocolVersionOffer } from "@agent-native/agentkit/protocol";
+import {
+  createAgentKitProtocolVersionOffer,
+  resumeEntryFromApproval,
+} from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import { createAgentKitProtocolAdapter } from "./agentkit-protocol.js";
@@ -123,6 +126,29 @@ function createRuntime(
 }
 
 describe("createAgentKitProtocolAdapter", () => {
+  it("rejects resume entries on ordinary Core run starts", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    const createSession = vi.spyOn(runtime, "createSession");
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await expect(
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Continue")],
+        resume: [
+          resumeEntryFromApproval({
+            approvalId: "approval-1",
+            response: approvalResponse("approve"),
+          }),
+        ],
+      }),
+    ).rejects.toThrow("startRun.resume");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
   it("pauses for a typed connection request and resumes the same run", async () => {
     async function* connectionEvents(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
@@ -837,21 +863,126 @@ describe("createAgentKitProtocolAdapter", () => {
       approvalSeen = next.value?.type === "approval.requested";
     }
 
-    await transport.resolveApproval?.({
+    const resumed = await transport.resumeRun?.({
       threadId: "thread-1",
       runId,
-      approvalId: "approval-1",
-      response: approvalResponse("approve"),
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("approve"),
+        }),
+      ],
     });
-    const remaining: AgentEvent[] = [];
-    while (true) {
-      const next = await iterator.next();
-      if (next.done) break;
-      remaining.push(next.value);
-    }
+    expect(resumed?.runId).not.toBe(runId);
+    expect(await iterator.next()).toMatchObject({ done: true });
+    const remaining = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: resumed!.runId,
+      }),
+    );
 
     expect(continueTurnCalled).toBe(true);
+    expect(remaining.map((event) => event.type)).toContain("approval.resolved");
     expect(remaining.map((event) => event.type)).toContain("run.completed");
+  });
+
+  it("cancels a paused Core turn after its approval stream closes", async () => {
+    const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish?",
+      };
+    }
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: approvalEvents(),
+        cancel,
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "approval.requested") break;
+    }
+    expect(await iterator.next()).toMatchObject({ done: true });
+
+    await transport.cancelRun({ threadId: "thread-1", runId });
+
+    expect(cancel).toHaveBeenCalledWith({ reason: "protocol-cancel" });
+    await expect(
+      transport.getRun?.({ threadId: "thread-1", runId }),
+    ).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("cancels a paused Core turn when the adapter is disposed", async () => {
+    const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
+    const disposeSession = vi.fn(async () => undefined);
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish?",
+      };
+    }
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: approvalEvents(),
+        cancel,
+      }),
+      dispose: disposeSession,
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish")],
+    });
+    const events = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    expect(events.map((event) => event.type)).toContain("approval.requested");
+
+    await transport.dispose();
+
+    expect(cancel).toHaveBeenCalledWith({ reason: "adapter-dispose" });
+    expect(disposeSession).toHaveBeenCalledOnce();
   });
 
   it("binds approval decisions to the exact pending request and fails closed", async () => {
@@ -907,39 +1038,82 @@ describe("createAgentKitProtocolAdapter", () => {
     }
 
     await expect(
-      transport.resolveApproval?.({
+      transport.resumeRun?.({
         threadId: "thread-1",
         runId,
-        approvalId: "approval-stale",
-        response: approvalResponse("approve"),
+        resume: [
+          resumeEntryFromApproval({
+            approvalId: "approval-stale",
+            response: approvalResponse("approve"),
+          }),
+        ],
       }),
     ).rejects.toThrow(
       "Approval response approval-stale does not match pending approval approval-current",
     );
     await expect(
-      transport.resolveApproval?.({
+      transport.resumeRun?.({
         threadId: "thread-1",
         runId,
-        approvalId: "approval-current",
-        response: {} as AgentApprovalResponse,
+        resume: [
+          {
+            interruptId: "approval-current",
+            status: "resolved",
+            payload: {} as AgentApprovalResponse,
+          },
+        ],
       }),
     ).rejects.toThrow("must include decision");
+    await expect(
+      transport.resumeRun?.({
+        threadId: "thread-1",
+        runId,
+        resume: [
+          {
+            interruptId: "approval-current",
+            status: "resolved",
+            payload: { decision: "approve", optionIds: [1] },
+          },
+        ],
+      }),
+    ).rejects.toThrow("optionIds[0]");
+    await expect(
+      transport.resumeRun?.({
+        threadId: "thread-1",
+        runId,
+        resume: [
+          {
+            interruptId: "approval-current",
+            status: "resolved",
+            payload: { decision: "approve", optionId: 1 },
+          },
+        ],
+      }),
+    ).rejects.toThrow("optionId");
     expect(continueTurn).not.toHaveBeenCalled();
 
-    await transport.resolveApproval?.({
+    const resumed = await transport.resumeRun?.({
       threadId: "thread-1",
       runId,
-      approvalId: "approval-current",
-      optionId: "approve",
-      response: {
-        ...approvalResponse("deny", { message: "Not yet" }),
-        optionIds: ["approve"],
-        other: "Use the staging channel",
-      },
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-current",
+          optionId: "approve",
+          response: {
+            ...approvalResponse("deny", { message: "Not yet" }),
+            optionIds: ["approve"],
+            other: "Use the staging channel",
+          },
+        }),
+      ],
     });
-    await drain({
-      [Symbol.asyncIterator]: () => iterator,
-    });
+    expect(await iterator.next()).toMatchObject({ done: true });
+    await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: resumed!.runId,
+      }),
+    );
 
     expect(continueTurn).toHaveBeenCalledWith({
       turnId: "turn-1",
@@ -950,11 +1124,15 @@ describe("createAgentKitProtocolAdapter", () => {
       },
     });
     await expect(
-      transport.resolveApproval?.({
+      transport.resumeRun?.({
         threadId: "thread-1",
         runId,
-        approvalId: "approval-current",
-        response: approvalResponse("approve"),
+        resume: [
+          resumeEntryFromApproval({
+            approvalId: "approval-current",
+            response: approvalResponse("approve"),
+          }),
+        ],
       }),
     ).rejects.toThrow("already terminal");
   });
@@ -1393,18 +1571,24 @@ describe("createAgentKitProtocolAdapter", () => {
       if (next.value?.type === "approval.requested") break;
     }
 
-    await transport.resolveApproval!({
+    const resumed = await transport.resumeRun!({
       threadId: "thread-1",
       runId,
-      approvalId: "approval-1",
-      response: approvalResponse("approve"),
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("approve"),
+        }),
+      ],
     });
-    const remaining: AgentEvent[] = [];
-    while (true) {
-      const next = await iterator.next();
-      if (next.done) break;
-      remaining.push(next.value);
-    }
+    expect(resumed.runId).not.toBe(runId);
+    expect(await iterator.next()).toMatchObject({ done: true });
+    const remaining = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: resumed.runId,
+      }),
+    );
 
     expect(continueTurn).toHaveBeenCalledOnce();
     expect(remaining.some((event) => event.type === "run.completed")).toBe(

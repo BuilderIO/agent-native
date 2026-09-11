@@ -212,6 +212,16 @@ describe("AgentKit protocol hardening", () => {
         versions: [1, 1],
       }),
     ).toThrow("must be unique");
+    expect(
+      negotiateAgentKitProtocolVersion({
+        protocol: "agentkit",
+        versions: [1],
+      }),
+    ).toMatchObject({
+      status: "incompatible",
+      localVersions: [AGENTKIT_PROTOCOL_VERSION],
+      peerVersions: [1],
+    });
   });
 
   it("validates abortable subscription inputs without treating abort as run cancellation", () => {

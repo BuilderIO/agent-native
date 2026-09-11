@@ -774,6 +774,13 @@ where `true` means available, `false` means unsupported, and omission means
 unknown. Breaking required wire changes add a protocol version instead of
 guessing a fallback.
 
+Protocol v2 is an explicitly breaking pre-1.0 minor: its AG-UI envelope is not
+wire-compatible with v1. Upgrade AgentKit clients and servers together, then
+rerun transport conformance before deploying a custom adapter. V2-only peers
+reject v1 rather than silently decoding it, and the deprecated
+`resolveApproval` API is only a source-compatibility bridge once both peers use
+v2.
+
 New transports implement `discoverCapabilities(input)` and return an
 `AgentCapabilitiesDiscovery` descriptor for every requested capability.
 `degraded` and `unavailable` descriptors carry a typed `capability_unavailable`
@@ -786,6 +793,17 @@ AgentKit is pre-1.0 and publishes as one compatibility-tested package. Generated
 apps pin it through Core's dependency rather than resolving a `latest` tag. Read
 release notes for minor updates, and run transport conformance after upgrading a
 custom adapter.
+
+Approval requests are terminal interrupts on the wire. The interrupted run
+closes after the request; `resumeRun()` returns a distinct replacement run id
+whose stream begins with the approval resolution and carries the continued
+work. Consumers must subscribe to that returned run instead of waiting for more
+events on the interrupted run.
+
+Transport conformance requires `resumeRun()` when a transport advertises
+protocol v2. An unversioned compatibility transport may temporarily advertise
+approvals through the deprecated `resolveApproval()` bridge, allowing custom
+adapters to migrate without weakening the v2 lifecycle contract.
 
 ## Migrate an existing Core chat surface
 

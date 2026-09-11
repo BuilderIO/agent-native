@@ -14,7 +14,7 @@ import {
   parseAgentProtocolEnvelope,
   parseInvokeActionInput,
   parseQueueMessageInput,
-  parseResolveApprovalInput,
+  parseResumeRunInput,
   parseAgentThreadSnapshot,
   parseStartRunInput,
 } from "./index.js";
@@ -41,13 +41,22 @@ describe("AgentKit protocol validation", () => {
     expect(() =>
       parseAgentApprovalResponse({ optionIds: ["approve"] }),
     ).toThrow("approvalResponse.decision");
+  });
+
+  it("rejects a resume entry without a resolved or cancelled status", () => {
     expect(() =>
-      parseResolveApprovalInput({
+      parseResumeRunInput({
         threadId: "thread-1",
         runId: "run-1",
-        approvalId: "approval-1",
+        resume: [{ interruptId: "approval-1", status: "maybe" }],
       }),
-    ).toThrow("resolveApproval.response");
+    ).toThrow("resumeRun.resume[0].status");
+  });
+
+  it("rejects a resume with no interrupt resolutions", () => {
+    expect(() =>
+      parseResumeRunInput({ threadId: "thread-1", runId: "run-1", resume: [] }),
+    ).toThrow("resumeRun.resume");
   });
 
   it("keeps custom choice responses distinct from predefined option ids", () => {

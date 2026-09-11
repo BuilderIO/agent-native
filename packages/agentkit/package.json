@@ -83,6 +83,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@ag-ui/core": "0.0.59",
     "@agent-native/toolkit": "workspace:*",
     "@tabler/icons-react": "catalog:",
     "react-markdown": "^10.1.0",

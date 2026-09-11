@@ -1,4 +1,5 @@
 import type {
+  AgentKitStreamContext,
   AgentActionResult,
   AgentCapabilities,
   AgentCapabilitiesDiscovery,
@@ -11,6 +12,10 @@ import type {
   FilePart,
 } from "../protocol/index.js";
 import {
+  AGENTKIT_PROFILE_HEADER,
+  AGENTKIT_PROFILE_ID,
+  decodeAgUiEvent,
+  encodeAgentEvent,
   AgentProtocolValidationError,
   AgentKitProtocolError,
   createCapabilityUnsupportedError,
@@ -40,6 +45,7 @@ import {
   parseQueueMessageInput,
   parseQueueMessageResult,
   parseResolveApprovalInput,
+  parseResumeRunInput,
   parseResolveConnectionRequestInput,
   parseStartRunInput,
   parseStartRunResult,
@@ -54,6 +60,7 @@ import {
   parseUpdateThreadInput,
   parseDiscoverCapabilitiesInput,
   parseVoidResponse,
+  resumeEntryFromApproval,
 } from "../protocol/index.js";
 
 export interface AgentKitHttpTransportOptions {
@@ -236,6 +243,7 @@ async function* parseEventStream(
   response: Response,
   expectedCorrelationId: string,
   afterSequence: number,
+  context: AgentKitStreamContext,
 ): AsyncGenerator<AgentEvent> {
   if (!response.ok) {
     await parseResponse(response, parseVoidResponse, expectedCorrelationId);
@@ -245,6 +253,19 @@ async function* parseEventStream(
     ?.split(";", 1)[0]
     ?.trim()
     .toLowerCase();
+  const profile = response.headers.get(AGENTKIT_PROFILE_HEADER);
+  if (profile !== AGENTKIT_PROFILE_ID) {
+    throw new AgentKitHttpError(
+      response.status,
+      profile === null
+        ? `The event stream did not declare the required ${AGENTKIT_PROFILE_HEADER} profile.`
+        : `The event stream declared profile ${profile}, which this client cannot read.`,
+      undefined,
+      "unsupported_profile",
+      responseCorrelationId(response, undefined, expectedCorrelationId),
+      false,
+    );
+  }
   if (contentType !== "text/event-stream") {
     throw new AgentKitHttpError(
       response.status,
@@ -265,11 +286,9 @@ async function* parseEventStream(
       false,
     );
   }
-  const correlationId = responseCorrelationId(
-    response,
-    undefined,
-    expectedCorrelationId,
-  );
+  // AG-UI frames carry no envelope, so correlation is proven once for the whole
+  // stream here instead of per event. This throws on a mismatched response.
+  responseCorrelationId(response, undefined, expectedCorrelationId);
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
   let lastSequence = afterSequence;
@@ -291,6 +310,8 @@ async function* parseEventStream(
           .find((line) => line.startsWith("id:"))
           ?.slice(3)
           .trim();
+        const event = decodeAgUiEvent(JSON.parse(data) as unknown, context);
+        if (event === undefined) continue;
         if (
           id !== undefined &&
           (!/^\d+$/.test(id) || !Number.isSafeInteger(Number(id)))
@@ -300,25 +321,6 @@ async function* parseEventStream(
             "expected a non-negative safe integer cursor",
           );
         }
-        const envelope = parseAgentProtocolEnvelope(
-          JSON.parse(data) as unknown,
-        );
-        if (envelope.kind !== "event") {
-          throw new AgentProtocolValidationError(
-            "envelope.kind",
-            "expected an event envelope",
-          );
-        }
-        if (
-          envelope.correlationId &&
-          envelope.correlationId !== correlationId
-        ) {
-          throw new AgentProtocolValidationError(
-            "envelope.correlationId",
-            "must match the event stream correlation id",
-          );
-        }
-        const event = parseAgentEvent(envelope.payload, "envelope.payload");
         if (id !== undefined && Number(id) !== event.sequence) {
           throw new AgentProtocolValidationError(
             "event.id",
@@ -562,7 +564,10 @@ export function createAgentKitHttpTransport(
           `${baseUrl}/runs/${encodeURIComponent(input.runId)}/events?${query}`,
           { headers, signal: combinedSignal.signal },
         );
-        yield* parseEventStream(response, correlationId, afterSequence);
+        yield* parseEventStream(response, correlationId, afterSequence, {
+          threadId: input.threadId,
+          runId: input.runId,
+        });
       } finally {
         combinedSignal.release();
       }
@@ -584,6 +589,17 @@ export function createAgentKitHttpTransport(
         `/runs/${encodeURIComponent(input.runId)}?${query}`,
         parseNullableAgentRunSnapshot,
         {},
+        context,
+      );
+    },
+    resumeRun(input, context) {
+      return request(
+        `/runs/${encodeURIComponent(input.runId)}/resume`,
+        parseStartRunResult,
+        {
+          method: "POST",
+          body: JSON.stringify(createAgentProtocolEnvelope("request", input)),
+        },
         context,
       );
     },
@@ -889,7 +905,7 @@ function eventStream(
           lastSequence = event.sequence;
           controller.enqueue(
             encoder.encode(
-              `id: ${event.sequence}\ndata: ${JSON.stringify(createAgentProtocolEnvelope("event", event, correlationId))}\n\n`,
+              `id: ${event.sequence}\ndata: ${JSON.stringify(encodeAgentEvent(event))}\n\n`,
             ),
           );
         } catch (error) {
@@ -910,6 +926,7 @@ function eventStream(
       headers: {
         "cache-control": "no-cache, no-transform",
         "content-type": "text/event-stream",
+        [AGENTKIT_PROFILE_HEADER]: AGENTKIT_PROFILE_ID,
         ...(correlationId
           ? { "x-agentkit-correlation-id": correlationId }
           : {}),
@@ -1293,15 +1310,25 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
         await invoke((context) => transport.cancelRun(input, context));
         return respond(undefined);
       }
+      const resumeMatch = path.match(/^\/runs\/([^/]+)\/resume$/);
+      if (request.method === "POST" && resumeMatch) {
+        const resumeRun = transport.resumeRun;
+        if (!resumeRun) {
+          return notSupported("resumeRun", "Approvals are not supported.");
+        }
+        const input = await readPayload(parseResumeRunInput);
+        assertRouteIdentifier(
+          decodeURIComponent(resumeMatch[1] ?? ""),
+          input.runId,
+          "runId",
+        );
+        return respond(
+          await invoke((context) => resumeRun(input, context)),
+          201,
+        );
+      }
       const approvalMatch = path.match(/^\/runs\/([^/]+)\/approvals\/([^/]+)$/);
       if (request.method === "POST" && approvalMatch) {
-        const resolveApproval = transport.resolveApproval;
-        if (!resolveApproval) {
-          return notSupported(
-            "resolveApproval",
-            "Approvals are not supported.",
-          );
-        }
         const input = await readPayload(parseResolveApprovalInput);
         assertRouteIdentifier(
           decodeURIComponent(approvalMatch[1] ?? ""),
@@ -1313,7 +1340,26 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
           input.approvalId,
           "approvalId",
         );
-        await invoke((context) => resolveApproval(input, context));
+        if (transport.resolveApproval) {
+          await invoke((context) => transport.resolveApproval!(input, context));
+          return respond(undefined);
+        }
+        if (!transport.resumeRun) {
+          return notSupported(
+            "resolveApproval",
+            "Approvals are not supported.",
+          );
+        }
+        await invoke((context) =>
+          transport.resumeRun!(
+            {
+              threadId: input.threadId,
+              runId: input.runId,
+              resume: [resumeEntryFromApproval(input)],
+            },
+            context,
+          ),
+        );
         return respond(undefined);
       }
       const connectionMatch = path.match(

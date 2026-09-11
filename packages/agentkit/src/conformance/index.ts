@@ -11,8 +11,12 @@ import {
   AGENTKIT_PROTOCOL_VERSION,
   createAgentKitProtocolVersionOffer,
   parseAgentCapabilities,
+  decodeAgUiEvent,
+  encodeAgentEvent,
+  isAgUiEvent,
   parseAgentEvent,
   parseAgentEventSequence,
+  resumeEntryFromApproval,
   parseAgentQueuedMessage,
   parseAgentThreadSnapshot,
   projectAgentCapabilities,
@@ -307,6 +311,52 @@ function assertLifecycleCompleteness(
   return ["rich lifecycle replay", "rich lifecycle snapshot"];
 }
 
+/** Key order is not part of a JSON value, so comparison must not depend on it. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, nested) => {
+    if (
+      typeof nested !== "object" ||
+      nested === null ||
+      Array.isArray(nested)
+    ) {
+      return nested;
+    }
+    return Object.fromEntries(
+      Object.entries(nested as Record<string, unknown>).sort(([a], [b]) =>
+        a < b ? -1 : a > b ? 1 : 0,
+      ),
+    );
+  });
+}
+
+/**
+ * Every domain event must survive the AG-UI wire and come back identical, and
+ * the frame in between must be one a stock AG-UI client can parse. Checking
+ * both together is the point: a profile that round-trips through frames only
+ * Builder can read would pass the first half and deliver no interoperability.
+ */
+function assertAgUiWireCompatibility(
+  events: readonly AgentEvent[],
+  context: { threadId: string; runId: string },
+): void {
+  for (const event of events) {
+    const frame = encodeAgentEvent(event);
+    assert(
+      isAgUiEvent(frame),
+      `Event ${event.type} did not encode to a valid AG-UI event.`,
+    );
+    const decoded = decodeAgUiEvent(frame, context);
+    assert(
+      decoded !== undefined,
+      `Event ${event.type} did not decode back from its AG-UI frame.`,
+    );
+    assert(
+      canonicalJson(decoded) === canonicalJson(event),
+      `Event ${event.type} changed while round-tripping through AG-UI: ${canonicalJson(event)} became ${canonicalJson(decoded)}.`,
+    );
+  }
+}
+
 function assertOrderedEvents(input: {
   events: readonly AgentEvent[];
   threadId: string;
@@ -330,6 +380,7 @@ function assertOrderedEvents(input: {
     runId,
     path: "runEvents",
   });
+  assertAgUiWireCompatibility(events, { threadId, runId });
   if (requireStarted) {
     assert(
       events[0]?.type === "run.started",
@@ -432,11 +483,13 @@ function assertCapabilitiesTruthful(
   };
 
   requireOperation(capabilities.actions, transport.invokeAction, "actions");
-  requireOperation(
-    capabilities.approvals,
-    transport.resolveApproval,
-    "approvals",
-  );
+  if (capabilities.approvals) {
+    const operation =
+      capabilities.protocolVersion === AGENTKIT_PROTOCOL_VERSION
+        ? transport.resumeRun
+        : (transport.resumeRun ?? transport.resolveApproval);
+    requireOperation(true, operation, "approvals");
+  }
   requireOperation(capabilities.feedback, transport.submitFeedback, "feedback");
   requireOperation(
     capabilities.threadHistory,
@@ -526,15 +579,19 @@ async function assertUnsupportedOperations(
   }
   if (!capabilities.approvals) {
     await probe(
-      "resolveApproval",
-      transport.resolveApproval
+      "resumeRun",
+      transport.resumeRun
         ? () =>
-            transport.resolveApproval!({
+            transport.resumeRun!({
               threadId,
               runId: "conformance-unsupported-run",
-              approvalId: "conformance-unsupported-approval",
-              optionId: "approve",
-              response: { decision: "approve" },
+              resume: [
+                {
+                  interruptId: "conformance-unsupported-approval",
+                  status: "resolved",
+                  payload: { decision: "approve" },
+                },
+              ],
             })
         : undefined,
     );
@@ -1073,8 +1130,8 @@ async function assertApprovalContinuation(input: {
   timeoutMs: number;
 }): Promise<number> {
   assert(
-    input.transport.resolveApproval,
-    "approvals requires resolveApproval.",
+    input.transport.resumeRun || input.transport.resolveApproval,
+    "approvals requires resumeRun or the legacy resolveApproval bridge.",
   );
   const started = await startScenarioRun({ ...input, scenario: "approval" });
   const iterator = input.transport
@@ -1102,42 +1159,87 @@ async function assertApprovalContinuation(input: {
     );
     if (event.type === "approval.requested") requested = event;
   }
-  await input.transport.resolveApproval({
-    threadId: input.threadId,
-    runId: started.runId,
+  const approval = {
     approvalId: requested.request.id,
     optionId: "approve",
-    response: { decision: "approve", optionIds: ["approve"] },
-  });
-  events.push(
-    ...(await collectIterator(
+    response: { decision: "approve" as const, optionIds: ["approve"] },
+  };
+  const resumed = input.transport.resumeRun
+    ? await input.transport.resumeRun({
+        threadId: input.threadId,
+        runId: started.runId,
+        resume: [resumeEntryFromApproval(approval)],
+      })
+    : await input.transport.resolveApproval!({
+        threadId: input.threadId,
+        runId: started.runId,
+        ...approval,
+      }).then(() => ({ runId: started.runId }));
+  let continuationEvents: AgentEvent[];
+  if (resumed.runId === started.runId) {
+    continuationEvents = await collectIterator(
       iterator,
       input.timeoutMs,
       "approval continuation",
-    )),
-  );
-  assertOrderedEvents({
-    events,
-    threadId: input.threadId,
-    runId: started.runId,
-    terminal: "run.completed",
-  });
-  const resolvedIndex = events.findIndex(
+    );
+    events.push(...continuationEvents);
+    assertOrderedEvents({
+      events,
+      threadId: input.threadId,
+      runId: started.runId,
+      terminal: "run.completed",
+    });
+  } else {
+    const closed = await withTimeout(
+      iterator.next(),
+      input.timeoutMs,
+      "interrupted approval stream closure",
+    );
+    assert(
+      closed.done,
+      "An interrupted run must close before its replacement starts.",
+    );
+    assertOrderedEvents({
+      events,
+      threadId: input.threadId,
+      runId: started.runId,
+      terminal: "none",
+    });
+    continuationEvents = await collect(
+      input.transport.subscribeToRun({
+        threadId: input.threadId,
+        runId: resumed.runId,
+      }),
+      input.timeoutMs,
+      "approval replacement run",
+    );
+    assertOrderedEvents({
+      events: continuationEvents,
+      threadId: input.threadId,
+      runId: resumed.runId,
+      terminal: "run.completed",
+    });
+  }
+  const lifecycleEvents =
+    resumed.runId === started.runId
+      ? events
+      : [...events, ...continuationEvents];
+  const resolvedIndex = lifecycleEvents.findIndex(
     (event) =>
       event.type === "approval.resolved" &&
       event.approvalId === requested?.request.id,
   );
   assert(
-    resolvedIndex > events.indexOf(requested),
+    resolvedIndex > lifecycleEvents.indexOf(requested),
     "Approval continuation must emit approval.resolved after approval.requested.",
   );
-  const resolved = events[resolvedIndex];
+  const resolved = lifecycleEvents[resolvedIndex];
   assert(
     resolved?.type === "approval.resolved" &&
       resolved.response.decision === "approve",
     "Approval continuation must preserve the explicit provider-neutral decision.",
   );
-  return events.length;
+  return lifecycleEvents.length;
 }
 
 async function assertQueueIdentity(input: {

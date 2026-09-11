@@ -301,6 +301,9 @@ importers:
 
   packages/agentkit:
     dependencies:
+      '@ag-ui/core':
+        specifier: 0.0.59
+        version: 0.0.59
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../toolkit
@@ -5876,6 +5879,9 @@ packages:
 
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
+
+  '@ag-ui/core@0.0.59':
+    resolution: {integrity: sha512-hDgy4ipTqXieT8YG8Mr917Y+FD/f11VK1GefZ5CwTDCuNqS/oTwjJ5l/DZkicThgS8hQW/Y7wPylPBMBJ8BkUg==}
 
   '@ai-sdk/anthropic@3.0.86':
     resolution: {integrity: sha512-IVUaTOz46dNniRaALEvphV5WOqPfKTJRZlJhJabz3kaXk1QiwdnzWQhKMKLiprD+872E9YHqmmyFNFFH1MfnBQ==}
@@ -21330,6 +21336,10 @@ snapshots:
 
   '@adobe/css-tools@4.5.0':
     optional: true
+
+  '@ag-ui/core@0.0.59':
+    dependencies:
+      zod: 3.25.76
 
   '@ai-sdk/anthropic@3.0.86(zod@4.4.3)':
     dependencies:
