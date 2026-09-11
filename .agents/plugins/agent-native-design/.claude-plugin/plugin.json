@@ -1,0 +1,12 @@
+{
+  "name": "agent-native-design",
+  "displayName": "Design",
+  "description": "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
+  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
+  "homepage": "https://design.agent-native.com",
+  "repository": "https://github.com/BuilderIO/agent-native",
+  "license": "MIT",
+  "keywords": ["agent-native", "design", "mcp", "skills", "app-backed-skill"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

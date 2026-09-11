@@ -1,0 +1,129 @@
+---
+title: "SSO entre aplicativos"
+description: "Documenta o SSO de workspace no Desktop e a federação de organizações no servidor. O login de navegador com Agent-Native foi removido."
+---
+
+# SSO entre aplicativos
+
+A opção de navegador "Sign in with Agent-Native" e o redirecionamento automático
+do navegador foram removidos. O login por aplicativo continua sendo o padrão
+para usuários da web. Esta página descreve os contratos restantes do Desktop e
+da federação no servidor.
+
+## O que permanece
+
+### Workspace no Desktop
+
+O login do workspace é uma ação explícita nas configurações do Desktop. Quando
+habilitado, o Desktop pode provisionar aplicativos registrados elegíveis por
+meio de seu broker dedicado. Cada aplicativo de destino continua dono de seu
+próprio armazenamento de usuários, sessão e verificações de acesso. O Desktop
+não intercepta a navegação anônima do navegador para uma página de login.
+
+Um aplicativo só é elegível quando:
+
+- O Desktop habilita o SSO de workspace para o aplicativo.
+- A URL de produção é HTTPS exato.
+- O Dispatch tem um registro exato no servidor para o aplicativo.
+- A flag de rollout <code>desktop.workspace-sso</code> está habilitada.
+
+A preferência por dispositivo <code>desktopSsoEnabled</code> vem habilitada por
+padrão. Um false explícito continua sendo uma exclusão. Se a flag, preferência,
+registro ou verificação de elegibilidade estiver indisponível, o login normal por
+aplicativo continua disponível.
+
+### Federação no servidor
+
+O broker e os clientes de servidor restantes usam um protocolo curto e
+verificado pelo servidor. Ele não é exposto como controle de login do navegador:
+
+1. O cliente solicita um vínculo exato com um aplicativo registrado.
+2. O Dispatch autentica a identidade do workspace e retorna um código de
+   autorização curto e de uso único.
+3. O servidor do aplicativo troca o código com seu verificador PKCE.
+4. O aplicativo verifica a asserção assinada, o vínculo exato, o callback, o
+   escopo, o nonce e a expiração.
+5. O aplicativo vincula ou cria um usuário local pelo e-mail verificado e cria
+   sua sessão local normal.
+
+A asserção é retornada somente pela troca servidor a servidor. Ela nunca aparece
+em uma URL do navegador e não é um bearer token reutilizável.
+
+## Federação de organizações
+
+A flag <code>organization.cross-app-federation</code> vem desativada por padrão.
+Quando habilitada, o aplicativo de origem registra sua organização local no
+Dispatch e armazena o mapeamento exato
+
+<code>(identity_authority, identity_id)</code>. O aplicativo de destino aceita o
+ID canônico da organização, o nome e o papel verificado somente da asserção
+verificada pelo servidor.
+
+Nomes de organizações, domínios de e-mail e cookies do navegador não são chaves
+de vínculo. Uma organização local sem mapeamento permanece inalterada até uma
+migração explícita. As associações vinculadas continuam usando as verificações de
+acesso normais do aplicativo de destino.
+
+A federação usa uma credencial separada para cada aplicativo de origem registrado:
+
+- Defina <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> no aplicativo de
+  origem.
+- Defina o valor correspondente
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
+  no Dispatch.
+- Não reutilize <code>A2A_SECRET</code> para este limite de autoridade.
+
+O sufixo do ID do aplicativo substitui cada sequência de caracteres não
+alfanuméricos por um sublinhado e converte o resultado para maiúsculas. Por
+exemplo, o ID <code>workspace-reports</code> usa
+
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
+
+As gravações de identidade e organização são aditivas. Usuários existentes com
+o mesmo e-mail são reutilizados sem modificação. Um novo e-mail verificado cria
+um usuário local. Desativar a federação não exclui dados.
+
+## Configuração
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> é usado apenas pelo caminho restante
+de servidor e Desktop quando um aplicativo auto-hospedado precisa de uma
+implantação explícita do Dispatch. Ele não adiciona uma opção de login no
+navegador nem um redirecionamento automático.
+
+Em uma implantação auto-hospedada do Dispatch, registre cada aplicativo
+personalizado com ID, client ID, origem HTTPS, caminho de callback e capacidade
+
+<code>identity-sso</code> exatos usando
+<code>IDENTITY_SSO_APP_REGISTRY_JSON</code>.
+
+Registros de produção devem usar HTTPS e um caminho de callback exato. Localhost
+é permitido apenas para desenvolvimento local. Subdomínios desconhecidos, IDs de
+aplicativo incompatíveis, caminhos arbitrários e callbacks entre origens são
+rejeitados.
+
+## Verificação e reversão
+
+Depois da implantação:
+
+1. Verifique se e-mail, senha, link mágico e provedores configurados continuam
+   funcionando no navegador.
+2. Verifique se a superfície de autenticação do navegador não oferece a opção
+   de login do Agent-Native.
+3. Se o SSO do Desktop estiver habilitado, verifique um aplicativo registrado
+   exato pela ação explícita nas configurações do Desktop.
+4. Se a federação de organizações estiver habilitada, verifique o ID exato da
+   organização e o papel de membro no aplicativo de destino.
+
+Para reverter o caminho restante, desative a flag correspondente e remova
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> da implantação auto-hospedada. Depois
+faça uma nova implantação. Os registros aditivos continuam disponíveis para a
+autenticação local normal.
+
+## Documentação relacionada
+
+- [Autenticação](/docs/authentication)
+- [Protocolo A2A](/docs/a2a-protocol)
+- [Dispatch](/docs/dispatch)
+- [Segurança e escopo de dados](/docs/security)
+- [Workspaces multiaplicativo](/docs/multi-app-workspace)

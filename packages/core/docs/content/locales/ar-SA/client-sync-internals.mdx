@@ -1,0 +1,124 @@
+---
+title: "آليات المزامنة الداخلية"
+description: "آلية إصدار التغيير خلف useDbSync: useChangeVersion/useChangeVersions لمزامنة useQuery خام، والمساران اللذان يمكن أن تسلكهما إعادة الجلب."
+---
+
+# آليات المزامنة الداخلية
+
+تغطي [المزامنة المباشرة](/docs/key-concepts#polling-sync) النموذج المفهومي: تصبح كتابة الوكيل حدث تغيير، ويلتقطها `useDbSync()`، وتُعاد جلب الاستعلامات المتأثرة. تغطي هذه الصفحة الآلية التي تقف تحتها والتي لا تلمسها معظم التطبيقات مباشرة أبدًا: عدّادات إصدار التغيير التي تُصعِّدها `useDbSync()`، وكيفية دمجها في استدعاء `useQuery()` خام لا يمر عبر `useActionQuery()`.
+
+تُعيد `useActionQuery()` الجلب تلقائيًا بالفعل عندما تكتمل action تُغيِّر البيانات (راجع [البيانات والمزامنة](/docs/client-data#fetching-mutating)). استخدم `useChangeVersion()`/`useChangeVersions()` فقط عندما تُزامن استدعاء `useQuery()` خام خارج ذلك المسار، مثل أداة مساعدة عميل ذات مستوى منخفض تقرأ حالة تكامل.
+
+## كيف تعمل إصدارات التغيير {#how-it-works}
+
+عندما تحدث طفرة قاعدة بيانات من جانب الخادم، يسجل الخادم حدث تغيير مُعلَّمًا بمفتاح `source`. تستقبل `useDbSync()` ذلك الحدث وتُصعِّد عدادًا محليًا لذلك المصدر. يجعل دمج العداد في مفتاح استعلام React الاستعلام يُعيد الجلب تلقائيًا كل مرة يُعلن فيها الواجهة الخلفية عن نشاط جديد لذلك المصدر.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description: 'مصدر حدث التغيير المطلوب مراقبته، مثل `"dashboards"`.',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "عدّاد يتصاعد كل مرة يتم تغيير المصدر المحدد.",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description: "مصادر حدث تغيير متعددة لمراقبتها في آنٍ واحد.",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "مجموع عدادات الإصدار لكل مصدر مُعطى.",
+  }}
+/>
+
+في المثال أدناه، يقرأ استدعاء `useQuery()` خام لوحة معلومات مباشرة، مع دمج عداد إصدار مصدر `"dashboards"` في مفتاح استعلامه حتى يُعيد الجلب كل مرة يتغير ذلك المصدر:
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+يحافظ `placeholderData: (prev) => prev` على البيانات السابقة على الشاشة أثناء إعادة الجلب، لذا لا يرمش العرض إلى حالة تحميل.
+
+## مساران لإعادة الجلب {#latency-models}
+
+تصل الطفرة إلى واجهة المستخدم بأحد طريقين، ولهما زمن انتقال مختلف.
+
+الطفرة المحلية، وهي طفرة أجراها استدعاء `useActionMutation()` الخاص بك للتو، تُصدر حدث `source: "action"` بمجرد نجاحها. تُعيد كل استعلام يعتمد على تلك action الجلب فورًا. لا يوجد تأخير في الرحلة ذهابًا وعودة، لأن علامة التبويب التي أجرت الكتابة تعرف بها بالفعل.
+
+الطفرة البعيدة، من الوكيل، أو خطاف ويب، أو علامة تبويب أخرى، أو مستخدم آخر، يجب أن تصل إلى علامة التبويب هذه أولًا. تلتقطها `useDbSync()` عبر SSE على الفور تقريبًا، أو عبر الرجوع إلى الاستقصاء في غضون ثانيتين تقريبًا إذا لم يكن SSE متاحًا. فقط بعد وصول ذلك الحدث يتصاعد عداد الإصدار ذو الصلة ويُعاد جلب الاستعلام في الخلفية.
+
+<Diagram id="doc-block-client-sync-internals-3" title="مساران لإعادة الجلب" summary="تُبطل الطفرة المحلية ذاكرتها التخزينية فورًا. تصل الكتابة البعيدة إلى علامة التبويب هذه عبر SSE، أو دورة الاستقصاء كنسخة احتياطية.">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">علامة التبويب هذه</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >تُصدر source: "action" عند النجاح &rarr; إعادة جلب محلية فورية</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent"
+        >الوكيل · خطاف ويب · علامة تبويب أخرى</span
+      ><strong>كتابة بعيدة</strong
+      ><small class="diagram-muted"
+        >دفع SSE، أو دورة الاستقصاء كل ~2 ثانية كنسخة احتياطية &rarr; يتصاعد
+        الإصدار &rarr; إعادة جلب في الخلفية</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## ما هي الخطوة التالية
+
+- [**المزامنة المباشرة**](/docs/key-concepts#polling-sync) — النموذج المفهومي الذي تقف هذه الصفحة تحته
+- [**البيانات والمزامنة**](/docs/client-data) — `useActionQuery`/`useDbSync`، التي ينبغي أن تستخدمها معظم الصفحات بدلًا من هذه البدائيات
+- [**متقدم**](/docs/client-advanced) — البدائيات الأخرى ذات المستوى الأدنى ومخارج الطوارئ الخاصة بالعميل

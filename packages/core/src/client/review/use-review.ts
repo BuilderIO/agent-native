@@ -1,0 +1,332 @@
+import { useQueryClient } from "@tanstack/react-query";
+
+import type {
+  ResourceSuggestion,
+  SuggestionDecision,
+  SuggestionOperation,
+  SuggestionStatus,
+} from "../../review/suggestions/types.js";
+import type {
+  ReviewComment,
+  ReviewCommentKind,
+  ReviewDiscussionState,
+  ReviewThreadPreference,
+  ReviewMention,
+  ReviewResolutionTarget,
+  ReviewStatus,
+  ReviewStatusEntry,
+} from "../../review/types.js";
+import { useActionMutation, useActionQuery } from "../use-action.js";
+
+export interface ListReviewCommentsParams {
+  resourceType: string;
+  resourceId: string;
+  includeResolved?: boolean;
+  includeDeleted?: boolean;
+  targetId?: string | null;
+  limit?: number;
+}
+
+export interface ListReviewCommentsResult {
+  comments: ReviewComment[];
+  discussion: ReviewDiscussionState;
+  reviewStatus: ReviewStatusEntry | null;
+  summary: {
+    openCount: number;
+    agentQueueCount: number;
+  };
+}
+
+export interface GetReviewFeedbackParams {
+  resourceType: string;
+  resourceId: string;
+  includeHumanTargeted?: boolean;
+  limit?: number;
+}
+
+export interface GetReviewFeedbackResult {
+  comments: ReviewComment[];
+}
+
+export interface CreateReviewCommentInput {
+  resourceType: string;
+  resourceId: string;
+  targetId?: string | null;
+  kind?: ReviewCommentKind;
+  anchor?: unknown;
+  body: string;
+  authorName?: string | null;
+  resolutionTarget?: ReviewResolutionTarget | null;
+  mentions?: ReviewMention[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ReplyReviewCommentInput {
+  resourceType: string;
+  resourceId: string;
+  commentId: string;
+  body: string;
+  authorName?: string | null;
+  resolutionTarget?: ReviewResolutionTarget | null;
+  mentions?: ReviewMention[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ReactToReviewCommentInput {
+  resourceType: string;
+  resourceId: string;
+  commentId: string;
+  reaction: string;
+  active: boolean;
+}
+
+export interface SetReviewThreadUnreadInput {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+  unread: boolean;
+}
+
+export interface SetReviewThreadMutedInput {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+  muted: boolean;
+}
+
+export function useReactToReviewComment() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    {
+      commentId: string;
+      actorEmail: string;
+      reaction: string;
+      active: boolean;
+    },
+    ReactToReviewCommentInput
+  >("react-to-review-comment", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
+export function useSetReviewThreadUnread() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ReviewThreadPreference & { threadId: string },
+    SetReviewThreadUnreadInput
+  >("set-review-thread-unread", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
+export function useSetReviewThreadMuted() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ReviewThreadPreference & { threadId: string },
+    SetReviewThreadMutedInput
+  >("set-review-thread-muted", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
+export interface ResolveReviewThreadInput {
+  resourceType: string;
+  resourceId: string;
+  threadId?: string;
+  commentId?: string;
+  resolutionNote?: string;
+}
+
+export interface DeleteReviewCommentInput {
+  resourceType: string;
+  resourceId: string;
+  commentId: string;
+}
+
+export interface ConsumeReviewFeedbackInput {
+  resourceType: string;
+  resourceId: string;
+  commentIds: string[];
+}
+
+export interface SendReviewThreadToAgentInput {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+}
+
+export interface SetReviewStatusInput {
+  resourceType: string;
+  resourceId: string;
+  status: ReviewStatus;
+  note?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListResourceSuggestionsParams {
+  resourceType: string;
+  resourceId: string;
+  statuses?: SuggestionStatus[];
+}
+
+export interface CreateResourceSuggestionInput {
+  resourceType: string;
+  resourceId: string;
+  adapterKind: string;
+  baseRevision: string;
+  summary: string;
+  idempotencyKey: string;
+  operations: SuggestionOperation[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface DecideResourceSuggestionInput {
+  id: string;
+  decision: SuggestionDecision;
+  idempotencyKey: string;
+  observedBase: string;
+  observedRevision?: number;
+}
+
+export interface UpdateResourceSuggestionInput {
+  id: string;
+  observedRevision: number;
+  idempotencyKey: string;
+  operations: SuggestionOperation[];
+  summary?: string;
+}
+
+export function useReviewComments(
+  params: ListReviewCommentsParams,
+  options?: { enabled?: boolean },
+) {
+  return useActionQuery<ListReviewCommentsResult>(
+    "list-review-comments",
+    params,
+    {
+      enabled:
+        options?.enabled ?? Boolean(params.resourceType && params.resourceId),
+    },
+  );
+}
+
+export function useReviewFeedback(
+  params: GetReviewFeedbackParams,
+  options?: { enabled?: boolean },
+) {
+  return useActionQuery<GetReviewFeedbackResult>(
+    "get-review-feedback",
+    params,
+    {
+      enabled:
+        options?.enabled ?? Boolean(params.resourceType && params.resourceId),
+    },
+  );
+}
+
+export function useCreateReviewComment() {
+  return useActionMutation<ReviewComment, CreateReviewCommentInput>(
+    "create-review-comment",
+  );
+}
+
+export function useReplyReviewComment() {
+  return useActionMutation<ReviewComment, ReplyReviewCommentInput>(
+    "reply-review-comment",
+  );
+}
+
+export function useResolveReviewThread() {
+  return useActionMutation<
+    {
+      threadId: string;
+      resolved: true;
+      updatedCount: number;
+      resolutionNote: string | null;
+      comment: ReviewComment;
+    },
+    ResolveReviewThreadInput
+  >("resolve-review-thread");
+}
+
+export function useDeleteReviewComment() {
+  return useActionMutation<
+    { commentId: string; deleted: true; updatedCount: number },
+    DeleteReviewCommentInput
+  >("delete-review-comment");
+}
+
+export function useConsumeReviewFeedback() {
+  return useActionMutation<
+    { consumedCommentIds: string[]; updatedCount: number },
+    ConsumeReviewFeedbackInput
+  >("consume-review-feedback");
+}
+
+export function useSendReviewThreadToAgent() {
+  return useActionMutation<
+    {
+      resourceType: string;
+      resourceId: string;
+      threadId: string;
+      resolutionTarget: "agent";
+      consumedAt: null;
+      updatedCount: number;
+      ownerEmail: string | null;
+      orgId: string | null;
+      visibility: "private" | "org" | "public";
+    },
+    SendReviewThreadToAgentInput
+  >("send-review-thread-to-agent");
+}
+
+export function useSetReviewStatus() {
+  return useActionMutation<ReviewStatusEntry, SetReviewStatusInput>(
+    "set-review-status",
+  );
+}
+
+export function useResourceSuggestions(
+  params: ListResourceSuggestionsParams,
+  options?: { enabled?: boolean },
+) {
+  return useActionQuery<{ suggestions: ResourceSuggestion[] }>(
+    "list-resource-suggestions",
+    params,
+    {
+      enabled:
+        options?.enabled ?? Boolean(params.resourceType && params.resourceId),
+    },
+  );
+}
+
+export function useCreateResourceSuggestion() {
+  return useActionMutation<ResourceSuggestion, CreateResourceSuggestionInput>(
+    "create-resource-suggestion",
+  );
+}
+
+export function useDecideResourceSuggestion() {
+  return useActionMutation<
+    { suggestion: ResourceSuggestion; decision: unknown },
+    DecideResourceSuggestionInput
+  >("decide-resource-suggestion");
+}
+
+export function useUpdateResourceSuggestion() {
+  return useActionMutation<ResourceSuggestion, UpdateResourceSuggestionInput>(
+    "update-resource-suggestion",
+  );
+}

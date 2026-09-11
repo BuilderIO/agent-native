@@ -1,0 +1,381 @@
+---
+name: video-sharing
+description: >-
+  How Clips shares recordings — composes with the framework sharing skill and
+  adds password, expiry, embed URLs, view-counting, and per-viewer "Viewed by"
+  records. Use when wiring the share dialog, building embed links, adding a
+  password, showing who viewed a clip and when, or debugging who can see a
+  recording.
+---
+
+# Video Sharing
+
+## Rule
+
+Recording sharing uses the framework `sharing` system — not a custom share table. Recordings are registered via `registerShareableResource({ type: "recording", ... })` in `server/db/index.ts`. The `share-resource`, `unshare-resource`, `list-resource-shares`, and `set-resource-visibility` actions are auto-mounted and handle per-user grants, per-org grants, and the three visibility levels (`private` / `org` / `public`).
+
+Unlike the framework-wide private default, normal Clips recordings and uploaded
+videos default to **public** so their copied share links work immediately.
+Embedded bug-report recordings are the exception and default to organization
+visibility. Callers can still explicitly create a private or organization-only
+recording, and owners/admins can change visibility from the Share dialog.
+
+Organization admins can use `set-organization-branding` with
+`defaultVisibility=public|org|private` to choose the visibility applied when new
+recordings omit an explicit visibility. The default remains `public`, and an
+explicit visibility always wins — which is why bug-report recordings still land
+on `org`.
+
+Clips **adds two things** on top of the framework system:
+
+1. **Password** — an optional bcrypt'd string on the `recordings` row. When set, all non-owner viewers must enter it to play the recording.
+2. **`expiresAt`** — an optional ISO timestamp on the `recordings` row. After this time, all non-owner access is denied (even to principals with explicit grants).
+
+These are **additive** — they never grant access the framework denies, only tighten it.
+
+## When to use
+
+Read this skill before:
+
+- Wiring the Share dialog on a recording page
+- Adding a password or expiry UI
+- Building embed URLs (`?t=`, `?autoplay=`, `?hideControls=`)
+- Building AI-readable public clip URLs or transcript/frame endpoints
+- Debugging "why can't Alice see this video?"
+- Touching `server/routes/video/[id].ts` or `server/routes/share/[id].ts`
+
+## Data model touched
+
+- **`recordings.password`** (nullable text) — bcrypt hash.
+- **`recordings.expires_at`** (nullable ISO string).
+- **`recording_shares`** — framework-managed. Do not insert directly — use `share-resource`.
+- **`recordings.visibility`** — framework-managed column from `ownableColumns()`.
+- **`recording_viewers`** + **`recording_events`** — view counting.
+- **`recording_views`** — append-only per-view log (who viewed, when) backing the owner-facing "Viewed by" popover. See "View counting" below.
+- **`recording_agent_views`** — outside agents reading a clip through its public agent APIs, counted separately from humans. See "Agent views" below.
+
+## Dropping in the share UI
+
+Clips' `app/components/player/share-dialog.tsx` is a **thin wrapper around the framework `ShareDialog`** from `@agent-native/core/client`. The framework component handles per-user / per-org grants, visibility, and tabbed copy-link / embed UI — Clips just composes it with recording-specific extras.
+
+```tsx
+import { ShareDialog } from "@agent-native/core/client";
+
+<ShareDialog
+  resourceType="recording"
+  resourceId={recording.id}
+  resourceTitle={recording.title}
+  shareUrl={`${origin}/share/${recording.id}`}
+  embedUrl={`${origin}/embed/${recording.id}`}
+  linkTabExtras={
+    <>
+      {/* Password + expiry render in the Link tab, below the share URL. */}
+      <PasswordField recordingId={recording.id} />
+      <ExpiryField recordingId={recording.id} />
+    </>
+  }
+  embedTabContent={<EmbedSnippetAndOptions recordingId={recording.id} />}
+/>;
+```
+
+- `shareUrl` / `embedUrl` — the copy-link and embed URLs the framework renders in its tabs.
+- `linkTabExtras` — Clips-specific controls (password, expiry) shown beneath the link.
+- `embedTabContent` — full replacement for the Embed tab body (embed code, params like `?t=`, `?autoplay=`).
+
+The password and expiry fields call `update-recording --password=...` / `--expiresAt=...`. Keep Clips' share-dialog wrapper minimal — any new generic sharing feature belongs in the framework component, not here.
+
+## Shared with me
+
+Use `list-recordings --view=shared` to list recordings the current user can
+access but does not own. The filter composes with `accessFilter`, so it includes
+direct user/org grants and organization-visible recordings while excluding
+public-link-only clips. The UI exposes the same collection at `/shared`; use
+`navigate --view=shared` to open it. `view-screen` returns the recordings
+currently visible in that collection.
+
+## Discovery boundary for public clips
+
+Public recordings are unlisted-by-link for agent purposes: an agent may discover
+only recordings the current user owns or has already viewed. Do not use
+`list-recordings` or `search-recordings` to discover another user's public clips,
+to answer a time/date question about the clip already in context, or to recover
+from a failed direct lookup. If the user supplies another clip's share URL or id,
+use that explicit reference; otherwise stop and report the lookup failure.
+
+## Access resolution
+
+The player and `/api/video/:id` route check access in this exact order:
+
+```ts
+async function canAccess(
+  recordingId: string,
+  requester: Session | null,
+  providedPassword?: string,
+) {
+  // 1. Framework check — owner, shared, or meets visibility.
+  const access = await resolveAccess("recording", recordingId, requester);
+  if (!access.allowed) return false;
+
+  const rec = await getRecordingOrThrow(recordingId);
+
+  // 2. Expiry — non-owner only.
+  if (rec.expiresAt && requester?.email !== rec.ownerEmail) {
+    if (new Date(rec.expiresAt) < new Date()) return false;
+  }
+
+  // 3. Password — non-owner only.
+  if (rec.password && requester?.email !== rec.ownerEmail) {
+    if (!providedPassword) return false;
+    if (!(await bcrypt.compare(providedPassword, rec.password))) return false;
+  }
+
+  return true;
+}
+```
+
+Framework first, Clips additions second. Don't invert this — the framework owns the "is this row visible at all" question.
+
+## Embed URLs
+
+Embeds live at `/embed/:shareId` (a share-scoped anonymous route). Supported query params:
+
+| Param             | Meaning                                            |
+| ----------------- | -------------------------------------------------- |
+| `?t=80`           | Start playback at 80 seconds                       |
+| `?autoplay=1`     | Autoplay (muted — browsers block unmuted autoplay) |
+| `?hideControls=1` | Hide the player chrome                             |
+| `?loop=1`         | Loop playback                                      |
+
+Build embed URLs via the `build-embed-url` action:
+
+```ts
+const { url } = await callAction("build-embed-url", {
+  id: recording.id,
+  t: 80,
+  autoplay: true,
+});
+// -> /embed/<shareId>?t=80&autoplay=1
+```
+
+## Slack unfurls
+
+Clips can render Loom-style Slack previews through Slack App Unfurling. Configure
+the Slack app's `link_shared` event to call `/api/slack/unfurl`; the route
+verifies `SLACK_SIGNING_SECRET`, acknowledges Slack URL verification, and calls
+`chat.unfurl` with a Block Kit `video` block using the existing `/embed/:id`
+player URL.
+
+For installable workspaces, use the Clips Settings OAuth flow. `connect-slack`
+opens Slack OAuth, `/api/slack/oauth/callback` stores the bot token encrypted in
+`app_secrets`, and `slack_installations` stores only the Slack team/app metadata
+plus the secret ref. The unfurl webhook resolves the token by Slack `team_id`
+and `api_app_id`; only if no OAuth install exists should it fall back to the
+legacy `SLACK_BOT_TOKEN` path.
+
+The playable Slack embed is deliberately narrower than the share page:
+
+- Only `ready` recordings with `visibility === "public"` can produce a video block.
+- Password-protected, expired, archived, trashed, private, org-only, or still-processing clips must not produce a playable Slack block.
+- Slack thumbnails use the same-origin proxy for stored thumbnails, or a public video frame when no stored thumbnail exists; normal share-page metadata remains the fallback when no Slack app is installed.
+- Do not put passwords, short-lived share tokens, raw provider URLs, or transcript text in Slack unfurl payloads.
+
+Required Slack app setup:
+
+- Bot scopes: `links:read`, `links:write`, `links.embed:write`
+- Event subscription: `link_shared`
+- App unfurl domains: the public Clips share domain, for example `clips.agent-native.com`
+- Request URL: `https://<clips-host>/api/slack/unfurl`
+- OAuth redirect URL: `https://<clips-host>/api/slack/oauth/callback`
+- Deploy secrets: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and
+  `SLACK_SIGNING_SECRET`
+
+## Agent-readable clips
+
+Recordings can expose URLs meant for external agents without handing over raw
+video bytes:
+
+| Endpoint                                          | Meaning                                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript summary, recommended frames, and API discovery links                               |
+| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp                                |
+
+These endpoints follow the same access model as `/api/public-recording`, plus a
+temporary agent-link path:
+
+- Non-public clips return not found to anonymous callers.
+- `create-recording-agent-link` resolves normal recording access, rejects
+  archived or trashed recordings, then mints a two-hour `agent_access` URL for
+  `/share/:recordingId`. The share page SSR advertises the agent context URL,
+  and the JSON endpoints accept the same scoped token.
+- Expired clips return expired.
+- Password-protected clips require `password=<pw>` once; successful JSON
+  responses include short-lived tokenized links so the plaintext password is not
+  copied into downstream agent prompts, browser history, or logs.
+- If a discovery, context, or transcript payload reports `agentReadiness.state`
+  as `"preparing"` (the clip is `"uploading"` or `"processing"`), wait 15 seconds
+  and retry `agentContextUrl`. Do not open the share page, fetch frames, or draw
+  conclusions until the recording status is `"ready"`.
+- If the context or transcript response reports `transcript.status` as
+  `"pending"`, wait 15-30 seconds and retry the context/transcript URL a few
+  times before falling back to frames or telling the user no transcript exists.
+  Long recordings are the common case here.
+- If transcription failed because Builder transcription credits are exhausted,
+  tell the user to upgrade or connect Builder.io credits, or configure a Groq
+  key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do not
+  transcribe Clips recordings.
+- Frame extraction must use the checked recording media path and must not expose
+  raw provider URLs.
+
+Public agent context also exposes the recording's redacted browser diagnostics:
+the console stream (all levels) as `browserDiagnostics.consoleLogs` and the
+fetch/XHR stream as `browserDiagnostics.networkRequests` (method, sanitized URL
+with query values redacted, status, duration), plus `consoleIssues` and
+`failedNetworkRequests` highlights. All of it is bounded, and page URL, headers,
+bodies, and cookies stay omitted.
+
+Password-protected clips require the password once to mint a short-lived token,
+which is returned inside the agent-context links.
+
+Use the `@agent-native/core/server` and `@agent-native/core/shared` agent-access
+helpers for scoped token mint/verify and bot-visible URL construction. Keep
+Clips-specific visibility, password, transcript, frame, and player behavior in
+Clips. New URLs should use `agent_access`; existing agent API routes should keep
+accepting legacy `t` tokens so already-copied links do not break.
+
+The share popover's "Share with agents" field should copy an agent context URL
+or tokenized share page URL, not raw transcript text. Its "Copy agent prompt"
+field may wrap that URL with instructions to fetch transcripts, frames, and
+browser diagnostics, but it should still point agents at the context response so
+they can fetch only the visual context they need.
+
+HTTP access is the default browser-independent path: fetch the agent context
+URL and then use its advertised transcript and frame URLs. It works for
+URL-only clients without loading the share page.
+
+When a `/share/:id`, `/embed/:id`, or public `/r/:id` page is open in a
+WebMCP-capable browser, the page also registers these read-only tools:
+
+| WebMCP tool | Purpose |
+| --- | --- |
+| `clips-get-context` | Clip metadata, readiness, transcript status, and HTTP API URLs |
+| `clips-get-transcript` | Bounded timestamped segments, with optional time bounds and stable-index pagination; may omit fullText |
+| `clips-get-frame` | An existing authenticated JPEG frame URL for `atMs` |
+
+For any client, fetch the agent context URL and use its HTTP API URLs. For
+complete transcript text, use `apis.transcript`. If the page is already open
+in a WebMCP-capable browser, list its current page tools and use them for
+bounded inspection; `clips-get-transcript` may omit `fullText` or return a
+truncated result, so follow its `sourceUrl` for the complete HTTP transcript.
+The transcript tool returns `nextStartIndex` when another page exists; pass
+that value back as `startIndex` so overlapping transcript segments are not
+skipped.
+The URL endpoint accepts the same `startIndex`, `maxSegments`, `startMs`, and
+`endMs` parameters, and keeps `nextStartMs` for older clients. The frame tool
+returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image
+rather than expecting WebMCP to carry binary bytes. WebMCP is optional
+progressive enhancement and page-local. HTTP access remains first-class and
+browser-independent: use the existing `agentContextUrl`, `apis.transcript`,
+and `apis.frame` URLs above. These URLs, password handling, scoped
+`agent_access` tokens, and legacy `t` token support remain the primary URL
+contract.
+
+## View counting
+
+Clips counts **human views** and **agent views** separately. The two live in
+different tables and never mix — see "Agent views" below before touching either.
+
+### Human views
+
+A view counts when **any** of these is true:
+
+- The viewer has watched **≥ 5 seconds** of total real playback time
+- The viewer has hit **≥ 75% completion**
+- The viewer has scrubbed to the very end
+
+The canonical predicate is `shouldCountView(totalWatchMs, completedPct, scrubbedToEnd)` from `server/lib/recordings.ts`. Always go through it — do not recompute inline.
+
+```ts
+import { shouldCountView } from "../server/lib/recordings.js";
+
+if (
+  !viewer.countedView &&
+  shouldCountView(viewer.totalWatchMs, viewer.completedPct, scrubbedToEnd)
+) {
+  await db
+    .update(schema.recordingViewers)
+    .set({ countedView: true })
+    .where(eq(schema.recordingViewers.id, viewer.id));
+}
+```
+
+Events feeding this live in `recording_events`. The `/api/view-event` route receives `view-start`, `watch-progress` (every 5s), `seek`, `pause`, `resume`, `cta-click`, `reaction`. Aggregate into `recording_viewers` on write to keep `get-insights` fast.
+
+### Agent views
+
+An **agent view** is an outside agent reading a clip through its public agent
+APIs — `/api/agent-context.json`, `/api/agent-transcript.json`,
+`/api/agent-frame.jpg`. Those routes are agent-only surfaces (a human watching a
+clip never hits them), so a request on one is the signal.
+
+- **Table:** `recording_agent_views` — one row per `(recordingId, agentKey, viewSessionId)`.
+  `agentKey` is a sha256 of user-agent + request IP, so an agent is countable
+  across polls without ever storing its IP. `agentLabel` resolves in that order:
+  the label the agent link was minted with (a signed `agentLabel` claim on the
+  `agent_access` token, set via `create-recording-agent-link --agentLabel`), then
+  the product name parsed from the user-agent (Claude, ChatGPT, Perplexity, …),
+  then NULL. NULL means unnamed, not a name — render it as "Unknown agent" and
+  never write a placeholder string, or an agent we could not identify becomes
+  indistinguishable from one that identified itself. `userAgent` keeps the raw
+  (truncated) string so unnamed agents stay identifiable and new `AGENT_LABELS`
+  patterns come from real traffic.
+- **Where it's written:** `recordAgentView` in `server/lib/agent-views.ts`,
+  called from `loadPublicAgentAccess` — the one choke point all three agent
+  routes share. Owner requests are skipped (they're previews, not views), and the
+  write is best-effort so view accounting can never fail an agent's read.
+- **Dedup:** one agent's burst of context + transcript + frame polls collapses
+  into a single view via a 30-minute window (`AGENT_VIEW_SESSION_MS`), with
+  `requestCount` recording how many polls that view covered.
+- **Reads:** `countRecordingAgentViews` and `listRecordingAgentViewers`. Surfaced
+  as `agentViews` / `agentViewers` on `get-recording-insights`, `agentViewCount`
+  on `get-recording-player-data`, `list-recordings`, and the public
+  `/api/public-recording` payload. The count renders inline — on the views pill
+  itself (`RecordingViewsBadge`, watch and share headers) and on library cards —
+  so agent reads are visible without opening the popover. It is always a
+  separate icon-prefixed number, never summed into the human view total.
+
+Keeping this in its own table is deliberate: no human-view query can pick agents
+up by forgetting a filter. Do not add agent rows to `recording_viewers` or
+`recording_views`.
+
+### Per-viewer view records ("Viewed by")
+
+On top of the aggregate `viewCount` shown in the library and the `views` stat in the insights panel, Clips records **individual view records** — who viewed a clip and when — so the owner can see a timeline, not just a number.
+
+- **Table:** `recording_views` (`server/db/schema.ts`) — `id`, `recordingId`, `viewerId` (FK to `recording_viewers.id`), denormalized `viewerEmail` / `viewerName`, `viewedAt`. Append-only; never updated after insert.
+- **Where it's written:** `server/routes/api/view-event.post.ts`, in the same handler that already upserts `recording_viewers` and inserts `recording_events`. A `recording_views` row is inserted **exactly once per viewer**, at the moment `countedView` transitions from `false` to `true` (i.e. the same instant that viewer starts contributing to the aggregate `views` count in `get-recording-insights`). This keeps the per-viewer log and the aggregate count always consistent — a returning viewer who is already counted does not create a second row.
+- **Anonymous viewers** still get a row — `viewerEmail` is `null` and `viewerName` holds the `anon:<sessionId>` key, same convention as `recording_viewers`. The UI renders these as "Someone".
+- **Read surface:** `list-clip-views` action — `{ recordingId, limit? }`, owner-only (`assertAccess("recording", recordingId, "editor")`), returns `{ views: [{ id, viewerEmail, viewerName, viewedAt }] }` sorted most-recent-first. Use this instead of scanning `recording_viewers`/`recording_events` when you need a real per-visit timeline.
+- **UI:** clicking the view count (library card or the insights panel's Views stat) opens `<ViewedByPopover recordingId>` (`app/components/sharing/viewed-by-popover.tsx`), which lazily queries `list-clip-views` only while the popover is open.
+- **Privacy:** viewer identities in `recording_views` are visible only to principals who already pass the owner-only `assertAccess` check on the recording — never surfaced on the public share page itself, which never fetches or renders other viewers' data.
+
+## Anonymous viewers
+
+`recording_viewers.viewer_email` is **nullable** — anonymous viewers (public link, no account) still get a row keyed by a cookie id. Never require login to watch a public recording; require it only when the share grant is user-scoped.
+
+## Rules
+
+- **Never** write to `recording_shares` directly. Always go through `share-resource` / `unshare-resource`.
+- **Never** store a plaintext password. Use bcrypt on write; bcrypt-compare on read.
+- **Never** bypass the access check on `/api/video/:id`. Streaming routes are the #1 data-leak vector.
+- **Password + expiry are additions**, not replacements — the framework's `accessFilter` still runs first.
+- The embed route (`/embed/:shareId`) is **anonymous by default** — don't require auth, but still go through `canAccess`.
+- `build-embed-url` is the single source of truth for embed URLs — keep it in sync with the query params the player accepts.
+- **Never** expose `recording_views` rows (or any other viewer's identity) from the public share/embed page — only `list-clip-views`, which is owner-only via `assertAccess`, may return them.
+
+## Related skills
+
+- `sharing` — framework-level primitive Clips composes with. Read this first.
+- `security` — password handling, token storage, anonymous viewer cookies.
+- `video-editing` — exports honor `recordings.enableDownloads`.
+- `storing-data` — why `password` / `expiresAt` live on the `recordings` row instead of a parallel table.
