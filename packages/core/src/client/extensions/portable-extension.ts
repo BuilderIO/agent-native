@@ -809,7 +809,8 @@ export function buildAgentNativeExtensionHtml({
           reportHeight();
           var animations = activeAnimations();
           var hasFiniteAnimation = false;
-          var hasIndefiniteAnimation = activeCssMotionCount > 0;
+          var hasIndefiniteAnimation =
+            animations === null || activeCssMotionCount > 0;
           if (animations) {
             animations.forEach(function(animation) {
               var effect = animation.effect;

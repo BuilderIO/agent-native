@@ -832,7 +832,8 @@ export function buildExtensionHtml(
           _reportHeight();
           var animations = _activeAnimations();
           var hasFiniteAnimation = false;
-          var hasIndefiniteAnimation = _activeCssMotionCount > 0;
+          var hasIndefiniteAnimation =
+            animations === null || _activeCssMotionCount > 0;
           if (animations) {
             animations.forEach(function(animation) {
               var effect = animation.effect;
