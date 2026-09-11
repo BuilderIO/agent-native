@@ -795,7 +795,9 @@ function renderActiveRecording(
   }
 
   const settling =
-    recording.status === "stopping" || recording.status === "uploading";
+    arming ||
+    recording.status === "stopping" ||
+    recording.status === "uploading";
   stop.disabled = settling;
   discard.disabled = settling;
 

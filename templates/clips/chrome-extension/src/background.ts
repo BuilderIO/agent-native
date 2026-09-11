@@ -1491,10 +1491,6 @@ async function armRecording(args: {
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
   };
-  // Keep the active-recording stop and discard controls behind the popup once
-  // the recording exists and the countdown can safely be reopened.
-  setActionPopup("src/popup.html");
-
   // 4) Start the recorder when the (already-running) countdown ends. The
   //    offscreen owns the pre-roll timer (a reliable context, unlike the
   //    suspendable worker) and reports "recording" back when it actually starts.
@@ -1539,6 +1535,9 @@ async function armRecording(args: {
     await cancelRecording();
     throw err;
   }
+  // Keep the active-recording stop and discard controls behind the popup only
+  // after the offscreen recorder exists and can safely accept Stop or Discard.
+  setActionPopup("src/popup.html");
   await saveActiveNativeRecording();
 
   broadcastOverlayState();
