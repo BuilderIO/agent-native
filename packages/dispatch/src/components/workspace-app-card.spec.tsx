@@ -227,6 +227,60 @@ describe("WorkspaceAppCard", () => {
     }
   });
 
+  it("opens Dispatch at its overview route instead of applying the app home", async () => {
+    frameState.inBuilderFrame = true;
+    const originalParent = window.parent;
+    const originalTop = window.top;
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <TooltipProvider>
+              <WorkspaceAppCard
+                app={{
+                  id: "dispatch",
+                  name: "Dispatch",
+                  path: "/dispatch",
+                  homePath: "/home",
+                  isDispatch: true,
+                  status: "ready",
+                }}
+              />
+            </TooltipProvider>
+          </MemoryRouter>,
+        );
+      });
+
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(".app-open-actions__primary")
+          ?.click(),
+      );
+      expect(topWindow.location.href).toBe(
+        "http://localhost:3000/dispatch/overview",
+      );
+    } finally {
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        value: originalParent,
+      });
+      Object.defineProperty(window, "top", {
+        configurable: true,
+        value: originalTop,
+      });
+    }
+  });
+
   it("keeps mounted workspace apps inline outside Builder", async () => {
     const originalTop = window.top;
     const topWindow = { location: { href: "" } } as unknown as Window;

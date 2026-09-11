@@ -174,6 +174,70 @@ describe("InlineExtensionFrame", () => {
     });
   });
 
+  it("resets the transient submit latch when replacement content changes", async () => {
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: "<button>First</button>",
+          }}
+        />,
+      );
+    });
+
+    const firstIframe = container.querySelector("iframe");
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: firstIframe?.contentWindow ?? window,
+          data: {
+            type: "agent-native-send-to-chat",
+            message: "First action",
+            submit: true,
+          },
+        }),
+      );
+    });
+
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: "<button>Replacement</button>",
+          }}
+        />,
+      );
+    });
+
+    const replacementIframe = container.querySelector("iframe");
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: replacementIframe?.contentWindow ?? window,
+          data: {
+            type: "agent-native-send-to-chat",
+            message: "Replacement action",
+            submit: true,
+          },
+        }),
+      );
+    });
+
+    expect(sendToAgentChat).toHaveBeenCalledTimes(2);
+    expect(sendToAgentChat).toHaveBeenLastCalledWith({
+      message: "Replacement action",
+      context: undefined,
+      submit: true,
+      openSidebar: true,
+    });
+  });
+
   it("dispatches passive output events from generated UI", async () => {
     await act(async () => {
       root.render(

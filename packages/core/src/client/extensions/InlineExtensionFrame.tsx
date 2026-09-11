@@ -410,7 +410,13 @@ export function InlineExtensionFrame({
     hasSubmittedRef.current = false;
     setHasSubmitted(false);
     setHeight(initialHeight);
-  }, [initialHeight, isTransient, resolvedId, extension?.updatedAt]);
+  }, [
+    extension?.content,
+    extension?.updatedAt,
+    initialHeight,
+    isTransient,
+    resolvedId,
+  ]);
 
   const sendThemeToIframe = () => {
     const win = iframeRef.current?.contentWindow;

@@ -33,11 +33,11 @@ import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
   mergeChatFirstWorkspaceApps,
   isWorkspaceSsoApp,
+  isDispatchWorkspaceAppId,
   navigateToWorkspaceApp,
   shouldOpenWorkspaceAppInTopWindow,
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
-  workspaceAppEmbedTarget,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
@@ -251,6 +251,7 @@ export interface WorkspaceAppFrameApp {
   path?: string | null;
   homePath?: string | null;
   url?: string | null;
+  isDispatch?: boolean;
 }
 
 interface WorkspaceAppFrameProps {
@@ -323,6 +324,7 @@ export function WorkspaceAppFrame({
     path: app.path ?? "",
     homePath: app.homePath ?? undefined,
     url: app.url,
+    isDispatch: app.isDispatch ?? isDispatchWorkspaceAppId(app.id),
   });
   const topWindowHref = useMemo(() => {
     if (embedPath !== undefined) {
@@ -353,7 +355,7 @@ export function WorkspaceAppFrame({
     if (!appHref) return null;
     return {
       app: app.id,
-      ...workspaceAppEmbedTarget({ path: app.path ?? "", url: app.url }),
+      ...(app.url?.trim() ? { url: appHref } : { path: appHref }),
       chrome: "minimal",
     };
   }, [app.id, app.path, app.url, appHref, embedPath, initialPath]);

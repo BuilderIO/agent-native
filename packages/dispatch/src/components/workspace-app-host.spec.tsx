@@ -273,7 +273,7 @@ describe("WorkspaceAppKeepAlive", () => {
     ).not.toBeNull();
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "analytics.agent-native.com",
-      url: "https://analytics.agent-native.com",
+      url: "https://analytics.agent-native.com/home",
       chrome: "minimal",
     });
     expect(
@@ -330,7 +330,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      url: "https://mail.agent-native.com",
+      url: "https://mail.agent-native.com/home",
       chrome: "minimal",
     });
     expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
@@ -356,10 +356,33 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      url: "https://agent-workspace.builder.io/mail",
+      url: "https://agent-workspace.builder.io/mail/home",
       chrome: "minimal",
     });
     expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("uses a registered workspace home path for embedded sessions", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            homePath: "/inbox",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "mail",
+      path: "/mail/inbox",
+      chrome: "minimal",
+    });
   });
 
   it("uses the granted-app session action for mounted apps outside the SSO registry", async () => {
@@ -382,7 +405,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "feedback-leaderboard",
-      url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+      url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard/home",
       chrome: "minimal",
     });
     expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
@@ -416,7 +439,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
       app: "custom-sso",
-      url: "https://custom.example/custom-sso",
+      url: "https://custom.example/custom-sso/home",
       chrome: "minimal",
     });
     expect(navigateToTopWindow).toHaveBeenCalledWith("about:blank");
@@ -660,7 +683,7 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(topWindow.location.href).toBe("");
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      path: "/mail",
+      path: "/mail/home",
       chrome: "minimal",
     });
     expect(container.querySelector("iframe")).not.toBeNull();
@@ -717,7 +740,7 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(navigateToTopWindow).toHaveBeenCalledWith("/mail/home");
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      path: "/mail",
+      path: "/mail/home",
       chrome: "minimal",
     });
     expect(container.querySelector("iframe")).not.toBeNull();
