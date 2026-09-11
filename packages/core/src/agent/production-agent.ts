@@ -6254,13 +6254,19 @@ export async function runAgentLoop(opts: {
           ...(artifacts?.length ? { artifacts } : {}),
         });
       };
+      // An action that stops itself with `errorCode: "permanent_precondition"`
+      // has already classified the failure; its message need not match the
+      // text heuristics to get the reason-led headline.
+      let explicitPermanentPrecondition = false;
       const finalizeToolErrorResult = (rawResult: string): string => {
         const sanitizedResult = sanitizeToolErrorText(rawResult);
         // Counting is the wrong instrument for a precondition the turn cannot
         // satisfy: six identical round-trips through a missing API key cost the
         // user minutes and end where the first one did. Classified first so the
         // remedy reaches them on attempt one.
-        const permanentRemedy = permanentPreconditionRemedy(sanitizedResult);
+        const permanentRemedy = explicitPermanentPrecondition
+          ? sanitizedResult
+          : permanentPreconditionRemedy(sanitizedResult);
         if (permanentRemedy) {
           const reason = permanentPreconditionReason(
             toolCall.name,
@@ -7163,7 +7169,12 @@ export async function runAgentLoop(opts: {
             // A stop that is itself a permanent precondition gets its
             // reason-led headline from `finalizeToolErrorResult`; seeding the
             // raw message here would win its `??=` and hide that headline.
-            if (!permanentPreconditionRemedy(sanitizeToolErrorText(result))) {
+            explicitPermanentPrecondition =
+              err.errorCode === "permanent_precondition";
+            if (
+              !explicitPermanentPrecondition &&
+              !permanentPreconditionRemedy(sanitizeToolErrorText(result))
+            ) {
               requestedActionStop ??= {
                 message,
                 ...(err.errorCode ? { errorCode: err.errorCode } : {}),

@@ -6758,6 +6758,67 @@ describe("runAgentLoop", () => {
     );
   });
 
+  // The explicit code is the classification; the message need not match
+  // the text heuristics to get the reason-led headline.
+  it("honors an explicit permanent_precondition code on a direct action stop", async () => {
+    const run = vi.fn(async () => {
+      throw new AgentActionStopError("mutate-dashboard: Dashboard is locked.", {
+        errorCode: "permanent_precondition",
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "mutate-2",
+              name: "mutate-dashboard",
+              input: { panelId: "p1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "mutate-dashboard": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "mutate-dashboard can't run yet: Dashboard is locked",
+    );
+  });
+
   // 2026-08-26 Slides incident: an A2A/ask_app delegation (Assets) already
   // classified its own failure as a permanent precondition and stopped, but
   // its terminal-stop text only reaches the caller as a plain Error message
