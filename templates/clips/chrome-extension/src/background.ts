@@ -335,8 +335,8 @@ function clearCountdownTimer(): void {
   countdownEndsAtMs = 0;
 }
 
-// Toggle the toolbar popup off while recording so clicking the extension icon
-// fires onClicked (immediate stop & save) instead of opening the popup.
+// Keep the toolbar popup available while recording so the extension icon opens
+// the active-recording controls instead of stopping the take immediately.
 function setActionPopup(path: string): void {
   try {
     void chrome.action.setPopup({ popup: path });
@@ -378,18 +378,35 @@ function persistOverlay(): Promise<void> {
 async function restoreRuntimeState(): Promise<void> {
   const stored = await sessionStorageGet([
     "activeNativeRecording",
+    "pendingNativeRecording",
     "overlayRuntime",
     "armingNativeRecordingSessionId",
   ]);
+  const rawArmingSessionId = persistedArmingSessionId(
+    stored.armingNativeRecordingSessionId,
+  );
+  const hadArmingGuardBeforeRestore = armingNativeRecordingSessionId !== null;
   const rec = stored.activeNativeRecording as NativeRecording | undefined;
-  if (rec && typeof rec.sessionId === "string" && !activeNativeRecording) {
-    activeNativeRecording = rec;
+  const pendingRec = stored.pendingNativeRecording as
+    | NativeRecording
+    | undefined;
+  const restoredRecording = rec ?? pendingRec;
+  if (
+    restoredRecording &&
+    typeof restoredRecording.sessionId === "string" &&
+    !activeNativeRecording
+  ) {
+    activeNativeRecording = restoredRecording;
   }
   const freshArmingSessionId = await readFreshPersistedArmingSessionId(
     stored.armingNativeRecordingSessionId,
   );
   if (freshArmingSessionId && armingNativeRecordingSessionId === null) {
     armingNativeRecordingSessionId = freshArmingSessionId;
+  } else if (!freshArmingSessionId) {
+    // A failed earlier status probe can outlive the persisted guard. Do not let
+    // that stale in-memory value keep the popup locked after the TTL expires.
+    armingNativeRecordingSessionId = null;
   }
   const rt = stored.overlayRuntime as
     | {
@@ -415,12 +432,89 @@ async function restoreRuntimeState(): Promise<void> {
     overlayTabId = typeof rt.overlayTabId === "number" ? rt.overlayTabId : null;
   }
 
-  if (overlayPhase !== "idle" && activeNativeRecording) {
+  let armingRecovered = !freshArmingSessionId;
+  const recoverySessionId = freshArmingSessionId ?? rawArmingSessionId;
+  if (recoverySessionId) {
+    let offscreenState: OffscreenRecordingState | null = null;
+    try {
+      await ensureOffscreenDocument();
+      offscreenState = await sendOffscreenMessage<OffscreenRecordingState>({
+        type: "CLIPS_OFFSCREEN_STATUS",
+      });
+    } catch (error) {
+      // Keep the guard and disabled action until a later status request can
+      // distinguish a live recorder from an interrupted picker.
+      console.warn(
+        "[clips-bg] could not inspect interrupted arming state:",
+        error,
+      );
+    }
+
+    if (offscreenState?.activeSessionId === recoverySessionId) {
+      if (activeNativeRecording) {
+        // The recorder row was persisted before BEGIN, so a worker restart here
+        // can keep the live recorder without leaving the arming guard stuck on.
+        await setArmingGuard(null);
+        armingRecovered = true;
+      } else {
+        // A pending descriptor normally restores the row above. If it is also
+        // missing, cancel the live recorder instead of leaving it with no UI
+        // stop/discard path; the offscreen state supplies a best-effort row id.
+        await cancelRecoveredOffscreenSession(
+          recoverySessionId,
+          offscreenState.activeRecordingId,
+        );
+        resetOverlay();
+        await broadcastUnmount();
+        broadcastOverlayState();
+        await clearNativeRecording();
+        await setArmingGuard(null);
+        armingRecovered = true;
+      }
+    } else if (offscreenState?.preparedSessionId === recoverySessionId) {
+      if (hadArmingGuardBeforeRestore && freshArmingSessionId) {
+        // This is the normal acquire/create/attach gap before BEGIN. Keep the
+        // guard while the prepared streams are still owned by this arm.
+      } else if (activeNativeRecording?.sessionId === recoverySessionId) {
+        // A worker restart ended the arm continuation, so release the row and
+        // prepared streams instead of leaving the popup locked forever.
+        await cancelRecording(true);
+        await setArmingGuard(null);
+        armingRecovered = true;
+      } else {
+        await cancelRecoveredOffscreenSession(recoverySessionId);
+        resetOverlay();
+        await broadcastUnmount();
+        broadcastOverlayState();
+        await clearNativeRecording();
+        await setArmingGuard(null);
+        armingRecovered = true;
+      }
+    } else if (offscreenState) {
+      // The old worker died before BEGIN. Cancel the guarded offscreen session
+      // even when its recording row was never persisted, then clean the local
+      // overlay without touching a different recording that may have resumed.
+      if (activeNativeRecording?.sessionId === recoverySessionId) {
+        await cancelRecording(true);
+      } else {
+        await cancelRecoveredOffscreenSession(recoverySessionId);
+        if (!activeNativeRecording) {
+          resetOverlay();
+          await broadcastUnmount();
+          broadcastOverlayState();
+          await clearNativeRecording();
+        }
+      }
+      await setArmingGuard(null);
+      armingRecovered = true;
+    }
+  }
+
+  if (armingRecovered && overlayPhase !== "idle" && activeNativeRecording) {
     // Recording survived a worker restart. The offscreen document owns the
-    // recorder + pre-roll timer, so it kept running; just restore immediate-stop
-    // mode. If the pre-roll already elapsed, assume the offscreen started the
-    // recorder so the icon click does Stop (not Discard).
-    setActionPopup("");
+    // recorder + pre-roll timer, so it kept running; restore the active-recording
+    // popup before the user can click the extension icon again.
+    setActionPopup(overlayPhase === "saving" ? "" : "src/popup.html");
     if (
       overlayPhase === "countdown" &&
       countdownEndsAtMs > 0 &&
@@ -818,11 +912,39 @@ async function authHeaders(
 async function saveActiveNativeRecording(): Promise<void> {
   if (!activeNativeRecording) {
     await sessionStorageRemove("activeNativeRecording").catch(() => undefined);
+    await sessionStorageRemove("pendingNativeRecording").catch(() => undefined);
     return;
   }
   await sessionStorageSet({
     activeNativeRecording: activeNativeRecording,
   }).catch(() => undefined);
+}
+
+async function persistPendingNativeRecording(
+  recording: NativeRecording,
+): Promise<void> {
+  await sessionStorageSet({ pendingNativeRecording: recording });
+}
+
+async function cancelRecoveredOffscreenSession(
+  sessionId: string,
+  recordingId?: string,
+): Promise<void> {
+  await sendOffscreenMessage({
+    type: "CLIPS_OFFSCREEN_CANCEL",
+    sessionId,
+  }).catch(() => undefined);
+  if (recordingId) {
+    const settings = await readSettings();
+    await postAction(settings, "trash-recording", { id: recordingId }).catch(
+      (error) => {
+        console.warn(
+          "[clips-bg] recovered recording cleanup could not trash row",
+          error,
+        );
+      },
+    );
+  }
 }
 
 // The arming guard rejects a second CLIPS_POPUP_START while the picker +
@@ -846,6 +968,13 @@ async function setArmingGuard(sessionId: string | null): Promise<void> {
       () => undefined,
     );
   }
+}
+
+function persistedArmingSessionId(rawValue: unknown): string | null {
+  if (typeof rawValue === "string" && rawValue) return rawValue;
+  if (!rawValue || typeof rawValue !== "object") return null;
+  const sessionId = (rawValue as { sessionId?: unknown }).sessionId;
+  return typeof sessionId === "string" && sessionId ? sessionId : null;
 }
 
 // Reads the persisted arming guard and returns its sessionId only if it is
@@ -1235,6 +1364,9 @@ async function startRecordingFromTab(args: {
     (await sessionStorageGet(["armingNativeRecordingSessionId"]))
       .armingNativeRecordingSessionId,
   );
+  if (!persistedArmingSessionId) {
+    armingNativeRecordingSessionId = null;
+  }
   if (
     activeNativeRecording ||
     armingNativeRecordingSessionId ||
@@ -1403,6 +1535,7 @@ async function armRecording(args: {
   //    recorder starts. The on-page bubble shows during countdown AND recording
   //    (the face is captured in the display; we do not composite).
   const cameraInvolved = mode === "camera" || settings.includeCamera;
+  setActionPopup("");
   overlayPhase = "countdown";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
@@ -1413,8 +1546,6 @@ async function armRecording(args: {
   // so the popup-close disconnect won't tear down the live recording overlay.
   previewTabId = null;
   setRecordingFlag(true);
-  // Clicking the icon now stops & saves immediately instead of opening the popup.
-  setActionPopup("");
   overlayTabId = tab.id as number;
   await mountOverlayOnTab(tab.id as number);
   broadcastOverlayState();
@@ -1493,7 +1624,19 @@ async function armRecording(args: {
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
   };
-
+  // Persist a descriptor before BEGIN so recovery can control or trash the
+  // server row even if the worker dies before the active state write finishes.
+  try {
+    await persistPendingNativeRecording(activeNativeRecording);
+    await saveActiveNativeRecording();
+  } catch (err) {
+    await abortArming();
+    await postAction(settings, "trash-recording", { id: created.id }).catch(
+      () => undefined,
+    );
+    await clearNativeRecording();
+    throw err;
+  }
   // 4) Start the recorder when the (already-running) countdown ends. The
   //    offscreen owns the pre-roll timer (a reliable context, unlike the
   //    suspendable worker) and reports "recording" back when it actually starts.
@@ -1509,6 +1652,14 @@ async function armRecording(args: {
   // script holds it, with its own 12s cap), so the fallback must be generous
   // enough not to start the recorder mid-connect; otherwise a short pre-roll.
   const startDelayMs = cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000;
+  if (
+    armingNativeRecordingSessionId !== sessionId ||
+    activeNativeRecording?.sessionId !== sessionId
+  ) {
+    await abortArming();
+    await clearNativeRecording();
+    throw new Error("Clips recording start was cancelled.");
+  }
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
@@ -1535,9 +1686,12 @@ async function armRecording(args: {
         includeMicrophone: settings.includeMicrophone,
       },
     });
-    await cancelRecording();
+    await cancelRecording(true);
     throw err;
   }
+  // Keep the active-recording stop and discard controls behind the popup only
+  // after the offscreen recorder exists and can safely accept Stop or Discard.
+  setActionPopup("src/popup.html");
   await saveActiveNativeRecording();
 
   broadcastOverlayState();
@@ -1759,11 +1913,12 @@ async function stopRecording() {
   const recording = activeNativeRecording;
   console.log("[clips-bg] stopRecording — active:", !!recording);
   if (!recording) return { ok: false, error: "No active Clips recording." };
+  if (overlayPhase === "saving") return { ok: false };
   recording.status = "stopping";
-  // Keep an overlay up: swap the recording controls/bubble for a "Saving…" card
-  // so the user has feedback during the upload gap (instead of everything
-  // vanishing while the clip uploads invisibly). Mirrors the desktop Finalizing
-  // overlay. The popup stays disabled so the icon can't interrupt the save.
+  // Disable the popup while saving so a second Stop or Discard cannot race
+  // finalization. Keep an overlay up with a "Saving…" card so the user still
+  // gets feedback during the upload gap.
+  setActionPopup("");
   overlayPhase = "saving";
   countdownEndsAtMs = 0;
   const diagnostics = await stopNativeDiagnostics(recording);
@@ -1819,8 +1974,12 @@ async function stopRecording() {
   }
 }
 
-async function cancelRecording() {
+async function cancelRecording(force = false) {
   const recording = activeNativeRecording;
+  if (overlayPhase === "saving") return { ok: false };
+  if (!force && armingNativeRecordingSessionId) {
+    return { ok: false, error: "Clips recording is still starting." };
+  }
   resetOverlay();
   await broadcastUnmount();
   broadcastOverlayState();
@@ -1931,6 +2090,7 @@ async function reconcilePersistedNativeRecording(): Promise<void> {
 
 async function handlePopupStatus() {
   await reconcilePersistedNativeRecording();
+  if (armingNativeRecordingSessionId) await restoreRuntimeState();
   return {
     ok: true,
     activeRecording: activeNativeRecording,
@@ -2745,14 +2905,18 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })();
 });
 
-// While recording, the popup is disabled (setActionPopup("")), so clicking the
-// extension icon lands here: stop & save immediately (or discard if we're still
-// in the pre-roll countdown). When idle, the popup opens and this never fires.
+// The popup normally handles the icon click while recording. Keep this as a
+// fallback for environments where the action popup cannot be configured.
 chrome.action.onClicked.addListener(() => {
   void (async () => {
     // Await restore — the click may have woken the worker, leaving the module
     // globals empty until this resolves. Without it, Stop silently does nothing.
     await ensureRestored();
+    if (armingNativeRecordingSessionId) {
+      // The action can stay disabled after a transient offscreen-status wake
+      // failure, so retry recovery from the fallback click path as well.
+      await restoreRuntimeState();
+    }
     console.log(
       "[clips-bg] icon clicked — phase:",
       overlayPhase,
