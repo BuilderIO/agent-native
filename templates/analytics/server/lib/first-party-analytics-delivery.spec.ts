@@ -20,6 +20,7 @@ vi.mock("./first-party-analytics-backend.js", () => ({
 }));
 
 const {
+  FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS,
   FIRST_PARTY_ANALYTICS_DELIVERY_STALE_MS,
   firstPartyAnalyticsDeliveryNeedsAttention,
   getFirstPartyAnalyticsDeliveryHealth,
@@ -115,6 +116,10 @@ describe("BigQuery delivery queue", () => {
         sql: expect.stringContaining("deliveryState"),
       }),
     );
+    const reconcileSql = db.execute.mock.calls[0]?.[0]?.sql as string;
+    expect(reconcileSql).toMatch(
+      /deliveryState[\s\S]*NOT EXISTS[\s\S]*LIMIT \$2/,
+    );
   });
 
   it("records a retry and exposes the failed receipt to the canary", async () => {
@@ -174,6 +179,69 @@ describe("BigQuery delivery queue", () => {
         sql: expect.stringContaining("attempt_count = attempt_count + 1"),
         args: expect.arrayContaining(["warehouse unavailable"]),
       }),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("marks repeated failures terminal after the bounded retry budget", async () => {
+    const terminalQueueRow = {
+      ...queueRow,
+      attempt_count: FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS - 1,
+    };
+    const claimTx = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [terminalQueueRow] })
+        .mockResolvedValueOnce({ rowsAffected: 1 }),
+    };
+    const emptyTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    const cleanupTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    const db = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [eventRow] })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              pending_count: "0",
+              oldest_pending_at: null,
+              last_delivered_at: null,
+              last_error: `[terminal after ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS} attempts] warehouse rejected`,
+            },
+          ],
+        }),
+      transaction: vi
+        .fn()
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) => fn(claimTx))
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) => fn(emptyTx))
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) =>
+          fn(cleanupTx),
+        ),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+    mocks.insertWithResults.mockRejectedValueOnce(
+      new Error("warehouse rejected"),
+    );
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    await expect(runFirstPartyAnalyticsBigQueryDeliveryOnce()).resolves.toEqual(
+      expect.objectContaining({
+        status: "retry-scheduled",
+        pendingCount: 0,
+        lastError: `[terminal after ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS} attempts] warehouse rejected`,
+      }),
+    );
+    const retryCall = db.execute.mock.calls.find(([query]) =>
+      String(query?.sql).includes("terminal after"),
+    );
+    expect(retryCall?.[0]?.sql).toContain("attempt_count <");
+    expect(retryCall?.[0]?.args).toEqual(
+      expect.arrayContaining(["warehouse rejected"]),
     );
     errorSpy.mockRestore();
   });

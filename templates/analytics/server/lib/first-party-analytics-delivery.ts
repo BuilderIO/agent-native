@@ -15,6 +15,7 @@ const MAX_DELIVERY_BATCHES_PER_SWEEP = 4;
 const DELIVERY_LEASE_MS = 5 * 60 * 1000;
 const DELIVERY_RETRY_BASE_MS = 60 * 1000;
 const DELIVERY_RETRY_MAX_MS = 60 * 60 * 1000;
+export const FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS = 10;
 const DELIVERY_CLEANUP_RETENTION_MS = 10 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_STALE_MS = 10 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX =
@@ -196,12 +197,18 @@ export async function getFirstPartyAnalyticsDeliveryHealth(
   const scoped = deliveryScope(scope);
   const result = await db.execute({
     sql: `WITH scoped_queue AS (
-             SELECT delivered_at, created_at, last_error, updated_at
+             SELECT delivered_at, created_at, attempt_count, last_error, updated_at
                FROM ${DELIVERY_TABLE}
               WHERE ${scoped.predicate}
            )
-           SELECT COUNT(*) FILTER (WHERE delivered_at IS NULL) AS pending_count,
-                  MIN(created_at) FILTER (WHERE delivered_at IS NULL) AS oldest_pending_at,
+           SELECT COUNT(*) FILTER (
+                    WHERE delivered_at IS NULL
+                      AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+                  ) AS pending_count,
+                  MIN(created_at) FILTER (
+                    WHERE delivered_at IS NULL
+                      AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+                  ) AS oldest_pending_at,
                   MAX(delivered_at) AS last_delivered_at,
                   (
                     SELECT last_error
@@ -264,6 +271,7 @@ async function claimPendingDeliveryRows(
       sql: `SELECT event_id, owner_email, org_id, table_ref, attempt_count, created_at
               FROM ${DELIVERY_TABLE}
              WHERE delivered_at IS NULL
+               AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
                AND next_attempt_at <= $1
                AND (
                  lease_token IS NULL
@@ -317,9 +325,15 @@ async function reconcileMigrationFallbackRows(
   await db.execute({
     sql: `WITH fallback AS (
              SELECT key, value::jsonb AS metadata
-               FROM settings
-              WHERE key LIKE $1 || '%'
-              ORDER BY updated_at ASC, key ASC
+               FROM settings AS marker
+              WHERE marker.key LIKE $1 || '%'
+                AND marker.value::jsonb ->> 'deliveryState' IS DISTINCT FROM 'delivered'
+                AND NOT EXISTS (
+                  SELECT 1
+                    FROM ${DELIVERY_TABLE} AS queued
+                   WHERE queued.event_id = substring(marker.key FROM char_length($1) + 1)
+                )
+              ORDER BY marker.updated_at ASC, marker.key ASC
               LIMIT $2
            )
            INSERT INTO ${DELIVERY_TABLE} (
@@ -338,8 +352,7 @@ async function reconcileMigrationFallbackRows(
               ON event.id = substring(fallback.key FROM char_length($1) + 1)
            WHERE event.owner_email = fallback.metadata ->> 'ownerEmail'
              AND event.org_id IS NOT DISTINCT FROM NULLIF(fallback.metadata ->> 'orgId', '')
-             AND fallback.metadata ->> 'deliveryState' IS DISTINCT FROM 'delivered'
-             AND NOT EXISTS (
+            AND NOT EXISTS (
                 SELECT 1
                   FROM ${DELIVERY_TABLE} AS queued
                  WHERE queued.event_id = event.id
@@ -435,7 +448,7 @@ async function markDeliveryRowsDelivered(
 ): Promise<void> {
   const updated = await db.execute({
     sql: `UPDATE ${DELIVERY_TABLE}
-             SET delivered_at = $1,
+           SET delivered_at = $1,
                  lease_token = NULL,
                  lease_expires_at = NULL,
                  last_error = NULL,
@@ -465,21 +478,31 @@ async function scheduleDeliveryRetry(
     DELIVERY_RETRY_BASE_MS * 2 ** Math.min(attempt - 1, 10),
   );
   const retryAt = new Date(Date.now() + delay).toISOString();
+  const updatedAt = new Date().toISOString();
   const updated = await db.execute({
     sql: `UPDATE ${DELIVERY_TABLE}
              SET attempt_count = attempt_count + 1,
-                 next_attempt_at = $1,
+                 next_attempt_at = CASE
+                   WHEN attempt_count + 1 >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+                     THEN next_attempt_at
+                   ELSE $1
+                 END,
                  lease_token = NULL,
                  lease_expires_at = NULL,
-                 last_error = $2,
+                 last_error = CASE
+                   WHEN attempt_count + 1 >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+                     THEN LEFT('[terminal after ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS} attempts] ' || $2, 1000)
+                   ELSE $2
+                 END,
                  updated_at = $3
            WHERE lease_token = $4
              AND delivered_at IS NULL
+             AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
              AND event_id IN (${idPlaceholders(5, rows.length)})`,
     args: [
       retryAt,
       errorMessage.slice(0, 1_000),
-      new Date().toISOString(),
+      updatedAt,
       rows[0]!.leaseToken,
       ...rows.map((row) => row.eventId),
     ],
@@ -547,38 +570,67 @@ async function cleanupDeliveredRows(db: Executor): Promise<number> {
           : "",
       )
       .filter(Boolean);
+    const selectedOrphanedTerminal = await tx.execute({
+      sql: `SELECT delivery.event_id
+              FROM ${DELIVERY_TABLE} AS delivery
+             WHERE delivery.attempt_count >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+               AND NOT EXISTS (
+                 SELECT 1
+                   FROM analytics_events AS event
+                  WHERE event.id = delivery.event_id
+               )
+             ORDER BY delivery.updated_at ASC, delivery.event_id ASC
+             LIMIT $1
+             FOR UPDATE SKIP LOCKED`,
+      args: [DELIVERY_BATCH_SIZE],
+      timeoutMs: 5_000,
+      maxAttempts: 1,
+    });
+    const orphanedIds = (selectedOrphanedTerminal.rows ?? [])
+      .map((row) =>
+        row && typeof row === "object"
+          ? stringValue(row as Record<string, unknown>, "event_id", "eventId")
+          : "",
+      )
+      .filter(Boolean);
     const uniqueIds = [...new Set([...ids, ...fallbackIds])];
-    if (!uniqueIds.length) return 0;
-    await tx.execute({
-      sql: `DELETE FROM analytics_events
-             WHERE id IN (${idPlaceholders(1, uniqueIds.length)})`,
-      args: uniqueIds,
-      timeoutMs: 5_000,
-      maxAttempts: 1,
-    });
-    await tx.execute({
-      sql: `DELETE FROM settings
-             WHERE key IN (${idPlaceholders(1, uniqueIds.length)})`,
-      args: uniqueIds.map(firstPartyAnalyticsDeliveryFallbackKey),
-      timeoutMs: 5_000,
-      maxAttempts: 1,
-    });
-    if (ids.length) {
+    const queueIds = [...new Set([...ids, ...orphanedIds])];
+    if (!uniqueIds.length && !queueIds.length) return 0;
+    if (uniqueIds.length) {
+      await tx.execute({
+        sql: `DELETE FROM analytics_events
+               WHERE id IN (${idPlaceholders(1, uniqueIds.length)})`,
+        args: uniqueIds,
+        timeoutMs: 5_000,
+        maxAttempts: 1,
+      });
+      await tx.execute({
+        sql: `DELETE FROM settings
+               WHERE key IN (${idPlaceholders(1, uniqueIds.length)})`,
+        args: uniqueIds.map(firstPartyAnalyticsDeliveryFallbackKey),
+        timeoutMs: 5_000,
+        maxAttempts: 1,
+      });
+    }
+    if (queueIds.length) {
       const deleted = await tx.execute({
         sql: `DELETE FROM ${DELIVERY_TABLE}
-               WHERE delivered_at IS NOT NULL
-                 AND event_id IN (${idPlaceholders(1, ids.length)})`,
-        args: ids,
+               WHERE event_id IN (${idPlaceholders(1, queueIds.length)})
+                 AND (
+                   delivered_at IS NOT NULL
+                   OR attempt_count >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+                 )`,
+        args: queueIds,
         timeoutMs: 5_000,
         maxAttempts: 1,
       });
       requireRowsAffected(
         deleted,
-        ids.length,
+        queueIds.length,
         "Cleaning BigQuery delivery rows",
       );
     }
-    return uniqueIds.length;
+    return uniqueIds.length + orphanedIds.length;
   });
 }
 

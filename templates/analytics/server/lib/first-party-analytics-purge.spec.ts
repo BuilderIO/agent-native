@@ -60,6 +60,9 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
         args: ["org-1", "2026-07-01"],
       }),
     );
+    expect(execute.mock.calls[1]?.[0]?.sql).toContain(
+      "delivery_queue.attempt_count <",
+    );
   });
 
   it("keeps legacy-owner rows explicitly scoped when requested", async () => {
