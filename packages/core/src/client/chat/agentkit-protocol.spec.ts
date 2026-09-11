@@ -250,6 +250,121 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(resumed.at(-1)?.type).toBe("run.completed");
   });
 
+  it("terminates a paused run when connection setup fails", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "connection-request",
+        requestId: "connection-1",
+        provider: "slack",
+        reason: "connect",
+      };
+    }
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(events, {
+        capabilities: {
+          messages: { streaming: true },
+          rich: { connectionRequests: true },
+        },
+      }),
+    );
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Verify Slack")],
+    });
+    const paused = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    await transport.resolveConnectionRequest?.({
+      threadId: "thread-1",
+      runId,
+      requestId: "connection-1",
+      response: { status: "failed", message: "Slack rejected the setup." },
+    });
+    const terminal = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId,
+        afterSequence: paused.at(-1)?.sequence,
+      }),
+    );
+
+    expect(terminal.map((event) => event.type)).toEqual([
+      "connection.updated",
+      "run.status",
+      "run.failed",
+    ]);
+    expect(terminal.at(-1)).toMatchObject({
+      type: "run.failed",
+      error: {
+        code: "connection_failed",
+        message: "Slack rejected the setup.",
+      },
+    });
+    await expect(
+      transport.getRun?.({ threadId: "thread-1", runId }),
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("preserves inline runtime files as valid AgentKit file parts", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          content: [
+            {
+              type: "image",
+              data: "aW1hZ2U=",
+              mediaType: "image/png",
+              alt: "Preview",
+            },
+            {
+              type: "file",
+              data: "data:text/plain;base64,dGV4dA==",
+              mediaType: "text/plain",
+              filename: "notes.txt",
+            },
+          ],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Show the files")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const message = result.find(
+      (event) => event.type === "message.created",
+    );
+
+    expect(message).toMatchObject({
+      type: "message.created",
+      message: {
+        parts: [
+          {
+            type: "file",
+            name: "Preview",
+            mediaType: "image/png",
+            url: "data:image/png;base64,aW1hZ2U=",
+          },
+          {
+            type: "file",
+            name: "notes.txt",
+            mediaType: "text/plain",
+            url: "data:text/plain;base64,dGV4dA==",
+          },
+        ],
+      },
+    });
+    result.forEach((event) => expect(() => parseAgentEvent(event)).not.toThrow());
+  });
+
   it("translates Core turn events and supports in-process sequence replay", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {

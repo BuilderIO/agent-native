@@ -630,6 +630,21 @@ function serializeValue(value: unknown): string | undefined {
   return serialized;
 }
 
+function runtimeFileUrl(
+  part: Extract<AgentChatRuntimeContentPart, { type: "image" | "file" }>,
+): string {
+  if (part.url) return part.url;
+  if (!part.data) {
+    throw new AgentProtocolValidationError(
+      "runtime.message.parts",
+      `${part.type} content requires a URL or inline data`,
+    );
+  }
+  return part.data.startsWith("data:")
+    ? part.data
+    : `data:${part.mediaType ?? "application/octet-stream"};base64,${part.data}`;
+}
+
 function runtimePartToProtocolPart(
   part: AgentChatRuntimeContentPart,
   fallbackTextFormat?: TextPart["format"],
@@ -650,14 +665,14 @@ function runtimePartToProtocolPart(
         type: "file",
         name: part.alt ?? part.id ?? "image",
         mediaType: part.mediaType,
-        url: part.url,
+        url: runtimeFileUrl(part),
       } satisfies FilePart;
     case "file":
       return {
         type: "file",
         name: part.filename ?? part.id ?? "file",
         mediaType: part.mediaType,
-        url: part.url,
+        url: runtimeFileUrl(part),
       } satisfies FilePart;
     case "tool-call":
       return {
@@ -2716,6 +2731,22 @@ export function createAgentKitProtocolAdapter(
         });
       if (input.response.status === "failed") {
         update("failed");
+        run.waitingForContinuation = false;
+        run.pendingConnectionRequestId = undefined;
+        run.streamClosed = true;
+        run.terminal = true;
+        run.terminalAtMs = timeMs();
+        append(run, { type: "run.status", status: "failed" });
+        append(run, {
+          type: "run.failed",
+          error: {
+            code: "connection_failed",
+            message:
+              input.response.message?.trim() ||
+              `Failed to connect ${pendingEvent.request.provider}.`,
+          },
+        });
+        pruneRetainedRuns(run.terminalAtMs);
         return;
       }
       if (!run.session.continueTurn) {

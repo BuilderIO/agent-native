@@ -1467,7 +1467,8 @@ export class AgentKitClient implements AgentKitController {
             } else if (
               event.type === "connection.updated" &&
               (event.request.status === "connected" ||
-                event.request.status === "declined")
+                event.request.status === "declined" ||
+                event.request.status === "failed")
             ) {
               interruptedForContinuation = false;
             }
