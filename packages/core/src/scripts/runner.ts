@@ -18,7 +18,6 @@ import { pathToFileURL } from "url";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import { closeDbExec } from "../db/client.js";
-import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import {
   actionCallIsReadOnly,
   notifyActionChange,
@@ -28,6 +27,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { loadCliBootstrap } from "./cli-bootstrap.js";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { resolveDevUserEmail } from "./dev-session.js";
 import { loadEnv } from "./utils.js";
@@ -304,7 +304,7 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   // server. Without this an action calling `uploadFile()` from `pnpm action`
   // finds no provider and fails with storage fully configured — the same action
   // works from the dev server and in production.
-  ensureS3FileUploadProvider();
+  await loadCliBootstrap();
 
   const userEmail = await resolveDevUserEmail();
   const orgId = process.env.AGENT_ORG_ID || undefined;

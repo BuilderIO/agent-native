@@ -63,15 +63,13 @@ describe("runScript package actions", () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-runner-"));
     fs.mkdirSync(path.join(tmpDir, "actions"), { recursive: true });
+    // A template puts its plugin-owned registrations here so both CLI entry
+    // points see them; discovery skips the leading underscore.
     fs.writeFileSync(
-      path.join(tmpDir, "actions", "run.ts"),
+      path.join(tmpDir, "actions", "_cli-bootstrap.ts"),
       `
-        import { writeFileSync } from "node:fs";
         import { registerFileUploadProvider } from ${JSON.stringify(pathToFileURL(fileUploadIndex).href)};
-        import { runScript } from ${JSON.stringify(pathToFileURL(runnerSource).href)};
 
-        // A template registers its own provider from its actions/run.ts, the
-        // way its Nitro plugin does on a server.
         if (process.env.FIXTURE_APP_UPLOAD_PROVIDER) {
           registerFileUploadProvider({
             id: "s3",
@@ -80,6 +78,13 @@ describe("runScript package actions", () => {
             upload: async () => ({ url: "https://app.example/a", provider: "s3" }),
           });
         }
+      `,
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "run.ts"),
+      `
+        import { writeFileSync } from "node:fs";
+        import { runScript } from ${JSON.stringify(pathToFileURL(runnerSource).href)};
 
         runScript({
           packageActionLabel: "Fixture package actions",
@@ -263,7 +268,7 @@ describe("runScript package actions", () => {
   // same conventional id with its own configuration rules — a template whose
   // provider accepts a setup the framework's rejects would otherwise resolve
   // nothing from `pnpm action` even though its own storage is configured.
-  it("leaves an app's own provider in place for a CLI run", () => {
+  it("loads the app's CLI bootstrap and keeps its provider", () => {
     const result = spawnSync(
       tsxCommand,
       [...tsxLeadingArgs, "actions/run.ts", "package-upload"],
