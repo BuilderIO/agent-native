@@ -103,7 +103,7 @@ describe("readBabysitEvidence", () => {
 
     expect(read.open).toBe(true);
     if (!read.open) return;
-    expect(read.details.babysitCommentCount).toBe(1);
+    expect(read.details.factoryBabysitCommentCount).toBe(0);
     expect(read.details.babysitCommentScanTruncated).toBe(true);
   });
 });
@@ -155,8 +155,9 @@ describe("babysitMechanicalVerdict", () => {
       },
     ],
     checksCoverage: "complete" as const,
-    babysitCommentCount: 0,
+    factoryBabysitCommentCount: 0,
     babysitCommentScanTruncated: false,
+    issueComments: [],
   };
   const proposal = reconcileBabysitState({
     comments: details.comments,
@@ -197,9 +198,21 @@ describe("babysitMechanicalVerdict", () => {
         prBabysitPendingReopen: true,
         prBabysitLastCommentAt: "2026-08-11T15:23:49.000Z",
         prBabysitHumanReviewCommentCount: 1,
+        prBabysitFactoryAuthor: "factory-bot",
       }),
       summary: { mergeable: true, mergeableState: "clean" },
-      details: { ...details, babysitCommentCount: 1 },
+      details: {
+        ...details,
+        factoryBabysitCommentCount: 1,
+        issueComments: [
+          {
+            body: DEFAULT_BABYSIT_PR_COMMENT,
+            author: "factory-bot",
+            createdAt: "",
+            htmlUrl: "",
+          },
+        ],
+      },
       proposal,
       nextHumanReviewCommentCount: 2,
       nextHumanReviewBodyCount: 0,
@@ -221,8 +234,19 @@ describe("babysitMechanicalVerdict", () => {
         prBabysitLastCommentAt: "2026-08-11T15:23:49.000Z",
         prBabysitMergeConflict: false,
         prBabysitMergeabilityComputed: false,
+        prBabysitFactoryAuthor: "factory-bot",
       },
-      { babysitCommentCount: 1 },
+      {
+        factoryBabysitCommentCount: 1,
+        issueComments: [
+          {
+            body: DEFAULT_BABYSIT_PR_COMMENT,
+            author: "factory-bot",
+            createdAt: "",
+            htmlUrl: "",
+          },
+        ],
+      },
       { mergeable: false, mergeableState: "dirty" },
     );
 

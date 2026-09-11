@@ -42,8 +42,10 @@ import {
 } from "../server/triage/metadata.js";
 import {
   babysitLeavesReviewWindow,
+  botReviewBodyKeys,
   countHumanReviewBodies,
   countHumanReviewComments,
+  detectBotErrorAfterPing,
   hasHumanChangesRequested,
   hasNewDefiniteMergeConflict,
   resolveStickyMergeability,
@@ -125,9 +127,11 @@ export async function collectOpenItems<T>(
 type ParkedRecheck = {
   humanReviewCommentCount: number;
   humanReviewBodyCount: number;
+  botReviewBodyKeys: string[];
   commentsTruncated: boolean;
   reviewsTruncated: boolean;
   changesRequested: boolean;
+  botErrorAfterPing: boolean;
   mergeable: boolean | null;
   mergeableState: string | null;
 };
@@ -183,6 +187,7 @@ export function parkedRecheckEvidencePatch(
     ...base,
     prBabysitHumanReviewCommentCount: recheck.humanReviewCommentCount,
     prBabysitHumanReviewBodyCount: recheck.humanReviewBodyCount,
+    prBabysitBotReviewBodyKeys: recheck.botReviewBodyKeys,
     prBabysitCommentsTruncated: recheck.commentsTruncated,
     prBabysitReviewsTruncated: recheck.reviewsTruncated,
     prBabysitChangesRequested: recheck.changesRequested,
@@ -240,6 +245,15 @@ export function buildPullRequestPollMetadataJson(
   return metadata;
 }
 
+function readStoredStringArray(
+  metadata: TriageMetadata,
+  key: string,
+): readonly string[] {
+  const value = metadata[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
 function shouldReopenFromRecheck(
   existingMetadata: TriageMetadata,
   recheck: ParkedRecheck | undefined,
@@ -250,6 +264,7 @@ function shouldReopenFromRecheck(
   return shouldReopenParkedBabysit({
     parked,
     parkedState,
+    botErrorAfterPing: recheck?.botErrorAfterPing === true,
     newDefiniteMergeConflict: recheck
       ? hasNewDefiniteMergeConflict({
           storedMergeConflict: stored.mergeConflict,
@@ -276,6 +291,11 @@ function shouldReopenFromRecheck(
     storedReviewsTruncated:
       metadataBoolean(existingMetadata, "prBabysitReviewsTruncated") === true,
     nextReviewsTruncated: recheck?.reviewsTruncated === true,
+    storedBotReviewBodyKeys: readStoredStringArray(
+      existingMetadata,
+      "prBabysitBotReviewBodyKeys",
+    ),
+    nextBotReviewBodyKeys: recheck?.botReviewBodyKeys,
   });
 }
 
@@ -566,14 +586,30 @@ export default defineAction({
             number,
             headSha,
           );
+          const rowMetadata = parseTriageMetadata(row.metadataJson ?? "{}");
+          const lastCommentAt = metadataString(
+            rowMetadata,
+            "prBabysitLastCommentAt",
+          );
+          const lastCommentAtMs = lastCommentAt
+            ? Date.parse(lastCommentAt)
+            : null;
           parkedRechecks.set(number, {
             humanReviewCommentCount: countHumanReviewComments(
               evidence.comments,
             ),
             humanReviewBodyCount: countHumanReviewBodies(evidence.reviews),
+            botReviewBodyKeys: botReviewBodyKeys(evidence.comments),
             commentsTruncated: evidence.commentsTruncated,
             reviewsTruncated: evidence.reviewsTruncated,
             changesRequested: hasHumanChangesRequested(evidence.reviews),
+            botErrorAfterPing: detectBotErrorAfterPing({
+              comments: evidence.comments,
+              lastCommentAtMs:
+                lastCommentAtMs !== null && Number.isFinite(lastCommentAtMs)
+                  ? lastCommentAtMs
+                  : null,
+            }),
             mergeable: summary.mergeable,
             mergeableState: summary.mergeableState,
           });
