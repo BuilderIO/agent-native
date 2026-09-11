@@ -693,10 +693,12 @@ describe("workspace dev startup", () => {
       detached: process.platform !== "win32",
     });
     expect(appCall?.options?.shell).toBeUndefined();
-    Object.defineProperty(appCall?.child, "pid", {
-      configurable: true,
-      value: 489,
-    });
+    if (process.platform !== "win32") {
+      Object.defineProperty(appCall?.child, "pid", {
+        configurable: true,
+        value: 489,
+      });
+    }
 
     await waitUntil(() => Boolean(handle?.apps[0]?.lastFailure), 500);
 
@@ -714,6 +716,9 @@ describe("workspace dev startup", () => {
     } else {
       expect(killProcessGroup).toHaveBeenCalledWith(-489, "SIGTERM");
     }
+    expect(handle.apps[0].restartTimer).toBeDefined();
+    handle.shutdown();
+    expect(handle.apps[0].restartTimer).toBeUndefined();
   });
 });
 

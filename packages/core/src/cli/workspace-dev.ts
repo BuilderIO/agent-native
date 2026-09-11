@@ -1483,6 +1483,10 @@ export async function runWorkspaceDev(
     shuttingDown = true;
     server.close();
     for (const app of apps) {
+      if (app.restartTimer) {
+        clearTimeout(app.restartTimer);
+        app.restartTimer = undefined;
+      }
       killChildProcessTree(app.process, "SIGTERM");
     }
     if (syncTimer) clearTimeout(syncTimer);
