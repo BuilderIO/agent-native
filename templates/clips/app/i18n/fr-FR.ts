@@ -1872,6 +1872,7 @@ const messages = {
       "{{consoleCount}} problèmes de console · {{networkCount}} requêtes échouées",
     noFailures: "Aucun échec détecté",
     failuresPresent: "Des erreurs de navigateur ont été détectées",
+    unviewedCount: "{{count}} non consultés",
     captureSuccessful: "Diagnostics capturés avec succès",
     capturedFrom: "Capturé depuis {{source}}",
     browserCapture: "Capture du navigateur",

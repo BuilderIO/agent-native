@@ -1814,6 +1814,7 @@ const messages = {
       "{{consoleCount}} कंसोल समस्याएँ · {{networkCount}} विफल अनुरोध",
     noFailures: "कोई विफलता नहीं मिली",
     failuresPresent: "ब्राउज़र विफलताएँ मिलीं",
+    unviewedCount: "{{count}} अनदेखे",
     captureSuccessful: "डायग्नोस्टिक्स सफलतापूर्वक कैप्चर हुए",
     capturedFrom: "{{source}} से कैप्चर किया गया",
     browserCapture: "ब्राउज़र कैप्चर",
