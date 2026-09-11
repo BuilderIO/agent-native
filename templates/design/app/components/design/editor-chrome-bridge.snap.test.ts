@@ -439,6 +439,36 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
     expect(selectionTargetForHit(path)).toBe(svg);
   });
 
+  it("selects the button, not the editor's own text wrapper inside it", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const button = {
+      getAttribute: () => "e2e-component-button",
+    } as unknown as Element;
+    const wrapper = {
+      hasAttribute: (name: string) => name === "data-an-text",
+      parentElement: button,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(wrapper)).toBe(button);
+  });
+
+  it("keeps a wrapper whose parent is the document root selectable", () => {
+    const body = {} as Element;
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body,
+      documentElement: {} as Element,
+    });
+    const wrapper = {
+      hasAttribute: (name: string) => name === "data-an-text",
+      parentElement: body,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(wrapper)).toBe(wrapper);
+  });
+
   it("promotes through a nested svg to the outermost one", () => {
     const selectionTargetForHit = loadSelectionTargetForHit({
       body: {} as Element,

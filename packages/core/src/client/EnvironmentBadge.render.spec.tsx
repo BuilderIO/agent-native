@@ -83,6 +83,7 @@ describe("EnvironmentBadge render", () => {
     );
     expect(badge?.className).toContain("bottom-3");
     expect(badge?.className).toContain("left-3");
+    expect(badge?.className).toContain("pointer-events-none");
     expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
   });

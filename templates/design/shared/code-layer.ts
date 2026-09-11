@@ -305,6 +305,10 @@ export interface CodeLayerNode {
   dataAttributes: Record<string, string>;
   classes: string[];
   textSnippet: string | null;
+  /** Text this element holds directly, not text a child holds. */
+  paintsOwnText: boolean;
+  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
+  repeatXFor: string | null;
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   styleTokens: StyleToken[];
   parentId?: string;
@@ -643,6 +647,10 @@ export interface PatchNodeSummary {
   classes: string[];
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   textSnippet: string | null;
+  /** Text this element holds directly, not text a child holds. */
+  paintsOwnText: boolean;
+  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
+  repeatXFor: string | null;
 }
 
 export interface PatchResult {
@@ -849,16 +857,25 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
+// Interiors that are not markup at all, plus boxless void metadata both
+// bridges already strip from the runtime snapshot. Descendants are never
+// parsed, so nothing here can ever be addressed.
 const NON_VISUAL_TAGS = new Set([
   "head",
   "script",
   "style",
   "meta",
   "link",
+  "source",
+  "track",
   "title",
-  "template",
   "noscript",
 ]);
+
+// Parsed and descended into, but not a layer of its own: a `<template>`
+// measures 0x0 and both bridges refuse to select it, so a row for one is a
+// layer the canvas can never show. Its children re-parent to its own parent.
+const TRANSPARENT_TAGS = new Set(["template"]);
 
 const RAW_TEXT_VISUAL_TAGS = new Set(["textarea"]);
 
@@ -975,17 +992,6 @@ const INLINE_TEXT_TAGS = new Set([
   "var",
   "wbr",
 ]);
-
-const COMPONENT_CLASS_PATTERN = /component|card|button|control|\bbtn\b/i;
-
-/**
- * The one component-identity test. The editor's Create Component gate and the
- * Layers panel badge must agree, or a layer reads "not a component" while the
- * gate refuses to make it one.
- */
-export function componentIdentityHint(value: string): boolean {
-  return !looksLikeUtilityClass(value) && COMPONENT_CLASS_PATTERN.test(value);
-}
 
 /**
  * First segments of Tailwind utilities. Tailwind's stem vocabulary is closed,
@@ -1326,13 +1332,13 @@ function visualFactsOf(
 }
 
 /**
- * Whether a node is a *component* — an identity, orthogonal to its shape. A
- * button is a Frame that is also a component; the shape enum cannot say both.
+ * Identity, orthogonal to shape: a form control is a Frame that is also a
+ * component. Class and layer-name guessing is deliberately NOT here — it
+ * painted `product-card-wrapper` violet, and the canvas copy carried no
+ * utility-class guard, so one element got two colours in two panels.
  */
 function treeNodeIsComponent(node: CodeLayerNode): boolean {
-  if (node.componentInstance) return true;
-  if (COMPONENT_LAYER_TAGS.has(node.tag)) return true;
-  return node.classes.some(componentIdentityHint);
+  return Boolean(node.componentInstance) || COMPONENT_LAYER_TAGS.has(node.tag);
 }
 
 function hashStable(value: string): string {
@@ -1421,8 +1427,23 @@ function prettifyIdentifier(value: string): string {
   );
 }
 
+// A `>` inside a quoted attribute (`filter(a => b)`, `x-show="n > 0"`) is not
+// the end of the tag. Ending there spills the attribute into visible text,
+// which then becomes a layer name.
 function stripTags(value: string): string {
-  return value.replace(/<[^>]*>/g, " ");
+  let out = "";
+  let index = 0;
+  while (index < value.length) {
+    const open = value.indexOf("<", index);
+    if (open === -1) {
+      out += value.slice(index);
+      break;
+    }
+    out += value.slice(index, open);
+    out += " ";
+    index = findHtmlTagEnd(value, open);
+  }
+  return out;
 }
 
 function getAttribute(
@@ -1842,7 +1863,9 @@ export function findEnclosingTemplateClose(
     if (openEnd > offset) break;
     const close = findClosingTag(html, "template", openEnd);
     const contentEnd = close ? close.closeStart : html.length;
-    if (offset > openEnd && offset <= contentEnd) {
+    // `openEnd` IS the first content position, so a strict `>` missed the
+    // most likely insertion point of all: before the template's first child.
+    if (offset >= openEnd && offset <= contentEnd) {
       return { closeEnd: close ? close.closeEnd : html.length };
     }
     templateOpenRe.lastIndex = close ? close.closeEnd : html.length;
@@ -2318,6 +2341,47 @@ function textSnippetFor(html: string, element: ParsedElement): string | null {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
+/**
+ * Text this element paints itself, ignoring anything a child holds. A row of
+ * dot + label + checkbox paints nothing, so it is a container even though its
+ * tag is one that usually carries text.
+ */
+function paintsOwnTextFor(
+  html: string,
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  if (element.selfClosing) return false;
+  let at = element.contentStart;
+  for (const childIndex of element.childIndexes) {
+    const child = elements[childIndex];
+    if (!child) continue;
+    if (html.slice(at, child.start).trim()) return true;
+    at = Math.max(at, child.end);
+  }
+  return Boolean(html.slice(at, element.contentEnd).trim());
+}
+
+/** The `x-for` of the nearest enclosing template, for a node inside a repeat. */
+function repeatXForFor(
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): string | null {
+  let at = element.parentIndex;
+  while (at !== undefined) {
+    const ancestor = elements[at];
+    if (!ancestor) return null;
+    if (ancestor.tag === "template") {
+      const xFor = ancestor.attributes.find(
+        (attribute) => attribute.name === "x-for",
+      );
+      if (xFor && typeof xFor.value === "string") return xFor.value;
+    }
+    at = ancestor.parentIndex;
+  }
+  return null;
+}
+
 function layerNameFor(
   html: string,
   element: ParsedElement,
@@ -2607,10 +2671,21 @@ function buildProjection(
 
   for (const element of elements) {
     if (NON_VISUAL_TAGS.has(element.tag)) continue;
+    if (TRANSPARENT_TAGS.has(element.tag)) continue;
     if (hasSvgAncestor(element, elements)) continue;
     const nodeId = nodeIdFor(element, elements, source);
     nodeIdByElementIndex.set(element.index, nodeId);
   }
+
+  // A transparent ancestor has no id, so its children would come back as
+  // roots. Re-parent them to the nearest ancestor that IS projected.
+  const projectedParentIndex = (element: ParsedElement): number | undefined => {
+    let at = element.parentIndex;
+    while (at !== undefined && !nodeIdByElementIndex.has(at)) {
+      at = elements[at]?.parentIndex;
+    }
+    return at;
+  };
 
   const elementByNodeId = new Map<string, ParsedElement>();
 
@@ -2618,14 +2693,13 @@ function buildProjection(
     const nodeId = nodeIdByElementIndex.get(element.index);
     if (!nodeId) continue;
 
+    const parentIndex = projectedParentIndex(element);
     const parent =
-      element.parentIndex === undefined
-        ? undefined
-        : elements[element.parentIndex];
+      parentIndex === undefined ? undefined : elements[parentIndex];
     const parentId =
-      element.parentIndex === undefined
+      parentIndex === undefined
         ? undefined
-        : nodeIdByElementIndex.get(element.parentIndex);
+        : nodeIdByElementIndex.get(parentIndex);
     const selector = primarySelector(element, elements);
     const path = pathSelector(element, elements);
     const classes = classList(element);
@@ -2671,6 +2745,8 @@ function buildProjection(
       dataAttributes,
       classes,
       textSnippet: textSnippetFor(html, element),
+      paintsOwnText: paintsOwnTextFor(html, element, elements),
+      repeatXFor: repeatXForFor(element, elements),
       style,
       styleTokens: styleTokensFor(element),
       parentId,
@@ -3050,6 +3126,18 @@ function isDocumentRootSelectorPart(selectorPart: string): boolean {
 // DOM. When the stored source order differs, the positional index no longer
 // lines up. Dropping the suffix lets resolution fall back to the element's
 // stable signal (tag, classes, attributes, ancestor path).
+/**
+ * True when every selector part that loses a `:nth-of-type` still carries a
+ * class, id, or attribute qualifier of its own.
+ */
+function positionStripKeepsEvidence(selector: string): boolean {
+  return selector
+    .split(">")
+    .map((part) => part.trim())
+    .filter((part) => /:nth-of-type\(\d+\)/.test(part))
+    .every((part) => /[.#[]/.test(part.replace(/:nth-of-type\(\d+\)/g, "")));
+}
+
 function stripPositionalNthOfType(selector: string): string {
   return selector.replace(/:nth-of-type\(\d+\)/g, "");
 }
@@ -3318,6 +3406,17 @@ function resolveTarget(
   if (positionTolerantSelector && positionTolerantSelector !== selectorValue) {
     const tolerantMatches = matchesForSelector(positionTolerantSelector);
     if (tolerantMatches.length === 1 && tolerantMatches[0]) {
+      // One match is not proof it is the right element. Dropping a position
+      // is only safe while the part keeps evidence of its own; a part that
+      // degrades to a bare tag was identified by position alone, so its
+      // "unique" match is a different sibling — a runtime clone resolving
+      // onto the one static row is the reachable case.
+      if (!positionStripKeepsEvidence(selectorValue)) {
+        return {
+          status: "conflict",
+          message: `Selector "${selectorValue}" identifies its target only by position, and this source has no such position. Re-select the element to refresh its id.`,
+        };
+      }
       return { status: "resolved", node: tolerantMatches[0] };
     }
     if (tolerantMatches.length > 1) {
@@ -3357,6 +3456,8 @@ function summarizeNode(node: CodeLayerNode): PatchNodeSummary {
     classes: [...node.classes],
     style: { ...node.style },
     textSnippet: node.textSnippet,
+    paintsOwnText: node.paintsOwnText,
+    repeatXFor: node.repeatXFor,
   };
 }
 
@@ -3981,6 +4082,13 @@ function applyMoveNodeEdit(
     element.start < rawInsertAt ? rawInsertAt - removedLength : rawInsertAt;
 
   if (insertAt < 0 || insertAt > withoutTarget.length) return "conflict";
+  // A node spliced into a template's markup range lands in a detached
+  // fragment: it renders nowhere and no querySelector pass can reach it
+  // again. moveNodeBetweenDocuments redirects past the template for the same
+  // reason; here there is no destination to fall back to.
+  if (isOffsetInsideTemplateInterior(withoutTarget, insertAt)) {
+    return "unsupported";
+  }
 
   return {
     content: `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`,

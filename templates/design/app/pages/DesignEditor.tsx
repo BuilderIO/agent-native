@@ -580,6 +580,7 @@ import { runScreenTextContentChange } from "./design-editor/commands/screen-text
 import { runScreenVisualDuplicateChange } from "./design-editor/commands/screen-visual-duplicate-change";
 import { runScreenVisualStructureChange } from "./design-editor/commands/screen-visual-structure-change";
 import { runScreenVisualStyleChange } from "./design-editor/commands/screen-visual-style-change";
+import { runSelectAll } from "./design-editor/commands/select-all";
 import { runSelectionColorChange } from "./design-editor/commands/selection-color-change";
 import { runSendOverviewAnnotations } from "./design-editor/commands/send-overview-annotations";
 import { runSendRuntimeLayerMoveSemanticHandoff } from "./design-editor/commands/send-runtime-layer-move-semantic-handoff";
@@ -589,6 +590,7 @@ import { runSetLayoutGrid } from "./design-editor/commands/set-layout-grid";
 import { runStartRetryGeneration } from "./design-editor/commands/start-retry-generation";
 import { runStartSidebarResize } from "./design-editor/commands/start-sidebar-resize";
 import { runStyleChange } from "./design-editor/commands/style-change";
+import { styleWriteTarget } from "./design-editor/commands/style-write-target";
 import { runStylesChange } from "./design-editor/commands/styles-change";
 import { runSuggestAutoLayout } from "./design-editor/commands/suggest-auto-layout";
 import { runTextContentChange } from "./design-editor/commands/text-content-change";
@@ -7467,6 +7469,9 @@ function DesignEditor() {
       }
       const replaceContent = (window as any).__designCanvasReplaceContent;
       if (typeof replaceContent !== "function") return "unavailable";
+      // Fanning out to the primary frame and each breakpoint is the linked
+      // replacer's job (linked-screen-preview.ts) — doing it again here pushes
+      // the same document to every frame twice.
       const replaced = replaceContent(
         nextContent,
         selector ?? selectedCanvasSelector,
@@ -10175,8 +10180,16 @@ function DesignEditor() {
       // source is commitVisualStyles' single decision — inline/fusion screens
       // are SQL-backed and persist immediately (breakpoint-aware, one history
       // step); localhost screens queue for the Apply pass.
-      commitVisualStyles(selector, styles, {
-        runtimeApplied: true,
+      // A repeat's rows share one source element, so the gesture only moved
+      // the row it was on: let the runtime push reach the rest, and aim the
+      // write at the template body rather than that one clone.
+      const gestureTarget = styleWriteTarget({
+        selector,
+        selectedElement: elementInfo,
+      });
+      const affectsEveryRow = gestureTarget !== selector;
+      commitVisualStyles(gestureTarget, styles, {
+        runtimeApplied: !affectsEveryRow,
         elementInfo,
         originalStyles: metadata?.originalStyles,
         preserveSelection: metadata?.preserveSelection,
@@ -11263,6 +11276,7 @@ function DesignEditor() {
   const handleDeleteSelection = useCallback(
     () =>
       runDeleteSelection({
+        t,
         activeBreakpointUpperBoundPx,
         activeBreakpointWidthStateRef,
         activeCanvasSourceType,
@@ -14007,21 +14021,26 @@ function DesignEditor() {
   // editing one screen's layers. Overview-mode Cmd+A keeps its previous
   // "select all screens" behavior.
   const handleSelectAllFrames = useCallback(() => {
-    if (!overviewScreens.length) return;
-    if (viewModeRef.current === "single" && activeFile) {
-      const projection = buildCodeLayerProjection(getFreshActiveContent());
-      const tree = buildCodeLayerTree(projection);
-      const topLevelIds = tree.map((node) => node.id);
-      if (topLevelIds.length > 0) {
-        setSelectedLayerIdsState(topLevelIds);
-        const lastId = topLevelIds[topLevelIds.length - 1];
-        const lastNode = projection.nodes.find((n) => n.id === lastId);
-        if (lastNode) {
-          setSelectedElement(elementInfoFromCodeLayerNode(lastNode));
-        }
-      }
+    const projection = activeFile
+      ? buildCodeLayerProjection(getFreshActiveContent())
+      : null;
+    const decision = projection
+      ? runSelectAll({
+          tree: buildCodeLayerTree(projection),
+          selectedLayerIds: selectedLayerIdsState,
+          nonLayerIds: new Set(files.map((file) => file.id)),
+          fallback:
+            viewModeRef.current === "single" ? "top-level-layers" : "screens",
+        })
+      : ({ kind: "screens" } as const);
+    if (projection && decision.kind === "layers") {
+      setSelectedLayerIdsState(decision.layerIds);
+      const lastId = decision.layerIds[decision.layerIds.length - 1];
+      const lastNode = projection.nodes.find((n) => n.id === lastId);
+      if (lastNode) setSelectedElement(elementInfoFromCodeLayerNode(lastNode));
       return;
     }
+    if (!overviewScreens.length) return;
     setDrawMode(false);
     setPinMode(false);
     setMode("edit");
@@ -14030,7 +14049,13 @@ function DesignEditor() {
     setViewMode("overview");
     setOverviewSelectedScreenIds(overviewScreens.map((screen) => screen.id));
     setOverviewSelectAllRequest((request) => request + 1);
-  }, [activeFile, getFreshActiveContent, overviewScreens]);
+  }, [
+    activeFile,
+    files,
+    getFreshActiveContent,
+    overviewScreens,
+    selectedLayerIdsState,
+  ]);
 
   // Shared by the canvas context-menu Rename item — the single
   // currently-selected layer id eligible for the layers-panel inline rename,
