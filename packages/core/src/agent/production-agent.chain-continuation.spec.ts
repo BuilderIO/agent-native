@@ -12,8 +12,10 @@ import {
   chainServerDrivenContinuation,
   isLoopProtectionDispatchError,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
+  AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD,
   AGENT_CHAT_TURN_INPUT_TOKENS_FIELD,
   resolveContinuationDispatchBudget,
+  resolvePriorContinuationReason,
   resolveSelfChainContinuationBudget,
   SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
   type BackgroundNoProgressRepeat,
@@ -234,8 +236,15 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     const payload = JSON.parse(insertOptions.dispatchPayload);
     expect(payload.internalContinuation).toBe(true);
     expect(payload.message).toBe("a very large user message");
-    // …with the finished chunk's own marker stripped.
+    // …with the finished chunk's own marker stripped…
     expect(payload[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toBeUndefined();
+    // …but this chunk's continuationReason still rides the body, because a
+    // stale-run/unclaimed-run recovery redispatch only ever delivers a
+    // skeleton `{ runId, payloadRef: true }` marker and rehydrates the rest
+    // from this same persisted payload — see `resolvePriorContinuationReason`.
+    expect(payload[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]).toBe(
+      "run_timeout",
+    );
 
     // The chunk is marked terminal ONLY after the handoff landed.
     expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalledWith(
@@ -981,5 +990,36 @@ describe("chainServerDrivenContinuation — per-turn token total is carried to t
     expect(JSON.parse(insertOpts.dispatchPayload)).toMatchObject({
       [AGENT_CHAT_TURN_INPUT_TOKENS_FIELD]: 1_234_567,
     });
+  });
+});
+
+describe("resolvePriorContinuationReason", () => {
+  it("reads continuationReason straight off a normal chain-hop marker", () => {
+    expect(
+      resolvePriorContinuationReason(
+        { continuationReason: "rate_limited" },
+        {},
+      ),
+    ).toBe("rate_limited");
+  });
+
+  it("falls back to the body's stashed reason for a payloadRef redelivery whose marker has none", () => {
+    // A stale-run recovery or unclaimed-run redispatch delivers only
+    // `{ runId, payloadRef: true }` — no continuationReason — and rehydrates
+    // the rest of the request from the run row's stored `dispatch_payload`,
+    // which is where `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD` lives.
+    expect(
+      resolvePriorContinuationReason(
+        { runId: "run-1", payloadRef: true },
+        { [AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]: "rate_limited" },
+      ),
+    ).toBe("rate_limited");
+  });
+
+  it("returns undefined when neither the marker nor the body carries a reason", () => {
+    expect(resolvePriorContinuationReason(null, {})).toBeUndefined();
+    expect(
+      resolvePriorContinuationReason({ runId: "run-1" }, {}),
+    ).toBeUndefined();
   });
 });

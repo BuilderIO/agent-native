@@ -840,6 +840,16 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "request_too_large" ||
     code === "not_found_error" ||
     code === "model_not_found" ||
+    // The server now owns rate-limit recovery end to end (in-loop retries,
+    // sibling-model fallback, one cooled continuation, then a terminal
+    // `provider_rate_limited`) and caps the continuation chain it hands back
+    // to the client. Auto-recovering a bare `http_429`/`http_529` here would
+    // let an exhausted rate-limit error re-POST as a client continuation,
+    // bypassing that one-hop cap and restarting the retry/fallback budget
+    // the server just spent. Render with the manual Retry affordance like
+    // `provider_rate_limited` below, not auto-continued.
+    code === "http_429" ||
+    code === "http_529" ||
     code === "provider_rate_limited" ||
     // The server already retried the bare-403 load-shedding signature before
     // this reached the client; another automatic POST would just hammer the
@@ -883,7 +893,6 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "timeout" ||
     code === "timeout_error" ||
     code === "http_408" ||
-    code === "http_429" ||
     code === "http_500" ||
     // The gateway's unhandled-500 envelope delivered in-stream instead of as a
     // status. Recoverable for the same reason `http_500` is.

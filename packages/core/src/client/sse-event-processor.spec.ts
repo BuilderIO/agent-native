@@ -3959,6 +3959,65 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  // http_429/http_529 used to auto-continue here. The server now owns
+  // rate-limit recovery end to end (in-loop retries, sibling-model fallback,
+  // one cooled continuation, then a terminal `provider_rate_limited`) and
+  // caps the continuation chain it hands back. Re-POSTing a client
+  // continuation for an exhausted rate-limit error bypasses that one-hop cap
+  // and restarts the retry/fallback budget the server already spent, so both
+  // codes must render with the manual Retry affordance instead.
+  it.each(["http_429", "http_529"])(
+    "does not auto-continue a %s error",
+    async (errorCode) => {
+      const dispatchEvent = vi.fn();
+      vi.stubGlobal("window", { dispatchEvent });
+      vi.stubGlobal(
+        "CustomEvent",
+        class CustomEvent {
+          type: string;
+          detail: unknown;
+          constructor(type: string, init?: { detail?: unknown }) {
+            this.type = type;
+            this.detail = init?.detail;
+          }
+        },
+      );
+
+      const results = await drain(
+        readSSEStream(
+          eventStream([
+            {
+              type: "error",
+              error: "Rate limited",
+              errorCode,
+              recoverable: true,
+            },
+          ]),
+          [],
+          { value: 0 },
+          "tab-rate-limit-code",
+        ),
+      );
+
+      const terminal = results.at(-1) as
+        | {
+            status?: { type: string; reason: string };
+            metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+          }
+        | undefined;
+      expect(terminal?.status).toEqual({
+        type: "incomplete",
+        reason: "error",
+      });
+      expect(dispatchEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent-chat:run-error",
+          detail: expect.objectContaining({ errorCode }),
+        }),
+      );
+    },
+  );
+
   it("does not auto-continue provider credential rejection", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

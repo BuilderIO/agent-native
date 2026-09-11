@@ -6799,12 +6799,19 @@ export async function runAgentLoop(opts: {
             // call's genuine trip is a different object and is left alone.
             const repeatKey = toolCallCacheKey(toolCall.name, toolCall.input);
             const repeatCount = repeatedToolCalls.get(repeatKey);
-            if (typeof repeatCount === "number" && repeatCount > 0) {
-              repeatedToolCalls.set(repeatKey, repeatCount - 1);
-            }
+            const repeatCountAfterRollback =
+              typeof repeatCount === "number" && repeatCount > 0
+                ? repeatCount - 1
+                : 0;
+            repeatedToolCalls.set(repeatKey, repeatCountAfterRollback);
             if (
               repeatGuardStopFromThisCall &&
-              requestedActionStop === repeatGuardStopFromThisCall
+              requestedActionStop === repeatGuardStopFromThisCall &&
+              // A concurrent genuine repeat for this same key can have pushed
+              // the count back up to/past the threshold before this resurfaced
+              // call's rollback runs — that stop is still earned and must
+              // survive this call's own rollback.
+              repeatCountAfterRollback < MAX_IDENTICAL_TOOL_CALLS
             ) {
               requestedActionStop = null;
             }
@@ -7961,10 +7968,10 @@ export const PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE =
  * explicitly false: true would mark this an internal continuation boundary,
  * which thread-data-builder drops from the persisted turn and
  * `isRecoverableContinuationError` would chain again — the exact spiral the
- * cap stops. The dedicated `provider_rate_limited` code keeps the client's own
- * continuation list (which DOES auto-recover a bare `http_429`/`http_529`/
- * transient-403) from re-entering it either; the user sees the message and
- * retries by hand.
+ * cap stops. The dedicated `provider_rate_limited` code also keeps the
+ * client's own continuation list (which now treats a bare `http_429`/
+ * `http_529` the same way, non-auto-recoverable) from re-entering it; the
+ * user sees the message and retries by hand.
  */
 export function rateLimitChainCapTerminalEvent(
   run: ActiveRun,
@@ -8300,6 +8307,39 @@ export async function claimBackgroundWorkerRunEarly(opts: {
  */
 export const AGENT_CHAT_TURN_INPUT_TOKENS_FIELD =
   "__agentNativeTurnInputTokens";
+
+/**
+ * Same rationale as `AGENT_CHAT_TURN_INPUT_TOKENS_FIELD` above, for the
+ * preceding chunk's `continuationReason`: it rides the BODY, not the marker,
+ * because `chainServerDrivenContinuation` strips the marker from
+ * `continuationBody` before persisting it as `dispatch_payload` (the next
+ * chunk gets a fresh marker). A stale-run recovery or unclaimed-run
+ * redispatch delivers only a skeleton `{ runId, payloadRef: true }` marker
+ * and rehydrates the rest of the body from that same `dispatch_payload`, so
+ * without this field `rateLimitChainCapTripped` sees no prior reason on
+ * every recovery hop and never trips. See `resolvePriorContinuationReason`.
+ */
+export const AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD =
+  "__agentNativePriorContinuationReason";
+
+/**
+ * `priorContinuationReason` for `rateLimitChainCapTripped`. The delivered
+ * `__backgroundRun` marker carries it on every normal chain hop
+ * (`continuationMarker.continuationReason` in `chainServerDrivenContinuation`);
+ * a recovery redispatch's skeleton marker never does, so this falls back to
+ * the body-level `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD` companion that
+ * survives the same rehydration the marker does not.
+ */
+export function resolvePriorContinuationReason(
+  backgroundRunMarker: Record<string, unknown> | null | undefined,
+  body: Record<string, unknown>,
+): string | undefined {
+  if (typeof backgroundRunMarker?.continuationReason === "string") {
+    return backgroundRunMarker.continuationReason;
+  }
+  const stashed = body[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD];
+  return typeof stashed === "string" ? stashed : undefined;
+}
 
 /**
  * First `started_at` for a logical turn — the turn's true wall-clock origin
@@ -8748,6 +8788,7 @@ export async function chainServerDrivenContinuation(opts: {
     ...(typeof opts.turnInputTokens === "number"
       ? { [AGENT_CHAT_TURN_INPUT_TOKENS_FIELD]: opts.turnInputTokens }
       : {}),
+    [AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]: continuationReason,
   };
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   try {
@@ -9241,11 +9282,13 @@ export function createProductionAgentHandler(
         : 0;
     // What the PRECEDING chunk of this turn ended with — see
     // `rateLimitChainCapTripped`, which caps a rate-limit-class repeat at one
-    // hop using this same marker, no new DB read.
-    const priorContinuationReason =
-      typeof backgroundRunMarker?.continuationReason === "string"
-        ? backgroundRunMarker.continuationReason
-        : undefined;
+    // hop using this same marker, no new DB read. Falls back to the body
+    // companion field when a recovery redispatch delivered only a skeleton
+    // marker (see `resolvePriorContinuationReason`).
+    const priorContinuationReason = resolvePriorContinuationReason(
+      backgroundRunMarker,
+      body as unknown as Record<string, unknown>,
+    );
     let backgroundRunClaimedEarly = false;
     if (isBackgroundWorker && bgRunId) {
       const earlyClaim = await claimBackgroundWorkerRunEarly({
