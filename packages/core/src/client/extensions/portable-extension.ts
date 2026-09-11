@@ -731,6 +731,8 @@ export function buildAgentNativeExtensionHtml({
       var positionMonitorScheduled = false;
       var positionMonitorActive = false;
       var activeCssMotionCount = 0;
+      // ponytail: cap polling for motion without a reliable completion signal.
+      var positionMonitorFramesRemaining = 0;
       var activeAnimations = function() {
         if (typeof document.getAnimations !== 'function') return null;
         var animations;
@@ -802,16 +804,29 @@ export function buildAgentNativeExtensionHtml({
           if (!body) return;
           reportHeight();
           var animations = activeAnimations();
-          var hasActiveAnimation = false;
+          var hasFiniteAnimation = false;
+          var hasIndefiniteAnimation = activeCssMotionCount > 0;
           if (animations) {
             animations.forEach(function(animation) {
               var effect = animation.effect;
               trackPositionedElement(effect && effect.target);
               watchAnimationCompletion(animation);
-              hasActiveAnimation = true;
+              var timing =
+                effect && typeof effect.getComputedTiming === 'function'
+                  ? effect.getComputedTiming()
+                  : null;
+              if (timing && timing.endTime !== Infinity) {
+                hasFiniteAnimation = true;
+              } else {
+                hasIndefiniteAnimation = true;
+              }
             });
           }
-          if (hasActiveAnimation || activeCssMotionCount > 0) {
+          if (hasIndefiniteAnimation) positionMonitorFramesRemaining -= 1;
+          if (
+            hasFiniteAnimation ||
+            (hasIndefiniteAnimation && positionMonitorFramesRemaining > 0)
+          ) {
             schedulePositionMonitor();
             return;
           }
@@ -831,6 +846,7 @@ export function buildAgentNativeExtensionHtml({
           activeCssMotionCount += 1;
         }
         positionMonitorActive = true;
+        positionMonitorFramesRemaining = 120;
         schedulePositionObservation();
         scheduleResizeWork();
         schedulePositionMonitor();
@@ -859,6 +875,9 @@ export function buildAgentNativeExtensionHtml({
         positionMonitorActive =
           (animations && animations.length > 0) ||
           (animations === null && activeCssMotionCount > 0);
+        if (positionMonitorActive && positionMonitorFramesRemaining <= 0) {
+          positionMonitorFramesRemaining = 120;
+        }
         if (!positionMonitorActive) motionElements.clear();
         scheduleResizeWork();
         if (positionMonitorActive) schedulePositionMonitor();
