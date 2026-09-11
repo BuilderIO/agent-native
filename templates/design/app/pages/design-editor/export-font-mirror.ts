@@ -46,41 +46,149 @@ export function absolutizeCssUrls(cssText: string, baseUrl: string): string {
 }
 
 /**
+ * Remove CSS comments without touching string literals.
+ *
+ * The raw scanners below balance braces, and a brace inside a comment throws
+ * that off: `@font-face { /* { *\/ src: url(a) }` leaves the scan one level
+ * deep, so it runs on and captures the following `body { display: none }` into
+ * the block mirrored into the editor document. That is the one thing this
+ * module promises never to do, so comments go before anything else looks at
+ * the text.
+ */
+export function stripCssComments(cssText: string): string {
+  let output = "";
+  let index = 0;
+  let quote = "";
+  while (index < cssText.length) {
+    const character = cssText[index]!;
+    if (quote) {
+      if (character === "\\" && index + 1 < cssText.length) {
+        output += character + cssText[index + 1];
+        index += 2;
+        continue;
+      }
+      if (character === quote) quote = "";
+      output += character;
+      index += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      output += character;
+      index += 1;
+      continue;
+    }
+    if (cssText.startsWith("/*", index)) {
+      const end = cssText.indexOf("*/", index + 2);
+      // An unterminated comment runs to the end of the sheet.
+      index = end === -1 ? cssText.length : end + 2;
+      output += " ";
+      continue;
+    }
+    output += character;
+    index += 1;
+  }
+  return output;
+}
+
+/** Index just past the `}` closing the block whose `{` sits at `openIndex`. */
+function findBlockEnd(cssText: string, openIndex: number): number {
+  let depth = 1;
+  let quote = "";
+  let index = openIndex + 1;
+  while (index < cssText.length && depth > 0) {
+    const character = cssText[index]!;
+    if (quote) {
+      if (character === "\\") {
+        index += 2;
+        continue;
+      }
+      if (character === quote) quote = "";
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+    }
+    index += 1;
+  }
+  return depth === 0 ? index : -1;
+}
+
+/**
+ * Decides whether a condition (`@media` / `@supports` prelude) held in the
+ * preview. Shared by every path so the CSSOM walk, the `@import` gate and the
+ * fetched-text scan cannot disagree about which faces the preview painted.
+ */
+export type ConditionFilter = (
+  kind: "media" | "supports",
+  condition: string,
+) => boolean;
+
+const ALLOW_ALL_CONDITIONS: ConditionFilter = () => true;
+
+/**
  * Pull only `@font-face` blocks out of a stylesheet's text. Everything else is
  * dropped on purpose: this CSS comes from a user-generated design and is about
  * to be injected into the editor's own document, where a stray layout or color
  * rule would restyle the app.
+ *
+ * Conditional groups are entered only when they applied in the preview. A
+ * fetched sheet can carry a print-only or unsupported face, and mirroring it
+ * unconditionally would activate in the editor a face the preview never used —
+ * the same metric mismatch this module exists to remove.
  */
 export function extractFontFaceRules(
   cssText: string,
   baseUrl: string,
+  conditionApplies: ConditionFilter = ALLOW_ALL_CONDITIONS,
 ): string[] {
   const rules: string[] = [];
-  const pattern = /@font-face\s*\{/gi;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(cssText))) {
-    let depth = 1;
-    let quote = "";
-    let index = match.index + match[0].length;
-    while (index < cssText.length && depth > 0) {
-      const character = cssText[index]!;
-      if (quote) {
-        if (character === quote) quote = "";
-      } else if (character === '"' || character === "'") {
-        quote = character;
-      } else if (character === "{") {
-        depth += 1;
-      } else if (character === "}") {
-        depth -= 1;
+  const source = stripCssComments(cssText);
+  const visit = (start: number, end: number): void => {
+    const atRule = /@(font-face|media|supports|layer)\b([^{;]*)([{;])/gi;
+    atRule.lastIndex = start;
+    let match: RegExpExecArray | null;
+    while ((match = atRule.exec(source))) {
+      if (match.index >= end) return;
+      const [, keyword, prelude, terminator] = match;
+      if (terminator === ";") continue;
+      const openIndex = match.index + match[0].length - 1;
+      const blockEnd = findBlockEnd(source, openIndex);
+      // An unterminated block cannot be trusted; stop rather than guess.
+      if (blockEnd === -1) return;
+      atRule.lastIndex = blockEnd;
+      const name = keyword!.toLowerCase();
+      if (name === "font-face") {
+        rules.push(
+          absolutizeCssUrls(
+            source.slice(match.index, blockEnd).trim(),
+            baseUrl,
+          ),
+        );
+        continue;
       }
-      index += 1;
+      const condition = (prelude ?? "").trim();
+      if (
+        name === "media" &&
+        condition &&
+        !conditionApplies("media", condition)
+      ) {
+        continue;
+      }
+      if (
+        name === "supports" &&
+        condition &&
+        !conditionApplies("supports", condition)
+      ) {
+        continue;
+      }
+      // `@layer` carries no condition, and a matching group is walked inside.
+      visit(openIndex + 1, blockEnd - 1);
     }
-    if (depth !== 0) break;
-    rules.push(
-      absolutizeCssUrls(cssText.slice(match.index, index).trim(), baseUrl),
-    );
-    pattern.lastIndex = index;
-  }
+  };
+  visit(0, source.length);
   return rules;
 }
 
@@ -118,23 +226,91 @@ function fontSpecFrom(style: CSSStyleDeclaration): string | null {
 }
 
 /**
- * The CSS `font` shorthands actually painted in the preview. `fonts.ready`
- * alone is not enough in the editor document: nothing there uses these
- * families, so the faces would stay unloaded and `ctx.font` would still fall
- * back. Each spec has to be requested explicitly.
+ * The text a control paints without owning a text node. html2canvas renders
+ * these through `InputElementContainer` / `SelectElementContainer` /
+ * `TextareaElementContainer`, reading `.value` (or the selected option's
+ * text), so a control with a custom font needs that font requested too.
  */
-export function collectUsedFontSpecs(doc: Document): string[] {
+function paintedControlValue(element: HTMLElement): string {
+  const tag = element.tagName;
+  if (tag === "INPUT") {
+    const input = element as HTMLInputElement;
+    if (/^(?:password|hidden)$/i.test(input.type)) return "";
+    return input.value || input.placeholder || "";
+  }
+  if (tag === "TEXTAREA") {
+    const textarea = element as HTMLTextAreaElement;
+    return textarea.value || textarea.placeholder || "";
+  }
+  if (tag === "SELECT") {
+    const select = element as HTMLSelectElement;
+    return select.options[select.selectedIndex]?.text ?? "";
+  }
+  return "";
+}
+
+function directText(element: HTMLElement): string {
+  return Array.from(element.childNodes)
+    .filter((node) => node.nodeType === 3)
+    .map((node) => node.textContent ?? "")
+    .join("");
+}
+
+/** Unquote a CSS `content` value so its glyphs can be requested. */
+function pseudoContentText(content: string): string {
+  return content
+    .trim()
+    .replace(/^(?:attr|counter|counters|url|image)\([^)]*\)/gi, "")
+    .replace(/["']/g, "");
+}
+
+export interface FontRequest {
+  /** A CSS `font` shorthand accepted by `FontFaceSet.load`. */
+  spec: string;
+  /** Representative glyphs painted with that shorthand. */
+  text: string;
+}
+
+/**
+ * `FontFaceSet.load` defaults its sample text to a single space, and only
+ * downloads faces whose `unicode-range` covers the sample. An icon face
+ * restricted to the private-use area, or a CJK subset that omits U+0020, is
+ * therefore never fetched however correctly it was mirrored — html2canvas then
+ * paints fallback glyphs anyway. Carry the characters actually painted with
+ * each shorthand so the right subsets load.
+ */
+const MAX_SAMPLE_CHARACTERS = 200;
+
+/**
+ * The CSS `font` shorthands actually painted in the preview, each with sample
+ * text. `fonts.ready` alone is not enough in the editor document: nothing
+ * there uses these families, so the faces would stay unloaded and `ctx.font`
+ * would still fall back. Each spec has to be requested explicitly.
+ */
+export function collectFontRequests(doc: Document): FontRequest[] {
   const view = doc.defaultView;
   if (!view) return [];
-  const specs = new Set<string>();
+  const samples = new Map<string, Set<string>>();
+  const record = (spec: string | null, text: string): void => {
+    if (!spec) return;
+    let sample = samples.get(spec);
+    if (!sample) {
+      sample = new Set<string>();
+      samples.set(spec, sample);
+    }
+    if (sample.size >= MAX_SAMPLE_CHARACTERS) return;
+    for (const character of text) {
+      if (sample.size >= MAX_SAMPLE_CHARACTERS) break;
+      if (character.trim() === "") continue;
+      sample.add(character);
+    }
+  };
+
   for (const element of Array.from(doc.querySelectorAll<HTMLElement>("*"))) {
     if (NON_RENDERED_TAGS.has(element.tagName)) continue;
-    const hasText = Array.from(element.childNodes).some(
-      (node) => node.nodeType === 3 && (node.textContent ?? "").trim() !== "",
-    );
-    if (hasText) {
-      const spec = fontSpecFrom(view.getComputedStyle(element));
-      if (spec) specs.add(spec);
+    const ownText = `${directText(element)}${paintedControlValue(element)}`;
+    if (ownText.trim() !== "") {
+      record(fontSpecFrom(view.getComputedStyle(element)), ownText);
     }
     for (const pseudo of ["::before", "::after"]) {
       let style: CSSStyleDeclaration | null = null;
@@ -143,12 +319,16 @@ export function collectUsedFontSpecs(doc: Document): string[] {
       } catch {
         continue;
       }
-      if (!pseudoContentIsPainted(style?.content)) continue;
-      const spec = style ? fontSpecFrom(style) : null;
-      if (spec) specs.add(spec);
+      if (!style || !pseudoContentIsPainted(style.content)) continue;
+      record(fontSpecFrom(style), pseudoContentText(style.content));
     }
   }
-  return Array.from(specs);
+
+  return Array.from(samples, ([spec, sample]) => ({
+    spec,
+    // A space keeps the sample valid when every painted glyph was whitespace.
+    text: sample.size > 0 ? Array.from(sample).join("") : " ",
+  }));
 }
 
 // CSSOM rule type constants; `CSSRule` is not a global outside the browser.
@@ -158,8 +338,8 @@ const IMPORT_RULE = 3;
 interface FontFaceHarvest {
   rules: string[];
   unreadable: string[];
-  /** Preview window, used to evaluate grouping conditions where they apply. */
-  view: Window | null;
+  /** Whether a condition held in the preview; see conditionFilterFor. */
+  conditionApplies: ConditionFilter;
 }
 
 /**
@@ -176,42 +356,39 @@ interface FontFaceHarvest {
  * An unevaluable condition keeps the face: a spurious extra face costs a font
  * request, a missing one silently restores the fallback-metrics bug.
  */
-function groupingRuleAppliesInPreview(
-  rule: CSSRule,
-  view: Window | null,
-): boolean {
-  const mediaText = (rule as CSSMediaRule).media?.mediaText;
-  if (mediaText) {
-    if (typeof view?.matchMedia !== "function") return true;
-    try {
-      return view.matchMedia(mediaText).matches;
-    } catch {
-      return true;
+function conditionFilterFor(view: Window | null): ConditionFilter {
+  return (kind, condition) => {
+    if (!condition) return true;
+    if (kind === "media") {
+      if (typeof view?.matchMedia !== "function") return true;
+      try {
+        return view.matchMedia(condition).matches;
+      } catch {
+        return true;
+      }
     }
-  }
-  const conditionText = (rule as CSSSupportsRule).conditionText;
-  if (conditionText) {
     const css = (view as (Window & { CSS?: typeof CSS }) | null)?.CSS;
     if (typeof css?.supports !== "function") return true;
     try {
-      return css.supports(conditionText);
+      return css.supports(condition);
     } catch {
       return true;
     }
-  }
+  };
+}
+
+function groupingRuleAppliesInPreview(
+  rule: CSSRule,
+  conditionApplies: ConditionFilter,
+): boolean {
+  const mediaText = (rule as CSSMediaRule).media?.mediaText;
+  if (mediaText) return conditionApplies("media", mediaText);
+  const conditionText = (rule as CSSSupportsRule).conditionText;
+  if (conditionText) return conditionApplies("supports", conditionText);
   // `@layer` and anything else with no condition is always in play.
   return true;
 }
 
-/**
- * Walk a rule list for `@font-face`, following `@import` and grouping rules
- * (`@media`, `@supports`, `@layer`). A design that pulls its fonts in with
- * `@import url('https://fonts.googleapis.com/...')` inside a `<style>` block
- * is common, and those faces hang off `CSSImportRule.styleSheet` rather than
- * the top level - collecting only top-level rules mirrored an empty stylesheet
- * and let the raster export fall back to the wrong metrics with nothing
- * reported.
- */
 function harvestFontFaceRules(
   rules: readonly CSSRule[],
   baseUrl: string,
@@ -225,6 +402,12 @@ function harvestFontFaceRules(
     }
     if (rule.type === IMPORT_RULE) {
       const importRule = rule as CSSImportRule;
+      // `@import url(print-fonts.css) print` contributes nothing to a screen
+      // preview, so following it would mirror faces the preview never used.
+      const importMedia = importRule.media?.mediaText;
+      if (importMedia && !harvest.conditionApplies("media", importMedia)) {
+        continue;
+      }
       let importedBase = baseUrl;
       try {
         importedBase = importRule.href
@@ -267,7 +450,7 @@ function harvestFontFaceRules(
     if (!nested) continue;
     if (seen.has(rule)) continue;
     seen.add(rule);
-    if (!groupingRuleAppliesInPreview(rule, harvest.view)) continue;
+    if (!groupingRuleAppliesInPreview(rule, harvest.conditionApplies)) continue;
     harvestFontFaceRules(Array.from(nested), baseUrl, harvest, seen);
   }
 }
@@ -276,7 +459,7 @@ function collectPreviewFontFaceCss(doc: Document): FontFaceHarvest {
   const harvest: FontFaceHarvest = {
     rules: [],
     unreadable: [],
-    view: doc.defaultView,
+    conditionApplies: conditionFilterFor(doc.defaultView),
   };
   const seen = new Set<object>();
   for (const sheet of Array.from(doc.styleSheets)) {
@@ -298,25 +481,38 @@ function collectPreviewFontFaceCss(doc: Document): FontFaceHarvest {
 }
 
 /**
- * `@import url("x")` / `@import "x"` targets, resolved to absolute URLs.
- * A target that will not resolve is returned separately rather than dropped,
- * so the caller can report a sheet it could not follow instead of mirroring
- * a silently incomplete set of faces.
+ * `@import url("x")` / `@import "x"` targets, resolved to absolute URLs, with
+ * the media query an import may carry. A target that will not resolve is
+ * returned separately rather than dropped, so the caller can report a sheet it
+ * could not follow instead of mirroring a silently incomplete set of faces.
  */
+export interface CssImport {
+  href: string;
+  /** The import's media query, if it declared one. */
+  media: string;
+}
+
 export function extractImportUrls(
   cssText: string,
   baseUrl: string,
-): { urls: string[]; unresolvable: string[] } {
-  const urls: string[] = [];
+): { urls: CssImport[]; unresolvable: string[] } {
+  const urls: CssImport[] = [];
   const unresolvable: string[] = [];
   const pattern =
-    /@import\s+(?:url\(\s*(['"]?)([^'")]+)\1\s*\)|(['"])([^'"]+)\3)/gi;
+    /@import\s+(?:url\(\s*(['"]?)([^'")]+)\1\s*\)|(['"])([^'"]+)\3)([^;]*);/gi;
+  const source = stripCssComments(cssText);
   let match: RegExpExecArray | null;
-  while ((match = pattern.exec(cssText))) {
+  while ((match = pattern.exec(source))) {
     const raw = (match[2] ?? match[4] ?? "").trim();
     if (!raw) continue;
+    // Everything between the target and the `;` is layer()/supports()/media;
+    // only the media query decides whether the preview applied it.
+    const media = (match[5] ?? "")
+      .replace(/\b(?:layer|supports)\([^)]*\)/gi, "")
+      .replace(/\blayer\b/gi, "")
+      .trim();
     try {
-      urls.push(new URL(raw, baseUrl).href);
+      urls.push({ href: new URL(raw, baseUrl).href, media });
     } catch {
       unresolvable.push(raw);
     }
@@ -333,6 +529,7 @@ const MAX_FETCHED_IMPORT_DEPTH = 3;
 
 interface FetchContext {
   failed: string[];
+  conditionApplies: ConditionFilter;
   visited: Set<string>;
   /** Sheets that produced an answer, so a timeout cannot look like success. */
   resolved: Set<string>;
@@ -364,13 +561,16 @@ async function fetchFontFaceRulesDeep(
     context.resolved.add(href);
     return [];
   }
-  const rules = extractFontFaceRules(cssText, href);
+  const rules = extractFontFaceRules(cssText, href, context.conditionApplies);
   const imports = extractImportUrls(cssText, href);
   context.failed.push(...imports.unresolvable);
   const nested = await Promise.all(
-    imports.urls.map((importHref) =>
-      fetchFontFaceRulesDeep(importHref, context, depth + 1),
-    ),
+    imports.urls
+      .filter(
+        (entry) =>
+          !entry.media || context.conditionApplies("media", entry.media),
+      )
+      .map((entry) => fetchFontFaceRulesDeep(entry.href, context, depth + 1)),
   );
   for (const group of nested) rules.push(...group);
   context.resolved.add(href);
@@ -405,6 +605,7 @@ export async function mirrorPreviewWebFonts(
     : null;
   const fetchContext: FetchContext = {
     failed,
+    conditionApplies: conditionFilterFor(previewDoc.defaultView),
     visited: new Set<string>(),
     resolved: new Set<string>(),
     signal: controller?.signal,
@@ -455,12 +656,16 @@ export async function mirrorPreviewWebFonts(
     };
   }
 
-  const specs = collectUsedFontSpecs(previewDoc);
+  const requests = collectFontRequests(previewDoc);
   const deadline = new Promise<void>((resolve) => {
     setTimeout(resolve, remainingMs());
   });
   await Promise.race([
-    Promise.all(specs.map((spec) => fontSet.load(spec).catch(() => undefined)))
+    Promise.all(
+      requests.map((request) =>
+        fontSet.load(request.spec, request.text).catch(() => undefined),
+      ),
+    )
       .then(() => fontSet.ready)
       .then(() => undefined),
     deadline,
@@ -468,7 +673,7 @@ export async function mirrorPreviewWebFonts(
 
   return {
     faceCount: rules.length,
-    requestedSpecs: specs.length,
+    requestedSpecs: requests.length,
     unreadableStylesheets: failed,
     dispose,
   };
