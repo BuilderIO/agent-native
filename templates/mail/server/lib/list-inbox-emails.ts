@@ -106,7 +106,12 @@ export function retryAfterSecondsFromErrors(
       retryAfterMs = ms;
     }
   }
-  return Math.min(Math.round((retryAfterMs ?? 60_000) / 1000), 5 * 60);
+  // ceil (not round) + a 1s floor: a sub-second remaining cooldown must
+  // never advertise 0s, which reads as "try again immediately".
+  return Math.min(
+    Math.max(1, Math.ceil((retryAfterMs ?? 60_000) / 1000)),
+    5 * 60,
+  );
 }
 
 /**

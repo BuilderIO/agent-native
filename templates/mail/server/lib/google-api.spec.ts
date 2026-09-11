@@ -122,6 +122,38 @@ describe("googleFetch quota handling", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("floors a short provider Retry-After to the circuit breaker's own cooldown", async () => {
+    // Google's Retry-After (30s here) can be shorter than the 90s window
+    // tripCooldown actually enforces. The thrown error's retryAfterMs must
+    // reflect what the breaker will really do, not the raw header value —
+    // otherwise callers advertise a wait that's already stale by the time
+    // it elapses.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          429,
+          { error: { message: "User-rate limit exceeded" } },
+          { "retry-after": "30" },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let caught: unknown;
+    try {
+      await googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-floor",
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(GmailQuotaCooldownError);
+    expect((caught as GmailQuotaCooldownError).retryAfterMs).toBe(90_000);
+    expect((caught as Error).message).toMatch(/about 90s/);
+  });
+
   it("classifies a whole-batch HTTP 429 as a typed cooldown error, not raw batch-failure text", async () => {
     // Distinct from the "quota failures inside Gmail batch parts" case below:
     // this is the *transport-level* response for the whole multipart batch
@@ -146,7 +178,9 @@ describe("googleFetch quota handling", () => {
       "metadata",
     );
     await expect(rejection).rejects.toBeInstanceOf(GmailQuotaCooldownError);
-    await expect(rejection).rejects.toThrow(/about 30s/);
+    // The breaker floors any cooldown to 90s (QUOTA_COOLDOWN_MS) regardless
+    // of Google's shorter Retry-After, so the message must say 90s too.
+    await expect(rejection).rejects.toThrow(/about 90s/);
   });
 
   it("treats quota failures inside Gmail batch parts as a whole-call cooldown", async () => {

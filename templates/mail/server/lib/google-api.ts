@@ -136,11 +136,19 @@ function isInCooldown(accessToken: string): number {
   return until - Date.now();
 }
 
-function tripCooldown(accessToken: string, cooldownMs = QUOTA_COOLDOWN_MS) {
+// Returns the effective cooldown actually applied (never less than
+// QUOTA_COOLDOWN_MS) so callers can put a consistent duration into the
+// thrown error instead of the raw, possibly-shorter provider value.
+function tripCooldown(
+  accessToken: string,
+  cooldownMs = QUOTA_COOLDOWN_MS,
+): number {
+  const effectiveCooldownMs = Math.max(cooldownMs, QUOTA_COOLDOWN_MS);
   tokenCooldowns.set(
     cooldownKey(accessToken),
-    Date.now() + Math.max(cooldownMs, QUOTA_COOLDOWN_MS),
+    Date.now() + effectiveCooldownMs,
   );
+  return effectiveCooldownMs;
 }
 
 function isQuotaError(status: number, data: any): boolean {
@@ -396,14 +404,14 @@ export async function googleFetch(
     // per-token circuit breaker and let callers/UI retry after the cooldown.
     if (!res.ok && isQuotaError(res.status, data)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
-      tripCooldown(accessToken, cooldownMs);
+      const effectiveCooldownMs = tripCooldown(accessToken, cooldownMs);
       // Don't surface Google's raw "Quota exceeded for quota metric…" string
       // — the agent verbatim-quotes tool errors back to the user, and that
       // jargon is what made our last user reply with "I don't know what a
       // Gmail rate limit means". Use the clean wording instead.
       throw new GmailQuotaCooldownError(
-        quotaCooldownMessage(cooldownMs),
-        cooldownMs,
+        quotaCooldownMessage(effectiveCooldownMs),
+        effectiveCooldownMs,
       );
     }
 
@@ -784,14 +792,14 @@ async function gmailBatchGet(
     }
     if (isQuotaError(res.status, parsed)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
-      tripCooldown(accessToken, cooldownMs);
+      const effectiveCooldownMs = tripCooldown(accessToken, cooldownMs);
       // Same rationale as googleFetch: a whole-batch 429 must surface as a
       // detectable cooldown too, not the raw Google error text below — a
       // caller checking `instanceof GmailQuotaCooldownError` shouldn't have
       // to know this is a different code path than the per-item quota error.
       throw new GmailQuotaCooldownError(
-        quotaCooldownMessage(cooldownMs),
-        cooldownMs,
+        quotaCooldownMessage(effectiveCooldownMs),
+        effectiveCooldownMs,
       );
     }
     throw new Error(

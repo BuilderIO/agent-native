@@ -218,6 +218,32 @@ describe("listInboxEmails", () => {
     expect(getSnoozedThreadIds).not.toHaveBeenCalled();
   });
 
+  it("floors a sub-second remaining cooldown to 1s instead of advertising 0s", async () => {
+    vi.mocked(listGmailMessages).mockResolvedValue({
+      messages: [],
+      errors: [
+        {
+          email: OWNER,
+          error: "429: rateLimitExceeded — retry shortly",
+          isQuotaError: true,
+          retryAfterMs: 400,
+        },
+      ],
+    } as any);
+
+    const result = await listInboxEmails({
+      ownerEmail: OWNER,
+      view: "inbox",
+      limit: 50,
+      accountTokens: accountTokens(),
+      labelMap: new Map(),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.retryAfterSeconds).toBe(1);
+  });
+
   // Regression test for the "frequent 502s switching labels" report: the
   // real cooldown error (google-api.ts's GmailQuotaCooldownError) carries a
   // jargon-free message with none of "quota"/"429"/"rate limit" in it, so
