@@ -196,6 +196,10 @@ function isAllowedFusionOrigin(
  * Source: app/components/design/bridge/motion-preview.bridge.ts
  * Compiled: .generated/bridge/motion-preview.generated.ts (run bridge/codegen.ts to update)
  */
+/** Focus here is the user's text-entry intent, not incidental chrome focus. */
+const EDITABLE_FOCUS_SELECTOR =
+  'input, textarea, select, [contenteditable="true"], [role="textbox"]';
+
 const MOTION_PREVIEW_BRIDGE_SCRIPT = `
 <script data-agent-native-motion-preview-bridge>
 ${motionPreviewBridgeScript}
@@ -4533,6 +4537,10 @@ export function DesignCanvas({
   const focusScrollSurface = useCallback(() => {
     const surface = scrollContainerRef.current;
     if (!surface || document.activeElement === surface) return;
+    // Taking focus for keyboard panning must never outrank a field the user
+    // was just handed: a composer that opens under the cursor would otherwise
+    // be focused on mount and silently unfocused by the same pointer motion.
+    if (document.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
     surface.focus({ preventScroll: true });
   }, []);
 

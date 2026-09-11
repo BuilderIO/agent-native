@@ -3,6 +3,12 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-10
+
+### Improved
+
+- Slack feedback marks clear bugs with 👀 again and requires that reaction before dispatching Builder.
+
 ## 2026-09-09
 
 ### Improved

@@ -65,6 +65,8 @@ configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "design",
+    app_name: "design",
+    template_name: "design",
   }),
 });
 

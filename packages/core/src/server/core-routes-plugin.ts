@@ -503,11 +503,16 @@ export async function resolveBuilderOrgMutation(
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
   return [
-    { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+    {
+      key: "ENABLE_BUILDER",
+      label: "Enable Builder.io features",
+      secret: false,
+    },
     {
       key: "AGENT_ENGINE_PREFER_BYO_KEY",
       label:
         "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
+      secret: false,
     },
     {
       key: "RESEND_API_KEY",
@@ -526,6 +531,7 @@ export function getFrameworkEnvKeys(): EnvKeyConfig[] {
       label: "Email from address",
       helpText:
         "Sender address for transactional email. Required when using SendGrid.",
+      secret: false,
     },
     ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
       key: envVar,

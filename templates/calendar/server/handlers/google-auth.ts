@@ -27,6 +27,7 @@ import {
   safeReturnPath,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
   getHeader,
@@ -479,6 +480,16 @@ export const handleGoogleCallback = defineEventHandler(
       // sight of the tokens that were saved under the original owner.
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: isAddAccount,
+        },
+        { userId: owner ?? email },
+      );
       const sessionOwner = isAddAccount ? (owner ?? email) : email;
       const shouldCreateSession =
         !isAddAccount ||
@@ -679,6 +690,16 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         redirectUri,
         ownerEmail,
         session?.orgId ?? stateOrgId,
+      );
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: true,
+        },
+        { userId: ownerEmail },
       );
       const { sessionToken } =
         (desktop && flowId) || mobile

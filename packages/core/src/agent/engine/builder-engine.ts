@@ -54,6 +54,7 @@ import {
   classifyTerminalErrorCode,
   canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
+  extractRetryAfterMs,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
   isContextOverflowMessage,
@@ -563,6 +564,8 @@ interface GatewayErrorStopDetails {
   statusCode?: number;
   /** True for a throttle the same request can recover from by retrying. */
   providerRetryable?: boolean;
+  /** Provider-requested backoff from the HTTP response, when supplied. */
+  retryAfterMs?: number;
 }
 
 /**
@@ -684,8 +687,17 @@ async function* emitHttpError(
   const code =
     canonicalizeBuilderGatewayErrorCode(errBody.code, message) ??
     `http_${status}`;
+  const retryAfterMs = extractRetryAfterMs({
+    responseHeaders: Object.fromEntries(response.headers.entries()),
+  });
   const stop = (details: GatewayErrorStopDetails): EngineEvent =>
-    gatewayErrorStop(details, opts.creditsLane, opts.requestShape);
+    gatewayErrorStop(
+      retryAfterMs !== undefined && details.retryAfterMs === undefined
+        ? { ...details, retryAfterMs }
+        : details,
+      opts.creditsLane,
+      opts.requestShape,
+    );
 
   // Belt-and-suspenders: 402 without a structured `credits-limit` code
   // (e.g. bare proxy response) still means quota → show upgrade CTA.

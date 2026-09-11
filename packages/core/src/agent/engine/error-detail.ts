@@ -186,7 +186,7 @@ const MAX_RETRY_AFTER_MS = 60_000;
  * HTTP response: the raw error, the AI SDK's unwrapped `RetryError.lastError`,
  * or a plain `.cause`. Checked in that order so the most specific source wins.
  */
-function extractRetryAfterMs(err: unknown): number | undefined {
+export function extractRetryAfterMs(err: unknown): number | undefined {
   const wrapped = err as { lastError?: unknown; cause?: unknown } | null;
   for (const source of [err, wrapped?.lastError, wrapped?.cause]) {
     const headers = (source as { responseHeaders?: unknown } | null)

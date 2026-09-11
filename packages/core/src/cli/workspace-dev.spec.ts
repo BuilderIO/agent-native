@@ -29,6 +29,7 @@ let handle: WorkspaceDevHandle | undefined;
 
 afterEach(() => {
   handle?.shutdown();
+  vi.restoreAllMocks();
   handle = undefined;
   sentryMock.captureException.mockClear();
   if (tmpDir) {
@@ -674,6 +675,7 @@ describe("workspace dev startup", () => {
   it("turns a never-ready child process into a visible retrying failure", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
+    const killProcessGroup = vi.spyOn(process, "kill").mockReturnValue(true);
     handle = await runWorkspaceDev({
       root: tmpDir,
       env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "50" },
@@ -686,6 +688,17 @@ describe("workspace dev startup", () => {
       headers: { accept: "text/html" },
     });
     expect(await first.text()).toContain("Starting Dispatch");
+    const appCall = fake.calls().at(-1);
+    expect(appCall?.options).toMatchObject({
+      detached: process.platform !== "win32",
+    });
+    expect(appCall?.options?.shell).toBeUndefined();
+    if (process.platform !== "win32") {
+      Object.defineProperty(appCall?.child, "pid", {
+        configurable: true,
+        value: 489,
+      });
+    }
 
     await waitUntil(() => Boolean(handle?.apps[0]?.lastFailure), 500);
 
@@ -698,7 +711,14 @@ describe("workspace dev startup", () => {
     expect(html).toContain("App failed to start: Dispatch");
     expect(html).toContain("Timed out waiting 50ms");
     expect(html).toContain("127.0.0.1:");
-    expect(fake.calls().at(-1)?.child.kill).toHaveBeenCalledWith("SIGTERM");
+    if (process.platform === "win32") {
+      expect(appCall?.child.kill).toHaveBeenCalledWith("SIGTERM");
+    } else {
+      expect(killProcessGroup).toHaveBeenCalledWith(-489, "SIGTERM");
+    }
+    expect(handle.apps[0].restartTimer).toBeDefined();
+    handle.shutdown();
+    expect(handle.apps[0].restartTimer).toBeUndefined();
   });
 });
 
@@ -858,7 +878,11 @@ function fakeSpawn(): {
   calls: () => Array<{
     command: string;
     args: string[];
-    options?: { env?: NodeJS.ProcessEnv };
+    options?: {
+      detached?: boolean;
+      env?: NodeJS.ProcessEnv;
+      shell?: boolean | string;
+    };
     child: ChildProcess & EventEmitter;
   }>;
   startedApps: () => string[];
@@ -866,14 +890,22 @@ function fakeSpawn(): {
   const calls: Array<{
     command: string;
     args: string[];
-    options?: { env?: NodeJS.ProcessEnv };
+    options?: {
+      detached?: boolean;
+      env?: NodeJS.ProcessEnv;
+      shell?: boolean | string;
+    };
     child: ChildProcess & EventEmitter;
   }> = [];
   const spawnProcess = vi.fn(
     (
       command: string,
       args: string[],
-      options?: { env?: NodeJS.ProcessEnv },
+      options?: {
+        detached?: boolean;
+        env?: NodeJS.ProcessEnv;
+        shell?: boolean | string;
+      },
     ) => {
       const child = new EventEmitter() as ChildProcess;
       child.stdout = new EventEmitter() as ChildProcess["stdout"];

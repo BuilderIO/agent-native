@@ -601,7 +601,7 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     let meetings_state = app
         .try_state::<MeetingsWatcherState>()
         .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
-    if !meetings_state.experiment_enabled()? {
+    if !meetings_state.lab_enabled()? {
         reset_evidence(app);
         return Ok(());
     }

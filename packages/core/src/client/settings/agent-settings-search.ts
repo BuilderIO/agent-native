@@ -75,9 +75,7 @@ export const AGENT_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
 
 export const INTEGRATION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
   "integrations",
-  "secrets",
   "email",
-  "browser",
 ];
 
 export const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
@@ -207,7 +205,23 @@ export function getAgentSettingsSearchTabs(
       label: "Integrations",
       keywords:
         "integrations agent integrations connections secrets email browser tools",
-      searchEntries: buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+      searchEntries: [
+        ...buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+        {
+          id: "section:browser",
+          label: "Browser Automation",
+          keywords: "browser automation playwright chrome headless builder",
+          hash: "browser",
+          description: "Comes with Builder.io",
+        },
+      ],
+    },
+    {
+      id: "keys",
+      label: "API keys",
+      keywords:
+        "api keys secrets credentials tokens environment variables openai anthropic github vault",
+      searchEntries: buildSectionSearchEntries(["secrets"]),
     },
     {
       id: "mcp",

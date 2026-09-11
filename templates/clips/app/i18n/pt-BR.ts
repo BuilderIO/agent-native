@@ -671,9 +671,11 @@ const messages = {
     downloadAgain: "Não funcionou? Tente baixar novamente",
     alsoFor: "Também disponível para {{platform}}",
     backToLibrary: "Voltar à biblioteca",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Baixar Clips",
     stable: "Estável",
     nightly: "Nightly",
+    allPlatforms: "Todas as plataformas",
+    releaseChannel: "Canal de lançamento",
     switchToNightly: "Mudar para builds Nightly",
     switchToStable: "Mudar para builds estáveis",
     retry: "Tentar novamente",
@@ -725,17 +727,16 @@ const messages = {
     agentTitle: "Gerenciar agente",
     title: "Configurações",
     pageTitle: "Configurações · Clips",
-    experiments: "Experimentos",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
-    experimentVideoEditing: "Edição de vídeo",
-    experimentVideoEditingDescription: "Experimente o novo editor de vídeo.",
-    experimentMeetings: "Reuniões e transcrição",
-    experimentMeetingsDescription:
+    labVideoEditing: "Edição de vídeo",
+    labVideoEditingDescription: "Experimente o novo editor de vídeo.",
+    labMeetings: "Reuniões e transcrição",
+    labMeetingsDescription:
       "Experimente a captura e a transcrição automáticas de reuniões.",
-    experimentWisprFlow: "Ditado por voz",
-    experimentWisprFlowDescription:
-      "Experimente o novo recurso de ditado por voz.",
+    labWisprFlow: "Ditado por voz",
+    labWisprFlowDescription: "Experimente o novo recurso de ditado por voz.",
     intro: "Preferências e serviços conectados para este espaço do Clips.",
     preferencesTitle: "Preferências",
     languageTitle: "Idioma",
@@ -1365,13 +1366,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.",
     chromeTitle: "Chrome extension",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab.",
+    chromeDescription: "Capture abas do navegador com a extensão do Chrome.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL.",
     desktopTitle: "Desktop app",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
+    desktopDescription: "Grave com atalhos globais e áudio do sistema.",
     openDesktopApp: "Open desktop app",
   },
   editableTitle: {

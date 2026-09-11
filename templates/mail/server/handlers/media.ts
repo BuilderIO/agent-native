@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import { streamFile, getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -62,6 +63,7 @@ export const uploadMedia = defineEventHandler(async (event: H3Event) => {
     const ext = path.extname(originalName).toLowerCase() || ".bin";
     return await storeMediaUpload({
       ownerEmail: session.email,
+      orgId: session.orgId,
       data: body instanceof Uint8Array ? body : new Uint8Array(body),
       filename: nanoid(12) + ext,
       originalName,
@@ -105,6 +107,11 @@ export const uploadAttachmentWithTicket = defineEventHandler(
       return { error: "File too large (max 10 MB)" };
     }
 
+    const orgId =
+      verified.ticket.orgId ??
+      (await resolveOrgIdForEmail(verified.ownerEmail)) ??
+      undefined;
+
     const claimed = await claimAttachmentUploadTicket(uploadId, token);
     if (!claimed) {
       setResponseStatus(event, 401);
@@ -114,6 +121,7 @@ export const uploadAttachmentWithTicket = defineEventHandler(
     try {
       const uploaded = await storeMediaUpload({
         ownerEmail: claimed.ownerEmail,
+        orgId,
         data: body instanceof Uint8Array ? body : new Uint8Array(body),
         filename: claimed.ticket.filename,
         originalName: claimed.ticket.originalName,

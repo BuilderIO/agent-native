@@ -1,6 +1,7 @@
 import { AgentActionStopError, defineAction } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { getRequestRunContext } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { runQuery } from "../server/lib/bigquery";
@@ -138,7 +139,20 @@ export default defineAction({
       stopForRepeatedBigQueryQuery();
     }
     try {
-      return await runQuery(args.sql, { signal: context?.signal });
+      const result = await runQuery(args.sql, { signal: context?.signal });
+      track(
+        "sql_run",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          surface: "bigquery",
+          row_count: result.rows.length,
+          total_rows: result.totalRows,
+          truncated: result.truncated === true,
+        },
+        context,
+      );
+      return result;
     } catch (err) {
       // A run cancellation is terminal for this invocation. Returning it as a
       // recoverable SQL error would invite the agent to retry work after the
