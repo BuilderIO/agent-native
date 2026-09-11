@@ -395,6 +395,8 @@ const messages = {
       "Enregistrer ce job dans l’onglet Automatisations.",
     automationCreated: "Automatisation créée",
     automationCreateFailed: "Impossible de créer l’automatisation.",
+    automationCreateRefreshFailed:
+      "Créée, mais la liste ne s’est pas actualisée. Restez ici ou rouvrez Automatisations.",
     automationSource: "Origine",
     automationSourceDescription: "Choisissez d’où ce job lit.",
     automationSourceSlackHint: "Messages et fils du canal.",
@@ -485,6 +487,7 @@ const messages = {
     automationEvent: "Événement",
     automationTimezone: "Fuseau horaire",
     selectAutomation: "Sélectionnez une automatisation à modifier.",
+    automationNotFound: "Cette automatisation n'existe plus.",
     automationModel: "Modèle",
     automationDisplayName: "Nom affiché",
     automationDisplayNamePlaceholder: "Par exemple, retour Slack",
@@ -503,6 +506,8 @@ const messages = {
     automationSaved: "Enregistré",
     automationSaveFailed: "Impossible d'enregistrer l'automatisation.",
     automationRunFailed: "Impossible d'exécuter l'automatisation.",
+    automationRunNeedsSave:
+      "Enregistrez vos modifications avant d'exécuter cette automatisation.",
     automationRunning: "En cours",
     runNow: "Exécuter maintenant",
     automationHealthTitle: "État du planificateur",

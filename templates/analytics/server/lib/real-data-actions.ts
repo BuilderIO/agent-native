@@ -179,15 +179,244 @@ const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
 
+const DASHBOARD_CONSTRUCTION_OBJECT_TERMS =
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:(?!\b(?:and|or|then|plus)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?|job(?:s)?|schedule(?:s)?)\b)(?!\s+(?:via|using|with|on)\s+(?:a\s+)?cron(?:\s+(?:job|schedule))?\b)\b/gi;
+
+const DASHBOARD_AUTOMATION_COMPOUND_TERMS =
+  /\b(?:dashboard|extension|panel|widget)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b/i;
+
+const DASHBOARD_AUTOMATION_SUBJECT_TERMS =
+  /\b(?:automation|automations|workflow|workflows|job|recurring job|scheduled job|cron(?:\s+job)?)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:dashboard|extension|panel|widget)\b/i;
+
+const DASHBOARD_AUTOMATION_NESTED_ACTION_TERMS =
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then|plus)\b|\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:and|then)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b)*(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
+
+const DASHBOARD_AUTOMATION_NESTED_ACTION_LIST_TERMS =
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then|plus)\b|,|\b(?:dashboard|extension|panel|widget)\b)[^.!?;\n])*?(?:,\s*(?:and|then)?|\b(?:and|then)\b)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b)+(?:(?!\b(?:and|or|then|plus)\b|,)[^.!?;\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
+
+const DASHBOARD_AUTOMATION_REFRESH_TARGET_TERMS =
+  /\b(?:(?:[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\bfor\b\s+(?:(?:the|a|an)\s+)?(?:(?!(?:and|or|then|plus)\b)[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\s+refresh(?:es|ed|ing)?\b/gi;
+
+const DASHBOARD_AUTOMATION_TRIGGER_TERMS =
+  /\b(?:(?:[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:triggered by|triggers? when|when|whenever|after|before|if|once|upon)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)(?:['’]s)?\b/gi;
+
+const DASHBOARD_AUTOMATION_NESTED_DASHBOARD_TERMS =
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/i;
+
+const DASHBOARD_AUTOMATION_NESTED_TEMPLATE_TERMS =
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\b)(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b/gi;
+
+const DASHBOARD_AUTOMATION_DASHBOARD_TEMPLATE_ACTION_TERMS =
+  /\b(?:create|make|build|set up|setup|add|configure)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\s+automation\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b/i;
+
+const DASHBOARD_AUTOMATION_AND_DASHBOARD_TERMS =
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:\s*,\s*(?:(?:and|or|then|plus)\s+)?|\s+(?:and|or|then|plus)\s+)(?:(?:a|an|the)\s+)?(?:(?!\b(?:and|or|then|plus)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
+
+const DASHBOARD_TEMPLATE_CONSTRUCTION_TERMS =
+  /\b(?:use|build|create|make|clone|copy|duplicate|adapt|replicate)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:as a template|template)\b(?!\s+automation\b)/i;
+
+const DASHBOARD_TEMPLATE_AUTOMATION_INPUT_TERMS =
+  /\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:create|build|make|set up|setup|schedule)\b\s+(?:(?:a|an|the)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b|\bfor\s+(?:(?:a|an|the)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b|\bto\s+automate\b)/i;
+
+const DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_TERMS =
+  /(?:^|[.!?;,\n]|\b(?:and|then|please|to|could\s+you|can\s+you|would\s+you)\b)\s*(?:schedule|scheduled)\b(?:(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\b|(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b)/i;
+
+const DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_CREATION_TERMS =
+  /\b(?:create|configure|set up|setup|add|define)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+refresh\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/i;
+
+const DASHBOARD_REFRESH_JOB_AUTOMATION_TERMS =
+  /\b(?:create|make|build|set up|setup|configure|add|schedule)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\s+refresh\s+(?:job|schedule)\b/i;
+
+const DASHBOARD_GENERIC_SCHEDULE_AUTOMATION_TERMS =
+  /\b(?:create|make|set up|setup|add|configure|define)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:schedule|schedules|scheduling)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b|\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:schedule|schedules|scheduling)\b)/i;
+
+const DASHBOARD_DASHBOARD_SCHEDULED_REFRESH_TERMS =
+  /\b(?:create|make|build|set up|setup|configure|add|schedule)\b(?:(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+refresh\b|(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\b)/i;
+
+const DASHBOARD_CADENCE_DASHBOARD_REFRESH_TERMS =
+  /\b(?:refresh|update|run|have)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:refresh|update)?\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:every|each)\s+(?:(?:\d+(?:\.\d+)?|an?|one|two|three|four|five|few)\s+)?(?:morning|afternoon|evening|minutes?|mins?|hours?|days?|weeks?|months?|weekdays?)\b|\b(?:hourly|daily|weekly|monthly|quarterly|yearly|annually|nightly)\b)/i;
+
+const DASHBOARD_CONSTRUCTION_WITH_SCHEDULED_REFRESH_TERMS =
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b\s+(?:with|and|plus)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+refresh\b/i;
+
+const DASHBOARD_CRON_SCHEDULED_DASHBOARD_UPDATE_TERMS =
+  /\b(?:update|edit|change|modify|rename|adjust|refresh)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:(?:via|using|with)\s+cron(?:\s+(?:job|schedule))?|on\s+(?:a\s+)?cron(?:\s+(?:job|schedule))?)\b/i;
+
+const DASHBOARD_CONSTRUCTION_AFTER_REFRESH_RATE_QUERY_TERMS =
+  /(?:\b(?:and|then|plus|with|but)\b\s+(?:(?:a|an|the|my|our|your|their)\s+)?(?:(?:[\w-]+\s+){1,3})(?:dashboard|extension|panel|widget)\b(?!\s+(?:refresh(?:es|ed)?|update(?:s|d)?|frequency|interval|rate|performance|metrics?|data|stats?|statistics|results?)\b)|(?:\b(?:and|then|plus|with|but)\b|[.!?;])(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b)[^.!?;,\n])*?\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b(?:(?!\b(?:and|or|then|plus|but)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b)/i;
+
+const DASHBOARD_REFRESH_RATE_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b[^.!?;,\n]*?\b(?:refresh|update)\s+rate\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_RATE_REVERSE_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:refresh|update)\s+rate\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_FREQUENCY_QUERY_TERMS =
+  /\b(?:how\s+often|how\s+frequently|when)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:refresh(?:es|ed)?|update(?:s|d)?)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_FREQUENCY_REVERSE_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)(?:['’]s)?\s+(?:refresh(?:es)?|update(?:s)?)\s+(?:frequency|interval)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_FREQUENCY_OF_TARGET_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:refresh|update)\s+(?:frequency|interval)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?:[\w-]+(?:['’]s)?\s+){0,2})(?:dashboard|extension|panel|widget)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_FREQUENCY_NOUN_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:frequency|interval)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:the\s+)?(?:dashboard|extension|panel|widget)(?:['’]s)?\s+(?:refresh(?:es|ed)?|update(?:s|d)?)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_RATE_REPORT_QUERY_TERMS =
+  /\b(?:create|make|build)\s+(?:a|an|the)\s+(?:report|analysis|chart|metric)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:refresh|update)\s+rate\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_RATE_REPORT_REVERSE_QUERY_TERMS =
+  /\b(?:create|make|build)\s+(?:a|an|the)\s+(?:report|analysis|chart|metric)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:refresh|update)\s+rate\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b)/i;
+
+const DASHBOARD_LATER_CONSTRUCTION_CLAUSE_TERMS =
+  /(?:[.!?;]\s*|,\s*|\b(?:and|or|then|plus|but)\b)\s*(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b[\s\S]*$/i;
+
+const MAX_ANALYTICS_CLASSIFICATION_TEXT_LENGTH = 8_192;
+const CLASSIFICATION_TEXT_TAIL_LENGTH = 2_048;
+const CLASSIFICATION_TRUNCATION_MARKER = "\n...[truncated]...\n";
+
+function boundAnalyticsClassificationText(text: string): string {
+  if (text.length <= MAX_ANALYTICS_CLASSIFICATION_TEXT_LENGTH) return text;
+  const headLength =
+    MAX_ANALYTICS_CLASSIFICATION_TEXT_LENGTH -
+    CLASSIFICATION_TEXT_TAIL_LENGTH -
+    CLASSIFICATION_TRUNCATION_MARKER.length;
+  return `${text.slice(0, headLength)}${CLASSIFICATION_TRUNCATION_MARKER}${text.slice(-CLASSIFICATION_TEXT_TAIL_LENGTH)}`;
+}
+
+function isDashboardRefreshRateQuery(text: string): boolean {
+  return (
+    DASHBOARD_REFRESH_RATE_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_RATE_REVERSE_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_FREQUENCY_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_FREQUENCY_REVERSE_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_FREQUENCY_OF_TARGET_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_FREQUENCY_NOUN_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_RATE_REPORT_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_RATE_REPORT_REVERSE_QUERY_TERMS.test(text)
+  );
+}
+
 export function looksLikeDashboardConstructionRequest(text: string): boolean {
-  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const requestText = boundAnalyticsClassificationText(
+    stripInjectedAnalyticsGuardContext(text),
+  );
   const lower = requestText.toLowerCase();
   if (!lower) return false;
-  const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(lower);
+  // Do not let an action inside an automation request masquerade as the
+  // top-level dashboard artifact ("create an automation to refresh ...").
+  const constructionRequestText = lower
+    .replace(/\bbut\b/g, " and ")
+    .replace(DASHBOARD_AUTOMATION_REFRESH_TARGET_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_TRIGGER_TERMS, " automation ")
+    .replace(
+      DASHBOARD_AUTOMATION_DASHBOARD_TEMPLATE_ACTION_TERMS,
+      " automation ",
+    )
+    .replace(DASHBOARD_AUTOMATION_NESTED_ACTION_LIST_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_NESTED_ACTION_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS, " automation ")
+    .replace(DASHBOARD_REFRESH_JOB_QUERY_TERMS, " automation ")
+    .replace(
+      DASHBOARD_AUTOMATION_STATUS_FIRST_SCOPED_QUERY_TERMS,
+      " automation ",
+    )
+    .replace(DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_NESTED_TEMPLATE_TERMS, " automation ")
+    .replace(DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_TERMS, " automation ")
+    .replace(
+      DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_CREATION_TERMS,
+      " automation ",
+    )
+    .replace(DASHBOARD_REFRESH_JOB_AUTOMATION_TERMS, " automation ")
+    .replace(DASHBOARD_GENERIC_SCHEDULE_AUTOMATION_TERMS, " automation ")
+    .replace(DASHBOARD_DASHBOARD_SCHEDULED_REFRESH_TERMS, " automation ")
+    .replace(DASHBOARD_CADENCE_DASHBOARD_REFRESH_TERMS, " automation ")
+    .replace(DASHBOARD_CRON_SCHEDULED_DASHBOARD_UPDATE_TERMS, " automation ");
+  const hasDashboardConstructionObject = [
+    ...constructionRequestText.matchAll(DASHBOARD_CONSTRUCTION_OBJECT_TERMS),
+  ].some(([match]) => {
+    if (
+      !match ||
+      !/\b(?:automation|automations|workflow|workflows|job|recurring job|scheduled job|cron(?:\s+job)?)\b/.test(
+        match,
+      )
+    ) {
+      return Boolean(match);
+    }
+    return DASHBOARD_AUTOMATION_SUBJECT_TERMS.test(match);
+  });
+  const hasIndependentDashboardConstructionObject = constructionRequestText
+    .split(/[.!?;,\n]+|\b(?:and|or|then|plus|but)\b/)
+    .some((clause) => {
+      const candidate = clause.trim();
+      if (!candidate || isDashboardRefreshRateQuery(candidate)) return false;
+      return [...candidate.matchAll(DASHBOARD_CONSTRUCTION_OBJECT_TERMS)].some(
+        ([match]) => {
+          if (
+            !match ||
+            !/\b(?:automation|automations|workflow|workflows|job|recurring job|scheduled job|cron(?:\s+job)?)\b/.test(
+              match,
+            )
+          ) {
+            return Boolean(match);
+          }
+          return DASHBOARD_AUTOMATION_SUBJECT_TERMS.test(match);
+        },
+      );
+    });
+  if (
+    isDashboardRefreshRateQuery(lower) &&
+    !DASHBOARD_CONSTRUCTION_AFTER_REFRESH_RATE_QUERY_TERMS.test(lower) &&
+    !hasIndependentDashboardConstructionObject
+  ) {
+    return false;
+  }
+  if (
+    DASHBOARD_CONSTRUCTION_WITH_SCHEDULED_REFRESH_TERMS.test(lower) &&
+    !DASHBOARD_AUTOMATION_NESTED_DASHBOARD_TERMS.test(lower)
+  ) {
+    return true;
+  }
+  const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(
+    constructionRequestText,
+  );
   const targetsDashboard =
-    DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(lower) ||
+    DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(constructionRequestText) ||
     lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase());
-  return wantsBuild && targetsDashboard;
+  if (!wantsBuild || !targetsDashboard) return false;
+  const hasWorkflowOrAutomationRequest =
+    looksLikeWorkflowOrAutomationRequest(lower);
+  const hasTemplateConstruction =
+    /\b(?:template|based (?:off|on)|using .{1,80}? as a template)\b/i.test(
+      constructionRequestText,
+    );
+  if (
+    hasTemplateConstruction &&
+    (!hasWorkflowOrAutomationRequest ||
+      hasDashboardConstructionObject ||
+      (DASHBOARD_TEMPLATE_CONSTRUCTION_TERMS.test(constructionRequestText) &&
+        !DASHBOARD_TEMPLATE_AUTOMATION_INPUT_TERMS.test(
+          constructionRequestText,
+        )))
+  ) {
+    return true;
+  }
+  if (DASHBOARD_AUTOMATION_AND_DASHBOARD_TERMS.test(constructionRequestText)) {
+    return true;
+  }
+  if (
+    DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower) &&
+    !hasDashboardConstructionObject
+  ) {
+    return false;
+  }
+  if (hasWorkflowOrAutomationRequest && !hasDashboardConstructionObject) {
+    return false;
+  }
+  return true;
 }
 
 export function hasDashboardConstructionAttempt(
@@ -288,9 +517,7 @@ export function stripInjectedAnalyticsGuardContext(text: string): string {
 
 function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
   const hasWorkflowArtifact =
-    /\b(github actions?|ya?ml|cron|scheduled job|recurring job|pnpm script)\b|\.(?:ya?ml)\b/.test(
-      lower,
-    );
+    /\b(github actions?|ya?ml|pnpm script)\b|\.(?:ya?ml)\b/.test(lower);
   const hasCreationIntent =
     /\b(want|need|create|make|set up|setup|add|migrate|move|port|convert|turn|translate|recreate|build)\b/.test(
       lower,
@@ -299,9 +526,54 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
     /\b(recurring job|scheduled job|job|automation|automations|workflow|workflows|cron)\b/.test(
       lower,
     );
+  const hasExplicitAutomationTarget =
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define)\b(?:(?!\b(?:dashboard|extension|panel|widget|report|reports|analysis|analyses|chart|charts|metric|metrics|rate|rates|conversion|conversions)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
+      lower,
+    );
+  const hasScheduledAutomationTarget =
+    /(?:^|[.!?;,\n]|\b(?:and|then|to|please)\b)\s*schedule\b(?:(?!\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
+      lower,
+    );
+  const hasCronSchedulingTarget =
+    /(?:^|[.!?;,\n]|\b(?:and|then|please|to)\b)\s*(?:schedule|scheduled|set up|setup|run|trigger|refresh)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:(?:via|using|with)\s+cron(?:\s+job)?|on\s+(?:a\s+)?cron(?:\s+(?:schedule|job))?)\b/.test(
+      lower,
+    );
+  const hasTemplateAutomationInput =
+    DASHBOARD_TEMPLATE_AUTOMATION_INPUT_TERMS.test(lower);
+  const hasScheduledDashboardRefresh =
+    DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_TERMS.test(lower);
+  const hasScheduledDashboardRefreshCreation =
+    DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_CREATION_TERMS.test(lower);
+  const hasDashboardRefreshJobAutomation =
+    DASHBOARD_REFRESH_JOB_AUTOMATION_TERMS.test(lower);
+  const hasGenericDashboardScheduleAutomation =
+    DASHBOARD_GENERIC_SCHEDULE_AUTOMATION_TERMS.test(lower);
+  const hasDashboardScheduledRefreshAutomation =
+    DASHBOARD_DASHBOARD_SCHEDULED_REFRESH_TERMS.test(lower);
+  const hasDashboardCadenceAutomation =
+    DASHBOARD_CADENCE_DASHBOARD_REFRESH_TERMS.test(lower);
+  const hasCronScheduledDashboardUpdate =
+    DASHBOARD_CRON_SCHEDULED_DASHBOARD_UPDATE_TERMS.test(lower);
+  const hasDashboardAutomationTarget =
+    DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower) &&
+    !DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(lower) &&
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule|update|edit|change|modify|rename|adjust|refresh)\b/.test(
+      lower,
+    );
 
   return (
-    /\brecurring job\b/.test(lower) ||
+    hasExplicitAutomationTarget ||
+    hasScheduledAutomationTarget ||
+    hasCronSchedulingTarget ||
+    hasTemplateAutomationInput ||
+    hasScheduledDashboardRefresh ||
+    hasScheduledDashboardRefreshCreation ||
+    hasDashboardRefreshJobAutomation ||
+    hasGenericDashboardScheduleAutomation ||
+    hasDashboardScheduledRefreshAutomation ||
+    hasDashboardCadenceAutomation ||
+    hasCronScheduledDashboardUpdate ||
+    hasDashboardAutomationTarget ||
     (hasWorkflowArtifact && hasCreationIntent) ||
     (hasCreationIntent &&
       hasAutomationTarget &&
@@ -311,6 +583,37 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 
 const ANALYTICS_RESULT_TERMS =
   /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|ctr|cvr|cac|ltv)\b/;
+
+const DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS =
+  /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:conversion|conversions|rate|rates|run|runs|ran|fail(?:ed|ure|ures)?|execution(?:s)?|job(?:s)?|metric|metrics|count|counts)\b/i;
+
+const DASHBOARD_AUTOMATION_COUNT_REVERSE_QUERY_TERMS =
+  /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:run|runs|ran|execution(?:s)?|job(?:s)?|fail(?:ed|ure|ures)?|count(?:s)?|number)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b/i;
+
+const DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS =
+  /\b(?:create|make|build)\s+(?:a|an|the)\s+(?:report|chart|analysis|metric)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:number|count(?:s)?|run(?:s)?|ran|execution(?:s)?|job(?:s)?|conversion(?:s)?|failure(?:s)?|fail(?:ed|ure|ures)?|success(?:es)?|rate(?:s)?|error(?:s)?|performance|metric(?:s)?|status|state|scheduled|active|enabled|paused|running|pending|disabled)\b|\b(?:number|count(?:s)?|run(?:s)?|ran|execution(?:s)?|job(?:s)?|conversion(?:s)?|failure(?:s)?|fail(?:ed|ure|ures)?|success(?:es)?|rate(?:s)?|error(?:s)?|performance|metric(?:s)?|status|state|scheduled|active|enabled|paused|running|pending|disabled)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b)/i;
+
+const DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS =
+  /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much|list|are|is)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled|status|state|run|runs|ran|execution(?:s)?|job(?:s)?|count(?:s)?|number)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/i;
+
+const DASHBOARD_REFRESH_JOB_QUERY_TERMS =
+  /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?(?:\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh(?:es|ed|ing)?\s+(?:jobs?|schedules?)\b|\brefresh(?:es|ed|ing)?\s+(?:jobs?|schedules?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b)/i;
+
+const DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS =
+  /(?:\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much|list|are|is|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled|status|state)\b|\b(?:show|report|find|list|what|which|how many|how much|are|is|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\s+(?:automations?|workflows?|jobs?)\b|\b(?:what|which|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:status|state)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:\b(?:dashboard|extension|panel|widget)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b|\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:dashboard|extension|panel|widget)\b)\s*(?:['’]s)?\b)/i;
+
+const DASHBOARD_AUTOMATION_STATUS_FIRST_SCOPED_QUERY_TERMS =
+  /\b(?:show|report|find|list|what|which|how many|how much|are|is|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\bfor\b\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?:[\w-]+(?:['’]s)?\s+){0,3})(?:dashboard|extension|panel|widget)\b/i;
+
+function isDashboardAutomationStatusQuery(text: string): boolean {
+  return (
+    DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS.test(text) ||
+    DASHBOARD_AUTOMATION_STATUS_FIRST_SCOPED_QUERY_TERMS.test(text)
+  );
+}
+
+const DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS =
+  /\bhow\s+many\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*(?:\bare there\b|\bexist\b|\bdo we have\b|\bis there\b|(?=\s*[?.!]|$))/i;
 
 const ANALYTICS_DOMAIN_ENTITY_TERMS =
   /\b(?:branch(?:es)?|branch creation|created by|creator identity)\b/;
@@ -343,6 +646,9 @@ const CODE_REVIEW_MENTION =
 const METRIC_RESULT_INTENT =
   /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
 
+const DASHBOARD_BARE_STATUS_QUERY_TERMS =
+  /\b(?:what|which|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:status|state)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\b(?!\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
+
 const ARTIFACT_DATA_INTENT =
   /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
 
@@ -352,10 +658,63 @@ const ARTIFACT_DATA_INTENT =
 const METADATA_ONLY_TERMS =
   /\b(what (?:tables?|columns?|fields?|sources?|datasets?|metrics?|schema) (?:are|is|exist|available|do (?:we|you|i) have)|which (?:sources?|tables?|providers?|integrations?) (?:are|is) (?:connected|configured|available|set up)|list (?:the )?(?:tables?|columns?|fields?|sources?|datasets?|schemas?)|show (?:me )?(?:available|the) (?:data )?(?:sources?|tables?|schemas?)|what does .+ (?:mean|measure|represent|track)|how is .+ (?:defined|calculated|computed|measured)|definition of|describe (?:the )?(?:\w+\s+)?(?:table|column|schema|metric|field)|list (?:the )?columns?\s+in|what (?:is|are) (?:the )?(?:data (?:dictionary|schema)|available (?:data )?(?:sources?|tables?))|what (?:source|provider|table) (?:has|stores|contains))\b/;
 
+function hasIndependentAnalyticsDataClause(lower: string): boolean {
+  const normalized = lower.replace(/\bbut\b/g, " and ");
+  return normalized
+    .split(/[.!?;,\n]+|\b(?:and|or|then|plus)\b/)
+    .some((clause) => {
+      const candidate = clause.trim();
+      if (!candidate) return false;
+      if (looksLikeWorkflowOrAutomationRequest(candidate)) return false;
+      if (
+        DASHBOARD_BARE_STATUS_QUERY_TERMS.test(candidate) &&
+        !isDashboardAutomationStatusQuery(candidate) &&
+        !DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS.test(candidate) &&
+        !METRIC_RESULT_INTENT.test(candidate)
+      ) {
+        return false;
+      }
+      if (
+        METADATA_ONLY_TERMS.test(candidate) ||
+        EXPLICIT_CODE_REVIEW_REQUEST.test(candidate) ||
+        (CODE_REVIEW_MENTION.test(candidate) &&
+          !METRIC_RESULT_INTENT.test(candidate))
+      ) {
+        return false;
+      }
+      return (
+        DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS.test(candidate) ||
+        DASHBOARD_AUTOMATION_COUNT_REVERSE_QUERY_TERMS.test(candidate) ||
+        DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(candidate) ||
+        isDashboardAutomationStatusQuery(candidate) ||
+        DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS.test(candidate) ||
+        DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS.test(candidate) ||
+        DASHBOARD_REFRESH_JOB_QUERY_TERMS.test(candidate) ||
+        isDashboardRefreshRateQuery(candidate) ||
+        (ANALYTICS_RESULT_TERMS.test(candidate) &&
+          (ANALYTICS_INTENT_TERMS.test(candidate) ||
+            METRIC_RESULT_INTENT.test(candidate) ||
+            /\btell\s+me(?:\s+about)?\b/.test(candidate))) ||
+        (ANALYTICS_DOMAIN_ENTITY_TERMS.test(candidate) &&
+          (ANALYTICS_INTENT_TERMS.test(candidate) ||
+            SOURCE_SEARCH_INTENT_TERMS.test(candidate) ||
+            /\bdata\b/.test(candidate))) ||
+        (ANALYTICS_INTENT_TERMS.test(candidate) &&
+          /\b(data|source|table|sql)\b/.test(candidate))
+      );
+    });
+}
+
 export function looksLikeAnalyticsDataRequest(text: string): boolean {
-  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const requestText = boundAnalyticsClassificationText(
+    stripInjectedAnalyticsGuardContext(text),
+  );
   const lower = requestText.toLowerCase();
   if (!lower) return false;
+  const analyticsRequestText = lower.replace(
+    DASHBOARD_LATER_CONSTRUCTION_CLAUSE_TERMS,
+    "",
+  );
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
   if (
     SETUP_REQUEST_TERMS.test(lower) &&
@@ -363,7 +722,28 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return false;
   }
-  if (looksLikeWorkflowOrAutomationRequest(lower)) return false;
+  if (
+    DASHBOARD_BARE_STATUS_QUERY_TERMS.test(lower) &&
+    !isDashboardAutomationStatusQuery(lower) &&
+    !DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS.test(lower) &&
+    !METRIC_RESULT_INTENT.test(lower) &&
+    !hasIndependentAnalyticsDataClause(lower)
+  ) {
+    return false;
+  }
+  if (
+    DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(lower) ||
+    isDashboardAutomationStatusQuery(lower) ||
+    DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS.test(lower)
+  ) {
+    return true;
+  }
+  if (
+    looksLikeWorkflowOrAutomationRequest(lower) &&
+    !hasIndependentAnalyticsDataClause(lower)
+  ) {
+    return false;
+  }
   if (
     /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
       lower,
@@ -394,6 +774,25 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   // Checking what's available, what a metric means, or what schema exists
   // should be answered from the dictionary and schema tools, not a data fetch.
   if (METADATA_ONLY_TERMS.test(lower)) return false;
+
+  if (
+    DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS.test(lower) ||
+    DASHBOARD_AUTOMATION_COUNT_REVERSE_QUERY_TERMS.test(lower) ||
+    DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(lower) ||
+    isDashboardAutomationStatusQuery(lower) ||
+    DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS.test(lower) ||
+    DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS.test(lower) ||
+    DASHBOARD_REFRESH_JOB_QUERY_TERMS.test(lower)
+  ) {
+    return true;
+  }
+
+  if (
+    isDashboardRefreshRateQuery(lower) ||
+    isDashboardRefreshRateQuery(analyticsRequestText)
+  ) {
+    return true;
+  }
 
   if (ANALYTICS_RESULT_TERMS.test(lower)) return true;
   if (

@@ -192,7 +192,10 @@ async function dispatch(
       event.url?.searchParams?.get("includeGloballyHidden") === "true";
     const includeContent =
       event.url?.searchParams?.get("includeContent") === "true";
-    const rows = await listExtensions({ includeGloballyHidden });
+    const rows = await listExtensions({
+      includeGloballyHidden,
+      includeContent,
+    });
     const localRows = includeGloballyHidden ? [] : await listLocalExtensions();
     return Promise.all(
       [...rows, ...localRows].map((row) =>

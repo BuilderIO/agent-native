@@ -4,13 +4,13 @@ const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
-const mockGetAppSecretMeta = vi.fn();
-const mockReadAppSecret = vi.fn();
+const mockReadAppSecretMeta = vi.fn();
 const mockListAppSecretsForScope = vi.fn();
 const mockGetRequiredSecret = vi.fn();
 const mockListRequiredSecrets = vi.fn();
 const mockHasOAuthTokens = vi.fn();
 const mockListOAuthAccountsByOwner = vi.fn();
+const mockResolveSecretDetailed = vi.fn();
 
 let lastStatus = 200;
 
@@ -49,10 +49,20 @@ vi.mock("./register.js", () => ({
 vi.mock("./storage.js", () => ({
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
-  getAppSecretMeta: (...args: any[]) => mockGetAppSecretMeta(...args),
-  readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
+  readAppSecretMeta: (...args: any[]) => mockReadAppSecretMeta(...args),
   listAppSecretsForScope: (...args: any[]) =>
     mockListAppSecretsForScope(...args),
+  last4: (value: string) => (value ? value.slice(-4) : ""),
+  VAULT_SYNC_DESCRIPTION_PREFIX: "Synced from Dispatch vault:",
+}));
+
+vi.mock("../server/credential-provider.js", () => ({
+  prefetchSecrets: () => Promise.resolve(),
+  resolveSecretDetailed: (...args: any[]) => mockResolveSecretDetailed(...args),
+}));
+
+vi.mock("../server/request-context.js", () => ({
+  runWithRequestContext: (_ctx: any, fn: () => any) => fn(),
 }));
 
 import {
@@ -83,9 +93,14 @@ describe("secrets routes", () => {
     mockGetRequiredSecret.mockReturnValue(undefined);
     mockListRequiredSecrets.mockReturnValue([]);
     mockWriteAppSecret.mockResolvedValue("sec_1");
-    mockReadAppSecret.mockResolvedValue(null);
     mockListOAuthAccountsByOwner.mockResolvedValue([]);
     mockHasOAuthTokens.mockResolvedValue(false);
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: null,
+      lookupFailed: false,
+    });
+    mockReadAppSecretMeta.mockResolvedValue(null);
+    mockListAppSecretsForScope.mockResolvedValue([]);
   });
 
   it("uses the registered user secret scope and ignores caller-supplied scopeId", async () => {
@@ -350,10 +365,11 @@ describe("secrets routes", () => {
         error: "Token stored-secret-value is expired",
       })),
     });
-    mockReadAppSecret.mockResolvedValue({
+    mockResolveSecretDetailed.mockResolvedValue({
       value: "stored-secret-value",
-      last4: "alue",
-      updatedAt: 123,
+      lookupFailed: false,
+      source: "user",
+      scopeId: "alice+qa@example.com",
     });
 
     const handler = createTestSecretHandler();
@@ -457,7 +473,7 @@ describe("secrets routes", () => {
 
     expect(result).toEqual({ ok: true });
     expect(validator).toHaveBeenCalledWith("candidate-value");
-    expect(mockReadAppSecret).not.toHaveBeenCalled();
+    expect(mockResolveSecretDetailed).not.toHaveBeenCalled();
     expect(mockWriteAppSecret).not.toHaveBeenCalled();
   });
 
@@ -548,5 +564,308 @@ describe("secrets routes", () => {
       error: "Failed to save secret: database rejected [redacted]",
     });
     expect(JSON.stringify(result)).not.toContain("ad-hoc-secret-value");
+  });
+
+  it("reports a Vault-synced org row as set/vault/not-managed-here", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "GOOGLE_API_KEY",
+        label: "Google API key",
+        scope: "workspace",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: "sk-live-vault-value",
+      lookupFailed: false,
+      source: "org",
+      scopeId: "org-qa",
+    });
+    mockReadAppSecretMeta.mockResolvedValue({
+      key: "GOOGLE_API_KEY",
+      scope: "org",
+      scopeId: "org-qa",
+      last4: "vaul",
+      description: "Synced from Dispatch vault: Google",
+      urlAllowlist: null,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        key: "GOOGLE_API_KEY",
+        status: "set",
+        source: "vault",
+        managedHere: false,
+        last4: "vaul",
+      }),
+    ]);
+    expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
+      key: "GOOGLE_API_KEY",
+      scope: "org",
+      scopeId: "org-qa",
+    });
+  });
+
+  it("reports managedHere + overrides when a personal row shadows a vault-synced value", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "GOOGLE_API_KEY",
+        label: "Google API key",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockResolveSecretDetailed.mockImplementation(
+      (_key: string, options?: { skipUserScope?: boolean }) =>
+        options?.skipUserScope
+          ? Promise.resolve({
+              value: "vault-value",
+              lookupFailed: false,
+              source: "org",
+              scopeId: "vault-org-id",
+            })
+          : Promise.resolve({
+              value: "personal-value",
+              lookupFailed: false,
+              source: "user",
+              scopeId: "alice+qa@example.com",
+            }),
+    );
+    mockReadAppSecretMeta.mockImplementation(({ scope }: { scope: string }) =>
+      scope === "user"
+        ? Promise.resolve({
+            key: "GOOGLE_API_KEY",
+            scope: "user",
+            scopeId: "alice+qa@example.com",
+            last4: "pers",
+            description: null,
+            urlAllowlist: null,
+            createdAt: 1,
+            updatedAt: 2,
+          })
+        : Promise.resolve({
+            key: "GOOGLE_API_KEY",
+            scope: "org",
+            scopeId: "vault-org-id",
+            last4: "vaul",
+            description: "Synced from Dispatch vault: Google",
+            urlAllowlist: null,
+            createdAt: 1,
+            updatedAt: 2,
+          }),
+    );
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        key: "GOOGLE_API_KEY",
+        status: "set",
+        source: "personal",
+        managedHere: true,
+        overrides: "vault",
+      }),
+    ]);
+    expect(mockResolveSecretDetailed).toHaveBeenCalledWith("GOOGLE_API_KEY", {
+      skipUserScope: true,
+    });
+  });
+
+  it("reports an env-resolved value with source env and last4 from the value", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: "sk-env-1234",
+      lookupFailed: false,
+      source: "env",
+    });
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        key: "OPENAI_API_KEY",
+        status: "set",
+        source: "env",
+        managedHere: false,
+        last4: "1234",
+      }),
+    ]);
+    expect(mockReadAppSecretMeta).not.toHaveBeenCalled();
+  });
+
+  it("never resolves or reports deployment-backed status for anonymous callers", async () => {
+    mockGetSession.mockResolvedValue(null);
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({ key: "OPENAI_API_KEY", status: "unset" }),
+    ]);
+    expect(result[0]).not.toHaveProperty("last4");
+    expect(mockResolveSecretDetailed).not.toHaveBeenCalled();
+  });
+
+  it("reports status unknown with an error when the lookup fails and nothing resolves", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "MISSING_KEY",
+        label: "Missing",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: null,
+      lookupFailed: true,
+      cause: new Error("db unreachable"),
+    });
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        key: "MISSING_KEY",
+        status: "unknown",
+        error: "Could not read the credential store",
+      }),
+    ]);
+  });
+
+  it("includes org-scope ad-hoc rows, tagging Vault-synced ones and excluding registered keys", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "REGISTERED_KEY",
+        label: "Registered",
+        scope: "org",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockListAppSecretsForScope.mockImplementation((scope: string) => {
+      if (scope !== "org") return Promise.resolve([]);
+      return Promise.resolve([
+        {
+          key: "VAULT_SYNCED_KEY",
+          scope: "org",
+          scopeId: "org-qa",
+          last4: "1111",
+          description: "Synced from Dispatch vault: Google",
+          urlAllowlist: null,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        {
+          key: "MANUAL_ORG_KEY",
+          scope: "org",
+          scopeId: "org-qa",
+          last4: "2222",
+          description: null,
+          urlAllowlist: null,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        {
+          key: "REGISTERED_KEY",
+          scope: "org",
+          scopeId: "org-qa",
+          last4: "3333",
+          description: null,
+          urlAllowlist: null,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ]);
+    });
+
+    const handler = createAdHocSecretHandler();
+    const result = (await handler(event("/", "GET"))) as Array<{
+      name: string;
+    }>;
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        name: "VAULT_SYNCED_KEY",
+        scope: "org",
+        source: "vault",
+      }),
+      expect.objectContaining({
+        name: "MANUAL_ORG_KEY",
+        scope: "org",
+        source: "workspace",
+      }),
+    ]);
+    expect(result.some((r) => r.name === "REGISTERED_KEY")).toBe(false);
+  });
+
+  it("validates the resolved effective value when no candidate is supplied", async () => {
+    const validator = vi.fn(async () => ({ ok: true }));
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator,
+    });
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: "resolved-effective-value",
+      lookupFailed: false,
+      source: "user",
+      scopeId: "alice+qa@example.com",
+    });
+
+    const handler = createTestSecretHandler();
+    const result = await handler(event("/API_TOKEN/test", "POST"));
+
+    expect(result).toEqual({ ok: true });
+    expect(validator).toHaveBeenCalledWith("resolved-effective-value");
+  });
+
+  it("returns 404 'No value stored' when nothing resolves for the test handler", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator: vi.fn(),
+    });
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: null,
+      lookupFailed: false,
+    });
+
+    const handler = createTestSecretHandler();
+    const result = await handler(event("/API_TOKEN/test", "POST"));
+
+    expect(lastStatus).toBe(404);
+    expect(result).toEqual({ error: "No value stored" });
   });
 });

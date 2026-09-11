@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
+import { canvasZoom } from "./helpers";
 
 /**
  * Invariants a direct-manipulation canvas must hold: the inspector, the
@@ -728,11 +729,22 @@ test.describe("drawing fidelity", () => {
         styleNum(style, "height"),
       ];
       const expected = [want.left, want.top, want.width, want.height];
-      for (let index = 0; index < actual.length; index += 1) {
-        expect(Math.abs(actual[index]! - expected[index]!)).toBeLessThanOrEqual(
-          1,
-        );
-      }
+      const names = ["left", "top", "width", "height"];
+      const zoom = await canvasZoom(page);
+      const tolerance = Math.ceil(1 / zoom);
+      const off = names
+        .map((name, index) => ({
+          name,
+          drift: Math.abs(actual[index]! - expected[index]!),
+        }))
+        .filter((entry) => entry.drift > tolerance);
+      // Report the shape, not one edge: which edge drifted says whether the
+      // origin moved or the rect was scaled, and that is the whole diagnosis.
+      expect(
+        off,
+        `drew ${JSON.stringify(want)}, committed ${JSON.stringify(actual)}; ` +
+          `at zoom ${zoom} one screen px spans ${tolerance} content px`,
+      ).toEqual([]);
     });
   }
 
@@ -866,12 +878,14 @@ test.describe("drawing fidelity", () => {
       .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
       .then((r) => r.json());
     const screenId = (design?.files ?? design?.data?.files)?.[0]?.id;
-    await postAction(page, "set-layout-grid", {
-      designId: id,
-      screenId,
-      size: 30,
-    });
     await openEditor(page, id);
+
+    // The canvas suppresses a grid whose lines would land under 10px apart on
+    // screen, so a size fixed in content px is invisible at the zoom the
+    // editor happens to open at — and this test is about a VISIBLE grid.
+    const zoom = await canvasZoom(page);
+    const size = Math.ceil(15 / zoom);
+    await postAction(page, "set-layout-grid", { designId: id, screenId, size });
 
     const overlay = page.locator(`[data-layout-grid="${screenId}"]`);
     await expect(overlay).toHaveCount(1);
@@ -913,7 +927,9 @@ test.describe("drawing fidelity", () => {
     expect(stacking.lineColor).toBe("rgba(0, 0, 0, 0.05)");
     // Two gradients (vertical + horizontal lines), so the computed value
     // carries one size per layer.
-    expect(stacking.backgroundSize).toBe("30px 30px, 30px 30px");
+    expect(stacking.backgroundSize).toBe(
+      `${size}px ${size}px, ${size}px ${size}px`,
+    );
   });
 
   test("the same drag at a different zoom produces the same rect", async ({

@@ -307,6 +307,27 @@ describe("get-recording-player-data view count", () => {
     });
   });
 
+  it("keeps an owner's expired recording available", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        status: "ready",
+        chaptersJson: "[]",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+        videoSizeBytes: 1234,
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.id).toBe("rec-1");
+  });
+
   it("keeps owner media behind the same-origin video proxy", async () => {
     mockResolveAccess.mockResolvedValueOnce({
       role: "owner",

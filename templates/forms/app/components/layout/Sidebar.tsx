@@ -1,49 +1,43 @@
 import {
-  useSendToAgentChat,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
+  useSendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AppSidebar,
+  FeedbackButton,
+  type AppSidebarItemDefinition,
+} from "@agent-native/core/client/ui";
 import {
   IconArrowUp,
-  IconPlus,
-  IconLoader2,
-  IconMenu2,
-  IconX,
-  IconMessageCircle,
-  IconSettings,
   IconForms,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
+  IconMenu2,
+  IconMessageCircle,
+  IconPlus,
   IconSearch,
+  IconSettings,
 } from "@tabler/icons-react";
-import { useState, useRef, useEffect, type MouseEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useLocation, useNavigate } from "react-router";
 
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
-  PopoverTrigger,
   PopoverContent,
+  PopoverTrigger,
 } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import { useCreateForm } from "@/hooks/use-forms";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { cn } from "@/lib/utils";
 
 const SIDEBAR_COLLAPSE_KEY = "forms.sidebar.collapsed";
 
@@ -69,57 +63,6 @@ export function Sidebar() {
       return false;
     }
   });
-  const effectiveCollapsed = collapsed && !isMobile;
-
-  const collapseButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={() => setCollapsed((value) => !value)}
-          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-          aria-label={
-            effectiveCollapsed
-              ? t("sidebar.expandSidebar")
-              : t("sidebar.collapseSidebar")
-          }
-        >
-          {effectiveCollapsed ? (
-            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-          ) : (
-            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">
-        {effectiveCollapsed
-          ? t("sidebar.expandSidebar")
-          : t("sidebar.collapseSidebar")}
-      </TooltipContent>
-    </Tooltip>
-  );
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-          aria-label={t("root.searchForms")}
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("root.searchForms")}</TooltipContent>
-    </Tooltip>
-  );
-  const feedbackButton = (
-    <FeedbackButton
-      variant={effectiveCollapsed ? "icon" : "sidebar"}
-      side="right"
-      className={effectiveCollapsed ? "size-8" : "min-w-0"}
-    />
-  );
 
   useEffect(() => {
     if (popoverOpen) {
@@ -133,17 +76,9 @@ export function Sidebar() {
     try {
       window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, collapsed ? "1" : "0");
     } catch {
-      // Ignore storage failures; the in-memory preference still works.
+      // coercion-ok: storage failures are tolerated; fallback to in-memory preference
     }
   }, [collapsed]);
-
-  function handleSkip() {
-    setPopoverOpen(false);
-    createForm.mutate(
-      { title: t("sidebar.untitledForm") },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
-    );
-  }
 
   function handleSubmitPrompt() {
     const trimmed = prompt.trim();
@@ -157,7 +92,15 @@ export function Sidebar() {
     promptRun.trackRun(trimmed, tabId);
   }
 
-  function navigateHomeChat(event: MouseEvent<HTMLAnchorElement>) {
+  function handleSkip() {
+    setPopoverOpen(false);
+    createForm.mutate(
+      { title: t("sidebar.untitledForm") },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
+    );
+  }
+
+  function navigateHomeChat(event: MouseEvent) {
     if (
       event.metaKey ||
       event.ctrlKey ||
@@ -173,30 +116,34 @@ export function Sidebar() {
     navigateWithAgentChatViewTransition(navigate, "/ask");
   }
 
-  function toggleLogoView() {
-    if (isMobile) setMobileOpen(false);
-    focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/ask");
-  }
+  const items: AppSidebarItemDefinition[] = [
+    {
+      to: "/ask",
+      label: t("navigation.askForms"),
+      icon: IconMessageCircle,
+      active: location.pathname === "/ask" || location.pathname === "/home",
+      onClick: navigateHomeChat,
+    },
+    {
+      to: "/forms",
+      label: t("navigation.allForms"),
+      icon: IconForms,
+      active: location.pathname.startsWith("/forms"),
+      onClick: () => isMobile && setMobileOpen(false),
+    },
+  ];
 
-  function handleBrandClick() {
-    if (isMobile) {
-      toggleLogoView();
-      return;
-    }
-    setCollapsed((value) => !value);
-  }
+  const secondaryItems: AppSidebarItemDefinition[] = [
+    {
+      to: "/settings",
+      label: t("navigation.settings"),
+      icon: IconSettings,
+      active: location.pathname === "/settings",
+      onClick: () => isMobile && setMobileOpen(false),
+    },
+  ];
 
-  const newFormButton = (
-    <PopoverTrigger asChild>
-      <button className="forms-sidebar-nav-item flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:bg-accent/50 hover:text-foreground">
-        <IconPlus className="h-4 w-4 shrink-0" />
-        <span>{t("sidebar.newForm")}</span>
-      </button>
-    </PopoverTrigger>
-  );
-
-  const newFormPopover = (
+  const newFormPopoverContent = (
     <PopoverContent
       side="right"
       align="start"
@@ -217,26 +164,22 @@ export function Sidebar() {
           }}
           placeholder={t("sidebar.describeFormPlaceholder")}
           className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 border-none shadow-none"
-          rows={4}
+          rows={3}
         />
-      </div>
-      <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
-        <div />
-        <div className="flex items-center gap-3">
+        <div className="mt-3 flex items-center justify-between">
           <Button
-            variant="link"
+            variant="ghost"
             size="sm"
-            className="min-h-10 px-2 text-xs text-muted-foreground active:scale-[0.96] transition-[background-color,color,transform]"
+            className="text-xs text-muted-foreground hover:text-foreground"
             onClick={handleSkip}
-            disabled={createForm.isPending}
           >
-            {createForm.isPending && (
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-            )}
             {t("sidebar.skipPrompt")}
           </Button>
-          <span className="text-[11px] text-muted-foreground/70">
-            {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+          <span className="text-[11px] text-muted-foreground/50">
+            {typeof navigator !== "undefined" &&
+            /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+              ? "⌘"
+              : "Ctrl"}{" "}
             {t("sidebar.submitShortcutSuffix")}
           </span>
           <Button
@@ -254,275 +197,113 @@ export function Sidebar() {
     </PopoverContent>
   );
 
-  const sidebarContent = effectiveCollapsed ? (
-    <div className="agent-layout-left-drawer flex h-screen w-12 min-w-0 shrink-0 flex-col items-center overflow-hidden border-e border-border bg-sidebar py-2 transition-[width] duration-200 ease-out">
-      <TooltipProvider delayDuration={0}>
-        <Tooltip>
-          <TooltipTrigger asChild>
+  const effectiveCollapsed = collapsed && !isMobile;
+
+  const newFormItem = effectiveCollapsed ? (
+    <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
             <button
               type="button"
-              onClick={handleBrandClick}
-              aria-label={t("sidebar.expandSidebar")}
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg outline-none transition-[background-color,box-shadow,transform] hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
-              data-sidebar-brand-toggle
+              aria-label={t("sidebar.newForm")}
+              className="flex size-9 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
             >
-              <AgentNativeIcon
-                aria-hidden="true"
-                className="h-3.5 w-6 shrink-0 text-foreground"
-              />
+              <IconPlus className="size-4 shrink-0 text-primary" />
             </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {t("sidebar.expandSidebar")}
-          </TooltipContent>
-        </Tooltip>
-        <nav className="mt-1 flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/ask"
-                onClick={navigateHomeChat}
-                aria-label={t("navigation.askForms")}
-                className={cn(
-                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                  location.pathname === "/ask" || location.pathname === "/home"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <IconMessageCircle className="h-4 w-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("navigation.askForms")}
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/forms"
-                aria-label={t("navigation.allForms")}
-                className={cn(
-                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                  location.pathname.startsWith("/forms")
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <IconForms className="h-4 w-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("navigation.allForms")}
-            </TooltipContent>
-          </Tooltip>
-
-          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t("sidebar.newForm")}
-                    className="forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-accent/50 hover:text-foreground active:scale-[0.96] motion-reduce:active:scale-100"
-                  >
-                    <IconPlus className="h-4 w-4" />
-                  </button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("sidebar.newForm")}
-              </TooltipContent>
-            </Tooltip>
-            {newFormPopover}
-          </Popover>
-
-          <div className="mt-auto flex flex-col items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  to="/settings"
-                  aria-label={t("navigation.settings")}
-                  className={cn(
-                    "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                    location.pathname === "/settings"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  )}
-                >
-                  <IconSettings className="h-4 w-4" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("navigation.settings")}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </nav>
-        <SidebarFooterActions
-          collapsed
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
-      </TooltipProvider>
-    </div>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right">{t("sidebar.newForm")}</TooltipContent>
+      </Tooltip>
+      {newFormPopoverContent}
+    </Popover>
   ) : (
-    <div
-      className={cn(
-        "agent-layout-left-drawer flex h-screen w-60 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar transition-[width] duration-200 ease-out",
-        isMobile && "w-full",
-      )}
-    >
-      {/* Header */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-        <TooltipProvider delayDuration={700}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={
-                  isMobile
-                    ? t("sidebar.openAskFullScreen")
-                    : t("sidebar.collapseSidebar")
-                }
-                className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-2 text-base font-semibold tracking-tight text-foreground active:scale-[0.96] transition-[color,transform] hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={handleBrandClick}
-                data-sidebar-brand-toggle
-              >
-                <AgentNativeIcon
-                  aria-hidden="true"
-                  className="h-3.5 w-6 shrink-0 text-foreground"
-                />
-                <span className="truncate">{t("navigation.brand")}</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {isMobile
-                ? t("sidebar.openAskFullScreen")
-                : t("sidebar.collapseSidebar")}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        {isMobile && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-10 transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
-            onClick={() => setMobileOpen(false)}
+    <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+      <PopoverTrigger asChild>
+        <div className="group flex items-center rounded text-primary hover:bg-accent/60 cursor-pointer">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary"
           >
-            <IconX size={18} />
-          </Button>
-        )}
-      </div>
-
-      <ScrollArea className="min-h-0 min-w-0 flex-1">
-        <div
-          className={cn(
-            "grid min-w-0 max-w-full gap-1 overflow-hidden p-2",
-            isMobile ? "w-full" : "w-60",
-          )}
-        >
-          <Link
-            to="/ask"
-            onClick={navigateHomeChat}
-            className={cn(
-              "forms-sidebar-nav-item flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:text-primary",
-              location.pathname === "/ask" || location.pathname === "/home"
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-            )}
-          >
-            <IconMessageCircle className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 basis-0 truncate">
-              {t("navigation.askForms")}
+            <IconPlus className="size-4 shrink-0 text-primary" />
+            <span className="flex-1 truncate text-start text-primary">
+              {t("sidebar.newForm")}
             </span>
-          </Link>
-
-          <Link
-            to="/forms"
-            onClick={() => isMobile && setMobileOpen(false)}
-            className={cn(
-              "forms-sidebar-nav-item flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:text-primary",
-              location.pathname.startsWith("/forms")
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-            )}
-          >
-            <IconForms className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 basis-0 truncate">
-              {t("navigation.allForms")}
-            </span>
-          </Link>
-
-          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-            {newFormButton}
-            {newFormPopover}
-          </Popover>
+          </button>
         </div>
-      </ScrollArea>
-
-      {/* Pinned nav + footer */}
-      <div className="shrink-0 px-3 py-1.5">
-        <Link
-          to="/settings"
-          onClick={() => isMobile && setMobileOpen(false)}
-          className={cn(
-            "forms-sidebar-nav-item flex min-h-[44px] w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-            location.pathname === "/settings"
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-        >
-          <IconSettings size={14} className="shrink-0" />
-          <span>{t("navigation.settings")}</span>
-        </Link>
-      </div>
-
-      {/* Footer */}
-      <div className="shrink-0 space-y-2 px-3 py-2">
-        <OrgSwitcher />
-        <DevDatabaseLink />
-        <div className="flex justify-end">
-          <ThemeToggle className="h-9 w-9 shrink-0" />
-        </div>
-        <SidebarFooterActions
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-          className="px-0 py-0"
-        />
-      </div>
-    </div>
+      </PopoverTrigger>
+      {newFormPopoverContent}
+    </Popover>
   );
 
-  if (isMobile) {
-    return (
-      <>
+  const feedbackButton = (
+    <FeedbackButton
+      variant={effectiveCollapsed ? "icon" : "sidebar"}
+      side="right"
+    />
+  );
+
+  const orgSwitcher = <OrgSwitcher compact={effectiveCollapsed} />;
+
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          onClick={openCommandMenu}
+          aria-label={t("root.searchForms")}
+        >
+          <IconSearch className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.searchForms")}</TooltipContent>
+    </Tooltip>
+  );
+
+  const sidebarElement = (
+    <AppSidebar
+      collapsed={effectiveCollapsed}
+      onCollapsedChange={setCollapsed}
+      brandName={t("navigation.brand")}
+      brandHref="/forms"
+      items={items}
+      secondaryItems={secondaryItems}
+      feedback={feedbackButton}
+      orgSwitcher={orgSwitcher}
+      footerExtras={searchButton}
+      isMobile={isMobile}
+      mobileOpen={mobileOpen}
+    >
+      {newFormItem}
+    </AppSidebar>
+  );
+
+  return (
+    <>
+      <div className="fixed top-2.5 start-2.5 z-40 md:hidden">
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-2 start-2 z-40 size-10 active:scale-[0.96] transition-[background-color,box-shadow,transform] md:hidden"
+          className="size-10 rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,transform]"
           onClick={() => setMobileOpen(true)}
           aria-label={t("sidebar.openSidebar")}
         >
           <IconMenu2 size={20} />
         </Button>
-        {mobileOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-40 bg-black/40"
-              onClick={() => setMobileOpen(false)}
-            />
-            <div className="fixed inset-y-0 start-0 z-50 w-72 max-w-[85vw]">
-              {sidebarContent}
-            </div>
-          </>
-        )}
-      </>
-    );
-  }
+      </div>
 
-  return sidebarContent;
+      {mobileOpen && (
+        <div
+          // guard:allow-raw-color — backdrop overlay
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {sidebarElement}
+    </>
+  );
 }

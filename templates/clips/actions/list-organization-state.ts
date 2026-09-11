@@ -16,15 +16,42 @@ import {
 } from "@agent-native/core/org";
 import { isEmailDerivedName } from "@agent-native/core/user-profile";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
-import { and, asc, desc, eq, isNotNull, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  isNotNull,
+  isNull,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  agentRecordingAccessFilter,
+  isAgentRecordingCaller,
+} from "../server/lib/agent-recording-access.js";
+import {
+  getActiveOrganizationId,
   getCurrentOwnerEmail,
   ownerEmailMatches,
   requireOrganizationAccess,
 } from "../server/lib/recordings.js";
+
+function emptyOrganizationState(currentUserEmail: string) {
+  return {
+    currentUserEmail,
+    organization: null,
+    members: [],
+    spaces: [],
+    folders: [],
+    personalFolders: [],
+    invitations: [],
+  };
+}
 
 export default defineAction({
   description:
@@ -38,13 +65,21 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    const { organizationId } = await requireOrganizationAccess(
-      args.organizationId,
-    );
+    // Personal scope - no membership anywhere, or the caller just deleted
+    // their last organization - is a supported state, not a read failure.
+    // Throwing here reached the UI as a load error next to the
+    // create-organization card that already renders the same state correctly.
+    // An organization the caller may not read still errors.
+    const activeOrganizationId =
+      args.organizationId ?? (await getActiveOrganizationId());
+    if (!activeOrganizationId) return emptyOrganizationState(ownerEmail);
+
+    const { organizationId } =
+      await requireOrganizationAccess(activeOrganizationId);
 
     const [org] = await db
       .select({
@@ -55,16 +90,7 @@ export default defineAction({
       .from(organizations)
       .where(eq(organizations.id, organizationId))
       .limit(1);
-    if (!org) {
-      return {
-        organization: null,
-        members: [],
-        spaces: [],
-        folders: [],
-        personalFolders: [],
-        invitations: [],
-      };
-    }
+    if (!org) return emptyOrganizationState(ownerEmail);
 
     const [settings] = await db
       .select({
@@ -127,7 +153,12 @@ export default defineAction({
       createdAt: Number(i.createdAt),
     }));
 
-    const [spaces, folders] = await Promise.all([
+    const resolvedDb = await Promise.resolve(db);
+    const meetingRecordingIds = resolvedDb
+      .select({ id: schema.meetings.recordingId })
+      .from(schema.meetings)
+      .where(isNotNull(schema.meetings.recordingId));
+    const [spaces, folders, folderRecordingCountRows] = await Promise.all([
       db
         .select()
         .from(schema.spaces)
@@ -146,7 +177,39 @@ export default defineAction({
           ),
         )
         .orderBy(asc(schema.folders.position)),
+      resolvedDb
+        .select({
+          folderId: schema.recordings.folderId,
+          recordingCount: sql<number>`COUNT(1)`,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            agentRecordingAccessFilter(
+              schema.recordings,
+              schema.recordingShares,
+              schema.recordingViewers,
+              {
+                agentOnly: isAgentRecordingCaller(ctx?.caller),
+                userEmail: ctx?.userEmail,
+              },
+            ),
+            eq(schema.recordings.organizationId, organizationId),
+            isNotNull(schema.recordings.folderId),
+            isNull(schema.recordings.archivedAt),
+            isNull(schema.recordings.trashedAt),
+            notInArray(schema.recordings.id, meetingRecordingIds),
+          ),
+        )
+        .groupBy(schema.recordings.folderId),
     ]);
+    const recordingCountByFolder = new Map(
+      folderRecordingCountRows.flatMap((row) =>
+        row.folderId
+          ? [[row.folderId, Number(row.recordingCount ?? 0)] as const]
+          : [],
+      ),
+    );
 
     return {
       currentUserEmail: ownerEmail,
@@ -173,6 +236,7 @@ export default defineAction({
         spaceId: f.spaceId,
         ownerEmail: f.ownerEmail,
         position: f.position,
+        recordingCount: recordingCountByFolder.get(f.id) ?? 0,
       })),
       personalFolders: folders
         .filter((f) => f.spaceId === null)
@@ -180,6 +244,7 @@ export default defineAction({
           id: f.id,
           name: f.name,
           parentId: f.parentId,
+          recordingCount: recordingCountByFolder.get(f.id) ?? 0,
         })),
       invitations,
     };

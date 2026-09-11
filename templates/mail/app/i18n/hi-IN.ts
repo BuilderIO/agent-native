@@ -24,6 +24,9 @@ const messages = {
       extensions: "एक्सटेंशन",
       noteToSelf: "स्वयं के लिए नोट",
     },
+    inbox: {
+      syncing: "इनबॉक्स सिंक हो रहा है…",
+    },
     toolbar: {
       toggleMenu: "मेनू टॉगल करें",
       menu: "Menu",
@@ -313,6 +316,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "लोड नहीं हो सके: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "अपना Google खाता कनेक्ट करें",

@@ -39,7 +39,6 @@ import {
 import {
   type AppSkillManifest,
   type AppSkillManifestSkill,
-  loadAppSkillManifest,
   resolvePluginVersion,
 } from "../packages/core/src/cli/app-skill.js";
 import { AN_COMMAND_MD } from "../packages/core/src/cli/skills-content/an-skill.js";
@@ -48,7 +47,11 @@ import { BUILT_IN_APP_SKILLS } from "../packages/core/src/cli/skills.js";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
 
-type MarketplaceAppId = "agent-native" | "visual-plans" | "design";
+type MarketplaceAppId =
+  | "agent-native"
+  | "visual-plans"
+  | "design"
+  | "turn-into-app";
 
 type MarketplaceApp = {
   appSkillId?: MarketplaceAppId;
@@ -57,10 +60,6 @@ type MarketplaceApp = {
   brandColor: string;
   chatgptConnector?: boolean;
 };
-
-const turnIntoAppManifest = loadAppSkillManifest(
-  join(rootDir, "agent-native.app-skill.json"),
-).manifest;
 
 const APP_BUNDLES: MarketplaceApp[] = [
   {
@@ -92,12 +91,9 @@ const APP_BUNDLES: MarketplaceApp[] = [
     brandColor: "#0F766E",
   },
   {
-    manifest: turnIntoAppManifest,
+    appSkillId: "turn-into-app",
     skillSources: [
-      {
-        sourcePath: ".agents/skills/turn-into-app",
-        exportAs: "turn-into-app",
-      },
+      { sourcePath: "skills/turn-into-app", exportAs: "turn-into-app" },
     ],
     brandColor: "#2563EB",
     chatgptConnector: true,

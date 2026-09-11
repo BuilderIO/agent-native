@@ -897,6 +897,54 @@ const koKR = {
     },
     clips: {
       s001: "Clips 템플릿 스크린샷",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "AI 에이전트가 보고 들을 수 있는 화면 녹화",
+      heroDescription:
+        "Clips는 버그, 피드백, 사용법을 AI 에이전트와 공유할 수 있는 무료 오픈소스 화면 녹화 도구입니다.",
+      heroCta: "클립 녹화하기",
+      useCasesHeading: "Clips로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "직접 녹화한 클립이나 다른 사람이 공유해 준 클립으로 시작해 보세요. AI 에이전트에게 맥락을 전달하고 필요한 것을 말해 주세요.",
+      useCase1Title: "녹화된 피드백에 따라 작업하기",
+      useCase1Body:
+        "녹화된 피드백을 AI 에이전트에게 전달해 계획으로 정리하거나 요청된 변경 사항을 구현하도록 도와달라고 하세요.",
+      useCase2Title: "보고된 버그 조사하기",
+      useCase2Body:
+        "버그 녹화 영상을 AI 에이전트와 공유해 무엇이 잘못되었는지 조사하고 다음 단계를 정리하도록 하세요.",
+      useCase3Title: "녹화된 작업 지시로 결과물 만들기",
+      useCase3Body:
+        "녹화된 작업 지시를 활용해 AI 에이전트가 발표 자료, 디자인, 콘텐츠, 앱 변경 사항을 만들도록 안내하세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "녹화, 전사, 공유에 필요한 모든 것",
+      feature1Title: "에이전트가 읽을 수 있는 녹화",
+      feature1Body:
+        "하나의 에이전트가 읽을 수 있는 링크를 통해 클립의 전사와 타임스탬프가 찍힌 이미지를 AI 에이전트와 공유하세요.",
+      feature2Title: "자동 전사",
+      feature2Body:
+        "녹화, 회의, 구술 내용의 전사를 받아보세요. 전사의 어느 줄이든 클릭하면 해당 시점으로 이동해 재생됩니다.",
+      feature3Title: "브라우저 디버그 로그",
+      feature3Body:
+        "Clips Chrome 확장 프로그램으로 녹화와 함께 콘솔 오류와 실패한 요청을 캡처하세요.",
+      feature4Title: "내장 AI 에이전트",
+      feature4Body:
+        "내장 AI 에이전트에게 클립 하나 또는 전체 라이브러리에 대해 질문하고, 채팅에서 전사를 편집하게 하세요.",
+      feature5Title: "검색 가능한 녹화 라이브러리",
+      feature5Body:
+        "전사 내용을 검색해 클립을 찾아보세요. 폴더, 태그, 팀 스페이스로 녹화를 정리할 수 있습니다.",
+      feature6Title: "누르고 말하는 구술 입력",
+      feature6Body:
+        "데스크톱 앱에서 Fn 키를 눌러 다른 앱에 구술 입력을 하세요. 전사 내용과 정리된 텍스트는 기록에서 다시 확인할 수 있습니다.",
+      teammatesLine: "팀원들도 플레이어에서 같은 녹화 영상을 볼 수 있습니다.",
+      teammatesLinkLabel: "에이전트 공유 가이드 읽기",
+      seeInActionHeading: "Clips 활용 모습 보기",
+      seeInActionBody:
+        "브라우저 작업 흐름을 녹화하는 모습부터 AI 에이전트에게 작업 수행 방법을 보여주는 모습까지, Clips 사용 예시를 확인해 보세요.",
+      watchClipLabel: "클립 보기",
+      finalCtaHeading: "다음 클립을 업무에 활용해 보세요",
+      finalCtaBody:
+        "설명을 녹화하거나 공유된 클립을 AI 에이전트에게 전달해 보세요.",
+      finalCtaButton: "Clips 열기",
       s002: "화면 녹화",
       s003: "브라우저 디버그 로그",
       s004: "받아쓰기",
@@ -959,26 +1007,23 @@ const koKR = {
       s058: "무료 및 오픈 소스",
       s059: "지금 시작하기",
       s060: "캡처할 항목을 선택한 다음 Clips에서 녹화를 시작하세요.",
-      s061: "더 많은 앱 보기",
       s062: "모든 템플릿 보기",
       faq: {
-        question1: "Clips는 무료인가요?",
-        answer1: "네. Clips는 무료 오픈 소스입니다.",
-        question2: "AI가 화면 녹화를 읽을 수 있나요?",
+        question1: "Agent-Native Clips란 무엇인가요?",
+        answer1:
+          "Agent-Native Clips는 버그, 피드백, 사용법을 AI 에이전트와 공유할 수 있는 무료 오픈소스 화면 녹화 도구입니다. AI 에이전트에게 녹화의 전사와 타임스탬프가 찍힌 이미지를 제공하며, 사람들도 같은 클립을 시청할 수 있습니다.",
+        question2: "Claude, ChatGPT, Cursor와 녹화 내용을 공유할 수 있나요?",
         answer2:
-          "네. 모든 클립에는 에이전트가 직접 읽을 수 있는 트랜스크립트, 요약, 타임스탬프 프레임이 포함됩니다.",
-        question3: "Clips는 Loom과 어떻게 다른가요?",
+          "Clips는 전사 내용과 타임스탬프가 찍힌 이미지를 담은, 에이전트가 읽을 수 있는 링크를 제공합니다. 두 가지를 모두 활용하려면 에이전트가 링크된 콘텐츠를 열고 이미지를 읽을 수 있어야 합니다. 일부 채팅 모드는 전사 내용은 읽을 수 있지만 이미지는 별도로 업로드해야 합니다.",
+        question3: "화면을 녹화하려면 Chrome 확장 프로그램이 필요한가요?",
         answer3:
-          "Clips는 오픈 소스이고 데이터를 직접 소유하며, 모든 공유 링크를 사람뿐 아니라 AI 에이전트도 읽을 수 있습니다.",
-        question4: "화면 녹화에서 콘솔 오류를 캡처할 수 있나요?",
+          "아니요. Clips 웹 앱에서 바로 녹화할 수 있습니다. 시연 중인 탭의 콘솔 메시지와 네트워크 진단 정보도 함께 얻고 싶을 때는 Chrome 확장 프로그램을 사용하세요.",
+        question4: "AI 에이전트가 제 화면 녹화 영상을 볼 수 있나요?",
         answer4:
-          "네. Clips는 녹화와 함께 브라우저 콘솔 오류와 실패한 네트워크 요청을 캡처합니다. 트랜스크립트와 프레임이 있는 동일한 공유 링크에 함께 첨부되므로 에이전트가 클립을 보기만 하는 것이 아니라 클립을 바탕으로 디버깅할 수 있습니다.",
-        question5: "Clips는 Claude, ChatGPT, Cursor에서 작동하나요?",
+          "Clips에서는 호환되는 AI 에이전트가 전사 내용과 타임스탬프가 찍힌 이미지를 통해 녹화 내용을 이해할 수 있습니다. 영상을 재생하는 대신 텍스트와 이미지를 활용하므로, 어떤 일이 있었는지 질문하거나 녹화 내용을 바탕으로 AI 에이전트에게 작업을 맡길 수 있습니다.",
+        question5: "공유된 녹화 영상은 누가 볼 수 있나요?",
         answer5:
-          "네! 플러그인이나 API 키가 필요하지 않습니다. Clips 공유 링크를 어떤 에이전트에든 붙여 넣으면 트랜스크립트, 요약, 프레임을 직접 읽을 수 있습니다.",
-        question6: "녹화본은 어디에 저장되나요?",
-        answer6:
-          "배포한 곳에 저장됩니다. 직접 호스팅하는 Clips는 동영상, 트랜스크립트, 분석 데이터를 자체 인프라에 보관합니다.",
+          "조직에서 설정을 변경하지 않는 한 녹화 영상은 기본적으로 공개 링크를 사용하며, 링크를 가진 사람은 누구나 접근할 수 있습니다. 비공개 및 조직 내 접근 옵션도 제공되며, 비공개 클립은 녹화 내용을 공개하지 않고도 임시 링크를 통해 에이전트와 공유할 수 있습니다.",
       },
       quickStart: {
         recordingMode: "녹화 모드",
@@ -1492,13 +1537,54 @@ const koKR = {
     },
     slides: {
       s001: "Slides 템플릿 스크린샷",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "AI 에이전트로 프레젠테이션 만들기",
+      heroDescription:
+        "Slides는 무료 오픈소스 AI 프레젠테이션 제작 도구로, 아이디어와 참고 자료로 브랜드에 맞는 덱을 만들고 슬라이드는 직접 편집할 수 있습니다.",
+      heroCta: "덱 만들기",
+      useCasesHeading: "Slides로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "피치를 준비하거나, 계획을 발표하거나, 업무 업데이트를 공유해 보세요. 자료와 대상 청중을 AI 에이전트에게 전달하세요.",
+      useCase1Title: "영업 및 피치 덱 만들기",
+      useCase1Body:
+        "제품 소개 자료를 잠재 고객이나 투자자를 위한 덱으로 바꿔 보세요. 발표 대상에 맞게 스토리를 조정하세요.",
+      useCase2Title: "계획과 전략 발표하기",
+      useCase2Body:
+        "전략 브리핑이나 출시 계획을 AI 에이전트에게 전달해, 방향과 다음 단계를 설명하는 슬라이드로 정리하도록 하세요.",
+      useCase3Title: "업무 업데이트 공유하기",
+      useCase3Body:
+        "프로젝트 메모나 성과 보고서를 진행 상황을 보여주고 결과를 설명하며 주의가 필요한 부분을 강조하는 프레젠테이션으로 바꿔 보세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "만들고, 편집하고, 발표하는 데 필요한 모든 것",
+      feature1Title: "AI 프레젠테이션 생성",
+      feature1Body:
+        "프롬프트, 문서 또는 참고 덱으로 시작하세요. 주제와 대상 청중을 AI 에이전트에게 전달하면 이를 중심으로 프레젠테이션을 만들어 줍니다.",
+      feature2Title: "AI 및 비주얼 편집",
+      feature2Body:
+        "텍스트를 선택해 AI 에이전트가 수정하도록 하거나, 슬라이드에서 텍스트, 레이아웃, 스타일을 직접 편집하세요.",
+      feature3Title: "재사용 가능한 브랜드 스타일",
+      feature3Body:
+        "색상, 글꼴, 로고를 디자인 시스템에 저장하세요. 여러 덱에 적용해 프레젠테이션이 항상 브랜드와 일관되도록 유지하세요.",
+      feature4Title: "이미지와 로고",
+      feature4Body:
+        "AI 에이전트에게 이미지를 생성하거나, 사진을 찾거나, 회사 로고를 검색해 슬라이드에 사용하도록 요청하세요.",
+      feature5Title: "팀 협업",
+      feature5Body:
+        "팀원들과 함께 덱을 작업하고, 특정 슬라이드에 댓글을 남기고, 필요할 때 이전 버전으로 복원하세요.",
+      feature6Title: "발표와 내보내기",
+      feature6Body:
+        "발표자 노트와 함께 전체 화면으로 발표하거나, 보기 링크를 공유하거나, 덱을 PowerPoint 파일로 내보내세요.",
+      finalCtaHeading: "다음 프레젠테이션을 시작하세요",
+      finalCtaBody: "아이디어, 브리핑, 또는 기존 덱을 가져와 보세요.",
+      finalCtaButton: "Slides 열기",
       s002: "설명하다",
       s003: "생성",
       s004: "구체화",
       s005: "모든 템플릿",
       s006Primary: "AI 에이전트가 만드는 슬라이드.",
       s006Secondary: "브랜드에 맞고 편집 가능",
-      s007: "AI 에이전트로 브랜드에 맞는 슬라이드 덱을 생성하고, 언제든 직접 수정한 뒤 어디로든 내보내세요.",
+      s007: "AI 에이전트로 브랜드에 맞는 프레젠테이션을 생성하고, 슬라이드는 직접 편집한 뒤 어디로든 내보내세요.",
       s008: "사용해 보기",
       s009: "작동 원리",
       s010: "필요한 모든 것",
@@ -1551,21 +1637,22 @@ const koKR = {
       s057: "문서 읽기",
       s058: "모든 템플릿 보기",
       faq: {
-        question1: "Claude나 ChatGPT에서 프레젠테이션을 만들 수 있나요?",
+        question1: "Agent-Native Slides란 무엇인가요?",
         answer1:
-          "네. Claude나 ChatGPT에 덱을 요청하면 브랜드에 맞고 편집과 내보내기가 가능한 상태로 Slides에 들어옵니다. 별도의 덱 제작 사이트에서 처음부터 다시 만들 필요가 없습니다.",
-        question2: "AI가 잘못 만든 부분을 고칠 수 있나요?",
+          "Agent-Native Slides는 무료 오픈소스 AI 프레젠테이션 제작 도구입니다. AI 에이전트로 아이디어와 참고 자료를 바탕으로 브랜드에 맞는 덱을 만든 다음, 슬라이드를 직접 편집하거나 발표하거나 PowerPoint로 내보낼 수 있습니다.",
+        question2: "AI가 생성한 후에도 슬라이드를 편집할 수 있나요?",
         answer2:
-          "세 가지 방법이 있습니다. 프롬프트로 수정하거나, 직접 수정하거나(요소는 클릭, 텍스트는 더블클릭), 코드에서 수정할 수 있습니다. 다시 생성한 뒤 운에 맡기는 상황에 갇히지 않습니다.",
-        question3: "덱은 어떻게 브랜드를 일관되게 유지하나요?",
+          "네. 비주얼 편집기에서 텍스트, 레이아웃, 스타일을 직접 편집하거나, AI 에이전트에게 선택한 슬라이드를 수정하도록 요청할 수 있습니다. 첫 초안 이후에도 프레젠테이션을 계속 다듬을 수 있습니다.",
+        question3: "기존 덱이나 문서로 프레젠테이션을 만들 수 있나요?",
         answer3:
-          "마음에 드는 덱에 별표를 표시하세요. 모든 새 덱이 레이아웃, 제목, 시각적 스타일, 브랜드 토큰을 이어받습니다. 일회성 생성기는 덱 하나를 만들지만, 여기서는 지속해서 재사용할 수 있는 덱 제작 체계를 만듭니다.",
-        question4: "Slides는 Gamma와 어떻게 다른가요?",
+          "네. 덱이나 문서를 새 프레젠테이션의 참고 자료로 첨부하세요. 기존 덱 자체를 작업하려면 명시적으로 가져와야 합니다. 가져온 슬라이드에 레이아웃 변경이나 이미지 누락이 없는지 확인하세요.",
+        question4: "내 브랜드 색상, 글꼴, 로고를 사용할 수 있나요?",
         answer4:
-          "Gamma는 괜찮은 덱을 한 번에 빠르게 만들지만, 그 뒤에는 해당 캔버스와 구독 안에서 85%만 맞는 결과를 계속 다시 생성하게 됩니다. Slides는 무료 오픈 소스이고 브랜드를 이어받으며 무엇이든 편집할 수 있습니다.",
-        question5: "Slides는 무료인가요?",
+          "네. 브랜드의 색상, 타이포그래피, 로고가 담긴 디자인 시스템을 적용하고 여러 덱에서 재사용하세요. AI 에이전트의 디자인 선택을 안내할 참고용 프레젠테이션을 제공할 수도 있습니다.",
+        question5:
+          "내 프레젠테이션을 PowerPoint나 Google 프레젠테이션에서 사용할 수 있나요?",
         answer5:
-          "네. 무료 오픈 소스이며 구독료, 크레딧 사용량, 덱별 요금이 없습니다.",
+          "PPTX 파일을 내보내 PowerPoint에서 열어 보세요. Google 프레젠테이션에서 사용하려면 그곳에 해당 파일을 가져오세요. 편집기마다 다르게 표시될 수 있으니 내보낸 후 글꼴과 레이아웃을 확인하세요.",
       },
       howItWorksDescribe:
         "주제, 대상, 어조를 설명하세요. 참고용 슬라이드 덱을 첨부하세요. UI 또는 자체 AI 워크플로에서 시작하세요.",
@@ -2055,7 +2142,6 @@ const koKR = {
     usingYourAgent: "Agent 사용",
     agentResources: "에이전트 리소스",
     integrations: "통합",
-    buildApps: "앱 빌드",
     advancedRuntime: "고급: 런타임 확장",
     templatesSection: "앱",
     gettingStarted: "시작하기",
@@ -2196,7 +2282,6 @@ const koKR = {
     syncingTemplateChanges: "템플릿 변경 사항 동기화",
     writingAgentInstructions: "Agent 지침 작성",
     embeddingSdk: "임베딩 SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native 코드 UI",
     harnessAgents: "Harness 에이전트",
     adapters: "어댑터",
@@ -2266,10 +2351,11 @@ const koKR = {
     designCollaborationAndFullApps: "리뷰 및 핸드오프",
     designDevelopers: "개발자 가이드",
     dispatchOverview: "개요",
-    dispatchMessagingRouting: "메시징 및 라우팅",
-    dispatchOperations: "운영자 콘솔",
-    dispatchVaultIntegrations: "시크릿 및 통합",
+    dispatchFeatures: "기능",
+    dispatchAgent: "Agent와 대화",
+    dispatchIntegrations: "앱 간 사용",
     dispatchDevelopers: "개발자 가이드",
+    dispatchReference: "액션 및 데이터 참조",
     forms: "양식",
     formsOverview: "개요",
     formsFeatures: "기능",

@@ -22,7 +22,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-08"
 ---
 
 # Suggestions
@@ -64,6 +64,10 @@ Given an editor changes a target after a suggestion's observed basis, when anoth
 
 Current document snapshots and source-review machinery provide useful proposed-change donors. The repository does not yet prove generic authored pending Revisions, typed suggestion review, or conflict semantics across Content; this remains `approved_shape`.
 
+The document-markdown slice now supports amendments through the shared `update-resource-suggestion` Action. The author must still have commenter access, the suggestion must remain pending, and its canonical basis and observed proposal revision must match. An amendment preserves the suggestion and discussion identities and records its before/after state in durable history without writing canonical content. Acceptance checks the viewed proposal revision so an author cannot change what a reviewer accepts after the reviewer has read it. The editor's reopen path is limited to the author's own human-authored, single-operation markdown suggestions.
+
+Focused core amendment and Content adapter tests cover author/access checks, stale basis and proposal revisions, amendment/decision races, exact retry receipts, additive schema preservation, and unchanged canonical content. These checks do not establish generic typed Revision support, a user-visible amendment-history viewer, Notifications, or deployment acceptance.
+
 ## Proof plan
 
 1. Create, edit, submit, accept, reject, defer, supersede, and expire human and agent suggestions.
@@ -73,4 +77,4 @@ Current document snapshots and source-review machinery provide useful proposed-c
 
 ## Open questions
 
-The exact author edit window and rebase UX remain open. Pending identity, durable disposition, and no-silent-overwrite behavior are settled.
+The document-markdown author edit window is pending status plus current commenter access and an unchanged basis. Author editing across other target types, the amendment-history presentation, and rebase UX remain open. Pending identity, durable disposition, and no-silent-overwrite behavior are settled.

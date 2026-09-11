@@ -1,4 +1,7 @@
-import { TextAttachmentAdapter } from "@agent-native/toolkit/composer/attachment-accept";
+import {
+  formatAttachmentError,
+  TextAttachmentAdapter,
+} from "@agent-native/toolkit/composer/attachment-accept";
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
@@ -103,6 +106,7 @@ import {
   createAgentImageAttachments,
   serializeQueuedAttachments,
   estimateAttachmentBodyBytes,
+  getAttachmentBodyStrings,
   type QueuedAttachment,
 } from "./chat/attachment-adapters.js";
 import {
@@ -1987,6 +1991,34 @@ export interface AssistantChatAdapterContext {
   surface: AgentChatSurfaceKind;
 }
 
+export async function restoreAssistantChatHistoryVersion<
+  TVersion extends AssistantChatHistoryVersion,
+  TRestoreResult,
+>(options: {
+  history: AssistantChatHistoryConfig<unknown, TVersion, TRestoreResult>;
+  version: TVersion;
+  restore: (args: Record<string, unknown>) => Promise<TRestoreResult>;
+  refetch: () => Promise<unknown>;
+  onRefetchError: (error: unknown) => void;
+}) {
+  const args = await options.history.restore.args(options.version);
+  const restored = await options.restore(args);
+  let applicationFailed = false;
+  let applicationError: unknown;
+  try {
+    await options.history.restore.onRestored?.(restored, options.version);
+  } catch (error) {
+    applicationFailed = true;
+    applicationError = error;
+  }
+  try {
+    await options.refetch();
+  } catch (error) {
+    options.onRefetchError(error);
+  }
+  if (applicationFailed) throw applicationError;
+}
+
 export interface AssistantChatProps {
   /** API endpoint URL. Default: "/_agent-native/agent-chat" */
   apiUrl?: string;
@@ -2001,7 +2033,7 @@ export interface AssistantChatProps {
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
   /** Optional host-owned resource history used for chat-side reverts. */
-  chatHistory?: AssistantChatHistoryConfig<any, any>;
+  chatHistory?: AssistantChatHistoryConfig<any, any, any>;
   /** Restrict server-side thread restores to the supplied app scope. */
   isolateHistoryByScope?: boolean;
   /** Namespace used to hide ambient composer context from other host surfaces. */
@@ -2683,10 +2715,10 @@ const AssistantChatInner = forwardRef<
       void Promise.all(
         attachments.map((file) => composerRuntime.addAttachment(file)),
       ).catch((error) => {
-        const msg =
-          error instanceof Error
-            ? error.message
-            : t("agentChat.composer.droppedFileError");
+        const msg = formatAttachmentError(
+          error,
+          t("agentChat.composer.droppedFileError"),
+        );
         setComposerError(msg);
       });
     },
@@ -3047,19 +3079,19 @@ const AssistantChatInner = forwardRef<
   const restoreChatHistoryVersion = useCallback(
     async (version: AssistantChatHistoryVersion) => {
       if (!chatHistory) return;
-      await restoreHistory(
-        chatHistory.restore.args(version) as Record<string, unknown>,
-      );
-      try {
-        await refetchChatHistory();
-      } catch (error) {
-        captureError(error, {
-          tags: {
-            source: "agent-chat-client",
-            phase: "chat-history-refetch-after-restore",
-          },
-        });
-      }
+      await restoreAssistantChatHistoryVersion({
+        history: chatHistory,
+        version,
+        restore: restoreHistory,
+        refetch: refetchChatHistory,
+        onRefetchError: (error) =>
+          captureError(error, {
+            tags: {
+              source: "agent-chat-client",
+              phase: "chat-history-refetch-after-restore",
+            },
+          }),
+      });
     },
     [chatHistory, refetchChatHistory, restoreHistory],
   );
@@ -5425,7 +5457,7 @@ const AssistantChatInner = forwardRef<
       continuationTurnId?: string,
       usageLabel?: string,
     ) => {
-      if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      if (isAgentChatSubmitCancelled(submitMessageId)) return false;
       const stoppedRunAtSubmitStart = userStoppedRunRef.current;
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
@@ -5450,15 +5482,15 @@ const AssistantChatInner = forwardRef<
       try {
         queuedAttachments = await serializeQueuedAttachments(attachments);
       } catch (err) {
-        const msg =
-          err instanceof Error
-            ? err.message
-            : t("agentChat.composer.attachmentError");
+        const msg = formatAttachmentError(
+          err,
+          t("agentChat.composer.attachmentError"),
+        );
         setComposerError(msg);
         reportAgentChatSubmitResult(submitMessageId, false, "attachment-error");
-        return;
+        return false;
       }
-      if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      if (isAgentChatSubmitCancelled(submitMessageId)) return false;
       const imageAttachments = createAgentImageAttachments(images);
       const allAttachments = [
         ...(queuedAttachments ?? []),
@@ -5471,19 +5503,13 @@ const AssistantChatInner = forwardRef<
       // the payload fits, then reject the largest remaining file if still over.
       let messageAttachments = allAttachments;
       {
-        const allDataUrls = allAttachments.flatMap((a) =>
-          a.content
-            .filter(
-              (c): c is { type: "image"; image: string } => c.type === "image",
-            )
-            .map((c) => c.image),
-        );
+        const allPayloadStrings = getAttachmentBodyStrings(allAttachments);
         if (
-          estimateAttachmentBodyBytes(allDataUrls) > MAX_ESTIMATED_BODY_BYTES
+          estimateAttachmentBodyBytes(allPayloadStrings) >
+          MAX_ESTIMATED_BODY_BYTES
         ) {
           // Re-compress image attachments more aggressively.
           const recompressed: typeof allAttachments = [];
-          let stillOver = false;
           for (const att of allAttachments) {
             if (
               att.type === "image" &&
@@ -5510,61 +5536,52 @@ const AssistantChatInner = forwardRef<
                   });
                   continue;
                 } catch {
-                  // Could not recompress — keep original and flag overflow
-                  stillOver = true;
+                  // coercion-ok: recompression is best-effort; the final size check
+                  // rejects the original when it still does not fit.
+                  // Could not recompress — keep the original and let the
+                  // final size estimate decide whether it still fits.
                 }
-              } else {
-                stillOver = true;
               }
             }
             recompressed.push(att);
           }
           // Re-estimate after recompression.
-          const recompressedUrls = recompressed.flatMap((a) =>
-            a.content
-              .filter(
-                (c): c is { type: "image"; image: string } =>
-                  c.type === "image",
-              )
-              .map((c) => c.image),
-          );
+          const recompressedPayloadStrings =
+            getAttachmentBodyStrings(recompressed);
           if (
-            stillOver ||
-            estimateAttachmentBodyBytes(recompressedUrls) >
-              MAX_ESTIMATED_BODY_BYTES
+            estimateAttachmentBodyBytes(recompressedPayloadStrings) >
+            MAX_ESTIMATED_BODY_BYTES
           ) {
             // Find the largest attachment and reject it.
             let largestIdx = -1;
             let largestSize = 0;
             for (let i = 0; i < recompressed.length; i++) {
-              const url =
-                recompressed[i].content.find(
-                  (c): c is { type: "image"; image: string } =>
-                    c.type === "image",
-                )?.image ?? "";
-              if (url.length > largestSize) {
-                largestSize = url.length;
+              const attachmentSize = estimateAttachmentBodyBytes(
+                getAttachmentBodyStrings([recompressed[i]]),
+              );
+              if (attachmentSize > largestSize) {
+                largestSize = attachmentSize;
                 largestIdx = i;
               }
             }
             if (largestIdx >= 0) {
               const rejected = recompressed[largestIdx];
               setComposerError(
-                `"${rejected.name}" makes the message too large to send (combined attachments must be under ${Math.round(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024)} MB). Remove it or use a smaller image.`,
+                `"${rejected.name}" makes the message too large to send (combined attachments must be under ${(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024).toFixed(1)} MB). Remove it or use a smaller file.`,
               );
               reportAgentChatSubmitResult(
                 submitMessageId,
                 false,
                 "attachment-too-large",
               );
-              return;
+              return false;
             }
           }
           messageAttachments = recompressed;
         }
       }
       // ── End body-size guard ──────────────────────────────────────────
-      if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      if (isAgentChatSubmitCancelled(submitMessageId)) return false;
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -5678,6 +5695,7 @@ const AssistantChatInner = forwardRef<
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
       }
+      return true;
     },
     [
       applyLocalQueuedMessages,
@@ -6772,9 +6790,9 @@ const AssistantChatInner = forwardRef<
                           {composerError && (
                             <div
                               role="alert"
-                              className="shrink-0 mx-3 mb-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                              className="mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-md border border-border bg-muted/70 px-3 py-2 text-xs text-foreground shadow-sm"
                             >
-                              <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                              <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                               <span className="flex-1 leading-snug">
                                 {composerError}
                               </span>
@@ -6782,9 +6800,9 @@ const AssistantChatInner = forwardRef<
                                 type="button"
                                 aria-label={t("agentChat.common.dismissError")}
                                 onClick={() => setComposerError(null)}
-                                className="shrink-0 opacity-70 hover:opacity-100"
+                                className="-mr-1 -mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               >
-                                <IconX className="h-3 w-3" />
+                                <IconX className="h-3.5 w-3.5" />
                               </button>
                             </div>
                           )}
@@ -6879,32 +6897,33 @@ const AssistantChatInner = forwardRef<
                                                 composerPlaceholder,
                                               )
                                   }
-                                  onSubmit={
-                                    isRunning ||
-                                    visibleComposerContextItems.length > 0
-                                      ? (
-                                          text,
-                                          references,
-                                          attachments,
-                                          options,
-                                        ) =>
-                                          void addToQueue(
-                                            text,
-                                            undefined,
-                                            references.length > 0
-                                              ? references
-                                              : undefined,
-                                            attachments,
-                                            undefined,
-                                            resolveAssistantChatSubmitIntent({
-                                              isRunning,
-                                              requestedIntent: options?.intent,
-                                            }),
-                                            undefined,
-                                            true,
-                                          )
-                                      : undefined
-                                  }
+                                  onSubmit={async (
+                                    text,
+                                    references,
+                                    attachments,
+                                    options,
+                                  ) => {
+                                    const accepted = await addToQueue(
+                                      text,
+                                      undefined,
+                                      references.length > 0
+                                        ? references
+                                        : undefined,
+                                      attachments,
+                                      undefined,
+                                      resolveAssistantChatSubmitIntent({
+                                        isRunning,
+                                        requestedIntent: options?.intent,
+                                      }),
+                                      undefined,
+                                      true,
+                                    );
+                                    if (!accepted) {
+                                      throw new Error(
+                                        "Attachment submission was not accepted",
+                                      );
+                                    }
+                                  }}
                                   willQueue={engineSetupRequired || isRunning}
                                   onSlashCommand={onSlashCommand}
                                   execMode={execMode}

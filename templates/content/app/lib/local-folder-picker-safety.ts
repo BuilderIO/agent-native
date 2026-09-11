@@ -22,6 +22,15 @@ export function hasInterruptedNativeFolderPickerAttempt(
   }
 }
 
+export function isUserCancelledFolderPickerError(error: unknown): boolean {
+  // DOMException does not extend Error, so check by name/code instead of
+  // `instanceof Error`. `showDirectoryPicker()` rejects with this shape when
+  // the user dismisses the native picker without choosing a folder.
+  if (typeof error !== "object" || error === null) return false;
+  const named = error as { name?: unknown; code?: unknown };
+  return named.name === "AbortError" || named.code === DOMException.ABORT_ERR;
+}
+
 export async function runNativeFolderPickerWithCrashSentinel<T>(
   operation: () => Promise<T>,
   options: {

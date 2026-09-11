@@ -25,6 +25,7 @@ import {
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
+import { clientBuildId } from "./build-compatibility.js";
 export {
   clearAnalyticsSessionId,
   setAnalyticsSessionId,
@@ -272,7 +273,9 @@ const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
 const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE_NAME = "an_ft";
 const APP_ENTRY_STORAGE_KEY = "agent-native.app_entry";
+const APP_LAST_ENTRY_STORAGE_KEY_PREFIX = "agent-native.app_last_entry";
 const MAX_APP_ENTRY_KEYS = 100;
+const RETURN_USAGE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 // 30 days, matching the session cookie lifetime — long enough to bridge a
 // "land today, sign up next week" path without retaining attribution forever.
 const FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS = 2592000;
@@ -1017,6 +1020,15 @@ function resolveClientDeploymentEnvironment(): string {
   );
 }
 
+/**
+ * Must match `resolveSentryClientRelease()` in `vite/sentry-source-maps.ts`
+ * exactly — that's the release name uploaded source maps are attached to, so
+ * a mismatch here means captured events never resolve against them.
+ */
+function resolveClientRelease(): string {
+  return `agent-native-client@${clientBuildId() || "development"}`;
+}
+
 function captureWithSentry(
   module: typeof Sentry,
   error: unknown,
@@ -1060,6 +1072,7 @@ function ensureSentry(loadWithoutDsn = false): void {
       module.init({
         dsn,
         environment: resolveClientDeploymentEnvironment(),
+        release: resolveClientRelease(),
         beforeSend(event) {
           if (isSyntheticBrowserTraffic()) return null;
           event.tags = {
@@ -2029,6 +2042,14 @@ function rememberAppEntryKey(entryKey: string): boolean {
   return true;
 }
 
+function rememberLastAppEntry(appName: string, now: number): number | null {
+  const key = `${APP_LAST_ENTRY_STORAGE_KEY_PREFIX}:${appName}`;
+  const stored = safeStorageGet(key);
+  const previous = stored ? Number(stored) : NaN;
+  safeStorageSet(key, String(now));
+  return Number.isFinite(previous) ? previous : null;
+}
+
 let _appEntryAuthRetry: Promise<void> | null = null;
 
 function waitForTrackingIdentityBeforeAppEntry(): boolean {
@@ -2061,6 +2082,8 @@ function emitAppEntered(): void {
   if (!appName) return;
   const entryKey = sessionId ? `${appName}:${sessionId}` : appName;
   if (!rememberAppEntryKey(entryKey)) return;
+  const now = Date.now();
+  const previousEntryAt = rememberLastAppEntry(appName, now);
   const attribution = getFirstTouchAttribution();
   trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
     app_name: appName,
@@ -2070,6 +2093,15 @@ function emitAppEntered(): void {
       ? { referrer: attribution.landing_referrer }
       : {}),
   });
+  if (previousEntryAt !== null) {
+    const daysSinceLast = Math.floor((now - previousEntryAt) / 86_400_000);
+    if (now - previousEntryAt >= RETURN_USAGE_THRESHOLD_MS) {
+      trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.returnUsage, {
+        app_name: appName,
+        days_since_last: daysSinceLast,
+      });
+    }
+  }
 }
 
 function emitPageview(reason: string): void {

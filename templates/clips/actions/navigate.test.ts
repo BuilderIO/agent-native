@@ -71,6 +71,21 @@ describe("clips navigate action", () => {
     expect(result).toBe("Navigating to recording:rec_123:transcript:42000");
   });
 
+  it("accepts the browser diagnostics viewer panel", async () => {
+    const result = await action.run({
+      view: "recording",
+      recordingId: "rec_123",
+      panel: "debug",
+    });
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "recording",
+      recordingId: "rec_123",
+      panel: "debug",
+    });
+    expect(result).toBe("Navigating to recording:rec_123:debug");
+  });
+
   it("still rejects empty commands", async () => {
     await expect(action.run({})).rejects.toThrow(
       "at least --view or --path is required.",

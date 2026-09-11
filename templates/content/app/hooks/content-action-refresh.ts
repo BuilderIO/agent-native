@@ -17,6 +17,7 @@ const COMMENT_MUTATIONS = new Set([
 
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
+  "decide-resource-suggestion",
   "delete-document",
   "delete-document-property",
   "delete-content-database",
@@ -81,16 +82,50 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
   "update-content-database-personal-view",
 ]);
 
+const DATABASE_LIFECYCLE_MUTATIONS = new Set([
+  "delete-content-database",
+  "restore-content-database",
+]);
+
+const DATABASE_LIFECYCLE_QUERIES = new Set([
+  "list-content-databases",
+  "list-documents",
+  "list-trashed-content-databases",
+  "list-trashed-documents",
+]);
+
 const CONTENT_MUTATIONS = new Set([
   ...COMMENT_MUTATIONS,
   ...DOCUMENT_MUTATIONS,
+]);
+
+const SUGGESTION_MUTATIONS = new Set([
+  "create-resource-suggestion",
+  "update-resource-suggestion",
+  "decide-resource-suggestion",
+]);
+
+const REVIEW_MUTATIONS = new Set([
+  "create-resource-suggestion",
+  "decide-resource-suggestion",
+  "create-review-comment",
+  "reply-review-comment",
+  "resolve-review-thread",
+  "delete-review-comment",
+  "consume-review-feedback",
+  "send-review-thread-to-agent",
+  "set-review-status",
+  "react-to-review-comment",
+  "set-review-thread-unread",
+  "set-review-thread-muted",
 ]);
 
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
   if (
     query.queryKey[1] !== "get-document" &&
-    query.queryKey[1] !== "list-comments"
+    query.queryKey[1] !== "list-comments" &&
+    query.queryKey[1] !== "list-document-properties"
   ) {
     return false;
   }
@@ -100,6 +135,36 @@ function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
     typeof args === "object" &&
     (("id" in args && args.id === documentId) ||
       ("documentId" in args && args.documentId === documentId))
+  );
+}
+
+function queryTargetsDocumentReviewResource(
+  query: ActionQuery,
+  actionName: "list-resource-suggestions" | "list-review-comments",
+  documentId: string,
+): boolean {
+  if (query.queryKey[0] !== "action" || query.queryKey[1] !== actionName)
+    return false;
+  const args = query.queryKey[2];
+  return (
+    !!args &&
+    typeof args === "object" &&
+    "resourceType" in args &&
+    args.resourceType === "document" &&
+    "resourceId" in args &&
+    args.resourceId === documentId
+  );
+}
+
+function eventsIncludeMutation(
+  events: readonly ActionEvent[],
+  mutations: ReadonlySet<string>,
+): boolean {
+  return events.some(
+    (event) =>
+      event.source === "action" &&
+      typeof event.key === "string" &&
+      mutations.has(event.key),
   );
 }
 
@@ -134,6 +199,14 @@ function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
   );
 }
 
+function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    typeof query.queryKey[1] === "string" &&
+    DATABASE_LIFECYCLE_QUERIES.has(query.queryKey[1])
+  );
+}
+
 export function contentDocumentIdFromPathname(
   pathname: string,
 ): string | undefined {
@@ -146,10 +219,55 @@ export function contentActionInvalidatePredicate(
 ): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
   return (query, events) => {
+    const args = query.queryKey[2];
+    const targetId =
+      args && typeof args === "object"
+        ? "id" in args
+          ? args.id
+          : "documentId" in args
+            ? args.documentId
+            : undefined
+        : undefined;
+    if (
+      (isDatabaseLifecycleQuery(query) ||
+        (isDatabaseQuery(query) && query.isActive?.() === true)) &&
+      events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          DATABASE_LIFECYCLE_MUTATIONS.has(event.key),
+      )
+    ) {
+      return true;
+    }
     if (documentId === undefined) {
       return false;
     }
-    if (queryTargetsDocument(query, documentId)) {
+    if (
+      queryTargetsDocumentReviewResource(
+        query,
+        "list-resource-suggestions",
+        documentId,
+      )
+    ) {
+      return eventsIncludeMutation(events, SUGGESTION_MUTATIONS);
+    }
+    if (
+      queryTargetsDocumentReviewResource(
+        query,
+        "list-review-comments",
+        documentId,
+      )
+    ) {
+      return eventsIncludeMutation(events, REVIEW_MUTATIONS);
+    }
+    if (
+      typeof targetId === "string" &&
+      queryTargetsDocument(query, targetId) &&
+      (query.isActive ? query.isActive() : targetId === documentId)
+    ) {
+      // Mounted Page surfaces can belong to a collection preview rather than
+      // the route. Keep inactive cached Pages out of the refresh fan-out.
       return events.some(
         (event) =>
           event.source === "action" &&

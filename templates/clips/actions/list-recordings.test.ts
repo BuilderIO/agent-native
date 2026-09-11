@@ -104,6 +104,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
       organizationId: "recordings.organizationId",
+      folderId: "recordings.folderId",
       archivedAt: "recordings.archivedAt",
       trashedAt: "recordings.trashedAt",
     },
@@ -281,6 +282,54 @@ describe("list-recordings shared view", () => {
             kind: "not-in-array",
             column: "recordings.id",
             values: meetingQueryResult,
+          },
+        ]),
+      }),
+    );
+  });
+});
+
+describe("list-recordings folder scope", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("excludes foldered recordings from the library root", async () => {
+    const parsed = action.schema.parse({
+      view: "library",
+      countOnly: true,
+    });
+
+    await action.run(parsed);
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          {
+            kind: "is-null",
+            column: "recordings.folderId",
+          },
+        ]),
+      }),
+    );
+  });
+
+  it("keeps foldered recordings scoped to the requested folder", async () => {
+    const parsed = action.schema.parse({
+      view: "library",
+      folderId: "folder_1",
+      countOnly: true,
+    });
+
+    await action.run(parsed);
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          {
+            kind: "eq",
+            column: "recordings.folderId",
+            value: "folder_1",
           },
         ]),
       }),

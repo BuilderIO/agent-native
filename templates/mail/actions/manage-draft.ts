@@ -9,6 +9,7 @@ import {
 } from "@agent-native/core/application-state";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
@@ -115,7 +116,7 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const action = args.action;
 
     if (action === "delete-all") {
@@ -207,10 +208,22 @@ export default defineAction({
       if (args.bcc) draft.bcc = args.bcc;
       if (args.replyToId) draft.replyToId = args.replyToId;
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
-      const accountEmail =
-        savedGmailDraft?.accountEmail ?? args.accountEmail ?? ownerEmail;
+      const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
       if (accountEmail) draft.accountEmail = accountEmail;
       await writeAppState(`compose-${id}`, draft);
+      track(
+        "draft_created",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          output_id: id,
+          output_type: "draft",
+          draft_mode: args.mode || "compose",
+          has_recipients: Boolean(args.to?.trim()),
+          agent_assisted: ctx?.caller !== "frontend",
+        },
+        ctx,
+      );
       return {
         id,
         draft,
@@ -242,6 +255,16 @@ export default defineAction({
           return [key, value];
         }),
       ) as Record<string, string>;
+      if (
+        draft.savedDraftId &&
+        args.accountEmail !== undefined &&
+        args.accountEmail !== draft.accountEmail
+      ) {
+        fail(`Cannot change the account for existing draft "${safeId}"`, {
+          errorCode: "draft_account_change",
+          statusCode: 400,
+        });
+      }
       for (const key of [
         "to",
         "cc",
@@ -256,11 +279,17 @@ export default defineAction({
         if ((args as any)[key] !== undefined)
           (draft as any)[key] = (args as any)[key];
       }
+      const accountEmail =
+        args.accountEmail ??
+        (draft.savedDraftId ? draft.accountEmail : undefined);
+      if (!draft.savedDraftId && args.accountEmail === undefined) {
+        delete draft.accountEmail;
+      }
       const ownerEmail = getRequestUserEmail();
       const savedGmailDraft = ownerEmail
         ? await saveGmailDraft({
             ownerEmail,
-            accountEmail: draft.accountEmail,
+            accountEmail,
             draftId: draft.savedDraftId,
             to: draft.to || "",
             cc: draft.cc,

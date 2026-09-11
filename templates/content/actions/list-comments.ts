@@ -71,6 +71,8 @@ export default defineAction({
         row.anchorStartOffset == null ? null : Number(row.anchorStartOffset),
       mentions: parseMentions(row.mentionsJson),
       author_email: row.authorEmail,
+      submission_source: row.submissionSource,
+      submission_run_id: row.submissionRunId,
       author_name: resolveUserProfileName(
         row.authorEmail,
         row.authorName,

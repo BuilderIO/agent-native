@@ -13,8 +13,8 @@ Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置配備直�
 
 ## 先決條件
 
-- [Node.js](https://nodejs.org) 22 或更新版本
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 或更新版本
+- [pnpm](https://pnpm.io) 已安裝且可透過 `PATH` 執行
 - 供代理使用的 LLM 連線：Builder.io、Anthropic 或 OpenAI API 金鑰，或本機 Ollama 模型
 
 ## 建立代理
@@ -22,7 +22,7 @@ Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置配備直�
 在新目錄中從 Chat 範本開始：
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -37,7 +37,7 @@ pnpm install
 pnpm dev
 ```
 
-瀏覽器 UI 會在 `http://localhost:8080` 開啟。若未自動開啟，請在瀏覽器中造訪該 URL。
+瀏覽器 UI 會自動開啟。若未開啟，請使用 `pnpm dev` 顯示的本機 URL；若 8080 已被使用，連接埠號碼會遞增。
 
 <Callout tone="info">
 
@@ -63,7 +63,7 @@ Hello, Alex!
 
 ## 檢視 action
 
-開啟 `actions/hello.ts`：
+在本機 `my-app` 目錄中，用程式碼編輯器開啟 `actions/hello.ts`：
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -92,7 +92,8 @@ export default defineAction({
 
 ## 從 React 呼叫 action
 
-在 `app/routes/hello.tsx` 新增路由：
+範本包含 `actions/hello.ts`，但沒有對應頁面。建立
+`app/routes/hello.tsx`：
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -124,7 +125,7 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-重新啟動開發伺服器，讓它探索新路由，然後開啟 `http://localhost:8080/hello`。
+重新啟動開發伺服器，讓它探索新路由，然後開啟 `http://localhost:<port>/hello`。
 
 </Callout>
 
@@ -172,5 +173,9 @@ return { message: `Welcome, ${name}.` };
 ### [Actions](/docs/actions-overview)
 
 定義讀取、寫入和核准 actions，接著從 UI、代理和外部用戶端呼叫它們。
+
+### [部署應用程式](/docs/deploy-an-app)
+
+從本機開發移至持久性資料庫、正式環境驗證與支援的部署目標。
 
 </Cards>

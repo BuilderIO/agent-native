@@ -919,6 +919,57 @@ const esES = {
     },
     clips: {
       s001: "Clips captura de pantalla de la plantilla",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle:
+        "Grabaciones de pantalla que tu agente de IA puede ver y escuchar",
+      heroDescription:
+        "Clips es un grabador de pantalla gratuito y de código abierto para compartir errores, comentarios y tutoriales con agentes de IA.",
+      heroCta: "Grabar un clip",
+      useCasesHeading: "¿Qué puedes hacer con Clips?",
+      useCasesBody:
+        "Empieza con un clip que hayas grabado o que alguien te haya compartido. Dale a tu agente de IA el contexto y dile lo que necesitas.",
+      useCase1Title: "Actuar sobre comentarios grabados",
+      useCase1Body:
+        "Dale a tu agente de IA comentarios grabados para convertirlos en un plan o ayudar a implementar los cambios solicitados.",
+      useCase2Title: "Investigar un error reportado",
+      useCase2Body:
+        "Comparte una grabación de un error con tu agente de IA para que investigue qué salió mal y defina los siguientes pasos.",
+      useCase3Title: "Crear a partir de un brief grabado",
+      useCase3Body:
+        "Usa un brief grabado para guiar a tu agente de IA en la creación de una presentación, un diseño, contenido o un cambio en una app.",
+      keyFeaturesEyebrow: "Funciones clave",
+      keyFeaturesHeading:
+        "Todo lo que necesitas para grabar, transcribir y compartir",
+      feature1Title: "Grabaciones legibles por agentes",
+      feature1Body:
+        "Comparte la transcripción y las imágenes con marca de tiempo de un clip con tu agente de IA mediante un único enlace legible por agentes.",
+      feature2Title: "Transcripciones automáticas",
+      feature2Body:
+        "Obtén transcripciones de grabaciones, reuniones y dictados. Haz clic en cualquier línea de la transcripción para saltar a ese momento.",
+      feature3Title: "Registros de depuración del navegador",
+      feature3Body:
+        "Captura errores de consola y solicitudes fallidas junto con tu grabación con la extensión de Chrome de Clips.",
+      feature4Title: "Agente de IA integrado",
+      feature4Body:
+        "Pregúntale al agente de IA integrado sobre un clip o sobre toda tu biblioteca, y deja que edite las transcripciones en el chat.",
+      feature5Title: "Biblioteca de grabaciones con búsqueda",
+      feature5Body:
+        "Encuentra clips buscando en sus transcripciones. Organiza tus grabaciones con carpetas, etiquetas y espacios de equipo.",
+      feature6Title: "Dictado con pulsar para hablar",
+      feature6Body:
+        "Mantén pulsada la tecla Fn en la app de escritorio para dictar en otras aplicaciones. Repasa las transcripciones y el texto depurado en tu historial.",
+      teammatesLine:
+        "Tus compañeros pueden ver la misma grabación en el reproductor.",
+      teammatesLinkLabel: "Leer la guía para compartir con agentes",
+      seeInActionHeading: "Ve Clips en acción",
+      seeInActionBody:
+        "Mira Clips en uso, desde grabar un flujo de trabajo en el navegador hasta mostrarle a un agente de IA cómo realizar una tarea.",
+      watchClipLabel: "Ver el clip",
+      finalCtaHeading: "Pon tu próximo clip a trabajar",
+      finalCtaBody:
+        "Graba una explicación o lleva un clip compartido a tu agente de IA.",
+      finalCtaButton: "Abrir Clips",
       s002: "Registro de pantalla",
       s003: "Registros de depuración del navegador",
       s004: "Dictar",
@@ -981,27 +1032,23 @@ const esES = {
       s058: "Gratis y de código abierto",
       s059: "Empieza ahora",
       s060: "Elige qué quieres capturar y, después, empieza a grabar en Clips.",
-      s061: "Ver más aplicaciones",
       s062: "Ver todas las plantillas",
       faq: {
-        question1: "¿Clips es gratis?",
-        answer1: "Sí. Clips es gratuito y de código abierto.",
-        question2: "¿Puede la IA leer una grabación de pantalla?",
+        question1: "¿Qué es Agent-Native Clips?",
+        answer1:
+          "Agent-Native Clips es un grabador de pantalla gratuito y de código abierto para compartir errores, comentarios y tutoriales con agentes de IA. Le da a tu agente de IA una transcripción e imágenes con marca de tiempo de una grabación, mientras que las personas pueden ver el mismo clip.",
+        question2: "¿Puedo compartir grabaciones con Claude, ChatGPT o Cursor?",
         answer2:
-          "Sí. Cada clip incluye una transcripción, un resumen y fotogramas con marcas de tiempo que un agente puede leer directamente.",
-        question3: "¿En qué se diferencia Clips de Loom?",
+          "Clips ofrece un enlace legible por agentes con una transcripción e imágenes con marca de tiempo. Tu agente debe poder abrir el contenido enlazado y leer imágenes para usar ambos. Algunos modos de chat pueden leer la transcripción, pero necesitan que subas una imagen por separado.",
+        question3: "¿Necesito la extensión de Chrome para grabar mi pantalla?",
         answer3:
-          "Clips es de código abierto, tú eres dueño de los datos y todos los enlaces compartidos pueden ser leídos por agentes de IA, no solo por personas.",
-        question4:
-          "¿Puede una grabación de pantalla capturar errores de consola?",
+          "No. Puedes grabar en la app web de Clips. Usa la extensión de Chrome cuando también quieras los mensajes de consola y los diagnósticos de red de la pestaña que estás mostrando.",
+        question4: "¿Pueden los agentes de IA ver mis grabaciones de pantalla?",
         answer4:
-          "Sí. Clips captura los errores de la consola del navegador y las solicitudes de red fallidas junto con la grabación. Se adjuntan al mismo enlace compartido que la transcripción y los fotogramas. Un agente puede depurar a partir de un clip, no solo verlo.",
-        question5: "¿Funciona Clips con Claude, ChatGPT o Cursor?",
+          "Con Clips, los agentes de IA compatibles pueden entender tu grabación a través de una transcripción e imágenes con marca de tiempo. Usan el texto y las imágenes en lugar de reproducir el video, así que puedes hacer preguntas sobre lo que ocurrió o darle a tu agente de IA una tarea basada en la grabación.",
+        question5: "¿Quién puede acceder a una grabación compartida?",
         answer5:
-          "¡Sí! No necesitas ningún plugin ni clave de API. Pega un enlace compartido de Clips en cualquier agente y podrá leer directamente la transcripción, el resumen y los fotogramas.",
-        question6: "¿Dónde se guardan mis grabaciones?",
-        answer6:
-          "Dondequiera que lo implementes. Clips autoalojado mantiene tus vídeos, transcripciones y analíticas en tu propia infraestructura.",
+          "Las grabaciones usan enlaces públicos de forma predeterminada, salvo que tu organización cambie esa configuración. Cualquiera con el enlace puede acceder a ellas. Hay opciones de acceso privado y de organización disponibles, y los clips privados se pueden compartir con agentes mediante enlaces temporales sin hacer pública la grabación.",
       },
       quickStart: {
         recordingMode: "Modo de grabación",
@@ -1518,30 +1565,75 @@ const esES = {
     },
     slides: {
       faq: {
-        question1: "¿Puedo crear una presentación desde Claude o ChatGPT?",
+        question1: "¿Qué es Agent-Native Slides?",
         answer1:
-          "Sí. Pide una presentación a Claude o ChatGPT y llegará a Slides —con tu marca, editable y exportable—, en lugar de obligarte a empezar de nuevo en un sitio de presentaciones.",
-        question2: "¿Puedo corregir los errores de la IA?",
+          "Agent-Native Slides es un creador de presentaciones de IA gratuito y de código abierto. Crea decks con tu marca a partir de tus ideas y material de referencia con un agente de IA, luego edita las diapositivas tú mismo, preséntalas o expórtalas a PowerPoint.",
+        question2:
+          "¿Puedo editar las diapositivas después de que la IA las genere?",
         answer2:
-          "De tres maneras: mediante un prompt, a mano —haz clic en cualquier elemento y doble clic en cualquier texto— o en el código. Nunca te quedas atrapado en el ciclo de regenerar y cruzar los dedos.",
-        question3: "¿Cómo mantienen los decks la identidad de marca?",
+          "Sí. Edita texto, diseño y estilo directamente en el editor visual, o pide al agente de IA que revise una diapositiva seleccionada. Puedes seguir puliendo la presentación después del primer borrador.",
+        question3:
+          "¿Puedo crear una presentación a partir de un deck o documento ya existente?",
         answer3:
-          "Marca como favorito un deck del que te sientas orgulloso. Cada deck nuevo heredará sus diseños, titulares, estilo visual y tokens de marca. Los generadores de un solo intento te dan un deck; esto te permite crear una práctica repetible para tus presentaciones.",
-        question4: "¿En qué se diferencia Slides de Gamma?",
+          "Sí. Adjunta un deck o documento como material de referencia para una nueva presentación. Para trabajar directamente sobre el deck existente, impórtalo de forma explícita. Revisa las diapositivas importadas por si hay cambios de diseño o imágenes que faltan.",
+        question4:
+          "¿Puedo usar mis propios colores de marca, fuentes y logotipo?",
         answer4:
-          "Gamma crea rápidamente un deck aceptable en un solo intento; después estás en su lienzo, pagando su suscripción y regenerando cuando solo está bien al 85 %. Slides es gratuito, de código abierto, hereda tu marca y te permite editarlo todo.",
-        question5: "¿Slides es gratuito?",
+          "Sí. Aplica un sistema de diseño con los colores, la tipografía y los logotipos de tu marca, y reutilízalo en varios decks. También puedes aportar una presentación de referencia para guiar las decisiones de diseño del agente de IA.",
+        question5: "¿Puedo usar mi presentación en PowerPoint o Google Slides?",
         answer5:
-          "Sí. Es gratuito y de código abierto, sin suscripción, contador de créditos ni precios por deck.",
+          "Exporta un archivo PPTX para abrirlo en PowerPoint. Para usar la presentación en Google Slides, impórtalo allí. Revisa las fuentes y los diseños después de exportar, porque pueden renderizarse de forma distinta entre editores.",
       },
       s001: "Slides captura de pantalla de la plantilla",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "Crea presentaciones con tu agente de IA",
+      heroDescription:
+        "Slides es un creador de presentaciones de IA gratuito y de código abierto para crear decks con tu marca a partir de tus ideas y material de referencia, con diapositivas que puedes editar tú mismo.",
+      heroCta: "Crear un deck",
+      useCasesHeading: "¿Qué puedes hacer con Slides?",
+      useCasesBody:
+        "Prepara un pitch, presenta un plan o comparte una actualización. Dale a tu agente de IA el material y el público que tienes en mente.",
+      useCase1Title: "Crear presentaciones de ventas y pitch",
+      useCase1Body:
+        "Convierte el brief de tu producto en un deck para clientes potenciales o inversores. Adapta el mensaje al público ante el que vas a presentar.",
+      useCase2Title: "Presentar planes y estrategias",
+      useCase2Body:
+        "Dale a tu agente de IA un brief de estrategia o un plan de lanzamiento para convertirlo en diapositivas que expliquen la dirección y los próximos pasos propuestos.",
+      useCase3Title: "Compartir actualizaciones del negocio",
+      useCase3Body:
+        "Convierte notas de proyecto o informes de rendimiento en una presentación que muestre el progreso, explique los resultados y destaque lo que necesita atención.",
+      keyFeaturesEyebrow: "Funciones clave",
+      keyFeaturesHeading:
+        "Todo lo que necesitas para crear, editar y presentar",
+      feature1Title: "Generación de presentaciones con IA",
+      feature1Body:
+        "Empieza con un prompt, un documento o un deck de referencia. Dale a tu agente de IA el tema y el público para construir la presentación en torno a ellos.",
+      feature2Title: "Edición con IA y visual",
+      feature2Body:
+        "Selecciona texto para que tu agente de IA lo revise, o edita tú mismo el texto, el diseño y el estilo directamente en la diapositiva.",
+      feature3Title: "Estilos de marca reutilizables",
+      feature3Body:
+        "Guarda tus colores, fuentes y logotipos en un sistema de diseño. Aplícalo en varios decks para mantener las presentaciones coherentes con tu marca.",
+      feature4Title: "Imágenes y logotipos",
+      feature4Body:
+        "Pide a tu agente de IA que genere imágenes, busque fotos o localice logotipos de empresas para usar en tus diapositivas.",
+      feature5Title: "Colaboración en equipo",
+      feature5Body:
+        "Trabaja en los decks con tu equipo, deja comentarios en diapositivas concretas y restaura una versión anterior cuando lo necesites.",
+      feature6Title: "Presentación y exportación",
+      feature6Body:
+        "Presenta a pantalla completa con notas del orador, comparte un enlace de visualización o exporta tu deck como archivo de PowerPoint.",
+      finalCtaHeading: "Empieza tu próxima presentación",
+      finalCtaBody: "Trae una idea, un brief o un deck ya existente.",
+      finalCtaButton: "Abrir Slides",
       s002: "describir",
       s003: "generar",
       s004: "Refinar",
       s005: "Todas las plantillas",
       s006Primary: "Presentaciones de diapositivas",
       s006Secondary: "Con tu marca y editables",
-      s007: "Genera presentaciones de diapositivas con tu marca desde tu agente de IA, aplica tus propios cambios manuales en cualquier momento y expórtalas donde quieras.",
+      s007: "Genera presentaciones con tu marca desde tu agente de IA, edita luego las diapositivas tú mismo y expórtalas donde quieras.",
       s008: "Probar",
       s009: "como funciona",
       s010: "Todo lo que necesitas",
@@ -2076,7 +2168,6 @@ const esES = {
     usingYourAgent: "Usar tu Agent",
     agentResources: "Recursos del Agente",
     integrations: "Integraciones",
-    buildApps: "Crear apps",
     advancedRuntime: "Avanzado: extender el runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeros pasos",
@@ -2217,7 +2308,6 @@ const esES = {
     syncingTemplateChanges: "Sincronizar cambios de plantillas",
     writingAgentInstructions: "Escribir instrucciones de Agent",
     embeddingSdk: "SDK de incrustación",
-    frames: "Frames",
     agentNativeCodeUi: "UI de código Agent-Native",
     harnessAgents: "Agentes con harness",
     adapters: "Adaptadores",
@@ -2287,10 +2377,11 @@ const esES = {
     designCollaborationAndFullApps: "Revisión y entrega",
     designDevelopers: "Guía para desarrolladores",
     dispatchOverview: "Visión general",
-    dispatchMessagingRouting: "Mensajería y enrutamiento",
-    dispatchOperations: "Consola del operador",
-    dispatchVaultIntegrations: "Secretos e integraciones",
+    dispatchFeatures: "Funciones",
+    dispatchAgent: "Hablar con el Agent",
+    dispatchIntegrations: "Uso entre apps",
     dispatchDevelopers: "Guía para desarrolladores",
+    dispatchReference: "Referencia de acciones y datos",
     forms: "Formularios",
     formsOverview: "Visión general",
     formsFeatures: "Funciones",

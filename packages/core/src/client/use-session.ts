@@ -161,6 +161,40 @@ export function isSigningOut(): boolean {
   return signingOut;
 }
 
+const UNAUTHORIZED_RECHECK_MIN_INTERVAL_MS = 5_000;
+let lastUnauthorizedRecheckAt = 0;
+
+/**
+ * Re-resolve the session because an authenticated request came back 401.
+ *
+ * `status` is only written when a session fetch resolves, so a 401 anywhere
+ * else leaves every mounted consumer holding the previous `"authenticated"`
+ * answer. The app shell stays mounted over a session the server no longer
+ * recognises, and each data query paints its own generic load error instead of
+ * the visitor being sent to sign in — which is what a stale cookie surviving
+ * logout looks like on screen. Re-reading the session lets the gate reach the
+ * truth and redirect.
+ *
+ * This asks the server rather than forcing `"unauthenticated"` from here: a
+ * 401 can also come from one request a live session is not allowed to make,
+ * and assuming otherwise would sign that visitor out of a working session.
+ * Throttled because one screen can fail many requests at once, and each
+ * invalidation schedules a fresh read.
+ */
+export function recheckSessionAfterUnauthorized(): void {
+  if (typeof window === "undefined") return;
+  // Already leaving. The sign-out flow owns the navigation from here, and
+  // re-reading could only reintroduce the session this document gave up.
+  if (signingOut) return;
+  const now = Date.now();
+  if (now - lastUnauthorizedRecheckAt < UNAUTHORIZED_RECHECK_MIN_INTERVAL_MS) {
+    return;
+  }
+  lastUnauthorizedRecheckAt = now;
+  installSessionInvalidationListeners();
+  invalidateSessionCache();
+}
+
 /**
  * Enter the terminal `"signing-out"` state for this document.
  *

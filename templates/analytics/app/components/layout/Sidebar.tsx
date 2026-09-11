@@ -1,4 +1,7 @@
-import { AgentNativeIcon } from "@agent-native/core/client/ui";
+import {
+  AppSidebarFooter,
+  AppSidebarHeader,
+} from "@agent-native/core/client/ui";
 import {
   IconChartBar,
   IconChevronDown,
@@ -12,7 +15,6 @@ import {
   IconGripVertical,
   IconBook2,
   IconDatabase,
-  IconSearch,
   IconArchive,
   IconActivity,
   IconHeartbeat,
@@ -52,7 +54,7 @@ import {
   type DashboardVisibility,
   type DashboardVisibilityFilter,
 } from "@/lib/dashboard-visibility";
-import { cn, shortcutModifierLabel } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   dashboards,
   hideDashboard,
@@ -99,10 +101,8 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -137,7 +137,6 @@ import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
-  TooltipProvider,
 } from "@/components/ui/tooltip";
 import {
   useDashboardViews,
@@ -2247,25 +2246,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     },
   ];
 
-  const footerSearch = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        {t("sidebar.searchShortcut", {
-          shortcut: `${shortcutModifierLabel()} K`,
-        })}
-      </TooltipContent>
-    </Tooltip>
-  );
   const footerCollapse = !mobile ? (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -2277,16 +2257,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               ? t("sidebar.expandSidebar")
               : t("sidebar.collapseSidebar")
           }
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md bg-transparent text-primary hover:bg-accent/60 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {effectiveCollapsed ? (
-            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+            <IconLayoutSidebarLeftExpand className="size-4 rtl:-scale-x-100" />
           ) : (
-            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+            <IconLayoutSidebarLeftCollapse className="size-4 rtl:-scale-x-100" />
           )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">
+      <TooltipContent side="right">
         {effectiveCollapsed
           ? t("sidebar.expandSidebar")
           : t("sidebar.collapseSidebar")}
@@ -2297,7 +2277,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     <FeedbackButton
       variant={effectiveCollapsed ? "icon" : "sidebar"}
       side="right"
-      className={effectiveCollapsed ? "h-8 w-8" : "min-w-0"}
     />
   );
 
@@ -2305,7 +2284,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out"
       style={
-        mobile ? undefined : { width: effectiveCollapsed ? 48 : sidebarWidth }
+        mobile ? undefined : { width: effectiveCollapsed ? 56 : sidebarWidth }
       }
     >
       {!mobile && !effectiveCollapsed && (
@@ -2316,7 +2295,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       )}
       {effectiveCollapsed ? (
         <>
-          <nav className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto px-1 py-2">
+          <AppSidebarHeader
+            brandName={t("navigation.brand")}
+            brandHref="/home"
+            collapsed={true}
+          />
+          <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -2326,14 +2310,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       to={item.href}
                       onClick={item.onClick}
                       aria-label={item.label}
-                      className={cn(
-                        "flex h-9 w-9 items-center justify-center rounded-md transition-colors",
-                        item.active
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-                      )}
                     >
-                      <Icon className="h-4 w-4" />
+                      <Icon className="size-4 text-primary" />
                     </Link>
                   </TooltipTrigger>
                   <TooltipContent side="right">{item.label}</TooltipContent>
@@ -2341,48 +2319,43 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               );
             })}
           </nav>
-          <SidebarFooterActions
-            collapsed
+          <AppSidebarFooter
+            collapsed={true}
+            collapsible={false}
             feedback={footerFeedback}
-            search={footerSearch}
-            collapse={footerCollapse}
+            orgSwitcher={
+              <OrgSwitcher
+                compact
+                className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
+            }
+            footerExtras={
+              <>
+                <DevDatabaseLink />
+                {footerCollapse}
+              </>
+            }
           />
         </>
       ) : (
         <>
-          <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
-            <Link
-              to="/home"
-              className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
-            >
-              <AgentNativeIcon
-                aria-hidden="true"
-                className="h-[17px] w-[30px] shrink-0 text-sidebar-foreground"
-              />
-              <span className="text-lg font-bold tracking-tight">
-                {t("navigation.brand")}
-              </span>
-            </Link>
-          </div>
+          <AppSidebarHeader
+            brandName={t("navigation.brand")}
+            brandHref="/home"
+            collapsed={false}
+          />
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
-            <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium">
+            <nav className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3">
               {/* Ask section */}
-              <div className="order-1 group/section min-w-0 space-y-1">
-                <div
-                  className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
-                    isAskRoute
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
-                  )}
-                >
+              <div className="order-1 group/section min-w-0 space-y-0.5">
+                <div>
                   <Link
                     to="/ask"
                     onClick={handleAskClick}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary"
                   >
-                    <IconMessageCircle className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">
+                    <IconMessageCircle className="size-4 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-primary">
                       {t("navigation.ask")}
                     </span>
                   </Link>
@@ -2421,88 +2394,98 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/sessions"
                 className={cn(
-                  "order-4 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-4 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/sessions")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconPlayerPlay className="h-4 w-4" />
-                {t("navigation.sessions")}
+                <IconPlayerPlay className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.sessions")}
+                </span>
               </Link>
 
               {/* Monitoring link */}
               <Link
                 to="/monitoring"
                 className={cn(
-                  "order-5 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-5 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/monitoring")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconHeartbeat className="h-4 w-4" />
-                {t("navigation.monitoring")}
+                <IconHeartbeat className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.monitoring")}
+                </span>
               </Link>
 
               {/* Agents link */}
               <Link
                 to="/agents"
                 className={cn(
-                  "order-6 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-6 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/agents")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconActivity className="h-4 w-4" />
-                {t("navigation.agents")}
+                <IconActivity className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.agents")}
+                </span>
               </Link>
 
               {/* Data Sources link */}
               <Link
                 to="/data-sources"
                 className={cn(
-                  "order-7 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-7 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname === "/data-sources"
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconDatabase className="h-4 w-4" />
-                {t("navigation.dataSources")}
+                <IconDatabase className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.dataSources")}
+                </span>
               </Link>
 
               {/* Data Dictionary link */}
               <Link
                 to="/data-dictionary"
                 className={cn(
-                  "order-8 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-8 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/data-dictionary")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconBook2 className="h-4 w-4" />
-                {t("navigation.dataDictionary")}
+                <IconBook2 className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.dataDictionary")}
+                </span>
               </Link>
 
               {/* Dashboards section */}
-              <div className="order-2 group/section min-w-0 space-y-1">
+              <div className="order-2 group/section min-w-0 space-y-0.5">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
+                    "group flex w-full min-w-0 items-center rounded transition-colors",
                     isAdhocActive
-                      ? "text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-primary hover:bg-accent/60",
                   )}
                 >
                   <Link
                     to="/dashboards"
-                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-start text-xs text-primary"
                   >
-                    <IconChartBar className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">
+                    <IconChartBar className="size-4 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-primary">
                       {t("navigation.dashboards")}
                     </span>
                   </Link>
@@ -2673,8 +2656,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium">
-              <nav className="flex min-w-0 flex-col gap-1 pb-1">
+            <div className="mt-3 shrink-0 min-w-0 space-y-0.5 border-t border-border/70 px-2 pt-3">
+              <nav className="flex min-w-0 flex-col space-y-0.5">
                 {bottomItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.href;
@@ -2683,31 +2666,35 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       key={item.href}
                       to={item.href}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                        "flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                         isActive
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-muted-foreground hover:bg-sidebar-accent/50",
+                          ? "bg-primary/10 font-medium text-primary"
+                          : "text-primary hover:bg-accent/60",
                       )}
                     >
-                      <Icon className="h-4 w-4" />
-                      <span className="truncate">{t(item.labelKey)}</span>
+                      <Icon className="size-4 shrink-0 text-primary" />
+                      <span className="truncate text-primary">
+                        {t(item.labelKey)}
+                      </span>
                     </Link>
                   );
                 })}
               </nav>
 
-              <div className="space-y-2 pt-2">
-                <OrgSwitcher />
-                <DevDatabaseLink />
-                <TooltipProvider delayDuration={200}>
-                  <SidebarFooterActions
-                    feedback={footerFeedback}
-                    search={footerSearch}
-                    collapse={footerCollapse}
-                    className="px-0 py-0"
-                  />
-                </TooltipProvider>
-              </div>
+              <AppSidebarFooter
+                collapsed={false}
+                collapsible={false}
+                feedback={footerFeedback}
+                orgSwitcher={
+                  <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
+                }
+                footerExtras={
+                  <>
+                    <DevDatabaseLink />
+                    {footerCollapse}
+                  </>
+                }
+              />
             </div>
           </div>
         </>

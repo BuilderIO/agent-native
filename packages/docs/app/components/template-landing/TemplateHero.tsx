@@ -82,7 +82,7 @@ export function TemplateHero({
           className={`relative grid gap-3 px-6 pt-12 sm:gap-4 sm:px-10 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pt-24 ${headerPadding} ${headerClassName}`}
         >
           {eyebrow ? (
-            <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-start-1 lg:row-start-1">
+            <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-span-2 lg:col-start-1 lg:row-start-1">
               {eyebrow}
             </div>
           ) : null}

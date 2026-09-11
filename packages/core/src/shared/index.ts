@@ -119,8 +119,10 @@ export {
 } from "./workspace-app-id.js";
 export {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  DEFAULT_WORKSPACE_APP_HOME_PATH,
   WORKSPACE_APP_AUDIENCES,
   normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromEnv,
   workspaceAppAudienceFromPackageJson,
@@ -163,6 +165,7 @@ export {
 } from "./poll-engine.js";
 export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,

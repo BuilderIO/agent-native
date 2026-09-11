@@ -9,6 +9,7 @@ import {
   isTextLeaf,
   resolveRichTextEditingBlock,
   shouldStampBuilderId,
+  shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
 
 describe("slide text targets", () => {
@@ -89,6 +90,59 @@ describe("slide text targets", () => {
     expect(shouldStampBuilderId(layer)).toBe(true);
     expect(shouldStampBuilderId(paragraph)).toBe(false);
     expect(findSmartBlock(paragraph, root)).toBe(layer);
+  });
+
+  it("edits text leaves inside imported smart groups without replacing their layout", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div class="stage-card" style="display:flex;flex-direction:column;gap:16px;background:#101820">
+          <div class="stage-label" style="background:#ffb38a;color:#101820">STAGE 1</div>
+          <div class="stage-title" style="font-size:32px;color:#ffffff">Curiosity</div>
+          <div class="stage-copy" style="font-size:18px;color:rgba(255,255,255,.7)">An occasional cup.</div>
+        </div>
+      </div>
+    `;
+
+    const group = root.querySelector(".stage-card") as HTMLElement;
+    const text = root.querySelector(".stage-title") as HTMLElement;
+
+    expect(shouldStampBuilderId(group)).toBe(true);
+    expect(shouldStampBuilderId(text)).toBe(true);
+    expect(findSmartBlock(text, root)).toBe(text);
+    expect(findSmartBlock(group, root)).toBe(group);
+    expect(group.style.display).toBe("flex");
+    expect(group.querySelector(".stage-label")?.getAttribute("style")).toBe(
+      "background:#ffb38a;color:#101820",
+    );
+  });
+
+  it("keeps nested smart-group leaves in the Layers tree", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div class="layout-wrapper">
+          <div class="stage-card">
+            <div class="stage-label">STAGE 1</div>
+            <div class="stage-title">Curiosity</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const wrapper = root.querySelector(".layout-wrapper") as HTMLElement;
+    const group = root.querySelector(".stage-card") as HTMLElement;
+    const text = root.querySelector(".stage-title") as HTMLElement;
+
+    expect(isRichTextBlock(group)).toBe(true);
+    expect(isRichTextBlock(wrapper)).toBe(false);
+    expect(shouldTraverseSlideLayerChildren(wrapper)).toBe(true);
+    expect(shouldTraverseSlideLayerChildren(group)).toBe(true);
+    expect(shouldTraverseSlideLayerChildren(text)).toBe(false);
+    expect(shouldStampBuilderId(wrapper)).toBe(true);
+    expect(shouldStampBuilderId(group)).toBe(true);
+    expect(shouldStampBuilderId(text)).toBe(true);
+    expect(findSmartBlock(text, root)).toBe(text);
   });
 
   it("keeps table cells selectable instead of owning them as one text layer", () => {

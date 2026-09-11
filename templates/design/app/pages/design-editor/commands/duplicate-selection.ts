@@ -18,6 +18,7 @@ import {
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
 import type { SelectedCanvasLayerSnapshot } from "@/pages/design-editor/command-types";
+import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface DuplicateSelectionArgs {
@@ -110,6 +111,35 @@ export function runDuplicateSelection({
   // U19: duplicate is a discrete one-shot action — see the matching note
   // in handlePasteSelection.
   undoManagerRef.current?.stopCapturing();
+  // A repeat's rows are data: duplicating the markup adds a second authored
+  // row next to the template rather than another item.
+  if (activeFile && selectedElement?.repeat) {
+    const edit = runRepeatItemEdit({
+      content: getFreshActiveContent(),
+      target: selectedElement.repeat,
+      operation: { kind: "duplicate" },
+    });
+    if (edit.status === "written") {
+      applyLocalContentUpdate(edit.content, {
+        forcePreviewFullDocument: true,
+      });
+      return;
+    }
+    if (edit.status === "refused") {
+      trace("structure", "repeat-item-refused", {
+        operation: "duplicate",
+        reason: edit.reason,
+      });
+      toast.error(
+        t(
+          edit.refusal === "no-item"
+            ? "designEditor.toasts.repeatRowPickOnCanvas"
+            : "designEditor.toasts.repeatListNotEditable",
+        ),
+      );
+      return;
+    }
+  }
   const snapshots = getSelectedLayerSnapshots();
   if (snapshots.length > 0) {
     const selectedIds: string[] = [];

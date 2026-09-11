@@ -14,7 +14,7 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
 import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
-import { getSession } from "./auth.js";
+import { getSession, isLoopbackRequest } from "./auth.js";
 import { clearProviderCredentialAuthFailure } from "./credential-provider.js";
 import { readBody } from "./h3-helpers.js";
 
@@ -249,7 +249,8 @@ export function createAgentEngineApiKeyHandler() {
         await validateProviderBaseUrl(payload.baseUrl, {
           allowLocalOllama:
             payload.key === OLLAMA_BASE_URL_ENV_VAR &&
-            process.env.NODE_ENV === "development",
+            process.env.NODE_ENV !== "production" &&
+            isLoopbackRequest(event),
         });
       } catch (err) {
         setResponseStatus(event, 400);

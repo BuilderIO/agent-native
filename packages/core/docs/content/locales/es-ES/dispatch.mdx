@@ -89,7 +89,7 @@ Siete capacidades, todas ubicadas encima de la misma base de datos del espacio d
 
 | Capacidad                           | Lo que te aporta                                                                                             | Configurarlo                                                                 |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| **Bandeja de entrada central**      | Slack, correo electrónico, Telegram y WhatsApp llegan a un solo agente con memoria compartida y herramientas | **Configuración → Mensajería** ([Messaging](/docs/messaging))                |
+| **Bandeja de entrada central**      | Slack, correo electrónico, Telegram y WhatsApp llegan a un solo agente con memoria compartida y herramientas | **Administración → Mensajería** ([Messaging](/docs/messaging))                |
 | **Bóveda secreta**                  | Almacene cada credencial una vez; rotar en un solo lugar en cada aplicación                                  | **Vault** + modo de acceso (todas las aplicaciones o manual)                 |
 | **Delegación entre aplicaciones**   | Envía una solicitud a la aplicación especializada adecuada a través de A2A y responde en el hilo             | Automático ([A2A](/docs/a2a-protocol))                                       |
 | **Puerta de enlace MCP unificada**  | Un conector MCP para agentes externos llega a todas las aplicaciones del espacio de trabajo otorgado         | [External Agents](/docs/external-agents)                                     |
@@ -101,7 +101,7 @@ Cada uno se detalla a continuación.
 
 ### Bandeja de entrada central
 
-Slack, correo electrónico, Telegram y WhatsApp fluyen hacia el bucle de agentes de Dispatch. Conecte cada plataforma una vez en **Configuración → Mensajería** y cada canal llega al mismo agente con la misma memoria y herramientas. Un DM de Slack y un correo electrónico a `agent@yourcompany.com` terminan como dos superficies en un historial de conversación, no como dos bots desconectados. Consulte [Messaging](/docs/messaging) para obtener las credenciales y el webhook URL.
+Slack, correo electrónico, Telegram y WhatsApp fluyen hacia el bucle de agentes de Dispatch. Conecte cada plataforma una vez en **Administración → Mensajería** y cada canal llega al mismo agente con la misma memoria y herramientas. Un DM de Slack y un correo electrónico a `agent@yourcompany.com` terminan como dos superficies en un historial de conversación, no como dos bots desconectados. Consulte [Messaging](/docs/messaging) para obtener las credenciales y el webhook URL.
 
 ### Bóveda secreta
 
@@ -256,7 +256,7 @@ Todo el proceso está diseñado para sobrevivir en todos los hosts sin servidor 
 Tres breves pasos:
 
 1. **Crea un espacio de trabajo que incluya Dispatch.** Ejecute `npx @agent-native/core@latest create my-company-platform` y elija `dispatch` junto con las plantillas de dominio que desee. Dispatch vive en `apps/dispatch` y el resto de las aplicaciones se encuentran a su lado. Ver [Multi-App Workspace](/docs/multi-app-workspace).
-2. **Conectar mensajes.** Abra **Configuración → Mensajes** en Dispatch y haga clic en conectar para Slack, correo electrónico, Telegram o WhatsApp. Los campos del formulario coinciden con las variables de entorno en el documento [Messaging](/docs/messaging); consulte allí lo que necesita cada plataforma.
+2. **Conectar mensajes.** Abra **Administración → Mensajes** en Dispatch y haga clic en conectar para Slack, correo electrónico, Telegram o WhatsApp. Los campos del formulario coinciden con las variables de entorno en el documento [Messaging](/docs/messaging); consulte allí lo que necesita cada plataforma.
 3. **Agregue otras aplicaciones.** Ejecute `npx @agent-native/core@latest add-app` desde la raíz del espacio de trabajo para cada aplicación de dominio. Aparecen automáticamente como pares A2A en `list-workspace-apps` de Dispatch: sin registro manual ni edición de tarjetas de agente. Dispatch comenzará a delegarles tan pronto como sus tarjetas de agente estén disponibles.
 
 Luego agregue credenciales a la bóveda y (opcionalmente) cree recursos del espacio de trabajo global en **Recursos**. Las claves de la bóveda aún se pueden sincronizar u otorgar según el modo de acceso; Los recursos del espacio de trabajo de todas las aplicaciones se heredan automáticamente. Si necesita aislamiento secreto por aplicación, cambie la configuración de acceso a la bóveda a manual antes de otorgar aplicaciones individuales.

@@ -4,7 +4,7 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link, useLocation } from "react-router";
 
 import { BuilderLaunchAction } from "../BuilderWaitlistPopover";
-import { sitePathForLocale, type DocsLocale } from "../docs-locale";
+import { sitePathForLocale } from "../docs-locale";
 import {
   gettingStartedPathsMdx,
   gettingStartedPathsSchema,
@@ -29,7 +29,7 @@ function choosePath(option: "build_local" | "build_cloud") {
   });
 }
 
-function pathForTab(tab: GettingStartedTab, locale: DocsLocale) {
+function pathForTab(tab: GettingStartedTab, locale: unknown) {
   const docsPath = sitePathForLocale("/docs", locale);
   return tab === "cloud" ? `${docsPath}?tab=cloud` : docsPath;
 }

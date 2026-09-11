@@ -22,6 +22,7 @@ more, but both must agree on the key ones and name only real actions. See
 
 ## Core rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Store structured state in SQL through Drizzle; store large files in
   configured file/blob storage and persist only URLs, ids, or opaque handles.
 - Normal app data must flow through actions.
@@ -39,15 +40,13 @@ more, but both must agree on the key ones and name only real actions. See
 - Keep domain workflows on named routes and preserve the scaffold's full-page
   chat route. Use the right AgentSidebar for contextual AI and open it when a
   domain button hands work to the agent.
-- Keep the first viewport focused: one primary action, progressive disclosure,
-  concise copy, no generic Chat label. Never use sparkle, wand, magic, or robot
-  icons as AI affordances.
+- Keep first viewport focused: one primary action, progressive disclosure,
+  concise copy, no generic Chat; never use sparkle, wand, magic, or robot icons.
 - Page and section data loads use layout-matching `Skeleton` geometry, never a
   generic "Loading..." label. Reserve `Spinner` for brief mutations and
   progress actions.
-- Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
-  type for content previews. Give the AgentSidebar a subtle surface/divider
-  boundary, and stack original/generated review vertically by default.
+- Use a sans-first hierarchy with one restrained cue; reserve serif for previews.
+  Give AgentSidebar a subtle boundary; stack original/generated review vertically.
 - Before visual work, read `frontend-design` and fill in `DESIGN.md` (product
   mode, visual direction, palette, type, composition, anti-references).
   Preserve existing brand tokens; don't default to warm beige plus terracotta

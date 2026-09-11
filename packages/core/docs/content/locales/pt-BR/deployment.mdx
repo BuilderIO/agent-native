@@ -30,6 +30,8 @@ Todo app publicado precisa de um banco PostgreSQL persistente. Defina `DATABASE_
 
 Apps independentes precisam de um `BETTER_AUTH_SECRET` estável. Workspaces com requisições assinadas entre apps precisam de `A2A_SECRET`.
 
+Defina esses valores nas configurações de ambiente do provedor de hospedagem, não apenas no `.env` local. Gere o segredo de autenticação com `openssl rand -hex 32`. O Agent-Native não inclui uma conta de entrega de e-mail; conecte Resend ou SendGrid separadamente.
+
 ## O envio de e-mail é opcional, mas recomendado {#email-provider}
 
 Um provedor de e-mail não é necessário para a autenticação com e-mail e senha. Sem ele, os apps publicados usam cadastro e login com e-mail e senha, ignoram a verificação de e-mail no cadastro e não oferecem autenticação por link mágico.

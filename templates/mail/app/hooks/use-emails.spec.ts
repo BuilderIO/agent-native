@@ -5,9 +5,13 @@ import { describe, expect, it, afterEach, vi } from "vitest";
 
 import {
   consumeExternalEmailRefresh,
+  beginReadMutation,
+  confirmReadMutation,
   filterSuppressedThreads,
   markExternalEmailRefresh,
+  parseAccountErrorsHeader,
   rebasePinnedLabelsUpdate,
+  rollbackReadMutation,
   suppressThread,
   unsuppressThread,
 } from "./use-emails";
@@ -32,6 +36,13 @@ function makeEmail(id: string, threadId: string): EmailMessage {
 
 function emailsHookSource(): string {
   return readFileSync(new URL("./use-emails.ts", import.meta.url), "utf8");
+}
+
+function threadCacheSource(): string {
+  return readFileSync(
+    new URL("../lib/thread-cache.ts", import.meta.url),
+    "utf8",
+  );
 }
 
 describe("filterSuppressedThreads", () => {
@@ -106,7 +117,17 @@ describe("useLabels", () => {
     expect(source).toContain(
       "export function useLabels(accountEmails?: readonly string[])",
     );
-    expect(source).toContain('useActionQuery<Label[]>(\n    "list-labels",');
+    expect(source).toContain(
+      'useActionQuery<ListLabelsResult>(\n    "list-labels",',
+    );
+  });
+
+  it("keeps `data` as Label[] and exposes per-account label-fetch errors", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain(
+      "return { ...query, data: query.data?.labels, accountErrors };",
+    );
   });
 });
 
@@ -142,6 +163,110 @@ describe("useEmails query warming", () => {
     expect(source).toContain("queryClient.removeQueries");
     expect(source).toContain("queryKey: prefetchKey");
     expect(source).toContain("...emailQueryOptions(view, search, label)");
+  });
+});
+
+describe("useMarkRead", () => {
+  it("updates and rolls back the mounted thread cache", () => {
+    const source = emailsHookSource();
+    const hook = source.slice(
+      source.indexOf("export function useMarkRead()"),
+      source.indexOf("export function useMarkThreadRead()"),
+    );
+
+    expect(hook).toContain("getCachedThread(resolvedThreadId)");
+    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
+    expect(hook).toContain(
+      "message.id === id ? { ...message, isRead } : message",
+    );
+    expect(hook).toContain("applyReadMutationStates(");
+  });
+
+  it("rolls overlapping failures back to the confirmed server state", () => {
+    const first = beginReadMutation("message-overlap", true, false);
+    const second = beginReadMutation("message-overlap", false, true);
+
+    expect(rollbackReadMutation("message-overlap", first)).toBeNull();
+    expect(rollbackReadMutation("message-overlap", second)).toBe(true);
+  });
+
+  it("distinguishes an unavailable baseline from a stale mutation", () => {
+    const version = beginReadMutation("message-unknown", undefined, true);
+
+    expect(rollbackReadMutation("message-unknown", version)).toBeUndefined();
+  });
+
+  it("uses an earlier successful mutation as the later rollback baseline", () => {
+    const first = beginReadMutation("message-confirmed", true, false);
+    const second = beginReadMutation("message-confirmed", false, true);
+
+    confirmReadMutation("message-confirmed", first, false);
+    expect(rollbackReadMutation("message-confirmed", second)).toBe(false);
+  });
+
+  it("retains an earlier in-flight mutation when the latest fails", () => {
+    const first = beginReadMutation("message-pending", false, true);
+    const second = beginReadMutation("message-pending", true, false);
+
+    expect(rollbackReadMutation("message-pending", second)).toBe(true);
+    expect(confirmReadMutation("message-pending", first, true)).toBe(true);
+    expect(rollbackReadMutation("message-pending", first)).toBeNull();
+  });
+
+  it("supersedes cold fetches before checking for cached messages", () => {
+    const source = emailsHookSource();
+    const hook = source.slice(
+      source.indexOf("export function useMarkRead()"),
+      source.indexOf("export function useMarkThreadRead()"),
+    );
+
+    expect(hook).toContain("const restartThread = resolvedThreadId");
+    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
+    expect(hook).toContain("resolvedThreadId && restartThread");
+    expect(source).toContain(
+      'clearOptimisticOverrideProperty(emailId, "isRead")',
+    );
+    expect(hook).toContain("refreshThreadAfterMutations(");
+  });
+});
+
+describe("thread fetch ownership", () => {
+  it("only lets the current request clear its in-flight entry", () => {
+    expect(threadCacheSource()).toContain(
+      "if (inflight.get(threadId) === request) inflight.delete(threadId)",
+    );
+    expect(threadCacheSource()).toContain("return superseded");
+  });
+});
+
+describe("useMarkThreadRead", () => {
+  it("supersedes a cold thread fetch before the optimistic update", () => {
+    const source = emailsHookSource();
+    const hook = source.slice(
+      source.indexOf("export function useMarkThreadRead()"),
+      source.indexOf("export function useToggleStar()"),
+    );
+
+    expect(hook).toContain("supersedeCachedThreadFetch(threadId)");
+    expect(hook).toContain("beginReadMutation(id, false, true)");
+    expect(hook).not.toContain("context.previousThread");
+  });
+
+  it("sends accountEmail with the mark-thread-read call so multi-account owners don't 401", () => {
+    // Repro: the mutation used to take a bare threadId, so the server fell
+    // back to the request owner's login email — wrong whenever that isn't
+    // the Gmail account the thread belongs to (a second/personal account,
+    // or local dev where the owner's login isn't a connected Gmail address).
+    const source = emailsHookSource();
+    const hook = source.slice(
+      source.indexOf("export function useMarkThreadRead()"),
+      source.indexOf("export function useToggleStar()"),
+    );
+
+    expect(hook).toContain(
+      'mutationFn: ({\n      threadId,\n      accountEmail,\n    }: {\n      threadId: string;\n      accountEmail?: string;\n    }) =>\n      callAction("mark-thread-read", { threadId, accountEmail })',
+    );
+    expect(hook).toContain("onMutate: async ({ threadId, accountEmail }) => {");
   });
 });
 
@@ -211,4 +336,76 @@ describe("useUpdateSettings", () => {
     expect(source).toContain("settingsLoading || !prev || !owner");
     expect(source).toContain("requestSource: TAB_ID");
   });
+});
+
+describe("parseAccountErrorsHeader", () => {
+  it("returns undefined for a missing header", () => {
+    expect(parseAccountErrorsHeader(null)).toBeUndefined();
+    expect(parseAccountErrorsHeader(undefined)).toBeUndefined();
+  });
+
+  it("parses a JSON array of per-account errors", () => {
+    expect(
+      parseAccountErrorsHeader(
+        JSON.stringify([{ email: "a@example.com", error: "quota exceeded" }]),
+      ),
+    ).toEqual([{ email: "a@example.com", error: "quota exceeded" }]);
+  });
+
+  it("ignores malformed JSON instead of throwing", () => {
+    expect(parseAccountErrorsHeader("not json")).toBeUndefined();
+  });
+
+  it("drops entries missing email or error and empty arrays", () => {
+    expect(
+      parseAccountErrorsHeader(JSON.stringify([{ email: "a@example.com" }])),
+    ).toBeUndefined();
+    expect(parseAccountErrorsHeader(JSON.stringify([]))).toBeUndefined();
+  });
+});
+
+describe("inbox-thread cache rollback on mutation error", () => {
+  // PR #4801 round 3: archive/trash/mark-read/star mutations optimistically
+  // update the list-inbox-threads cache via use-inbox-threads.ts's helpers,
+  // but only rolled back the legacy ['emails'] cache on error — a Gmail
+  // rejection left the synced inbox missing the thread (decremented counts)
+  // until the delayed invalidation. Each mutation below must snapshot the
+  // inbox cache in onMutate and restore it in onError.
+  const boundaries: Array<[string, string]> = [
+    ["export function useMarkRead()", "export function useMarkThreadRead()"],
+    ["export function useMarkThreadRead()", "export function useToggleStar()"],
+    ["export function useToggleStar()", "export function useArchiveEmail()"],
+    [
+      "export function useArchiveEmail()",
+      "export function useUnarchiveEmail()",
+    ],
+    [
+      "export function useTrashEmail()",
+      "export function useBulkArchiveEmails()",
+    ],
+    [
+      "export function useBulkArchiveEmails()",
+      "export function useBulkTrashEmails()",
+    ],
+    [
+      "export function useBulkTrashEmails()",
+      "export function useBulkToggleStar()",
+    ],
+    [
+      "export function useBulkToggleStar()",
+      "export function useBulkMarkRead()",
+    ],
+    ["export function useBulkMarkRead()", "export function useMoveEmail()"],
+  ];
+
+  it.each(boundaries)(
+    "%s snapshots and restores the inbox cache",
+    (start, end) => {
+      const source = emailsHookSource();
+      const hook = source.slice(source.indexOf(start), source.indexOf(end));
+
+      expect(hook).toContain("snapshotInboxThreads(qc)");
+      expect(hook).toContain("restoreInboxThreadsOptimistic(qc, context");
+    },
+  );
 });

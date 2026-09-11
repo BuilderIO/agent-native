@@ -48,6 +48,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isAllowedFigmaSvgRenderRequest } from "../server/lib/design-to-figma-svg.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 // ---------------------------------------------------------------------------
@@ -95,12 +96,22 @@ export interface ScreenshotDiagnostics {
   zeroSizeOrOffscreen: DiagnosticsZeroSizeEntry[];
 }
 
+export type ScreenshotUploadError =
+  | {
+      code: "file_storage_not_configured";
+      message: string;
+    }
+  | {
+      code: "file_upload_failed";
+      message: string;
+    };
+
 export interface ScreenshotResult {
   viewport: ScreenshotViewport;
   url: string;
   /** True when persisted via a durable upload provider. */
   persisted: boolean;
-  uploadError?: string;
+  uploadError?: ScreenshotUploadError;
   bytes: number;
   diagnostics: ScreenshotDiagnostics;
 }
@@ -586,6 +597,17 @@ export default defineAction({
         await context.addInitScript(
           "globalThis.__name = globalThis.__name || function (value) { return value; };",
         );
+        await context.route("**/*", async (route) => {
+          if (await isAllowedFigmaSvgRenderRequest(route.request().url())) {
+            await route.continue();
+          } else {
+            await route.abort("blockedbyclient");
+          }
+        });
+        // A static PNG never needs a live socket. Leaving a routed WebSocket
+        // unconnected blocks the separate WebSocket transport that
+        // BrowserContext.route("**/*") does not see.
+        await context.routeWebSocket("**/*", () => {});
         const page = await context.newPage();
         const consoleErrors: string[] = [];
         const fontLoadFailures: string[] = [];
@@ -677,23 +699,35 @@ export default defineAction({
           // for tall complex screens, reproduced on a 1440x3200 fixture.
           const png = await page.screenshot({ type: "png", fullPage: true });
 
-          const uploaded = await uploadFile({
-            data: png,
-            mimeType: "image/png",
-            filename: `design-${file.designId}-${file.filename}-${viewport.label}.png`,
-            ownerEmail,
-          }).catch(() => null);
+          let uploaded: Awaited<ReturnType<typeof uploadFile>> | null = null;
+          let uploadError: ScreenshotUploadError | undefined;
+          try {
+            uploaded = await uploadFile({
+              data: png,
+              mimeType: "image/png",
+              filename: `design-${file.designId}-${file.filename}-${viewport.label}.png`,
+              ownerEmail,
+            });
+          } catch {
+            uploadError = {
+              code: "file_upload_failed",
+              message:
+                "Configured file storage rejected the screenshot upload.",
+            };
+          }
+          if (!uploaded && !uploadError) {
+            uploadError = {
+              code: "file_storage_not_configured",
+              message:
+                "Screenshot was rendered but not returned because file storage is not configured.",
+            };
+          }
 
           screenshots.push({
             viewport,
             url: uploaded?.url ?? "",
             persisted: !!uploaded,
-            ...(uploaded?.url
-              ? {}
-              : {
-                  uploadError:
-                    "Screenshot was rendered but not returned because file storage is not configured.",
-                }),
+            ...(uploadError ? { uploadError } : {}),
             bytes: png.byteLength,
             diagnostics: {
               viewport,

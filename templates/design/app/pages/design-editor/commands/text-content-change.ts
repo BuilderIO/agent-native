@@ -6,6 +6,7 @@ import {
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
+import { trace } from "@/components/design/design-trace";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -23,6 +24,8 @@ import type {
   DesignTool,
   EditorMode,
 } from "@/pages/design-editor/types";
+
+import { runRepeatItemEdit } from "./repeat-item-edit";
 
 export interface TextContentChangeArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
@@ -115,6 +118,49 @@ export function runTextContentChange(
   const targetNode = targetInfo
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
     : resolveCodeLayerNodeFromBridge(projection, selector);
+  // An x-text row shows a value from the collection, so its text has one home:
+  // the item. A markup edit changes nothing — the next render puts the data
+  // back. Read from the projection, not from the bridge payload, so this does
+  // not depend on which bridge build the iframe happens to be running.
+  const repeatXFor = targetNode?.repeatXFor;
+  const textBinding =
+    typeof targetNode?.attributes["x-text"] === "string"
+      ? targetNode.attributes["x-text"]
+      : "";
+  if (repeatXFor && textBinding) {
+    const edit = runRepeatItemEdit({
+      content: baseContent,
+      target: {
+        xFor: repeatXFor,
+        itemIndex: elementInfo?.repeat?.itemIndex ?? -1,
+        keyExpression: elementInfo?.repeat?.keyExpression,
+        itemKey: elementInfo?.repeat?.itemKey,
+      },
+      operation: { kind: "set-value", binding: textBinding, value },
+    });
+    if (edit.status === "written") {
+      applyLocalContentUpdate(edit.content, {
+        forcePreviewFullDocument: true,
+      });
+      setActiveTool("move");
+      setMode("edit");
+      return;
+    }
+    if (edit.status === "refused") {
+      trace("structure", "repeat-item-refused", {
+        operation: "set-value",
+        reason: edit.reason,
+      });
+      toast.error(
+        t(
+          edit.refusal === "no-item"
+            ? "designEditor.toasts.repeatRowPickOnCanvas"
+            : "designEditor.toasts.repeatListNotEditable",
+        ),
+      );
+      return;
+    }
+  }
   const isEmpty = value.trim().length === 0;
   const removedContent =
     isEmpty && targetNode

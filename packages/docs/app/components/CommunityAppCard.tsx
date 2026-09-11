@@ -31,7 +31,7 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
   const hasMeta = app.status === "comingSoon" || (app.githubStars ?? 0) > 0;
 
   return (
-    <article className="group flex min-w-0 flex-col overflow-hidden border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
+    <article className="group flex min-w-0 flex-col overflow-hidden border-e border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
       <Link
         data-an-prefetch="viewport"
         to={appPath}

@@ -20,8 +20,11 @@ describe("Calendar mini-calendar navigation", () => {
     expect(source).toContain("function GoogleCalendarsSections");
     expect(source).toContain('calendar.accessRole !== "owner"');
     expect(source).toContain("updateGoogleCalendarVisibility");
+    expect(source).toContain("updateAccountColorMode");
+    expect(source).toContain("function MultiColorDot");
+    expect(source).toContain("colorByMeetingType");
     expect(source).toContain('setAddCalendarDefaultTab("google")');
-    expect(source).toContain("const displayName = calendar.primary");
+    expect(source).toContain('section === "owned" && calendar.primary');
     expect(source).toContain("? calendar.accountEmail");
     expect(source).not.toContain("showProvenance");
     expect(source).not.toContain("sourceAccounts.length > 1");

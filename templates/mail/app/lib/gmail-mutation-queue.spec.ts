@@ -65,7 +65,13 @@ describe("gmailMutationQueue", () => {
     });
 
     expect(gmailMutationQueue.size()).toBe(1);
-    await vi.advanceTimersByTimeAsync(200);
+    let firstSettled = false;
+    void first.then(() => {
+      firstSettled = true;
+    });
+    await vi.advanceTimersByTimeAsync(199);
+    expect(firstSettled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
     await Promise.all([first, second]);
     expect(callAction).toHaveBeenCalledTimes(1);
     expect(callAction.mock.calls[0][1].id).toBe("m1");

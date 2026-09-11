@@ -24,6 +24,9 @@ const messages = {
       extensions: "확장",
       noteToSelf: "나에게 보내는 메모",
     },
+    inbox: {
+      syncing: "받은편지함 동기화 중…",
+    },
     toolbar: {
       toggleMenu: "메뉴 전환",
       menu: "Menu",
@@ -313,6 +316,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "로드할 수 없음: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Google 계정 연결",

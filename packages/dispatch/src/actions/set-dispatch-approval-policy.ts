@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import {
   getApprovalPolicy,
   setApprovalPolicy,
@@ -8,6 +9,7 @@ import {
 
 export default defineAction({
   description: "Enable or disable dispatch approval flow for durable changes.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     enabled: z.boolean(),
     approverEmails: z.array(z.string().email()).default([]),

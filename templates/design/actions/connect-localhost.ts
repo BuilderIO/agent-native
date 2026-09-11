@@ -14,7 +14,9 @@ import {
 
 const routeSchema = z.object({
   id: z.string().optional(),
+  connectionId: z.string().optional(),
   path: z.string().min(1),
+  url: z.string().optional(),
   title: z.string().optional(),
   sourceFile: z.string().optional(),
   sourceKind: z.enum(["react-router", "html", "manual"]).optional(),
@@ -99,6 +101,28 @@ export function derivePreviewToken(bridgeToken: string): string {
     .digest("hex");
 }
 
+function fallbackRouteIdentity(
+  route: { connectionId?: string; path: string; url?: string },
+  devServerUrl: string,
+  connectionId: string,
+): string {
+  if (route.connectionId && route.connectionId !== connectionId) {
+    return `${route.connectionId}:${route.path}`;
+  }
+  if (route.url) {
+    try {
+      const routeUrl = new URL(route.url, devServerUrl);
+      if (routeUrl.origin !== new URL(devServerUrl).origin) {
+        routeUrl.hash = "";
+        return routeUrl.toString();
+      }
+    } catch {
+      // coercion-ok: add-localhost-screens validates malformed route URLs later.
+    }
+  }
+  return route.path;
+}
+
 export default defineAction({
   description:
     "Register or refresh a localhost Design source connection produced by `agent-native design connect`. Stores the dev server URL, bridge URL, route manifest, and operation capabilities so the UI can later list local-code artboards.",
@@ -161,10 +185,17 @@ export default defineAction({
     const bridgeUrl = args.bridgeUrl
       ? normalizeBridgeUrl(args.bridgeUrl)
       : undefined;
+    const rootPath = args.routeManifest?.rootPath ?? args.rootPath;
+    const id =
+      args.id ?? stableConnectionId(devServerUrl, rootPath, ownerEmail, orgId);
     const rawRoutes = args.routeManifest?.routes ?? args.routes ?? [];
     const routes = rawRoutes.map((route) => ({
-      id: route.id ?? makeLocalhostRouteId(route.path),
+      id:
+        route.id ??
+        makeLocalhostRouteId(fallbackRouteIdentity(route, devServerUrl, id)),
+      connectionId: route.connectionId,
       path: route.path,
+      url: route.url,
       title: route.title ?? titleFromRoutePath(route.path),
       sourceFile: route.sourceFile,
       sourceKind: route.sourceKind ?? "manual",
@@ -175,18 +206,10 @@ export default defineAction({
       version: 1 as const,
       sourceType: "localhost" as const,
       devServerUrl,
-      rootPath: args.routeManifest?.rootPath ?? args.rootPath,
+      rootPath,
       routes,
       generatedAt: args.routeManifest?.generatedAt ?? now,
     };
-    const id =
-      args.id ??
-      stableConnectionId(
-        devServerUrl,
-        routeManifest.rootPath,
-        ownerEmail,
-        orgId,
-      );
     const capabilities =
       args.capabilities ??
       DESIGN_BRIDGE_OPERATIONS.map((operation) => ({

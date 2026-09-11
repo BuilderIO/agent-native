@@ -50,6 +50,8 @@ describe("recorder popover failure states", () => {
     expect(html).not.toContain('aria-haspopup="menu"');
     expect(html).not.toContain("FaceTime HD Camera");
     expect(html).toContain('aria-label="Camera"');
+    expect(html).toContain('class="row row-off"');
+    expect(html).not.toContain("row-label-muted");
   });
 
   it("keeps system audio available when the mic is off", () => {
@@ -71,6 +73,24 @@ describe("recorder popover failure states", () => {
     expect(html).not.toContain("mic-wave");
     expect(html).toContain("Record system audio");
     expect(html).toContain('aria-label="Record system audio"');
+    expect(html).toContain('class="row row-on system-audio-row"');
+    expect(html).toContain('class="row-icon system-audio-icon"');
+  });
+
+  it("uses one off-state token for the system audio icon and label", () => {
+    const html = renderToStaticMarkup(
+      <MediaDeviceRow
+        {...commonDeviceProps}
+        kind="mic"
+        devices={[]}
+        selectedId=""
+        on
+        systemAudio={false}
+        onSystemAudioToggle={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('class="row row-off system-audio-row"');
   });
 
   it("keeps source selection keyboard-addressable when the source is active", () => {
@@ -95,6 +115,12 @@ describe("recorder popover failure states", () => {
     expect(html).toContain("group-data-[size=default]/switch:size-4");
     expect(html).toContain("ring-foreground/20");
     expect(html).toContain("data-[state=checked]:translate-x-[calc(100%-2px)]");
+    expect(html).toMatch(
+      /data-slot="switch"[^>]*data-\[state=checked\]:bg-success(?:\s|")/,
+    );
+    expect(html).toMatch(
+      /data-slot="switch-thumb"[^>]*data-\[state=checked\]:bg-success-foreground(?:\s|")/,
+    );
     expect(html).not.toContain("[&>span]");
   });
 
@@ -119,13 +145,15 @@ describe("recorder popover failure states", () => {
     ).toBe(true);
   });
 
-  it("uses an explicit alert for a staged update instead of a settings dot", () => {
+  it("uses a compact alert for a staged update", () => {
     updateMocks.status = { state: "downloaded", version: "2.0.0" };
     const html = renderToStaticMarkup(<UpdateBanner />);
 
     expect(html).toContain('role="alert"');
     expect(html).toContain("Update ready");
     expect(html).toContain(">Update</button>");
+    expect(html).not.toContain("Restart Clips to install it.");
+    expect(html).not.toContain("update-banner-icon");
     expect(html).not.toContain("Dismiss update");
     expect(html).not.toContain("bottom-dot");
     expect(html).not.toContain('aria-label="Update ready"');

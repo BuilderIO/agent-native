@@ -6,10 +6,12 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
+  readlinkSync,
   rmSync,
   statSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -21,6 +23,11 @@ import { isRetiredCompatibilityTemplate } from "./template-standard/manifest.ts"
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
 const sourceDir = join(rootDir, ".agents", "skills");
+const allowedSourceRoots = [
+  realpathSync(sourceDir),
+  realpathSync(join(rootDir, "skills")),
+  realpathSync(join(rootDir, "templates", "content", ".agents", "skills")),
+];
 const targetDir = join(
   rootDir,
   "packages",
@@ -118,6 +125,18 @@ const staleInstructionPatterns = [
 
 const runtimeIntegrationGuidancePattern =
   /For external integrations, inspect the workspace\/provider connection catalog\s+first(?:\.|;)/;
+
+const interactionResponsivenessInstructionPattern =
+  /^- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work\.$/m;
+
+const requiredRuntimeInstructionFiles = [
+  "AGENTS.md",
+  "packages/core/src/templates/default/AGENTS.md",
+  "packages/core/src/templates/headless/AGENTS.md",
+  "packages/core/src/templates/workspace-root/AGENTS.md",
+  "packages/core/src/templates/workspace-core/AGENTS.md",
+  "registry/agent-native-app/AGENTS.md",
+];
 
 const requiredGeneratedGuidance = [
   {
@@ -399,6 +418,19 @@ function listInstructionFiles() {
   return files.sort();
 }
 
+function hasInteractionResponsivenessSkill(content) {
+  const match = content.match(
+    /^## Interaction Responsiveness\n\n((?:(?!^## ).)*)/ms,
+  );
+  if (!match) return false;
+  const section = match[1];
+  return (
+    section.includes("100 ms") &&
+    section.includes("400 ms") &&
+    section.includes("network round-trip")
+  );
+}
+
 function checkGeneratedInstructionPhrases() {
   const findings = [];
   for (const file of listInstructionFiles()) {
@@ -432,6 +464,41 @@ function checkGeneratedInstructionPhrases() {
     const content = readFileSync(file, "utf-8");
     if (!runtimeIntegrationGuidancePattern.test(content)) {
       findings.push(`${rel}: missing runtime-visible integration preflight`);
+    }
+  }
+
+  const interactionResponsivenessSkillFile = join(
+    sourceDir,
+    "frontend-design",
+    "SKILL.md",
+  );
+  if (
+    !hasInteractionResponsivenessSkill(
+      readFileSync(interactionResponsivenessSkillFile, "utf-8"),
+    )
+  ) {
+    findings.push(
+      ".agents/skills/frontend-design/SKILL.md: missing bounded interaction responsiveness guidance",
+    );
+  }
+
+  for (const rel of [
+    ...requiredRuntimeInstructionFiles,
+    ...listTemplateDirs().map((template) => `templates/${template}/AGENTS.md`),
+  ]) {
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(
+        `${rel}: missing required interaction responsiveness guidance file`,
+      );
+      continue;
+    }
+    if (
+      !interactionResponsivenessInstructionPattern.test(
+        readFileSync(file, "utf-8"),
+      )
+    ) {
+      findings.push(`${rel}: missing interaction responsiveness guidance`);
     }
   }
 
@@ -599,16 +666,51 @@ function checkNoStaleTemplateSharedSkills() {
   }
 }
 
+function isWithin(root, candidate) {
+  const pathFromRoot = relative(root, candidate);
+  return (
+    pathFromRoot === "" ||
+    (pathFromRoot !== ".." &&
+      !pathFromRoot.startsWith(`..${sep}`) &&
+      !isAbsolute(pathFromRoot))
+  );
+}
+
+function isAbsoluteLinkTarget(target) {
+  return isAbsolute(target) || win32.isAbsolute(target);
+}
+
+function resolveSourceSkill(skill) {
+  const sourceSkillDir = realpathSync(join(sourceDir, skill));
+  if (!allowedSourceRoots.some((root) => isWithin(root, sourceSkillDir))) {
+    throw new Error(
+      `Refusing to copy ${skill}: resolved source is outside approved skill roots (${sourceSkillDir})`,
+    );
+  }
+  return sourceSkillDir;
+}
+
+function validateSourceSkills() {
+  for (const skill of new Set([
+    ...workspaceSkillIncludes,
+    ...templateSharedSkillIncludes,
+  ])) {
+    resolveSourceSkill(skill);
+  }
+}
+
 function copySkill(skill, targetSkillDir) {
+  const sourceSkillDir = resolveSourceSkill(skill);
   if (
     existsSync(targetSkillDir) &&
-    lstatSync(targetSkillDir).isSymbolicLink()
+    lstatSync(targetSkillDir).isSymbolicLink() &&
+    !isAbsoluteLinkTarget(readlinkSync(targetSkillDir))
   ) {
     return;
   }
   rmSync(targetSkillDir, { recursive: true, force: true });
   mkdirSync(dirname(targetSkillDir), { recursive: true });
-  cpSync(join(sourceDir, skill), targetSkillDir, { recursive: true });
+  cpSync(sourceSkillDir, targetSkillDir, { recursive: true });
 }
 
 function syncWorkspaceCoreSkills() {
@@ -632,6 +734,7 @@ function syncTemplateSharedSkills() {
 
 try {
   assertCategorized();
+  validateSourceSkills();
   if (check) {
     checkInSync();
     checkTemplateSharedSkillsInSync();

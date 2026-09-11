@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildMcpOAuthStartUrl,
@@ -16,6 +16,7 @@ import {
   isMcpConnectionSuggestionText,
   mcpIntegrationAuthLabel,
   mergeDefaultMcpIntegrations,
+  navigateToMcpOAuthStart,
   resolveMcpIntegrationScope,
   shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
@@ -23,6 +24,39 @@ import {
 } from "./mcp-integration-catalog.js";
 
 describe("MCP integration catalog", () => {
+  it("opens OAuth setup without replacing the current app", () => {
+    const replace = vi.fn();
+    const popup = {
+      opener: {},
+      location: { replace },
+    } as unknown as Window;
+    const open = vi.fn(() => popup);
+    vi.stubGlobal("window", { open });
+
+    expect(
+      navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
+    ).toBe(true);
+
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(popup.opener).toBeNull();
+    expect(replace).toHaveBeenCalledWith(
+      "/_agent-native/mcp/servers/oauth/start",
+    );
+
+    open.mockReturnValueOnce(null);
+    expect(
+      navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
+    ).toBe(false);
+
+    open.mockImplementationOnce(() => {
+      throw new Error("blocked");
+    });
+    expect(
+      navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
+    ).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
   it("includes direct-connect defaults that do not need headers", () => {
     const context7 = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "context7",

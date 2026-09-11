@@ -1,6 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/server";
 
-function isObjectOnly(
+export function isObjectOnly(
   schema: unknown,
   ancestors = new Set<unknown>(),
 ): boolean {

@@ -95,18 +95,27 @@ export {
 } from "./auth.js";
 export {
   handleIdentitySso,
+  ensureIdentityUser,
   getIdentityHubUrl,
   isIdentitySsoEnabled,
   isIdentitySsoBypassPath,
   identitySsoLoginButtonHtml,
+  IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH,
+  IDENTITY_SSO_BOOTSTRAP_BINDING_COOKIE,
+  clearIdentitySsoBootstrapBindingCookie,
+  getIdentitySsoBootstrapBindingCookie,
+  setIdentitySsoBootstrapBindingCookie,
   IDENTITY_SSO_PROVIDER_ID,
   IDENTITY_SSO_SCOPE,
   IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
 export {
+  createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
   hasGoogleAuthIdentity,
+  setBetterAuthSessionCookie,
 } from "./better-auth-instance.js";
+export { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
   assertCurrentRequestUserIsOrgAdmin,
@@ -186,11 +195,13 @@ export { createDevScriptRegistry } from "../scripts/dev/index.js";
 export {
   createPollHandler,
   recordChange,
+  prepareTransactionalChange,
   getVersion,
   getChangesSince,
   getPollEmitter,
   canSeeChangeForUser,
   POLL_CHANGE_EVENT,
+  type TransactionalChange,
 } from "./poll.js";
 export { createPollEventsHandler } from "./poll-events.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
@@ -222,6 +233,8 @@ export {
   createFeatureFlagA2AActionRouteAuth,
   createFeatureFlagsPlugin,
 } from "../feature-flags/server.js";
+export { createLabsPlugin } from "../labs/server.js";
+export { createExperimentsPlugin } from "../experiments/server.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,
@@ -586,6 +599,7 @@ export {
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
+  resolveVercelDeploymentProtectionHeaders,
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
@@ -709,7 +723,11 @@ export {
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
-export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
+export {
+  getAppProductionUrl,
+  getFirstPartyProdUrl,
+  resolveAppRuntimeUrl,
+} from "./app-url.js";
 export {
   getConfiguredAppBasePath,
   normalizeAppBasePath,

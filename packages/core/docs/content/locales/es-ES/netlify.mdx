@@ -13,7 +13,18 @@ export default defineConfig({
 });
 ```
 
+Los proyectos nuevos pueden llamar `agentNativePlugins` a la función importada
+y expandir su resultado para mantener alineados los tipos de paquete de Vite.
+Es el mismo plugin `agentNative` y acepta las mismas opciones.
+
 …o establece `NITRO_PRESET=netlify` en el momento de la compilación.
+
+Para una aplicación independiente, compila la salida de Netlify e implementa los activos y las funciones:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
 
 Para un espacio de trabajo, implementa todas las aplicaciones desde un único sitio de Netlify ejecutando:
 

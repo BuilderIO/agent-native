@@ -9,6 +9,9 @@ import type {
   ContentDatabaseDescriptionResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
+import { getDatabaseMutationContract } from "./_database-row-mutation.js";
+import { getDatabaseSetupContract } from "./_database-setup-discovery.js";
+import { configurationRevision } from "./_database-setup-mutation.js";
 import { resolveContentDatabaseRead } from "./_database-utils.js";
 import {
   listPropertiesForDatabase,
@@ -81,7 +84,22 @@ export default defineAction({
       listPropertiesForDatabase(resolved.database.id),
       getDocumentContextPath(databaseDocument),
     ]);
+    const mutationContract = selected.spaceId
+      ? await getDatabaseMutationContract({
+          spaceId: selected.spaceId,
+          databaseId: selected.databaseId,
+          databaseDocumentId: selected.documentId,
+          authorityScope: resolved.database.orgId
+            ? { kind: "organization", id: resolved.database.orgId }
+            : { kind: "personal", id: resolved.database.ownerEmail },
+        })
+      : undefined;
     return {
+      configurationRevision: configurationRevision(resolved.database),
+      mutationContract,
+      setupContract: mutationContract
+        ? await getDatabaseSetupContract(resolved.database, mutationContract)
+        : undefined,
       database: serializeDatabase(
         { ...resolved.database, title: selected.title },
         selected.description,

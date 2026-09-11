@@ -31,6 +31,15 @@ const getReviewFeedbackAction = (await import("./get-review-feedback.js"))
   .default;
 const listReviewCommentsAction = (await import("./list-review-comments.js"))
   .default;
+const reactToReviewCommentAction = (
+  await import("./react-to-review-comment.js")
+).default;
+const setReviewThreadUnreadAction = (
+  await import("./set-review-thread-unread.js")
+).default;
+const setReviewThreadMutedAction = (
+  await import("./set-review-thread-muted.js")
+).default;
 const replyReviewCommentAction = (await import("./reply-review-comment.js"))
   .default;
 const resolveReviewThreadAction = (await import("./resolve-review-thread.js"))
@@ -103,6 +112,154 @@ beforeEach(async () => {
     },
   });
   await ensureReviewTables();
+});
+
+it("denies discussion tool writes without resource access or against deleted comments", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const resource = { resourceType: "doc", resourceId: "private" };
+  const calls = [
+    (ctx: { userEmail: string }) =>
+      reactToReviewCommentAction.run(
+        { ...resource, commentId: root.id, reaction: "👍", active: true },
+        ctx,
+      ),
+    (ctx: { userEmail: string }) =>
+      setReviewThreadMutedAction.run(
+        { ...resource, threadId: root.threadId, muted: true },
+        ctx,
+      ),
+    (ctx: { userEmail: string }) =>
+      setReviewThreadUnreadAction.run(
+        { ...resource, threadId: root.threadId, unread: true },
+        ctx,
+      ),
+  ];
+  for (const call of calls)
+    await expect(call({ userEmail: "outsider@example.com" })).rejects.toThrow();
+  await rawClient.execute({
+    sql: "UPDATE agent_review_comments SET status = ? WHERE id = ?",
+    args: ["deleted", root.id],
+  });
+  for (const call of calls)
+    await expect(call({ userEmail: EDITOR_EMAIL })).rejects.toThrow(
+      /not found/,
+    );
+  const counts = await rawClient.execute({
+    sql: "SELECT (SELECT COUNT(*) FROM agent_review_comment_reactions) AS reactions, (SELECT COUNT(*) FROM agent_review_thread_preferences) AS preferences",
+    args: [],
+  });
+  expect(Number(counts.rows[0].reactions)).toBe(0);
+  expect(Number(counts.rows[0].preferences)).toBe(0);
+});
+
+it("uses current resource access for reaction and preference tools on decided threads", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const context = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+  const resource = { resourceType: "doc", resourceId: "private" };
+  await resolveReviewThreadAction.run(
+    { ...resource, threadId: root.threadId },
+    context,
+  );
+  await reactToReviewCommentAction.run(
+    { ...resource, commentId: root.id, reaction: "👍", active: true },
+    context,
+  );
+  await setReviewThreadUnreadAction.run(
+    { ...resource, threadId: root.threadId, unread: true },
+    context,
+  );
+  await setReviewThreadMutedAction.run(
+    { ...resource, threadId: root.threadId, muted: true },
+    context,
+  );
+  const result = await listReviewCommentsAction.run(
+    { ...resource, includeResolved: true },
+    context,
+  );
+  expect(result.discussion).toMatchObject({
+    canReact: true,
+    canSetThreadPreferences: true,
+    reactions: { [root.id]: [{ reaction: "👍", count: 1, reactedByMe: true }] },
+    threadPreferences: { [root.threadId]: { muted: true, unread: true } },
+  });
+  await expect(
+    reactToReviewCommentAction.run(
+      {
+        ...resource,
+        resourceId: "other",
+        commentId: root.id,
+        reaction: "👍",
+        active: true,
+      },
+      context,
+    ),
+  ).rejects.toThrow("Review comment not found");
+  await expect(
+    setReviewThreadMutedAction.run(
+      {
+        ...resource,
+        resourceId: "other",
+        threadId: root.threadId,
+        muted: true,
+      },
+      context,
+    ),
+  ).rejects.toThrow("Review thread not found");
+  const publicRoot = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "public",
+    body: "Public review",
+    ownerEmail: OWNER_EMAIL,
+    visibility: "public",
+  });
+  await expect(
+    reactToReviewCommentAction.run(
+      {
+        ...resource,
+        resourceId: "public",
+        commentId: publicRoot.id,
+        reaction: "👍",
+        active: true,
+      },
+      { userEmail: "viewer@example.com" },
+    ),
+  ).rejects.toThrow();
+  await setReviewThreadMutedAction.run(
+    {
+      ...resource,
+      resourceId: "public",
+      threadId: publicRoot.threadId,
+      muted: true,
+    },
+    { userEmail: "viewer@example.com" },
+  );
+  await expect(
+    setReviewThreadMutedAction.run({
+      ...resource,
+      resourceId: "public",
+      threadId: publicRoot.threadId,
+      muted: true,
+    }),
+  ).rejects.toThrow("A signed-in user is required");
+  const publicResult = await listReviewCommentsAction.run({
+    resourceType: "doc",
+    resourceId: "public",
+  });
+  expect(publicResult.discussion.canReact).toBe(false);
+  expect(publicResult.discussion.canSetThreadPreferences).toBe(false);
+  expect(
+    publicResult.discussion.threadPreferences[publicRoot.threadId],
+  ).toEqual({ muted: false, unread: false });
 });
 
 afterEach(async () => {

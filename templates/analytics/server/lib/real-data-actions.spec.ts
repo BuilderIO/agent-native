@@ -1046,6 +1046,555 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("does not treat an automation targeting a dashboard as dashboard construction", () => {
+    const request =
+      "Create an automation for the Revenue dashboard and run it every morning";
+
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+  });
+
+  it("does not treat dashboard-triggered automations as dashboard construction", () => {
+    for (const request of [
+      "Create a workflow triggered by dashboard changes",
+      "Create an automation when the dashboard changes",
+    ]) {
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    }
+  });
+
+  it("keeps automation terms in dashboard metrics from suppressing construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard showing automation conversion rate",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard for cron job success rates",
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves dashboard construction in compound dashboard and automation requests", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard for the sales team and schedule an automation to email it every morning",
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves elliptical dashboard clauses beside an automation", () => {
+    for (const request of [
+      "Create an automation, then a dashboard",
+      "Create an automation plus a dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+    }
+  });
+
+  it("does not treat dashboard automation compounds as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Build a dashboard automation to email it every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest("Update the dashboard automation"),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Create a dashboard automation to refresh the Revenue dashboard every morning",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps automation-themed dashboards as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Build an automation dashboard tracking Zapier failure rates",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest("Create a workflow dashboard"),
+    ).toBe(true);
+  });
+
+  it("preserves a separate dashboard request beside dashboard automation", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a sales dashboard and a dashboard automation to email it each morning",
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves explicit dashboard construction beside a scheduled refresh", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a Sales dashboard with a scheduled refresh",
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves dashboard clauses after nested automation actions", () => {
+    for (const request of [
+      "Create an automation to refresh the Revenue dashboard, build a Sales dashboard",
+      "Create an automation to refresh the Revenue dashboard and build a Sales dashboard",
+      "Create an automation to refresh Revenue dashboard plus build Sales dashboard",
+      "Create an automation to refresh the Revenue dashboard but build a Sales dashboard",
+      "Create an automation for dashboard refresh and build a Sales dashboard",
+      "Create an automation for dashboard refresh, then build a Sales dashboard",
+      "Create an automation for dashboard refresh, but build a Sales dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    }
+  });
+
+  it("does not treat dashboard-targeting automation names as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation for our dashboard",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a daily lead summary automation for the Sales dashboard",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a Revenue dashboard email automation",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps qualified automation subjects as dashboard construction", () => {
+    for (const request of [
+      "Create a workflow performance dashboard",
+      "Build an automation health dashboard",
+      "Create a cron job reliability dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    }
+  });
+
+  it("preserves template-based dashboard construction beside automation", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Use the existing dashboard as a template and update the dashboard automation",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not treat nested dashboard actions as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation to refresh the Revenue dashboard every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a job that refreshes the dashboard",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation to clone the Revenue dashboard template every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard automation to clone the Revenue dashboard template",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation using the Revenue dashboard template every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation for the Revenue dashboard using a template",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation to build a dashboard with a scheduled refresh",
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves long and automation-first dashboard construction requests", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a quarterly revenue retention forecast dashboard and schedule an automation to email it",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation and a dashboard",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation, build a sales dashboard",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not treat bare cron automation requests as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a cron to email the Revenue dashboard daily",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Set up cron to refresh the Revenue dashboard daily",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule the Revenue dashboard refresh via cron",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Refresh the Revenue dashboard via cron every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Run the Revenue dashboard refresh on a cron schedule",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest("Schedule a dashboard refresh"),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule a dashboard refresh every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule the dashboard to refresh daily",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule a refresh of the Revenue dashboard every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule a daily refresh of the dashboard",
+      ),
+    ).toBe(false);
+    for (const request of [
+      "Could you schedule a dashboard refresh every morning?",
+      "Can you schedule the Revenue dashboard to refresh daily?",
+      "Create a scheduled refresh of the Revenue dashboard",
+      "Configure a scheduled refresh for the Revenue dashboard",
+      "Update the Revenue dashboard on a cron schedule",
+      "Create a dashboard refresh job",
+      "Create a dashboard refresh schedule",
+      "Create a job to refresh the dashboard",
+      "Set up a job for the dashboard",
+      "Create a job for the dashboard",
+      "Create a job that refreshes the dashboard",
+      "Create a dashboard scheduled refresh",
+      "Create a recurring dashboard refresh",
+      "Refresh the dashboard every morning",
+      "Have the dashboard refresh every morning",
+      "Run the dashboard refresh every morning",
+      "Refresh the dashboard every 15 minutes",
+      "Run the dashboard refresh hourly",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    }
+  });
+
+  it("classifies dashboard refresh jobs and schedules as automation requests", () => {
+    for (const request of [
+      "Create a dashboard refresh job",
+      "Create a dashboard refresh schedule",
+      "Create a job to refresh the dashboard",
+      "Set up a job for the dashboard",
+      "Create a schedule for the dashboard",
+      "Create a job that refreshes the dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+    }
+    expect(
+      looksLikeDashboardConstructionRequest("Create a scheduled dashboard"),
+    ).toBe(true);
+  });
+
+  it("keeps refresh-rate questions as analytics requests", () => {
+    for (const request of [
+      "What is the dashboard refresh rate via cron?",
+      "Show the dashboard refresh rate via cron for the past week.",
+      "What is the refresh rate of the dashboard?",
+      "Show the refresh rate of the dashboard",
+      "What is the dashboard refresh frequency?",
+      "What is the widget refresh frequency?",
+      "What is the dashboard update rate?",
+      "What is the update rate of the dashboard?",
+      "How frequently does the dashboard refresh?",
+      "What is the dashboard refresh interval?",
+      "How often does the dashboard update?",
+      "What is the refresh frequency of the dashboard?",
+      "What is the update frequency of the dashboard?",
+      "How often is the dashboard refreshed?",
+      "What is the dashboard’s refresh frequency?",
+      "What is the frequency of dashboard refreshes?",
+      "What is the frequency of dashboard updates?",
+      "Tell me the dashboard refresh rate",
+      "How often does the Revenue dashboard refresh?",
+      "What is the refresh frequency for my dashboard?",
+      "What is the refresh interval for our dashboard?",
+      "Tell me the refresh frequency of our dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
+  it("keeps schedule dimensions as analytics requests", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Show the conversion rate by schedule for our automations",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What is the schedule and conversion rate for our workflows?",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps dashboard automation analytics questions as data requests", () => {
+    for (const request of [
+      "Show me the dashboard automation conversion rate",
+      "How many dashboard automation runs failed?",
+      "What is the dashboard automation run count?",
+      "Show dashboard automation run count",
+      "How many dashboard automation executions occurred?",
+      "How many dashboard automations ran?",
+      "What is the run count for dashboard automations?",
+      "How many dashboard automation job counts are there?",
+      "What is the number of dashboard automations?",
+      "How many dashboard automations are scheduled?",
+      "How many scheduled dashboard automations are there?",
+      "Are scheduled dashboard automations active?",
+      "Show active dashboard automations",
+      "List paused dashboard automations",
+      "Show active automations for the Sales dashboard",
+      "List paused workflows for the dashboard",
+      "How many dashboard automations are there?",
+      "How many automation dashboards exist?",
+      "What is the status of dashboard automations?",
+      "Show dashboard automation status",
+      "Tell me the dashboard automation status",
+      "Are dashboard automations active?",
+      "Create a report showing dashboard automation status",
+      "Create a report showing the number of dashboard automations",
+      "Build a chart of dashboard automation executions",
+      "Build a chart of dashboard automation conversion rates",
+      "Create a metric for dashboard automation conversion rate",
+      "Create a report showing dashboard automation failure rates",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
+  it("keeps automation-first dashboard questions on the analytics path", () => {
+    for (const request of [
+      "How many automations are scheduled for the dashboard?",
+      "How many automations run the Sales dashboard?",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
+  it("keeps dashboard refresh job counts on the analytics path", () => {
+    const request = "How many failed dashboard refresh jobs are there?";
+
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+  });
+
+  it("does not treat bare dashboard status as analytics", () => {
+    for (const request of [
+      "What is the status of the dashboard?",
+      "What is the state of the Revenue dashboard?",
+    ]) {
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+    }
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What is the status of the Revenue dashboard automation?",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What is the status of the dashboard? Show revenue",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps report framing as analytics intent around workflow terms", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Create a report showing conversion rate by workflow",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Create a report of automation conversion rates",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps report-framed refresh-rate requests as analytics requests", () => {
+    for (const request of [
+      "Create a report showing the dashboard refresh rate",
+      "Create a report of the dashboard refresh rate for the past week.",
+      "Create a report of the refresh rate of the dashboard",
+      "Create a chart showing the refresh rate of the dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
+  it("preserves a following dashboard build after a refresh-rate report", () => {
+    const request =
+      "Create a report showing the dashboard refresh rate, then build a Sales dashboard";
+
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+  });
+
+  it("preserves a preceding dashboard build beside a refresh-rate query", () => {
+    for (const request of [
+      "Build a Sales dashboard and show the dashboard refresh rate",
+      "Build a Sales dashboard, then show the dashboard refresh rate",
+      "Build a Sales dashboard. What is the dashboard refresh rate?",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
+  it("preserves a dashboard build after a semicolon refresh-rate report", () => {
+    const request =
+      "Create a report showing the dashboard refresh rate; build a Sales dashboard";
+
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+  });
+
+  it("preserves analytics intent in a clause after an automation request", () => {
+    for (const request of [
+      "Create an automation to send the weekly summary. What was the conversion rate last week?",
+      "Create an automation and show the conversion rate last week",
+      "Create an automation, then show the conversion rate last week",
+      "What was the conversion rate last week? Then create an automation to send it",
+      "Create an automation to send the weekly summary and tell me the revenue",
+    ]) {
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
+  it("preserves a later dashboard build after a sentence-boundary refresh-rate question", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "What is the refresh rate of the dashboard? Then build a Sales dashboard",
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves modified follow-up dashboard builds after refresh-rate questions", () => {
+    for (const request of [
+      "What is the dashboard refresh rate and also build a Sales dashboard",
+      "What is the dashboard refresh rate and then please build a Sales dashboard",
+      "What is the dashboard refresh rate? Please build a Sales dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    }
+  });
+
+  it("preserves an elliptical dashboard target after a refresh-rate report", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a report showing the dashboard refresh rate and a Sales dashboard",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not treat analytics dashboard follow-ups as construction", () => {
+    for (const request of [
+      "What is the dashboard refresh rate and dashboard performance?",
+      "Show the dashboard refresh rate and dashboard metrics",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
+  it("does not treat a dashboard template input as dashboard construction", () => {
+    for (const request of [
+      "Use a dashboard template to create an automation",
+      "Use the dashboard template for an automation",
+      "Use the existing dashboard template for an automation",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    }
+  });
+
+  it("masks compound actions inside an automation", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation to refresh and update the Revenue dashboard",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a workflow to update, refresh, and rename the Revenue dashboard",
+      ),
+    ).toBe(false);
+  });
+
+  it("bounds long automation classifier inputs", () => {
+    const request = `Create an automation to ${"refresh ".repeat(10_000)}finish`;
+
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+  });
+
+  it("keeps automation dashboards that use a template as construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation dashboard using a template",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps named dashboards as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard called Automation Health",
+      ),
+    ).toBe(true);
+  });
+
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
     expect(
       looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),

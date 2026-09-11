@@ -375,6 +375,7 @@ export interface AssistantChatHistoryMessage {
 export interface AssistantChatHistoryConfig<
   TListResult = unknown,
   TVersion extends AssistantChatHistoryVersion = AssistantChatHistoryVersion,
+  TRestoreResult = unknown,
 > {
   list: {
     action: string;
@@ -383,7 +384,13 @@ export interface AssistantChatHistoryConfig<
   };
   restore: {
     action: string;
-    args: (version: TVersion) => Record<string, unknown>;
+    args: (
+      version: TVersion,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    onRestored?: (
+      result: TRestoreResult,
+      version: TVersion,
+    ) => void | Promise<void>;
   };
   createVersion?: {
     action: string;

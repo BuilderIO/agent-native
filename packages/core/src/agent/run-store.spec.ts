@@ -1456,6 +1456,27 @@ describe("run store", () => {
     expect(select?.sql).toContain("COALESCE(heartbeat_at, started_at)");
   });
 
+  it("orders unclaimed rows by least recent liveness so failed retries yield to newer handoffs", async () => {
+    unclaimedBackgroundRunRowsWithStartedAt = [
+      { id: "run-old-retry", started_at: 100 },
+      { id: "run-new-handoff", started_at: 200 },
+    ];
+
+    await listUnclaimedBackgroundRunRows({ limit: 2 });
+
+    const select = execCalls.find((call) =>
+      /SELECT id, started_at.*FROM agent_runs\s*WHERE status = 'running'/is.test(
+        call.sql,
+      ),
+    );
+    expect(select?.sql).toMatch(
+      /ORDER BY COALESCE\(heartbeat_at, started_at\) ASC, started_at ASC/i,
+    );
+    // `started_at` remains the original handoff time used by the five-minute
+    // redispatch bound; the ordering clock is the mutable heartbeat.
+    expect(select?.sql).toContain("SELECT id, started_at");
+  });
+
   it("listUnclaimedBackgroundRunRows ignores rows with a non-string/empty id defensively", async () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
       { id: "run-ok", started_at: 100 },

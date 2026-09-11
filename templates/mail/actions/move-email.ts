@@ -9,6 +9,7 @@ import {
   gmailModifyThread,
 } from "../server/lib/google-api.js";
 import { isConnected } from "../server/lib/google-auth.js";
+import { syncInboxLabelDelta } from "../server/lib/inbox-store-sync.js";
 import {
   readLocalEmails,
   withLocalEmailMutationLock,
@@ -122,7 +123,7 @@ export default defineAction({
     for (const id of ids) {
       let success = false;
       const errors: string[] = [];
-      for (const { accessToken } of accounts) {
+      for (const { email, accessToken } of accounts) {
         try {
           const msg = await gmailGetMessage(accessToken, id, "minimal");
           const labelData = await gmailListLabels(accessToken);
@@ -136,12 +137,17 @@ export default defineAction({
             const removeLabelId = resolveLabelId(args.removeLabel, labels);
             if (removeLabelId) removeLabelIds.push(removeLabelId);
           }
+          const uniqueRemoveLabelIds = [...new Set(removeLabelIds)];
           await gmailModifyThread(
             accessToken,
             msg.threadId,
             [addLabelId],
-            [...new Set(removeLabelIds)],
+            uniqueRemoveLabelIds,
           );
+          await syncInboxLabelDelta(ownerEmail, email, [msg.threadId], {
+            add: [addLabelId],
+            remove: uniqueRemoveLabelIds,
+          });
           success = true;
           break;
         } catch (err: any) {

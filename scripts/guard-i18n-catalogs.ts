@@ -10,6 +10,8 @@ import { pathToFileURL } from "node:url";
 
 import {
   DEFAULT_LOCALE,
+  isValidLocaleCode,
+  normalizeLocaleCode,
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../packages/core/src/localization/shared.js";
@@ -18,6 +20,13 @@ import { splitDocSegments } from "../packages/docs/lib/doc-block-segments";
 const rootDir = path.resolve(import.meta.dirname, "..");
 const pluralSuffixes = new Set(["zero", "one", "two", "few", "many", "other"]);
 const supportedLocaleSet = new Set<string>(SUPPORTED_LOCALES);
+
+function isCatalogLocale(locale: string): boolean {
+  return (
+    isValidLocaleCode(locale) &&
+    normalizeLocaleCode(locale, [locale]) === locale
+  );
+}
 
 type FlatCatalog = Map<string, string>;
 
@@ -349,12 +358,8 @@ async function checkCatalogDir(dir: string): Promise<string[]> {
   }
 
   for (const locale of localeFiles.keys()) {
-    if (!supportedLocaleSet.has(locale)) {
-      errors.push(
-        `${relDir}/${locale}.ts is not a supported locale (${SUPPORTED_LOCALES.join(
-          ", ",
-        )})`,
-      );
+    if (!isCatalogLocale(locale)) {
+      errors.push(`${relDir}/${locale}.ts is not a canonical BCP-47 locale`);
     }
   }
 
@@ -367,7 +372,7 @@ async function checkCatalogDir(dir: string): Promise<string[]> {
 
   const sourceShape = catalogShape(source.flat);
   for (const [locale, file] of localeFiles) {
-    if (locale === DEFAULT_LOCALE || !supportedLocaleSet.has(locale)) continue;
+    if (locale === DEFAULT_LOCALE || !isCatalogLocale(locale)) continue;
     const target = await loadFlatCatalog(file);
     errors.push(...target.errors.map((error) => `${relDir}: ${error}`));
     if (target.errors.length > 0) continue;

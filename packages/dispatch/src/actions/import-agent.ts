@@ -8,6 +8,7 @@ import {
   normalizeImportedAgent,
   validateImportedAgentTools,
 } from "../lib/simple-agent-profile.js";
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import {
   createWorkspaceResource,
   listWorkspaceResources,
@@ -16,6 +17,7 @@ import {
 export default defineAction({
   description:
     "Import a Claude-style Markdown agent or a generic JSON agent definition into a reusable Dispatch agent profile. Credentials, shell commands, hooks, and local environment settings are never imported. Use connect-external-agent for an HTTP/A2A endpoint.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     source: z
       .string()

@@ -61,10 +61,15 @@ export function isSlideTextEditingTarget(
 }
 
 export function shouldStampBuilderId(element: HTMLElement): boolean {
+  const smartGroupMember =
+    isSmartGroup(element) ||
+    (isTextLeaf(element) &&
+      element.parentElement instanceof HTMLElement &&
+      isSmartGroup(element.parentElement));
   return (
     !element.classList.contains("fmd-layout-spacer") &&
     !isInlineTextElement(element) &&
-    !isRichTextLayerAncestor(element)
+    (!isRichTextLayerAncestor(element) || smartGroupMember)
   );
 }
 
@@ -88,6 +93,14 @@ const RICH_TEXT_TABLE_TAGS = new Set([
 
 function ownsRichTextLayer(element: HTMLElement): boolean {
   return !RICH_TEXT_TABLE_TAGS.has(element.tagName) && isRichTextBlock(element);
+}
+
+/**
+ * Smart groups contain layout wrappers that the rich-text schema cannot
+ * round-trip, so edit the clicked text leaf without replacing the group.
+ */
+function ownsRichTextEditingLayer(element: HTMLElement): boolean {
+  return ownsRichTextLayer(element) && !isSmartGroup(element);
 }
 
 /**
@@ -183,10 +196,18 @@ export function isRichTextBlock(element: HTMLElement): boolean {
       const childElement = child as HTMLElement;
       return (
         RICH_TEXT_BLOCK_TAGS.has(childElement.tagName) ||
-        (children.length === 1 && isRichTextBlock(childElement))
+        (children.length === 1 &&
+          !isSmartGroup(childElement) &&
+          isRichTextBlock(childElement))
       );
     })
   );
+}
+
+export function shouldTraverseSlideLayerChildren(
+  element: HTMLElement,
+): boolean {
+  return !isRichTextBlock(element) || isSmartGroup(element);
 }
 
 /** Keep a semantic list inside its containing canvas text block while editing. */
@@ -216,7 +237,7 @@ function findSlideRichTextOwner(
   while (element && element !== root && root.contains(element)) {
     if (isSlideCanvasShell(element)) break;
     if (RICH_TEXT_TABLE_TAGS.has(element.tagName)) break;
-    if (ownsRichTextLayer(element)) owner = element;
+    if (ownsRichTextEditingLayer(element)) owner = element;
     element = element.parentElement;
   }
   return owner;

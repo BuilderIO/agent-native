@@ -17,8 +17,8 @@ code से call करता है।
 
 ## आवश्यकताएं
 
-- [Node.js](https://nodejs.org) 22 या बाद का संस्करण
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 या बाद का संस्करण
+- [pnpm](https://pnpm.io) इंस्टॉल हो और आपके `PATH` में उपलब्ध हो
 - Agent के लिए LLM connection: Builder.io, Anthropic या OpenAI API key, या local Ollama model
 
 ## Agent बनाएं
@@ -26,7 +26,7 @@ code से call करता है।
 नई directory में Chat template से शुरू करें:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -43,7 +43,7 @@ Development server शुरू करें:
 pnpm dev
 ```
 
-Browser UI `http://localhost:8080` पर खुलेगा। अगर वह अपने आप न खुले, तो browser में उस URL पर जाएं।
+Browser UI अपने आप खुलेगा। अगर ऐसा न हो, तो `pnpm dev` द्वारा दिखाई गई local URL खोलें; अगर 8080 उपयोग में है तो port बढ़ जाता है।
 
 <Callout tone="info">
 
@@ -74,7 +74,7 @@ Hello, Alex!
 
 ## Action देखें
 
-`actions/hello.ts` खोलें:
+अपनी स्थानीय `my-app` डायरेक्टरी में, कोड एडिटर से `actions/hello.ts` खोलें:
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -103,7 +103,8 @@ export default defineAction({
 
 ## React से action call करें
 
-`app/routes/hello.tsx` पर route जोड़ें:
+Template में `actions/hello.ts` शामिल है, लेकिन उसके लिए page नहीं है।
+`app/routes/hello.tsx` बनाएं:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -136,7 +137,7 @@ export default function HelloRoute() {
 <Callout tone="warning">
 
 नया route खोजने के लिए development server restart करें, फिर
-`http://localhost:8080/hello` खोलें।
+`http://localhost:<port>/hello` खोलें।
 
 </Callout>
 
@@ -191,5 +192,9 @@ action इसी pattern का पालन करता है।
 ### [Actions](/docs/actions-overview)
 
 Reads, writes और approvals के लिए actions define करें, फिर उन्हें UI, agents और external clients से call करें।
+
+### [ऐप deploy करें](/docs/deploy-an-app)
+
+Local development से persistent database, production auth और supported deployment target पर जाएं।
 
 </Cards>

@@ -1,5 +1,29 @@
 # @agent-native/scheduling
 
+## 0.1.61
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b7c56a1: Harden security across CLI action runners and scheduling actions: safely tokenize and quote CLI arguments in fallback action routes to prevent shell command injection, require viewer access on routing form responses, and enforce access checks on event type ID queries.
+- Updated dependencies [35eb1e6]
+- Updated dependencies [4676e71]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.7
+
+## 0.1.60
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 8f0c972: Keep the event-type authorization test fixture in step with the shared shares
+  table, which now records when a share notification was sent.
+- Updated dependencies [e8b291e]
+- Updated dependencies [4915b82]
+- Updated dependencies
+- Updated dependencies [3bde94f]
+  - @agent-native/toolkit@0.19.6
+
 ## 0.1.59
 
 ### Patch Changes

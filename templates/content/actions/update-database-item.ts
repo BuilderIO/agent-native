@@ -38,13 +38,15 @@ const schema = databaseMutationEnvelopeSchema.extend({
   ),
 });
 const agentSchema = schema
-  .extend({ target: databaseMutationAgentTargetSchema })
-  .omit({ propertyValues: true });
+  .extend({ target: databaseMutationAgentTargetSchema.strict() })
+  .omit({ propertyValues: true })
+  .strict();
 
 export default defineAction({
   description:
     "Sparsely update one exact Content database row using identifiers and revisions copied from a fresh get-content-database read: item.id is the membership itemId, document.id is the distinct page documentId, and rowRevision is expectedRowRevision. Requires the fresh schema revision, preserves omitted properties, validates every provided non-Blocks property, and returns a verified idempotent receipt.",
   mcpTool: true,
+  mcpApp: { structuredContent: true },
   agentInputSchema: agentSchema,
   schema,
   http: { method: "PUT" },
@@ -63,16 +65,23 @@ export default defineAction({
         : "Updated Content database row";
     },
   },
-  run: (args) => updateDatabaseRow(canonicalizeDatabasePropertyInput(args)),
+  run: (args, context) => {
+    if (context?.caller === "mcp") agentSchema.parse(args);
+    return updateDatabaseRow(canonicalizeDatabasePropertyInput(args));
+  },
   link: ({ result }) => {
-    const documentId = (result as ContentDatabaseRowMutationResult | null)
-      ?.receipt.row.documentId;
-    if (!documentId) return null;
+    const receipt = (result as ContentDatabaseRowMutationResult | null)
+      ?.receipt;
+    if (!receipt) return null;
     return {
       url: buildDeepLink({
         app: "content",
         view: "editor",
-        params: { documentId },
+        params: {
+          documentId: receipt.row.documentId,
+          databaseId: receipt.target.databaseId,
+          databaseDocumentId: receipt.target.databaseDocumentId,
+        },
       }),
       label: "Open database row",
       view: "editor",

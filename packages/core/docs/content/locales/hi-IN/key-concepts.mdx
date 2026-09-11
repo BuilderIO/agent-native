@@ -425,15 +425,6 @@ Diagram उसी sequence को end to end trace करता है:
 
 यह सभी deployment environments में काम करता है, serverless और edge समेत, क्योंकि यह in-memory state या file system watchers के बजाय database का उपयोग करता है।
 
-## Frames {#frames}
-
-एक _frame_ वह environment है जो आपके ऐप के साथ agent को host करता है। Locally यह embedded panel है; cloud में यह Builder.io का managed surface है। देखें [Frames](/docs/frames)।
-
-Agent-Native ऐप्स में एक embedded agent panel शामिल होता है जो app UI के साथ-साथ AI agent उपलब्ध कराता है। यही वह चीज़ है जो architecture को काम करने योग्य बनाती है: agent को एक computer चाहिए (database, browser, code execution), और ऐप को AI काम के लिए agent चाहिए।
-
-- **Embedded Agent Panel:** हर ऐप में built-in Chat और वैकल्पिक CLI terminal। Claude Code, Codex, Gemini, OpenCode, और Builder.io को support करता है। Locally चलता है, free और open source।
-- **Cloud:** real-time collaboration, visual editing, roles, और permissions के साथ किसी भी cloud पर deploy करें। Teams के लिए सबसे बेहतर।
-
 ## संदर्भ जागरूकता {#context-awareness}
 
 Agent को हमेशा पता होता है कि user क्या देख रहा है। हर route change पर UI application-state में एक `navigation` key लिखता है। Agent एक्शन लेने से पहले इसे `view-screen` action के ज़रिए पढ़ता है।

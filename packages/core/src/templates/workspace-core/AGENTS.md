@@ -35,6 +35,7 @@ agent should know.
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - All AI/LLM behavior goes through the app's agent chat. UI and server code must
   not call model providers or AI SDK `generateText()` / `streamText()` directly;
   use `sendToAgentChat()`. Keep actions deterministic and focused. Research,
@@ -43,9 +44,8 @@ agent should know.
   second freeform textbox. Read `delegate-to-agent` first.
 - Keep domain workflows on named routes and preserve the scaffold's full-page
   chat route.
-- Keep the first viewport focused: one primary action, progressive disclosure,
-  concise copy, and domain-specific navigation. Never use sparkle, wand,
-  magic, or robot icons as AI affordances.
+- Keep first viewport focused: one primary action, progressive disclosure, and
+  domain navigation; never use sparkle, wand, magic, or robot icons.
 - Data loads use layout-matching `Skeleton` geometry, never a
   generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
   and progress actions.

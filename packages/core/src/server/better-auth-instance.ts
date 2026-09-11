@@ -30,6 +30,8 @@ import {
   timestamp as pgTimestamp,
   boolean as pgBoolean,
 } from "drizzle-orm/pg-core";
+import { setCookie } from "h3";
+import type { H3Event } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
@@ -92,6 +94,7 @@ import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
+import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
 import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 import { getConfiguredOriginAllowlist } from "./origin-allowlist.js";
@@ -1014,7 +1017,7 @@ export interface BetterAuthInternalAdapter {
  * transaction owns the user row so a stale lookup cannot delete a different
  * identity.
  */
-async function replaceUnverifiedCredentialWithGoogle(input: {
+export async function replaceUnverifiedCredentialWithGoogle(input: {
   userId: string;
   email: string;
   accountId: string;
@@ -1059,14 +1062,19 @@ async function replaceUnverifiedCredentialWithGoogle(input: {
       sql: 'SELECT id, provider_id FROM "account" WHERE user_id = ?',
       args: [input.userId],
     });
-    if (
-      accounts.rows.length !== 1 ||
-      accounts.rows[0]?.provider_id !== "credential"
-    ) {
+    const credentialRows = accounts.rows.filter(
+      (row) => row.provider_id === "credential",
+    );
+    const claimRows = accounts.rows.filter(
+      (row) =>
+        row.provider_id !== "credential" &&
+        row.provider_id !== IDENTITY_SSO_PROVIDER_ID,
+    );
+    if (credentialRows.length !== 1 || claimRows.length > 0) {
       throw new Error("Cannot link Google to an ambiguous unverified identity");
     }
 
-    const credentialId = accounts.rows[0]?.id;
+    const credentialId = credentialRows[0]?.id;
     const deleted = await tx.execute({
       sql: 'DELETE FROM "account" WHERE id = ? AND user_id = ? AND provider_id = ?',
       args: [credentialId, input.userId, "credential"],
@@ -1283,6 +1291,65 @@ export async function createBetterAuthSessionForEmail(
   };
 }
 
+/** Set a Better Auth session cookie for a session created through the adapter. */
+export async function setBetterAuthSessionCookie(
+  event: H3Event,
+  token: string,
+): Promise<void> {
+  const auth = (await getBetterAuth()) as unknown as {
+    $context?: Promise<{
+      authCookies: {
+        sessionToken: {
+          name: string;
+          attributes: Record<string, unknown>;
+        };
+        sessionData: {
+          name: string;
+          attributes: Record<string, unknown>;
+        };
+        dontRememberToken: {
+          name: string;
+          attributes: Record<string, unknown>;
+        };
+      };
+      secret: string;
+      sessionConfig: { expiresIn: number };
+    }>;
+  };
+  const context = await auth.$context;
+  if (!context) throw new Error("Better Auth context is unavailable.");
+
+  const signCookieValue = (value: string) =>
+    crypto.createHmac("sha256", context.secret).update(value).digest("base64");
+  const sessionCookie = context.authCookies.sessionToken;
+  setCookie(event, sessionCookie.name, `${token}.${signCookieValue(token)}`, {
+    ...sessionCookie.attributes,
+    maxAge: context.sessionConfig.expiresIn,
+  } as any);
+
+  const incomingCookieNames = (event.headers.get("cookie") ?? "")
+    .split(";")
+    .map((part) => part.split("=", 1)[0]?.trim() ?? "")
+    .filter(Boolean);
+  const sessionDataCookie = context.authCookies.sessionData;
+  const sessionDataNames = new Set([
+    sessionDataCookie.name,
+    ...incomingCookieNames.filter((name) =>
+      name.startsWith(`${sessionDataCookie.name}.`),
+    ),
+  ]);
+  for (const name of sessionDataNames) {
+    setCookie(event, name, "", {
+      ...sessionDataCookie.attributes,
+      maxAge: 0,
+    } as any);
+  }
+  setCookie(event, context.authCookies.dontRememberToken.name, "", {
+    ...context.authCookies.dontRememberToken.attributes,
+    maxAge: 0,
+  } as any);
+}
+
 export interface GoogleAuthIdentity {
   email: string;
   accountId: string;
@@ -1444,14 +1511,20 @@ export async function ensureGoogleAuthIdentityWithAdapter(
 
   // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
-  // canonical user to the verified Google identity. Any other linked account
-  // makes the claimant ambiguous, so keep the account-claim protection.
+  // canonical user to the verified Google identity. A third-party account makes
+  // the claimant ambiguous, so keep the account-claim protection. The
+  // framework's own identity-SSO link is not a third party: cross-app JIT
+  // provisioning writes it alongside an unusable password credential, so
+  // counting it as a claim left federated users permanently unable to sign in
+  // with Google against a password account they never knowingly created.
   if (existing.user.emailVerified !== true) {
     const credentialAccounts = existing.accounts.filter(
       (account) => account.providerId === "credential",
     );
     const hasOtherAccounts = existing.accounts.some(
-      (account) => account.providerId !== "credential",
+      (account) =>
+        account.providerId !== "credential" &&
+        account.providerId !== IDENTITY_SSO_PROVIDER_ID,
     );
     if (credentialAccounts.length !== 1 || hasOtherAccounts) {
       throw new Error(

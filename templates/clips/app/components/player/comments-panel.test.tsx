@@ -266,6 +266,17 @@ describe("CommentsPanel reply composer", () => {
     expect(container.querySelector("kbd")?.textContent).toBe("Enter");
   });
 
+  it("keeps inline comments scrollable with the composer available", () => {
+    renderPanel("viewer@example.com", [rootComment], "inline");
+
+    const panel = container.firstElementChild as HTMLElement | null;
+    const listRegion = container.querySelector("ul")?.parentElement;
+
+    expect(panel?.className).toContain("lg:h-full");
+    expect(listRegion?.className).toContain("lg:overflow-y-auto");
+    expect(listRegion?.className).toContain("lg:overscroll-contain");
+  });
+
   it("opens account creation when a signed-out viewer activates the composer", () => {
     const onUnauthenticated = vi.fn();
 

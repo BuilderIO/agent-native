@@ -1,5 +1,6 @@
 import { isReconcileLeadClient } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
+import { resolveSlideBackground } from "@shared/slide-background";
 import { Extension } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
@@ -14,7 +15,9 @@ import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 
 import type { Slide } from "@/context/DeckContext";
+import { sanitizeCssValue } from "@/lib/sanitize-slide-html";
 
+import type { DesignSystemData } from "../../../shared/api";
 import { SlideBubbleMenu } from "./SlideBubbleMenu";
 import {
   SlashCommandExtension,
@@ -29,6 +32,7 @@ import {
 
 interface SlideInlineEditorProps {
   slide: Slide;
+  designSystem?: DesignSystemData;
   onContentChange: (html: string) => void;
   onExitEdit: () => void;
   /**
@@ -52,13 +56,16 @@ interface SlideInlineEditorProps {
 }
 
 /** Resolve bg class / style from slide.background */
-function resolveBackground(bg?: string): {
+function resolveBackground(
+  bg?: string,
+  designSystem?: DesignSystemData,
+): {
   bgClass: string;
   bgStyle?: React.CSSProperties;
 } {
-  if (!bg) return { bgClass: "bg-[#000000]" };
-  if (bg.startsWith("bg-")) return { bgClass: bg };
-  return { bgClass: "", bgStyle: { background: bg } };
+  const resolved = resolveSlideBackground(bg, designSystem);
+  if (resolved.startsWith("bg-")) return { bgClass: resolved };
+  return { bgClass: "", bgStyle: { background: resolved } };
 }
 
 /**
@@ -185,6 +192,7 @@ export function shouldApplySlideContentSync({
 
 export function SlideInlineEditor({
   slide,
+  designSystem,
   onContentChange,
   onExitEdit,
   contentUpdatedAt,
@@ -195,7 +203,25 @@ export function SlideInlineEditor({
   onComment,
 }: SlideInlineEditorProps) {
   const t = useT();
-  const { bgClass, bgStyle } = resolveBackground(slide.background);
+  const { bgClass, bgStyle } = resolveBackground(
+    slide.background,
+    designSystem,
+  );
+  const designSystemStyle = designSystem
+    ? ({
+        "--ds-bg": bgClass
+          ? "transparent"
+          : (bgStyle?.background ?? "transparent"),
+        "--ds-text":
+          sanitizeCssValue(designSystem.colors.text) ??
+          "hsl(var(--foreground))",
+        "--ds-text-muted":
+          sanitizeCssValue(designSystem.colors.textMuted) ??
+          "hsl(var(--muted-foreground))",
+        "--ds-heading-font": designSystem.typography.headingFont,
+        "--ds-body-font": designSystem.typography.bodyFont,
+      } as React.CSSProperties & Record<string, string>)
+    : {};
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guard flag: prevents the seeding setContent from triggering onContentChange
   const isSettingContent = useRef(false);
@@ -452,7 +478,7 @@ export function SlideInlineEditor({
   return (
     <div
       className={`w-full aspect-video rounded-lg overflow-hidden relative shadow-2xl shadow-black/40 ring-2 ring-[#609FF8] ${bgClass}`}
-      style={bgStyle}
+      style={{ ...bgStyle, ...designSystemStyle }}
     >
       {/* Scale the editor canvas to 960x540 just like SlideRenderer */}
       <div
@@ -463,7 +489,11 @@ export function SlideInlineEditor({
           transform: "scale(var(--slide-scale, 0.25))",
         }}
       >
-        <SlideEditorCanvas editor={editor} slide={slide} />
+        <SlideEditorCanvas
+          editor={editor}
+          slide={slide}
+          designSystem={designSystem}
+        />
       </div>
       {/* ScaleHelper mirrors SlideRenderer's ScaleHelper */}
       <ScaleHelper targetWidth={960} />
@@ -494,27 +524,31 @@ export function SlideInlineEditor({
 function SlideEditorCanvas({
   editor,
   slide,
+  designSystem,
 }: {
   editor: ReturnType<typeof useEditor>;
   slide: Slide;
+  designSystem?: DesignSystemData;
 }) {
   const layoutPadding: Record<string, string> = {
-    title: "px-[110px] py-[80px]", // i18n-ignore Tailwind class list
-    content: "px-[110px] py-[80px]", // i18n-ignore Tailwind class list
-    "two-column": "px-[70px] py-[50px]",
-    section: "px-[110px] py-[80px]", // i18n-ignore Tailwind class list
-    statement: "px-[110px] py-[60px]", // i18n-ignore Tailwind class list
-    image: "px-[80px] py-[60px]",
+    title: "px-[80px] py-[64px]", // i18n-ignore Tailwind class list
+    content: "px-[80px] py-[64px]", // i18n-ignore Tailwind class list
+    "two-column": "px-[80px] py-[64px]",
+    section: "px-[80px] py-[64px]", // i18n-ignore Tailwind class list
+    statement: "px-[80px] py-[64px]", // i18n-ignore Tailwind class list
+    image: "px-[80px] py-[64px]",
     "full-image": "p-0",
     blank: "p-8",
   };
 
-  const padding = layoutPadding[slide.layout] ?? "px-[110px] py-[80px]"; // i18n-ignore Tailwind class list
+  const padding = layoutPadding[slide.layout] ?? "px-[80px] py-[64px]"; // i18n-ignore Tailwind class list
 
   return (
     <div
       className={`w-[960px] h-[540px] relative flex flex-col justify-center ${padding}`}
-      style={{ fontFamily: "'Poppins', sans-serif" }}
+      style={{
+        fontFamily: designSystem?.typography.bodyFont ?? "Inter, sans-serif",
+      }}
     >
       <EditorContent
         editor={editor}

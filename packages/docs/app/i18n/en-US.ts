@@ -909,6 +909,56 @@ const enUS = {
     },
     clips: {
       s001: "Clips app screenshot",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "Screen recordings your AI agent can see and hear",
+      heroDescription:
+        "Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents.",
+      heroCta: "Record a clip",
+      useCasesHeading: "What can you do with Clips?",
+      useCasesBody:
+        "Start with a clip you recorded or one someone shared with you. Give your AI agent the context and tell it what you need.",
+      useCase1Title: "Act on recorded feedback",
+      useCase1Body:
+        "Give your AI agent recorded feedback to turn into a plan or help implement the requested changes.",
+      useCase2Title: "Investigate a reported bug",
+      useCase2Body:
+        "Share a bug recording with your AI agent to investigate what went wrong and work out the next steps.",
+      useCase3Title: "Create from a recorded brief",
+      useCase3Body:
+        "Use a recorded brief to guide your AI agent in creating a presentation, design, content, or app change.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading:
+        "Everything you need to record, transcribe, and share",
+      feature1Title: "Agent-readable recordings",
+      feature1Body:
+        "Share a clip's transcript and timestamped images with your AI agent through one agent-readable link.",
+      feature2Title: "Automatic transcripts",
+      feature2Body:
+        "Get transcripts of recordings, meetings, and dictations. Click any transcript line to replay that moment.",
+      feature3Title: "Browser debug logs",
+      feature3Body:
+        "Capture console errors and failed requests alongside your recording with the Clips Chrome extension.",
+      feature4Title: "Built-in AI agent",
+      feature4Body:
+        "Ask the built-in AI agent about one clip or your whole library, and have it edit transcripts in chat.",
+      feature5Title: "Searchable recording library",
+      feature5Body:
+        "Find clips by searching their transcripts. Organize your recordings with folders, tags, and team spaces.",
+      feature6Title: "Push-to-talk dictation",
+      feature6Body:
+        "Hold Fn in the desktop app to dictate into other apps. Revisit transcripts and cleaned-up text in your history.",
+      teammatesLine:
+        "Your teammates can watch the same recording in the player.",
+      teammatesLinkLabel: "Read the agent-sharing guide",
+      seeInActionHeading: "See Clips in action",
+      seeInActionBody:
+        "Watch Clips in use, from recording a browser workflow to showing an AI agent how to perform a task.",
+      watchClipLabel: "Watch the clip",
+      finalCtaHeading: "Put your next clip to work",
+      finalCtaBody:
+        "Record an explanation or bring a shared clip to your AI agent.",
+      finalCtaButton: "Open Clips",
       s002: "Screen Record",
       s003: "Browser Debug Logs",
       s004: "Dictate",
@@ -971,26 +1021,23 @@ const enUS = {
       s058: "Free & open source",
       s059: "Need to see more first?",
       s060: "Choose what to capture, then start recording in Clips.",
-      s061: "View more apps",
       s062: "View all apps",
       faq: {
-        question1: "Is Clips free?",
-        answer1: "Yes. Clips is free and open source.",
-        question2: "Can AI read a screen recording?",
+        question1: "What is Agent-Native Clips?",
+        answer1:
+          "Agent-Native Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents. It gives your AI agent a transcript and timestamped images from a recording, while people can watch the same clip.",
+        question2: "Can I share recordings with Claude, ChatGPT, or Cursor?",
         answer2:
-          "Yes. Every clip ships with a transcript, summary, and timestamped frames an agent can read directly.",
-        question3: "How is Clips different from Loom?",
+          "Clips provides an agent-readable link with a transcript and timestamped images. Your agent needs to be able to open the linked content and read images to use both. Some chat modes can read the transcript but need you to upload an image separately.",
+        question3: "Do I need the Chrome extension to record my screen?",
         answer3:
-          "Clips is open source, you own the data, and every share link is readable by AI agents, not just people.",
-        question4: "Can a screen recording capture console errors?",
+          "No. You can record in the Clips web app. Use the Chrome extension when you also want console messages and network diagnostics from the tab you're demonstrating.",
+        question4: "Can AI agents watch my screen recordings?",
         answer4:
-          "Yes. Clips captures browser console errors and failed network requests alongside the recording. They attach themselves to the same share link as the transcript and frames. An agent can debug from a clip, not just watch it.",
-        question5: "Does Clips work with Claude, ChatGPT, or Cursor?",
+          "With Clips, compatible AI agents can understand your recording through a transcript and timestamped images. They use the text and images rather than playing the video, so you can ask questions about what happened or give your AI agent a task based on the recording.",
+        question5: "Who can access a shared recording?",
         answer5:
-          "Yes! No plugin or API key required. Paste a Clips share link into any agent and it can read the transcript, summary, and frames directly.",
-        question6: "Where do my recordings live?",
-        answer6:
-          "Wherever you deploy them. Self-hosted Clips keeps your video, transcripts, and analytics in your own infrastructure.",
+          "Recordings use public links by default unless your organization changes that setting. Anyone with the link can access them. Private and organization access options are available, and private clips can be shared with agents through temporary links without making the recording public.",
       },
       quickStart: {
         recordingMode: "Recording mode",
@@ -1504,30 +1551,72 @@ const enUS = {
     },
     slides: {
       faq: {
-        question1: "Can I make a presentation from Claude or ChatGPT?",
+        question1: "What is Agent-Native Slides?",
         answer1:
-          "Yes. Ask Claude or ChatGPT for a deck and it lands in Slides — branded, editable, exportable — instead of you starting over in a deck website.",
-        question2: "Can I fix what the AI gets wrong?",
+          "Agent-Native Slides is a free and open-source AI presentation maker. Create on-brand decks from your ideas and source material with an AI agent, then edit the slides yourself, present, or export to PowerPoint.",
+        question2: "Can I edit slides after AI generates them?",
         answer2:
-          "Three ways: by prompt, by hand (click any element, double-click any text), or in the code. You never face the regenerate-and-hope wall.",
-        question3: "How do decks stay on brand?",
+          "Yes. Edit text, layout, and styling directly in the visual editor, or ask the AI agent to revise a selected slide. You can keep refining the presentation after the first draft.",
+        question3:
+          "Can I create a presentation from an existing deck or document?",
         answer3:
-          "Star a deck you're proud of. Every new deck inherits its layouts, headings, visual style, and brand tokens. One-shot generators make you a deck; this makes you a deck practice.",
-        question4: "How is Slides different from Gamma?",
+          "Yes. Attach a deck or document as reference material for a new presentation. To work on the existing deck itself, explicitly import it. Review imported slides for layout changes or missing images.",
+        question4: "Can I use my own brand colors, fonts, and logo?",
         answer4:
-          "Gamma one-shots a decent deck fast — then you're in its canvas, on its subscription, regenerating when it's 85% right. Slides is free, open source, inherits your brand, and lets you edit anything.",
-        question5: "Is Slides free?",
+          "Yes. Apply a design system with your brand's colors, typography, and logos, then reuse it across decks. You can also provide a reference presentation to guide the AI agent's design choices.",
+        question5: "Can I use my presentation in PowerPoint or Google Slides?",
         answer5:
-          "Yes. Free and open source — no subscription, no credit meter, no per-deck pricing.",
+          "Export a PPTX file to open in PowerPoint. To use the presentation in Google Slides, import that file there. Review fonts and layouts after export because they can render differently between editors.",
       },
       s001: "Slides app screenshot",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "Create presentations with your AI agent",
+      heroDescription:
+        "Slides is a free and open-source AI presentation maker for creating on-brand decks from your ideas and source material, with slides you can edit yourself.",
+      heroCta: "Create a deck",
+      useCasesHeading: "What can you do with Slides?",
+      useCasesBody:
+        "Prepare a pitch, present a plan, or share an update. Give your AI agent the material and the audience you have in mind.",
+      useCase1Title: "Create sales and pitch decks",
+      useCase1Body:
+        "Turn your product brief into a deck for prospects or investors. Tailor the story to the audience you're presenting to.",
+      useCase2Title: "Present plans and strategies",
+      useCase2Body:
+        "Give your AI agent a strategy brief or launch plan to shape into slides that explain the direction and proposed next steps.",
+      useCase3Title: "Share business updates",
+      useCase3Body:
+        "Turn project notes or performance reports into a presentation that shows progress, explains results, and highlights what needs attention.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading: "Everything you need to create, edit, and present",
+      feature1Title: "AI presentation generation",
+      feature1Body:
+        "Start with a prompt, document, or reference deck. Give your AI agent the topic and audience to build the presentation around.",
+      feature2Title: "AI and visual editing",
+      feature2Body:
+        "Select text for your AI agent to revise, or edit text, layout, and styling yourself directly on the slide.",
+      feature3Title: "Reusable brand styles",
+      feature3Body:
+        "Save your colors, fonts, and logos in a design system. Apply it across decks to keep presentations consistent with your brand.",
+      feature4Title: "Images and logos",
+      feature4Body:
+        "Ask your AI agent to generate images, find photos, or look up company logos to use in your slides.",
+      feature5Title: "Team collaboration",
+      feature5Body:
+        "Work on decks with teammates, leave comments on specific slides, and restore an earlier version when you need to.",
+      feature6Title: "Presentation and export",
+      feature6Body:
+        "Present full-screen with speaker notes, share a viewing link, or export your deck as a PowerPoint file.",
+      finalCtaHeading: "Start your next presentation",
+      finalCtaBody: "Bring an idea, a brief, or an existing deck.",
+      finalCtaButton: "Open Slides",
       s002: "Prompt it.",
       s003: "Brand it.",
       s004: "Re-use it.",
       s005: "All Apps",
       s006Primary: "Decks from your AI agent.",
       s006Secondary: "On-brand & editable",
-      s007: "Generate branded slide decks from your AI agent, apply your own manual changes anytime, export anywhere.",
+      s007: "Generate on-brand presentations with your AI agent, then edit slides yourself and export anywhere.",
       s008: "Try It",
       s009: "How it works",
       s010: "Everything you need",
@@ -2055,7 +2144,6 @@ const enUS = {
     usingYourAgent: "Using Your Agent",
     agentResources: "Agent Resources",
     integrations: "Integrations",
-    buildApps: "Build Apps",
     advancedRuntime: "Advanced: Extend the Runtime",
     templatesSection: "Apps",
     gettingStarted: "Getting Started",
@@ -2192,11 +2280,12 @@ const enUS = {
     notifications: "Notifications",
     automationConnectors: "Workflow Connectors",
     workspaceConnections: "Workspace Connections",
-    creatingTemplates: "Creating Apps",
+    // i18n-copy-ignore: existing locale translations already name templates;
+    // this fixes the English nav label to match the page.
+    creatingTemplates: "Creating Templates",
     syncingTemplateChanges: "Syncing Template Changes",
     writingAgentInstructions: "Writing Agent Instructions",
     embeddingSdk: "Embedding SDK",
-    frames: "Frames",
     docsComponents: "Docs Components",
     agentNativeCodeUi: "Agent-Native Code UI",
     harnessAgents: "Harness Agents",
@@ -2267,10 +2356,11 @@ const enUS = {
     designCollaborationAndFullApps: "Review & Handoff",
     designDevelopers: "Developer Guide",
     dispatchOverview: "Overview",
-    dispatchMessagingRouting: "Messaging & Routing",
-    dispatchOperations: "Operator Console",
-    dispatchVaultIntegrations: "Secrets & Integrations",
+    dispatchFeatures: "Features",
+    dispatchAgent: "Talk to the Agent",
+    dispatchIntegrations: "Cross-App Use",
     dispatchDevelopers: "Developer Guide",
+    dispatchReference: "Action & Data Reference",
     forms: "Forms",
     formsOverview: "Overview",
     formsFeatures: "Features",

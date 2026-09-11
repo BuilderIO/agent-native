@@ -3,6 +3,17 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-09
+
+### Improved
+
+- Comment and editor avatars use a slimmer border.
+- Slides use a polished light visual style by default when no brand system is selected.
+
+### Fixed
+
+- When an agent's slide edit does not match the slide, it now says so instead of reporting an internal server error, so the agent can correct the edit rather than retrying the same one.
+
 ## 2026-09-03
 
 ### Fixed

@@ -28,8 +28,10 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
-  run: async ({ deckId, includeNotes }) => {
-    const result = await exportPptxAction.run({ deckId, includeNotes });
+  run: async ({ deckId, includeNotes }, ctx) => {
+    const result = ctx
+      ? await exportPptxAction.run({ deckId, includeNotes }, ctx)
+      : await exportPptxAction.run({ deckId, includeNotes });
     const { filename, slideCount } = result;
 
     const downloadUrl = getExportUrl(filename);

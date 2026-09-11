@@ -40,8 +40,8 @@ describe("isRedirectedDocsPath", () => {
 describe("buildPrerenderPaths", () => {
   const paths = buildPrerenderPaths();
 
-  it("leaves the Builder-backed community catalog on the SSR path", () => {
-    expect(paths).not.toContain("/apps/");
+  it("prerenders the seeded community catalog while leaving detail pages dynamic", () => {
+    expect(paths).toContain("/apps/");
     expect(paths.some((path) => path.startsWith("/apps/community/"))).toBe(
       false,
     );
@@ -77,6 +77,7 @@ describe("isDynamicCommunityPath", () => {
   it("recognizes localized community routes", () => {
     expect(isDynamicCommunityPath("/es-es/apps/community/nomad/")).toBe(true);
     expect(isDynamicCommunityPath("/apps/community/nomad/")).toBe(true);
+    expect(isDynamicCommunityPath("/apps/")).toBe(false);
     expect(isDynamicCommunityPath("/es-es/apps/calendar/")).toBe(false);
   });
 });

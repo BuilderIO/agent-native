@@ -41,6 +41,46 @@ describe("localization server helpers", () => {
     ).toBe("de-DE");
   });
 
+  it("resolves app-registered locales and their direction", () => {
+    expect(
+      resolveLocaleFromRequest({
+        acceptLanguage: "ar-EG",
+        supportedLocales: ["en-US", "ar-EG"],
+        localeMetadata: [
+          {
+            code: "ar-EG",
+            englishName: "Arabic",
+            nativeName: "العربية",
+            dir: "rtl",
+          },
+        ],
+      }),
+    ).toMatchObject({ locale: "ar-EG", dir: "rtl" });
+  });
+
+  it("keeps invalid preferences and fallbacks inside the app registry", () => {
+    expect(
+      resolveLocaleFromRequest({
+        acceptLanguage: "fr-FR",
+        preference: { locale: "de-DE" },
+        fallback: "en-US",
+        supportedLocales: ["it-IT"],
+      }),
+    ).toMatchObject({ locale: "it-IT", preference: { locale: "system" } });
+
+    new Function(
+      getLocaleInitScript({
+        preference: { locale: "de-DE" },
+        supportedLocales: ["it-IT"],
+      }),
+    )();
+    expect(document.documentElement.getAttribute("lang")).toBe("it-IT");
+    expect(readHydrationPayload()).toMatchObject({
+      locale: "it-IT",
+      preference: { locale: "system" },
+    });
+  });
+
   it("initializes document lang and dir before hydration", () => {
     new Function(getLocaleInitScript({ locale: "ar-SA" }))();
 
@@ -48,6 +88,30 @@ describe("localization server helpers", () => {
     expect(document.documentElement.getAttribute("dir")).toBe("rtl");
     expect(readHydrationPayload()).toMatchObject({
       locale: "ar-SA",
+      dir: "rtl",
+    });
+  });
+
+  it("initializes a registered locale from metadata before hydration", () => {
+    new Function(
+      getLocaleInitScript({
+        locale: "ar-EG",
+        supportedLocales: ["en-US", "ar-EG"],
+        localeMetadata: [
+          {
+            code: "ar-EG",
+            englishName: "Arabic",
+            nativeName: "العربية",
+            dir: "rtl",
+          },
+        ],
+      }),
+    )();
+
+    expect(document.documentElement.getAttribute("lang")).toBe("ar-EG");
+    expect(document.documentElement.getAttribute("dir")).toBe("rtl");
+    expect(readHydrationPayload()).toMatchObject({
+      locale: "ar-EG",
       dir: "rtl",
     });
   });

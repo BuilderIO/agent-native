@@ -1,6 +1,76 @@
 import { existsSync, readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  getRequestUserEmail: vi.fn(),
+  buildDeepLink: vi.fn(),
+  getUserSetting: vi.fn(),
+  readAppState: vi.fn(),
+  writeAppState: vi.fn(),
+  deleteAppState: vi.fn(),
+  deleteAppStateByPrefix: vi.fn(),
+  listAppState: vi.fn(),
+  saveGmailDraft: vi.fn(),
+  deleteGmailDraft: vi.fn(),
+  appendSignatureToBody: vi.fn(),
+}));
+
+vi.mock("@agent-native/core", () => ({
+  embedApp: vi.fn(() => ({})),
+}));
+
+vi.mock("@agent-native/core/action", () => ({
+  defineAction: (config: unknown) => config,
+  fail: (message: string, options: Record<string, unknown>) => {
+    const error = Object.assign(new Error(message), options);
+    throw error;
+  },
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: mocks.readAppState,
+  writeAppState: mocks.writeAppState,
+  deleteAppState: mocks.deleteAppState,
+  deleteAppStateByPrefix: mocks.deleteAppStateByPrefix,
+  listAppState: mocks.listAppState,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestUserEmail: mocks.getRequestUserEmail,
+  buildDeepLink: mocks.buildDeepLink,
+}));
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: mocks.getUserSetting,
+}));
+
+vi.mock("../server/lib/gmail-drafts.js", () => ({
+  saveGmailDraft: mocks.saveGmailDraft,
+  deleteGmailDraft: mocks.deleteGmailDraft,
+}));
+
+vi.mock("../shared/signature.js", () => ({
+  appendSignatureToBody: mocks.appendSignatureToBody,
+}));
+
+import action from "./manage-draft";
+
+let appState = new Map<string, unknown>();
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  appState = new Map();
+  mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+  mocks.getUserSetting.mockResolvedValue({});
+  mocks.appendSignatureToBody.mockImplementation((body: string) => body);
+  mocks.buildDeepLink.mockReturnValue("/mail");
+  mocks.saveGmailDraft.mockResolvedValue(null);
+  mocks.readAppState.mockImplementation((key: string) => appState.get(key));
+  mocks.writeAppState.mockImplementation(
+    (key: string, value: unknown) => void appState.set(key, value),
+  );
+});
 
 function manageDraftSource(): string {
   return readFileSync(new URL("./manage-draft.ts", import.meta.url), "utf8");
@@ -34,6 +104,63 @@ describe("manage-draft MCP App", () => {
     expect(source).toContain(
       "draft.accountEmail = savedGmailDraft.accountEmail",
     );
+    expect(source).toContain(
+      "savedGmailDraft?.accountEmail ?? args.accountEmail",
+    );
+    expect(source).toContain(
+      "draft.savedDraftId ? draft.accountEmail : undefined",
+    );
+    expect(source).toContain("delete draft.accountEmail");
+  });
+});
+
+describe("manage-draft local fallback", () => {
+  it("can create and update a local draft without an account marker", async () => {
+    const created = await action.run({
+      action: "create",
+      id: "local-draft",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Draft",
+    });
+
+    expect(created.draft).not.toHaveProperty("accountEmail");
+
+    const updated = await action.run({
+      action: "update",
+      id: "local-draft",
+      body: "Updated draft",
+    });
+
+    expect(updated.draft).not.toHaveProperty("accountEmail");
+    expect(mocks.saveGmailDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        accountEmail: undefined,
+        draftId: undefined,
+      }),
+    );
+  });
+
+  it("rejects switching the mailbox for an existing Gmail draft", async () => {
+    appState.set("compose-gmail-draft", {
+      id: "gmail-draft",
+      savedDraftId: "gmail-draft-1",
+      accountEmail: "old@example.com",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Draft",
+      mode: "compose",
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "gmail-draft",
+        accountEmail: "new@example.com",
+      }),
+    ).rejects.toMatchObject({ errorCode: "draft_account_change" });
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
   });
 });
 

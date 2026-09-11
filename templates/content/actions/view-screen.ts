@@ -822,12 +822,16 @@ export default defineAction({
   http: false,
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
+    const suggestionMode = await readAppStateForCurrentTab(
+      "content-suggestion-mode",
+    );
     const localFilesState = await readAppState("local-files");
     const contentSpaceState = await readAppState("content-space");
     const selectionState = await readAppStateForCurrentTab("content-selection");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (suggestionMode) screen.suggestionMode = suggestionMode;
     if (contentSpaceState) screen.contentSpace = contentSpaceState;
 
     const nav = navigation as NavigationState | null;

@@ -49,3 +49,16 @@ export function resolveExternalZoomAnchor(args: {
     frameCenter.y <= surfaceSize.height;
   return onScreen ? frameCenter : viewportCenter;
 }
+
+/**
+ * When the canvas surface's left edge moves (left sidebar open/close, minimal
+ * mode), shift pan.x by the opposite delta so board content stays fixed in
+ * monitor/viewport coordinates instead of sliding with the chrome.
+ */
+export function panAfterSurfaceLeftShift(
+  pan: { x: number; y: number },
+  deltaLeft: number,
+): { x: number; y: number } {
+  if (!Number.isFinite(deltaLeft) || deltaLeft === 0) return pan;
+  return { x: pan.x - deltaLeft, y: pan.y };
+}

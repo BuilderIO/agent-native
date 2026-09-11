@@ -18,6 +18,7 @@ import {
 export default defineAction({
   description:
     "List Content spaces that are already provisioned and currently authorized for the signed-in user.",
+  mcpTool: true,
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
@@ -91,6 +92,7 @@ export default defineAction({
       filesDocumentId: string;
       orgId: string | null;
       role: string;
+      canCreateDatabase: boolean;
       catalogItemId: string;
       catalogDocumentId: string;
       catalogPosition: number;
@@ -119,6 +121,13 @@ export default defineAction({
         filesDocumentId,
         orgId: row.space.orgId,
         role,
+        canCreateDatabase:
+          !row.space.orgId ||
+          memberships.some(
+            (membership) =>
+              membership.orgId === row.space.orgId &&
+              ["owner", "admin", "member"].includes(membership.role),
+          ),
         catalogItemId: row.mapping.databaseItemId,
         catalogDocumentId: row.mapping.documentId,
         catalogPosition: row.item.position,

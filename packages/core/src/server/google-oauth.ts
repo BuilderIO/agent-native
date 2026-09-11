@@ -38,6 +38,7 @@ import {
 } from "./better-auth-instance.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
+import { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
@@ -745,6 +746,7 @@ export async function createOAuthSession(
     hasProductionSession: boolean;
     desktop?: boolean;
     mobile?: boolean;
+    authProvider?: "google" | null;
     trackSignup?: {
       authProvider: string;
       authUserId?: string;
@@ -787,6 +789,9 @@ export async function createOAuthSession(
     sessionToken = crypto.randomBytes(32).toString("hex");
     await addSession(sessionToken, email);
     setFrameworkSessionCookie(event, sessionToken);
+    if (opts.authProvider !== null) {
+      setIdentityGoogleAuthCookie(event, email);
+    }
     if (shouldTrackSignup && opts.trackSignup) {
       const attribution =
         opts.trackSignup.attribution ??

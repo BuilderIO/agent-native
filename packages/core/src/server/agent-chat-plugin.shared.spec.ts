@@ -433,6 +433,26 @@ describe("agent chat process-run failure finalization", () => {
     expect(d.updateRunStatusIfRunning).not.toHaveBeenCalled();
     expect(d.ensureTerminalRunEvent).not.toHaveBeenCalled();
   });
+
+  it("leaves the run untouched when the claim read fails transiently", async () => {
+    const d = deps("background-processing");
+    d.readBackgroundRunClaim.mockRejectedValueOnce(
+      new Error("database connection reset"),
+    );
+
+    await expect(
+      finalizeClaimedAgentChatProcessRunFailure(
+        "run-claim-read-failed",
+        new Error("payload read failed"),
+        d,
+      ),
+    ).resolves.toBe(false);
+
+    expect(d.setRunError).not.toHaveBeenCalled();
+    expect(d.setRunTerminalReason).not.toHaveBeenCalled();
+    expect(d.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(d.ensureTerminalRunEvent).not.toHaveBeenCalled();
+  });
 });
 
 describe("shared thread route", () => {

@@ -64,6 +64,18 @@ describe("delete-event", () => {
     expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
   });
 
+  it("rejects overlaid-calendar events before any mutation", async () => {
+    await expect(
+      action.run({
+        id: "overlay-person@example.com-overlay-event",
+        scope: "single",
+      }),
+    ).rejects.toThrow("Overlay Google calendar events are read-only");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+    expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
+  });
+
   it("gates only a delete that reaches the guests", async () => {
     const gate = action.needsApproval;
     if (typeof gate !== "function") throw new Error("expected a predicate");

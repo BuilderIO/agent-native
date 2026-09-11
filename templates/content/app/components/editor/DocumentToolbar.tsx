@@ -8,7 +8,7 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import { ShareTrigger } from "@agent-native/toolkit/sharing";
-import type { DocumentSourceInfo } from "@shared/api";
+import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -16,6 +16,7 @@ import {
   IconArrowForwardUp,
   IconAlertTriangle,
   IconCheck,
+  IconChevronDown,
   IconCopy,
   IconDownload,
   IconDotsVertical,
@@ -36,7 +37,9 @@ import {
   IconMessageCircle,
   IconRefresh,
   IconPin,
+  IconPencil,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -44,11 +47,13 @@ import {
   useEffect,
   useRef,
   useState,
+  type Ref,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -82,6 +87,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -105,7 +111,10 @@ import {
   DatabaseExportDialog,
   type DatabaseExportContext,
 } from "./database/DatabaseExportDialog";
-import { VersionHistoryPanel } from "./VersionHistoryPanel";
+import {
+  VersionHistoryPanel,
+  type HistoryRestoreApplyResult,
+} from "./VersionHistoryPanel";
 
 type ExportFormat = "pdf" | "markdown" | "html";
 
@@ -211,7 +220,7 @@ function formatEditedLabel(updatedAt?: string | null) {
   })}`;
 }
 
-function ToolbarBreadcrumb({
+export function ToolbarBreadcrumb({
   items,
   currentDocumentId,
   ariaLabel,
@@ -244,30 +253,42 @@ function ToolbarBreadcrumb({
           </>
         );
 
+        const canNavigate = item.id && item.id !== currentDocumentId;
+        const pageButton = canNavigate ? (
+          <button
+            type="button"
+            className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onOpen(item.id!)}
+          >
+            {content}
+          </button>
+        ) : null;
+
         return (
           <div
             key={`${item.id ?? label}-${index}`}
             className="flex min-w-0 items-center gap-1"
           >
             {item.menuItems?.length ? (
-              <ToolbarBreadcrumbMenu
-                item={item}
-                label={label}
-                currentDocumentId={currentDocumentId}
-                current={isLast}
-                untitledLabel={untitledLabel}
-                onOpen={onOpen}
-              >
-                {content}
-              </ToolbarBreadcrumbMenu>
-            ) : item.id && item.id !== currentDocumentId ? (
-              <button
-                type="button"
-                className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onOpen(item.id!)}
-              >
-                {content}
-              </button>
+              <>
+                {pageButton}
+                <ToolbarBreadcrumbMenu
+                  item={item}
+                  label={label}
+                  currentDocumentId={currentDocumentId}
+                  current={isLast}
+                  untitledLabel={untitledLabel}
+                  onOpen={onOpen}
+                >
+                  {canNavigate ? (
+                    <IconChevronDown className="size-3.5 shrink-0" />
+                  ) : (
+                    content
+                  )}
+                </ToolbarBreadcrumbMenu>
+              </>
+            ) : canNavigate ? (
+              pageButton
             ) : (
               <span
                 className={cn(
@@ -354,6 +375,7 @@ function ToolbarBreadcrumbMenu({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openedWithKeyboardRef = useRef(false);
   const firstSelectableItemRef = useRef<HTMLDivElement | null>(null);
@@ -394,17 +416,32 @@ function ToolbarBreadcrumbMenu({
     >
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           aria-label={label}
           className={cn(
             "flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             current ? "text-foreground" : "text-muted-foreground",
           )}
-          onPointerEnter={() => {
+          onPointerEnter={(event) => {
+            if (event.pointerType !== "mouse") return;
             cancelClose();
             setOpen(true);
           }}
-          onPointerLeave={scheduleClose}
+          onPointerDown={(event) => {
+            // Hover already opened the menu; don't toggle it closed on click.
+            if (
+              event.pointerType === "mouse" &&
+              open &&
+              event.button === 0 &&
+              !event.ctrlKey
+            ) {
+              event.preventDefault();
+            }
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") scheduleClose();
+          }}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" ||
@@ -425,6 +462,11 @@ function ToolbarBreadcrumbMenu({
         onKeyDown={cancelClose}
         onPointerEnter={cancelClose}
         onPointerLeave={scheduleClose}
+        onInteractOutside={(event) => {
+          if (triggerRef.current?.contains(event.target as Node)) {
+            event.preventDefault();
+          }
+        }}
       >
         {item.menuItems?.map((menuItem) => {
           const menuLabel = menuItem.title.trim() || untitledLabel;
@@ -461,11 +503,18 @@ function ToolbarBreadcrumbMenu({
 }
 
 interface DocumentToolbarProps {
+  compact?: boolean;
   documentId: string;
   documentTitle?: string;
   documentContent?: string;
   breadcrumbItems?: ToolbarBreadcrumbItem[];
   documentUpdatedAt?: string | null;
+  prepareHistoryRestore?: () => Promise<string>;
+  historyRestoreReady?: boolean;
+  onHistoryRestored?: (
+    restored: Document,
+  ) => HistoryRestoreApplyResult | Promise<HistoryRestoreApplyResult>;
+  restoreUnavailableReason?: string;
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
   agentActive?: boolean;
@@ -488,14 +537,23 @@ interface DocumentToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  canSuggest?: boolean;
+  suggesting?: boolean;
+  onSuggestingChange?: (suggesting: boolean) => void;
+  editorEscapeTargetRef?: Ref<HTMLButtonElement>;
 }
 
 export function DocumentToolbar({
+  compact = false,
   documentId,
   documentTitle,
   documentContent,
   breadcrumbItems = [],
   documentUpdatedAt,
+  prepareHistoryRestore,
+  historyRestoreReady = true,
+  onHistoryRestored,
+  restoreUnavailableReason,
   activeUsers,
   agentPresent,
   agentActive,
@@ -518,10 +576,16 @@ export function DocumentToolbar({
   canRedo = false,
   onUndo,
   onRedo,
+  canSuggest = false,
+  suggesting = false,
+  onSuggestingChange,
+  editorEscapeTargetRef,
 }: DocumentToolbarProps) {
+  const sidebarTrigger = useSidebarTrigger();
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  const creativeContextEnabled = useCreativeContextLab();
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
@@ -889,26 +953,28 @@ export function DocumentToolbar({
   return (
     <>
       <div className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4">
-        <ToolbarBreadcrumb
-          items={
-            breadcrumbItems.length
-              ? breadcrumbItems
-              : [{ id: documentId, title: documentTitle || "Untitled" }]
-          }
-          currentDocumentId={documentId}
-          ariaLabel={t("editor.toolbar.pageBreadcrumb")}
-          untitledLabel={t("sidebar.untitled")}
-          onOpen={(id) => {
-            if (onOpenBreadcrumbItem) {
-              onOpenBreadcrumbItem(id);
-              return;
+        {sidebarTrigger}
+        {!compact ? (
+          <ToolbarBreadcrumb
+            items={
+              breadcrumbItems.length
+                ? breadcrumbItems
+                : [{ id: documentId, title: documentTitle || "Untitled" }]
             }
-            void navigate(`/page/${id}`, { flushSync: true });
-          }}
-        />
-
-        <div className="ml-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
-          {editedLabel ? (
+            currentDocumentId={documentId}
+            ariaLabel={t("editor.toolbar.pageBreadcrumb")}
+            untitledLabel={t("sidebar.untitled")}
+            onOpen={(id) => {
+              if (onOpenBreadcrumbItem) {
+                onOpenBreadcrumbItem(id);
+                return;
+              }
+              void navigate(`/page/${id}`, { flushSync: true });
+            }}
+          />
+        ) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+          {editedLabel && !compact ? (
             <span className="hidden shrink-0 px-2 text-sm text-muted-foreground lg:inline">
               {editedLabel}
             </span>
@@ -954,29 +1020,33 @@ export function DocumentToolbar({
                   onCheckedChange: handleHideFromSearchChange,
                 }}
                 variant="compact"
-                shareTabs={{
-                  tabs: [
-                    {
-                      value: "context",
-                      label: t("creativeContext.share.tabLabel"),
-                      content: (
-                        <CreativeContextShareTab
-                          resource={{
-                            appId: "content",
-                            resourceType: "document",
-                            resourceId: documentId,
-                            title: documentTitle || "Untitled",
-                            updatedAt: documentUpdatedAt ?? undefined,
-                            preview: {
-                              kind: "document",
-                              label: t("root.commandDocumentsHeading"),
-                            },
-                          }}
-                        />
-                      ),
-                    },
-                  ],
-                }}
+                shareTabs={
+                  creativeContextEnabled
+                    ? {
+                        tabs: [
+                          {
+                            value: "context",
+                            label: t("creativeContext.share.tabLabel"),
+                            content: (
+                              <CreativeContextShareTab
+                                resource={{
+                                  appId: "content",
+                                  resourceType: "document",
+                                  resourceId: documentId,
+                                  title: documentTitle || "Untitled",
+                                  updatedAt: documentUpdatedAt ?? undefined,
+                                  preview: {
+                                    kind: "document",
+                                    label: t("root.commandDocumentsHeading"),
+                                  },
+                                }}
+                              />
+                            ),
+                          },
+                        ],
+                      }
+                    : undefined
+                }
               />
 
               <VersionHistoryPanel
@@ -984,10 +1054,37 @@ export function DocumentToolbar({
                 open={historyOpen}
                 onOpenChange={setHistoryOpen}
                 canRestore={canEdit}
+                restoreReady={historyRestoreReady}
                 activeUsers={activeUsers}
+                prepareRestore={prepareHistoryRestore}
+                onRestored={onHistoryRestored}
+                restoreUnavailableReason={restoreUnavailableReason}
               />
             </>
           )}
+
+          {suggesting ? (
+            <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
+              <IconPencil aria-hidden="true" className="size-3.5" />
+              <span>{t("editor.toolbar.suggesting")}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    ref={editorEscapeTargetRef}
+                    className="ms-0.5 flex size-7 items-center justify-center rounded-sm text-primary/70 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("editor.toolbar.stopSuggesting")}
+                    onClick={() => onSuggestingChange?.(false)}
+                  >
+                    <IconX aria-hidden="true" className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("editor.toolbar.stopSuggesting")}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          ) : null}
 
           {showCommentsControl ? (
             <Tooltip>
@@ -1000,11 +1097,17 @@ export function DocumentToolbar({
                   )}
                   aria-label={t("comments.title")}
                   aria-pressed={commentsHistoryOpen}
-                  onClick={() =>
-                    onUtilityPanelChange(
-                      commentsHistoryOpen ? null : "comments",
-                    )
-                  }
+                  onClick={() => {
+                    const nextPanel = commentsHistoryOpen ? null : "comments";
+                    if (nextPanel === "comments") {
+                      trackEvent("document_utility_panel_opened", {
+                        app_name: "content",
+                        template_name: "content",
+                        panel: "comments",
+                      });
+                    }
+                    onUtilityPanelChange(nextPanel);
+                  }}
                 >
                   <IconMessageCircle size={16} />
                 </button>
@@ -1018,6 +1121,7 @@ export function DocumentToolbar({
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <button
+                    ref={suggesting ? undefined : editorEscapeTargetRef}
                     className={cn(
                       "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
                       utilityPanel === "info" && "bg-accent text-foreground",
@@ -1032,7 +1136,35 @@ export function DocumentToolbar({
                 {t("editor.toolbar.morePageActions")}
               </TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuContent
+              align="end"
+              className="w-60"
+              data-database-preview-portal={compact ? "" : undefined}
+            >
+              {canSuggest ? (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      onSuggestingChange?.(!suggesting);
+                      window.setTimeout(() => {
+                        document
+                          .querySelector<HTMLElement>(
+                            ".notion-editor[contenteditable='true'], .notion-editor [contenteditable='true']",
+                          )
+                          ?.focus({ preventScroll: true });
+                      }, 50);
+                    }}
+                  >
+                    <IconPencil className="me-2 h-4 w-4" />
+                    {t(
+                      suggesting
+                        ? "editor.toolbar.stopSuggesting"
+                        : "editor.toolbar.suggestEdits",
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               <DropdownMenuGroup>
                 <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
                   <IconArrowBackUp className="me-2 h-4 w-4" />
@@ -1063,11 +1195,17 @@ export function DocumentToolbar({
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem
-                  onSelect={() =>
-                    onUtilityPanelChange(
-                      utilityPanel === "info" ? null : "info",
-                    )
-                  }
+                  onSelect={() => {
+                    const nextPanel = utilityPanel === "info" ? null : "info";
+                    if (nextPanel === "info") {
+                      trackEvent("document_utility_panel_opened", {
+                        app_name: "content",
+                        template_name: "content",
+                        panel: "info",
+                      });
+                    }
+                    onUtilityPanelChange(nextPanel);
+                  }}
                   className={cn(
                     utilityPanel === "info" &&
                       "bg-accent text-accent-foreground",
@@ -1109,7 +1247,15 @@ export function DocumentToolbar({
               ) : (
                 <>
                   <DropdownMenuGroup>
-                    <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        trackEvent("document_history_opened", {
+                          app_name: "content",
+                          template_name: "content",
+                        });
+                        setHistoryOpen(true);
+                      }}
+                    >
                       <IconHistory className="me-2 h-4 w-4" />
                       {t("editor.toolbar.versionHistory")}
                     </DropdownMenuItem>

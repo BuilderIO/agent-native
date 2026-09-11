@@ -206,4 +206,30 @@ describe("runQuery cancellation", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
+
+  it("refreshes cached current-date queries at UTC midnight", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-08T23:59:00Z"));
+    const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runQuery("SELECT CURRENT_DATE() AS day");
+    vi.setSystemTime(new Date("2026-09-09T00:01:00Z"));
+    await runQuery("SELECT CURRENT_DATE() AS day");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "agent-native-utc-date:2026-09-08",
+    );
+    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toContain(
+      "agent-native-utc-date:2026-09-09",
+    );
+  });
 });

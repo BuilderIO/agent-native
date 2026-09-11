@@ -177,182 +177,187 @@ export function ResponsiveInteractBar({
   return (
     <div
       className={cn(
-        "flex h-12 shrink-0 items-center justify-between gap-3 overflow-x-auto border-b border-border bg-[var(--design-editor-panel-bg)] px-3",
+        "flex h-12 min-w-0 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-[var(--design-editor-panel-bg)] px-3",
         className,
       )}
     >
-      <div className="flex min-w-[220px] flex-1 items-center gap-2">
-        <Select value={deviceName} onValueChange={onDeviceChange}>
-          <SelectTrigger
-            className="h-8 w-full max-w-60 gap-1.5 rounded-md !text-[12px]"
-            aria-label={t("designEditor.responsiveInteract.device")}
-          >
-            <SelectValue>
-              <span className="flex min-w-0 items-center gap-2">
-                <DeviceCategoryIcon
-                  category={selectedDevice?.category ?? "custom"}
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                />
-                <span className="truncate">{deviceName}</span>
-              </span>
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent className="z-[100030]">
-            {INTERACT_DEVICE_PRESETS.map((preset) => (
-              <SelectItem
-                key={preset.name}
-                value={preset.name}
-                className="!text-[12px]"
-              >
-                <span className="flex w-full items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-w-[220px] flex-1 items-center gap-2">
+          <Select value={deviceName} onValueChange={onDeviceChange}>
+            <SelectTrigger
+              className="h-8 w-full max-w-60 gap-1.5 rounded-md !text-[12px]"
+              aria-label={t("designEditor.responsiveInteract.device")}
+            >
+              <SelectValue>
+                <span className="flex min-w-0 items-center gap-2">
                   <DeviceCategoryIcon
-                    category={preset.category}
+                    category={selectedDevice?.category ?? "custom"}
                     className="size-3.5 shrink-0 text-muted-foreground"
                   />
-                  <span className="flex-1 truncate">{preset.name}</span>
-                  {preset.category !== "custom" ? (
-                    <span className="shrink-0 tabular-nums text-muted-foreground/60">
-                      {preset.width}×{preset.height}
-                    </span>
-                  ) : null}
+                  <span className="truncate">{deviceName}</span>
                 </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex shrink-0 items-center gap-1.5">
-        <DimensionInput
-          value={width}
-          onChange={onWidthChange}
-          label={t("designEditor.responsiveInteract.widthAbbreviation")}
-          ariaLabel={t("designEditor.responsiveInteract.width")}
-        />
-        <DimensionInput
-          value={height}
-          onChange={onHeightChange}
-          label={t("designEditor.responsiveInteract.heightAbbreviation")}
-          ariaLabel={t("designEditor.responsiveInteract.height")}
-        />
-      </div>
-
-      <div className="flex shrink-0 items-center justify-end gap-1">
-        {MODE_EXITS.filter((exit) => exit.mode === "edit" || canAnnotate).map(
-          (exit) => (
-            <Tooltip key={exit.mode}>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onModeChange(exit.mode)}
-                  aria-label={t(exit.labelKey)}
-                  className="size-7 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent className="z-[100030]">
+              {INTERACT_DEVICE_PRESETS.map((preset) => (
+                <SelectItem
+                  key={preset.name}
+                  value={preset.name}
+                  className="!text-[12px]"
                 >
-                  <exit.Icon className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t(exit.labelKey)}</TooltipContent>
-            </Tooltip>
-          ),
-        )}
-        <Separator orientation="vertical" className="mx-1 !h-5" />
+                  <span className="flex w-full items-center gap-2">
+                    <DeviceCategoryIcon
+                      category={preset.category}
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                    />
+                    <span className="flex-1 truncate">{preset.name}</span>
+                    {preset.category !== "custom" ? (
+                      <span className="shrink-0 tabular-nums text-muted-foreground/60">
+                        {preset.width}×{preset.height}
+                      </span>
+                    ) : null}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-        <Popover
-          open={zoomOpen}
-          onOpenChange={(open) => {
-            setZoomOpen(open);
-            if (open) setZoomDraft(formattedZoom);
-          }}
-        >
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 shrink-0 cursor-pointer gap-0.5 rounded-md px-2 !text-[12px] tabular-nums text-muted-foreground hover:text-foreground"
-            >
-              {formattedZoom}%
-              <IconChevronDown className="size-3 opacity-60" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            className="z-[100030] w-44 space-y-1.5 p-2"
+        <div className="flex shrink-0 items-center gap-1.5">
+          <DimensionInput
+            value={width}
+            onChange={onWidthChange}
+            label={t("designEditor.responsiveInteract.widthAbbreviation")}
+            ariaLabel={t("designEditor.responsiveInteract.width")}
+          />
+          <DimensionInput
+            value={height}
+            onChange={onHeightChange}
+            label={t("designEditor.responsiveInteract.heightAbbreviation")}
+            ariaLabel={t("designEditor.responsiveInteract.height")}
+          />
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-1">
+          {MODE_EXITS.filter((exit) => exit.mode === "edit" || canAnnotate).map(
+            (exit) => (
+              <Tooltip key={exit.mode}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onModeChange(exit.mode)}
+                    aria-label={t(exit.labelKey)}
+                    className="size-7 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+                  >
+                    <exit.Icon className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t(exit.labelKey)}
+                </TooltipContent>
+              </Tooltip>
+            ),
+          )}
+          <Separator orientation="vertical" className="mx-1 !h-5" />
+
+          <Popover
+            open={zoomOpen}
+            onOpenChange={(open) => {
+              setZoomOpen(open);
+              if (open) setZoomDraft(formattedZoom);
+            }}
           >
-            <Input
-              autoFocus
-              type="number"
-              value={zoomDraft}
-              onChange={(event) => setZoomDraft(event.target.value)}
-              onFocus={(event) => event.currentTarget.select()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  commitZoomDraft();
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  setZoomDraft(formattedZoom);
-                }
-              }}
-              onBlur={commitZoomDraft}
-              aria-label={t("designEditor.responsiveInteract.zoom")}
-              className="h-7 !text-[12px] tabular-nums"
-            />
-            <Separator />
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={zoom >= INTERACT_ZOOM_MAX}
-              onClick={() => {
-                onZoomChange(
-                  getNextZoomStepUp(zoom, {
-                    min: INTERACT_ZOOM_MIN,
-                    max: INTERACT_ZOOM_MAX,
-                  }),
-                );
-                setZoomOpen(false);
-              }}
-              className="h-7 w-full cursor-pointer justify-start rounded-md px-2 !text-[12px]"
-            >
-              {t("designEditor.responsiveInteract.zoomIn")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={zoom <= INTERACT_ZOOM_MIN}
-              onClick={() => {
-                onZoomChange(
-                  getNextZoomStepDown(zoom, {
-                    min: INTERACT_ZOOM_MIN,
-                    max: INTERACT_ZOOM_MAX,
-                  }),
-                );
-                setZoomOpen(false);
-              }}
-              className="h-7 w-full cursor-pointer justify-start rounded-md px-2 !text-[12px]"
-            >
-              {t("designEditor.responsiveInteract.zoomOut")}
-            </Button>
-            <Separator />
-            {ZOOM_PRESET_BUTTONS.map((preset) => (
+            <PopoverTrigger asChild>
               <Button
-                key={preset}
                 variant="ghost"
                 size="sm"
+                className="h-7 shrink-0 cursor-pointer gap-0.5 rounded-md px-2 !text-[12px] tabular-nums text-muted-foreground hover:text-foreground"
+              >
+                {formattedZoom}%
+                <IconChevronDown className="size-3 opacity-60" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="z-[100030] w-44 space-y-1.5 p-2"
+            >
+              <Input
+                autoFocus
+                type="number"
+                value={zoomDraft}
+                onChange={(event) => setZoomDraft(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitZoomDraft();
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    setZoomDraft(formattedZoom);
+                  }
+                }}
+                onBlur={commitZoomDraft}
+                aria-label={t("designEditor.responsiveInteract.zoom")}
+                className="h-7 !text-[12px] tabular-nums"
+              />
+              <Separator />
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={zoom >= INTERACT_ZOOM_MAX}
                 onClick={() => {
-                  onZoomChange(preset);
+                  onZoomChange(
+                    getNextZoomStepUp(zoom, {
+                      min: INTERACT_ZOOM_MIN,
+                      max: INTERACT_ZOOM_MAX,
+                    }),
+                  );
                   setZoomOpen(false);
                 }}
                 className="h-7 w-full cursor-pointer justify-start rounded-md px-2 !text-[12px]"
               >
-                {t("designEditor.responsiveInteract.zoomToPreset", {
-                  percent: preset,
-                })}
+                {t("designEditor.responsiveInteract.zoomIn")}
               </Button>
-            ))}
-          </PopoverContent>
-        </Popover>
-
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={zoom <= INTERACT_ZOOM_MIN}
+                onClick={() => {
+                  onZoomChange(
+                    getNextZoomStepDown(zoom, {
+                      min: INTERACT_ZOOM_MIN,
+                      max: INTERACT_ZOOM_MAX,
+                    }),
+                  );
+                  setZoomOpen(false);
+                }}
+                className="h-7 w-full cursor-pointer justify-start rounded-md px-2 !text-[12px]"
+              >
+                {t("designEditor.responsiveInteract.zoomOut")}
+              </Button>
+              <Separator />
+              {ZOOM_PRESET_BUTTONS.map((preset) => (
+                <Button
+                  key={preset}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    onZoomChange(preset);
+                    setZoomOpen(false);
+                  }}
+                  className="h-7 w-full cursor-pointer justify-start rounded-md px-2 !text-[12px]"
+                >
+                  {t("designEditor.responsiveInteract.zoomToPreset", {
+                    percent: preset,
+                  })}
+                </Button>
+              ))}
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

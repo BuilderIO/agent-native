@@ -395,7 +395,7 @@ describe("DispatchControlPlane", () => {
         );
     });
     const onboardingNewTabLink = document.querySelector<HTMLAnchorElement>(
-      'a[href="/onboarding"][target="_blank"]',
+      'a[href="/onboarding/home"][target="_blank"]',
     );
     expect(onboardingNewTabLink).not.toBeNull();
     const clipsHref = Array.from(container.querySelectorAll("a"))

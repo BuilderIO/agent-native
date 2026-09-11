@@ -1881,7 +1881,9 @@ export function WorkedForSummary({
         aria-expanded={open}
         className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span>{label}</span>
+        <span className={cn(isRunning && "agent-running-shimmer")}>
+          {label}
+        </span>
         <IconChevronRight
           className={cn(
             "size-3.5 shrink-0 transition-transform",

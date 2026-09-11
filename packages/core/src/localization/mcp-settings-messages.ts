@@ -1,4 +1,8 @@
-import type { LocaleCode } from "./shared.js";
+import {
+  DEFAULT_LOCALE,
+  type BuiltinLocaleCode,
+  type LocaleCode,
+} from "./shared.js";
 
 export interface McpConnectMessages {
   pageTitle: string;
@@ -41,7 +45,10 @@ export interface McpConnectMessages {
   urlTitle: string;
 }
 
-export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
+export const MCP_CONNECT_MESSAGES: Record<
+  BuiltinLocaleCode,
+  McpConnectMessages
+> = {
   "en-US": {
     pageTitle: "Connect {appName}",
     authorizeLabel: "Authorize {appName}",
@@ -553,7 +560,10 @@ export interface McpSettingsMessages {
   mcpConnect: McpConnectMessages;
 }
 
-export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
+export const MCP_SETTINGS_MESSAGES: Record<
+  BuiltinLocaleCode,
+  McpSettingsMessages
+> = {
   "en-US": {
     mcpTitle: "MCP",
     mcpDescription:
@@ -806,3 +816,12 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpConnect: MCP_CONNECT_MESSAGES["ar-SA"],
   },
 };
+
+export function mcpSettingsMessagesForLocale(
+  locale: LocaleCode,
+): McpSettingsMessages {
+  return (
+    MCP_SETTINGS_MESSAGES[locale as BuiltinLocaleCode] ??
+    MCP_SETTINGS_MESSAGES[DEFAULT_LOCALE]
+  );
+}

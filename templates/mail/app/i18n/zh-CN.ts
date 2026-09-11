@@ -24,6 +24,9 @@ const messages = {
       extensions: "扩展",
       noteToSelf: "给自己的备注",
     },
+    inbox: {
+      syncing: "收件箱同步中…",
+    },
     toolbar: {
       toggleMenu: "切换菜单",
       menu: "菜单",
@@ -308,6 +311,7 @@ const messages = {
       failedToParseJson: "解析 JSON 失败",
       missingGoogleCredentials: "在 JSON 中找不到 client_id 和 client_secret",
       failedToSaveCredentials: "保存凭据失败",
+      someAccountsFailed: "无法加载：{{accounts}}",
     },
     googleConnect: {
       connectTitle: "连接你的 Google 账号",

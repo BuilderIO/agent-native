@@ -87,7 +87,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => {
     if (key === "home.untitledDesign") return "Untitled Design";
-    if (key === "home.skipToEditor") return "Skip to editor";
+    if (key === "promptDialog.skipPrompt") return "Skip prompt";
     if (key === "home.failedToCreateDesign") {
       return "Failed to create design";
     }
@@ -232,7 +232,7 @@ describe("Index skip to editor", () => {
       }),
     );
 
-    expect(mocks.promptProps?.skipLabel).toBe("Skip to editor");
+    expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
     let skipPromise: Promise<void> | undefined;
     await act(async () => {
       skipPromise = mocks.promptProps?.onSkip();
@@ -259,14 +259,7 @@ describe("Index skip to editor", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1");
   });
 
-  it("takes the New Design card straight into the editor and asks there", async () => {
-    let resolveCreate: (() => void) | undefined;
-    mocks.createDesign.mockReturnValue(
-      new Promise<void>((resolve) => {
-        resolveCreate = resolve;
-      }),
-    );
-
+  it("opens the prompt before creating a new design", async () => {
     const card = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "home.newDesign",
     );
@@ -277,15 +270,10 @@ describe("Index skip to editor", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.createDesign).toHaveBeenCalledTimes(1);
+    expect(mocks.createDesign).not.toHaveBeenCalled();
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
-
-    await act(async () => {
-      resolveCreate?.();
-      await Promise.resolve();
-    });
-
-    expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1?new=1");
+    expect(mocks.promptProps?.open).toBe(true);
+    expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
   });
 
   it("still asks up front when the design-or-app choice exists", async () => {

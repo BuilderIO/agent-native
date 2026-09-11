@@ -6,6 +6,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   recordGenerationCreativeContext,
   validateGenerationCreativeContext,
@@ -126,7 +127,7 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||
       args.contextModeOverride ||
@@ -322,6 +323,18 @@ export default defineAction({
         elementProvenance: elementProvenanceFor(doc.id),
       });
     }
+
+    track(
+      "document_created",
+      {
+        app_name: "content",
+        template_name: "content",
+        output_id: doc.id,
+        output_type: "document",
+        content_present: Boolean(content),
+      },
+      ctx,
+    );
 
     return {
       id: doc.id,

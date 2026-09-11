@@ -808,6 +808,7 @@ export default defineAction({
     "Apply one deterministic visual edit to a code-backed HTML design layer. " +
     "Pass one intent or an ordered array of intents; batched intents are folded into one persisted write. " +
     "Supports safe inline style, class, and leaf textContent edits on inline/SQL HTML files, plus diff-first literal leaf JSX edits on consented localhost files; escalates ambiguous, dynamic, repeated, shared, or structural JSX edits without writing. " +
+    "Intent kinds (intent.kind, exact literal required): style, class, breakpoint-style, textContent (leaf text — there is no 'set-text' kind), attribute, deleteNode, moveNode, wrapNodes, unwrap, autoLayout. " +
     "Responsive editing (§6.4): pass activeFrameWidthPx (the active breakpoint frame width, matching the UI's breakpoint bar) to scope class AND style edits Framer-style — overrides apply below the next-wider frame and cascade down; the widest frame is the base. " +
     "Raw CSS values persist as managed @media rules (<style data-agent-native-breakpoints>); Tailwind-utility values become max-[<bound>px]: classes. " +
     "Pass activeBreakpoint to force legacy min-width prefix scoping for class edits, or maxWidthPx for an explicit desktop-down bound. Omit all three for base (global) behaviour.",

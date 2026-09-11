@@ -4,6 +4,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -11,14 +12,14 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq, desc, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  documentVersionChatContextFromAction,
-  serializeDocumentVersionChatContext,
-} from "../server/lib/document-version-context.js";
+import { commitCanonicalDocumentBodyMutation } from "../server/lib/canonical-document-body-mutation.js";
+import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
+import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -80,17 +81,6 @@ function isFavoriteOnlyUpdate(args: {
     args.icon === undefined
   );
 }
-
-function nanoid(size = 12): string {
-  const chars =
-    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  let id = "";
-  const bytes = crypto.getRandomValues(new Uint8Array(size));
-  for (const byte of bytes) id += chars[byte % chars.length];
-  return id;
-}
-
-const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 const reuseLabelSchema = z.object({
   itemId: z.string().min(1).optional(),
@@ -345,6 +335,14 @@ export default defineAction({
       .describe(
         "updatedAt of the last-loaded document snapshot; enables compare-and-swap for content saves",
       ),
+    historySessionId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "Browser editor session ID used to group related title and body saves",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -504,19 +502,12 @@ export default defineAction({
       args.title !== undefined && args.title !== existing.title;
     const contentChanged =
       content !== undefined && content !== existing.content;
-    const clearsNonEmptyContent =
-      contentChanged &&
-      content !== undefined &&
-      isEffectivelyEmptyDocumentContent(content) &&
-      !isEffectivelyEmptyDocumentContent(existing.content);
     const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
     const favoriteChanged =
       args.isFavorite !== undefined && args.isFavorite !== currentFavorite;
     const descriptionChanged =
       args.description !== undefined &&
       args.description.trim() !== existing.description;
-    const documentFieldsChanged =
-      titleChanged || contentChanged || iconChanged || descriptionChanged;
     const anyChange =
       titleChanged ||
       contentChanged ||
@@ -533,98 +524,112 @@ export default defineAction({
     // caller last reconciled. Guard the write with a compare-and-swap in that
     // case so a concurrent update (e.g. the Notion auto-pull applying a newer
     // remote edit) between the caller's snapshot and this save landing isn't
-    // silently overwritten. Title/icon/favorite-only saves are unaffected —
-    // only a save that's actually changing content is CAS-guarded.
-    const useContentCas = contentChanged && args.baseUpdatedAt !== undefined;
+    // silently overwritten. A recovery may carry unchanged content alongside
+    // a stale title, so supplying content still guards the whole write.
+    // Title/icon/favorite-only requests without content remain unaffected.
+    const useContentCas =
+      args.content !== undefined && args.baseUpdatedAt !== undefined;
 
     if (anyChange) {
-      const updates: Record<string, unknown> = {
-        updatedAt: new Date().toISOString(),
-      };
-
-      if (titleChanged) updates.title = args.title;
-      if (args.description !== undefined)
-        updates.description = args.description.trim();
-      if (contentChanged) updates.content = content;
-      if (contentChanged) updates.bodyRevision = existing.bodyRevision + 1;
-      if (iconChanged) updates.icon = args.icon;
       let contentCasConflict = false;
+      let committedContentChanged = false;
+      let committedContentBefore = existing.content;
       await db.transaction(async (tx) => {
-        const primaryBlocksFields = contentChanged
+        await tx
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id))
+          .for("update");
+        const [historyBefore] = await tx
+          .select({
+            title: schema.documents.title,
+            content: schema.documents.content,
+            bodyRevision: schema.documents.bodyRevision,
+            description: schema.documents.description,
+            icon: schema.documents.icon,
+            updatedAt: schema.documents.updatedAt,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id))
+          .limit(1);
+        const lockedTitleChanged =
+          args.title !== undefined && args.title !== historyBefore.title;
+        const lockedContentChanged =
+          content !== undefined && content !== historyBefore.content;
+        const lockedDescriptionChanged =
+          args.description !== undefined &&
+          args.description.trim() !== historyBefore.description;
+        const lockedIconChanged =
+          args.icon !== undefined && args.icon !== historyBefore.icon;
+        const lockedDocumentFieldsChanged =
+          lockedTitleChanged ||
+          lockedContentChanged ||
+          lockedDescriptionChanged ||
+          lockedIconChanged;
+        const updatedAt = nextDocumentUpdatedAt(historyBefore.updatedAt);
+        const updates: Record<string, unknown> = { updatedAt };
+        if (lockedTitleChanged) updates.title = args.title;
+        if (lockedDescriptionChanged)
+          updates.description = args.description?.trim();
+        if (lockedContentChanged) {
+          updates.content = content;
+          updates.bodyRevision = historyBefore.bodyRevision + 1;
+        }
+        if (lockedIconChanged) updates.icon = args.icon;
+        const primaryBlocksFields = lockedContentChanged
           ? await lockPrimaryBlocksFields(
               tx as unknown as ReturnType<typeof getDb>,
               id,
             )
           : [];
-        if (useContentCas) {
-          const applied = await tx
-            .update(schema.documents)
-            .set(updates)
-            .where(
-              and(
-                eq(schema.documents.id, id),
-                eq(schema.documents.updatedAt, args.baseUpdatedAt as string),
-              ),
-            )
-            .returning({ id: schema.documents.id });
-          if (!applied || applied.length === 0) {
-            contentCasConflict = true;
-            return;
-          }
-        } else if (documentFieldsChanged) {
-          await tx
-            .update(schema.documents)
-            .set(updates)
-            .where(eq(schema.documents.id, id));
+        const applied = await commitCanonicalDocumentBodyMutation({
+          write: async () => {
+            if (useContentCas) {
+              const rows = await tx
+                .update(schema.documents)
+                .set(updates)
+                .where(
+                  and(
+                    eq(schema.documents.id, id),
+                    eq(
+                      schema.documents.updatedAt,
+                      args.baseUpdatedAt as string,
+                    ),
+                  ),
+                )
+                .returning({ id: schema.documents.id });
+              return rows.length > 0;
+            }
+            if (lockedDocumentFieldsChanged) {
+              await tx
+                .update(schema.documents)
+                .set(updates)
+                .where(eq(schema.documents.id, id));
+            }
+            return true;
+          },
+          afterWrite: async () => {
+            if (lockedContentChanged && content !== undefined) {
+              for (const field of primaryBlocksFields) {
+                await persistBlocksFieldIdentity({
+                  db: tx as unknown as ReturnType<typeof getDb>,
+                  ownerEmail: field.ownerEmail,
+                  documentId: id,
+                  propertyId: field.propertyId,
+                  previousMarkdown: historyBefore.content,
+                  markdown: content,
+                  now: updatedAt,
+                });
+              }
+            }
+          },
+        });
+        if (!applied) {
+          contentCasConflict = true;
+          return;
         }
-
-        if (contentChanged && content !== undefined) {
-          for (const field of primaryBlocksFields) {
-            await persistBlocksFieldIdentity({
-              db: tx as unknown as ReturnType<typeof getDb>,
-              ownerEmail: field.ownerEmail,
-              documentId: id,
-              propertyId: field.propertyId,
-              previousMarkdown: existing.content,
-              markdown: content,
-              now: updates.updatedAt as string,
-            });
-          }
-        }
-
-        if (titleChanged || contentChanged) {
-          const [latestVersion] = await tx
-            .select({ createdAt: schema.documentVersions.createdAt })
-            .from(schema.documentVersions)
-            .where(
-              and(
-                eq(schema.documentVersions.documentId, id),
-                eq(schema.documentVersions.ownerEmail, ownerEmail),
-              ),
-            )
-            .orderBy(desc(schema.documentVersions.createdAt))
-            .limit(1);
-          const shouldSnapshot =
-            isAgentCaller ||
-            clearsNonEmptyContent ||
-            !latestVersion ||
-            Date.now() - new Date(latestVersion.createdAt).getTime() >
-              SNAPSHOT_INTERVAL_MS;
-
-          if (shouldSnapshot) {
-            await tx.insert(schema.documentVersions).values({
-              id: nanoid(),
-              ownerEmail,
-              documentId: id,
-              title: existing.title,
-              content: existing.content,
-              chatContext: serializeDocumentVersionChatContext(
-                documentVersionChatContextFromAction(ctx),
-              ),
-              createdAt: new Date().toISOString(),
-            });
-          }
-        }
+        committedContentChanged = lockedContentChanged;
+        committedContentBefore = historyBefore.content;
 
         if (favoriteChanged) {
           await setFavoriteMembership({
@@ -632,60 +637,40 @@ export default defineAction({
             userEmail: requestUserEmail as string,
             documentId: id,
             favorite: args.isFavorite as boolean,
-            now: updates.updatedAt as string,
+            now: updatedAt,
           });
         }
 
-        if (titleChanged && args.title !== undefined) {
-          const [database] = await tx
+        if (lockedTitleChanged && args.title !== undefined) {
+          await propagateDocumentTitle({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            documentId: id,
+            title: args.title,
+            updatedAt,
+          });
+        }
+        if (lockedTitleChanged || lockedContentChanged) {
+          const [after] = await tx
             .select({
-              id: schema.contentDatabases.id,
-              spaceId: schema.contentDatabases.spaceId,
-              systemRole: schema.contentDatabases.systemRole,
+              title: schema.documents.title,
+              content: schema.documents.content,
             })
-            .from(schema.contentDatabases)
-            .where(eq(schema.contentDatabases.documentId, id));
-          if (database) {
-            const title =
-              database.systemRole === "files"
-                ? args.title.trim() || "Untitled"
-                : args.title;
-            await tx
-              .update(schema.contentDatabases)
-              .set({ title, updatedAt: updates.updatedAt as string })
-              .where(eq(schema.contentDatabases.id, database.id));
-            if (database.systemRole === "files" && database.spaceId) {
-              await tx
-                .update(schema.documents)
-                .set({ title, updatedAt: updates.updatedAt as string })
-                .where(eq(schema.documents.id, id));
-              await tx
-                .update(schema.contentSpaces)
-                .set({ name: title, updatedAt: updates.updatedAt as string })
-                .where(eq(schema.contentSpaces.id, database.spaceId));
-              const catalogReferences = await tx
-                .select({
-                  documentId: schema.contentSpaceCatalogItems.documentId,
-                })
-                .from(schema.contentSpaceCatalogItems)
-                .where(
-                  eq(schema.contentSpaceCatalogItems.spaceId, database.spaceId),
-                );
-              if (catalogReferences.length > 0) {
-                await tx
-                  .update(schema.documents)
-                  .set({ title, updatedAt: updates.updatedAt as string })
-                  .where(
-                    inArray(
-                      schema.documents.id,
-                      catalogReferences.map(
-                        (reference) => reference.documentId,
-                      ),
-                    ),
-                  );
-              }
-            }
-          }
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id))
+            .limit(1);
+          await recordDocumentHistoryTransition({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            ownerEmail,
+            documentId: id,
+            before: historyBefore,
+            after,
+            cause: {
+              ctx,
+              historySessionId: args.historySessionId,
+              operation: "update-document",
+            },
+            now: updatedAt,
+          });
         }
       });
 
@@ -737,7 +722,7 @@ export default defineAction({
         );
       }
 
-      if (contentChanged) {
+      if (committedContentChanged) {
         softDeletedDatabaseIds = await reconcileInlineDatabasesForDocument(
           id,
           content ?? "",
@@ -749,13 +734,13 @@ export default defineAction({
       // through `searchAndReplace`; it keeps the SQL + reconcile delivery and
       // publishes agent presence + a lingering recent-edit highlight near the
       // first changed span. Best-effort — never fail the save on presence.
-      if (isAgentCaller && contentChanged) {
+      if (isAgentCaller && committedContentChanged) {
         try {
           agentTouchDocument(id, {
             edit: {
               descriptor: {
                 kind: "text",
-                quote: firstChangedQuote(existing.content ?? "", content ?? ""),
+                quote: firstChangedQuote(committedContentBefore, content ?? ""),
               },
               label: (args.title ?? existing.title) || undefined,
             },
@@ -795,6 +780,21 @@ export default defineAction({
       : parseDocumentFavorite(doc.isFavorite);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+
+    if (isAgentCaller && doc.content !== existing.content) {
+      track(
+        "ai_refine_used",
+        {
+          app_name: "content",
+          template_name: "content",
+          output_id: id,
+          output_type: "document",
+          edit_count: 1,
+          refine_type: "full_update",
+        },
+        ctx,
+      );
+    }
 
     return scopeDocumentAudit(
       {

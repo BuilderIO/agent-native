@@ -48,6 +48,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
 import { chunks } from "./_batch-utils.js";
 import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
@@ -73,6 +74,28 @@ type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
 type DbClient = ReturnType<typeof getDb>;
+
+async function sourceManagedPropertyIdsForDatabase(
+  db: DbClient,
+  databaseId: string,
+) {
+  const fields = await db
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceFields.sourceId,
+      ),
+    )
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+  return contentDatabaseSourceManagedPropertyIds(fields);
+}
 
 export function nanoid(size = 12): string {
   const chars =
@@ -623,6 +646,10 @@ export async function listPropertiesForDatabase(
     .orderBy(asc(schema.documentPropertyDefinitions.position));
 
   if (definitions.length === 0) return [];
+  const sourceManagedPropertyIds = await sourceManagedPropertyIdsForDatabase(
+    db,
+    databaseId,
+  );
 
   const values = valueDocument
     ? await db
@@ -724,7 +751,8 @@ export async function listPropertiesForDatabase(
       editable:
         includeContainerDerivedValues &&
         !definition.systemRole &&
-        !isComputedPropertyType(type),
+        !isComputedPropertyType(type) &&
+        !sourceManagedPropertyIds.has(definition.id),
       ...(valueDocument && isBlocksPropertyType(type)
         ? {
             blocksField: blocksFieldIdentityById.get(
@@ -816,6 +844,10 @@ export async function listPropertiesForDatabaseDocuments(
     for (const document of valueDocuments) result.set(document.id, []);
     return result;
   }
+  const sourceManagedPropertyIds = await sourceManagedPropertyIdsForDatabase(
+    db,
+    databaseId,
+  );
 
   const documentIds = valueDocuments.map((document) => document.id);
   const propertyIds = definitions.map((definition) => definition.id);
@@ -936,7 +968,8 @@ export async function listPropertiesForDatabaseDocuments(
         value,
         editable:
           !definition.systemRole &&
-          !isComputedPropertyType(propertyDefinition.type),
+          !isComputedPropertyType(propertyDefinition.type) &&
+          !sourceManagedPropertyIds.has(definition.id),
         ...(isBlocksPropertyType(propertyDefinition.type)
           ? {
               blocksField: blocksFieldIdentityById.get(

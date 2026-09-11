@@ -365,7 +365,7 @@ export function AppProviders({
   clientOnlyFallback,
   sessionBypass = false,
   disableWebMcp = false,
-  showEnvironmentBadge = true,
+  showEnvironmentBadge = false,
   defaultTheme,
   themeAttribute,
   tooltipDelayDuration,

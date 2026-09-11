@@ -16,6 +16,7 @@ const googleAuthRequiredMock = vi.fn(async () => false);
 const adapterUsers: Array<{
   id: string;
   email: string;
+  emailVerified?: boolean;
   accounts: Array<{ providerId: string; accountId: string }>;
 }> = [];
 const signUpEmailMock = vi.fn(async ({ body }: any) => {
@@ -39,9 +40,25 @@ const linkAccountMock = vi.fn(async (input: any) => {
 const findUserByEmailMock = vi.fn(async (email: string) => {
   const user = adapterUsers.find((candidate) => candidate.email === email);
   return user
-    ? { user: { id: user.id, email: user.email }, accounts: user.accounts }
+    ? {
+        user: {
+          id: user.id,
+          email: user.email,
+          emailVerified: user.emailVerified === true,
+        },
+        accounts: user.accounts,
+      }
     : null;
 });
+const updateUserMock = vi.fn(async (userId: string, data: any) => {
+  const user = adapterUsers.find((candidate) => candidate.id === userId);
+  if (user && data?.emailVerified === true) user.emailVerified = true;
+  return {};
+});
+const acceptPendingInvitationsForEmailMock = vi.fn(async () => ({
+  accepted: [],
+  activeOrgId: null,
+}));
 
 const states = new Map<
   string,
@@ -86,6 +103,8 @@ vi.mock("./auth.js", () => ({
 }));
 vi.mock("./google-oauth.js", () => ({
   createOAuthSession: (...args: any[]) => createOAuthSessionMock(...args),
+  getAppUrl: (event: any, path: string) =>
+    `https://${event.headers?.host ?? "mail.agent-native.com"}${path}`,
   getOrigin: (event: any) =>
     `https://${event.headers?.host ?? "mail.agent-native.com"}`,
 }));
@@ -95,13 +114,19 @@ vi.mock("../org/auth-policy.js", () => ({
     googleAuthRequiredMock(...args),
 }));
 vi.mock("./better-auth-instance.js", () => ({
+  getAuthSecret: () => "test-auth-secret",
   getBetterAuth: async () => ({
     api: { signUpEmail: (...args: any[]) => signUpEmailMock(...args) },
   }),
   getBetterAuthInternalAdapter: async () => ({
     findUserByEmail: (...args: any[]) => findUserByEmailMock(...args),
     linkAccount: (...args: any[]) => linkAccountMock(...args),
+    updateUser: (...args: any[]) => updateUserMock(...args),
   }),
+}));
+vi.mock("../org/accept-pending.js", () => ({
+  acceptPendingInvitationsForEmail: (...args: any[]) =>
+    acceptPendingInvitationsForEmailMock(...args),
 }));
 vi.mock("./identity-sso-store.js", () => ({
   CANONICAL_IDENTITY_SSO_HUB_URL: "https://dispatch.agent-native.com",
@@ -164,8 +189,12 @@ vi.mock("./identity-sso-store.js", () => ({
   }),
 }));
 
-const { handleIdentitySso, isIdentitySsoBypassPath, resolveIdentityHubUrl } =
-  await import("./identity-sso.js");
+const {
+  canIdentitySsoBootstrapBindingCookieReachHub,
+  handleIdentitySso,
+  isIdentitySsoBypassPath,
+  resolveIdentityHubUrl,
+} = await import("./identity-sso.js");
 
 const HUB = "https://dispatch.agent-native.com";
 const SECRET = "test-a2a-secret";
@@ -240,6 +269,8 @@ beforeEach(() => {
   googleAuthRequiredMock.mockReset().mockResolvedValue(false);
   linkAccountMock.mockClear();
   findUserByEmailMock.mockClear();
+  updateUserMock.mockClear();
+  acceptPendingInvitationsForEmailMock.mockClear();
   process.env.A2A_SECRET = SECRET;
   process.env.AGENT_NATIVE_IDENTITY_HUB_URL = HUB;
   // Stands in for the package layer: outside a template checkout package.json
@@ -343,6 +374,44 @@ describe("identity SSO browser contract", () => {
     );
     expect(location.searchParams.has("token")).toBe(false);
     expect(location.searchParams.has("id_token")).toBe(false);
+  });
+
+  it("uses a source-origin bridge when the configured hub is on another site", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_IDENTITY_HUB_URL",
+      "https://identity.example.test",
+    );
+    vi.stubEnv("AGENT_NATIVE_IDENTITY_FEDERATION_SECRET", SECRET);
+    getSessionMock.mockResolvedValue({ email: "alice@example.test" });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          continue_url:
+            "https://identity.example.test/_agent-native/identity/bootstrap/continue?handle=" +
+            "h".repeat(43),
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const request = event("/_agent-native/identity/bootstrap?return=%2Fafter", {
+      headers: { host: "workspace.example.test" },
+    });
+    const response = await handleIdentitySso(request, "/bootstrap");
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('id="identity-sso-bridge"');
+    expect(body).toContain("source_origin");
+    expect(request.cookies.an_identity_bootstrap_binding).toMatch(
+      /^[A-Za-z0-9_-]{43}$/,
+    );
+    expect(
+      canIdentitySsoBootstrapBindingCookieReachHub(
+        request,
+        "https://identity.example.test",
+      ),
+    ).toBe(false);
   });
 
   it("preserves prompt=none for silent browser probes", async () => {
@@ -506,7 +575,10 @@ describe("identity SSO browser contract", () => {
     expect(createOAuthSessionMock).toHaveBeenCalledWith(
       expect.anything(),
       "alice@example.test",
-      expect.objectContaining({ hasProductionSession: false }),
+      expect.objectContaining({
+        authProvider: "google",
+        hasProductionSession: false,
+      }),
     );
   });
 });
@@ -571,6 +643,95 @@ describe("additive JIT linking", () => {
     });
   });
 
+  it("records the authority's Google-proved verification on a new user", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "google",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"m".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(updateUserMock).toHaveBeenCalledWith(
+      "created-alice@example.test",
+      expect.objectContaining({ emailVerified: true }),
+    );
+    // The user-create hook skipped these while the row was still unverified.
+    expect(acceptPendingInvitationsForEmailMock).toHaveBeenCalledWith(
+      "alice@example.test",
+    );
+  });
+
+  it("leaves the row unverified when invitation reconciliation fails, so the next login retries", async () => {
+    acceptPendingInvitationsForEmailMock.mockRejectedValueOnce(
+      new Error("org database offline"),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "google",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"o".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    // Sign-in still succeeds; the caller owns the session.
+    expect(response.status).toBe(302);
+    expect(createOAuthSessionMock).toHaveBeenCalled();
+    // Recording verification here would make the dropped invitations permanent,
+    // because the next login would skip the reconciliation branch entirely.
+    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(
+      adapterUsers.find((user) => user.email === "alice@example.test")
+        ?.emailVerified,
+    ).not.toBe(true);
+  });
+
+  it("leaves the row unverified when the authority proved no email control", async () => {
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"n".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(acceptPendingInvitationsForEmailMock).not.toHaveBeenCalled();
+  });
+
   it("creates a new user with a random unusable credential", async () => {
     signUpEmailMock.mockImplementation(async ({ body }: any) => {
       adapterUsers.push({
@@ -598,6 +759,18 @@ describe("additive JIT linking", () => {
 });
 
 describe("route boundaries", () => {
+  it("bypasses auth for both browser bootstrap hops", () => {
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/binding"),
+    ).toBe(true);
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/continue"),
+    ).toBe(true);
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/activate"),
+    ).toBe(true);
+  });
+
   it("does not bypass auth for the Desktop completion page", () => {
     expect(
       isIdentitySsoBypassPath("/_agent-native/identity/desktop-complete"),

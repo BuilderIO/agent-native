@@ -38,6 +38,7 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Keep large files/blobs in configured file storage, not SQL, settings, or
   resources; persist only URLs, ids, or handles.
 - Never hardcode secrets or private/customer data; use vault/OAuth/runtime
@@ -47,8 +48,7 @@ Read the relevant skill before deeper work:
   directly. Read the schema when unclear.
 - Use `view-screen` before editing when the active deck, selected slide, or
   current layout is unclear.
-- Preserve deck structure and visual consistency. Prefer focused slide edits over
-  regenerating whole decks unless requested.
+- Preserve deck structure; prefer focused slide edits over regenerating decks.
 - New-deck attachments are reference context. Import into a deck only after an
   explicit request or Import control; explicit imports follow `sourceImport`
   and preserve structure.

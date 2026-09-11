@@ -42,10 +42,10 @@ describe("localization preference actions", () => {
     ).resolves.toEqual({ locale: "zh-CN", timezone: "system" });
   });
 
-  it("rejects unsupported locales", async () => {
+  it("rejects malformed locales", async () => {
     await expect(
       setPreference.run(
-        { locale: "tlh" },
+        { locale: "not_a_locale" },
         { caller: "frontend", userEmail: "a@example.com" },
       ),
     ).rejects.toThrow("Unsupported locale");

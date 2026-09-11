@@ -121,7 +121,7 @@ export async function resolveServerCatchAllTarget(
   // Dispatch receives legacy route segments before discovery normalizes the
   // manifest IDs, so normalize the lookup key at this boundary as well.
   return resolveCatchAllTarget(normalizeAgentId(appId), {
-    workspaceApps: loadWorkspaceAppsManifest(),
+    workspaceApps: await loadWorkspaceAppsManifest(),
     builtinAgents: getBuiltinAgents("dispatch"),
   });
 }

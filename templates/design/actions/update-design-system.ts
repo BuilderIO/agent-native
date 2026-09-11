@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -35,7 +36,10 @@ export default defineAction({
         "Updated free-form guidance the agent should follow when generating designs with this design system. Pass an empty string to clear.",
       ),
   }),
-  run: async ({ id, title, description, data, assets, customInstructions }) => {
+  run: async (
+    { id, title, description, data, assets, customInstructions },
+    ctx,
+  ) => {
     // Validate that data/assets are valid JSON when provided
     if (data !== undefined) {
       try {
@@ -72,6 +76,18 @@ export default defineAction({
       .update(schema.designSystems)
       .set(updates)
       .where(eq(schema.designSystems.id, id));
+
+    track(
+      "design_system_saved",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design_system",
+        design_system_id: id,
+      },
+      ctx,
+    );
 
     return { id, updated: true };
   },

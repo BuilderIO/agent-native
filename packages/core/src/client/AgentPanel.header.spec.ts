@@ -622,10 +622,14 @@ describe("AgentPanel header overflow actions", () => {
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
     expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
+    expect(source).toContain("event.preventDefault();");
+    expect(overflowMenu).toContain(
+      'toggleHistory,\n                    "timeout"',
+    );
     expect(overflowMenu).toContain("onCloseAutoFocus");
     expect(
       overflowMenu.match(/closeHeaderMenuForOverlay/g)?.length,
-    ).toBeGreaterThanOrEqual(3);
+    ).toBeGreaterThanOrEqual(2);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
     expect(source).toContain("onFullViewRequest={onFullscreenRequest}");
@@ -668,7 +672,7 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain("if (open && !showWhenOpen) return null");
     expect(source).toContain("aria-pressed={open}");
     expect(source).toContain('data-state={open ? "open" : "closed"}');
-    expect(source).toContain("{icon ?? <IconMessageDots");
+    expect(source).toContain("IconLayoutSidebarRight");
     expect(source).toContain("{onCollapse && showCollapseButton && (");
     expect(source).toContain("showCollapseButton={showCollapseButton}");
   });

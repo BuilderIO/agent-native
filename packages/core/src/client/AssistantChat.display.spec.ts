@@ -44,6 +44,7 @@ import {
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatComposerPlaceholder,
+  restoreAssistantChatHistoryVersion,
   shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
@@ -54,6 +55,103 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("assistant chat resource history restore", () => {
+  it("awaits preparation, applies the committed result, and then refetches history", async () => {
+    const events: string[] = [];
+    const version = {
+      id: "version-1",
+      createdAt: "2026-09-09T10:00:00.000Z",
+    };
+    const history = {
+      list: {
+        action: "list-versions",
+        getVersions: () => [version],
+      },
+      restore: {
+        action: "restore-version",
+        args: async () => {
+          events.push("prepare");
+          return { versionId: version.id, expectedUpdatedAt: "current" };
+        },
+        onRestored: async (restored: { id: string }) => {
+          events.push(`apply-${restored.id}`);
+        },
+      },
+    };
+
+    await restoreAssistantChatHistoryVersion({
+      history,
+      version,
+      restore: async (args) => {
+        events.push(`restore-${String(args.expectedUpdatedAt)}`);
+        return { id: "restored" };
+      },
+      refetch: async () => {
+        events.push("refetch");
+      },
+      onRefetchError: vi.fn(),
+    });
+
+    expect(events).toEqual([
+      "prepare",
+      "restore-current",
+      "apply-restored",
+      "refetch",
+    ]);
+  });
+
+  it("still refetches committed history when applying the result fails", async () => {
+    const applicationError = new Error("editor apply failed");
+    const refetch = vi.fn(async () => undefined);
+    const version = { id: "version-1", createdAt: 1 };
+
+    await expect(
+      restoreAssistantChatHistoryVersion({
+        history: {
+          list: { action: "list-versions", getVersions: () => [version] },
+          restore: {
+            action: "restore-version",
+            args: async () => ({ versionId: version.id }),
+            onRestored: async () => {
+              throw applicationError;
+            },
+          },
+        },
+        version,
+        restore: async () => ({ id: "restored" }),
+        refetch,
+        onRefetchError: vi.fn(),
+      }),
+    ).rejects.toBe(applicationError);
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not coerce a falsy application failure into success", async () => {
+    const version = { id: "version-1", createdAt: 1 };
+    const result = await restoreAssistantChatHistoryVersion({
+      history: {
+        list: { action: "list-versions", getVersions: () => [version] },
+        restore: {
+          action: "restore-version",
+          args: async () => ({ versionId: version.id }),
+          onRestored: async () => {
+            throw undefined;
+          },
+        },
+      },
+      version,
+      restore: async () => ({ id: "restored" }),
+      refetch: async () => undefined,
+      onRefetchError: vi.fn(),
+    }).then(
+      () => ({ rejected: false, error: undefined }),
+      (error: unknown) => ({ rejected: true, error }),
+    );
+
+    expect(result).toEqual({ rejected: true, error: undefined });
+  });
+});
 
 describe("shouldShowAssistantChatModelSelector", () => {
   it("keeps the framework selector by default and lets hosts replace only its visual control", () => {

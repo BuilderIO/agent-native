@@ -30,6 +30,18 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       options ? `${key}:${JSON.stringify(options)}` : key,
 }));
 
+const mockActiveOrg = vi.hoisted(() => ({
+  current: { orgId: "org-a" } as { orgId: string | null } | undefined,
+}));
+const mockOrgPending = vi.hoisted(() => ({ current: false }));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({
+    data: mockActiveOrg.current,
+    isPending: mockOrgPending.current,
+  }),
+}));
+
 vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: ComposerStubProps) => (
     <div
@@ -107,6 +119,8 @@ beforeEach(() => {
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
+  mockActiveOrg.current = { orgId: "org-a" };
+  mockOrgPending.current = false;
 });
 
 afterEach(async () => {
@@ -146,7 +160,9 @@ describe("PromptPopover draft isolation", () => {
     const composer = container!.querySelector(
       '[data-testid="prompt-composer"]',
     );
-    expect(composer?.getAttribute("data-draft-scope")).toBe("Tweak design");
+    expect(composer?.getAttribute("data-draft-scope")).toBe(
+      "Tweak design:org-a",
+    );
   });
 
   it("prefers an explicit draftScope over the title default", async () => {
@@ -158,8 +174,68 @@ describe("PromptPopover draft isolation", () => {
       '[data-testid="prompt-composer"]',
     );
     expect(composer?.getAttribute("data-draft-scope")).toBe(
-      "design:abc123:generate",
+      "design:abc123:generate:org-a",
     );
+  });
+
+  it("changes the draft key when the active account switches, so a draft never leaks across accounts", async () => {
+    mockActiveOrg.current = { orgId: "org-a" };
+    await renderPopover({ title: "New design" });
+    const composerBefore = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composerBefore?.getAttribute("data-draft-scope")).toBe(
+      "New design:org-a",
+    );
+
+    // Switching accounts (org.orgId changes) happens client-side with no
+    // reload, so this must re-derive to a different key rather than keep
+    // reading/writing the previous account's localStorage entry.
+    mockActiveOrg.current = { orgId: "org-b" };
+    await act(async () => {
+      root!.render(
+        <PromptPopover
+          open
+          onOpenChange={() => {}}
+          title="New design"
+          onSubmit={() => {}}
+        />,
+      );
+    });
+
+    const composerAfter = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composerAfter?.getAttribute("data-draft-scope")).toBe(
+      "New design:org-b",
+    );
+  });
+
+  it("never falls back to the unscoped title key while the org query is still pending", async () => {
+    // Before `useOrg` resolves we don't know which account this popover
+    // belongs to. Falling back to the bare title key here would let this
+    // popover read (or later leak) a different signed-in account's
+    // abandoned draft, since that unscoped key predates org-scoping.
+    mockOrgPending.current = true;
+    mockActiveOrg.current = undefined;
+    await renderPopover({ title: "New design" });
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composer?.getAttribute("data-draft-scope")).not.toBe("New design");
+    expect(composer?.getAttribute("data-draft-scope")).toBe(
+      "New design:pending",
+    );
+  });
+
+  it("scopes users with no active org distinctly from both the pending and unscoped keys", async () => {
+    mockOrgPending.current = false;
+    mockActiveOrg.current = { orgId: null };
+    await renderPopover({ title: "New design" });
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composer?.getAttribute("data-draft-scope")).toBe("New design:none");
   });
 });
 

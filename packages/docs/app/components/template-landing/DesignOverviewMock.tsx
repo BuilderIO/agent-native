@@ -856,7 +856,7 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-collaborators { display: flex; height: 32px; align-items: center; padding-right: 4px; }",
   // Three steps of one neutral rather than per-user hues: presence is ambient
   // information here, and coloured discs pull the eye off the canvas.
-  ".design-mock .dm-avatar { display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 2px solid var(--dm-avatar-border); border-radius: 999px; color: var(--dm-avatar-fg); font-size: 10px; font-weight: 600; }",
+  ".design-mock .dm-avatar { display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 1px solid var(--dm-avatar-border); border-radius: 999px; color: var(--dm-avatar-fg); font-size: 10px; font-weight: 600; }",
   ".design-mock .dm-avatar + .dm-avatar { margin-left: -8px; }",
   ".design-mock .dm-avatar-1 { background: var(--dm-avatar-bg-1); }",
   ".design-mock .dm-avatar-2 { background: var(--dm-avatar-bg-2); }",

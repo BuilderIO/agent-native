@@ -38,6 +38,7 @@ import {
   PopoverTrigger,
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
+import { formatAttachmentError } from "./attachment-accept.js";
 import {
   ComposerPlusMenu,
   type ComposerTerminalModeControl,
@@ -455,9 +456,24 @@ function persistComposerDraft(
   }
 }
 
-function clearComposerDraft(draftKey: string | null): void {
+function clearComposerDraft(
+  draftKey: string | null,
+  expectedValue?: string | null,
+): void {
   if (!draftKey) return;
   try {
+    if (
+      expectedValue !== undefined &&
+      localStorage.getItem(draftKey) !== expectedValue
+    ) {
+      // A submit that started against this key may resolve long after its
+      // composer instance unmounted. If a freshly mounted composer reused
+      // the exact same scope (e.g. the host reopens the same popover before
+      // the earlier submit settles) and the visitor typed something new,
+      // localStorage now holds that newer draft — leave it alone instead of
+      // wiping out a draft this stale submit never wrote.
+      return;
+    }
     localStorage.removeItem(draftKey);
   } catch {
     // coercion-ok: browser storage is optional and can be unavailable or full.
@@ -1060,6 +1076,13 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
   "z-ai/glm-5.2": "GLM 5.2",
+  "openai/gpt-6-astra": "GPT-6 Astra",
+  "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
+  "anthropic/claude-fable-5.1": "Fable 5.1",
+  "google/gemini-3.8-flash": "Gemini 3.8 Flash",
+  "qwen/qwen3.8-max-0902": "Qwen 3.8 Max",
+  "meta/muse-spark-1.3": "Muse Spark 1.3",
+  "inception/mercury-2.5": "Mercury 2.5",
 };
 
 const LOCAL_RUNTIME_ENGINES = new Set([
@@ -2653,13 +2676,13 @@ export function TiptapComposer({
           void Promise.all(
             attachments.map((file) => addAttachmentForCurrentScope(file)),
           ).catch((error) => {
-            const msg =
-              error instanceof Error
-                ? error.message
-                : t("agentChat.composer.pastedImageError", {
-                    defaultValue:
-                      "Could not attach the pasted image. Try a different format.",
-                  });
+            const msg = formatAttachmentError(
+              error,
+              t("agentChat.composer.pastedImageError", {
+                defaultValue:
+                  "Could not attach the pasted image. Try a different format.",
+              }),
+            );
             onAttachmentErrorRef.current?.(msg);
           });
           return true;
@@ -2677,12 +2700,12 @@ export function TiptapComposer({
           void addAttachmentForCurrentScope(
             createPastedAttachmentFile(paste),
           ).catch((error) => {
-            const msg =
-              error instanceof Error
-                ? error.message
-                : t("agentChat.composer.pastedTextError", {
-                    defaultValue: "Could not attach the pasted text.",
-                  });
+            const msg = formatAttachmentError(
+              error,
+              t("agentChat.composer.pastedTextError", {
+                defaultValue: "Could not attach the pasted text.",
+              }),
+            );
             onAttachmentErrorRef.current?.(msg);
           });
           return true;
@@ -2698,13 +2721,13 @@ export function TiptapComposer({
           event: event as DragEvent,
           addAttachment: addAttachmentForCurrentScope,
           onError: (error) => {
-            const msg =
-              error instanceof Error
-                ? error.message
-                : t("agentChat.composer.droppedFileError", {
-                    defaultValue:
-                      "Could not attach the dropped file. Try a different format.",
-                  });
+            const msg = formatAttachmentError(
+              error,
+              t("agentChat.composer.droppedFileError", {
+                defaultValue:
+                  "Could not attach the dropped file. Try a different format.",
+              }),
+            );
             onAttachmentErrorRef.current?.(msg);
           },
         });
@@ -3415,23 +3438,37 @@ export function TiptapComposer({
     return { text, references };
   }, [extractComposerPayload, syncComposerRuntimeState]);
 
-  const clearEditorAfterSubmit = useCallback(() => {
-    const ed = editor;
-    if (!isComposerEditorUsable(ed)) return;
-    ed.commands.clearContent();
-    cancelScheduledDraftPersist();
-    setEditorHasText(false);
-    setSlotReferences([]);
-    resetComposerRuntimeState();
-    clearComposerDraft(draftKey);
-    closePopover();
-  }, [
-    cancelScheduledDraftPersist,
-    closePopover,
-    draftKey,
-    editor,
-    resetComposerRuntimeState,
-  ]);
+  const clearEditorAfterSubmit = useCallback(
+    (expectedDraftSnapshot?: string | null) => {
+      // A caller may close/unmount the host popover as soon as submit starts
+      // (before awaiting the round trip), which destroys this editor instance
+      // while the submit promise is still in flight. The persisted draft has
+      // no dependency on the live editor, so it must be cleared unconditionally
+      // here — gating it behind `isComposerEditorUsable` left the old prompt
+      // stuck in localStorage forever, ready to resurface on the next mount.
+      // `expectedDraftSnapshot` guards a narrower race: a fresh composer
+      // instance may reuse this exact scope and persist its own draft before
+      // this stale submit settles, so only clear when localStorage still
+      // holds what this submit actually wrote.
+      cancelScheduledDraftPersist();
+      clearComposerDraft(draftKey, expectedDraftSnapshot);
+      const ed = editor;
+      if (isComposerEditorUsable(ed)) {
+        ed.commands.clearContent();
+        setEditorHasText(false);
+        setSlotReferences([]);
+        resetComposerRuntimeState();
+      }
+      closePopover();
+    },
+    [
+      cancelScheduledDraftPersist,
+      closePopover,
+      draftKey,
+      editor,
+      resetComposerRuntimeState,
+    ],
+  );
 
   const submitComposer = useCallback(
     async (intent: ComposerSubmitIntent = "immediate") => {
@@ -3443,6 +3480,19 @@ export function TiptapComposer({
       flushComposerDraft();
       const submittingDraftKey = draftKeyRef.current;
       const submittingDraftGeneration = draftScopeGenerationRef.current;
+      // Snapshot exactly what flushComposerDraft just persisted so a
+      // same-scope draft written by a later, unrelated composer instance
+      // (see clearComposerDraft) is never mistaken for this submission's.
+      const submittingDraftSnapshot = submittingDraftKey
+        ? (() => {
+            try {
+              return localStorage.getItem(submittingDraftKey);
+            } catch {
+              // coercion-ok: browser storage is optional and can be unavailable or full; treat as "nothing to compare against" like the rest of this file's draft helpers.
+              return null;
+            }
+          })()
+        : null;
       const isCurrentDraftScope = () =>
         draftKeyRef.current === submittingDraftKey &&
         draftScopeGenerationRef.current === submittingDraftGeneration;
@@ -3562,12 +3612,16 @@ export function TiptapComposer({
       }
 
       if (onSubmit) {
+        if (submitInFlightRef.current) return;
+        submitInFlightRef.current = true;
         try {
           await onSubmit(text, references, attachments, { intent });
         } catch {
           // Hosts own their submit errors. Keep the draft and attachments
           // available for recovery when a host rejects the submission.
           return;
+        } finally {
+          submitInFlightRef.current = false;
         }
         if (!isCurrentDraftScope()) return;
         // Clear any pending attachments now that the host has them.
@@ -3577,7 +3631,7 @@ export function TiptapComposer({
           return;
         }
         cancelActiveVoice();
-        clearEditorAfterSubmit();
+        clearEditorAfterSubmit(submittingDraftSnapshot);
         return;
       } else {
         composerRuntime.send();
@@ -3982,6 +4036,7 @@ export function TiptapComposer({
           (plusMenuMode === "hidden" ? null : (
             <ComposerPlusMenu
               addAttachment={addAttachmentForCurrentScope}
+              attachmentAccept={composerRuntime.getState().attachmentAccept}
               onSelectMode={handleSelectMode}
               mode={plusMenuMode}
               terminalModeControl={terminalModeControl}

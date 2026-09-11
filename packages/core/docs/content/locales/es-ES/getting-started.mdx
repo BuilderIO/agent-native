@@ -17,8 +17,8 @@ En esta guía, crearás un agente con una interfaz de chat y llamarás a su acci
 
 ## Requisitos previos
 
-- [Node.js](https://nodejs.org) 22 o posterior
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 o posterior
+- [pnpm](https://pnpm.io) instalado y disponible en tu `PATH`
 - Una conexión de LLM para el agente: Builder.io, una clave de API de Anthropic
   u OpenAI, o un modelo local de Ollama
 
@@ -27,7 +27,7 @@ En esta guía, crearás un agente con una interfaz de chat y llamarás a su acci
 En un directorio nuevo, empieza con la plantilla de Chat:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -45,8 +45,8 @@ Inicia el servidor de desarrollo:
 pnpm dev
 ```
 
-La interfaz del navegador se abre en `http://localhost:8080`. Si no se abre
-automáticamente, visita esa URL en tu navegador.
+La interfaz del navegador se abre automáticamente. Si no lo hace, usa la URL
+local que imprime `pnpm dev`; el puerto aumenta si otra aplicación usa 8080.
 
 <Callout tone="info">
 
@@ -80,7 +80,7 @@ Hello, Alex!
 
 ## Inspeccionar la acción
 
-Abre `actions/hello.ts`:
+En tu directorio local `my-app`, abre `actions/hello.ts` en tu editor de código:
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -112,7 +112,8 @@ Consulta [Definir acciones](/docs/actions-defining) para ver la API completa.
 
 ## Llamar a la acción desde React
 
-Añade una ruta en `app/routes/hello.tsx`:
+La plantilla incluye `actions/hello.ts`, pero no una página para ella. Crea
+`app/routes/hello.tsx`:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -145,7 +146,7 @@ export default function HelloRoute() {
 <Callout tone="warning">
 
 Reinicia el servidor de desarrollo para que detecte la nueva ruta y abre
-`http://localhost:8080/hello`.
+`http://localhost:<port>/hello`.
 
 </Callout>
 
@@ -208,5 +209,10 @@ el acceso y la sincronización en tiempo real.
 
 Define acciones de lectura, escritura y aprobación, y después llámalas desde la
 interfaz de usuario, los agentes y clientes externos.
+
+### [Implementar una aplicación](/docs/deploy-an-app)
+
+Pasa del desarrollo local a una base de datos persistente, autenticación de
+producción y un destino de implementación compatible.
 
 </Cards>

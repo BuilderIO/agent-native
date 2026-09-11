@@ -4,27 +4,31 @@ import {
   normalizeReferenceUrls,
   type DesignSystemData,
 } from "../../shared/api";
+import { DEFAULT_SLIDE_BACKGROUND } from "../../shared/slide-background";
 
 const DEFAULT_DESIGN_SYSTEM: DesignSystemData = {
   colors: {
-    primary: "#609FF8",
-    secondary: "#4ADE80",
-    accent: "#00E5FF",
-    background: "#000000",
-    surface: "#0a0a0a",
-    text: "#ffffff",
-    textMuted: "rgba(255,255,255,0.55)",
+    primary: "#2457D6", // guard:allow-raw-color - default slide design-system palette
+    secondary: "#C85C3A", // guard:allow-raw-color - default slide design-system palette
+    accent: "#2457D6", // guard:allow-raw-color - default slide design-system palette
+    background: DEFAULT_SLIDE_BACKGROUND,
+    surface: "#FFFFFF", // guard:allow-raw-color - default slide design-system palette
+    text: "#1F2933", // guard:allow-raw-color - default slide design-system palette
+    textMuted: "#667085", // guard:allow-raw-color - default slide design-system palette
   },
   typography: {
-    headingFont: "Poppins",
-    bodyFont: "Poppins",
-    headingWeight: "900",
-    bodyWeight: "400",
-    headingSizes: { h1: "64px", h2: "40px", h3: "28px" },
+    headingFont: "Inter",
+    bodyFont: "Inter",
+    headingWeight: "750",
+    bodyWeight: "450",
+    headingSizes: { h1: "56px", h2: "34px", h3: "24px" },
   },
-  spacing: { slidePadding: "80px 110px", elementGap: "20px" },
-  borders: { radius: "12px", accentWidth: "4px" },
-  slideDefaults: { background: "#000000", labelStyle: "uppercase" },
+  spacing: { slidePadding: "64px 80px", elementGap: "18px" },
+  borders: { radius: "14px", accentWidth: "3px" },
+  slideDefaults: {
+    background: DEFAULT_SLIDE_BACKGROUND,
+    labelStyle: "capitalize",
+  },
   logos: [],
 };
 

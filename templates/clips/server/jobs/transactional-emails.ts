@@ -67,10 +67,13 @@ type DirectShare = {
   recipient: string;
   createdBy: string;
   createdAt: string;
+  notifiedAt: string | null;
 };
 
 type RecordingState = {
   id: string;
+  meetingId: string | null;
+  meetingVisibility: string | null;
   organizationId: string;
   ownerEmail: string;
   title: string;
@@ -289,6 +292,10 @@ export function isSuppressedTransactionalRecipient(
 function normalizeShare(share: DirectShare): DirectShare | null {
   const recipient = normalizedEmail(share.recipient);
   if (!recipient || isSuppressedTransactionalRecipient(recipient)) return null;
+  // An unnotified row is an access grant, not a share — meeting participants
+  // are granted the recording silently. Nudging one tells the recipient a
+  // colleague shared a clip with them, which never happened.
+  if (!share.notifiedAt) return null;
   return { ...share, recipient };
 }
 
@@ -327,11 +334,13 @@ function defaultRepository(): TransactionalEmailRepository {
         recipient: schema.recordingShares.principalId,
         createdBy: schema.recordingShares.createdBy,
         createdAt: schema.recordingShares.createdAt,
+        notifiedAt: schema.recordingShares.notifiedAt,
       })
       .from(schema.recordingShares)
       .where(
         and(
           eq(schema.recordingShares.principalType, "user"),
+          isNotNull(schema.recordingShares.notifiedAt),
           recipient
             ? ownerEmailMatches(schema.recordingShares.principalId, recipient)
             : undefined,
@@ -373,6 +382,7 @@ function defaultRepository(): TransactionalEmailRepository {
         .where(
           and(
             eq(schema.recordingShares.principalType, "user"),
+            isNotNull(schema.recordingShares.notifiedAt),
             ownerEmailMatches(schema.recordingShares.principalId, recipient),
             gte(schema.recordingShares.createdAt, enabledAt),
           ),
@@ -392,11 +402,13 @@ function defaultRepository(): TransactionalEmailRepository {
             recipient: schema.recordingShares.principalId,
             createdBy: schema.recordingShares.createdBy,
             createdAt: schema.recordingShares.createdAt,
+            notifiedAt: schema.recordingShares.notifiedAt,
           })
           .from(schema.recordingShares)
           .where(
             and(
               eq(schema.recordingShares.principalType, "user"),
+              isNotNull(schema.recordingShares.notifiedAt),
               ownerEmailMatches(schema.recordingShares.principalId, recipient),
               eq(schema.recordingShares.resourceId, distinct.recordingId),
               eq(schema.recordingShares.createdAt, distinct.firstSharedAt!),
@@ -522,8 +534,19 @@ function defaultRepository(): TransactionalEmailRepository {
           status: schema.recordings.status,
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
+          meetingId: schema.meetings.id,
+          meetingVisibility: schema.meetings.visibility,
         })
         .from(schema.recordings)
+        .leftJoin(
+          schema.meetings,
+          and(
+            eq(schema.meetings.recordingId, schema.recordings.id),
+            // A trashed meeting 404s on its own share route, so it must not
+            // claim the recording's reminder link.
+            isNull(schema.meetings.trashedAt),
+          ),
+        )
         .where(
           and(
             eq(schema.recordings.status, "ready"),
@@ -559,8 +582,19 @@ function defaultRepository(): TransactionalEmailRepository {
           status: schema.recordings.status,
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
+          meetingId: schema.meetings.id,
+          meetingVisibility: schema.meetings.visibility,
         })
         .from(schema.recordings)
+        .leftJoin(
+          schema.meetings,
+          and(
+            eq(schema.meetings.recordingId, schema.recordings.id),
+            // A trashed meeting 404s on its own share route, so it must not
+            // claim the recording's reminder link.
+            isNull(schema.meetings.trashedAt),
+          ),
+        )
         .where(eq(schema.recordings.id, recordingId))
         .limit(1);
       return recording ?? null;
@@ -591,6 +625,7 @@ function defaultRepository(): TransactionalEmailRepository {
         .where(
           and(
             eq(schema.recordingShares.id, shareId),
+            isNotNull(schema.recordingShares.notifiedAt),
             eq(schema.recordingShares.resourceId, recordingId),
             eq(schema.recordingShares.principalType, "user"),
           ),
@@ -1024,6 +1059,8 @@ async function makeSendInput(
       kind: "unviewed-reminder",
       to: recipient,
       recordingId: recordings[0].id,
+      meetingId: recordings[0].meetingId,
+      meetingIsPublic: recordings[0].meetingVisibility === "public",
       title: recordings[0].title,
       senderEmail,
       senderName,

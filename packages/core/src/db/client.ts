@@ -7,6 +7,7 @@ import path from "path";
  * expose PostgreSQL semantics to the rest of the framework.
  */
 import { getAppConfig } from "../app-config/index.js";
+import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
@@ -54,6 +55,40 @@ export interface DbExec {
 
 export interface DbExecConfig {
   url?: string;
+}
+
+type PgliteTransactionContext = {
+  client: any;
+  exec: DbExec;
+};
+
+type PgliteTransactionContexts = ReadonlyMap<string, PgliteTransactionContext>;
+
+type PgliteTransactionStorage = {
+  getStore(): PgliteTransactionContexts | undefined;
+  run<T>(store: PgliteTransactionContexts, callback: () => T): T;
+};
+
+const PgliteTransactionStorage = getAsyncLocalStorageCtor();
+const pgliteTransactionGlobal = globalThis as typeof globalThis & {
+  __agentNativePgliteTransactionStorage?: PgliteTransactionStorage;
+};
+const pgliteTransactionStorage =
+  pgliteTransactionGlobal.__agentNativePgliteTransactionStorage ??
+  (PgliteTransactionStorage
+    ? (pgliteTransactionGlobal.__agentNativePgliteTransactionStorage =
+        new PgliteTransactionStorage<PgliteTransactionContexts>())
+    : undefined);
+
+/** Active native PGlite transaction for this database and async call chain. */
+export function getActivePgliteTransactionClient(url: string): any | undefined {
+  return pgliteTransactionStorage?.getStore()?.get(pgliteClientKeyFromUrl(url))
+    ?.client;
+}
+
+function getActivePgliteTransactionExec(url: string): DbExec | undefined {
+  return pgliteTransactionStorage?.getStore()?.get(pgliteClientKeyFromUrl(url))
+    ?.exec;
 }
 
 function hasCloudflareRuntime(): boolean {
@@ -119,10 +154,23 @@ function envDatabaseValue(key: string): string | undefined {
   return value || undefined;
 }
 
+function isUsableRuntimeDatabaseUrl(value: string): boolean {
+  if (isPgliteUrl(value)) return true;
+  if (!/^postgres(?:ql)?:\/\//i.test(value)) return false;
+  return URL.canParse(value) && Boolean(new URL(value).hostname);
+}
+
+function usableRuntimeDatabaseValue(key: string): string | undefined {
+  const value = envDatabaseValue(key);
+  return value && isUsableRuntimeDatabaseUrl(value) ? value : undefined;
+}
+
 function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
   const appName = getAppEnvPrefix();
   if (appName) {
-    const appUnpooled = envDatabaseValue(`${appName}_DATABASE_URL_UNPOOLED`);
+    const appUnpooled = usableRuntimeDatabaseValue(
+      `${appName}_DATABASE_URL_UNPOOLED`,
+    );
     if (appUnpooled) {
       return {
         url: stripNeonPooler(appUnpooled),
@@ -130,7 +178,7 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
       };
     }
 
-    const appUrl = envDatabaseValue(`${appName}_DATABASE_URL`);
+    const appUrl = usableRuntimeDatabaseValue(`${appName}_DATABASE_URL`);
     if (appUrl) {
       return {
         url: isServerlessRuntime() ? stripNeonPooler(appUrl) : appUrl,
@@ -140,9 +188,13 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
   }
 
   const configuredUnpooled = getAppConfig().runtime.databaseUrlUnpooled;
-  if (configuredUnpooled) {
-    const netlifyUnpooled = envDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED");
-    const databaseUnpooled = envDatabaseValue("DATABASE_URL_UNPOOLED");
+  if (configuredUnpooled && isUsableRuntimeDatabaseUrl(configuredUnpooled)) {
+    const netlifyUnpooled = usableRuntimeDatabaseValue(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+    );
+    const databaseUnpooled = usableRuntimeDatabaseValue(
+      "DATABASE_URL_UNPOOLED",
+    );
     return {
       url: stripNeonPooler(configuredUnpooled),
       source:
@@ -154,7 +206,9 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
     };
   }
 
-  const netlifyUnpooled = envDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED");
+  const netlifyUnpooled = usableRuntimeDatabaseValue(
+    "NETLIFY_DATABASE_URL_UNPOOLED",
+  );
   if (netlifyUnpooled) {
     return {
       url: stripNeonPooler(netlifyUnpooled),
@@ -162,7 +216,7 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
     };
   }
 
-  const databaseUnpooled = envDatabaseValue("DATABASE_URL_UNPOOLED");
+  const databaseUnpooled = usableRuntimeDatabaseValue("DATABASE_URL_UNPOOLED");
   if (databaseUnpooled) {
     return {
       url: stripNeonPooler(databaseUnpooled),
@@ -170,12 +224,14 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
     };
   }
 
-  const url = getDatabaseUrl(fallback);
+  const databaseUrl = usableRuntimeDatabaseValue("DATABASE_URL");
+  const netlifyDatabaseUrl = usableRuntimeDatabaseValue("NETLIFY_DATABASE_URL");
+  const url = databaseUrl || netlifyDatabaseUrl || fallback;
   return {
     url: isServerlessRuntime() ? stripNeonPooler(url) : url,
-    source: envDatabaseValue("DATABASE_URL")
+    source: databaseUrl
       ? "DATABASE_URL"
-      : envDatabaseValue("NETLIFY_DATABASE_URL")
+      : netlifyDatabaseUrl
         ? "NETLIFY_DATABASE_URL"
         : "default",
   };
@@ -257,6 +313,10 @@ export function pgliteRuntimeDataDir(dataDir: string): string {
   return path.join("/tmp", safeRelative);
 }
 
+export function pgliteClientKeyFromUrl(url: string): string {
+  return pgliteClientKey(pgliteRuntimeDataDir(pgliteDataDirFromUrl(url)));
+}
+
 async function preparePgliteDataDir(dataDir: string): Promise<string> {
   const runtimeDataDir = pgliteRuntimeDataDir(dataDir);
   if (runtimeDataDir === "memory://") return runtimeDataDir;
@@ -322,16 +382,16 @@ type PgliteProcessLock = {
 };
 type PgliteProcessLockRegistry = Map<string, PgliteProcessLock>;
 
-const pgliteGlobal = globalThis as typeof globalThis & {
+const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteClients?: PgliteClientRegistry;
   __agentNativePgliteProcessLocks?: PgliteProcessLockRegistry;
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
 };
-const _pgliteClients = (pgliteGlobal.__agentNativePgliteClients ??= new Map<
+const _pgliteClients = (pgliteProcess.__agentNativePgliteClients ??= new Map<
   string,
   Promise<any>
 >());
-const _pgliteProcessLocks = (pgliteGlobal.__agentNativePgliteProcessLocks ??=
+const _pgliteProcessLocks = (pgliteProcess.__agentNativePgliteProcessLocks ??=
   new Map<string, PgliteProcessLock>());
 
 function pgliteClientKey(dataDir: string): string {
@@ -411,8 +471,8 @@ function releasePgliteProcessLock(lock: PgliteProcessLock): void {
 }
 
 function registerPgliteProcessExitCleanup(): void {
-  if (pgliteGlobal.__agentNativePgliteProcessExitCleanupRegistered) return;
-  pgliteGlobal.__agentNativePgliteProcessExitCleanupRegistered = true;
+  if (pgliteProcess.__agentNativePgliteProcessExitCleanupRegistered) return;
+  pgliteProcess.__agentNativePgliteProcessExitCleanupRegistered = true;
   process.once("exit", () => {
     for (const lock of _pgliteProcessLocks.values()) {
       releasePgliteProcessLock(lock);
@@ -1629,6 +1689,67 @@ async function executePglite(
   };
 }
 
+/**
+ * Run `fn` inside a native PGlite transaction, registering the transaction
+ * client/exec under `pgliteClientKeyFromUrl(url)` in the AsyncLocalStorage
+ * registry so `getDbExec().execute()` calls made anywhere inside `fn` resolve
+ * to this transaction instead of the main client. Shared by
+ * `createDbExecInternal`'s own `transaction()` and by `pgliteDrizzleClient`,
+ * since Drizzle opens PGlite transactions by calling `client.transaction`
+ * directly rather than going through this module.
+ */
+function runPgliteTransaction<T>(
+  url: string,
+  client: any,
+  fn: (tx: any, transactionExec: DbExec) => Promise<T>,
+): Promise<T> {
+  if (getActivePgliteTransactionExec(url)) {
+    throw new Error(
+      "Nested PGlite transactions are not supported; reuse the active transaction handle.",
+    );
+  }
+  if (!pgliteTransactionStorage) {
+    throw new Error(
+      "PGlite transactions require AsyncLocalStorage so database access stays on the active transaction handle.",
+    );
+  }
+  const clientKey = pgliteClientKeyFromUrl(url);
+  return client.transaction((tx: any) => {
+    const transactionExec: DbExec = {
+      execute: (sql) => executePglite(tx, sql),
+    };
+    const activeTransactions = new Map(pgliteTransactionStorage.getStore());
+    activeTransactions.set(clientKey, {
+      client: tx,
+      exec: transactionExec,
+    });
+    return pgliteTransactionStorage.run(activeTransactions, () =>
+      fn(tx, transactionExec),
+    );
+  });
+}
+
+/**
+ * Wrap the raw PGlite engine so Drizzle's `db.transaction(fn)` — which calls
+ * `client.transaction` on the engine directly, bypassing this module's own
+ * `transaction()` — still registers with `pgliteTransactionStorage`. Without
+ * this, any `getDbExec().execute()` inside a Drizzle transaction callback
+ * falls through to the main client and queues behind the open transaction on
+ * PGlite's single connection, deadlocking forever.
+ */
+export function pgliteDrizzleClient(url: string, client: any): any {
+  return new Proxy(client, {
+    get(target, prop) {
+      if (prop === "transaction") {
+        return (fn: (tx: any) => Promise<unknown>) =>
+          runPgliteTransaction(url, target, (tx) => fn(tx));
+      }
+      const v = Reflect.get(target, prop, target);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+}
+
 async function createDbExecInternal(
   config: DbExecConfig = {},
   trackSingletonResources = false,
@@ -1641,14 +1762,12 @@ async function createDbExecInternal(
   if (isPgliteUrl(url)) {
     const client = await getPgliteClient(url);
     return {
-      execute: (sql) => executePglite(client, sql),
-      async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-        return client.transaction((tx: any) =>
-          fn({
-            execute: (sql) => executePglite(tx, sql),
-          }),
-        );
-      },
+      execute: (sql) =>
+        executePglite(getActivePgliteTransactionClient(url) ?? client, sql),
+      transaction: (fn) =>
+        runPgliteTransaction(url, client, (_tx, transactionExec) =>
+          fn(transactionExec),
+        ),
     };
   }
 

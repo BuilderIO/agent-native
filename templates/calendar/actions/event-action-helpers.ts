@@ -189,6 +189,9 @@ export function normalizeGoogleEventId(id: string): string {
 }
 
 export function normalizeWritableGoogleEventId(id: string): string {
+  if (id.startsWith("overlay-") && id.slice("overlay-".length).includes("@")) {
+    throw new Error("Overlay Google calendar events are read-only");
+  }
   if (id.startsWith("google-google-calendar:")) {
     throw new Error("Shared Google calendar events are read-only");
   }
@@ -261,6 +264,9 @@ export function undeletableEventReason(
   }
   if (event.source === "local") {
     return 'Is a booking; cancel the booking with "cancel-booking" instead';
+  }
+  if (event.overlayEmail) {
+    return "Comes from an overlaid Google calendar, which is read-only";
   }
   if (event.calendarReadOnly) {
     return "Comes from a read-only Google calendar source";

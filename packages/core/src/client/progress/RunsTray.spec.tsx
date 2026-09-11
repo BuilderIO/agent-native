@@ -14,10 +14,6 @@ vi.mock("../api-path.js", () => ({
   agentNativePath: (path: string) => path,
 }));
 
-vi.mock("../use-pausing-interval.js", () => ({
-  usePausingInterval: () => undefined,
-}));
-
 describe("RunsTrayMenuItem", () => {
   let container: HTMLDivElement;
   let root: Root;

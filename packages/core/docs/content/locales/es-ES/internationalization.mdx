@@ -66,14 +66,11 @@ descarguen la configuración regional activa. Los códigos de configuración
 regional admitidos son `en-US`, `zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`,
 `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` y `ar-SA`.
 
-Esta lista está fijada por el framework. No es simplemente lo que este
-ejemplo incluye por casualidad. `LocaleCode` es una unión de TypeScript
-formada exactamente por estos códigos, y `set-localization-preference`
-rechaza cualquier otro valor en tiempo de ejecución. Cada configuración
-regional también necesita metadatos curados por el framework, como la
-dirección del texto para los idiomas que se escriben de derecha a izquierda.
-Agregar una nueva configuración regional implica extender el framework en
-sí, no agregar un archivo de catálogo a su aplicación.
+El framework proporciona configuraciones regionales integradas. Las
+aplicaciones pueden registrar configuraciones regionales BCP-47 canónicas
+adicionales con sus propios metadatos, como nombres nativos e ingleses y la
+dirección del texto. Use `coreMessageOverrides` para traducciones
+opcionales del framework; las claves que falten recurren al inglés.
 
 `createAgentNativeI18nCatalog` también acepta un `sourceLocale` opcional,
 que por defecto es `en-US`, y un arreglo `supportedLocales` opcional.
@@ -83,6 +80,10 @@ de las diez. Por defecto incluye todas las configuraciones regionales que
 admite el framework. `LanguagePicker` solo lista las configuraciones
 regionales de este conjunto, y cualquier configuración regional detectada o
 solicitada que quede fuera de él recurre a `sourceLocale`.
+Las configuraciones regionales registradas en `locales` se agregan a esta
+lista incluso cuando `supportedLocales` restringe las integradas.
+`translations.locales` en `agent-native.json` es una lista de permitidos
+explícita de la aplicación y tiene prioridad sobre el registro del catálogo.
 
 ## UI
 
@@ -113,7 +114,7 @@ Toda aplicación hereda:
 - `get-localization-preference` — lee el `{ locale, timezone }` del usuario actual
 - `set-localization-preference` — configura `locale` y/o `timezone`, cada uno opcional
 
-`locale` es `"system"` o una configuración regional BCP-47 admitida.
+`locale` es `"system"` o una configuración regional BCP-47 válida registrada por la aplicación.
 `timezone` es `"system"` o una zona IANA como `America/New_York`. Existe
 para que el trabajo programado y de automatización se ejecute en la zona
 horaria del usuario en lugar de la del host. Configurar solo uno de los

@@ -24,6 +24,10 @@ import {
 } from "./_document-discovery-query.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
+import {
+  canSuggestDocument,
+  INLINE_DATABASE_SUGGESTION_EXCLUSION,
+} from "./_suggestion-eligibility.js";
 
 function contentPreview(content: string, maxLength = 180) {
   const compact = content.replace(/\s+/g, " ").trim();
@@ -128,6 +132,7 @@ export default defineAction({
         description: schema.documents.description,
         contentSnippet: sql<string>`substr(${schema.documents.content}, 1, 400)`,
         contentLength: sql<number>`length(${schema.documents.content})`,
+        hasInlineDatabase: sql<boolean>`position(${INLINE_DATABASE_SUGGESTION_EXCLUSION} in ${schema.documents.content}) > 0`,
         icon: schema.documents.icon,
         position: schema.documents.position,
         isFavorite: schema.documents.isFavorite,
@@ -151,6 +156,8 @@ export default defineAction({
 
     const shareRoleByDocumentId = new Map<string, ShareRole>();
     const notionPageIdByDocumentId = new Map<string, string>();
+    const externallyLinkedDocumentIds = new Set<string>();
+    const ordinaryDatabaseItemDocumentIds = new Set<string>();
     const databaseByDocumentId = new Map<
       string,
       typeof schema.contentDatabases.$inferSelect
@@ -200,6 +207,7 @@ export default defineAction({
             .select({
               documentId: schema.documentSyncLinks.documentId,
               remotePageId: schema.documentSyncLinks.remotePageId,
+              state: schema.documentSyncLinks.state,
             })
             .from(schema.documentSyncLinks)
             .where(
@@ -266,6 +274,9 @@ export default defineAction({
 
       for (const link of notionLinks) {
         notionPageIdByDocumentId.set(link.documentId, link.remotePageId);
+        if (link.state !== "unlinked") {
+          externallyLinkedDocumentIds.add(link.documentId);
+        }
       }
 
       for (const row of shareRows) {
@@ -283,6 +294,9 @@ export default defineAction({
       }
 
       for (const row of databaseMemberships) {
+        if (row.database.systemRole == null) {
+          ordinaryDatabaseItemDocumentIds.add(row.item.documentId);
+        }
         if (!databaseMembershipByDocumentId.has(row.item.documentId)) {
           databaseMembershipByDocumentId.set(row.item.documentId, row);
         }
@@ -298,6 +312,7 @@ export default defineAction({
       const database = databaseByDocumentId.get(d.id) ?? null;
       const databaseMembership =
         databaseMembershipByDocumentId.get(d.id) ?? null;
+      const source = serializeDocumentSource(d);
 
       if (shareRole && ROLE_RANK[shareRole] > ROLE_RANK[accessRole]) {
         accessRole = shareRole;
@@ -327,7 +342,7 @@ export default defineAction({
           ? `https://www.notion.so/${notionPageIdByDocumentId.get(d.id)!.replace(/-/g, "")}`
           : null,
         visibility: d.visibility,
-        source: serializeDocumentSource(d),
+        source,
         database: database
           ? {
               id: database.id,
@@ -352,6 +367,14 @@ export default defineAction({
           : undefined,
         accessRole,
         canComment: canCommentRole(accessRole),
+        canSuggest: canSuggestDocument({
+          canComment: canCommentRole(accessRole),
+          isDatabase: Boolean(database),
+          isOrdinaryDatabaseItem: ordinaryDatabaseItemDocumentIds.has(d.id),
+          isExternallyLinked: externallyLinkedDocumentIds.has(d.id),
+          isSourceOwned: Boolean(d.sourceMode || d.sourceKind || d.sourcePath),
+          hasInlineDatabase: d.hasInlineDatabase,
+        }),
         canEdit: canEditRole(accessRole),
         canManage: canManageRole(accessRole),
         createdAt: d.createdAt,

@@ -103,7 +103,8 @@ beforeEach(async () => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE organizations (
       id TEXT PRIMARY KEY,
@@ -228,6 +229,39 @@ describe("shareable resource access helpers", () => {
         displayName: "Builder.io",
       }),
     ]);
+  });
+
+  it("lists shares while an additive share-column migration is pending", async () => {
+    await insertDoc({ id: "doc-pending-migration" });
+    await db.insert(docShares).values({
+      id: "share-pending-migration",
+      resourceId: "doc-pending-migration",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: "2026-09-09T00:00:00.000Z",
+    });
+    await pglite.exec("ALTER TABLE qa_doc_shares DROP COLUMN notified_at");
+
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        listResourceShares.run({
+          resourceType,
+          resourceId: "doc-pending-migration",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      shares: [
+        {
+          id: "share-pending-migration",
+          principalType: "user",
+          principalId: viewerEmail,
+          role: "viewer",
+          createdAt: "2026-09-09T00:00:00.000Z",
+        },
+      ],
+    });
   });
 
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {
@@ -578,7 +612,8 @@ describe("shareable resource access helpers", () => {
         principal_id TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'viewer',
         created_by TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        notified_at TEXT
       );
     `);
     registerShareableResource({

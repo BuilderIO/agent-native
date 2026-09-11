@@ -17,8 +17,8 @@ dessen enthaltene `hello`-Action über den Agenten und die UI auf.
 
 ## Voraussetzungen
 
-- [Node.js](https://nodejs.org) 22 oder höher
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 oder höher
+- [pnpm](https://pnpm.io), installiert und über Ihren `PATH` verfügbar
 - Eine LLM-Verbindung für den Agenten: Builder.io, ein Anthropic- oder
   OpenAI-API-Schlüssel oder ein lokales Ollama-Modell
 
@@ -27,7 +27,7 @@ dessen enthaltene `hello`-Action über den Agenten und die UI auf.
 Beginnen Sie in einem neuen Verzeichnis mit dem Chat-Template:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -45,8 +45,8 @@ Starten Sie den Entwicklungsserver:
 pnpm dev
 ```
 
-Die Browser-UI wird unter `http://localhost:8080` geöffnet. Falls sie nicht
-automatisch geöffnet wird, rufen Sie diese URL im Browser auf.
+Die Browser-UI wird automatisch geöffnet. Falls nicht, verwenden Sie die von
+`pnpm dev` ausgegebene lokale URL; der Port wird erhöht, wenn 8080 belegt ist.
 
 <Callout tone="info">
 
@@ -79,7 +79,7 @@ Hello, Alex!
 
 ## Die Action ansehen
 
-Öffnen Sie `actions/hello.ts`:
+Öffnen Sie im lokalen Verzeichnis `my-app` die Datei `actions/hello.ts` in Ihrem Code-Editor:
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -110,7 +110,8 @@ Die vollständige API finden Sie unter [Actions definieren](/docs/actions-defini
 
 ## Die Action über React aufrufen
 
-Fügen Sie eine Route unter `app/routes/hello.tsx` hinzu:
+Das Template enthält `actions/hello.ts`, aber noch keine Seite dafür. Erstellen
+Sie `app/routes/hello.tsx`:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -143,7 +144,7 @@ export default function HelloRoute() {
 <Callout tone="warning">
 
 Starten Sie den Entwicklungsserver neu, damit er die neue Route erkennt, und
-öffnen Sie anschließend `http://localhost:8080/hello`.
+öffnen Sie anschließend `http://localhost:<port>/hello`.
 
 </Callout>
 
@@ -205,5 +206,10 @@ zusammenwirken.
 
 Definieren Sie Actions für Lesevorgänge, Schreibvorgänge und Freigaben und
 rufen Sie sie anschließend über UI, Agenten und externe Clients auf.
+
+### [Eine App bereitstellen](/docs/deploy-an-app)
+
+Wechseln Sie von lokaler Entwicklung zu einer dauerhaften Datenbank,
+Produktions-Authentifizierung und einem unterstützten Ziel.
 
 </Cards>

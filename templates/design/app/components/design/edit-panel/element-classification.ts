@@ -51,6 +51,17 @@ export function elementIsComponentSelection(
   return componentNameForElementInfo(element).length > 0;
 }
 
+/**
+ * Only the explicit annotation, for gating. React provenance names the
+ * component an element was *rendered by*, which is true of nearly every
+ * element — using it to gate made "Create component" impossible app-wide.
+ */
+export function elementHasComponentAnnotation(
+  element: ElementInfo | null | undefined,
+): boolean {
+  return Boolean(element?.componentName?.trim());
+}
+
 export function displayLabel(value: string | undefined): string {
   const normalized = value?.trim();
   if (!normalized || normalized === "normal") return "flow";
@@ -169,7 +180,7 @@ const LEAF_TAGS = new Set([
  */
 function hasExplicitTextIdentity(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
-  if (TEXT_TAGS.has(tag)) return true;
+  if (TEXT_TAGS.has(tag)) return element.hasOwnText !== false;
   if (element.primitiveKind) return element.primitiveKind === "text";
   const nodeId = element.sourceId || element.pendingNodeId || "";
   return nodeId.startsWith("draft-text-");
@@ -284,7 +295,11 @@ export function isVectorShapeElement(element: ElementInfo): boolean {
 
 export function isTextElement(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
-  if (TEXT_TAGS.has(tag)) return true;
+  // A tag that usually carries text but holds none of its own is a container:
+  // a row of dot + label + checkbox paints nothing, so its Fill is a
+  // background and the Text layer inside owns the text colour. `undefined`
+  // keeps the tag-only reading for hand-built payloads.
+  if (TEXT_TAGS.has(tag)) return element.hasOwnText !== false;
   // T-tool text primitives are plain `div`s stamped with
   // data-an-primitive="text" (see DesignEditor primitive creation). The
   // bridge forwards that marker as ElementInfo.primitiveKind — prefer it

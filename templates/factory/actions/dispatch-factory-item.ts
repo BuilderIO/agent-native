@@ -47,6 +47,7 @@ import {
   createSlackReader,
   isAgentNativeSlackUserName,
 } from "../server/triage/slack-client.js";
+import { dispatchSkipStatusWrite } from "../server/triage/slack-review-window.js";
 
 /** Slack notifies only with `<@USERID>`. Plaintext @handles do not ping anyone. */
 const REPLY_INSTRUCTION =
@@ -142,6 +143,19 @@ export function dispatchRepositoryConflictReason(
 ): string | null {
   if (gitHubRepositoriesEqual(repositoryRef, authorizedRepository)) return null;
   return `Factory item belongs to ${repositoryRef}, but this factory is configured for ${authorizedRepository}.`;
+}
+
+export function slackClearBugReactionRequirement(input: {
+  source: string;
+  clearBug: boolean;
+  alreadyClaimed: boolean;
+  blocked: boolean;
+  reactionName: string | null;
+}): string | null {
+  if (input.blocked || input.source !== "slack") return null;
+  if (!input.clearBug || input.alreadyClaimed) return null;
+  if (input.reactionName === "eyes") return null;
+  return "Slack clear bugs must pass reaction eyes before Builder is dispatched.";
 }
 
 export function relatedDispatchConflictReason(
@@ -280,7 +294,7 @@ export async function recordAutomaticBuilderDecision(input: {
   userEmail: string;
   orgId: string;
   factoryId: string;
-  outcome: "propose_fix" | "needs_manual";
+  outcome: "propose_fix" | "needs_manual" | "observe";
   reason: string;
   guardResults: Array<{ code: string; passed: boolean; reason: string }>;
 }) {
@@ -323,13 +337,20 @@ export async function recordAutomaticBuilderDecision(input: {
 
 export default defineAction({
   description:
-    "Tag Builder for a Factory item, or record a skip when clearBug is false. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Pass optional reaction (an emoji name such as robot_face) to mark the item source when that provider can; omit it to add no reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository. Owner-managed Clips, Design, and Content items are always left for their owner.",
+    "Tag Builder for a Factory item, or record a skip when clearBug is false or alreadyClaimed is true. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Slack clear bugs require reaction eyes; skips omit reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository. Owner-managed Clips, Design, and Content items are always left for their owner.",
   schema: z.object({
     itemId: z.string().min(1),
+    alreadyClaimed: z
+      .boolean()
+      .default(false)
+      .describe(
+        "True when the Slack parent already has eyes. Records the skip without starting Builder work: received items become needs_manual so they leave needsReview; items that already started keep their status. clearBug may be omitted or false.",
+      ),
     clearBug: z
       .boolean()
+      .default(false)
       .describe(
-        "True when the item is a concrete, reproducible defect with enough evidence to investigate (including visual/UI defects such as a duplicate control, broken layout, or incorrect state). False for feature requests, vague questions, and incomplete threads.",
+        "True when the item is a concrete, reproducible defect with enough evidence to investigate (including visual/UI defects such as a duplicate control, broken layout, or incorrect state). False for feature requests, vague questions, incomplete threads, and claimed Slack parents. May be omitted when alreadyClaimed is true.",
       ),
     reason: z.string().trim().min(1).max(4_000),
     productUxImplications: z
@@ -345,7 +366,7 @@ export default defineAction({
       .max(50)
       .optional()
       .describe(
-        "Emoji name to add on the item source when that provider can, for example robot_face. Omit to add no reaction.",
+        "Emoji name to add on the item source when that provider can. Slack clear bugs require eyes; omit on skips.",
       ),
     relatedItemIds: z
       .array(z.string().trim().min(1))
@@ -359,6 +380,7 @@ export default defineAction({
   run: async (
     {
       itemId,
+      alreadyClaimed,
       clearBug,
       reason,
       productUxImplications,
@@ -494,13 +516,29 @@ export default defineAction({
           ]
         : []),
     ];
-    const blocked = guardResults.some((guard) => !guard.passed);
+    const blocked =
+      alreadyClaimed || guardResults.some((guard) => !guard.passed);
+    const reactionRequirement = slackClearBugReactionRequirement({
+      source: item.source,
+      clearBug,
+      alreadyClaimed,
+      blocked,
+      reactionName,
+    });
+    if (reactionRequirement) {
+      throw new Error(reactionRequirement);
+    }
+    const skipStatus = dispatchSkipStatusWrite(item.status);
     const decisionId = await recordAutomaticBuilderDecision({
       itemId,
       userEmail,
       orgId,
       factoryId,
-      outcome: blocked ? "needs_manual" : "propose_fix",
+      outcome: blocked
+        ? skipStatus.statusPreserved
+          ? "observe"
+          : "needs_manual"
+        : "propose_fix",
       reason,
       guardResults,
     });
@@ -518,35 +556,49 @@ export default defineAction({
         summary: reason,
         details: {
           decisionId,
+          alreadyClaimed,
           clearBug,
           productUxImplications,
           ownerOwnedArea: ownerManagedArea,
+          statusPreserved: blocked ? skipStatus.statusPreserved : false,
           guardResults,
         },
       },
     );
     if (blocked) {
-      await db.transaction(async (tx) => {
-        await tx
-          .update(triageItems)
-          .set({ status: "needs_manual", updatedAt: new Date().toISOString() })
-          .where(
-            and(
-              eq(triageItems.id, itemId),
-              eq(triageItems.orgId, orgId),
-              factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
-            ),
+      const nextStatus = skipStatus.nextStatus;
+      if (nextStatus) {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(triageItems)
+            .set({
+              status: nextStatus,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(
+              and(
+                eq(triageItems.id, itemId),
+                eq(triageItems.orgId, orgId),
+                factoryStillPresent(
+                  tx as unknown as typeof db,
+                  orgId,
+                  factoryId,
+                ),
+              ),
+            );
+          await requireExistingFactory(
+            tx as unknown as typeof db,
+            orgId,
+            factoryId,
           );
-        await requireExistingFactory(
-          tx as unknown as typeof db,
-          orgId,
-          factoryId,
-        );
-      });
+        });
+      }
       return {
         ok: true,
         started: false,
-        needsManual: true,
+        needsManual: skipStatus.needsManual,
+        alreadyClaimed,
+        statusPreserved: skipStatus.statusPreserved,
         decisionId,
         reason,
       };

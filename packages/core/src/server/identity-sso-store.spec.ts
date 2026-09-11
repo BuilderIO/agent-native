@@ -156,9 +156,17 @@ describe("identity SSO feature switch and request classifiers", () => {
     process.env.APP_URL = "https://mail.agent-native.com";
     expect(store.getIdentityHubUrl()).toBe("https://dispatch.agent-native.com");
     expect(store.isIdentitySsoEnabled()).toBe(true);
+    expect(store.identitySsoLoginButtonHtml()).toBe("");
+    expect(
+      store.isIdentitySsoAvailableForRequest({
+        requestHost: "mail.agent-native.com",
+        requestProtocol: "https",
+      }),
+    ).toBe(true);
 
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL =
       "https://dispatch.agent-native.com";
+    expect(store.identitySsoLoginButtonHtml()).toBe("");
 
     delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
     process.env.APP_URL = "https://dispatch.agent-native.com";
@@ -169,11 +177,13 @@ describe("identity SSO feature switch and request classifiers", () => {
     expect(store.getIdentityHubUrl()).toBeUndefined();
   });
 
-  it("keeps the removed browser entry as a no-op compatibility export", () => {
+  it("keeps silent federation available for explicitly configured self-hosted apps", () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL =
       "https://dispatch.agent-native.com";
+
     expect(store.identitySsoLoginButtonHtml()).toBe("");
+    expect(store.isIdentitySsoAvailableForRequest()).toBe(true);
     expect(
       store.identitySsoLoginButtonHtml({
         requestHost: "mail.agent-native.com",

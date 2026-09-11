@@ -101,7 +101,7 @@ export default function CalendarTemplate() {
     <TemplateLandingShell>
       <TemplateHero
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -170,10 +170,7 @@ export default function CalendarTemplate() {
             { number: "2-way", label: t("templateLanding.calendar.s058") },
           ].map((stat) => (
             <TemplateStatOrStepsGridItem key={stat.label}>
-              <div
-                className="text-3xl font-medium tracking-tight sm:text-4xl"
-                style={{ color: template.color }}
-              >
+              <div className="text-3xl font-medium tracking-tight sm:text-4xl text-[var(--fg-secondary)]">
                 {stat.number}
               </div>
               <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
@@ -203,10 +200,7 @@ export default function CalendarTemplate() {
             key={title}
             className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0"
           >
-            <div
-              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
-              style={{ color: template.color }}
-            >
+            <div className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
               <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
             </div>
             <div className="flex flex-col gap-2">
@@ -237,9 +231,8 @@ export default function CalendarTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.calendar.${key}`)}
                 </li>
@@ -260,9 +253,8 @@ export default function CalendarTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.calendar.${key}`)}
                 </li>
@@ -288,9 +280,8 @@ export default function CalendarTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.calendar.${key}`)}
                 </li>
@@ -306,20 +297,21 @@ export default function CalendarTemplate() {
               </div>
               <div className="grid min-w-0 gap-3 break-words text-[var(--fg)]">
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  sync-google-calendar --from 2026-01-01 --to 2026-06-01
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action sync-google-calendar --from 2026-01-01 --to 2026-06-01
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  create-event --title "Team Standup" --start "2026-03-15T09:00"
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action create-event --title "Team Standup" --start
+                  "2026-03-15T09:00"
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  check-availability --date "2026-03-18" --duration 30
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action check-availability --date "2026-03-18" --duration 30
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  list-events --from "2026-03-14" --to "2026-03-21"
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action list-events --from "2026-03-14" --to "2026-03-21"
                 </div>
               </div>
             </div>
@@ -344,7 +336,7 @@ export default function CalendarTemplate() {
             {
               id: "agent-native",
               emphasized: true,
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { name: template.name },
             },
           ]}
           rows={[
@@ -399,10 +391,7 @@ export default function CalendarTemplate() {
 
       <TemplateFinalCta
         eyebrow={
-          <span
-            className="font-mono text-sm font-semibold tracking-[0.14em]"
-            style={{ color: template.color }}
-          >
+          <span className="font-mono text-sm font-semibold tracking-[0.14em] text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -417,7 +406,7 @@ export default function CalendarTemplate() {
       <TemplateLandingFaq
         idPrefix="calendar-faq"
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }

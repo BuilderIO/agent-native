@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { setDefaultResultOrder } from "node:dns";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -58,9 +59,6 @@ const SAFE_MANAGED_CONNECTIONS = new Set([
 ]);
 
 setDefaultResultOrder("ipv4first");
-
-const sleep = (milliseconds: number) =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export type GoogleRedirectProbeState =
   | "registered"

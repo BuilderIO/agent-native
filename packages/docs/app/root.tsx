@@ -38,7 +38,6 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
-import { getGithubStarCount } from "../lib/github-star-count";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -118,7 +117,6 @@ const JSON_LD = JSON.stringify({
         name: "Builder.io",
         url: "https://builder.io",
       },
-      codeRepository: "https://github.com/BuilderIO/agent-native",
     },
   ],
 });
@@ -135,15 +133,11 @@ async function initialMessagesForLocale(locale: DocsLocale) {
 export async function loader({ request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
   const locale = resolveLayoutLocale(requestUrl.pathname);
-  const [messages, starCount] = await Promise.all([
-    initialMessagesForLocale(locale),
-    getGithubStarCount(),
-  ]);
   return {
     locale,
     preference: { locale },
-    messages,
-    starCount,
+    messages: await initialMessagesForLocale(locale),
+    starCount: null,
   };
 }
 
@@ -257,8 +251,6 @@ export const meta = () => [
       "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   { property: "og:type", content: "website" },
-  { property: "og:url", content: SITE_URL },
-  { property: "og:site_name", content: "Agent-Native" },
 ];
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
@@ -369,6 +361,8 @@ function SeoLinks() {
   return (
     <>
       <link rel="canonical" href={canonical} />
+      <meta property="og:url" content={canonical} />
+      <meta property="og:site_name" content="Agent-Native" />
       {markdownPath ? (
         <link
           rel="alternate"

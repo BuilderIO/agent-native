@@ -26,9 +26,10 @@ import {
   isValidCron,
 } from "../jobs/cron.js";
 import {
-  buildJobResourceContent,
   parseJobResource,
+  patchJobFrontmatterFields,
   type JobFrontmatter,
+  type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
 import {
@@ -363,6 +364,7 @@ export async function setAutomationEnabledForOwner(
   }
 
   parsed.meta.enabled = input.enabled;
+  const fields: JobFrontmatterPatch = { enabled: input.enabled };
   if (
     parsed.meta.enabled &&
     meta.triggerType === "schedule" &&
@@ -374,9 +376,10 @@ export async function setAutomationEnabledForOwner(
       undefined,
       meta.timezone,
     ).toISOString();
+    fields.nextRun = parsed.meta.nextRun;
   }
 
-  const updatedContent = buildJobResourceContent(parsed.meta, parsed.body);
+  const updatedContent = patchJobFrontmatterFields(resource.content, fields);
   await resourcePut(resource.owner, resource.path, updatedContent);
   await refreshEventSubscriptions();
 

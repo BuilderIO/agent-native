@@ -47,6 +47,16 @@ export type SlideContentEdit =
 
 export class SlideContentEditError extends Error {
   readonly code = "slide_content_edit_failed";
+  // Every failure here names the caller's mistake — an unmatched `find`, a bad
+  // occurrence, an expectedMatches miss. The action route flattens any error it
+  // cannot recognise to "Internal server error", so without these three fields
+  // the agent is told the server broke and retries the identical arguments
+  // instead of re-reading the slide. Duck-typed to match `isActionContractError`
+  // rather than importing `fail()`, which would pull the action layer into a lib
+  // the editor also imports.
+  readonly actionContractError = true;
+  readonly errorCode = "slide_content_edit_failed";
+  readonly statusCode = 400;
 
   constructor(message: string) {
     super(message);
@@ -70,28 +80,26 @@ export async function applySlideContentEdits(
   edits: readonly SlideContentEdit[],
   format = false,
 ): Promise<SlideContentPatchResult> {
+  let content = currentContent;
+  const applied: string[] = [];
   try {
-    let content = currentContent;
-    const applied: string[] = [];
-
     for (const edit of edits) {
       const result = applyEdit(content, edit);
       content = result.content;
       applied.push(result.summary);
     }
-
-    const changed = content !== currentContent;
-
-    if (format) {
-      content = await formatSlideHtml(content);
-    }
-
-    return { content, applied, formatted: format, changed };
   } catch (error) {
     if (error instanceof SlideContentEditError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new SlideContentEditError(message);
   }
+
+  const changed = content !== currentContent;
+  if (format) {
+    content = await formatSlideHtml(content);
+  }
+
+  return { content, applied, formatted: format, changed };
 }
 
 export async function formatSlideHtml(content: string): Promise<string> {
@@ -120,11 +128,11 @@ export async function formatSlideHtml(content: string): Promise<string> {
       message.includes("Cannot find module 'prettier'") ||
       message.includes('Cannot find module "prettier"')
     ) {
-      throw new SlideContentEditError(
+      throw new Error(
         "HTML formatting is unavailable because Prettier is not installed",
       );
     }
-    throw new SlideContentEditError(`Unable to format slide HTML: ${message}`);
+    throw new Error(`Unable to format slide HTML: ${message}`);
   }
 }
 

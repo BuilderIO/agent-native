@@ -29,10 +29,12 @@ import {
   isAllowedOAuthRedirectUri,
   isConfiguredAppOrigin,
 } from "./google-oauth.js";
+import { isLoopbackOrigin } from "./origin-allowlist.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
+const DEFAULT_BUILDER_TEMPLATE_ID = "agent-native-starter";
 const BUILDER_API_REQUEST_TIMEOUT_MS = 30_000;
 const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent-Native Browser";
@@ -1446,9 +1448,27 @@ function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
   if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
     return getConfiguredBuilderFallbackOrigin(event);
   }
-  return isBuilderCloudRequestHost(headerHost)
-    ? getBuilderBrowserOriginForEvent(event)
-    : getOrigin(event, { useForwardedHost: false });
+  if (isBuilderCloudRequestHost(headerHost)) {
+    return getBuilderBrowserOriginForEvent(event);
+  }
+  const configuredOrigin = getOrigin(event, { useForwardedHost: false });
+  if (!isLoopbackOrigin(configuredOrigin)) return configuredOrigin;
+  // Workspace deploys resolve the configured origin to the workspace gateway,
+  // which is a loopback address. Loopback resolves on the visitor's machine,
+  // so when the request itself arrived on a Builder-hosted preview host the
+  // callback would never reach the server holding this flow's pending row and
+  // the user sees "No active Builder connect flow found". Keep the callback on
+  // the preview origin the connect popup was opened on. A genuinely loopback
+  // request keeps the loopback callback: there the browser and the server do
+  // share a machine.
+  if (
+    !isLoopbackBuilderRequestHost(headerHost) &&
+    isTrustedBuilderRequestHost(headerHost)
+  ) {
+    const previewOrigin = getBuilderBrowserOriginForEvent(event);
+    if (previewOrigin && !isLoopbackOrigin(previewOrigin)) return previewOrigin;
+  }
+  return configuredOrigin;
 }
 
 function isRejectedDirectBuilderCloudHost(
@@ -2094,7 +2114,7 @@ export interface BuilderProjectLookupArgs {
 export interface BuilderProjectResult {
   projectId: string;
   name: string;
-  repoUrl: string;
+  repoUrl?: string;
   browserUrl: string;
   created: boolean;
 }
@@ -2160,8 +2180,8 @@ function builderProjectBrowserUrl(projectId: string): string {
 
 function builderProjectFromRecord(
   value: unknown,
-  fallbackRepoUrl: string | null,
   created: boolean,
+  fallbackRepoUrl?: string,
 ): BuilderProjectResult | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -2176,11 +2196,10 @@ function builderProjectFromRecord(
     typeof record.repoUrl === "string" && record.repoUrl.trim()
       ? record.repoUrl.trim()
       : fallbackRepoUrl;
-  if (!repoUrl) return null;
   return {
     projectId: normalizeBuilderProjectString(projectId, "project id"),
     name: normalizeBuilderProjectString(name, "project name"),
-    repoUrl: normalizeBuilderRepoUrl(repoUrl),
+    ...(repoUrl ? { repoUrl } : {}),
     browserUrl: builderProjectBrowserUrl(projectId),
     created,
   };
@@ -2422,11 +2441,7 @@ function builderApiErrorMessage(
   return fallback;
 }
 
-/**
- * Find an existing Builder project connected to a repository. Dispatch uses
- * this before provisioning so a first app request cannot create a duplicate
- * workspace project when the project id has not been saved yet.
- */
+/** @deprecated Repository-backed Builder projects are retained for compatibility. */
 export async function findBuilderProjectForRepo(
   args: BuilderProjectLookupArgs,
 ): Promise<BuilderProjectResult | null> {
@@ -2456,15 +2471,15 @@ export async function findBuilderProjectForRepo(
       ),
     );
   }
-
   if (!Array.isArray(parsed.projects)) {
     throw new Error("Builder project lookup returned no projects list");
   }
+
   const comparableRepoUrl = comparableBuilderRepoUrl(repoUrl);
   for (const project of parsed.projects) {
-    const normalized = builderProjectFromRecord(project, null, false);
+    const normalized = builderProjectFromRecord(project, false);
     if (
-      normalized &&
+      normalized?.repoUrl &&
       comparableBuilderRepoUrl(normalized.repoUrl) === comparableRepoUrl
     ) {
       return normalized;
@@ -2473,17 +2488,22 @@ export async function findBuilderProjectForRepo(
   return null;
 }
 
-/**
- * Create a Builder project connected to a repository through the public
- * projects API. This is the server-side bridge used by Dispatch; online
- * Claude and ChatGPT hosts do not need a separate Builder CMS MCP connector.
- */
+/** Creates from the default template; repoUrl remains for deprecated helpers. */
 export async function createBuilderProject(args: {
   name: string;
-  repoUrl: string;
+  templateId?: string;
+  repoUrl?: string;
 }): Promise<BuilderProjectResult> {
   const name = normalizeBuilderProjectString(args.name, "project name");
-  const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
+  const repoUrl = args.repoUrl
+    ? normalizeBuilderRepoUrl(args.repoUrl)
+    : undefined;
+  const templateId = repoUrl
+    ? undefined
+    : normalizeBuilderProjectString(
+        args.templateId ?? DEFAULT_BUILDER_TEMPLATE_ID,
+        "template id",
+      );
   const authorization = await resolveBuilderApiAuthorization(
     "builder:projects:write",
   );
@@ -2500,7 +2520,9 @@ export async function createBuilderProject(args: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        source: { kind: "repo", repoUrl },
+        source: repoUrl
+          ? { kind: "repo", repoUrl }
+          : { kind: "template", templateId },
         name,
       }),
     },
@@ -2516,18 +2538,14 @@ export async function createBuilderProject(args: {
     );
   }
 
-  const project = builderProjectFromRecord(parsed.project, repoUrl, true);
+  const project = builderProjectFromRecord(parsed.project, true, repoUrl);
   if (!project) {
     throw new Error("Builder project creation returned no project id");
   }
   return project;
 }
 
-/**
- * Reuse a connected Builder project or create it once when Dispatch is first
- * used for a workspace. The lookup and create calls intentionally stay in
- * this shared server helper so all callers use the same authenticated path.
- */
+/** @deprecated Repository-backed Builder projects are retained for compatibility. */
 export async function ensureBuilderProject(args: {
   name: string;
   repoUrl: string;

@@ -920,6 +920,56 @@ const deDE = {
     },
     clips: {
       s001: "Screenshot der Vorlage Clips",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "Bildschirmaufnahmen, die dein KI-Agent sehen und hören kann",
+      heroDescription:
+        "Clips ist ein kostenloser Open-Source-Bildschirmrecorder zum Teilen von Fehlern, Feedback und Anleitungen mit KI-Agenten.",
+      heroCta: "Clip aufnehmen",
+      useCasesHeading: "Was kannst du mit Clips machen?",
+      useCasesBody:
+        "Starte mit einem selbst aufgenommenen Clip oder einem, der mit dir geteilt wurde. Gib deinem KI-Agenten den Kontext und sag ihm, was du brauchst.",
+      useCase1Title: "Auf aufgezeichnetes Feedback reagieren",
+      useCase1Body:
+        "Gib deinem KI-Agenten aufgezeichnetes Feedback, damit er es in einen Plan verwandelt oder bei der Umsetzung der gewünschten Änderungen hilft.",
+      useCase2Title: "Einen gemeldeten Fehler untersuchen",
+      useCase2Body:
+        "Teile eine Bug-Aufnahme mit deinem KI-Agenten, damit er untersucht, was schiefgelaufen ist, und die nächsten Schritte erarbeitet.",
+      useCase3Title: "Aus einem aufgezeichneten Briefing erstellen",
+      useCase3Body:
+        "Nutze ein aufgezeichnetes Briefing, um deinen KI-Agenten bei der Erstellung einer Präsentation, eines Designs, eines Inhalts oder einer App-Änderung anzuleiten.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Aufnehmen, Transkribieren und Teilen brauchst",
+      feature1Title: "Für Agenten lesbare Aufnahmen",
+      feature1Body:
+        "Teile das Transkript und die zeitgestempelten Bilder eines Clips über einen einzigen, für Agenten lesbaren Link mit deinem KI-Agenten.",
+      feature2Title: "Automatische Transkripte",
+      feature2Body:
+        "Erhalte Transkripte von Aufnahmen, Meetings und Diktaten. Klicke auf eine beliebige Transkriptzeile, um zu diesem Moment zu springen.",
+      feature3Title: "Browser-Debug-Logs",
+      feature3Body:
+        "Erfasse Konsolenfehler und fehlgeschlagene Anfragen zusammen mit deiner Aufnahme mit der Clips-Chrome-Erweiterung.",
+      feature4Title: "Integrierter KI-Agent",
+      feature4Body:
+        "Frag den integrierten KI-Agenten zu einem Clip oder deiner gesamten Bibliothek und lass ihn Transkripte im Chat bearbeiten.",
+      feature5Title: "Durchsuchbare Aufnahmebibliothek",
+      feature5Body:
+        "Finde Clips, indem du ihre Transkripte durchsuchst. Organisiere deine Aufnahmen mit Ordnern, Tags und Team-Bereichen.",
+      feature6Title: "Push-to-Talk-Diktat",
+      feature6Body:
+        "Halte Fn in der Desktop-App gedrückt, um in andere Apps zu diktieren. Sieh dir Transkripte und bereinigten Text in deinem Verlauf noch einmal an.",
+      teammatesLine:
+        "Deine Teammitglieder können sich dieselbe Aufnahme im Player ansehen.",
+      teammatesLinkLabel: "Leitfaden zum Teilen mit Agenten lesen",
+      seeInActionHeading: "Clips in Aktion sehen",
+      seeInActionBody:
+        "Sieh dir Clips im Einsatz an – von der Aufnahme eines Browser-Workflows bis dazu, einem KI-Agenten eine Aufgabe zu zeigen.",
+      watchClipLabel: "Clip ansehen",
+      finalCtaHeading: "Setze deinen nächsten Clip ein",
+      finalCtaBody:
+        "Nimm eine Erklärung auf oder bring einen geteilten Clip zu deinem KI-Agenten.",
+      finalCtaButton: "Clips öffnen",
       s002: "Bildschirmaufzeichnung",
       s003: "Browser-Debug-Protokolle",
       s004: "Diktieren",
@@ -982,26 +1032,24 @@ const deDE = {
       s058: "Kostenlos und Open Source",
       s059: "Jetzt starten",
       s060: "Wählen Sie aus, was Sie aufnehmen möchten, und starten Sie dann die Aufnahme in Clips.",
-      s061: "Weitere Apps ansehen",
       s062: "Alle Vorlagen anzeigen",
       faq: {
-        question1: "Ist Clips kostenlos?",
-        answer1: "Ja. Clips ist kostenlos und Open Source.",
-        question2: "Kann eine KI eine Bildschirmaufnahme lesen?",
+        question1: "Was ist Agent-Native Clips?",
+        answer1:
+          "Agent-Native Clips ist ein kostenloser Open-Source-Bildschirmrecorder zum Teilen von Fehlern, Feedback und Anleitungen mit KI-Agenten. Er gibt deinem KI-Agenten ein Transkript und zeitgestempelte Bilder einer Aufnahme, während Menschen sich denselben Clip ansehen können.",
+        question2: "Kann ich Aufnahmen mit Claude, ChatGPT oder Cursor teilen?",
         answer2:
-          "Ja. Jeder Clip enthält ein Transkript, eine Zusammenfassung und zeitgestempelte Bilder, die ein Agent direkt lesen kann.",
-        question3: "Wie unterscheidet sich Clips von Loom?",
+          "Clips stellt einen für Agenten lesbaren Link mit Transkript und zeitgestempelten Bildern bereit. Dein Agent muss den verlinkten Inhalt öffnen und Bilder lesen können, um beides zu nutzen. Manche Chat-Modi können das Transkript lesen, benötigen aber ein separat hochgeladenes Bild.",
+        question3:
+          "Brauche ich die Chrome-Erweiterung, um meinen Bildschirm aufzunehmen?",
         answer3:
-          "Clips ist Open Source, du besitzt deine Daten und jeder geteilte Link ist für KI-Agenten lesbar, nicht nur für Menschen.",
-        question4: "Kann eine Bildschirmaufnahme Konsolenfehler erfassen?",
+          "Nein. Du kannst in der Clips-Web-App aufnehmen. Nutze die Chrome-Erweiterung, wenn du zusätzlich Konsolenmeldungen und Netzwerkdiagnosen aus dem gezeigten Tab möchtest.",
+        question4: "Können KI-Agenten meine Bildschirmaufnahmen ansehen?",
         answer4:
-          "Ja. Clips erfasst Browser-Konsolenfehler und fehlgeschlagene Netzwerkanfragen zusammen mit der Aufnahme. Sie werden an denselben geteilten Link wie Transkript und Bilder angehängt. Ein Agent kann anhand eines Clips debuggen, statt ihn nur anzusehen.",
-        question5: "Funktioniert Clips mit Claude, ChatGPT oder Cursor?",
+          "Mit Clips können kompatible KI-Agenten deine Aufnahme über ein Transkript und zeitgestempelte Bilder verstehen. Sie nutzen den Text und die Bilder statt das Video abzuspielen, sodass du Fragen zum Geschehenen stellen oder deinem KI-Agenten eine Aufgabe auf Basis der Aufnahme geben kannst.",
+        question5: "Wer kann auf eine geteilte Aufnahme zugreifen?",
         answer5:
-          "Ja! Kein Plugin und kein API-Schlüssel erforderlich. Füge einen geteilten Clips-Link in einen beliebigen Agenten ein, damit er Transkript, Zusammenfassung und Bilder direkt lesen kann.",
-        question6: "Wo werden meine Aufnahmen gespeichert?",
-        answer6:
-          "Dort, wo du sie bereitstellst. Selbst gehostetes Clips speichert deine Videos, Transkripte und Analysen in deiner eigenen Infrastruktur.",
+          "Aufnahmen verwenden standardmäßig öffentliche Links, sofern deine Organisation diese Einstellung nicht ändert. Jeder mit dem Link kann darauf zugreifen. Optionen für privaten und organisationsweiten Zugriff sind verfügbar, und private Clips können über temporäre Links mit Agenten geteilt werden, ohne die Aufnahme öffentlich zu machen.",
       },
       quickStart: {
         recordingMode: "Aufnahmemodus",
@@ -1518,31 +1566,77 @@ const deDE = {
     },
     slides: {
       faq: {
-        question1:
-          "Kann ich eine Präsentation aus Claude oder ChatGPT erstellen?",
+        question1: "Was ist Agent-Native Slides?",
         answer1:
-          "Ja. Bitten Sie Claude oder ChatGPT um ein Deck, und es landet in Slides — markenkonform, bearbeitbar und exportierbar —, statt dass Sie auf einer Präsentationswebsite von vorn beginnen.",
-        question2: "Kann ich korrigieren, was die KI falsch macht?",
+          "Agent-Native Slides ist ein kostenloser Open-Source-KI-Präsentationsersteller. Erstelle mit einem KI-Agenten markenkonforme Decks aus deinen Ideen und Quellmaterialien, bearbeite die Folien dann selbst, präsentiere sie oder exportiere sie nach PowerPoint.",
+        question2:
+          "Kann ich Folien bearbeiten, nachdem die KI sie generiert hat?",
         answer2:
-          "Auf drei Arten: per Prompt, von Hand — klicken Sie auf jedes Element und doppelklicken Sie auf jeden Text — oder direkt im Code. Sie stehen nie vor der Hürde, neu zu generieren und auf das Beste zu hoffen.",
-        question3: "Wie bleiben Decks markenkonform?",
+          "Ja. Bearbeite Text, Layout und Stil direkt im visuellen Editor, oder bitte den KI-Agenten, eine ausgewählte Folie zu überarbeiten. Du kannst die Präsentation auch nach dem ersten Entwurf weiter verfeinern.",
+        question3:
+          "Kann ich eine Präsentation aus einem bestehenden Deck oder Dokument erstellen?",
         answer3:
-          "Markieren Sie ein Deck, auf das Sie stolz sind, als Favoriten. Jedes neue Deck übernimmt dessen Layouts, Überschriften, visuellen Stil und Marken-Tokens. One-Shot-Generatoren erstellen ein einzelnes Deck; hier entsteht ein wiederholbarer Prozess für Ihre Decks.",
-        question4: "Wie unterscheidet sich Slides von Gamma?",
+          "Ja. Hänge ein Deck oder Dokument als Referenzmaterial für eine neue Präsentation an. Um am bestehenden Deck selbst zu arbeiten, importiere es explizit. Überprüfe importierte Folien auf Layoutänderungen oder fehlende Bilder.",
+        question4:
+          "Kann ich meine eigenen Markenfarben, Schriften und mein Logo verwenden?",
         answer4:
-          "Gamma erstellt schnell ein ordentliches Deck in einem Durchgang — danach arbeiten Sie in dessen Canvas, zahlen das Abonnement und generieren neu, wenn es nur zu 85 % stimmt. Slides ist kostenlos, Open Source, übernimmt Ihre Marke und lässt Sie alles bearbeiten.",
-        question5: "Ist Slides kostenlos?",
+          "Ja. Wende ein Design-System mit den Farben, der Typografie und den Logos deiner Marke an und verwende es in mehreren Decks wieder. Du kannst auch eine Referenzpräsentation bereitstellen, um die Designentscheidungen des KI-Agenten zu leiten.",
+        question5:
+          "Kann ich meine Präsentation in PowerPoint oder Google Slides verwenden?",
         answer5:
-          "Ja. Kostenlos und Open Source — kein Abonnement, kein Credit-Zähler und keine Preise pro Deck.",
+          "Exportiere eine PPTX-Datei, um sie in PowerPoint zu öffnen. Um die Präsentation in Google Slides zu verwenden, importiere die Datei dort. Überprüfe Schriften und Layouts nach dem Export, da sie sich zwischen Editoren unterschiedlich darstellen können.",
       },
       s001: "Screenshot der Vorlage Slides",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "Präsentationen mit deinem KI-Agenten erstellen",
+      heroDescription:
+        "Slides ist ein kostenloser Open-Source-KI-Präsentationsersteller für markenkonforme Decks aus deinen Ideen und Quellmaterialien – mit Folien, die du selbst bearbeiten kannst.",
+      heroCta: "Deck erstellen",
+      useCasesHeading: "Was kannst du mit Slides machen?",
+      useCasesBody:
+        "Bereite eine Pitch vor, präsentiere einen Plan oder teile ein Update. Gib deinem KI-Agenten das Material und das Publikum, das du im Kopf hast.",
+      useCase1Title: "Vertriebs- und Pitch-Decks erstellen",
+      useCase1Body:
+        "Verwandle dein Produkt-Briefing in ein Deck für Interessenten oder Investoren. Passe die Geschichte an das Publikum an, vor dem du präsentierst.",
+      useCase2Title: "Pläne und Strategien präsentieren",
+      useCase2Body:
+        "Gib deinem KI-Agenten ein Strategie-Briefing oder einen Launch-Plan, damit er daraus Folien erstellt, die Richtung und nächste Schritte erklären.",
+      useCase3Title: "Business-Updates teilen",
+      useCase3Body:
+        "Verwandle Projektnotizen oder Leistungsberichte in eine Präsentation, die Fortschritt zeigt, Ergebnisse erklärt und hervorhebt, was Aufmerksamkeit braucht.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Erstellen, Bearbeiten und Präsentieren brauchst",
+      feature1Title: "KI-Präsentationserstellung",
+      feature1Body:
+        "Starte mit einem Prompt, einem Dokument oder einem Referenz-Deck. Gib deinem KI-Agenten das Thema und das Publikum, um die Präsentation darum herum aufzubauen.",
+      feature2Title: "KI- und visuelle Bearbeitung",
+      feature2Body:
+        "Markiere Text, damit dein KI-Agent ihn überarbeitet, oder bearbeite Text, Layout und Stil direkt auf der Folie selbst.",
+      feature3Title: "Wiederverwendbare Markenstile",
+      feature3Body:
+        "Speichere deine Farben, Schriften und Logos in einem Design-System. Wende es auf mehrere Decks an, damit Präsentationen zu deiner Marke passen.",
+      feature4Title: "Bilder und Logos",
+      feature4Body:
+        "Bitte deinen KI-Agenten, Bilder zu generieren, Fotos zu finden oder Firmenlogos für deine Folien zu suchen.",
+      feature5Title: "Teamzusammenarbeit",
+      feature5Body:
+        "Arbeite mit Teammitgliedern an Decks, hinterlasse Kommentare zu bestimmten Folien und stelle bei Bedarf eine frühere Version wieder her.",
+      feature6Title: "Präsentation und Export",
+      feature6Body:
+        "Präsentiere im Vollbild mit Sprechernotizen, teile einen Ansichtslink oder exportiere dein Deck als PowerPoint-Datei.",
+      finalCtaHeading: "Starte deine nächste Präsentation",
+      finalCtaBody:
+        "Bring eine Idee, ein Briefing oder ein bestehendes Deck mit.",
+      finalCtaButton: "Slides öffnen",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
       s006Primary: "Folienpräsentationen",
       s006Secondary: "Markenkonform & bearbeitbar",
-      s007: "Lassen Sie Ihren KI-Agenten Präsentationen in Ihrem Markendesign erstellen, nehmen Sie jederzeit eigene manuelle Änderungen vor und exportieren Sie sie überallhin.",
+      s007: "Erstelle mit deinem KI-Agenten markenkonforme Präsentationen, bearbeite die Folien dann selbst und exportiere sie überallhin.",
       s008: "Ausprobieren",
       s009: "Wie es funktioniert",
       s010: "Alles was Sie brauchen",
@@ -2077,7 +2171,6 @@ const deDE = {
     usingYourAgent: "Deinen Agent verwenden",
     agentResources: "Agent-Ressourcen",
     integrations: "Integrationen",
-    buildApps: "Apps bauen",
     advancedRuntime: "Fortgeschritten: Runtime erweitern",
     templatesSection: "Apps",
     gettingStarted: "Erste Schritte",
@@ -2218,7 +2311,6 @@ const deDE = {
     syncingTemplateChanges: "Template-Änderungen synchronisieren",
     writingAgentInstructions: "Agent-Anweisungen schreiben",
     embeddingSdk: "Einbettungs-SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native-Code-UI",
     harnessAgents: "Harness-Agents",
     adapters: "Adapter",
@@ -2288,10 +2380,11 @@ const deDE = {
     designCollaborationAndFullApps: "Review und Übergabe",
     designDevelopers: "Entwicklerhandbuch",
     dispatchOverview: "Überblick",
-    dispatchMessagingRouting: "Messaging und Routing",
-    dispatchOperations: "Operator-Konsole",
-    dispatchVaultIntegrations: "Secrets und Integrationen",
+    dispatchFeatures: "Funktionen",
+    dispatchAgent: "Mit dem Agent sprechen",
+    dispatchIntegrations: "Cross-App-Nutzung",
     dispatchDevelopers: "Entwicklerhandbuch",
+    dispatchReference: "Aktions- und Datenreferenz",
     forms: "Formulare",
     formsOverview: "Überblick",
     formsFeatures: "Funktionen",

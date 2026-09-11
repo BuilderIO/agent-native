@@ -1,6 +1,7 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
+import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import zhTW from "./i18n/zh-TW";
 
 const databaseMessages = {
@@ -2946,6 +2947,9 @@ const editorToolbarMessages = {
   localAndNotionChanged:
     "Local and Notion changed since the last sync. Choose which version wins.",
   morePageActions: "More page actions",
+  suggestEdits: "Suggest edits",
+  suggesting: "Suggesting",
+  stopSuggesting: "Stop suggesting",
   noPagesFound: "No pages found",
   notifications: "Notifications",
   notionSync: "Notion sync",
@@ -3117,7 +3121,7 @@ const localFilesMessages = {
   importedLocalFiles: "Imported local files",
   importedSource: "Imported source",
   lastSync: "Last sync",
-  localFolders: "Local folders",
+  localFolders: "Folders",
   mainFolder: "Main folder",
   metaTitle: "Local files - Content",
   noFoldersLinked: "No folders linked",
@@ -3200,6 +3204,11 @@ const enUS = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
+    labs: "Labs",
+    labsIntro: "Preview experimental features before they ship.",
+    labCreativeContext: "Creative Context",
+    labCreativeContextDescription:
+      "Connect and reuse governed reference context in Content.",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -3225,7 +3234,18 @@ const enUS = {
     genericError: "Something went wrong",
   },
   editor: {
+    suggestionFormattingUnsupported:
+      "This formatting cannot be suggested safely. Your draft is kept. Undo the last edit to continue.",
+    suggestionFormattingBaselineUnsupported:
+      "Some page formatting cannot be suggested safely. An editor can update it before you retry.",
+    suggestionAmendmentEmpty:
+      "This edit matches the current page. Reject the suggestion to remove it.",
+    suggestionAmendmentFailed: "Could not save suggestion",
+    suggestionAmendmentResolved:
+      "This suggestion changed elsewhere. Your unsaved draft is still here.",
+    discardSuggestionDraft: "Discard draft",
     bold: "Bold",
+    underline: "Underline",
     italic: "Italic",
     strikethrough: "Strikethrough",
     code: "Code",
@@ -3273,10 +3293,20 @@ const enUS = {
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",
     keepLocalDraft: "Keep my version",
+    previewDraftRecovery: "Unsaved page draft",
+    restorePreviewDraft: "Restore draft",
+    pageSaveBeforeNavigationFailed:
+      "Your latest page edits could not be saved. Try again before leaving this page.",
+    discardPreviewDraft: "Discard draft",
+
     collabConnectingReadOnly:
       "Connecting live editor. Showing a read-only snapshot.",
     liveDocumentSaveBeforeSyncFailed:
       "The live document could not be saved before syncing.",
+    suggestionCreateFailed: "Could not create suggestion",
+    suggestionsCount: "{{count}} suggestions",
+    acceptSuggestion: "Accept",
+    rejectSuggestion: "Reject",
     documentTitle: "Document title",
     builderBodySyncing: "This page's content is still syncing from Builder",
     builderBodySyncingDescription:
@@ -3333,6 +3363,28 @@ const enUS = {
     versionAnotherPersonEditing:
       "Another person is editing this document right now.",
     versionBackToHistory: "Back to history",
+    historyCheckpointAfter: "After",
+    historyCheckpointBefore: "Before",
+    historyCheckpointLegacy: "Saved",
+    historyCheckpointLoadError: "Could not load checkpoints.",
+    historyDetailLoadError: "Could not load this checkpoint.",
+    historyGroupAgent: "Agent run",
+    historyGroupHuman: "Editing session",
+    historyGroupLegacy: "Earlier edits",
+    historyGroupOperation: "Operation",
+    historyGroupRestore: "Restore",
+    historyLoadError: "Could not load version history.",
+    historyLoadMore: "Load more",
+    historyLinkedLocalRestoreUnavailable:
+      "Restore for linked local files is not available here. The file remains unchanged.",
+    historyLoadingMore: "Loading…",
+    historyPreparingRestore: "Saving current state…",
+    historyRefreshing: "Refreshing history…",
+    historyRestoreUnavailable: "Save this page before restoring history.",
+    historyRetry: "Retry",
+    historySaveBeforeRestoreFailed:
+      "The current state could not be saved before restoring.",
+    historyShowingSavedResults: "Could not refresh. Showing saved history.",
     versionHistoryDescription: "Browse previous versions of this document.",
     versionNoHistoryYet: "No version history yet.",
     versionPeopleEditing:
@@ -3342,8 +3394,10 @@ const enUS = {
     versionRestoreQuestion: "Restore this version?",
     versionRestoreThisVersion: "Restore this version",
     versionRestoreThisVersionQuestion: "Restore this version?",
+    historyRestoreAppliedRefreshFailed:
+      "The restore was saved, but the editor could not refresh. Reload this page.",
     versionRestoreWarning:
-      "Restoring will replace the live content for everyone and cannot be undone (though the current state is saved as a version first).",
+      "Restoring replaces this Page’s title and body for everyone. The current state stays in history.",
     versionRestored: "Version restored.",
     versionSavedAutomatically: "Versions are saved automatically as you edit.",
     reference: {
@@ -3373,10 +3427,26 @@ const enUS = {
     untitledDatabase: "Untitled database",
   },
   comments: {
+    ...commentAttributionMessagesByLocale["en-US"],
     filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
     empty: "No comments yet.",
+    selectTextToComment: "Select text to add a comment",
+    replyCount_zero: "{{count}} replies",
+    replyCount_one: "{{count}} reply",
+    replyCount_two: "{{count}} replies",
+    replyCount_few: "{{count}} replies",
+    replyCount_many: "{{count}} replies",
+    replyCount_other: "{{count}} replies",
+    commentActions: "Comment actions",
+    checkSaved: "Check saved comment",
+    edit: "Edit",
+    save: "Save",
+    saving: "Saving…",
+    saveUnconfirmed:
+      "Could not confirm saving. Check this thread before trying again.",
+    backToList: "Back to comments",
     cancel: "Cancel",
     submit: "Comment",
     askAi: "Ask AI",
@@ -3386,6 +3456,24 @@ const enUS = {
     reply: "Reply...",
     reopen: "Reopen",
     suggestions: "Suggestions",
+    suggestionAdd: "Add",
+    suggestionDelete: "Delete",
+    suggestionWith: "with",
+    suggestionReplace: "Replace",
+    suggestionDetails: "Suggestion details",
+    moreActions: "More actions",
+    addReaction: "Add reaction",
+    markUnread: "Mark unread",
+    markRead: "Mark read",
+    mute: "Mute thread",
+    unmute: "Unmute thread",
+    unread: "Unread",
+    copyLink: "Copy link",
+    linkCopied: "Link copied",
+    copyLinkFailed: "Couldn't copy link",
+    toolFailed: "Couldn't update discussion",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "This suggestion is unavailable",
     typeFilter: "Type",
     statusFilter: "Status",
     authorFilter: "Person",
@@ -3393,6 +3481,9 @@ const enUS = {
     allAuthors: "Everyone",
     open: "Open",
     resolvedStatus: "Resolved",
+    pending: "Pending",
+    accepted: "Accepted",
+    rejected: "Rejected",
     noFilteredComments: "No matching comments.",
     hideIndicators: "Hide comments and highlights",
     showIndicators: "Show comments and highlights",
@@ -3434,6 +3525,7 @@ const enUS = {
     addChildTo: "Add child to {{title}}",
     addSubPage: "Add sub-page",
     collapse: "Collapse sidebar",
+    resize: "Resize sidebar",
     completeStepsAboveFirst: "Complete steps above first",
     connectWorkspace: "Connect workspace",
     connected: "Connected",
@@ -3607,7 +3699,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       folderLinked: "已链接 {{count}} 个文件夹",
       foldersLinked: "已链接 {{count}} 个文件夹",
       lastSync: "上次同步",
-      localFolders: "本地文件夹",
+      localFolders: "文件夹",
       mainFolder: "主文件夹",
       metaTitle: "本地文件 - Content",
       noFoldersLinked: "未链接文件夹",
@@ -3627,6 +3719,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       goToDocuments: "前往文档",
     },
     editor: {
+      suggestionCreateFailed: "无法创建建议",
+      suggestionsCount: "{{count}} 条建议",
+      acceptSuggestion: "接受",
+      rejectSuggestion: "拒绝",
       couldNotReadLocalSourceFile: "无法读取本地源文件",
       couldNotSaveLocalFile: "无法保存本地文件",
       localFileChangedWithUnsavedEdits:
@@ -3635,10 +3731,19 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "已复制未保存的文本",
       useDiskVersion: "使用磁盘版本",
       keepLocalDraft: "保留我的版本",
+      previewDraftRecovery: "未保存的页面草稿",
+      restorePreviewDraft: "恢复草稿",
+      pageSaveBeforeNavigationFailed:
+        "无法保存最新的页面编辑。请重试后再离开此页面。",
+      discardPreviewDraft: "放弃草稿",
+
       documentTitle: "文档标题",
       localFileSavedHistoryNotUpdated: "本地文件已保存，但历史记录未更新",
       title: "标题",
       toolbar: {
+        suggestEdits: "建议修改",
+        suggesting: "建议中",
+        stopSuggesting: "停止建议",
         undo: "撤销",
         redo: "重做",
         conflict: "冲突",
@@ -3842,7 +3947,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       folderLinked: "{{count}} carpeta enlazada",
       foldersLinked: "{{count}} carpetas enlazadas",
       lastSync: "Última sincronización",
-      localFolders: "Carpetas locales",
+      localFolders: "Carpetas",
       mainFolder: "Carpeta principal",
       metaTitle: "Archivos locales - Content",
       noFoldersLinked: "No hay carpetas enlazadas",
@@ -3863,6 +3968,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       goToDocuments: "Ir a documentos",
     },
     editor: {
+      suggestionCreateFailed: "No se pudo crear la sugerencia",
+      suggestionsCount: "{{count}} sugerencias",
+      acceptSuggestion: "Aceptar",
+      rejectSuggestion: "Rechazar",
       couldNotReadLocalSourceFile: "No se pudo leer el archivo local de origen",
       couldNotSaveLocalFile: "No se pudo guardar el archivo local",
       localFileChangedWithUnsavedEdits:
@@ -3871,6 +3980,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "Texto sin guardar copiado",
       useDiskVersion: "Usar la versión del disco",
       keepLocalDraft: "Conservar mi versión",
+      previewDraftRecovery: "Borrador de página sin guardar",
+      restorePreviewDraft: "Restaurar borrador",
+      pageSaveBeforeNavigationFailed:
+        "No se pudieron guardar los últimos cambios. Vuelve a intentarlo antes de salir de esta página.",
+      discardPreviewDraft: "Descartar borrador",
+
       documentTitle: "Título del documento",
       localFileSavedHistoryNotUpdated:
         "El archivo local se guardó, pero el historial no se actualizó",
@@ -3937,6 +4052,9 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
           "Transcribe este video y agrega la transcripción debajo.",
       },
       toolbar: {
+        suggestEdits: "Sugerir cambios",
+        suggesting: "Sugiriendo",
+        stopSuggesting: "Dejar de sugerir",
         undo: "Deshacer",
         redo: "Rehacer",
         conflict: "Conflicto",
@@ -4078,13 +4196,29 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "fr-FR": {
     editor: {
+      suggestionCreateFailed: "Impossible de créer la suggestion",
+      suggestionsCount: "{{count}} suggestions",
+      acceptSuggestion: "Accepter",
+      rejectSuggestion: "Refuser",
       localFileChangedWithUnsavedEdits:
         "Le fichier sur le disque a changé alors que cette page contenait des modifications non enregistrées.",
       copyUnsavedText: "Copier mon texte non enregistré",
       unsavedTextCopied: "Texte non enregistré copié",
       useDiskVersion: "Utiliser la version du disque",
       keepLocalDraft: "Conserver ma version",
-      toolbar: { undo: "Annuler", redo: "Rétablir" },
+      previewDraftRecovery: "Brouillon de page non enregistré",
+      restorePreviewDraft: "Restaurer le brouillon",
+      pageSaveBeforeNavigationFailed:
+        "Vos dernières modifications n’ont pas pu être enregistrées. Réessayez avant de quitter cette page.",
+      discardPreviewDraft: "Supprimer le brouillon",
+
+      toolbar: {
+        undo: "Annuler",
+        redo: "Rétablir",
+        suggestEdits: "Suggérer des modifications",
+        suggesting: "Suggestion",
+        stopSuggesting: "Arrêter de suggérer",
+      },
     },
     sidebar: {
       addChild: "Ajouter un enfant",
@@ -4123,13 +4257,29 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "de-DE": {
     editor: {
+      suggestionCreateFailed: "Vorschlag konnte nicht erstellt werden",
+      suggestionsCount: "{{count}} Vorschläge",
+      acceptSuggestion: "Annehmen",
+      rejectSuggestion: "Ablehnen",
       localFileChangedWithUnsavedEdits:
         "Die Datei auf dem Datenträger wurde geändert, während diese Seite ungespeicherte Änderungen enthielt.",
       copyUnsavedText: "Meinen ungespeicherten Text kopieren",
       unsavedTextCopied: "Ungespeicherter Text kopiert",
       useDiskVersion: "Version vom Datenträger verwenden",
       keepLocalDraft: "Meine Version behalten",
-      toolbar: { undo: "Rückgängig", redo: "Wiederholen" },
+      previewDraftRecovery: "Ungespeicherter Seitenentwurf",
+      restorePreviewDraft: "Entwurf wiederherstellen",
+      pageSaveBeforeNavigationFailed:
+        "Die letzten Änderungen konnten nicht gespeichert werden. Versuche es erneut, bevor du diese Seite verlässt.",
+      discardPreviewDraft: "Entwurf verwerfen",
+
+      toolbar: {
+        undo: "Rückgängig",
+        redo: "Wiederholen",
+        suggestEdits: "Änderungen vorschlagen",
+        suggesting: "Vorschlagen",
+        stopSuggesting: "Vorschlagen beenden",
+      },
     },
     sidebar: {
       addChild: "Unterelement hinzufügen",
@@ -4167,13 +4317,29 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "ja-JP": {
     editor: {
+      suggestionCreateFailed: "提案を作成できませんでした",
+      suggestionsCount: "{{count}} 件の提案",
+      acceptSuggestion: "承認",
+      rejectSuggestion: "却下",
       localFileChangedWithUnsavedEdits:
         "このページに未保存の編集がある間に、ディスク上のファイルが変更されました。",
       copyUnsavedText: "未保存のテキストをコピー",
       unsavedTextCopied: "未保存のテキストをコピーしました",
       useDiskVersion: "ディスク上の版を使用",
       keepLocalDraft: "自分のバージョンを保持",
-      toolbar: { undo: "元に戻す", redo: "やり直す" },
+      previewDraftRecovery: "未保存のページ下書き",
+      restorePreviewDraft: "下書きを復元",
+      pageSaveBeforeNavigationFailed:
+        "最新の編集を保存できませんでした。このページを離れる前にもう一度お試しください。",
+      discardPreviewDraft: "下書きを破棄",
+
+      toolbar: {
+        undo: "元に戻す",
+        redo: "やり直す",
+        suggestEdits: "編集を提案",
+        suggesting: "提案中",
+        stopSuggesting: "提案を終了",
+      },
     },
     sidebar: {
       addChild: "子項目を追加",
@@ -4209,13 +4375,29 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "ko-KR": {
     editor: {
+      suggestionCreateFailed: "제안을 만들 수 없습니다",
+      suggestionsCount: "제안 {{count}}개",
+      acceptSuggestion: "수락",
+      rejectSuggestion: "거절",
       localFileChangedWithUnsavedEdits:
         "이 페이지에 저장하지 않은 편집 내용이 있는 동안 디스크의 파일이 변경되었습니다.",
       copyUnsavedText: "저장하지 않은 텍스트 복사",
       unsavedTextCopied: "저장하지 않은 텍스트를 복사했습니다",
       useDiskVersion: "디스크 버전 사용",
       keepLocalDraft: "내 버전 유지",
-      toolbar: { undo: "실행 취소", redo: "다시 실행" },
+      previewDraftRecovery: "저장하지 않은 페이지 초안",
+      restorePreviewDraft: "초안 복원",
+      pageSaveBeforeNavigationFailed:
+        "최근 페이지 편집 내용을 저장하지 못했습니다. 이 페이지를 떠나기 전에 다시 시도하세요.",
+      discardPreviewDraft: "초안 삭제",
+
+      toolbar: {
+        undo: "실행 취소",
+        redo: "다시 실행",
+        suggestEdits: "수정 제안",
+        suggesting: "제안 중",
+        stopSuggesting: "제안 중지",
+      },
     },
     sidebar: {
       addChild: "하위 항목 추가",
@@ -4250,13 +4432,29 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "pt-BR": {
     editor: {
+      suggestionCreateFailed: "Não foi possível criar a sugestão",
+      suggestionsCount: "{{count}} sugestões",
+      acceptSuggestion: "Aceitar",
+      rejectSuggestion: "Rejeitar",
       localFileChangedWithUnsavedEdits:
         "O arquivo no disco foi alterado enquanto esta página tinha edições não salvas.",
       copyUnsavedText: "Copiar meu texto não salvo",
       unsavedTextCopied: "Texto não salvo copiado",
       useDiskVersion: "Usar versão do disco",
       keepLocalDraft: "Manter minha versão",
-      toolbar: { undo: "Desfazer", redo: "Refazer" },
+      previewDraftRecovery: "Rascunho de página não salvo",
+      restorePreviewDraft: "Restaurar rascunho",
+      pageSaveBeforeNavigationFailed:
+        "Não foi possível salvar as últimas alterações. Tente novamente antes de sair desta página.",
+      discardPreviewDraft: "Descartar rascunho",
+
+      toolbar: {
+        undo: "Desfazer",
+        redo: "Refazer",
+        suggestEdits: "Sugerir alterações",
+        suggesting: "Sugerindo",
+        stopSuggesting: "Parar de sugerir",
+      },
     },
     sidebar: {
       addChild: "Adicionar filho",
@@ -4293,13 +4491,29 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "hi-IN": {
     editor: {
+      suggestionCreateFailed: "सुझाव नहीं बनाया जा सका",
+      suggestionsCount: "{{count}} सुझाव",
+      acceptSuggestion: "स्वीकार करें",
+      rejectSuggestion: "अस्वीकार करें",
       localFileChangedWithUnsavedEdits:
         "इस पेज में सहेजे नहीं गए बदलाव होने के दौरान डिस्क की फ़ाइल बदल गई।",
       copyUnsavedText: "मेरा सहेजा नहीं गया टेक्स्ट कॉपी करें",
       unsavedTextCopied: "सहेजा नहीं गया टेक्स्ट कॉपी किया गया",
       useDiskVersion: "डिस्क वाला संस्करण उपयोग करें",
       keepLocalDraft: "मेरा संस्करण रखें",
-      toolbar: { undo: "पूर्ववत करें", redo: "फिर से करें" },
+      previewDraftRecovery: "पेज का सहेजा नहीं गया ड्राफ़्ट",
+      restorePreviewDraft: "ड्राफ़्ट बहाल करें",
+      pageSaveBeforeNavigationFailed:
+        "आपके नवीनतम पेज बदलाव सहेजे नहीं जा सके। इस पेज से जाने से पहले फिर से कोशिश करें।",
+      discardPreviewDraft: "ड्राफ़्ट हटाएँ",
+
+      toolbar: {
+        undo: "पूर्ववत करें",
+        redo: "फिर से करें",
+        suggestEdits: "बदलाव सुझाएं",
+        suggesting: "सुझाव दे रहे हैं",
+        stopSuggesting: "सुझाव देना बंद करें",
+      },
     },
     sidebar: {
       addChild: "चाइल्ड जोड़ें",
@@ -4334,13 +4548,29 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "ar-SA": {
     editor: {
+      suggestionCreateFailed: "تعذر إنشاء الاقتراح",
+      suggestionsCount: "{{count}} اقتراحات",
+      acceptSuggestion: "قبول",
+      rejectSuggestion: "رفض",
       localFileChangedWithUnsavedEdits:
         "تغيّر الملف على القرص أثناء وجود تعديلات غير محفوظة في هذه الصفحة.",
       copyUnsavedText: "نسخ النص غير المحفوظ",
       unsavedTextCopied: "تم نسخ النص غير المحفوظ",
       useDiskVersion: "استخدام نسخة القرص",
       keepLocalDraft: "الاحتفاظ بنسختي",
-      toolbar: { undo: "تراجع", redo: "إعادة" },
+      previewDraftRecovery: "مسودة صفحة غير محفوظة",
+      restorePreviewDraft: "استعادة المسودة",
+      pageSaveBeforeNavigationFailed:
+        "تعذر حفظ آخر تعديلات الصفحة. حاول مرة أخرى قبل مغادرة هذه الصفحة.",
+      discardPreviewDraft: "تجاهل المسودة",
+
+      toolbar: {
+        undo: "تراجع",
+        redo: "إعادة",
+        suggestEdits: "اقتراح تعديلات",
+        suggesting: "جارٍ الاقتراح",
+        stopSuggesting: "إيقاف الاقتراح",
+      },
     },
     sidebar: {
       addChild: "إضافة عنصر فرعي",
@@ -9497,13 +9727,199 @@ const contentReferenceMessagesByLocale = {
   },
 } satisfies Partial<Record<LocaleCode, typeof enUS.editor.reference>>;
 
+const reviewDiscussionMessagesByLocale = {
+  "zh-CN": {
+    moreActions: "更多操作",
+    addReaction: "添加回应",
+    markUnread: "标为未读",
+    markRead: "标为已读",
+    mute: "静音此讨论",
+    unmute: "取消静音",
+    unread: "未读",
+    copyLink: "复制链接",
+    linkCopied: "链接已复制",
+    copyLinkFailed: "无法复制链接",
+    toolFailed: "无法更新讨论",
+    reactionCount: "{{reaction}}：{{count}}",
+    linkUnavailable: "此建议不可用",
+  },
+  "zh-TW": {
+    moreActions: "更多操作",
+    addReaction: "新增回應",
+    markUnread: "標為未讀",
+    markRead: "標為已讀",
+    mute: "靜音此討論",
+    unmute: "取消靜音",
+    unread: "未讀",
+    copyLink: "複製連結",
+    linkCopied: "已複製連結",
+    copyLinkFailed: "無法複製連結",
+    toolFailed: "無法更新討論",
+    reactionCount: "{{reaction}}：{{count}}",
+    linkUnavailable: "此建議無法使用",
+  },
+  "es-ES": {
+    moreActions: "Más acciones",
+    addReaction: "Añadir reacción",
+    markUnread: "Marcar como no leído",
+    markRead: "Marcar como leído",
+    mute: "Silenciar hilo",
+    unmute: "Activar notificaciones del hilo",
+    unread: "No leído",
+    copyLink: "Copiar enlace",
+    linkCopied: "Enlace copiado",
+    copyLinkFailed: "No se pudo copiar el enlace",
+    toolFailed: "No se pudo actualizar la conversación",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "Esta sugerencia no está disponible",
+  },
+  "fr-FR": {
+    moreActions: "Autres actions",
+    addReaction: "Ajouter une réaction",
+    markUnread: "Marquer comme non lu",
+    markRead: "Marquer comme lu",
+    mute: "Désactiver les notifications du fil",
+    unmute: "Réactiver les notifications du fil",
+    unread: "Non lu",
+    copyLink: "Copier le lien",
+    linkCopied: "Lien copié",
+    copyLinkFailed: "Impossible de copier le lien",
+    toolFailed: "Impossible de mettre à jour la discussion",
+    reactionCount: "{{reaction}} : {{count}}",
+    linkUnavailable: "Cette suggestion n’est pas disponible",
+  },
+  "de-DE": {
+    moreActions: "Weitere Aktionen",
+    addReaction: "Reaktion hinzufügen",
+    markUnread: "Als ungelesen markieren",
+    markRead: "Als gelesen markieren",
+    mute: "Diskussion stummschalten",
+    unmute: "Stummschaltung aufheben",
+    unread: "Ungelesen",
+    copyLink: "Link kopieren",
+    linkCopied: "Link kopiert",
+    copyLinkFailed: "Link konnte nicht kopiert werden",
+    toolFailed: "Diskussion konnte nicht aktualisiert werden",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "Dieser Vorschlag ist nicht verfügbar",
+  },
+  "ja-JP": {
+    moreActions: "その他の操作",
+    addReaction: "リアクションを追加",
+    markUnread: "未読にする",
+    markRead: "既読にする",
+    mute: "スレッドをミュート",
+    unmute: "ミュートを解除",
+    unread: "未読",
+    copyLink: "リンクをコピー",
+    linkCopied: "リンクをコピーしました",
+    copyLinkFailed: "リンクをコピーできませんでした",
+    toolFailed: "ディスカッションを更新できませんでした",
+    reactionCount: "{{reaction}}：{{count}}",
+    linkUnavailable: "この提案は利用できません",
+  },
+  "ko-KR": {
+    moreActions: "추가 작업",
+    addReaction: "반응 추가",
+    markUnread: "읽지 않음으로 표시",
+    markRead: "읽음으로 표시",
+    mute: "스레드 알림 끄기",
+    unmute: "스레드 알림 켜기",
+    unread: "읽지 않음",
+    copyLink: "링크 복사",
+    linkCopied: "링크를 복사했습니다",
+    copyLinkFailed: "링크를 복사할 수 없습니다",
+    toolFailed: "토론을 업데이트할 수 없습니다",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "이 제안을 사용할 수 없습니다",
+  },
+  "pt-BR": {
+    moreActions: "Mais ações",
+    addReaction: "Adicionar reação",
+    markUnread: "Marcar como não lida",
+    markRead: "Marcar como lida",
+    mute: "Silenciar conversa",
+    unmute: "Reativar notificações da conversa",
+    unread: "Não lida",
+    copyLink: "Copiar link",
+    linkCopied: "Link copiado",
+    copyLinkFailed: "Não foi possível copiar o link",
+    toolFailed: "Não foi possível atualizar a discussão",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "Esta sugestão não está disponível",
+  },
+  "hi-IN": {
+    moreActions: "अन्य कार्रवाइयाँ",
+    addReaction: "प्रतिक्रिया जोड़ें",
+    markUnread: "अपठित चिह्नित करें",
+    markRead: "पठित चिह्नित करें",
+    mute: "थ्रेड म्यूट करें",
+    unmute: "थ्रेड अनम्यूट करें",
+    unread: "अपठित",
+    copyLink: "लिंक कॉपी करें",
+    linkCopied: "लिंक कॉपी किया गया",
+    copyLinkFailed: "लिंक कॉपी नहीं किया जा सका",
+    toolFailed: "चर्चा अपडेट नहीं की जा सकी",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "यह सुझाव उपलब्ध नहीं है",
+  },
+  "ar-SA": {
+    moreActions: "المزيد من الإجراءات",
+    addReaction: "إضافة تفاعل",
+    markUnread: "وضع علامة كغير مقروء",
+    markRead: "وضع علامة كمقروء",
+    mute: "كتم المحادثة",
+    unmute: "إلغاء كتم المحادثة",
+    unread: "غير مقروء",
+    copyLink: "نسخ الرابط",
+    linkCopied: "تم نسخ الرابط",
+    copyLinkFailed: "تعذر نسخ الرابط",
+    toolFailed: "تعذر تحديث المناقشة",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "هذا الاقتراح غير متاح",
+  },
+} satisfies Record<
+  Exclude<LocaleCode, "en-US">,
+  Pick<
+    typeof enUS.comments,
+    | "moreActions"
+    | "addReaction"
+    | "markUnread"
+    | "markRead"
+    | "mute"
+    | "unmute"
+    | "unread"
+    | "copyLink"
+    | "linkCopied"
+    | "copyLinkFailed"
+    | "toolFailed"
+    | "reactionCount"
+    | "linkUnavailable"
+  >
+>;
+
 const commentMessagesByLocale = {
   "zh-CN": {
+    ...commentAttributionMessagesByLocale["zh-CN"],
+    selectTextToComment: "选择文本以添加评论",
+    replyCount_other: "{{count}} 条回复",
+    commentActions: "评论操作",
+    checkSaved: "检查已保存的评论",
+    edit: "编辑",
+    save: "保存",
+    saving: "正在保存…",
+    saveUnconfirmed: "无法确认是否已保存。请先检查此评论线程，然后再重试。",
+    backToList: "返回评论列表",
     filter: "筛选",
     hideIndicators: "隐藏评论和高亮",
     showIndicators: "显示评论和高亮",
     unanchored: "高亮不可用",
     suggestions: "建议",
+    suggestionAdd: "添加",
+    suggestionDelete: "删除",
+    suggestionWith: "替换为",
+    suggestionReplace: "替换",
+    suggestionDetails: "建议详情",
     typeFilter: "类型",
     statusFilter: "状态",
     authorFilter: "人员",
@@ -9511,14 +9927,32 @@ const commentMessagesByLocale = {
     allAuthors: "所有人",
     open: "未解决",
     resolvedStatus: "已解决",
+    pending: "待处理",
+    accepted: "已接受",
+    rejected: "已拒绝",
     noFilteredComments: "没有匹配的评论。",
   },
   "zh-TW": {
+    ...commentAttributionMessagesByLocale["zh-TW"],
+    selectTextToComment: "選取文字以新增留言",
+    replyCount_other: "{{count}} 則回覆",
+    commentActions: "留言操作",
+    checkSaved: "檢查已儲存的留言",
+    edit: "編輯",
+    save: "儲存",
+    saving: "正在儲存…",
+    saveUnconfirmed: "無法確認是否已儲存。請先檢查此留言串，再重試。",
+    backToList: "返回留言列表",
     filter: "篩選",
     hideIndicators: "隱藏留言和醒目提示",
     showIndicators: "顯示留言和醒目提示",
     unanchored: "無法使用醒目提示",
     suggestions: "建議",
+    suggestionAdd: "新增",
+    suggestionDelete: "刪除",
+    suggestionWith: "替換為",
+    suggestionReplace: "替換",
+    suggestionDetails: "建議詳細資料",
     typeFilter: "類型",
     statusFilter: "狀態",
     authorFilter: "人員",
@@ -9526,14 +9960,35 @@ const commentMessagesByLocale = {
     allAuthors: "所有人",
     open: "未解決",
     resolvedStatus: "已解決",
+    pending: "待處理",
+    accepted: "已接受",
+    rejected: "已拒絕",
     noFilteredComments: "沒有相符的留言。",
   },
   "es-ES": {
+    ...commentAttributionMessagesByLocale["es-ES"],
+    selectTextToComment: "Selecciona texto para añadir un comentario",
+    replyCount_one: "{{count}} respuesta",
+    replyCount_many: "{{count}} respuestas",
+    replyCount_other: "{{count}} respuestas",
+    commentActions: "Acciones del comentario",
+    checkSaved: "Comprobar comentario guardado",
+    edit: "Editar",
+    save: "Guardar",
+    saving: "Guardando…",
+    saveUnconfirmed:
+      "No se pudo confirmar el guardado. Comprueba este hilo antes de volver a intentarlo.",
+    backToList: "Volver a comentarios",
     filter: "Filtro",
     hideIndicators: "Ocultar comentarios y resaltados",
     showIndicators: "Mostrar comentarios y resaltados",
     unanchored: "Resaltado no disponible",
     suggestions: "Sugerencias",
+    suggestionAdd: "Añadir",
+    suggestionDelete: "Eliminar",
+    suggestionWith: "por",
+    suggestionReplace: "Reemplazar",
+    suggestionDetails: "Detalles de la sugerencia",
     typeFilter: "Tipo",
     statusFilter: "Estado",
     authorFilter: "Persona",
@@ -9541,14 +9996,35 @@ const commentMessagesByLocale = {
     allAuthors: "Todos",
     open: "Abiertos",
     resolvedStatus: "Resueltos",
+    pending: "Pendientes",
+    accepted: "Aceptados",
+    rejected: "Rechazados",
     noFilteredComments: "No hay comentarios coincidentes.",
   },
   "fr-FR": {
+    ...commentAttributionMessagesByLocale["fr-FR"],
+    selectTextToComment: "Sélectionnez du texte pour ajouter un commentaire",
+    replyCount_one: "{{count}} réponse",
+    replyCount_many: "{{count}} réponses",
+    replyCount_other: "{{count}} réponses",
+    commentActions: "Actions du commentaire",
+    checkSaved: "Vérifier le commentaire enregistré",
+    edit: "Modifier",
+    save: "Enregistrer",
+    saving: "Enregistrement…",
+    saveUnconfirmed:
+      "Impossible de confirmer l’enregistrement. Vérifiez ce fil avant de réessayer.",
+    backToList: "Retour aux commentaires",
     filter: "Filtrer",
     hideIndicators: "Masquer les commentaires et surlignages",
     showIndicators: "Afficher les commentaires et surlignages",
     unanchored: "Surlignage indisponible",
     suggestions: "Suggestions",
+    suggestionAdd: "Ajouter",
+    suggestionDelete: "Supprimer",
+    suggestionWith: "par",
+    suggestionReplace: "Remplacer",
+    suggestionDetails: "Détails de la suggestion",
     typeFilter: "Type",
     statusFilter: "Statut",
     authorFilter: "Personne",
@@ -9556,14 +10032,34 @@ const commentMessagesByLocale = {
     allAuthors: "Tout le monde",
     open: "Ouverts",
     resolvedStatus: "Résolus",
+    pending: "En attente",
+    accepted: "Acceptés",
+    rejected: "Refusés",
     noFilteredComments: "Aucun commentaire correspondant.",
   },
   "de-DE": {
+    ...commentAttributionMessagesByLocale["de-DE"],
+    selectTextToComment: "Text auswählen, um einen Kommentar hinzuzufügen",
+    replyCount_one: "{{count}} Antwort",
+    replyCount_other: "{{count}} Antworten",
+    commentActions: "Kommentaraktionen",
+    checkSaved: "Gespeicherten Kommentar prüfen",
+    edit: "Bearbeiten",
+    save: "Speichern",
+    saving: "Wird gespeichert…",
+    saveUnconfirmed:
+      "Das Speichern konnte nicht bestätigt werden. Prüfe diesen Thread, bevor du es erneut versuchst.",
+    backToList: "Zurück zu den Kommentaren",
     filter: "Filter",
     hideIndicators: "Kommentare und Hervorhebungen ausblenden",
     showIndicators: "Kommentare und Hervorhebungen anzeigen",
     unanchored: "Hervorhebung nicht verfügbar",
     suggestions: "Vorschläge",
+    suggestionAdd: "Hinzufügen",
+    suggestionDelete: "Löschen",
+    suggestionWith: "durch",
+    suggestionReplace: "Ersetzen",
+    suggestionDetails: "Vorschlagsdetails",
     typeFilter: "Typ",
     statusFilter: "Status",
     authorFilter: "Person",
@@ -9571,14 +10067,33 @@ const commentMessagesByLocale = {
     allAuthors: "Alle Personen",
     open: "Offen",
     resolvedStatus: "Erledigt",
+    pending: "Ausstehend",
+    accepted: "Angenommen",
+    rejected: "Abgelehnt",
     noFilteredComments: "Keine passenden Kommentare.",
   },
   "ja-JP": {
+    ...commentAttributionMessagesByLocale["ja-JP"],
+    selectTextToComment: "コメントを追加するテキストを選択",
+    replyCount_other: "{{count}} 件の返信",
+    commentActions: "コメント操作",
+    checkSaved: "保存したコメントを確認",
+    edit: "編集",
+    save: "保存",
+    saving: "保存中…",
+    saveUnconfirmed:
+      "保存を確認できませんでした。再試行する前にこのスレッドを確認してください。",
+    backToList: "コメントに戻る",
     filter: "フィルター",
     hideIndicators: "コメントとハイライトを非表示",
     showIndicators: "コメントとハイライトを表示",
     unanchored: "ハイライトを利用できません",
     suggestions: "提案",
+    suggestionAdd: "追加",
+    suggestionDelete: "削除",
+    suggestionWith: "変更後",
+    suggestionReplace: "変更前",
+    suggestionDetails: "提案の詳細",
     typeFilter: "種類",
     statusFilter: "ステータス",
     authorFilter: "ユーザー",
@@ -9586,14 +10101,33 @@ const commentMessagesByLocale = {
     allAuthors: "全員",
     open: "未解決",
     resolvedStatus: "解決済み",
+    pending: "保留中",
+    accepted: "承認済み",
+    rejected: "却下済み",
     noFilteredComments: "一致するコメントはありません。",
   },
   "ko-KR": {
+    ...commentAttributionMessagesByLocale["ko-KR"],
+    selectTextToComment: "댓글을 추가할 텍스트 선택",
+    replyCount_other: "답글 {{count}}개",
+    commentActions: "댓글 작업",
+    checkSaved: "저장된 댓글 확인",
+    edit: "수정",
+    save: "저장",
+    saving: "저장 중…",
+    saveUnconfirmed:
+      "저장 여부를 확인하지 못했습니다. 다시 시도하기 전에 이 스레드를 확인하세요.",
+    backToList: "댓글로 돌아가기",
     filter: "필터",
     hideIndicators: "댓글과 강조 표시 숨기기",
     showIndicators: "댓글과 강조 표시 보기",
     unanchored: "강조 표시를 사용할 수 없음",
     suggestions: "제안",
+    suggestionAdd: "추가",
+    suggestionDelete: "삭제",
+    suggestionWith: "변경 후",
+    suggestionReplace: "변경 전",
+    suggestionDetails: "제안 세부정보",
     typeFilter: "유형",
     statusFilter: "상태",
     authorFilter: "사용자",
@@ -9601,14 +10135,35 @@ const commentMessagesByLocale = {
     allAuthors: "모든 사용자",
     open: "열림",
     resolvedStatus: "해결됨",
+    pending: "대기 중",
+    accepted: "수락됨",
+    rejected: "거부됨",
     noFilteredComments: "일치하는 댓글이 없습니다.",
   },
   "pt-BR": {
+    ...commentAttributionMessagesByLocale["pt-BR"],
+    selectTextToComment: "Selecione um texto para adicionar um comentário",
+    replyCount_one: "{{count}} resposta",
+    replyCount_many: "{{count}} respostas",
+    replyCount_other: "{{count}} respostas",
+    commentActions: "Ações do comentário",
+    checkSaved: "Verificar comentário salvo",
+    edit: "Editar",
+    save: "Salvar",
+    saving: "Salvando…",
+    saveUnconfirmed:
+      "Não foi possível confirmar o salvamento. Verifique esta conversa antes de tentar novamente.",
+    backToList: "Voltar aos comentários",
     filter: "Filtro",
     hideIndicators: "Ocultar comentários e destaques",
     showIndicators: "Mostrar comentários e destaques",
     unanchored: "Destaque indisponível",
     suggestions: "Sugestões",
+    suggestionAdd: "Adicionar",
+    suggestionDelete: "Excluir",
+    suggestionWith: "por",
+    suggestionReplace: "Substituir",
+    suggestionDetails: "Detalhes da sugestão",
     typeFilter: "Tipo",
     statusFilter: "Status",
     authorFilter: "Pessoa",
@@ -9616,14 +10171,34 @@ const commentMessagesByLocale = {
     allAuthors: "Todos",
     open: "Abertos",
     resolvedStatus: "Resolvidos",
+    pending: "Pendentes",
+    accepted: "Aceitos",
+    rejected: "Rejeitados",
     noFilteredComments: "Nenhum comentário correspondente.",
   },
   "hi-IN": {
+    ...commentAttributionMessagesByLocale["hi-IN"],
+    selectTextToComment: "टिप्पणी जोड़ने के लिए टेक्स्ट चुनें",
+    replyCount_one: "{{count}} जवाब",
+    replyCount_other: "{{count}} जवाब",
+    commentActions: "टिप्पणी की कार्रवाइयाँ",
+    checkSaved: "सहेजी गई टिप्पणी जाँचें",
+    edit: "संपादित करें",
+    save: "सहेजें",
+    saving: "सहेजा जा रहा है…",
+    saveUnconfirmed:
+      "सहेजने की पुष्टि नहीं हो सकी। दोबारा कोशिश करने से पहले इस थ्रेड को जाँचें।",
+    backToList: "टिप्पणियों पर वापस जाएँ",
     filter: "फ़िल्टर",
     hideIndicators: "टिप्पणियाँ और हाइलाइट छिपाएँ",
     showIndicators: "टिप्पणियाँ और हाइलाइट दिखाएँ",
     unanchored: "हाइलाइट उपलब्ध नहीं है",
     suggestions: "सुझाव",
+    suggestionAdd: "जोड़ें",
+    suggestionDelete: "हटाएँ",
+    suggestionWith: "से",
+    suggestionReplace: "बदलें",
+    suggestionDetails: "सुझाव का विवरण",
     typeFilter: "प्रकार",
     statusFilter: "स्थिति",
     authorFilter: "व्यक्ति",
@@ -9631,14 +10206,38 @@ const commentMessagesByLocale = {
     allAuthors: "सभी लोग",
     open: "खुले",
     resolvedStatus: "सुलझाए गए",
+    pending: "लंबित",
+    accepted: "स्वीकृत",
+    rejected: "अस्वीकृत",
     noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
   },
   "ar-SA": {
+    ...commentAttributionMessagesByLocale["ar-SA"],
+    selectTextToComment: "حدد نصًا لإضافة تعليق",
+    replyCount_zero: "{{count}} ردود",
+    replyCount_one: "{{count}} رد",
+    replyCount_two: "{{count}} ردان",
+    replyCount_few: "{{count}} ردود",
+    replyCount_many: "{{count}} ردًا",
+    replyCount_other: "{{count}} رد",
+    commentActions: "إجراءات التعليق",
+    checkSaved: "التحقق من التعليق المحفوظ",
+    edit: "تعديل",
+    save: "حفظ",
+    saving: "جارٍ الحفظ…",
+    saveUnconfirmed:
+      "تعذر تأكيد الحفظ. تحقق من سلسلة التعليقات هذه قبل المحاولة مرة أخرى.",
+    backToList: "العودة إلى التعليقات",
     filter: "تصفية",
     hideIndicators: "إخفاء التعليقات والتمييزات",
     showIndicators: "إظهار التعليقات والتمييزات",
     unanchored: "التمييز غير متاح",
     suggestions: "الاقتراحات",
+    suggestionAdd: "إضافة",
+    suggestionDelete: "حذف",
+    suggestionWith: "بـ",
+    suggestionReplace: "استبدال",
+    suggestionDetails: "تفاصيل الاقتراح",
     typeFilter: "النوع",
     statusFilter: "الحالة",
     authorFilter: "الشخص",
@@ -9646,6 +10245,9 @@ const commentMessagesByLocale = {
     allAuthors: "الجميع",
     open: "مفتوحة",
     resolvedStatus: "تم حلها",
+    pending: "قيد الانتظار",
+    accepted: "مقبولة",
+    rejected: "مرفوضة",
     noFilteredComments: "لا توجد تعليقات مطابقة.",
   },
 } satisfies Partial<Record<LocaleCode, Partial<typeof enUS.comments>>>;
@@ -9742,6 +10344,74 @@ function mergeMessages(overrides: PartialMessages): Messages {
   };
 }
 
+const suggestionFormattingMessagesByLocale = {
+  "zh-CN": [
+    "无法安全地建议此格式。草稿已保留。撤销上一次编辑以继续。",
+    "页面中的某些格式无法安全地建议更改。编辑者可以先更新这些格式，然后您再重试。",
+  ],
+  "zh-TW": [
+    "無法安全地建議此格式。草稿已保留。復原上一次編輯以繼續。",
+    "頁面中的某些格式無法安全地建議變更。編輯者可以先更新這些格式，然後您再重試。",
+  ],
+  "es-ES": [
+    "Este formato no se puede sugerir de forma segura. Tu borrador se conserva. Deshaz la última edición para continuar.",
+    "Algunos formatos de la página no se pueden sugerir de forma segura. Un editor puede actualizarlos antes de que vuelvas a intentarlo.",
+  ],
+  "fr-FR": [
+    "Cette mise en forme ne peut pas être suggérée de façon fiable. Votre brouillon est conservé. Annulez la dernière modification pour continuer.",
+    "Certaines mises en forme de la page ne peuvent pas être suggérées de façon fiable. Une personne disposant des droits de modification peut les mettre à jour avant votre nouvel essai.",
+  ],
+  "de-DE": [
+    "Diese Formatierung kann nicht sicher vorgeschlagen werden. Dein Entwurf bleibt erhalten. Mache die letzte Änderung rückgängig, um fortzufahren.",
+    "Einige Seitenformatierungen können nicht sicher vorgeschlagen werden. Eine Person mit Bearbeitungsrechten kann sie vor deinem nächsten Versuch aktualisieren.",
+  ],
+  "ja-JP": [
+    "この書式は安全に提案できません。下書きは保持されています。続行するには最後の編集を元に戻してください。",
+    "ページの一部の書式は安全に提案できません。編集権限のある人が書式を更新してから再試行してください。",
+  ],
+  "ko-KR": [
+    "이 서식은 안전하게 제안할 수 없습니다. 초안은 유지됩니다. 계속하려면 마지막 편집을 실행 취소하세요.",
+    "페이지의 일부 서식은 안전하게 제안할 수 없습니다. 편집 권한이 있는 사람이 서식을 업데이트한 후 다시 시도하세요.",
+  ],
+  "pt-BR": [
+    "Esta formatação não pode ser sugerida com segurança. Seu rascunho foi mantido. Desfaça a última edição para continuar.",
+    "Algumas formatações da página não podem ser sugeridas com segurança. Uma pessoa com permissão de edição pode atualizá-las antes de você tentar novamente.",
+  ],
+  "hi-IN": [
+    "इस स्वरूपण का सुरक्षित रूप से सुझाव नहीं दिया जा सकता। आपका ड्राफ़्ट सुरक्षित है। जारी रखने के लिए पिछला संपादन पूर्ववत करें।",
+    "पेज के कुछ स्वरूपण का सुरक्षित रूप से सुझाव नहीं दिया जा सकता। दोबारा कोशिश करने से पहले कोई संपादक उसे अपडेट कर सकता है।",
+  ],
+  "ar-SA": [
+    "لا يمكن اقتراح هذا التنسيق بأمان. تم الاحتفاظ بمسودتك. تراجع عن آخر تعديل للمتابعة.",
+    "لا يمكن اقتراح بعض تنسيقات الصفحة بأمان. يمكن لشخص لديه صلاحية التعديل تحديثها قبل إعادة المحاولة.",
+  ],
+};
+
+const underlineMessagesByLocale = {
+  "zh-CN": "下划线",
+  "zh-TW": "底線",
+  "es-ES": "Subrayado",
+  "fr-FR": "Souligné",
+  "de-DE": "Unterstrichen",
+  "ja-JP": "下線",
+  "ko-KR": "밑줄",
+  "pt-BR": "Sublinhado",
+  "hi-IN": "रेखांकित",
+  "ar-SA": "تسطير",
+};
+const removeLinkMessagesByLocale = {
+  "zh-CN": "移除链接",
+  "zh-TW": "移除連結",
+  "es-ES": "Quitar enlace",
+  "fr-FR": "Supprimer le lien",
+  "de-DE": "Link entfernen",
+  "ja-JP": "リンクを削除",
+  "ko-KR": "링크 제거",
+  "pt-BR": "Remover link",
+  "hi-IN": "लिंक हटाएँ",
+  "ar-SA": "إزالة الرابط",
+};
+
 function mergeMessagesForLocale(
   locale: Exclude<LocaleCode, "en-US">,
   overrides: PartialMessages,
@@ -9803,7 +10473,11 @@ function mergeMessagesForLocale(
   });
   return {
     ...base,
-    comments: { ...base.comments, ...commentMessagesByLocale[locale] },
+    comments: {
+      ...base.comments,
+      ...commentMessagesByLocale[locale],
+      ...reviewDiscussionMessagesByLocale[locale],
+    },
     landing: { ...base.landing, ...landingMessagesByLocale[locale] },
     root: { ...base.root, ...rawLiteralOverrides.root },
     team: { ...base.team, ...rawLiteralOverrides.team },
@@ -9818,6 +10492,12 @@ function mergeMessagesForLocale(
     editor: {
       ...base.editor,
       ...rawLiteralOverrides.editor,
+      underline: underlineMessagesByLocale[locale],
+      suggestionFormattingUnsupported:
+        suggestionFormattingMessagesByLocale[locale][0]!,
+      suggestionFormattingBaselineUnsupported:
+        suggestionFormattingMessagesByLocale[locale][1]!,
+      removeLink: removeLinkMessagesByLocale[locale],
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {
@@ -9925,6 +10605,11 @@ export const messagesByLocale = {
       agentTitle: "管理代理",
       agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
       openAgentSettings: "管理代理",
+      labs: "Labs",
+      labsIntro: "在正式发布前预览实验性功能。",
+      labCreativeContext: "创意上下文",
+      labCreativeContextDescription:
+        "在 Content 中连接并复用受管控的参考上下文。",
     },
     chat: {
       publicEmptyState: "向我询问有关此文档的任何问题",
@@ -9993,6 +10678,7 @@ export const messagesByLocale = {
       newDatabase: "新建数据库",
       noWorkspaces: "还没有工作区",
       collapse: "折叠侧边栏",
+      resize: "调整侧边栏宽度",
       expand: "展开侧边栏",
       failedCreatePage: "创建页面失败",
       failedDeletePage: "删除页面失败",
@@ -10124,6 +10810,11 @@ export const messagesByLocale = {
       agentDescription:
         "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
       openAgentSettings: "Gestionar agente",
+      labs: "Labs",
+      labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
+      labCreativeContext: "Contexto creativo",
+      labCreativeContextDescription:
+        "Conecta y reutiliza contexto de referencia regulado en Content.",
     },
     chat: {
       publicEmptyState: "Pregúntame cualquier cosa sobre este documento",
@@ -10194,6 +10885,7 @@ export const messagesByLocale = {
       newDatabase: "Nueva base de datos",
       noWorkspaces: "Aún no hay espacios de trabajo",
       collapse: "Contraer barra lateral",
+      resize: "Cambiar ancho de la barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "No se pudo crear la página",
       failedDeletePage: "No se pudo eliminar la página",
@@ -10327,6 +11019,12 @@ export const messagesByLocale = {
       agentDescription:
         "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
       openAgentSettings: "Gérer l’agent",
+      labs: "Labs",
+      labsIntro:
+        "Prévisualisez les fonctionnalités expérimentales avant leur déploiement.",
+      labCreativeContext: "Contexte créatif",
+      labCreativeContextDescription:
+        "Connectez et réutilisez un contexte de référence gouverné dans Content.",
     },
     chat: {
       publicEmptyState: "Posez-moi une question sur ce document",
@@ -10397,6 +11095,7 @@ export const messagesByLocale = {
       newDatabase: "Nouvelle base de données",
       noWorkspaces: "Aucun espace de travail pour le moment",
       collapse: "Réduire la barre latérale",
+      resize: "Redimensionner la barre latérale",
       expand: "Développer la barre latérale",
       failedCreatePage: "Échec de la création de la page",
       failedDeletePage: "Échec de la suppression de la page",
@@ -10528,6 +11227,12 @@ export const messagesByLocale = {
       agentDescription:
         "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
       openAgentSettings: "Agent verwalten",
+      labs: "Labs",
+      labsIntro:
+        "Testen Sie experimentelle Funktionen vor ihrer Veröffentlichung.",
+      labCreativeContext: "Kreativer Kontext",
+      labCreativeContextDescription:
+        "Verbinden und Wiederverwenden von geregeltem Referenzkontext in Content.",
     },
     chat: {
       publicEmptyState: "Frag mich alles zu diesem Dokument",
@@ -10598,6 +11303,7 @@ export const messagesByLocale = {
       newDatabase: "Neue Datenbank",
       noWorkspaces: "Noch keine Arbeitsbereiche",
       collapse: "Seitenleiste einklappen",
+      resize: "Seitenleiste skalieren",
       expand: "Seitenleiste ausklappen",
       failedCreatePage: "Seite konnte nicht erstellt werden",
       failedDeletePage: "Seite konnte nicht gelöscht werden",
@@ -10728,6 +11434,11 @@ export const messagesByLocale = {
       agentDescription:
         "エージェントのモデル、API キー、自動化、音声などを管理します。",
       openAgentSettings: "エージェントを管理",
+      labs: "Labs",
+      labsIntro: "正式リリース前の試験的な機能をお試しいただけます。",
+      labCreativeContext: "クリエイティブコンテキスト",
+      labCreativeContextDescription:
+        "Content 内で管理された参照コンテキストを接続して再利用します。",
     },
     chat: {
       publicEmptyState: "このドキュメントについて何でも聞いてください",
@@ -10798,6 +11509,7 @@ export const messagesByLocale = {
       newDatabase: "新しいデータベース",
       noWorkspaces: "ワークスペースはまだありません",
       collapse: "サイドバーを折りたたむ",
+      resize: "サイドバーの幅を変更",
       expand: "サイドバーを展開",
       failedCreatePage: "ページを作成できませんでした",
       failedDeletePage: "ページを削除できませんでした",
@@ -10919,6 +11631,11 @@ export const messagesByLocale = {
       agentDescription:
         "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
       openAgentSettings: "에이전트 관리",
+      labs: "Labs",
+      labsIntro: "출시 전 실험적인 기능을 미리 사용해 보세요.",
+      labCreativeContext: "크리에이티브 컨텍스트",
+      labCreativeContextDescription:
+        "Content에서 제어된 참조 컨텍스트를 연결하고 재사용합니다.",
     },
     chat: {
       publicEmptyState: "이 문서에 대해 무엇이든 물어보세요",
@@ -10987,6 +11704,7 @@ export const messagesByLocale = {
       newDatabase: "새 데이터베이스",
       noWorkspaces: "아직 워크스페이스가 없습니다",
       collapse: "사이드바 접기",
+      resize: "사이드바 너비 조절",
       expand: "사이드바 펼치기",
       failedCreatePage: "페이지를 만들지 못했습니다",
       failedDeletePage: "페이지를 삭제하지 못했습니다",
@@ -11118,6 +11836,11 @@ export const messagesByLocale = {
       agentDescription:
         "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
       openAgentSettings: "Gerenciar agente",
+      labs: "Labs",
+      labsIntro: "Experimente recursos experimentais antes do lançamento.",
+      labCreativeContext: "Contexto criativo",
+      labCreativeContextDescription:
+        "Conecte e reutilize contexto de referência regulado no Content.",
     },
     chat: {
       publicEmptyState: "Pergunte qualquer coisa sobre este documento",
@@ -11188,6 +11911,7 @@ export const messagesByLocale = {
       newDatabase: "Novo banco de dados",
       noWorkspaces: "Ainda não há espaços de trabalho",
       collapse: "Recolher barra lateral",
+      resize: "Redimensionar barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "Falha ao criar página",
       failedDeletePage: "Falha ao excluir página",
@@ -11307,6 +12031,11 @@ export const messagesByLocale = {
       agentDescription:
         "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
       openAgentSettings: "एजेंट प्रबंधित करें",
+      labs: "Labs",
+      labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
+      labCreativeContext: "क्रिएटिव संदर्भ",
+      labCreativeContextDescription:
+        "Content में प्रबंधित संदर्भ संदर्भ को कनेक्ट और पुन: उपयोग करें।",
     },
     chat: {
       publicEmptyState: "इस document के बारे में कुछ भी पूछें",
@@ -11375,6 +12104,7 @@ export const messagesByLocale = {
       newDatabase: "नया डेटाबेस",
       noWorkspaces: "अभी कोई कार्यस्थान नहीं है",
       collapse: "साइडबार संकुचित करें",
+      resize: "साइडबार का आकार बदलें",
       expand: "साइडबार फैलाएं",
       failedCreatePage: "पेज नहीं बन सका",
       failedDeletePage: "पेज हटाया नहीं जा सका",
@@ -11497,6 +12227,11 @@ export const messagesByLocale = {
       agentDescription:
         "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
       openAgentSettings: "إدارة الوكيل",
+      labs: "Labs",
+      labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
+      labCreativeContext: "السياق الإبداعي",
+      labCreativeContextDescription:
+        "ربط سياق المرجع الخاضع للإدارة وإعادة استخدامه في Content.",
     },
     chat: {
       publicEmptyState: "اسألني أي شيء عن هذا المستند",
@@ -11565,6 +12300,7 @@ export const messagesByLocale = {
       newDatabase: "قاعدة بيانات جديدة",
       noWorkspaces: "لا توجد مساحات عمل بعد",
       collapse: "طي الشريط الجانبي",
+      resize: "تغيير حجم الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
       failedCreatePage: "فشل إنشاء الصفحة",
       failedDeletePage: "فشل حذف الصفحة",
@@ -11834,6 +12570,11 @@ const sidebarPinnedMessagesByLocale: Partial<
 const contentExactEnglishTranslations = {
   "zh-TW": {
     editor: {
+      suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
+      suggestionAmendmentFailed: "無法儲存建議",
+      suggestionAmendmentResolved:
+        "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",
+      discardSuggestionDraft: "捨棄草稿",
       toolbar: {
         info: "資訊",
         closeUtilityPanel: "關閉面板",
@@ -11877,6 +12618,11 @@ const contentExactEnglishTranslations = {
   },
   "zh-CN": {
     editor: {
+      suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
+      suggestionAmendmentFailed: "无法保存建议",
+      suggestionAmendmentResolved:
+        "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",
+      discardSuggestionDraft: "丢弃草稿",
       failedToCreatePage: "创建页面失败",
       slash: {
         blockEquation: "块级公式",
@@ -11942,6 +12688,12 @@ const contentExactEnglishTranslations = {
   },
   "es-ES": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
+      suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
+      suggestionAmendmentResolved:
+        "Esta sugerencia cambió en otro lugar. Tu borrador sin guardar sigue aquí.",
+      discardSuggestionDraft: "Descartar borrador",
       failedToCreatePage: "No se pudo crear la página",
       slash: {
         blockEquation: "Ecuación en bloque",
@@ -12011,6 +12763,12 @@ const contentExactEnglishTranslations = {
   },
   "fr-FR": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
+      suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
+      suggestionAmendmentResolved:
+        "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
+      discardSuggestionDraft: "Ignorer le brouillon",
       failedToCreatePage: "Impossible de créer la page",
       slash: {
         blockEquation: "Équation en bloc",
@@ -12080,6 +12838,12 @@ const contentExactEnglishTranslations = {
   },
   "de-DE": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
+      suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
+      suggestionAmendmentResolved:
+        "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
+      discardSuggestionDraft: "Entwurf verwerfen",
       failedToCreatePage: "Seite konnte nicht erstellt werden",
       slash: {
         blockEquation: "Blockgleichung",
@@ -12150,6 +12914,12 @@ const contentExactEnglishTranslations = {
   },
   "ja-JP": {
     editor: {
+      suggestionAmendmentEmpty:
+        "この編集は現在のページと同じです。提案を削除するには却下してください。",
+      suggestionAmendmentFailed: "提案を保存できませんでした",
+      suggestionAmendmentResolved:
+        "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
+      discardSuggestionDraft: "下書きを破棄",
       failedToCreatePage: "ページを作成できませんでした",
       slash: {
         blockEquation: "ブロック数式",
@@ -12219,6 +12989,12 @@ const contentExactEnglishTranslations = {
   },
   "ko-KR": {
     editor: {
+      suggestionAmendmentEmpty:
+        "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
+      suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
+      suggestionAmendmentResolved:
+        "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",
+      discardSuggestionDraft: "초안 삭제",
       failedToCreatePage: "페이지를 만들지 못했습니다",
       slash: {
         blockEquation: "블록 수식",
@@ -12287,6 +13063,12 @@ const contentExactEnglishTranslations = {
   },
   "pt-BR": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
+      suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
+      suggestionAmendmentResolved:
+        "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",
+      discardSuggestionDraft: "Descartar rascunho",
       failedToCreatePage: "Não foi possível criar a página",
       slash: {
         blockEquation: "Equação em bloco",
@@ -12356,6 +13138,12 @@ const contentExactEnglishTranslations = {
   },
   "hi-IN": {
     editor: {
+      suggestionAmendmentEmpty:
+        "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
+      suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
+      suggestionAmendmentResolved:
+        "यह सुझाव कहीं और बदल दिया गया है। आपका सेव न किया गया ड्राफ़्ट अभी भी यहाँ है।",
+      discardSuggestionDraft: "ड्राफ़्ट हटाएँ",
       failedToCreatePage: "पेज नहीं बनाया जा सका",
       slash: {
         blockEquation: "ब्लॉक समीकरण",
@@ -12422,6 +13210,12 @@ const contentExactEnglishTranslations = {
   },
   "ar-SA": {
     editor: {
+      suggestionAmendmentEmpty:
+        "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
+      suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
+      suggestionAmendmentResolved:
+        "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",
+      discardSuggestionDraft: "تجاهل المسودة",
       failedToCreatePage: "تعذر إنشاء الصفحة",
       slash: {
         blockEquation: "معادلة مستقلة",
@@ -12519,4 +13313,276 @@ for (const [locale, overrides] of Object.entries(
   if (sidebarPinnedMessages) {
     Object.assign(messages.sidebar, sidebarPinnedMessages);
   }
+}
+
+const contentHistoryMessagesByLocale = {
+  "zh-CN": {
+    historyCheckpointAfter: "之后",
+    historyCheckpointBefore: "之前",
+    historyCheckpointLegacy: "已保存",
+    historyCheckpointLoadError: "无法加载检查点。",
+    historyDetailLoadError: "无法加载此检查点。",
+    historyGroupAgent: "代理运行",
+    historyGroupHuman: "编辑会话",
+    historyGroupLegacy: "较早的编辑",
+    historyGroupOperation: "操作",
+    historyGroupRestore: "恢复",
+    historyLoadError: "无法加载版本历史。",
+    historyLoadMore: "加载更多",
+    historyLinkedLocalRestoreUnavailable:
+      "此处无法还原已链接的本地文件。文件不会更改。",
+    historyLoadingMore: "正在加载…",
+    historyPreparingRestore: "正在保存当前状态…",
+    historyRefreshing: "正在刷新历史…",
+    historyRestoreUnavailable: "请先保存此页面再恢复历史。",
+    historyRetry: "重试",
+    historySaveBeforeRestoreFailed: "恢复前无法保存当前状态。",
+    historyShowingSavedResults: "无法刷新。正在显示已保存的历史。",
+    historyRestoreAppliedRefreshFailed:
+      "恢复已保存，但编辑器无法刷新。请重新加载此页面。",
+    versionRestoreWarning:
+      "恢复会替换此页面的标题和正文，对所有人可见。当前状态会保留在历史记录中。",
+  },
+  "es-ES": {
+    historyCheckpointAfter: "Después",
+    historyCheckpointBefore: "Antes",
+    historyCheckpointLegacy: "Guardado",
+    historyCheckpointLoadError: "No se pudieron cargar los puntos de control.",
+    historyDetailLoadError: "No se pudo cargar este punto de control.",
+    historyGroupAgent: "Ejecución del agente",
+    historyGroupHuman: "Sesión de edición",
+    historyGroupLegacy: "Ediciones anteriores",
+    historyGroupOperation: "Operación",
+    historyGroupRestore: "Restauración",
+    historyLoadError: "No se pudo cargar el historial de versiones.",
+    historyLoadMore: "Cargar más",
+    historyLinkedLocalRestoreUnavailable:
+      "Aquí no se pueden restaurar archivos locales vinculados. El archivo no cambiará.",
+    historyLoadingMore: "Cargando…",
+    historyPreparingRestore: "Guardando el estado actual…",
+    historyRefreshing: "Actualizando el historial…",
+    historyRestoreUnavailable:
+      "Guarda esta página antes de restaurar el historial.",
+    historyRetry: "Reintentar",
+    historySaveBeforeRestoreFailed:
+      "No se pudo guardar el estado actual antes de restaurar.",
+    historyShowingSavedResults:
+      "No se pudo actualizar. Se muestra el historial guardado.",
+    historyRestoreAppliedRefreshFailed:
+      "La restauración se guardó, pero el editor no pudo actualizarse. Vuelve a cargar esta página.",
+    versionRestoreWarning:
+      "La restauración reemplaza el título y el cuerpo de esta página para todos. El estado actual se conserva en el historial.",
+  },
+  "fr-FR": {
+    historyCheckpointAfter: "Après",
+    historyCheckpointBefore: "Avant",
+    historyCheckpointLegacy: "Enregistré",
+    historyCheckpointLoadError: "Impossible de charger les points de contrôle.",
+    historyDetailLoadError: "Impossible de charger ce point de contrôle.",
+    historyGroupAgent: "Exécution de l’agent",
+    historyGroupHuman: "Session de modification",
+    historyGroupLegacy: "Modifications antérieures",
+    historyGroupOperation: "Opération",
+    historyGroupRestore: "Restauration",
+    historyLoadError: "Impossible de charger l’historique des versions.",
+    historyLoadMore: "Charger plus",
+    historyLinkedLocalRestoreUnavailable:
+      "La restauration des fichiers locaux liés n’est pas disponible ici. Le fichier reste inchangé.",
+    historyLoadingMore: "Chargement…",
+    historyPreparingRestore: "Enregistrement de l’état actuel…",
+    historyRefreshing: "Actualisation de l’historique…",
+    historyRestoreUnavailable:
+      "Enregistrez cette page avant de restaurer l’historique.",
+    historyRetry: "Réessayer",
+    historySaveBeforeRestoreFailed:
+      "Impossible d’enregistrer l’état actuel avant la restauration.",
+    historyShowingSavedResults:
+      "Actualisation impossible. Affichage de l’historique enregistré.",
+    historyRestoreAppliedRefreshFailed:
+      "La restauration a été enregistrée, mais l’éditeur n’a pas pu s’actualiser. Rechargez cette page.",
+    versionRestoreWarning:
+      "La restauration remplace le titre et le corps de cette page pour tout le monde. L’état actuel reste dans l’historique.",
+  },
+  "de-DE": {
+    historyCheckpointAfter: "Danach",
+    historyCheckpointBefore: "Davor",
+    historyCheckpointLegacy: "Gespeichert",
+    historyCheckpointLoadError: "Prüfpunkte konnten nicht geladen werden.",
+    historyDetailLoadError: "Dieser Prüfpunkt konnte nicht geladen werden.",
+    historyGroupAgent: "Agentenlauf",
+    historyGroupHuman: "Bearbeitungssitzung",
+    historyGroupLegacy: "Frühere Bearbeitungen",
+    historyGroupOperation: "Vorgang",
+    historyGroupRestore: "Wiederherstellung",
+    historyLoadError: "Versionsverlauf konnte nicht geladen werden.",
+    historyLoadMore: "Mehr laden",
+    historyLinkedLocalRestoreUnavailable:
+      "Verknüpfte lokale Dateien können hier nicht wiederhergestellt werden. Die Datei bleibt unverändert.",
+    historyLoadingMore: "Wird geladen…",
+    historyPreparingRestore: "Aktueller Stand wird gespeichert…",
+    historyRefreshing: "Verlauf wird aktualisiert…",
+    historyRestoreUnavailable:
+      "Speichern Sie diese Seite, bevor Sie den Verlauf wiederherstellen.",
+    historyRetry: "Erneut versuchen",
+    historySaveBeforeRestoreFailed:
+      "Der aktuelle Stand konnte vor der Wiederherstellung nicht gespeichert werden.",
+    historyShowingSavedResults:
+      "Aktualisierung fehlgeschlagen. Gespeicherter Verlauf wird angezeigt.",
+    historyRestoreAppliedRefreshFailed:
+      "Die Wiederherstellung wurde gespeichert, aber der Editor konnte nicht aktualisiert werden. Laden Sie diese Seite neu.",
+    versionRestoreWarning:
+      "Die Wiederherstellung ersetzt den Titel und den Inhalt dieser Seite für alle. Der aktuelle Stand bleibt im Verlauf erhalten.",
+  },
+  "ja-JP": {
+    historyCheckpointAfter: "変更後",
+    historyCheckpointBefore: "変更前",
+    historyCheckpointLegacy: "保存済み",
+    historyCheckpointLoadError: "チェックポイントを読み込めませんでした。",
+    historyDetailLoadError: "このチェックポイントを読み込めませんでした。",
+    historyGroupAgent: "エージェント実行",
+    historyGroupHuman: "編集セッション",
+    historyGroupLegacy: "以前の編集",
+    historyGroupOperation: "操作",
+    historyGroupRestore: "復元",
+    historyLoadError: "バージョン履歴を読み込めませんでした。",
+    historyLoadMore: "さらに読み込む",
+    historyLinkedLocalRestoreUnavailable:
+      "リンクされたローカルファイルはここでは復元できません。ファイルは変更されません。",
+    historyLoadingMore: "読み込み中…",
+    historyPreparingRestore: "現在の状態を保存中…",
+    historyRefreshing: "履歴を更新中…",
+    historyRestoreUnavailable:
+      "履歴を復元する前にこのページを保存してください。",
+    historyRetry: "再試行",
+    historySaveBeforeRestoreFailed:
+      "復元前に現在の状態を保存できませんでした。",
+    historyShowingSavedResults:
+      "更新できませんでした。保存済みの履歴を表示しています。",
+    historyRestoreAppliedRefreshFailed:
+      "復元は保存されましたが、エディターを更新できませんでした。このページを再読み込みしてください。",
+    versionRestoreWarning:
+      "復元すると、全員に対してこのページのタイトルと本文が置き換わります。現在の状態は履歴に残ります。",
+  },
+  "ko-KR": {
+    historyCheckpointAfter: "변경 후",
+    historyCheckpointBefore: "변경 전",
+    historyCheckpointLegacy: "저장됨",
+    historyCheckpointLoadError: "체크포인트를 불러오지 못했습니다.",
+    historyDetailLoadError: "이 체크포인트를 불러오지 못했습니다.",
+    historyGroupAgent: "에이전트 실행",
+    historyGroupHuman: "편집 세션",
+    historyGroupLegacy: "이전 편집",
+    historyGroupOperation: "작업",
+    historyGroupRestore: "복원",
+    historyLoadError: "버전 기록을 불러오지 못했습니다.",
+    historyLoadMore: "더 불러오기",
+    historyLinkedLocalRestoreUnavailable:
+      "연결된 로컬 파일은 여기에서 복원할 수 없습니다. 파일은 변경되지 않습니다.",
+    historyLoadingMore: "불러오는 중…",
+    historyPreparingRestore: "현재 상태를 저장하는 중…",
+    historyRefreshing: "기록을 새로 고치는 중…",
+    historyRestoreUnavailable: "기록을 복원하기 전에 이 페이지를 저장하세요.",
+    historyRetry: "다시 시도",
+    historySaveBeforeRestoreFailed:
+      "복원 전에 현재 상태를 저장하지 못했습니다.",
+    historyShowingSavedResults:
+      "새로 고치지 못했습니다. 저장된 기록을 표시합니다.",
+    historyRestoreAppliedRefreshFailed:
+      "복원은 저장되었지만 편집기를 새로 고치지 못했습니다. 이 페이지를 새로고침하세요.",
+    versionRestoreWarning:
+      "복원하면 모든 사용자의 이 페이지 제목과 본문이 바뀝니다. 현재 상태는 기록에 남습니다.",
+  },
+  "pt-BR": {
+    historyCheckpointAfter: "Depois",
+    historyCheckpointBefore: "Antes",
+    historyCheckpointLegacy: "Salvo",
+    historyCheckpointLoadError:
+      "Não foi possível carregar os pontos de controle.",
+    historyDetailLoadError: "Não foi possível carregar este ponto de controle.",
+    historyGroupAgent: "Execução do agente",
+    historyGroupHuman: "Sessão de edição",
+    historyGroupLegacy: "Edições anteriores",
+    historyGroupOperation: "Operação",
+    historyGroupRestore: "Restauração",
+    historyLoadError: "Não foi possível carregar o histórico de versões.",
+    historyLoadMore: "Carregar mais",
+    historyLinkedLocalRestoreUnavailable:
+      "A restauração de arquivos locais vinculados não está disponível aqui. O arquivo não será alterado.",
+    historyLoadingMore: "Carregando…",
+    historyPreparingRestore: "Salvando o estado atual…",
+    historyRefreshing: "Atualizando o histórico…",
+    historyRestoreUnavailable:
+      "Salve esta página antes de restaurar o histórico.",
+    historyRetry: "Tentar novamente",
+    historySaveBeforeRestoreFailed:
+      "Não foi possível salvar o estado atual antes da restauração.",
+    historyShowingSavedResults:
+      "Não foi possível atualizar. Mostrando o histórico salvo.",
+    historyRestoreAppliedRefreshFailed:
+      "A restauração foi salva, mas o editor não pôde ser atualizado. Recarregue esta página.",
+    versionRestoreWarning:
+      "A restauração substitui o título e o corpo desta página para todos. O estado atual permanece no histórico.",
+  },
+  "hi-IN": {
+    historyCheckpointAfter: "बाद में",
+    historyCheckpointBefore: "पहले",
+    historyCheckpointLegacy: "सहेजा गया",
+    historyCheckpointLoadError: "चेकपॉइंट लोड नहीं किए जा सके।",
+    historyDetailLoadError: "यह चेकपॉइंट लोड नहीं किया जा सका।",
+    historyGroupAgent: "एजेंट रन",
+    historyGroupHuman: "संपादन सत्र",
+    historyGroupLegacy: "पुराने संपादन",
+    historyGroupOperation: "कार्रवाई",
+    historyGroupRestore: "पुनर्स्थापना",
+    historyLoadError: "संस्करण इतिहास लोड नहीं किया जा सका।",
+    historyLoadMore: "और लोड करें",
+    historyLinkedLocalRestoreUnavailable:
+      "लिंक की गई स्थानीय फ़ाइलों को यहाँ पुनर्स्थापित नहीं किया जा सकता। फ़ाइल में कोई बदलाव नहीं होगा।",
+    historyLoadingMore: "लोड हो रहा है…",
+    historyPreparingRestore: "वर्तमान स्थिति सहेजी जा रही है…",
+    historyRefreshing: "इतिहास रीफ़्रेश हो रहा है…",
+    historyRestoreUnavailable: "इतिहास पुनर्स्थापित करने से पहले यह पेज सहेजें।",
+    historyRetry: "फिर से कोशिश करें",
+    historySaveBeforeRestoreFailed:
+      "पुनर्स्थापित करने से पहले वर्तमान स्थिति सहेजी नहीं जा सकी।",
+    historyShowingSavedResults:
+      "रीफ़्रेश नहीं हो सका। सहेजा गया इतिहास दिखाया जा रहा है।",
+    historyRestoreAppliedRefreshFailed:
+      "पुनर्स्थापना सहेज दी गई है, लेकिन संपादक रीफ़्रेश नहीं हो सका। इस पेज को फिर से लोड करें।",
+    versionRestoreWarning:
+      "पुनर्स्थापना सभी के लिए इस पेज का शीर्षक और मुख्य सामग्री बदल देती है। वर्तमान स्थिति इतिहास में बनी रहती है।",
+  },
+  "ar-SA": {
+    historyCheckpointAfter: "بعد",
+    historyCheckpointBefore: "قبل",
+    historyCheckpointLegacy: "محفوظ",
+    historyCheckpointLoadError: "تعذر تحميل نقاط الحفظ.",
+    historyDetailLoadError: "تعذر تحميل نقطة الحفظ هذه.",
+    historyGroupAgent: "تشغيل الوكيل",
+    historyGroupHuman: "جلسة تحرير",
+    historyGroupLegacy: "تعديلات سابقة",
+    historyGroupOperation: "عملية",
+    historyGroupRestore: "استعادة",
+    historyLoadError: "تعذر تحميل سجل الإصدارات.",
+    historyLoadMore: "تحميل المزيد",
+    historyLinkedLocalRestoreUnavailable:
+      "لا تتوفر هنا استعادة الملفات المحلية المرتبطة. سيبقى الملف دون تغيير.",
+    historyLoadingMore: "جارٍ التحميل…",
+    historyPreparingRestore: "جارٍ حفظ الحالة الحالية…",
+    historyRefreshing: "جارٍ تحديث السجل…",
+    historyRestoreUnavailable: "احفظ هذه الصفحة قبل استعادة السجل.",
+    historyRetry: "إعادة المحاولة",
+    historySaveBeforeRestoreFailed: "تعذر حفظ الحالة الحالية قبل الاستعادة.",
+    historyShowingSavedResults: "تعذر التحديث. يتم عرض السجل المحفوظ.",
+    historyRestoreAppliedRefreshFailed:
+      "تم حفظ الاستعادة، لكن تعذر تحديث المحرر. أعد تحميل هذه الصفحة.",
+    versionRestoreWarning:
+      "تستبدل الاستعادة عنوان هذه الصفحة ونصها للجميع. تبقى الحالة الحالية في السجل.",
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages["editor"]>>;
+
+for (const [locale, historyMessages] of Object.entries(
+  contentHistoryMessagesByLocale,
+) as Array<[LocaleCode, PartialMessages["editor"]]>) {
+  Object.assign(messagesByLocale[locale].editor, historyMessages);
 }

@@ -172,6 +172,21 @@ describe("update-deck-aspect-ratio action", () => {
     ).rejects.toThrow(/not found/i);
   });
 
+  // Guards the narrow window where access resolves but the row is already
+  // gone. A wrong deck id does NOT reach here in production (see the 403 test
+  // below) — but a bare `throw new Error` in this branch would still surface
+  // as an opaque "Internal server error", since the route echoes only tagged
+  // errors.
+  it("reports a missing deck as a caller-correctable contract error", async () => {
+    mockDeckRow = undefined;
+    await expect(
+      action.run({ deckId: "missing", aspectRatio: "16:9" }),
+    ).rejects.toMatchObject({
+      errorCode: "deck_not_found",
+      statusCode: 404,
+    });
+  });
+
   it("rejects an unknown aspect ratio at the schema boundary", async () => {
     await expect(
       action.run({ deckId: "deck-1", aspectRatio: "21:9" as never }),
@@ -180,6 +195,23 @@ describe("update-deck-aspect-ratio action", () => {
     expect(updatedFields).toBeUndefined();
     // assertAccess also should not have run for an invalid input.
     expect(mockAssertAccess).not.toHaveBeenCalled();
+  });
+
+  // Production ordering: assertAccess runs before the row lookup, and it
+  // cannot distinguish "missing" from "not permitted" — deliberately, so a
+  // deck id cannot be probed for existence by a non-member. A wrong id
+  // therefore surfaces as ForbiddenError, which the action route still echoes
+  // because its statusCode is under 500, so the caller can correct it.
+  it("surfaces a wrong deck id as a caller-readable 403, not an opaque 500", async () => {
+    mockAssertAccess.mockRejectedValueOnce(
+      Object.assign(new Error("No access to deck missing"), {
+        statusCode: 403,
+      }),
+    );
+    await expect(
+      action.run({ deckId: "missing", aspectRatio: "16:9" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(updatedFields).toBeUndefined();
   });
 
   it("propagates assertAccess failure (e.g. viewer trying to edit)", async () => {

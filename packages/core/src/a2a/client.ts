@@ -4,6 +4,7 @@ import * as jose from "jose";
 
 import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
@@ -247,10 +248,20 @@ export class A2AClient {
 
     for (const endpoint of this.endpointCandidates) {
       try {
+        const headers = this.transportHeadersFor(endpoint);
         const res = await ssrfSafeFetch(
           endpoint,
-          { method: "OPTIONS" },
-          { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
+          {
+            method: "OPTIONS",
+            headers,
+          },
+          {
+            maxRedirects: 3,
+            allowedPrivateOrigins: workspacePrivateOrigins(),
+            ...(headers["x-vercel-protection-bypass"]
+              ? { followRedirects: false }
+              : {}),
+          },
         );
         if (res.status !== 404 && res.status !== 405) {
           this.endpointCandidates = [endpoint];
@@ -280,10 +291,14 @@ export class A2AClient {
     this.apiKeyAttempts = uniqueAuthTokens([apiKey, ...fallbackApiKeys]);
   }
 
-  private headers(apiKey = this.apiKey): Record<string, string> {
+  private headers(
+    apiKey = this.apiKey,
+    targetUrl = this.baseUrl,
+  ): Record<string, string> {
     const h: Record<string, string> = {
       "Content-Type": "application/json",
       ...(this.transportHeaders ?? {}),
+      ...resolveVercelDeploymentProtectionHeaders(targetUrl),
     };
     if (apiKey) {
       h["Authorization"] = `Bearer ${apiKey}`;
@@ -435,17 +450,25 @@ export class A2AClient {
      */
     token?: string;
   }): Promise<AgentCard> {
+    const headers: Record<string, string> = {
+      ...this.transportHeadersFor(this.baseUrl),
+      ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+    };
     const res = await ssrfSafeFetch(
       `${this.baseUrl}/.well-known/agent-card.json`,
       {
         ...(options?.timeoutMs
           ? { signal: AbortSignal.timeout(options.timeoutMs) }
           : {}),
-        ...(options?.token
-          ? { headers: { Authorization: `Bearer ${options.token}` } }
+        headers,
+      },
+      {
+        maxRedirects: 3,
+        allowedPrivateOrigins: workspacePrivateOrigins(),
+        ...(headers["x-vercel-protection-bypass"]
+          ? { followRedirects: false }
           : {}),
       },
-      { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
     );
     if (!res.ok) {
       throw new Error(`Failed to fetch agent card (${res.status})`);
@@ -798,19 +821,33 @@ export class A2AClient {
         ? setTimeout(() => controller.abort(), requestTimeoutMs)
         : undefined;
     try {
+      const headers = this.headers(apiKey, url);
       return await ssrfSafeFetch(
         url,
         {
           method: "POST",
-          headers: this.headers(apiKey),
+          headers,
           body: JSON.stringify(body),
           signal: controller?.signal,
         },
-        { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
+        {
+          maxRedirects: 3,
+          allowedPrivateOrigins: workspacePrivateOrigins(),
+          ...(headers["x-vercel-protection-bypass"]
+            ? { followRedirects: false }
+            : {}),
+        },
       );
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  private transportHeadersFor(targetUrl: string): Record<string, string> {
+    return {
+      ...(this.transportHeaders ?? {}),
+      ...resolveVercelDeploymentProtectionHeaders(targetUrl),
+    };
   }
 }
 

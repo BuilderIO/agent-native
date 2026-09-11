@@ -876,6 +876,53 @@ const messages = {
     },
     clips: {
       s001: "Clips 範本螢幕截圖",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "讓 AI 代理看得懂、聽得懂的螢幕錄製",
+      heroDescription:
+        "Clips 是一款免費開源的螢幕錄製工具,方便你與 AI 代理分享錯誤、意見回饋與操作示範。",
+      heroCta: "錄製一段 Clip",
+      useCasesHeading: "用 Clips 能做什麼?",
+      useCasesBody:
+        "從一段你自己錄的 Clip,或別人分享給你的 Clip 開始。把背景資訊交給你的 AI 代理,告訴它你需要什麼。",
+      useCase1Title: "根據錄製的意見回饋採取行動",
+      useCase1Body:
+        "把錄製的意見回饋交給你的 AI 代理,請它整理成計畫或協助實作所需的變更。",
+      useCase2Title: "調查一個回報的錯誤",
+      useCase2Body:
+        "把錯誤錄製內容分享給你的 AI 代理,請它調查出了什麼問題並規劃下一步。",
+      useCase3Title: "根據錄製的需求說明進行創作",
+      useCase3Body:
+        "用錄製的需求說明來引導你的 AI 代理製作簡報、設計稿、內容或應用程式變更。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "錄製、轉錄、分享,一次到位",
+      feature1Title: "AI 代理可讀取的錄製內容",
+      feature1Body:
+        "透過一個代理可讀取的連結,把 Clip 的逐字稿與帶時間戳記的圖片分享給你的 AI 代理。",
+      feature2Title: "自動轉錄",
+      feature2Body:
+        "取得錄製、會議與口述內容的逐字稿。點選逐字稿的任一行即可跳回該時刻播放。",
+      feature3Title: "瀏覽器偵錯記錄",
+      feature3Body:
+        "使用 Clips 的 Chrome 擴充功能,在錄製的同時擷取控制台錯誤與失敗的請求。",
+      feature4Title: "內建 AI 代理",
+      feature4Body:
+        "向內建 AI 代理詢問某段 Clip 或整個資料庫的問題,並讓它在聊天中編輯逐字稿。",
+      feature5Title: "可搜尋的錄製資料庫",
+      feature5Body:
+        "透過搜尋逐字稿來尋找 Clip。用資料夾、標籤與團隊空間整理你的錄製內容。",
+      feature6Title: "按鍵口述輸入",
+      feature6Body:
+        "在桌面應用程式中按住 Fn 鍵,即可向其他應用程式口述輸入。在歷史記錄中可以回顧逐字稿與整理後的文字。",
+      teammatesLine: "你的團隊成員可以在播放器中觀看同一段錄製內容。",
+      teammatesLinkLabel: "閱讀代理分享指南",
+      seeInActionHeading: "看看 Clips 的實際運用",
+      seeInActionBody:
+        "看看 Clips 的實際使用情境,從錄製瀏覽器操作流程,到向 AI 代理示範如何完成一項工作。",
+      watchClipLabel: "觀看這段 Clip",
+      finalCtaHeading: "讓你的下一段 Clip 發揮作用",
+      finalCtaBody: "錄製一段說明,或把一段分享的 Clip 交給你的 AI 代理。",
+      finalCtaButton: "開啟 Clips",
       s002: "螢幕錄製",
       s003: "瀏覽器偵錯記錄",
       s004: "口授",
@@ -938,26 +985,23 @@ const messages = {
       s058: "免費和開放原始碼",
       s059: "立即開始",
       s060: "選擇要擷取的內容，然後在 Clips 中開始錄製。",
-      s061: "查看更多應用程式",
       s062: "檢視所有範本",
       faq: {
-        question1: "Clips 免費嗎？",
-        answer1: "是的。Clips 免費且開源。",
-        question2: "AI 能讀取螢幕錄影嗎？",
+        question1: "什麼是 Agent-Native Clips?",
+        answer1:
+          "Agent-Native Clips 是一款免費開源的螢幕錄製工具,用於向 AI 代理分享錯誤、意見回饋與操作示範。它會為你的 AI 代理提供一份錄製內容的逐字稿與帶時間戳記的圖片,而人們也可以觀看同一段錄製內容。",
+        question2: "我可以把錄製內容分享給 Claude、ChatGPT 或 Cursor 嗎?",
         answer2:
-          "可以。每個剪輯都包含轉錄文字、摘要和帶時間戳記的畫面，代理可以直接讀取這些內容。",
-        question3: "Clips 與 Loom 有什麼不同？",
+          "Clips 會提供一個 AI 代理可讀取的連結,其中包含逐字稿與帶時間戳記的圖片。你的代理需要能夠開啟連結內容並讀取圖片,才能同時運用這兩者。部分聊天模式可以讀取逐字稿,但需要你另外上傳圖片。",
+        question3: "錄製螢幕需要用到 Chrome 擴充功能嗎?",
         answer3:
-          "Clips 開源，資料歸你所有；每個分享連結不只人能讀取，AI 代理也能讀取。",
-        question4: "螢幕錄影能擷取主控台錯誤嗎？",
+          "不需要。你可以直接在 Clips 網頁應用程式中錄製。如果還想取得所示範分頁的控制台訊息與網路診斷資訊,再使用 Chrome 擴充功能即可。",
+        question4: "AI 代理可以觀看我的螢幕錄製內容嗎?",
         answer4:
-          "可以。Clips 會在錄影時同時擷取瀏覽器主控台錯誤和失敗的網路要求。它們會與轉錄文字和畫面一起附加到同一個分享連結中。代理可以根據剪輯進行除錯，而不只是觀看。",
-        question5: "Clips 支援 Claude、ChatGPT 或 Cursor 嗎？",
+          "在 Clips 中,相容的 AI 代理可以透過逐字稿與帶時間戳記的圖片來理解你的錄製內容。它們使用的是文字和圖片,而不是播放影片,因此你可以針對發生的事情提問,或讓 AI 代理根據錄製內容執行工作。",
+        question5: "誰可以存取一段分享的錄製內容?",
         answer5:
-          "支援！不需要外掛或 API 金鑰。將 Clips 分享連結貼到任何代理中，它就能直接讀取轉錄文字、摘要和畫面。",
-        question6: "我的錄影儲存在哪裡？",
-        answer6:
-          "儲存在你的部署位置。自行託管的 Clips 會將影片、轉錄文字和分析資料保存在你自己的基礎設施中。",
+          "除非你的組織變更設定,否則錄製內容預設使用公開連結,任何取得連結的人都能存取。系統也提供私人與組織內存取選項,私人 Clip 可以透過臨時連結分享給代理,而不需要將錄製內容公開。",
       },
       quickStart: {
         recordingMode: "錄製模式",
@@ -1467,13 +1511,54 @@ const messages = {
     },
     slides: {
       s001: "Slides 範本螢幕截圖",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "用你的 AI 代理建立簡報",
+      heroDescription:
+        "Slides 是一款免費開源的 AI 簡報製作工具，能根據你的想法和素材建立符合品牌風格的簡報，並且你可以自己編輯投影片。",
+      heroCta: "建立一份 PPT",
+      useCasesHeading: "用 Slides 能做什麼？",
+      useCasesBody:
+        "準備一次提案，展示一份計畫，或分享一次業務更新。把素材和目標受眾告訴你的 AI 代理。",
+      useCase1Title: "建立業務與提案簡報",
+      useCase1Body:
+        "把你的產品說明變成一份給潛在客戶或投資人的簡報。依照受眾調整敘事方式。",
+      useCase2Title: "展示計畫與策略",
+      useCase2Body:
+        "把策略簡報或啟動計畫交給你的 AI 代理，請它整理成能說明方向和後續步驟的投影片。",
+      useCase3Title: "分享業務更新",
+      useCase3Body:
+        "把專案記錄或績效報告變成一份簡報，呈現進度、說明結果並凸顯需要留意的事項。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "建立、編輯與簡報所需的一切",
+      feature1Title: "AI 簡報生成",
+      feature1Body:
+        "從一段提示、一份文件或一份參考簡報開始。把主題和受眾告訴你的 AI 代理，讓它據此建立簡報。",
+      feature2Title: "AI 與視覺化編輯",
+      feature2Body:
+        "選取文字讓你的 AI 代理修改，或直接在投影片上自行編輯文字、版面和樣式。",
+      feature3Title: "可重複使用的品牌樣式",
+      feature3Body:
+        "把你的顏色、字型和標誌儲存到設計系統中。套用到多份簡報，讓簡報始終符合你的品牌。",
+      feature4Title: "圖片與標誌",
+      feature4Body:
+        "請你的 AI 代理產生圖片、尋找照片，或搜尋公司標誌，用在你的投影片中。",
+      feature5Title: "團隊協作",
+      feature5Body:
+        "與團隊成員一起製作簡報，在特定投影片留下留言，並在需要時還原到先前版本。",
+      feature6Title: "簡報與匯出",
+      feature6Body:
+        "全螢幕簡報並顯示演講者備忘稿，分享檢視連結，或將簡報匯出為 PowerPoint 檔案。",
+      finalCtaHeading: "開始你的下一份簡報",
+      finalCtaBody: "帶來一個想法、一份簡報說明，或一份現有的簡報。",
+      finalCtaButton: "開啟 Slides",
       s002: "描述",
       s003: "生成",
       s004: "精煉",
       s005: "所有範本",
       s006Primary: "由你的 AI 代理生成的簡報。",
       s006Secondary: "符合品牌，可自由編輯",
-      s007: "使用 AI 代理產生符合品牌風格的投影片簡報，隨時手動修改，並可匯出到任何地方。",
+      s007: "用你的 AI 代理產生符合品牌風格的簡報，然後自己編輯投影片並匯出到任何地方。",
       s008: "試用",
       s009: "它是如何運作的",
       s010: "你需要的一切",
@@ -1526,20 +1611,21 @@ const messages = {
       s057: "閱讀檔案",
       s058: "檢視所有範本",
       faq: {
-        question1: "我可以從 Claude 或 ChatGPT 建立簡報嗎？",
+        question1: "什麼是 Agent-Native Slides？",
         answer1:
-          "可以。請 Claude 或 ChatGPT 製作一份簡報，成品會直接進入 Slides，已經符合品牌、可編輯、可匯出，不需要你在簡報網站裡從頭重做。",
-        question2: "AI 做錯的地方可以修改嗎？",
+          "Agent-Native Slides 是一款免費開源的 AI 簡報製作工具。用 AI 代理根據你的想法和素材建立符合品牌風格的簡報，然後自己編輯投影片、進行簡報，或匯出為 PowerPoint。",
+        question2: "AI 產生後我還能編輯投影片嗎？",
         answer2:
-          "有三種方式：透過提示修改、手動修改（點選任何元素，雙擊任何文字），或直接編輯程式碼。你永遠不會被困在反覆重新生成、只能碰運氣的流程中。",
-        question3: "簡報如何保持品牌一致？",
+          "可以。直接在視覺化編輯器中編輯文字、版面和樣式，或請 AI 代理修改選取的投影片。你可以在第一版之後持續調整這份簡報。",
+        question3: "我可以根據現有的簡報或文件建立新簡報嗎？",
         answer3:
-          "將你滿意的簡報標為星號。每份新簡報都會繼承它的版面配置、標題、視覺風格和品牌權杖。一次性生成器只做出一份簡報，而這裡建立的是可持續重複使用的簡報體系。",
-        question4: "Slides 與 Gamma 有什麼不同？",
+          "可以。把一份簡報或文件當作參考素材，附加到新的簡報中。若要直接在現有簡報上操作，需要明確匯入它。請檢查匯入後的投影片是否有版面變化或圖片遺失。",
+        question4: "我可以使用自己的品牌顏色、字型和標誌嗎？",
         answer4:
-          "Gamma 能快速一次生成一份不錯的簡報，但之後你會受限於它的畫布和訂閱，並在結果只有 85% 正確時不斷重新生成。Slides 免費、開放原始碼、繼承你的品牌，而且任何內容都可以編輯。",
-        question5: "Slides 免費嗎？",
-        answer5: "免費且開放原始碼，沒有訂閱費、點數計量或按簡報收費。",
+          "可以。套用一個包含你品牌顏色、字體和標誌的設計系統，並在多份簡報中重複使用。你也可以提供一份參考簡報，引導 AI 代理的設計選擇。",
+        question5: "我可以在 PowerPoint 或 Google 簡報中使用我的簡報嗎？",
+        answer5:
+          "匯出一個 PPTX 檔案，即可在 PowerPoint 中開啟。若要在 Google 簡報中使用，請在那裡匯入這個檔案。匯出後請檢查字型和版面，因為不同編輯器之間的呈現效果可能不同。",
       },
       howItWorksDescribe:
         "描述你的主題、受眾和語氣。附上參考簡報。從 UI 或你自己的 AI 工作流程開始。",
@@ -2020,7 +2106,6 @@ const messages = {
     usingYourAgent: "使用你的 Agent",
     agentResources: "代理資源",
     integrations: "整合",
-    buildApps: "建置應用",
     advancedRuntime: "進階：擴充功能執行時",
     templatesSection: "應用程式",
     gettingStarted: "入門",
@@ -2161,7 +2246,6 @@ const messages = {
     syncingTemplateChanges: "同步範本變更",
     writingAgentInstructions: "編寫 Agent 指令",
     embeddingSdk: "嵌入 SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native 程式碼 UI",
     harnessAgents: "Harness 代理",
     adapters: "轉接器",
@@ -2231,10 +2315,11 @@ const messages = {
     designCollaborationAndFullApps: "審核與交接",
     designDevelopers: "開發者指南",
     dispatchOverview: "總覽",
-    dispatchMessagingRouting: "訊息與路由",
-    dispatchOperations: "操作員主控台",
-    dispatchVaultIntegrations: "密鑰與整合",
+    dispatchFeatures: "功能",
+    dispatchAgent: "與 Agent 對話",
+    dispatchIntegrations: "跨應用使用",
     dispatchDevelopers: "開發者指南",
+    dispatchReference: "操作與資料參考",
     forms: "表單",
     formsOverview: "總覽",
     formsFeatures: "功能",

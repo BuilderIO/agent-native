@@ -14,6 +14,7 @@ import {
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
+  contentDatabaseCreationRequest,
   contentDatabaseResponseCanSeedQuery,
   contentDatabaseItemsPageQueryKey,
   contentDatabaseConstrainedQueryFilter,
@@ -32,6 +33,49 @@ import {
 } from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";
+
+describe("contentDatabaseCreationRequest", () => {
+  it("uses the optimistic document id as the stable intent for an exact space", () => {
+    expect(
+      contentDatabaseCreationRequest({
+        newDocumentId: "database-page",
+        spaceId: "personal-space",
+        title: "Launches",
+      }),
+    ).toEqual({
+      newDocumentId: "database-page",
+      idempotencyKey: "database-page",
+      parentId: null,
+      spaceId: "personal-space",
+      title: "Launches",
+    });
+  });
+
+  it("preserves the exact space, parent, and title for a nested database", () => {
+    expect(
+      contentDatabaseCreationRequest({
+        newDocumentId: "nested-database",
+        parentId: "parent-page",
+        spaceId: "organization-space",
+        title: "Projects",
+      }),
+    ).toMatchObject({
+      parentId: "parent-page",
+      spaceId: "organization-space",
+      title: "Projects",
+    });
+  });
+
+  it("rejects creation when the exact space is unavailable", () => {
+    expect(() =>
+      contentDatabaseCreationRequest({
+        newDocumentId: "database-page",
+        spaceId: undefined,
+        title: "Launches",
+      }),
+    ).toThrow("Choose a Content space before creating a database");
+  });
+});
 
 describe("complete Content database discovery", () => {
   it("exhausts every bounded page before returning source-picker options", async () => {

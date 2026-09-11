@@ -99,6 +99,31 @@ export async function flushBlockFieldSaveController(
   }
 }
 
+/** Persist every mounted additional Blocks field owned by one document. */
+export async function flushAllBlockFieldSaveControllersForDocument(
+  documentId: string,
+): Promise<void> {
+  const prefix = `${documentId}:`;
+  const controllers = [...registry.entries()]
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([, entry]) => entry.controller);
+
+  const results = await Promise.allSettled(
+    controllers.map(async (controller) => {
+      await controller.flush();
+      if (controller.pending !== controller.lastSaved) {
+        throw new Error(
+          "A Blocks field could not be saved before leaving the page.",
+        );
+      }
+    }),
+  );
+  const rejected = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (rejected) throw rejected.reason;
+}
+
 function ensureEntry(
   key: string,
   factory: () => BlockFieldSaveController,

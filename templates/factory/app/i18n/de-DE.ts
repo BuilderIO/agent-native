@@ -391,6 +391,8 @@ const messages = {
       "Diesen Job im Automatisierungen-Tab speichern.",
     automationCreated: "Automatisierung erstellt",
     automationCreateFailed: "Automatisierung konnte nicht erstellt werden.",
+    automationCreateRefreshFailed:
+      "Erstellt, aber die Liste wurde nicht aktualisiert. Bleib hier oder öffne Automatisierungen erneut.",
     automationSource: "Quelle",
     automationSourceDescription: "Wählen Sie, wo dieser Job liest.",
     automationSourceSlackHint: "Kanalnachrichten und Threads.",
@@ -477,6 +479,7 @@ const messages = {
     automationEvent: "Ereignis",
     automationTimezone: "Zeitzone",
     selectAutomation: "Wähle eine Automatisierung zum Bearbeiten.",
+    automationNotFound: "Diese Automatisierung existiert nicht mehr.",
     automationModel: "Modell",
     automationDisplayName: "Anzeigename",
     automationDisplayNamePlaceholder: "Zum Beispiel Slack-Feedback",
@@ -495,6 +498,8 @@ const messages = {
     automationSaveFailed:
       "Die Automatisierung konnte nicht gespeichert werden.",
     automationRunFailed: "Die Automatisierung konnte nicht ausgeführt werden.",
+    automationRunNeedsSave:
+      "Speichere deine Änderungen, bevor du diese Automatisierung ausführst.",
     automationRunning: "Wird ausgeführt",
     runNow: "Jetzt ausführen",
     automationHealthTitle: "Scheduler-Status",

@@ -14,8 +14,8 @@ TypeScript 프레임워크입니다. 각 기능을 [액션](/docs/actions-overvi
 
 ## 사전 요구 사항
 
-- [Node.js](https://nodejs.org) 22 이상
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 이상
+- [pnpm](https://pnpm.io)이 설치되어 있고 `PATH`에서 실행 가능해야 합니다
 - 에이전트용 LLM 연결: Builder.io, Anthropic 또는 OpenAI API 키, 또는 로컬 Ollama 모델
 
 ## 에이전트 만들기
@@ -23,7 +23,7 @@ TypeScript 프레임워크입니다. 각 기능을 [액션](/docs/actions-overvi
 새 디렉터리에서 Chat 템플릿으로 시작하세요.
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -40,7 +40,7 @@ pnpm install
 pnpm dev
 ```
 
-브라우저 UI는 `http://localhost:8080`에서 열립니다. 자동으로 열리지 않으면 브라우저에서 해당 URL로 이동하세요.
+브라우저 UI가 자동으로 열립니다. 열리지 않으면 `pnpm dev`가 출력한 로컬 URL을 사용하세요. 8080이 사용 중이면 포트 번호가 증가합니다.
 
 <Callout tone="info">
 
@@ -66,7 +66,7 @@ Hello, Alex!
 
 ## 액션 살펴보기
 
-`actions/hello.ts`를 여세요.
+로컬 `my-app` 디렉터리에서 코드 편집기로 `actions/hello.ts`를 여세요.
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -95,7 +95,8 @@ export default defineAction({
 
 ## React에서 액션 호출하기
 
-`app/routes/hello.tsx`에 라우트를 추가하세요.
+템플릿에는 `actions/hello.ts`가 포함되어 있지만 해당 페이지는 없습니다.
+`app/routes/hello.tsx`를 만드세요.
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -127,7 +128,7 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-새 라우트를 찾을 수 있도록 개발 서버를 다시 시작한 다음 `http://localhost:8080/hello`를 여세요.
+새 라우트를 찾을 수 있도록 개발 서버를 다시 시작한 다음 `http://localhost:<port>/hello`를 여세요.
 
 </Callout>
 
@@ -175,5 +176,9 @@ UI와 에이전트가 액션, 데이터, 컨텍스트를 공유하는 이유를 
 ### [액션](/docs/actions-overview)
 
 읽기, 쓰기, 승인을 위한 액션을 정의하고 UI, 에이전트, 외부 클라이언트에서 호출합니다.
+
+### [앱 배포](/docs/deploy-an-app)
+
+로컬 개발에서 영구 데이터베이스, 프로덕션 인증, 지원되는 배포 대상으로 이동합니다.
 
 </Cards>

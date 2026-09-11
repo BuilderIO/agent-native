@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import {
-  getRequestRunContext,
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server";
@@ -41,7 +40,7 @@ export default defineAction({
       .describe("Thread ID — omit to start a new thread"),
     parentId: z.string().optional().describe("Parent comment ID — for replies"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const { deckId, slideId, content, quotedText, anchor, parentId } = args;
     await assertAccess("deck", deckId, "commenter");
 
@@ -49,9 +48,10 @@ export default defineAction({
     const threadId = args.threadId ?? id;
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) throw new Error("no authenticated user");
-    const authorName = getRequestRunContext()
-      ? "AI Agent"
-      : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
+    const authorName =
+      ctx?.caller === "tool"
+        ? "AI Agent"
+        : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
     const db = getDb();
     await db.insert(schema.slideComments).values({

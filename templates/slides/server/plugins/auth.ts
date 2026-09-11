@@ -1,5 +1,7 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
+import { DECK_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+
 export default createAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
@@ -17,6 +19,9 @@ export default createAuthPlugin({
     ],
   },
   publicPaths: [
+    // Agent-readable context link: fetched with no session cookie, so the
+    // gate must not 401 before the handler verifies its scoped token.
+    DECK_AGENT_CONTEXT_ENDPOINT,
     "/share",
     "/p",
     "/api/share",

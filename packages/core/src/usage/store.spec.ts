@@ -35,9 +35,11 @@ const {
   calculateCost,
   usageBillingForEngine,
   recordUsage,
+  resolveUsageAppKey,
   getUserUsageCents,
   getUsageSummary,
 } = await import("./store.js");
+const { listAppUsageMetrics } = await import("./metrics-store.js");
 
 beforeEach(async () => {
   // recordUsage derives its primary key from Date.now()*1000 + random(0..999).
@@ -77,8 +79,14 @@ beforeEach(async () => {
     source_id TEXT,
     created_at BIGINT NOT NULL
   )`);
-  delete process.env.AGENT_APP;
-  delete process.env.APP_NAME;
+  for (const key of [
+    "AGENT_NATIVE_APP_ID",
+    "APP_ID",
+    "AGENT_APP",
+    "APP_NAME",
+  ]) {
+    delete process.env[key];
+  }
 });
 
 afterEach(async () => {
@@ -335,6 +343,111 @@ describe("recordUsage", () => {
       .prepare(`SELECT run_id, thread_id, task_id FROM token_usage`)
       .get()) as Record<string, string | null>;
     expect(row).toEqual({ run_id: null, thread_id: null, task_id: null });
+  });
+});
+
+describe("listAppUsageMetrics app scoping", () => {
+  it("shows new and historical rows with no app identity", async () => {
+    const now = Date.now();
+    await pglite
+      .prepare(
+        `INSERT INTO token_usage
+          (id, owner_email, input_tokens, output_tokens, cost_cents_x100,
+           model, label, app, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        1,
+        "a@example.com",
+        100,
+        25,
+        500,
+        "claude-sonnet-4-5",
+        "chat",
+        "",
+        now - 1_000,
+      );
+    await pglite
+      .prepare(
+        `INSERT INTO token_usage
+          (id, owner_email, input_tokens, output_tokens, cost_cents_x100,
+           model, label, app, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        2,
+        "a@example.com",
+        900,
+        0,
+        0,
+        "claude-sonnet-4-5",
+        "chat",
+        "other-app",
+        now - 1_000,
+      );
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 200,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+    });
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30 },
+      { ownerEmail: "a@example.com", app: "" },
+    );
+
+    expect(metrics.totals).toMatchObject({
+      calls: 2,
+      inputTokens: 300,
+      outputTokens: 75,
+    });
+    expect(metrics.recent).toHaveLength(2);
+  });
+
+  it("includes historical legacy identities beside a stable app id", async () => {
+    process.env.AGENT_NATIVE_APP_ID = "stable-app";
+    process.env.AGENT_APP = "legacy-app";
+    process.env.APP_NAME = "Legacy App";
+    const now = Date.now();
+    for (const [id, app] of [
+      [1, "stable-app"],
+      [2, "legacy-app"],
+      [3, "Legacy App"],
+    ] as const) {
+      await pglite
+        .prepare(
+          `INSERT INTO token_usage
+            (id, owner_email, input_tokens, output_tokens, cost_cents_x100,
+             model, label, app, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          "a@example.com",
+          100,
+          25,
+          500,
+          "claude-sonnet-4-5",
+          "chat",
+          app,
+          now - 1_000,
+        );
+    }
+
+    const appKey = resolveUsageAppKey();
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30 },
+      { ownerEmail: "a@example.com", app: appKey },
+    );
+
+    expect(appKey).toBe("stable-app");
+    expect(metrics.totals).toMatchObject({
+      calls: 3,
+      inputTokens: 300,
+      outputTokens: 75,
+    });
+    expect(metrics.recent).toHaveLength(3);
   });
 });
 

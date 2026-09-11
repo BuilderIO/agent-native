@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import { recordChange } from "@agent-native/core/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
-import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
+import {
+  FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+  repairKnownFirstPartyDashboardQueries,
+} from "./canonical-first-party-dashboard-repair";
 import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 import { repairUnboundedFirstPartyPanels } from "./first-party-unbounded-panel-repair.js";
 
@@ -121,10 +124,10 @@ async function applyRepairToDashboardRow(
 }
 
 export async function repairPersistedFirstPartyDashboardQueries(): Promise<boolean> {
-  // guard:allow-unscoped — startup repair targets one fixed canonical dashboard
+  // guard:allow-unscoped — startup repair targets two fixed first-party dashboards
   // and only replaces the exact shipped legacy SQL under an optimistic fence.
   const db = getDb() as any;
-  const [row] = await db
+  const rows = await db
     .select({
       id: schema.dashboards.id,
       config: schema.dashboards.config,
@@ -136,14 +139,24 @@ export async function repairPersistedFirstPartyDashboardQueries(): Promise<boole
       visibility: schema.dashboards.visibility,
     })
     .from(schema.dashboards)
-    .where(eq(schema.dashboards.id, FIRST_PARTY_DASHBOARD_ID));
-  if (!row || row.kind !== "sql" || typeof row.config !== "string") {
-    return false;
+    .where(
+      inArray(schema.dashboards.id, [
+        FIRST_PARTY_DASHBOARD_ID,
+        FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      ]),
+    );
+  let changed = false;
+  for (const row of rows as DashboardRepairRow[]) {
+    if (row.kind !== "sql" || typeof row.config !== "string") continue;
+    if (
+      await applyRepairToDashboardRow(row, (config) =>
+        repairKnownFirstPartyDashboardQueries(row.id, config),
+      )
+    ) {
+      changed = true;
+    }
   }
-  return applyRepairToDashboardRow(
-    row,
-    repairCanonicalFirstPartyDashboardQueries,
-  );
+  return changed;
 }
 
 /**

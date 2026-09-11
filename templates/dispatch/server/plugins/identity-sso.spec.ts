@@ -12,8 +12,25 @@ const signA2ATokenMock = vi.hoisted(() => vi.fn());
 const verifyA2ATokenMock = vi.hoisted(() => vi.fn());
 const getOrgDomainMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
+const getRequiredAuthProviderForOrgMock = vi.hoisted(() => vi.fn());
 const invalidateMemberOrgCachesMock = vi.hoisted(() => vi.fn());
+const isGoogleSignInRequiredForEmailMock = vi.hoisted(() => vi.fn());
+const setActiveOrgIdMock = vi.hoisted(() => vi.fn());
 const hasGoogleAuthIdentityMock = vi.hoisted(() => vi.fn());
+const addSessionMock = vi.hoisted(() => vi.fn());
+const createBetterAuthSessionForEmailMock = vi.hoisted(() => vi.fn());
+const ensureIdentityUserMock = vi.hoisted(() => vi.fn());
+const setIdentityGoogleAuthCookieMock = vi.hoisted(() => vi.fn());
+const getIdentitySsoBootstrapBindingCookieMock = vi.hoisted(() =>
+  vi.fn((event: any) => event.cookies?.an_identity_bootstrap_binding ?? null),
+);
+const clearIdentitySsoBootstrapBindingCookieMock = vi.hoisted(() =>
+  vi.fn((event: any) => {
+    delete event.cookies?.an_identity_bootstrap_binding;
+  }),
+);
+const setFrameworkSessionCookieMock = vi.hoisted(() => vi.fn());
+const setBetterAuthSessionCookieMock = vi.hoisted(() => vi.fn());
 
 interface CodeRow {
   code_hash: string;
@@ -29,14 +46,41 @@ interface CodeRow {
   org_id: string | null;
   org_name: string | null;
   org_role: "owner" | "admin" | "member" | null;
+  bootstrap_handle_hash: string | null;
+  bootstrap_auth_provider: "google" | null;
   jti: string;
   expires_at: number;
   consumed_at: number | null;
+  activation_hash: string | null;
+  activation_expires_at: number | null;
+  activated_at: number | null;
+}
+interface BootstrapRow {
+  handle_hash: string;
+  state: string;
+  app_id: string;
+  client_id: string;
+  redirect_uri: string;
+  authority: string;
+  code_challenge: string;
+  email: string;
+  name: string | null;
+  org_id: string | null;
+  auth_provider: "google" | null;
+  created_at: number;
+  expires_at: number;
+  consumed_at: number | null;
+  activation_hash: string | null;
+  activation_expires_at: number | null;
+  activated_at: number | null;
+  browser_binding_hash: string | null;
 }
 const codeRows: CodeRow[] = [];
+const bootstrapRows: BootstrapRow[] = [];
 let organizationRow: Record<string, unknown> | null = null;
 let centralActorRole: string | null = null;
 let centralMemberRole: string | null = null;
+let failNextAuthorizationCodeInsert = false;
 
 vi.mock("@agent-native/core/feature-flags", async () => {
   const actual = await vi.importActual<
@@ -60,12 +104,25 @@ vi.mock("@agent-native/core/org", () => ({
   CROSS_APP_ORG_FEDERATION_SCOPE: "organization-federation",
   getOrgContext: getOrgContextMock,
   getOrgDomain: getOrgDomainMock,
+  getRequiredAuthProviderForOrg: getRequiredAuthProviderForOrgMock,
   invalidateMemberOrgCaches: invalidateMemberOrgCachesMock,
+  isGoogleSignInRequiredForEmail: isGoogleSignInRequiredForEmailMock,
+  setActiveOrgId: setActiveOrgIdMock,
 }));
 vi.mock("@agent-native/core/server", () => ({
   getH3App: vi.fn(() => ({ use: vi.fn() })),
   getSession: getSessionMock,
   hasGoogleAuthIdentity: hasGoogleAuthIdentityMock,
+  addSession: addSessionMock,
+  createBetterAuthSessionForEmail: createBetterAuthSessionForEmailMock,
+  ensureIdentityUser: ensureIdentityUserMock,
+  getIdentitySsoBootstrapBindingCookie:
+    getIdentitySsoBootstrapBindingCookieMock,
+  clearIdentitySsoBootstrapBindingCookie:
+    clearIdentitySsoBootstrapBindingCookieMock,
+  setIdentityGoogleAuthCookie: setIdentityGoogleAuthCookieMock,
+  setFrameworkSessionCookie: setFrameworkSessionCookieMock,
+  setBetterAuthSessionCookie: setBetterAuthSessionCookieMock,
 }));
 vi.mock("@agent-native/core/shared", () => ({
   signInJourney: signInJourneyMock,
@@ -80,6 +137,12 @@ vi.mock("@agent-native/core/db", () => ({
         typeof input === "string" ? [] : (input.args ?? [])
       ) as any[];
       if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
+      if (/^DELETE FROM identity_sso_bootstrap/i.test(sql)) {
+        for (let i = bootstrapRows.length - 1; i >= 0; i--) {
+          if (bootstrapRows[i].expires_at < args[0]) bootstrapRows.splice(i, 1);
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
       if (
         /^SELECT id, name(?:, identity_authority, identity_id(?:,\s+federation_roster_initialized_at)?)?\s+FROM organizations/i.test(
           sql,
@@ -144,6 +207,10 @@ vi.mock("@agent-native/core/db", () => ({
         return { rows: [], rowsAffected: 0 };
       }
       if (/^INSERT INTO identity_sso_authorization_code/i.test(sql)) {
+        if (failNextAuthorizationCodeInsert) {
+          failNextAuthorizationCodeInsert = false;
+          throw new Error("temporary");
+        }
         codeRows.push({
           code_hash: args[0],
           state: args[1],
@@ -161,8 +228,121 @@ vi.mock("@agent-native/core/db", () => ({
           org_id: args[14],
           org_name: args[15],
           org_role: args[16],
+          bootstrap_handle_hash: args[17],
+          bootstrap_auth_provider: args[18],
+          activation_hash: null,
+          activation_expires_at: null,
+          activated_at: null,
         });
         return { rows: [], rowsAffected: 1 };
+      }
+      if (/^INSERT INTO identity_sso_bootstrap/i.test(sql)) {
+        bootstrapRows.push({
+          handle_hash: args[0],
+          state: args[1],
+          app_id: args[2],
+          client_id: args[3],
+          redirect_uri: args[4],
+          authority: args[5],
+          code_challenge: args[6],
+          email: args[7],
+          name: args[8],
+          org_id: args[12],
+          auth_provider: args[13],
+          created_at: args[9],
+          expires_at: args[10],
+          consumed_at: args[11],
+          browser_binding_hash: args[14],
+          activation_hash: null,
+          activation_expires_at: null,
+          activated_at: null,
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /^SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider, browser_binding_hash FROM identity_sso_bootstrap/i.test(
+          sql,
+        )
+      ) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.handle_hash === args[0],
+        );
+        return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+      }
+      if (/^UPDATE identity_sso_bootstrap SET activation_hash = /i.test(sql)) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.handle_hash === args[2],
+        );
+        if (
+          row &&
+          row.consumed_at != null &&
+          row.browser_binding_hash != null &&
+          row.activation_hash == null &&
+          row.activated_at == null
+        ) {
+          row.activation_hash = args[0];
+          row.activation_expires_at = args[1];
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (
+        /^SELECT app_id, client_id, redirect_uri, authority, email, name, activation_expires_at, activated_at, org_id, auth_provider, browser_binding_hash FROM identity_sso_bootstrap/i.test(
+          sql,
+        )
+      ) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.activation_hash === args[0],
+        );
+        return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+      }
+      if (/^UPDATE identity_sso_bootstrap SET activated_at = NULL/i.test(sql)) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.activation_hash === args[0],
+        );
+        if (row && row.activated_at != null) {
+          row.activated_at = null;
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/^UPDATE identity_sso_bootstrap SET activated_at = /i.test(sql)) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.activation_hash === args[1],
+        );
+        if (
+          row &&
+          row.activated_at == null &&
+          row.browser_binding_hash === args[2]
+        ) {
+          row.activated_at = args[0];
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/^UPDATE identity_sso_bootstrap SET consumed_at = NULL/i.test(sql)) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.handle_hash === args[0],
+        );
+        if (row && row.consumed_at != null) {
+          row.consumed_at = null;
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/^UPDATE identity_sso_bootstrap SET consumed_at/i.test(sql)) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.handle_hash === args[1],
+        );
+        if (
+          row &&
+          row.consumed_at == null &&
+          row.browser_binding_hash === args[2]
+        ) {
+          row.consumed_at = args[0];
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
       }
       if (/^SELECT state, app_id, client_id/i.test(sql)) {
         const row = codeRows.find(
@@ -194,10 +374,18 @@ vi.mock("@agent-native/core/db", () => ({
 }));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  deleteCookie: (event: any, name: string) => {
+    delete event.cookies?.[name];
+  },
+  getCookie: (event: any, name: string) => event.cookies?.[name],
   getHeader: (event: any, name: string) =>
     event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
   getMethod: (event: any) => event.method ?? "GET",
   readBody: async (event: any) => event.body,
+  setCookie: (event: any, name: string, value: string) => {
+    event.cookies ??= {};
+    event.cookies[name] = value;
+  },
 }));
 
 const {
@@ -209,15 +397,22 @@ const {
   isDesktopWorkspaceSsoRequest,
   isWorkspaceSsoEnabledForSession,
   tokenHandler,
+  bootstrapHandler,
+  bootstrapActivationHandler,
   organizationFederationHandler,
 } = await import("./identity-sso.js");
-const { createCodeChallenge } = await import("../lib/identity-sso.js");
+const { createCodeChallenge, createIdentityBootstrapHandle } =
+  await import("../lib/identity-sso.js");
 
 const AUTHORITY = "https://dispatch.agent-native.com";
 const CALLBACK =
   "https://mail.agent-native.com/_agent-native/identity/callback";
 const STATE = "s".repeat(43);
 const VERIFIER = "v".repeat(64);
+const BROWSER_BINDING = "b".repeat(43);
+const BROWSER_BINDING_HASH = createHash("sha256")
+  .update(BROWSER_BINDING)
+  .digest("base64url");
 
 function event(path: string, extra: Record<string, unknown> = {}): any {
   return {
@@ -236,9 +431,11 @@ function event(path: string, extra: Record<string, unknown> = {}): any {
 beforeEach(() => {
   vi.clearAllMocks();
   codeRows.length = 0;
+  bootstrapRows.length = 0;
   organizationRow = null;
   centralActorRole = null;
   centralMemberRole = null;
+  failNextAuthorizationCodeInsert = false;
   process.env.APP_URL = AUTHORITY;
   process.env.A2A_SECRET = "test-a2a-secret";
   process.env.AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_MAIL =
@@ -256,7 +453,19 @@ beforeEach(() => {
   });
   signInJourneyMock.mockReturnValue({ signInHref: "/_agent-native/sign-in" });
   getOrgDomainMock.mockResolvedValue("example.test");
+  getRequiredAuthProviderForOrgMock.mockResolvedValue(null);
+  isGoogleSignInRequiredForEmailMock.mockResolvedValue(false);
+  setActiveOrgIdMock.mockResolvedValue(undefined);
   hasGoogleAuthIdentityMock.mockResolvedValue(false);
+  createBetterAuthSessionForEmailMock.mockResolvedValue({
+    email: "user@example.test",
+    token: "better-auth-session",
+    userId: "identity-user",
+  });
+  ensureIdentityUserMock.mockResolvedValue({
+    id: "identity-user",
+    accounts: [],
+  });
   getOrgContextMock.mockResolvedValue({
     orgId: "org-1",
     orgName: "Example Org",
@@ -659,6 +868,317 @@ describe("authorization code and PKCE handlers", () => {
 
     expect(response.status).toBe(400);
     expect(getSessionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("silent browser bootstrap", () => {
+  it("serves a postMessage bridge for a hub on another site", async () => {
+    const response = await bootstrapHandler(
+      event(
+        `/_agent-native/identity/bootstrap/continue?handle=${"h".repeat(43)}&bridge=1&source_origin=${encodeURIComponent("https://workspace.example.test")}`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toContain(
+      "frame-ancestors https://workspace.example.test",
+    );
+    expect(await response.text()).toContain(
+      "agent-native-identity-bridge-ready",
+    );
+  });
+
+  it("issues a one-time continuation only for an enabled registered app", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(true);
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "user@example.test",
+      orgDomain: null,
+      orgId: null,
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        client_id: "mail",
+        redirect_uri: CALLBACK,
+        state: STATE,
+        code_challenge: createCodeChallenge(VERIFIER),
+        browser_binding_hash: BROWSER_BINDING_HASH,
+        email_verified: true,
+        org_id: "org-1",
+        scope: "identity-bootstrap",
+      },
+    });
+
+    const response = await bootstrapHandler(
+      event("/_agent-native/identity/bootstrap", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer bootstrap-assertion",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const continuation = new URL(body.continue_url);
+    expect(continuation.origin).toBe(AUTHORITY);
+    expect(continuation.pathname).toBe(
+      "/_agent-native/identity/bootstrap/continue",
+    );
+    expect(continuation.searchParams.get("handle")).toMatch(
+      /^[A-Za-z0-9_-]{43}$/,
+    );
+    expect(bootstrapRows).toHaveLength(1);
+    expect(bootstrapRows[0]?.handle_hash).not.toBe(
+      continuation.searchParams.get("handle"),
+    );
+    expect(featureFlagMocks.isEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "browser.identity-sso" }),
+      {
+        userEmail: "user@example.test",
+        userKey: "user@example.test",
+        orgId: "org-1",
+      },
+    );
+  });
+
+  it.each([undefined, false])(
+    "rejects bootstrap assertions without verified email (%s)",
+    async (emailVerified) => {
+      featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+      featureFlagMocks.isEnabled.mockResolvedValue(true);
+      verifyA2ATokenMock.mockResolvedValue({
+        email: "user@example.test",
+        orgDomain: null,
+        orgId: null,
+        claims: {
+          iss: "https://mail.agent-native.com",
+          app_id: "mail",
+          client_id: "mail",
+          redirect_uri: CALLBACK,
+          state: STATE,
+          code_challenge: createCodeChallenge(VERIFIER),
+          browser_binding_hash: BROWSER_BINDING_HASH,
+          ...(emailVerified === undefined
+            ? {}
+            : { email_verified: emailVerified }),
+          scope: "identity-bootstrap",
+        },
+      });
+
+      const response = await bootstrapHandler(
+        event("/_agent-native/identity/bootstrap", {
+          method: "POST",
+          headers: { authorization: "Bearer bootstrap-assertion" },
+        }),
+      );
+
+      expect(response.status).toBe(401);
+      expect(bootstrapRows).toHaveLength(0);
+    },
+  );
+
+  it("releases a claimed handle when continuation work fails", async () => {
+    const handle = await createIdentityBootstrapHandle({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+      browserBindingHash: BROWSER_BINDING_HASH,
+    });
+    failNextAuthorizationCodeInsert = true;
+
+    const failed = await bootstrapHandler(
+      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`, {
+        cookies: { an_identity_bootstrap_binding: BROWSER_BINDING },
+      }),
+    );
+
+    expect(failed.status).toBe(503);
+    expect(bootstrapRows[0]?.consumed_at).toBeNull();
+
+    const retried = await bootstrapHandler(
+      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`, {
+        cookies: { an_identity_bootstrap_binding: BROWSER_BINDING },
+      }),
+    );
+    expect(retried.status).toBe(302);
+    expect(
+      new URL(retried.headers.get("Location")!).searchParams.get("code"),
+    ).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(addSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("does not consume continuation handles on HEAD", async () => {
+    const handle = await createIdentityBootstrapHandle({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+      browserBindingHash: BROWSER_BINDING_HASH,
+    });
+
+    const response = await bootstrapHandler(
+      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`, {
+        method: "HEAD",
+      }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(bootstrapRows[0]?.consumed_at).toBeNull();
+  });
+
+  it("activates Dispatch only after the authorization code proves PKCE", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(true);
+    const handle = await createIdentityBootstrapHandle({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+      orgId: "org-1",
+      authProvider: "google",
+      browserBindingHash: BROWSER_BINDING_HASH,
+    });
+    const continuationEvent = event(
+      `/_agent-native/identity/bootstrap/continue?handle=${handle}`,
+      { cookies: { an_identity_bootstrap_binding: BROWSER_BINDING } },
+    );
+    const continuation = await bootstrapHandler(continuationEvent);
+    const code = new URL(
+      continuation.headers.get("Location")!,
+    ).searchParams.get("code");
+    expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(addSessionMock).not.toHaveBeenCalled();
+
+    const tokenResponse = await tokenHandler(
+      event("/_agent-native/identity/token", {
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          code,
+          state: STATE,
+          app_id: "mail",
+          client_id: "mail",
+          redirect_uri: CALLBACK,
+          code_verifier: VERIFIER,
+        },
+      }),
+    );
+    const tokenBody = await tokenResponse.json();
+    expect(tokenBody.bootstrap_activation).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    const activationWithoutBinding = await bootstrapActivationHandler(
+      event(
+        `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter`,
+      ),
+    );
+    expect(activationWithoutBinding.status).toBe(400);
+
+    const activation = await bootstrapActivationHandler(
+      event(
+        `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter%23compose`,
+        { cookies: { ...continuationEvent.cookies } },
+      ),
+    );
+    expect(activation.status).toBe(302);
+    expect(activation.headers.get("Location")).toBe(
+      "https://mail.agent-native.com/after#compose",
+    );
+    expect(addSessionMock).toHaveBeenCalledWith(
+      expect.any(String),
+      "user@example.test",
+    );
+    expect(setBetterAuthSessionCookieMock).toHaveBeenCalled();
+    expect(setIdentityGoogleAuthCookieMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user@example.test",
+    );
+    expect(setActiveOrgIdMock).toHaveBeenCalledWith(
+      "user@example.test",
+      "org-1",
+      "cross-app bootstrap organization context",
+    );
+  });
+
+  it("serves an activation bridge without consuming the token", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    const response = await bootstrapActivationHandler(
+      event(
+        `/_agent-native/identity/bootstrap/activate?activation=${"a".repeat(43)}&bridge=1&source_origin=${encodeURIComponent("https://workspace.example.test")}`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain(
+      "agent-native-identity-bridge-ready",
+    );
+    expect(bootstrapRows).toHaveLength(0);
+  });
+
+  it("does not activate a non-Google identity into a Google-only organization", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(true);
+    getRequiredAuthProviderForOrgMock.mockResolvedValue("google");
+    hasGoogleAuthIdentityMock.mockResolvedValue(true);
+    const handle = await createIdentityBootstrapHandle({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+      orgId: "org-1",
+      browserBindingHash: BROWSER_BINDING_HASH,
+    });
+    const continuationEvent = event(
+      `/_agent-native/identity/bootstrap/continue?handle=${handle}`,
+      { cookies: { an_identity_bootstrap_binding: BROWSER_BINDING } },
+    );
+    const continuation = await bootstrapHandler(continuationEvent);
+    const code = new URL(
+      continuation.headers.get("Location")!,
+    ).searchParams.get("code");
+    const tokenResponse = await tokenHandler(
+      event("/_agent-native/identity/token", {
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          code,
+          state: STATE,
+          app_id: "mail",
+          client_id: "mail",
+          redirect_uri: CALLBACK,
+          code_verifier: VERIFIER,
+        },
+      }),
+    );
+    const tokenBody = await tokenResponse.json();
+    const activation = await bootstrapActivationHandler(
+      event(
+        `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter`,
+        { cookies: { ...continuationEvent.cookies } },
+      ),
+    );
+    expect(activation.status).toBe(403);
+    expect(await activation.json()).toEqual({
+      error: "This organization requires Google sign-in.",
+    });
+    expect(ensureIdentityUserMock).not.toHaveBeenCalled();
+    expect(createBetterAuthSessionForEmailMock).not.toHaveBeenCalled();
+    expect(addSessionMock).not.toHaveBeenCalled();
+    expect(setActiveOrgIdMock).not.toHaveBeenCalled();
+    expect(bootstrapRows[0]?.activated_at).toBeNull();
   });
 });
 

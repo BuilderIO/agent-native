@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { updateWorkspaceResource } from "../server/lib/workspace-resources-store.js";
 
 export default defineAction({
   description:
     "Update a workspace resource's name, description, content, or scope. When Dispatch approval policy is enabled, changes that affect All-app resources queue an approval request before taking effect.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     id: z.string().describe("Resource ID"),
     name: z.string().optional().describe("New name"),

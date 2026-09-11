@@ -394,6 +394,8 @@ const messages = {
       "Guardar este trabajo en Automatizaciones.",
     automationCreated: "Automatización creada",
     automationCreateFailed: "No se pudo crear la automatización.",
+    automationCreateRefreshFailed:
+      "Se creó, pero la lista no se actualizó. Quédate aquí o vuelve a abrir Automatizaciones.",
     automationSource: "Origen",
     automationSourceDescription: "Elija de dónde lee este trabajo.",
     automationSourceSlackHint: "Mensajes y hilos del canal.",
@@ -483,6 +485,7 @@ const messages = {
     automationEvent: "Evento",
     automationTimezone: "Zona horaria",
     selectAutomation: "Selecciona una automatización para editarla.",
+    automationNotFound: "Esa automatización ya no existe.",
     automationModel: "Modelo",
     automationDisplayName: "Nombre visible",
     automationDisplayNamePlaceholder: "Por ejemplo, feedback de Slack",
@@ -501,6 +504,8 @@ const messages = {
     automationSaved: "Guardado",
     automationSaveFailed: "No se pudo guardar la automatización.",
     automationRunFailed: "No se pudo ejecutar la automatización.",
+    automationRunNeedsSave:
+      "Guarda los cambios antes de ejecutar esta automatización.",
     automationRunning: "En ejecución",
     runNow: "Ejecutar ahora",
     automationHealthTitle: "Estado del programador",

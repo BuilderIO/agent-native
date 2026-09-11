@@ -875,6 +875,53 @@ const zhCN = {
     },
     clips: {
       s001: "Clips 模板屏幕截图",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "让 AI 智能体能看懂、听懂的屏幕录制",
+      heroDescription:
+        "Clips 是一款免费开源的屏幕录制工具,方便你与 AI 智能体分享错误报告、反馈和操作演示。",
+      heroCta: "录制一段 Clip",
+      useCasesHeading: "用 Clips 能做什么?",
+      useCasesBody:
+        "从一段你自己录制的 Clip,或别人分享给你的 Clip 开始。把上下文交给你的 AI 智能体,告诉它你需要什么。",
+      useCase1Title: "根据录制的反馈采取行动",
+      useCase1Body:
+        "把录制的反馈交给你的 AI 智能体,让它整理成计划或帮你实现所需的改动。",
+      useCase2Title: "调查一个被报告的 bug",
+      useCase2Body:
+        "把 bug 录制内容分享给你的 AI 智能体,让它调查出问题所在并梳理下一步该怎么做。",
+      useCase3Title: "根据录制的需求说明进行创作",
+      useCase3Body:
+        "用录制的需求说明来指导你的 AI 智能体创作演示文稿、设计稿、内容或应用改动。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "录制、转录、分享,一应俱全",
+      feature1Title: "AI 智能体可读的录制内容",
+      feature1Body:
+        "通过一个智能体可读的链接,把 Clip 的文字记录和带时间戳的图片分享给你的 AI 智能体。",
+      feature2Title: "自动转录",
+      feature2Body:
+        "获取录制、会议和口述内容的文字记录。点击文字记录的任意一行即可跳转回放到对应时刻。",
+      feature3Title: "浏览器调试日志",
+      feature3Body:
+        "使用 Clips 的 Chrome 扩展,在录制的同时捕获控制台错误和失败的请求。",
+      feature4Title: "内置 AI 智能体",
+      feature4Body:
+        "向内置 AI 智能体询问某段 Clip 或整个资料库的问题,并让它在聊天中编辑文字记录。",
+      feature5Title: "可搜索的录制资料库",
+      feature5Body:
+        "通过搜索文字记录来查找 Clip。用文件夹、标签和团队空间整理你的录制内容。",
+      feature6Title: "按键说话式口述输入",
+      feature6Body:
+        "在桌面应用中按住 Fn 键,即可向其他应用口述输入。在历史记录中可以回看文字记录和整理后的文本。",
+      teammatesLine: "你的团队成员可以在播放器中观看同一段录制内容。",
+      teammatesLinkLabel: "阅读智能体分享指南",
+      seeInActionHeading: "看看 Clips 的实际效果",
+      seeInActionBody:
+        "看看 Clips 的实际使用场景,从录制浏览器操作流程到向 AI 智能体演示如何完成一项任务。",
+      watchClipLabel: "观看这段 Clip",
+      finalCtaHeading: "让你的下一段 Clip 发挥作用",
+      finalCtaBody: "录制一段说明,或把一段分享的 Clip 交给你的 AI 智能体。",
+      finalCtaButton: "打开 Clips",
       s002: "屏幕录制",
       s003: "浏览器调试日志",
       s004: "口授",
@@ -937,26 +984,23 @@ const zhCN = {
       s058: "免费和开源",
       s059: "立即开始",
       s060: "选择要捕获的内容，然后在 Clips 中开始录制。",
-      s061: "查看更多应用",
       s062: "查看所有模板",
       faq: {
-        question1: "Clips 免费吗？",
-        answer1: "是的。Clips 免费且开源。",
-        question2: "AI 能读取屏幕录制吗？",
+        question1: "什么是 Agent-Native Clips?",
+        answer1:
+          "Agent-Native Clips 是一款免费开源的屏幕录制工具,用于向 AI 智能体分享错误、反馈和操作演示。它会为你的 AI 智能体提供一份录制内容的文字记录和带时间戳的图片,而人们也可以观看同一段录制内容。",
+        question2: "我可以把录制内容分享给 Claude、ChatGPT 或 Cursor 吗?",
         answer2:
-          "可以。每个剪辑都包含转录文本、摘要和带时间戳的画面，代理可以直接读取这些内容。",
-        question3: "Clips 与 Loom 有什么不同？",
+          "Clips 会提供一个 AI 智能体可读的链接,其中包含文字记录和带时间戳的图片。你的智能体需要能够打开链接内容并读取图片才能同时用到两者。部分聊天模式可以读取文字记录,但需要你单独上传图片。",
+        question3: "录制屏幕需要用到 Chrome 扩展吗?",
         answer3:
-          "Clips 开源，数据归你所有；每个共享链接不仅人能读取，AI 代理也能读取。",
-        question4: "屏幕录制能捕获控制台错误吗？",
+          "不需要。你可以直接在 Clips 网页应用中录制。如果还想获取所演示标签页的控制台消息和网络诊断信息,再使用 Chrome 扩展即可。",
+        question4: "AI 智能体可以观看我的屏幕录制内容吗?",
         answer4:
-          "可以。Clips 会在录制过程中同时捕获浏览器控制台错误和失败的网络请求。它们会与转录文本和画面一起附加到同一个共享链接中。代理可以根据剪辑进行调试，而不只是观看。",
-        question5: "Clips 支持 Claude、ChatGPT 或 Cursor 吗？",
+          "在 Clips 中,兼容的 AI 智能体可以通过文字记录和带时间戳的图片来理解你的录制内容。它们使用的是文本和图片,而不是播放视频,因此你可以就发生的事情提问,或让 AI 智能体基于录制内容执行任务。",
+        question5: "谁可以访问一段分享的录制内容?",
         answer5:
-          "支持！无需插件或 API 密钥。将 Clips 共享链接粘贴到任意代理中，它就能直接读取转录文本、摘要和画面。",
-        question6: "我的录制内容存储在哪里？",
-        answer6:
-          "存储在你的部署位置。自托管 Clips 会将视频、转录文本和分析数据保存在你自己的基础设施中。",
+          "除非你的组织更改了设置,否则录制内容默认使用公开链接,任何拿到链接的人都可以访问。系统也提供私密和组织内访问选项,私密的 Clip 可以通过临时链接分享给智能体,而无需将录制内容公开。",
       },
       quickStart: {
         recordingMode: "录制模式",
@@ -1466,13 +1510,54 @@ const zhCN = {
     },
     slides: {
       s001: "Slides 模板屏幕截图",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "用你的 AI 智能体创建演示文稿",
+      heroDescription:
+        "Slides 是一款免费开源的 AI 演示文稿制作工具，可以根据你的想法和素材创建符合品牌风格的演示文稿，并且你可以自己编辑幻灯片。",
+      heroCta: "创建一份 PPT",
+      useCasesHeading: "用 Slides 能做什么？",
+      useCasesBody:
+        "准备一次路演，展示一份计划，或分享一次业务更新。把素材和目标受众告诉你的 AI 智能体。",
+      useCase1Title: "创建销售和路演文稿",
+      useCase1Body:
+        "把你的产品简介变成一份面向潜在客户或投资人的演示文稿。根据受众调整叙述方式。",
+      useCase2Title: "展示计划与策略",
+      useCase2Body:
+        "把策略简报或启动计划交给你的 AI 智能体，让它整理成能说明方向和后续步骤的幻灯片。",
+      useCase3Title: "分享业务更新",
+      useCase3Body:
+        "把项目记录或业绩报告变成一份演示文稿，展示进展、解释结果并突出需要关注的事项。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "创建、编辑和演示所需的一切",
+      feature1Title: "AI 演示文稿生成",
+      feature1Body:
+        "从一段提示词、一份文档或一份参考文稿开始。把主题和受众告诉你的 AI 智能体，让它围绕这些构建演示文稿。",
+      feature2Title: "AI 与可视化编辑",
+      feature2Body:
+        "选中文字让你的 AI 智能体修改，或者直接在幻灯片上自己编辑文字、布局和样式。",
+      feature3Title: "可复用的品牌样式",
+      feature3Body:
+        "把你的颜色、字体和标志保存到一个设计系统中。将其应用到多份文稿中，保持演示文稿始终符合你的品牌。",
+      feature4Title: "图片与标志",
+      feature4Body:
+        "让你的 AI 智能体生成图片、查找照片，或搜索公司标志，用在你的幻灯片中。",
+      feature5Title: "团队协作",
+      feature5Body:
+        "与团队成员一起制作文稿，在特定幻灯片上留下评论，并在需要时恢复到早期版本。",
+      feature6Title: "演示与导出",
+      feature6Body:
+        "全屏演示并显示演讲者备注，分享一个查看链接，或将文稿导出为 PowerPoint 文件。",
+      finalCtaHeading: "开始你的下一份演示文稿",
+      finalCtaBody: "带来一个想法、一份简报，或一份已有的文稿。",
+      finalCtaButton: "打开 Slides",
       s002: "描述",
       s003: "生成",
       s004: "精炼",
       s005: "所有模板",
       s006Primary: "由你的 AI 代理生成的幻灯片。",
       s006Secondary: "契合品牌，可自由编辑",
-      s007: "使用 AI 代理生成符合品牌风格的幻灯片演示文稿，随时手动修改，并可导出到任何地方。",
+      s007: "用你的 AI 智能体生成符合品牌风格的演示文稿，然后自己编辑幻灯片并导出到任何地方。",
       s008: "试用",
       s009: "它是如何运作的",
       s010: "你需要的一切",
@@ -1525,20 +1610,21 @@ const zhCN = {
       s057: "阅读文档",
       s058: "查看所有模板",
       faq: {
-        question1: "我可以从 Claude 或 ChatGPT 创建演示文稿吗？",
+        question1: "什么是 Agent-Native Slides？",
         answer1:
-          "可以。让 Claude 或 ChatGPT 制作一份演示文稿，成品会直接进入 Slides，已经符合品牌、可编辑、可导出，无需你在演示网站里从头再做。",
-        question2: "AI 做错的地方可以修改吗？",
+          "Agent-Native Slides 是一款免费开源的 AI 演示文稿制作工具。用 AI 智能体根据你的想法和素材创建符合品牌风格的演示文稿，然后自己编辑幻灯片、进行演示，或导出为 PowerPoint。",
+        question2: "AI 生成后我还能编辑幻灯片吗？",
         answer2:
-          "有三种方式：通过提示修改、手动修改（单击任意元素，双击任意文字），或直接编辑代码。你永远不会被困在反复重新生成、只能碰运气的流程中。",
-        question3: "演示文稿如何保持品牌一致？",
+          "可以。直接在可视化编辑器中编辑文字、布局和样式，或者让 AI 智能体修改选中的幻灯片。你可以在第一版之后持续完善这份演示文稿。",
+        question3: "我可以根据已有的文稿或文档创建演示文稿吗？",
         answer3:
-          "将你满意的演示文稿标为星标。每份新演示文稿都会继承它的版式、标题、视觉风格和品牌令牌。一次性生成器只做出一份演示文稿，而这里建立的是可持续复用的演示体系。",
-        question4: "Slides 与 Gamma 有什么不同？",
+          "可以。把一份文稿或文档作为参考素材，附加到新的演示文稿中。如果要在已有文稿上直接操作，需要显式导入它。请检查导入后的幻灯片是否有布局变化或图片缺失。",
+        question4: "我可以使用自己的品牌颜色、字体和标志吗？",
         answer4:
-          "Gamma 能快速一次性生成一份不错的演示文稿，但之后你会受限于它的画布和订阅，并在结果只有 85% 正确时不断重新生成。Slides 免费、开源、继承你的品牌，而且任何内容都可以编辑。",
-        question5: "Slides 免费吗？",
-        answer5: "免费且开源，没有订阅费、点数计量或按演示文稿收费。",
+          "可以。应用一个包含你品牌颜色、排版和标志的设计系统，并在多份文稿中复用它。你也可以提供一份参考文稿，来指导 AI 智能体的设计选择。",
+        question5: "我可以在 PowerPoint 或 Google 幻灯片中使用我的演示文稿吗？",
+        answer5:
+          "导出一个 PPTX 文件，即可在 PowerPoint 中打开。要在 Google 幻灯片中使用该演示文稿，请在那里导入这个文件。导出后请检查字体和布局，因为不同编辑器之间的渲染效果可能不同。",
       },
       howItWorksDescribe:
         "描述你的主题、受众和语气。附上参考演示文稿。从 UI 或你自己的 AI 工作流开始。",
@@ -2019,7 +2105,6 @@ const zhCN = {
     usingYourAgent: "使用你的 Agent",
     agentResources: "代理资源",
     integrations: "集成",
-    buildApps: "构建应用",
     advancedRuntime: "高级：扩展运行时",
     templatesSection: "应用",
     gettingStarted: "入门",
@@ -2160,7 +2245,6 @@ const zhCN = {
     syncingTemplateChanges: "同步模板变更",
     writingAgentInstructions: "编写 Agent 指令",
     embeddingSdk: "嵌入 SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native 代码 UI",
     harnessAgents: "Harness 代理",
     adapters: "适配器",
@@ -2230,10 +2314,11 @@ const zhCN = {
     designCollaborationAndFullApps: "审阅与交接",
     designDevelopers: "开发者指南",
     dispatchOverview: "概览",
-    dispatchMessagingRouting: "消息与路由",
-    dispatchOperations: "操作控制台",
-    dispatchVaultIntegrations: "密钥与集成",
+    dispatchFeatures: "功能",
+    dispatchAgent: "与 Agent 对话",
+    dispatchIntegrations: "跨应用使用",
     dispatchDevelopers: "开发者指南",
+    dispatchReference: "操作与数据参考",
     forms: "表单",
     formsOverview: "概览",
     formsFeatures: "功能",

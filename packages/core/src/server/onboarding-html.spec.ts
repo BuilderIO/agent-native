@@ -15,6 +15,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 
 function readAuthPageData(html: string): AuthPageProps {
@@ -39,13 +40,17 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="upgrade-note"');
   });
 
-  it("includes a beta switcher on the standalone auth page", () => {
-    const html = getOnboardingHtml({
-      requestHost: "beta.analytics.agent-native.com",
-    });
+  it("includes an environment switcher on the standalone auth page", () => {
+    // Auth responses inject the shared switcher at the login boundary; the
+    // React shell alone only ships lane config + document styles.
+    const html = injectBetaOptOutPersistence(
+      getOnboardingHtml({
+        requestHost: "beta.analytics.agent-native.com",
+      }),
+    );
 
     expect(html).toContain('id="environment-badge"');
-    expect(html).toContain("You&#x27;re on Agent-Native Beta");
+    expect(html).toContain("You're on Agent-Native Alpha");
     expect(html).toContain("Switch to production");
     expect(html).toContain('id="environment-hide-badge"');
     expect(readAuthPageData(html).environmentBetaHosts).toHaveProperty(
@@ -173,7 +178,7 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
-    it("canonical hosted login pages keep browser SSO out of the auth surface", () => {
+    it("canonical hosted login pages enable silent federation", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
@@ -183,9 +188,18 @@ describe("getOnboardingHtml", () => {
 
       expect(html).not.toContain("identity-sso-btn");
       expect(html).not.toContain("Sign in with Agent-Native");
+      expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
+      expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
-    it("does not add a browser SSO entry when the hub is configured", () => {
+    it("keeps silent federation enabled in cached canonical login HTML", () => {
+      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+
+      expect(readAuthPageData(getOnboardingHtml()).identitySsoAuto).toBe(true);
+    });
+
+    it("env set → enables silent federation without adding a separate sign-in control", () => {
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
         "https://dispatch.agent-native.com",
@@ -194,6 +208,12 @@ describe("getOnboardingHtml", () => {
       expect(html).not.toContain('id="identity-sso-btn"');
       expect(html).not.toContain('href="/_agent-native/identity/login"');
       expect(html).not.toContain("Sign in with Agent-Native");
+      expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
+      expect(readAuthPageData(html).identitySsoAuto).toBe(false);
+      expect(html).toContain("data-agent-native-embedded-init");
+      expect(html).toContain(
+        'params.get("embedded") === "1" || window.self !== window.top',
+      );
     });
 
     it("malformed hub configuration does not change the auth surface", () => {
@@ -289,7 +309,7 @@ describe("getOnboardingHtml", () => {
     expect(pageData.marketing?.screenshotSrc).toBe(
       "/viteapp/auth-marketing/slides.webp",
     );
-    expect(html).toContain('href="/viteapp/auth-marketing/slides.webp"');
+    expect(html).not.toContain('href="/viteapp/auth-marketing/slides.webp"');
     expect(html).toContain('href="/viteapp/favicon.svg"');
     expect(html).toContain('href="/viteapp/icon-180.svg"');
     expect(html).toContain(

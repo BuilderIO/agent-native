@@ -66,6 +66,11 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import {
+  isCanonicalIdentitySsoClientRequest,
+  isCanonicalIdentitySsoClientConfigured,
+  isIdentitySsoAvailableForRequest,
+} from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 function hasGoogleOAuth(): boolean {
@@ -1247,6 +1252,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     "/agent-native-icon-dark.svg",
     appBasePath,
   );
+  const brandMarkLightSrc = withAppBasePath(
+    "/agent-native-icon-light.svg",
+    appBasePath,
+  );
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
@@ -1265,20 +1274,34 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
+  const identitySsoRequestHost =
+    opts.identitySsoRequestHost ?? opts.requestHost;
+  const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const identitySsoEnabled = isIdentitySsoAvailableForRequest({
+    requestHost: identitySsoRequestHost,
+    requestProtocol: identitySsoRequestProtocol,
+  });
+  const identitySsoAuto =
+    identitySsoEnabled &&
+    (isCanonicalIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    ) ||
+      (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
   body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
-  #starfield {
+  [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.35;
+    opacity: 0.15;
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    #starfield { opacity: 0.18; }
+    [data-agent-native-starfield] { opacity: 0.15; }
   }
   .split {
     position: relative;
@@ -1464,6 +1487,33 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .auth-marketing-home .auth-marketing-learn-more-link {
       color: LinkText;
     }
+    /* The marketing panel's base colors are picked for the near-black body.
+       Without these the app name renders white-on-white and the whole panel
+       reads as empty rather than as low contrast. */
+    .auth-marketing-home .app-name { color: CanvasText; }
+    .auth-marketing-home .app-tagline,
+    .auth-marketing-home .feature-list li {
+      color: color-mix(in srgb, CanvasText 72%, Canvas);
+    }
+    .auth-marketing-home .app-desc {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+    }
+    .auth-marketing-home .feature-list li::before {
+      background: color-mix(in srgb, CanvasText 22%, transparent);
+      border-color: color-mix(in srgb, CanvasText 38%, transparent);
+    }
+    .auth-marketing-home .oss-link { color: LinkText; }
+    .auth-marketing-home .oss-link:hover {
+      color: color-mix(in srgb, LinkText 75%, CanvasText);
+    }
+    .auth-marketing-home .copy-run-local {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .copy-run-local:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 32%, transparent);
+    }
     .auth-marketing-home .card {
       background: Canvas;
       border-color: color-mix(in srgb, CanvasText 14%, transparent);
@@ -1627,6 +1677,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
         : undefined,
     marketingLocales: authMarketingLocales,
     brandMarkSrc,
+    brandMarkLightSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
     showGoogle,
     signupLegalNotice,
@@ -1634,6 +1685,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
+    identitySsoEnabled,
+    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -1933,7 +1986,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-signin {
     margin: 1.25rem 0 0.25rem;
     padding-top: 1rem;
-    border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
   }
   .btn-local-dev {
     margin-top: 0.25rem;
@@ -1980,7 +2032,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .local-dev-full-options {
     display: block;
-    margin: 0.75rem auto 0;
+    margin: 1rem 0 0;
     padding: 0;
     background: transparent;
     border: 0;
@@ -2290,8 +2342,8 @@ ${marketingStyles}
     height: 100%;
     max-width: none;
     max-height: none;
-    filter: blur(18px);
-    opacity: 0.8;
+    filter: none;
+    opacity: 0.15;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
     position: fixed;
@@ -2310,7 +2362,7 @@ ${marketingStyles}
     margin-block: auto;
   }
   .auth-marketing-home .form-panel { min-width: 0; }
-  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
+  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; transform: translateY(-5vh); }
   @media (max-width: 900px) {
     body.has-marketing {
       align-items: flex-start;

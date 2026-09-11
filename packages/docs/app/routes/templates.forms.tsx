@@ -97,7 +97,7 @@ export default function FormsTemplate() {
     <TemplateLandingShell>
       <TemplateHero
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -167,10 +167,7 @@ export default function FormsTemplate() {
             },
           ].map((item) => (
             <TemplateStatOrStepsGridItem key={item.step}>
-              <div
-                className="font-mono text-sm font-semibold"
-                style={{ color: template.color }}
-              >
+              <div className="font-mono text-sm font-semibold text-[var(--fg-secondary)]">
                 {item.step}
               </div>
               <h3 className="m-0 text-xl font-medium leading-tight text-[var(--fg)]">
@@ -234,8 +231,7 @@ export default function FormsTemplate() {
                   <IconCheck
                     aria-hidden="true"
                     size={18}
-                    className="mt-0.5 shrink-0"
-                    style={{ color: template.color }}
+                    className="mt-0.5 shrink-0 text-[var(--fg-secondary)]"
                   />
                   <span>{item}</span>
                 </li>
@@ -283,7 +279,7 @@ export default function FormsTemplate() {
             },
             {
               id: "forms",
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { name: template.name },
               emphasized: true,
             },
           ]}
@@ -351,7 +347,7 @@ export default function FormsTemplate() {
       <TemplateLandingFaq
         idPrefix="forms-faq"
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }

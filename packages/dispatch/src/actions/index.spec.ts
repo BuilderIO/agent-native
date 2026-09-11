@@ -59,6 +59,12 @@ describe("dispatch action registry", () => {
     );
   });
 
+  it("teaches MCP hosts to route through their existing Dispatch connection", () => {
+    expect(dispatchActions.ask_app.tool.description).toContain(
+      "do not require a separate app MCP connection",
+    );
+  });
+
   it("exposes shared usage metrics as an authenticated read", () => {
     const action = dispatchActions["list-dispatch-usage-metrics"];
 

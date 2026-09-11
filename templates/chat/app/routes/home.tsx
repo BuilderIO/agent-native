@@ -2,8 +2,9 @@ import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
@@ -36,6 +37,10 @@ export default function ChatRoute() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const t = useT();
+  const trackedMessageCount = useRef(0);
+  const hasObservedMessageCount = useRef(false);
+  const pendingThreadCreationRef = useRef(false);
+  const suppressNextResumeRef = useRef(false);
   const threadUrlSync = threadId
     ? {
         routeThreadId: threadId,
@@ -43,6 +48,25 @@ export default function ChatRoute() {
         navigate,
       }
     : undefined;
+
+  useEffect(() => {
+    trackedMessageCount.current = 0;
+    hasObservedMessageCount.current = false;
+    if (threadId) {
+      if (pendingThreadCreationRef.current) {
+        pendingThreadCreationRef.current = false;
+        suppressNextResumeRef.current = false;
+        trackEvent("thread_created", {
+          output_id: threadId,
+          output_type: "thread",
+        });
+      } else if (suppressNextResumeRef.current) {
+        suppressNextResumeRef.current = false;
+      } else {
+        trackEvent("thread_resumed", { thread_id: threadId });
+      }
+    }
+  }, [threadId]);
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
@@ -78,6 +102,22 @@ export default function ChatRoute() {
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
         composerPlaceholder={t("chat.composerPlaceholder")}
+        onMessageCountChange={(count) => {
+          const previousCount = trackedMessageCount.current;
+          const initialObservation = !hasObservedMessageCount.current;
+          hasObservedMessageCount.current = true;
+          if (count > previousCount && previousCount === 0 && !threadId) {
+            pendingThreadCreationRef.current = true;
+            suppressNextResumeRef.current = true;
+          }
+          if (count > previousCount && !(threadId && initialObservation)) {
+            trackEvent("message_exchanged", {
+              ...(threadId ? { thread_id: threadId } : {}),
+              msg_count: count,
+            });
+          }
+          trackedMessageCount.current = count;
+        }}
         composerSlot={
           <div className="mx-auto mb-5 max-w-xl px-4 text-center">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">

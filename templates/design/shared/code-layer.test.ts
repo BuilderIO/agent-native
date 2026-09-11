@@ -919,9 +919,9 @@ describe("applyVisualEdit", () => {
     expect(
       stamped.content.match(/<script>[\s\S]*?<\/script>/)?.[0],
     ).not.toContain("data-agent-native-node-id");
-    expect(
-      stamped.content.match(/<template>[\s\S]*?<\/template>/)?.[0],
-    ).not.toContain("data-agent-native-node-id");
+    expect(stamped.content).toContain(
+      `<div class="ghost" data-agent-native-node-id=`,
+    );
   });
 
   it("repairs duplicate stable node ids and uses them before duplicate HTML ids", () => {

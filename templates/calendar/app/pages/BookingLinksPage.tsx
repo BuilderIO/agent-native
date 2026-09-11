@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import {
@@ -1230,6 +1231,12 @@ export default function BookingLinksPage({
 
   async function copyPreviewUrl(slug: string) {
     if (await copyTextToClipboard(getBookingUrl(slug))) {
+      trackEvent("booking_link_shared", {
+        app_name: "calendar",
+        template_name: "calendar",
+        booking_type_id: slug,
+        share_method: "copy_link",
+      });
       toast.success(t("bookingLinks.bookingLinkCopied"));
       return;
     }
@@ -1879,6 +1886,11 @@ export default function BookingLinksPage({
       <Tabs
         value={activeTab}
         onValueChange={(v) => {
+          trackEvent("booking_links_tab_changed", {
+            app_name: "calendar",
+            template_name: "calendar",
+            tab: v,
+          });
           setActiveTab(v as Tab);
           // Keep the param in step, so the effect above can't snap the user
           // back to a tab they navigated away from.

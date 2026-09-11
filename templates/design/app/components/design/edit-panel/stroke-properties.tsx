@@ -418,11 +418,16 @@ export function StrokeProperties({
     styles.outlineColor,
     styles.outlineOffset,
   ].some(isMixedValue);
-  // Render the row whenever a stroke has been configured (non-zero width),
-  // even when its style is "none" (hidden). This mirrors Figma's behavior where
-  // hidden stroke rows remain present so the user can re-show them via the eye icon.
-  const borderExists = cssLengthNumber(styles.borderWidth) > 0;
-  const outlineExists = cssLengthNumber(styles.outlineWidth) > 0;
+  // Width alone is not evidence of a stroke: a stylesheet can leave
+  // `outline-width` non-zero with `outline-style: none`, which paints nothing
+  // and whose `outline-color` resolves to currentColor — surfacing a phantom
+  // row wearing the element's text colour. A stroke hidden through the eye
+  // icon zeroes its colour alpha and keeps width/style, so its row still shows.
+  const borderExists = strokeIsVisible(styles.borderWidth, styles.borderStyle);
+  const outlineExists = strokeIsVisible(
+    styles.outlineWidth,
+    styles.outlineStyle,
+  );
   // Same empty-wrapper hazard as EffectsProperties: border and outline are
   // separate top-level sibling conditionals, so when neither exists (and the
   // mixed-value hint isn't showing either) JSX would still hand PanelSection

@@ -60,6 +60,7 @@ import {
   createBuilderConnectState,
   createBuilderProject,
   createBuilderRelayRequest,
+  ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   getBuilderCliAuthCallbackOriginForEvent,
@@ -1680,7 +1681,7 @@ describe("Builder callback CSRF state", () => {
       process.env.BUILDER_APP_HOST = "https://builder.io";
     });
 
-    it("creates a project from a connected repository", async () => {
+    it("creates a project from the default template", async () => {
       const fetchSpy = vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
@@ -1699,7 +1700,6 @@ describe("Builder callback CSRF state", () => {
 
       const result = await createBuilderProject({
         name: "Agent-Native Workspace",
-        repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
       });
 
       expect(result).toEqual({
@@ -1714,25 +1714,18 @@ describe("Builder callback CSRF state", () => {
       );
       expect(JSON.parse(fetchSpy.mock.calls[0]?.[1].body)).toEqual({
         source: {
-          kind: "repo",
-          repoUrl:
-            "https://github.com/BuilderIO/builder-agent-native-workspace",
+          kind: "template",
+          templateId: "agent-native-starter",
         },
         name: "Agent-Native Workspace",
       });
     });
 
-    it("reuses a project already connected to the workspace repository", async () => {
+    it("finds a project connected to a repository through the deprecated API", async () => {
       const fetchSpy = vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
-            status: "success",
             projects: [
-              {
-                id: "project-other",
-                name: "Other",
-                repoUrl: "https://github.com/BuilderIO/other",
-              },
               {
                 id: "project-123",
                 name: "Agent-Native Workspace",
@@ -1760,22 +1753,45 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
-    it("bounds a stalled project lookup instead of leaving provisioning hanging", async () => {
+    it("creates a repository-backed project through the deprecated ensure API", async () => {
       const fetchSpy = vi
         .fn()
-        .mockRejectedValue(new DOMException("request timed out", "AbortError"));
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ projects: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              project: {
+                id: "project-created",
+                name: "Agent-Native Workspace",
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       vi.stubGlobal("fetch", fetchSpy);
 
-      await expect(
-        findBuilderProjectForRepo({
-          repoUrl:
-            "https://github.com/BuilderIO/builder-agent-native-workspace",
-        }),
-      ).rejects.toThrow("Builder project lookup timed out after 30000ms");
-      expect(fetchSpy).toHaveBeenCalledWith(
-        expect.any(URL),
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      );
+      const result = await ensureBuilderProject({
+        name: "Agent-Native Workspace",
+        repoUrl: "https://github.com/BuilderIO/legacy-workspace",
+      });
+
+      expect(result).toMatchObject({
+        projectId: "project-created",
+        repoUrl: "https://github.com/BuilderIO/legacy-workspace",
+        created: true,
+      });
+      expect(JSON.parse(fetchSpy.mock.calls[1]?.[1].body)).toEqual({
+        source: {
+          kind: "repo",
+          repoUrl: "https://github.com/BuilderIO/legacy-workspace",
+        },
+        name: "Agent-Native Workspace",
+      });
     });
   });
 });
