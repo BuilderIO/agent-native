@@ -456,6 +456,8 @@ const RECURRING_USERS_DESCRIPTION =
   "Daily signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.";
 const RECURRING_USERS_WEEKLY_DESCRIPTION =
   "Weekly distinct signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.";
+export const LEGACY_RETENTION_OVER_TIME_DESCRIPTION =
+  "Trailing 7-day first-seen signed-in app session cohorts, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.";
 export const PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION =
   "Trailing 7-day cohorts whose first signed-in app session was observed in the previous 365 days, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.";
 const RETENTION_OVER_TIME_DESCRIPTION =
@@ -469,7 +471,7 @@ export type ExactFirstPartyPanelReplacement = {
   id: string;
   legacySql: readonly string[];
   sql: string;
-  legacyDescription?: string;
+  legacyDescription?: string | readonly string[];
   description?: string;
 };
 type FirstPartyPanelReplacement = Omit<ExactFirstPartyPanelReplacement, "id">;
@@ -491,7 +493,10 @@ export function repairFirstPartyObservedRetentionPanels(
           PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
         ],
         sql: RETENTION_OVER_TIME_SQL,
-        legacyDescription: PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
+        legacyDescription: [
+          LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
+          PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
+        ],
         description: RETENTION_OVER_TIME_DESCRIPTION,
       },
     ],
@@ -640,7 +645,11 @@ export function repairFirstPartyObservedRetentionPanels(
               ...panelConfig,
               ...(replacement.legacyDescription !== undefined &&
               replacement.description !== undefined &&
-              panelConfig.description === replacement.legacyDescription
+              typeof panelConfig.description === "string" &&
+              (typeof replacement.legacyDescription === "string"
+                ? [replacement.legacyDescription]
+                : replacement.legacyDescription
+              ).includes(panelConfig.description)
                 ? { description: replacement.description }
                 : {}),
             },

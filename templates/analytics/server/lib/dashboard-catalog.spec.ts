@@ -31,6 +31,7 @@ import {
   LEGACY_WAU_BY_TEMPLATE_SQL,
   MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
   PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
+  LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
   PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
   repairFirstPartyObservedRetentionPanels,
   scopeFirstPartyPanelSql,
@@ -295,6 +296,26 @@ describe("dashboard catalog", () => {
         expect(catalogPanel.config?.description).toContain("previous 365 days");
       }
     }
+  });
+
+  it("replaces the original retention-over-time description alongside its legacy SQL", () => {
+    const current = requiredFirstPartyPanel("retention-over-time");
+    const repaired = repairFirstPartyObservedRetentionPanels({
+      panels: [
+        {
+          ...current,
+          sql: LEGACY_V0_RETENTION_OVER_TIME_SQL,
+          config: {
+            ...(current.config ?? {}),
+            description: LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
+          },
+        },
+      ],
+    });
+    const panel = (repaired.config.panels as Array<typeof current>)[0]!;
+    expect(repaired.changed).toBe(true);
+    expect(panel.sql).toBe(current.sql);
+    expect(panel.config?.description).toBe(current.config?.description);
   });
 
   it("repairs the materialized one-day retention self-join to one analytics scan", () => {
