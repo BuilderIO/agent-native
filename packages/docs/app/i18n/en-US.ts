@@ -1023,9 +1023,9 @@ const enUS = {
       s060: "Choose what to capture, then start recording in Clips.",
       s062: "View all apps",
       faq: {
-        question1: "Is Clips free and open source?",
+        question1: "What is Agent-Native Clips?",
         answer1:
-          "Yes. Clips is free and open-source software. You can use the app or customize and self-host your own version.",
+          "Agent-Native Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents. It gives your AI agent a transcript and timestamped images from a recording, while people can watch the same clip.",
         question2: "Can I share recordings with Claude, ChatGPT, or Cursor?",
         answer2:
           "Clips provides an agent-readable link with a transcript and timestamped images. Your agent needs to be able to open the linked content and read images to use both. Some chat modes can read the transcript but need you to upload an image separately.",

@@ -1034,9 +1034,9 @@ const esES = {
       s060: "Elige qué quieres capturar y, después, empieza a grabar en Clips.",
       s062: "Ver todas las plantillas",
       faq: {
-        question1: "¿Clips es gratis y de código abierto?",
+        question1: "¿Qué es Agent-Native Clips?",
         answer1:
-          "Sí. Clips es software gratuito y de código abierto. Puedes usar la app o personalizar y auto-alojar tu propia versión.",
+          "Agent-Native Clips es un grabador de pantalla gratuito y de código abierto para compartir errores, comentarios y tutoriales con agentes de IA. Le da a tu agente de IA una transcripción e imágenes con marca de tiempo de una grabación, mientras que las personas pueden ver el mismo clip.",
         question2: "¿Puedo compartir grabaciones con Claude, ChatGPT o Cursor?",
         answer2:
           "Clips ofrece un enlace legible por agentes con una transcripción e imágenes con marca de tiempo. Tu agente debe poder abrir el contenido enlazado y leer imágenes para usar ambos. Algunos modos de chat pueden leer la transcripción, pero necesitan que subas una imagen por separado.",

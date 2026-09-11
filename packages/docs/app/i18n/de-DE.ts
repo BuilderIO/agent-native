@@ -1034,9 +1034,9 @@ const deDE = {
       s060: "Wählen Sie aus, was Sie aufnehmen möchten, und starten Sie dann die Aufnahme in Clips.",
       s062: "Alle Vorlagen anzeigen",
       faq: {
-        question1: "Ist Clips kostenlos und Open Source?",
+        question1: "Was ist Agent-Native Clips?",
         answer1:
-          "Ja. Clips ist kostenlose Open-Source-Software. Du kannst die App nutzen oder deine eigene Version anpassen und selbst hosten.",
+          "Agent-Native Clips ist ein kostenloser Open-Source-Bildschirmrecorder zum Teilen von Fehlern, Feedback und Anleitungen mit KI-Agenten. Er gibt deinem KI-Agenten ein Transkript und zeitgestempelte Bilder einer Aufnahme, während Menschen sich denselben Clip ansehen können.",
         question2: "Kann ich Aufnahmen mit Claude, ChatGPT oder Cursor teilen?",
         answer2:
           "Clips stellt einen für Agenten lesbaren Link mit Transkript und zeitgestempelten Bildern bereit. Dein Agent muss den verlinkten Inhalt öffnen und Bilder lesen können, um beides zu nutzen. Manche Chat-Modi können das Transkript lesen, benötigen aber ein separat hochgeladenes Bild.",

@@ -1034,9 +1034,9 @@ const frFR = {
       s060: "Choisissez ce que vous souhaitez capturer, puis commencez à enregistrer dans Clips.",
       s062: "Afficher tous les modèles",
       faq: {
-        question1: "Clips est-il gratuit et open source ?",
+        question1: "Qu'est-ce qu'Agent-Native Clips ?",
         answer1:
-          "Oui. Clips est un logiciel gratuit et open source. Vous pouvez utiliser l'application ou personnaliser et auto-héberger votre propre version.",
+          "Agent-Native Clips est un enregistreur d'écran gratuit et open source pour partager des bugs, des retours et des tutoriels avec des agents IA. Il fournit à votre agent IA une transcription et des images horodatées d'un enregistrement, tandis que les personnes peuvent regarder le même clip.",
         question2:
           "Puis-je partager des enregistrements avec Claude, ChatGPT ou Cursor ?",
         answer2:
