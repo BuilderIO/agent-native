@@ -14,12 +14,24 @@ type MigrationLockRegistry = Map<string, Promise<void>>;
 
 const migrationGlobal = globalThis as typeof globalThis & {
   __agentNativePgliteMigrationLocks?: MigrationLockRegistry;
+  __agentNativeMigrationExecState?: {
+    promise: Promise<DbExec> | null;
+    refCount: number;
+  };
 };
 const pgliteMigrationLocks =
   (migrationGlobal.__agentNativePgliteMigrationLocks ??= new Map<
     string,
     Promise<void>
   >());
+
+// Vite dev evaluates this module once per module runner ("nitro" and "ssr"),
+// so this state lives on globalThis to keep one migration exec shared.
+const migrationExecState = (migrationGlobal.__agentNativeMigrationExecState ??=
+  {
+    promise: null,
+    refCount: 0,
+  });
 
 // A PGlite process lock owns the persistent directory before this in-process
 // mutex serializes the shared client's boot-time DDL.
@@ -47,30 +59,27 @@ async function withPgliteMigrationLock<T>(
     }
   }
 }
-let migrationExecPromise: Promise<DbExec> | null = null;
-let migrationExecRefCount = 0;
-
 async function acquireMigrationExec(): Promise<DbExec> {
-  if (!migrationExecPromise) {
+  if (!migrationExecState.promise) {
     const opened = createDbExec({ url: getMigrationDatabaseUrl() });
-    migrationExecPromise = opened;
+    migrationExecState.promise = opened;
     opened.catch(() => {
-      if (migrationExecPromise === opened) {
-        migrationExecPromise = null;
-        migrationExecRefCount = 0;
+      if (migrationExecState.promise === opened) {
+        migrationExecState.promise = null;
+        migrationExecState.refCount = 0;
       }
     });
   }
-  migrationExecRefCount++;
-  return migrationExecPromise;
+  migrationExecState.refCount++;
+  return migrationExecState.promise;
 }
 
 async function releaseMigrationExec(): Promise<void> {
-  migrationExecRefCount--;
-  if (migrationExecRefCount > 0) return;
-  const execPromise = migrationExecPromise;
-  migrationExecPromise = null;
-  migrationExecRefCount = 0;
+  migrationExecState.refCount--;
+  if (migrationExecState.refCount > 0) return;
+  const execPromise = migrationExecState.promise;
+  migrationExecState.promise = null;
+  migrationExecState.refCount = 0;
   if (!execPromise) return;
   const migrationUrl = getMigrationDatabaseUrl();
   if (!migrationUrl || isPgliteUrl(migrationUrl)) return;

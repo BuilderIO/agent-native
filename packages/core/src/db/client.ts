@@ -1668,8 +1668,19 @@ function disposePostgresPoolEventually(
 // Singleton client — lazy-initialized on first execute() call
 // ---------------------------------------------------------------------------
 
-let _exec: DbExec | undefined;
-let _initPromise: Promise<void> | undefined;
+// Vite dev evaluates this module once per module runner ("nitro" and "ssr"),
+// so a plain module-scoped singleton is duplicated; two execs over one
+// PGlite engine deadlock, so this state lives on globalThis instead.
+const dbExecGlobal = globalThis as typeof globalThis & {
+  __agentNativeDbExecState?: {
+    exec: DbExec | undefined;
+    initPromise: Promise<void> | undefined;
+  };
+};
+const dbExecState = (dbExecGlobal.__agentNativeDbExecState ??= {
+  exec: undefined,
+  initPromise: undefined,
+});
 
 async function executePglite(
   client: {
@@ -1689,6 +1700,67 @@ async function executePglite(
   };
 }
 
+/**
+ * Run `fn` inside a native PGlite transaction, registering the transaction
+ * client/exec under `pgliteClientKeyFromUrl(url)` in the AsyncLocalStorage
+ * registry so `getDbExec().execute()` calls made anywhere inside `fn` resolve
+ * to this transaction instead of the main client. Shared by
+ * `createDbExecInternal`'s own `transaction()` and by `pgliteDrizzleClient`,
+ * since Drizzle opens PGlite transactions by calling `client.transaction`
+ * directly rather than going through this module.
+ */
+function runPgliteTransaction<T>(
+  url: string,
+  client: any,
+  fn: (tx: any, transactionExec: DbExec) => Promise<T>,
+): Promise<T> {
+  if (getActivePgliteTransactionExec(url)) {
+    throw new Error(
+      "Nested PGlite transactions are not supported; reuse the active transaction handle.",
+    );
+  }
+  if (!pgliteTransactionStorage) {
+    throw new Error(
+      "PGlite transactions require AsyncLocalStorage so database access stays on the active transaction handle.",
+    );
+  }
+  const clientKey = pgliteClientKeyFromUrl(url);
+  return client.transaction((tx: any) => {
+    const transactionExec: DbExec = {
+      execute: (sql) => executePglite(tx, sql),
+    };
+    const activeTransactions = new Map(pgliteTransactionStorage.getStore());
+    activeTransactions.set(clientKey, {
+      client: tx,
+      exec: transactionExec,
+    });
+    return pgliteTransactionStorage.run(activeTransactions, () =>
+      fn(tx, transactionExec),
+    );
+  });
+}
+
+/**
+ * Wrap the raw PGlite engine so Drizzle's `db.transaction(fn)` — which calls
+ * `client.transaction` on the engine directly, bypassing this module's own
+ * `transaction()` — still registers with `pgliteTransactionStorage`. Without
+ * this, any `getDbExec().execute()` inside a Drizzle transaction callback
+ * falls through to the main client and queues behind the open transaction on
+ * PGlite's single connection, deadlocking forever.
+ */
+export function pgliteDrizzleClient(url: string, client: any): any {
+  return new Proxy(client, {
+    get(target, prop) {
+      if (prop === "transaction") {
+        return (fn: (tx: any) => Promise<unknown>) =>
+          runPgliteTransaction(url, target, (tx) => fn(tx));
+      }
+      const v = Reflect.get(target, prop, target);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+}
+
 async function createDbExecInternal(
   config: DbExecConfig = {},
   trackSingletonResources = false,
@@ -1700,37 +1772,13 @@ async function createDbExecInternal(
 
   if (isPgliteUrl(url)) {
     const client = await getPgliteClient(url);
-    const clientKey = pgliteClientKeyFromUrl(url);
     return {
       execute: (sql) =>
         executePglite(getActivePgliteTransactionClient(url) ?? client, sql),
-      async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-        if (getActivePgliteTransactionExec(url)) {
-          throw new Error(
-            "Nested PGlite transactions are not supported; reuse the active transaction handle.",
-          );
-        }
-        if (!pgliteTransactionStorage) {
-          throw new Error(
-            "PGlite transactions require AsyncLocalStorage so database access stays on the active transaction handle.",
-          );
-        }
-        return client.transaction((tx: any) => {
-          const transactionExec: DbExec = {
-            execute: (sql) => executePglite(tx, sql),
-          };
-          const activeTransactions = new Map(
-            pgliteTransactionStorage.getStore(),
-          );
-          activeTransactions.set(clientKey, {
-            client: tx,
-            exec: transactionExec,
-          });
-          return pgliteTransactionStorage.run(activeTransactions, () =>
-            fn(transactionExec),
-          );
-        });
-      },
+      transaction: (fn) =>
+        runPgliteTransaction(url, client, (_tx, transactionExec) =>
+          fn(transactionExec),
+        ),
     };
   }
 
@@ -2220,14 +2268,14 @@ function guardSchemaMutations(exec: DbExec): DbExec {
 }
 
 async function initClient(): Promise<void> {
-  if (_exec) return;
+  if (dbExecState.exec) return;
 
   if (isHostedFunctionInvocationRuntime() && isLocalDatabase()) {
     throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
   }
 
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
-  _exec = await createDbExecInternal({ url }, true);
+  dbExecState.exec = await createDbExecInternal({ url }, true);
 }
 
 /**
@@ -2264,7 +2312,7 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
 }
 
 export function getDbExec(): DbExec {
-  if (_exec) return _exec;
+  if (dbExecState.exec) return dbExecState.exec;
 
   // Sanitize args because PostgreSQL parameters cannot be undefined.
   function sanitize(
@@ -2281,7 +2329,7 @@ export function getDbExec(): DbExec {
   ): ReturnType<DbExec["execute"]> {
     assertSchemaMutationAllowed(s);
     try {
-      return await _exec!.execute(sanitize(s));
+      return await dbExecState.exec!.execute(sanitize(s));
     } catch (err) {
       throw annotateMissingTable(err, s);
     }
@@ -2291,31 +2339,33 @@ export function getDbExec(): DbExec {
   const proxy: DbExec = {
     async execute(sql) {
       assertSchemaMutationAllowed(sql);
-      if (!_initPromise) _initPromise = initClient();
+      if (!dbExecState.initPromise) dbExecState.initPromise = initClient();
       try {
-        await _initPromise;
+        await dbExecState.initPromise;
       } catch (err) {
         // A failed/hung init must not poison the singleton for the life of
         // the process — drop it so the next call retries a fresh connection
         // instead of re-awaiting a permanently rejected/pending promise.
-        _initPromise = undefined;
-        _exec = undefined;
+        dbExecState.initPromise = undefined;
+        dbExecState.exec = undefined;
         throw err;
       }
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => execAnnotated(s),
-        atomicBatch: _exec!.atomicBatch
+        atomicBatch: dbExecState.exec!.atomicBatch
           ? async (statements) => {
               for (const statement of statements) {
                 assertSchemaMutationAllowed(statement);
               }
-              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
+              return dbExecState.exec!.atomicBatch!(
+                statements.map((s) => sanitize(s)),
+              );
             }
           : undefined,
-        transaction: _exec!.transaction
+        transaction: dbExecState.exec!.transaction
           ? (fn) =>
-              _exec!.transaction!((tx) =>
+              dbExecState.exec!.transaction!((tx) =>
                 fn({
                   execute: (s) => {
                     assertSchemaMutationAllowed(s);
@@ -2330,27 +2380,29 @@ export function getDbExec(): DbExec {
       return execAnnotated(sql);
     },
     async transaction(fn) {
-      if (!_initPromise) _initPromise = initClient();
+      if (!dbExecState.initPromise) dbExecState.initPromise = initClient();
       try {
-        await _initPromise;
+        await dbExecState.initPromise;
       } catch (err) {
-        _initPromise = undefined;
-        _exec = undefined;
+        dbExecState.initPromise = undefined;
+        dbExecState.exec = undefined;
         throw err;
       }
       const wrapper: DbExec = {
         execute: (s) => execAnnotated(s),
-        atomicBatch: _exec!.atomicBatch
+        atomicBatch: dbExecState.exec!.atomicBatch
           ? async (statements) => {
               for (const statement of statements) {
                 assertSchemaMutationAllowed(statement);
               }
-              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
+              return dbExecState.exec!.atomicBatch!(
+                statements.map((s) => sanitize(s)),
+              );
             }
           : undefined,
-        transaction: _exec!.transaction
+        transaction: dbExecState.exec!.transaction
           ? (innerFn) =>
-              _exec!.transaction!((tx) =>
+              dbExecState.exec!.transaction!((tx) =>
                 innerFn({
                   execute: (s) => {
                     assertSchemaMutationAllowed(s);
@@ -2362,8 +2414,8 @@ export function getDbExec(): DbExec {
           : undefined,
       };
       Object.assign(proxy, wrapper);
-      if (_exec!.transaction) {
-        return _exec!.transaction((tx) =>
+      if (dbExecState.exec!.transaction) {
+        return dbExecState.exec!.transaction((tx) =>
           fn({
             execute: (s) => {
               assertSchemaMutationAllowed(s);
@@ -2373,7 +2425,7 @@ export function getDbExec(): DbExec {
           }),
         );
       }
-      if (_exec!.atomicBatch) {
+      if (dbExecState.exec!.atomicBatch) {
         throw new Error(
           "This database supports atomic batches, not interactive transactions.",
         );
@@ -2384,22 +2436,24 @@ export function getDbExec(): DbExec {
       for (const statement of statements) {
         assertSchemaMutationAllowed(statement);
       }
-      if (!_initPromise) _initPromise = initClient();
+      if (!dbExecState.initPromise) dbExecState.initPromise = initClient();
       try {
-        await _initPromise;
+        await dbExecState.initPromise;
       } catch (err) {
-        _initPromise = undefined;
-        _exec = undefined;
+        dbExecState.initPromise = undefined;
+        dbExecState.exec = undefined;
         throw err;
       }
-      if (!_exec!.atomicBatch) {
+      if (!dbExecState.exec!.atomicBatch) {
         throw new Error("This database does not support atomic batches.");
       }
       const batch = async (items: typeof statements) => {
         for (const item of items) {
           assertSchemaMutationAllowed(item);
         }
-        return _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+        return dbExecState.exec!.atomicBatch!(
+          items.map((item) => sanitize(item)),
+        );
       };
       Object.assign(proxy, { atomicBatch: batch });
       return batch(statements);
@@ -2414,6 +2468,6 @@ export async function closeDbExec(): Promise<void> {
   // to them.
   await closeSharedDbPools();
   await closePgliteClients();
-  _exec = undefined;
-  _initPromise = undefined;
+  dbExecState.exec = undefined;
+  dbExecState.initPromise = undefined;
 }
