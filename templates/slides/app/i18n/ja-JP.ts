@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
+    labs: "Labs",
+    labsIntro: "リリース前に実験的な機能をプレビューできます。",
+    labLayoutOverflowWarningDescription:
+      "エディターでレイアウトのはみ出し警告を表示します。",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
       "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",

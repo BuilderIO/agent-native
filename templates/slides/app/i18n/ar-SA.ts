@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "الإعدادات",
     description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
+    labs: "المختبرات",
+    labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
+    labLayoutOverflowWarningDescription: "إظهار تحذير تجاوز التخطيط في المحرر.",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
       "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",

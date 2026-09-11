@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "设置",
     description: "此应用的语言和工作区偏好设置。",
+    labs: "实验室",
+    labsIntro: "在正式发布前预览实验性功能。",
+    labLayoutOverflowWarningDescription: "在编辑器中显示布局溢出警告。",
     emailNotifications: "邮件通知",
     emailNotificationsDescription:
       "当有人评论你的演示文稿或在讨论串中回复时，收到邮件通知。",

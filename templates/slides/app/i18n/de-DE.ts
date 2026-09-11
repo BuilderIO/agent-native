@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Einstellungen",
     description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
+    labs: "Labs",
+    labsIntro: "Teste experimentelle Funktionen vor ihrer Veröffentlichung.",
+    labLayoutOverflowWarningDescription:
+      "Die Layout-Überlaufwarnung im Editor anzeigen.",
     emailNotifications: "E-Mail-Benachrichtigungen",
     emailNotificationsDescription:
       "Erhalte eine E-Mail, wenn jemand dein Deck kommentiert oder in einem Thread antwortet.",

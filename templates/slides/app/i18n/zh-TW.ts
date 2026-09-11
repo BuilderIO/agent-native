@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "設定",
     description: "此應用的語言和工作區偏好設定。",
+    labs: "實驗室",
+    labsIntro: "在正式發布前預覽實驗性功能。",
+    labLayoutOverflowWarningDescription: "在編輯器中顯示版面溢位警告。",
     emailNotifications: "郵件通知",
     emailNotificationsDescription:
       "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
