@@ -1152,6 +1152,37 @@ describe("design connect bridge endpoints", () => {
         `http://127.0.0.1:${devPort}/settings`,
       );
 
+      // A keyed target with a valueless Vite-style flag keeps it byte-identical.
+      const flagged = await getText(
+        `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/page?url`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      expect(flagged.status).toBe(200);
+      expect(flagged.body).toContain(
+        JSON.stringify("/page?url&agentNativeBridgeKey=screen-a"),
+      );
+      expect(flagged.body).not.toContain("?url=&");
+
+      // A form POST navigation cannot be redirected without dropping its
+      // body, so it is proxied with the frame's own keyed script instead.
+      const posted = await fetch(`${base}/submit`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          "content-type": "application/x-www-form-urlencoded",
+          referer: `${base}/home?agentNativeBridgeKey=screen-a`,
+        },
+        body: "q=1",
+      });
+      expect(posted.status).toBe(200);
+      const postedHtml = await posted.text();
+      expect(postedHtml).toContain('window.__screenBridge="A"');
+      expect(postedHtml).not.toContain('window.__screenBridge="B"');
+      expect(postedHtml).toContain(
+        JSON.stringify("/submit?agentNativeBridgeKey=screen-a"),
+      );
+
       // A reload of the rewritten URL itself carries the key in the request.
       const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
         redirect: "manual",

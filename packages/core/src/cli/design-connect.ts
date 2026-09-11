@@ -1181,14 +1181,32 @@ function keyedFrameNavigation(
   return null;
 }
 
-/** Remove one query param from an absolute URL, leaving the URL byte-identical
- *  when the param is absent (touching `searchParams` re-serializes the query,
- *  which breaks Vite's valueless `?url` flags — see stripPreviewTokenQueryParam). */
+/** Drop one query pair from a raw `?a=1&b` search string without touching the
+ *  others. Never route this through `URLSearchParams`: re-serializing turns a
+ *  valueless Vite flag like `?url` into `?url=`, which Vite treats differently
+ *  (see stripPreviewTokenQueryParam). */
+function stripQueryPair(search: string, name: string): string {
+  if (!search.includes(name)) return search;
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  const kept = raw
+    .split("&")
+    .filter((pair) => pair !== name && !pair.startsWith(`${name}=`));
+  return kept.length > 0 ? `?${kept.join("&")}` : "";
+}
+
+/** Append one query pair to a raw search string, preserving existing pairs
+ *  byte-for-byte for the same reason as stripQueryPair. */
+function appendQueryPair(search: string, name: string, value: string): string {
+  const pair = `${name}=${encodeURIComponent(value)}`;
+  if (!search || search === "?") return `?${pair}`;
+  return `${search}&${pair}`;
+}
+
 function stripQueryParam(absoluteUrl: string, name: string): string {
-  if (!absoluteUrl.includes(`${name}=`)) return absoluteUrl;
+  if (!absoluteUrl.includes(name)) return absoluteUrl;
   const url = new URL(absoluteUrl);
-  url.searchParams.delete(name);
-  return url.toString();
+  const search = stripQueryPair(url.search, name);
+  return `${url.origin}${url.pathname}${search}${url.hash}`;
 }
 
 function resolvePreviewProxyUrl(
@@ -2473,14 +2491,14 @@ export async function startDesignConnectBridge(
             // A keyed frame keeps its key on the rewritten URL so a later
             // navigation (whose Referer is that URL) can be sent back through
             // /live-edit with the same identity.
-            if (requestedBridgeKey) {
-              targetParsed.searchParams.set(
-                FRAME_BRIDGE_KEY_PARAM,
-                requestedBridgeKey,
-              );
-            }
-            const targetPath =
-              `${targetParsed.pathname}${targetParsed.search}` || "/";
+            const targetSearch = requestedBridgeKey
+              ? appendQueryPair(
+                  targetParsed.search,
+                  FRAME_BRIDGE_KEY_PARAM,
+                  requestedBridgeKey,
+                )
+              : targetParsed.search;
+            const targetPath = `${targetParsed.pathname}${targetSearch}` || "/";
             const html = injectLiveEditBridge(
               snapshot.html,
               new URL("/", manifest.bridgeUrl).toString(),
@@ -2815,13 +2833,15 @@ export async function startDesignConnectBridge(
             // boot it with whichever screen registered last. Its referer is
             // the /live-edit URL it came from, so send it back through
             // /live-edit with that key and the frame keeps its identity.
-            if (method === "GET" && isFrameNavigationRequest(req)) {
-              const keyed = keyedFrameNavigation(
-                proxyRequestUrl,
-                readHeader(req, "referer"),
-                manifest.bridgeUrl,
-              );
-              if (keyed) {
+            const keyed = isFrameNavigationRequest(req)
+              ? keyedFrameNavigation(
+                  proxyRequestUrl,
+                  readHeader(req, "referer"),
+                  manifest.bridgeUrl,
+                )
+              : null;
+            if (method === "GET" && keyed) {
+              {
                 const next = new URL("/live-edit", manifest.bridgeUrl);
                 next.searchParams.set(
                   "url",
@@ -2860,16 +2880,36 @@ export async function startDesignConnectBridge(
             // without the bridge injection here, a redirect or home link
             // inside a visual-edit frame would silently drop live editing.
             const documentNavigation = isFrameNavigationRequest(req);
+            // A keyed navigation that could not be redirected (a form POST
+            // has a body the redirect would drop) still boots with its own
+            // screen's script and keeps the key on the shim path.
+            const keyedScript = keyed
+              ? liveEditBridgeScripts.get(keyed.bridgeKey)
+              : undefined;
             const responseBody =
               documentNavigation && contentType.includes("html")
                 ? Buffer.from(
                     injectLiveEditBridge(
                       proxied.body.toString("utf8"),
                       new URL("/", manifest.bridgeUrl).toString(),
-                      liveEditBridgeScript,
+                      keyedScript ?? liveEditBridgeScript,
                       (() => {
                         const parsed = new URL(proxied.url);
-                        return `${parsed.pathname}${parsed.search}` || "/";
+                        const search = stripQueryPair(
+                          parsed.search,
+                          FRAME_BRIDGE_KEY_PARAM,
+                        );
+                        return (
+                          `${parsed.pathname}${
+                            keyed
+                              ? appendQueryPair(
+                                  search,
+                                  FRAME_BRIDGE_KEY_PARAM,
+                                  keyed.bridgeKey,
+                                )
+                              : search
+                          }` || "/"
+                        );
                       })(),
                     ),
                   )
