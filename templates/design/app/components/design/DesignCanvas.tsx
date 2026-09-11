@@ -5195,15 +5195,32 @@ export function DesignCanvas({
       {/* Canvas area. "none" mode fills the canvas (responsive preview);
           framed modes are centered inside the canvas with zoom applied. */}
       {centerInteractPreview ? (
-        <div className="relative flex min-h-full min-w-full items-center justify-center">
+        <div
+          className="relative flex min-h-full min-w-full items-center justify-center"
+          style={{ justifyContent: "safe center", alignItems: "safe center" }}
+        >
           <div
-            ref={zoomLayerRef}
+            className="shrink-0"
             style={{
-              transform: `scale(${zoom / 100})`,
-              transformOrigin: "center center",
+              width:
+                previewWidthPx === undefined
+                  ? undefined
+                  : previewWidthPx * (zoom / 100),
+              height:
+                previewHeightPx === undefined
+                  ? undefined
+                  : previewHeightPx * (zoom / 100),
             }}
           >
-            {wrappedContent}
+            <div
+              ref={zoomLayerRef}
+              style={{
+                transform: `scale(${zoom / 100})`,
+                transformOrigin: "top left",
+              }}
+            >
+              {wrappedContent}
+            </div>
           </div>
         </div>
       ) : deviceFrame === "none" ? (

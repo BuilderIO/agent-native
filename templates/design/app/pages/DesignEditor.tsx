@@ -21454,7 +21454,7 @@ function DesignEditor() {
                   {rightSidebarActions}
                 </div>
               ) : (
-                <div aria-hidden="true" />
+                <div aria-hidden="true" style={{ width: rightSidebarWidth }} />
               )}
             </div>
           </div>

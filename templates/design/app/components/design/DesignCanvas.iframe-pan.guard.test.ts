@@ -59,8 +59,12 @@ describe("DesignCanvas iframe pan bridge wiring", () => {
       'zoomToCursor: deviceFrame === "none" && !centerInteractPreview',
     );
     expect(canvasSource).toContain("{centerInteractPreview ? (");
+    expect(canvasSource).toContain('justifyContent: "safe center"');
+    expect(canvasSource).toContain('transformOrigin: "top left"');
+    expect(canvasSource).toContain("previewWidthPx * (zoom / 100)");
     expect(editorSource).toContain(
       "centerInteractPreview={responsiveInteractActive}",
     );
+    expect(editorSource).toContain("style={{ width: rightSidebarWidth }}");
   });
 });
