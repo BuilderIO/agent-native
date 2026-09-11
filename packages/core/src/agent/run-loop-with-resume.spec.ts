@@ -938,6 +938,74 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
+  it("waits out a longer provider Retry-After instead of the fixed cooldown", async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async () => {
+        attempts++;
+        if (attempts === 1) {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+            retryAfterMs: 45_000,
+          });
+        }
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      const run = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        120_000,
+      );
+      // The fixed 20s cooldown alone must NOT retry: the header asked for 45s.
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS + 5_000,
+      );
+      expect(attempts).toBe(1);
+      await vi.advanceTimersByTimeAsync(45_000);
+      await run;
+      expect(attempts).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends with the provider_rate_limited terminal when the Retry-After wait cannot fit the budget", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      throw new EngineError("429 status code (no body)", {
+        errorCode: "http_429",
+        statusCode: 429,
+        retryAfterMs: 45_000,
+      });
+    });
+
+    // A 60s soft timeout covers the fixed 20s cooldown, but not the 45s the
+    // provider asked for plus the 8s minimum continuation budget.
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        50_000,
+      ),
+    ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
+
+    expect(attempts).toBe(1);
+  });
+
   it("throws the provider_rate_limited terminal shape on the foreground lane when the budget doesn't cover a cooldown", async () => {
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async () => {

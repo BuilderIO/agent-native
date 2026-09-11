@@ -274,8 +274,24 @@ function internalContinuationReasonForAttempt(
 export const MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS = 1;
 export const BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS = 20_000;
 
+/**
+ * The provider's own `Retry-After` (already capped by `classifyProviderError`)
+ * outranks the fixed cooldown when it asks for longer: retrying sooner than
+ * the header says is a guaranteed second 429, and the budget gate below
+ * measures the same delay so a wait the chunk cannot afford ends the turn
+ * with the visible rate-limit terminal instead of overrunning the wall.
+ */
+function rateLimitCooldownMs(err: unknown): number {
+  const retryAfterMs =
+    err instanceof EngineError && typeof err.retryAfterMs === "number"
+      ? err.retryAfterMs
+      : 0;
+  return Math.max(BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS, retryAfterMs);
+}
+
 function waitForBackgroundRateLimitCooldown(
   signal: AbortSignal,
+  delayMs: number,
 ): Promise<void> {
   if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
@@ -284,10 +300,7 @@ function waitForBackgroundRateLimitCooldown(
       signal.removeEventListener("abort", finish);
       resolve();
     };
-    const timer = setTimeout(
-      finish,
-      BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
-    );
+    const timer = setTimeout(finish, delayMs);
     signal.addEventListener("abort", finish, { once: true });
   });
 }
@@ -686,12 +699,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
       // remaining-wall-clock check below already fails closed for a
       // foreground turn that doesn't have the 20s cooldown + minimum
       // continuation budget to spare.
+      const rateLimitCooldown = rateLimitCooldownMs(err);
       const rateLimitRetryFitsBudget =
         backgroundRateLimitContinuations <
           MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS &&
-        timeoutMs -
-          (Date.now() - loopEntryAt) -
-          BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS >=
+        timeoutMs - (Date.now() - loopEntryAt) - rateLimitCooldown >=
           SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS;
       if (
         !turnSignal.aborted &&
@@ -717,7 +729,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           localTurnEvents,
           localTurnEvents.slice(attemptStartIndex),
         );
-        await waitForBackgroundRateLimitCooldown(turnSignal);
+        await waitForBackgroundRateLimitCooldown(turnSignal, rateLimitCooldown);
         continue;
       }
       // The one cooled-down retry is spent (or this lane never had budget for
