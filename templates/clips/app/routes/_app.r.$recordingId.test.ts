@@ -130,7 +130,8 @@ describe("direct recording route shell cue", () => {
     expect(toolbar).not.toContain("renderSidebarToggleButton()");
     expect(toolbar).not.toContain("renderPanelTabs()");
     expect(route).toContain("<ViewerTabsList");
-    expect(route).toContain('<ViewerTabsTrigger value="comments">');
+    expect(route).toContain('value="comments"');
+    expect(route).toContain('useState<SidePanel | null>("comments")');
     expect(route).toContain('<ViewerTabsTrigger value="transcript">');
     expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
     expect(route).toContain('<ViewerTabsTrigger value="debug">');
