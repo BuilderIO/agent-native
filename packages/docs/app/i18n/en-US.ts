@@ -1574,7 +1574,7 @@ const enUS = {
       heroTitle: "Create presentations with your AI agent",
       heroDescription:
         "Slides is a free and open-source AI presentation maker for creating on-brand decks from your ideas and source material, with slides you can edit yourself.",
-      heroCta: "Create a presentation",
+      heroCta: "Create a deck",
       useCasesHeading: "What can you do with Slides?",
       useCasesBody:
         "Prepare a pitch, present a plan, or share an update. Give your AI agent the material and the audience you have in mind.",
@@ -1609,7 +1609,7 @@ const enUS = {
         "Present full-screen with speaker notes, share a viewing link, or export your deck as a PowerPoint file.",
       finalCtaHeading: "Start your next presentation",
       finalCtaBody: "Bring an idea, a brief, or an existing deck.",
-      finalCtaButton: "Create a presentation",
+      finalCtaButton: "Open Slides",
       s002: "Prompt it.",
       s003: "Brand it.",
       s004: "Re-use it.",

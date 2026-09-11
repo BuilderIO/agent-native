@@ -1542,7 +1542,7 @@ const koKR = {
       heroTitle: "AI 에이전트로 프레젠테이션 만들기",
       heroDescription:
         "Slides는 무료 오픈소스 AI 프레젠테이션 제작 도구로, 아이디어와 참고 자료로 브랜드에 맞는 덱을 만들고 슬라이드는 직접 편집할 수 있습니다.",
-      heroCta: "프레젠테이션 만들기",
+      heroCta: "덱 만들기",
       useCasesHeading: "Slides로 무엇을 할 수 있나요?",
       useCasesBody:
         "피치를 준비하거나, 계획을 발표하거나, 업무 업데이트를 공유해 보세요. 자료와 대상 청중을 AI 에이전트에게 전달하세요.",
@@ -1577,7 +1577,7 @@ const koKR = {
         "발표자 노트와 함께 전체 화면으로 발표하거나, 보기 링크를 공유하거나, 덱을 PowerPoint 파일로 내보내세요.",
       finalCtaHeading: "다음 프레젠테이션을 시작하세요",
       finalCtaBody: "아이디어, 브리핑, 또는 기존 덱을 가져와 보세요.",
-      finalCtaButton: "프레젠테이션 만들기",
+      finalCtaButton: "Slides 열기",
       s002: "설명하다",
       s003: "생성",
       s004: "구체화",

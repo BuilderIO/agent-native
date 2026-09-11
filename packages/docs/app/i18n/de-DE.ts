@@ -1592,7 +1592,7 @@ const deDE = {
       heroTitle: "Präsentationen mit deinem KI-Agenten erstellen",
       heroDescription:
         "Slides ist ein kostenloser Open-Source-KI-Präsentationsersteller für markenkonforme Decks aus deinen Ideen und Quellmaterialien – mit Folien, die du selbst bearbeiten kannst.",
-      heroCta: "Präsentation erstellen",
+      heroCta: "Deck erstellen",
       useCasesHeading: "Was kannst du mit Slides machen?",
       useCasesBody:
         "Bereite eine Pitch vor, präsentiere einen Plan oder teile ein Update. Gib deinem KI-Agenten das Material und das Publikum, das du im Kopf hast.",
@@ -1629,7 +1629,7 @@ const deDE = {
       finalCtaHeading: "Starte deine nächste Präsentation",
       finalCtaBody:
         "Bring eine Idee, ein Briefing oder ein bestehendes Deck mit.",
-      finalCtaButton: "Präsentation erstellen",
+      finalCtaButton: "Slides öffnen",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Verfeinern",

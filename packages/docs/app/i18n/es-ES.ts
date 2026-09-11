@@ -1590,7 +1590,7 @@ const esES = {
       heroTitle: "Crea presentaciones con tu agente de IA",
       heroDescription:
         "Slides es un creador de presentaciones de IA gratuito y de código abierto para crear decks con tu marca a partir de tus ideas y material de referencia, con diapositivas que puedes editar tú mismo.",
-      heroCta: "Crear una presentación",
+      heroCta: "Crear un deck",
       useCasesHeading: "¿Qué puedes hacer con Slides?",
       useCasesBody:
         "Prepara un pitch, presenta un plan o comparte una actualización. Dale a tu agente de IA el material y el público que tienes en mente.",
@@ -1626,7 +1626,7 @@ const esES = {
         "Presenta a pantalla completa con notas del orador, comparte un enlace de visualización o exporta tu deck como archivo de PowerPoint.",
       finalCtaHeading: "Empieza tu próxima presentación",
       finalCtaBody: "Trae una idea, un brief o un deck ya existente.",
-      finalCtaButton: "Crear una presentación",
+      finalCtaButton: "Abrir Slides",
       s002: "describir",
       s003: "generar",
       s004: "Refinar",

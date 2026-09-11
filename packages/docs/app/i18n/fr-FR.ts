@@ -1595,7 +1595,7 @@ const frFR = {
       heroTitle: "Créez des présentations avec votre agent IA",
       heroDescription:
         "Slides est un générateur de présentations IA gratuit et open source pour créer des decks à l'image de votre marque à partir de vos idées et de vos documents source, avec des diapositives que vous pouvez modifier vous-même.",
-      heroCta: "Créer une présentation",
+      heroCta: "Créer un deck",
       useCasesHeading: "Que pouvez-vous faire avec Slides ?",
       useCasesBody:
         "Préparez un pitch, présentez un plan ou partagez une mise à jour. Donnez à votre agent IA le contenu et le public que vous avez en tête.",
@@ -1631,7 +1631,7 @@ const frFR = {
         "Présentez en plein écran avec des notes de présentateur, partagez un lien de consultation ou exportez votre deck en fichier PowerPoint.",
       finalCtaHeading: "Commencez votre prochaine présentation",
       finalCtaBody: "Apportez une idée, un brief ou un deck existant.",
-      finalCtaButton: "Créer une présentation",
+      finalCtaButton: "Ouvrir Slides",
       s002: "Décrire",
       s003: "Générer",
       s004: "Affiner",

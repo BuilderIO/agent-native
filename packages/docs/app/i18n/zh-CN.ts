@@ -1515,7 +1515,7 @@ const zhCN = {
       heroTitle: "用你的 AI 智能体创建演示文稿",
       heroDescription:
         "Slides 是一款免费开源的 AI 演示文稿制作工具，可以根据你的想法和素材创建符合品牌风格的演示文稿，并且你可以自己编辑幻灯片。",
-      heroCta: "创建一份演示文稿",
+      heroCta: "创建一份 PPT",
       useCasesHeading: "用 Slides 能做什么？",
       useCasesBody:
         "准备一次路演，展示一份计划，或分享一次业务更新。把素材和目标受众告诉你的 AI 智能体。",
@@ -1550,7 +1550,7 @@ const zhCN = {
         "全屏演示并显示演讲者备注，分享一个查看链接，或将文稿导出为 PowerPoint 文件。",
       finalCtaHeading: "开始你的下一份演示文稿",
       finalCtaBody: "带来一个想法、一份简报，或一份已有的文稿。",
-      finalCtaButton: "创建一份演示文稿",
+      finalCtaButton: "打开 Slides",
       s002: "描述",
       s003: "生成",
       s004: "精炼",

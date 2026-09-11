@@ -1516,7 +1516,7 @@ const messages = {
       heroTitle: "用你的 AI 代理建立簡報",
       heroDescription:
         "Slides 是一款免費開源的 AI 簡報製作工具，能根據你的想法和素材建立符合品牌風格的簡報，並且你可以自己編輯投影片。",
-      heroCta: "建立一份簡報",
+      heroCta: "建立一份 PPT",
       useCasesHeading: "用 Slides 能做什麼？",
       useCasesBody:
         "準備一次提案，展示一份計畫，或分享一次業務更新。把素材和目標受眾告訴你的 AI 代理。",
@@ -1551,7 +1551,7 @@ const messages = {
         "全螢幕簡報並顯示演講者備忘稿，分享檢視連結，或將簡報匯出為 PowerPoint 檔案。",
       finalCtaHeading: "開始你的下一份簡報",
       finalCtaBody: "帶來一個想法、一份簡報說明，或一份現有的簡報。",
-      finalCtaButton: "建立一份簡報",
+      finalCtaButton: "開啟 Slides",
       s002: "描述",
       s003: "生成",
       s004: "精煉",

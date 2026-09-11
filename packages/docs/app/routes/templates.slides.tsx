@@ -118,7 +118,15 @@ export default function SlidesTemplate() {
           screenshot kept since there's no newer Slides asset yet. */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
-          title={t("templateLanding.slides.heroTitle")}
+          title={
+            // Slides' title is short enough to sit on one full-width line at
+            // this column width, unlike Clips' longer title, which wraps
+            // naturally. Cap it so both apps keep the same two-line hero
+            // rhythm instead of Slides reading as a single stretched line.
+            <span className="block max-w-[520px]">
+              {t("templateLanding.slides.heroTitle")}
+            </span>
+          }
           eyebrow={
             <span className="text-[var(--fg-secondary)]">
               {t("templateLanding.slides.heroEyebrow")}
@@ -209,9 +217,12 @@ export default function SlidesTemplate() {
         </GridInner>
       </PageSection>
 
-      {/* FAQs */}
+      {/* FAQs — Clips gets this section's breathing room for free from its
+          "See Clips in action" section in between; Slides has no such
+          section, so add the same pt-20 rhythm directly here instead of
+          landing the FAQ flush against the feature grid above it. */}
       <PageSection>
-        <GridInner className="border-t border-solid border-[var(--b-border-default)]">
+        <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
           <FaqAccordion
             idPrefix="slides-faq"
             eyebrow={t("templateLanding.faq.eyebrow")}
@@ -243,7 +254,12 @@ export default function SlidesTemplate() {
             href={firstPartyAppUrl("https://slides.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ gap: "3px" }}
+            // The shared cta variant renders at 14px in sentence case, but
+            // the hero's .primary-button (uppercase 12px mono, via the
+            // .template-detail-page CSS rule) only applies inside the hero
+            // wrapper. Match it explicitly here so both CTAs on the page
+            // read as the same button style.
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
             onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("generate deck", {
