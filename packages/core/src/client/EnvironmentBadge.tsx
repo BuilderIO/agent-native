@@ -1,3 +1,4 @@
+import { useAppSidebar } from "@agent-native/toolkit/app-shell";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
@@ -172,6 +173,12 @@ function consumeBetaOptOutQueryParam(
 
 export type EnvironmentBadgePlacement = "fixed" | "inline";
 
+function environmentBadgeFontClass(label: string, collapsed: boolean) {
+  return collapsed && label.trim().toLowerCase() === "alpha"
+    ? "text-[9px]"
+    : undefined;
+}
+
 const environmentBadgePlacementClasses = {
   fixed:
     "fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm",
@@ -197,12 +204,14 @@ function EnvironmentBadgeContent({
   placement,
   targets,
   badgeText,
+  collapsed,
   className,
 }: {
   environment: "beta" | "production";
   placement: EnvironmentBadgePlacement;
   targets: EnvironmentBadgeTargets;
   badgeText?: string;
+  collapsed: boolean;
   className?: string;
 }) {
   const [isHidden, setIsHidden] = useState(false);
@@ -228,6 +237,7 @@ function EnvironmentBadgeContent({
 
   const badgeClasses = cn(
     environmentBadgePlacementClasses[placement],
+    environmentBadgeFontClass(label, collapsed),
     environment === "beta"
       ? "border-primary/80"
       : "border-border/80 bg-background/95 text-foreground",
@@ -301,10 +311,12 @@ function EnvironmentBadgeContent({
 function LocalEnvironmentBadge({
   placement,
   badgeText = "alpha",
+  collapsed,
   className,
 }: {
   placement: EnvironmentBadgePlacement;
   badgeText?: string;
+  collapsed: boolean;
   className?: string;
 }) {
   return (
@@ -312,6 +324,7 @@ function LocalEnvironmentBadge({
       aria-label="Local development environment"
       className={cn(
         environmentBadgePlacementClasses[placement],
+        environmentBadgeFontClass(badgeText, collapsed),
         // Fixed placement parks this over app chrome; without this the pill
         // silently swallows clicks on whatever sits beneath it.
         "pointer-events-none inline-flex select-none items-center justify-center border border-border/80 bg-background/95 text-foreground",
@@ -328,11 +341,13 @@ function ProductionEnvironmentBadge({
   placement,
   targets,
   badgeText,
+  collapsed,
   className,
 }: {
   placement: EnvironmentBadgePlacement;
   targets: EnvironmentBadgeTargets;
   badgeText?: string;
+  collapsed: boolean;
   className?: string;
 }) {
   const { session, status } = useSession();
@@ -379,6 +394,7 @@ function ProductionEnvironmentBadge({
       placement={placement}
       targets={targets}
       badgeText={badgeText}
+      collapsed={collapsed}
       className={className}
     />
   );
@@ -388,6 +404,7 @@ export interface EnvironmentBadgeProps {
   placement?: EnvironmentBadgePlacement;
   showProduction?: boolean;
   badgeText?: string;
+  collapsed?: boolean;
   className?: string;
 }
 
@@ -401,10 +418,13 @@ export function EnvironmentBadge({
   placement = "fixed",
   showProduction = true,
   badgeText,
+  collapsed,
   className,
 }: EnvironmentBadgeProps = {}) {
   const [hydrated, setHydrated] = useState(false);
+  const sidebar = useAppSidebar();
   const config = useMemo(injectedAgentNativeConfig, []);
+  const effectiveCollapsed = collapsed ?? sidebar.collapsed;
   const hostname =
     typeof window === "undefined" ? undefined : window.location.hostname;
   const environment = resolveEnvironmentChannel(config, hostname);
@@ -430,6 +450,7 @@ export function EnvironmentBadge({
       <LocalEnvironmentBadge
         placement={placement}
         badgeText={resolvedBadgeText}
+        collapsed={effectiveCollapsed}
         className={className}
       />
     );
@@ -441,6 +462,7 @@ export function EnvironmentBadge({
         aria-label="Development environment"
         className={cn(
           environmentBadgePlacementClasses[placement],
+          environmentBadgeFontClass(resolvedBadgeText, effectiveCollapsed),
           "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground select-none",
           className,
         )}
@@ -458,6 +480,7 @@ export function EnvironmentBadge({
         placement={placement}
         targets={targets}
         badgeText={resolvedBadgeText}
+        collapsed={effectiveCollapsed}
         className={className}
       />
     );
@@ -469,6 +492,7 @@ export function EnvironmentBadge({
       placement={placement}
       targets={targets}
       badgeText={resolvedBadgeText}
+      collapsed={effectiveCollapsed}
       className={className}
     />
   );

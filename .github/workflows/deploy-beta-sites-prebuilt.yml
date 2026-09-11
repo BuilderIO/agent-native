@@ -26,7 +26,8 @@ permissions:
 # Beta is a moving mirror of main. Keep one accepted automatic publisher running
 # and coalesce pending automatic and production-handoff runs. Manual runs use
 # isolated validation so an invalid input cannot evict a valid pending publish;
-# child queues still serialize each site.
+# builds use per-run artifacts so the shared production-site queue only covers
+# the migration and publish critical section.
 concurrency:
   group: >-
     ${{ github.event_name == 'workflow_dispatch'
@@ -118,11 +119,42 @@ jobs:
           console.log(`Discovered ${sites.length} beta sites.`);
           NODE
 
-  deploy:
-    name: ${{ matrix.site }} beta prebuilt deploy
+  build:
+    name: ${{ matrix.site }} beta prebuilt build
     permissions:
       contents: read
     needs: [resolve-source, discover-sites]
+    strategy:
+      fail-fast: false
+      # Artifact builds do not touch the production database or publish queue;
+      # keep the 17-site fleet from waiting behind the eight-job publish cap.
+      max-parallel: 16
+      matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: beta
+      site: ${{ matrix.site }}
+      caller: automatic-build
+      source_ref: ${{ needs.resolve-source.outputs.source_sha }}
+      build_context: branch-deploy
+      deploy: false
+      deploy_mode: draft
+      smoke: false
+      migration_only: false
+      artifact_upload: true
+      artifact_name: beta-${{ matrix.site }}-${{ github.run_id }}
+    secrets: inherit
+
+  deploy:
+    name: ${{ matrix.site }} beta prebuilt deploy
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.resolve-source.result == 'success' &&
+      needs.discover-sites.result == 'success' &&
+      needs.build.result != 'cancelled' }}
+    permissions:
+      contents: read
+    needs: [resolve-source, discover-sites, build]
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -138,4 +170,6 @@ jobs:
       deploy_mode: production
       smoke: true
       migration_only: false
+      artifact_download: true
+      artifact_name: beta-${{ matrix.site }}-${{ github.run_id }}
     secrets: inherit

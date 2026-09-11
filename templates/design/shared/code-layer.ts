@@ -4526,7 +4526,7 @@ function applyWrapNodes(
       ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
       : null;
   const wrapperStyleAttr = wrapperStyle ? ` style="${wrapperStyle}"` : "";
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}"${wrapperStyleAttr}>`;
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-preserve-styles="true"${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
