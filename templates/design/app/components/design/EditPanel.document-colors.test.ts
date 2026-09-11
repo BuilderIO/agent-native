@@ -175,6 +175,51 @@ describe("extractDocumentColorPalette", () => {
       `<div aria-label="A > B" style="color:#ff0000; /* don't scan #123456 */ background:#00ff00"></div>`,
     );
   });
+
+  it("captures logical borders and text-decoration shorthand colors", () => {
+    const content =
+      '<div style="border-inline: 1px solid #0066ff; border-block-start-color:#00ff00; text-decoration: underline 2px #ff00aa"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+      "#00FF00",
+      "#FF00AA",
+    ]);
+  });
+
+  it("anchors style-block replacement after the opening tag", () => {
+    const content =
+      '<style data-source="color:#0066ff">.card { color:#0066ff }</style>';
+
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<style data-source="color:#0066ff">.card { color:#ff0000 }</style>',
+    );
+  });
+
+  it("does not treat quoted URL fragments as colors", () => {
+    const content = `<div style='background-image: url("sprite)#0066ff.svg"); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      `<div style='background-image: url("sprite)#0066ff.svg"); color:#ff0000'></div>`,
+    );
+  });
 });
 
 describe("selectionColorValues", () => {

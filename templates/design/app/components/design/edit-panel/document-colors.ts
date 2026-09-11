@@ -135,7 +135,9 @@ function isColorDeclaration(property: string): boolean {
   if (normalized.startsWith("--")) return true;
   return (
     COLOR_STYLE_PROPERTIES.has(normalized) ||
-    /^border(?:-(?:top|right|bottom|left))?(?:-color)?$/.test(normalized) ||
+    /^border-(?:(?:top|right|bottom|left)(?:-color)?|(?:inline|block)(?:-(?:start|end))?(?:-color)?)$/.test(
+      normalized,
+    ) ||
     /^-webkit-text-stroke(?:-color)?$/.test(normalized)
   );
 }
@@ -237,8 +239,45 @@ function declarationValueSpans(
 }
 
 function isInsideUrl(value: string, index: number): boolean {
-  const before = value.slice(0, index).toLowerCase();
-  return before.lastIndexOf("url(") > before.lastIndexOf(")");
+  const functions: boolean[] = [];
+  let quote: string | null = null;
+  let escaped = false;
+  for (let cursor = 0; cursor < index; cursor += 1) {
+    const character = value[cursor];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      let nameEnd = cursor;
+      while (nameEnd > 0 && /\s/.test(value[nameEnd - 1] ?? "")) {
+        nameEnd -= 1;
+      }
+      let nameStart = nameEnd;
+      while (
+        nameStart > 0 &&
+        /[A-Za-z0-9_-]/.test(value[nameStart - 1] ?? "")
+      ) {
+        nameStart -= 1;
+      }
+      functions.push(value.slice(nameStart, nameEnd).toLowerCase() === "url");
+      continue;
+    }
+    if (character === ")") functions.pop();
+  }
+  return functions.includes(true);
 }
 
 function colorTokenSpansInCss(css: string, offset = 0): ColorTokenSpan[] {
@@ -276,7 +315,9 @@ function colorTokenSpansInHtml(content: string): ColorTokenSpan[] {
 
   for (const match of maskedContent.matchAll(STYLE_BLOCK_PATTERN)) {
     const css = match[1] ?? "";
-    const cssOffset = (match.index ?? 0) + match[0].indexOf(css);
+    const openingTagEnd = match[0].indexOf(">");
+    const cssOffset =
+      (match.index ?? 0) + (openingTagEnd < 0 ? 0 : openingTagEnd + 1);
     tokens.push(...colorTokenSpansInCss(css, cssOffset));
   }
 
@@ -359,6 +400,7 @@ const COLOR_STYLE_PROPERTIES = new Set([
   "flood-color",
   "lighting-color",
   "stop-color",
+  "text-decoration",
 ]);
 
 function cssColorTokens(value: string): string[] {
