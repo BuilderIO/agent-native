@@ -66,7 +66,14 @@ describe("Design editor mobile layout", () => {
     expect(layoutSource).toContain(
       "!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p))",
     );
+    expect(layoutSource).toContain("input.embedChromeRequested");
     expect(layoutSource).toContain("{!standaloneEditor && (\n");
+  });
+
+  it("keeps the standard rails in the visual-edit embed", () => {
+    expect(editorSource).toContain(
+      "embedded && !hostOwnsChrome && !embedChromeRequested",
+    );
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {

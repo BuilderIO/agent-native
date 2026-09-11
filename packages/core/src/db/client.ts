@@ -1689,6 +1689,67 @@ async function executePglite(
   };
 }
 
+/**
+ * Run `fn` inside a native PGlite transaction, registering the transaction
+ * client/exec under `pgliteClientKeyFromUrl(url)` in the AsyncLocalStorage
+ * registry so `getDbExec().execute()` calls made anywhere inside `fn` resolve
+ * to this transaction instead of the main client. Shared by
+ * `createDbExecInternal`'s own `transaction()` and by `pgliteDrizzleClient`,
+ * since Drizzle opens PGlite transactions by calling `client.transaction`
+ * directly rather than going through this module.
+ */
+function runPgliteTransaction<T>(
+  url: string,
+  client: any,
+  fn: (tx: any, transactionExec: DbExec) => Promise<T>,
+): Promise<T> {
+  if (getActivePgliteTransactionExec(url)) {
+    throw new Error(
+      "Nested PGlite transactions are not supported; reuse the active transaction handle.",
+    );
+  }
+  if (!pgliteTransactionStorage) {
+    throw new Error(
+      "PGlite transactions require AsyncLocalStorage so database access stays on the active transaction handle.",
+    );
+  }
+  const clientKey = pgliteClientKeyFromUrl(url);
+  return client.transaction((tx: any) => {
+    const transactionExec: DbExec = {
+      execute: (sql) => executePglite(tx, sql),
+    };
+    const activeTransactions = new Map(pgliteTransactionStorage.getStore());
+    activeTransactions.set(clientKey, {
+      client: tx,
+      exec: transactionExec,
+    });
+    return pgliteTransactionStorage.run(activeTransactions, () =>
+      fn(tx, transactionExec),
+    );
+  });
+}
+
+/**
+ * Wrap the raw PGlite engine so Drizzle's `db.transaction(fn)` — which calls
+ * `client.transaction` on the engine directly, bypassing this module's own
+ * `transaction()` — still registers with `pgliteTransactionStorage`. Without
+ * this, any `getDbExec().execute()` inside a Drizzle transaction callback
+ * falls through to the main client and queues behind the open transaction on
+ * PGlite's single connection, deadlocking forever.
+ */
+export function pgliteDrizzleClient(url: string, client: any): any {
+  return new Proxy(client, {
+    get(target, prop) {
+      if (prop === "transaction") {
+        return (fn: (tx: any) => Promise<unknown>) =>
+          runPgliteTransaction(url, target, (tx) => fn(tx));
+      }
+      const v = Reflect.get(target, prop, target);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+}
+
 async function createDbExecInternal(
   config: DbExecConfig = {},
   trackSingletonResources = false,
@@ -1700,37 +1761,13 @@ async function createDbExecInternal(
 
   if (isPgliteUrl(url)) {
     const client = await getPgliteClient(url);
-    const clientKey = pgliteClientKeyFromUrl(url);
     return {
       execute: (sql) =>
         executePglite(getActivePgliteTransactionClient(url) ?? client, sql),
-      async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-        if (getActivePgliteTransactionExec(url)) {
-          throw new Error(
-            "Nested PGlite transactions are not supported; reuse the active transaction handle.",
-          );
-        }
-        if (!pgliteTransactionStorage) {
-          throw new Error(
-            "PGlite transactions require AsyncLocalStorage so database access stays on the active transaction handle.",
-          );
-        }
-        return client.transaction((tx: any) => {
-          const transactionExec: DbExec = {
-            execute: (sql) => executePglite(tx, sql),
-          };
-          const activeTransactions = new Map(
-            pgliteTransactionStorage.getStore(),
-          );
-          activeTransactions.set(clientKey, {
-            client: tx,
-            exec: transactionExec,
-          });
-          return pgliteTransactionStorage.run(activeTransactions, () =>
-            fn(transactionExec),
-          );
-        });
-      },
+      transaction: (fn) =>
+        runPgliteTransaction(url, client, (_tx, transactionExec) =>
+          fn(transactionExec),
+        ),
     };
   }
 

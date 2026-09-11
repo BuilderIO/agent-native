@@ -41,10 +41,6 @@ vi.mock("../server/lib/require-factory-automation.js", () => ({
   requireFactoryAutomation: requireFactoryAutomationMock,
 }));
 
-vi.mock("../server/lib/factory-automation-repair.js", () => ({
-  repairFactoryAutomationsFromConfig: vi.fn().mockResolvedValue(undefined),
-}));
-
 vi.mock("../server/lib/factory-automation-caller.js", () => ({
   readCallingFactoryAutomation: readCallingFactoryAutomationMock,
 }));
