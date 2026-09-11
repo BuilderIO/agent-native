@@ -41,11 +41,11 @@ const enUS = {
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Design.",
     languageLabel: "Interface language",
-    experiments: "Experiments",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "These are new, unstable features and may have bugs. We value your feedback.",
-    experimentTweaks: "Design tweaks",
-    experimentTweaksDescription: "Try AI-powered design tweaks.",
+    labTweaks: "Design tweaks",
+    labTweaksDescription: "Try AI-powered design tweaks.",
   },
   pages: {
     presentEmpty: "No content to present",
@@ -16150,11 +16150,10 @@ export const messagesByLocale = {
           languageTitle: "语言",
           languageDescription: "选择 Design 的界面语言。",
           languageLabel: "界面语言",
-          experiments: "实验功能",
-          experimentsIntro:
-            "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
-          experimentTweaks: "设计微调",
-          experimentTweaksDescription: "试用 AI 设计微调功能。",
+          labs: "Labs",
+          labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
+          labTweaks: "设计微调",
+          labTweaksDescription: "试用 AI 设计微调功能。",
         },
         designEditor: {
           toasts: {
@@ -16234,11 +16233,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Elige el idioma de la interfaz de Design.",
           languageLabel: "Idioma de la interfaz",
-          experiments: "Experimentos",
-          experimentsIntro:
+          labs: "Labs",
+          labsIntro:
             "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
-          experimentTweaks: "Ajustes de diseño",
-          experimentTweaksDescription: "Prueba los ajustes de diseño con IA.",
+          labTweaks: "Ajustes de diseño",
+          labTweaksDescription: "Prueba los ajustes de diseño con IA.",
         },
         designEditor: {
           toasts: {
@@ -16321,12 +16320,11 @@ export const messagesByLocale = {
           languageTitle: "Langue",
           languageDescription: "Choisissez la langue de l'interface de Design.",
           languageLabel: "Langue de l'interface",
-          experiments: "Expériences",
-          experimentsIntro:
+          labs: "Labs",
+          labsIntro:
             "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
-          experimentTweaks: "Ajustements de design",
-          experimentTweaksDescription:
-            "Essayez les ajustements de design avec l’IA.",
+          labTweaks: "Ajustements de design",
+          labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
         },
         designEditor: {
           toasts: {
@@ -16409,11 +16407,11 @@ export const messagesByLocale = {
           languageTitle: "Sprache",
           languageDescription: "Wähle die Oberflächensprache für Design.",
           languageLabel: "Oberflächensprache",
-          experiments: "Experimente",
-          experimentsIntro:
+          labs: "Labs",
+          labsIntro:
             "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
-          experimentTweaks: "Design-Anpassungen",
-          experimentTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
+          labTweaks: "Design-Anpassungen",
+          labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
         },
         designEditor: {
           toasts: {
@@ -16496,12 +16494,11 @@ export const messagesByLocale = {
           languageTitle: "言語",
           languageDescription: "Design のインターフェース言語を選択します。",
           languageLabel: "インターフェース言語",
-          experiments: "実験機能",
-          experimentsIntro:
+          labs: "Labs",
+          labsIntro:
             "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
-          experimentTweaks: "デザインの調整",
-          experimentTweaksDescription:
-            "AI によるデザイン調整をお試しください。",
+          labTweaks: "デザインの調整",
+          labTweaksDescription: "AI によるデザイン調整をお試しください。",
         },
         designEditor: {
           toasts: {
@@ -16585,11 +16582,11 @@ export const messagesByLocale = {
           languageTitle: "언어",
           languageDescription: "Design의 인터페이스 언어를 선택하세요.",
           languageLabel: "인터페이스 언어",
-          experiments: "실험 기능",
-          experimentsIntro:
+          labs: "Labs",
+          labsIntro:
             "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
-          experimentTweaks: "디자인 트윅",
-          experimentTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
+          labTweaks: "디자인 트윅",
+          labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
         },
         designEditor: {
           toasts: {
@@ -16671,11 +16668,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Escolha o idioma da interface do Design.",
           languageLabel: "Idioma da interface",
-          experiments: "Experimentos",
-          experimentsIntro:
+          labs: "Labs",
+          labsIntro:
             "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
-          experimentTweaks: "Ajustes de design",
-          experimentTweaksDescription: "Experimente ajustes de design com IA.",
+          labTweaks: "Ajustes de design",
+          labTweaksDescription: "Experimente ajustes de design com IA.",
         },
         designEditor: {
           toasts: {
@@ -16758,11 +16755,11 @@ export const messagesByLocale = {
           languageTitle: "भाषा",
           languageDescription: "Design की interface भाषा चुनें।",
           languageLabel: "इंटरफ़ेस भाषा",
-          experiments: "प्रयोग",
-          experimentsIntro:
+          labs: "Labs",
+          labsIntro:
             "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
-          experimentTweaks: "डिज़ाइन ट्वीक",
-          experimentTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
+          labTweaks: "डिज़ाइन ट्वीक",
+          labTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
         },
         designEditor: {
           toasts: {
@@ -16845,12 +16842,11 @@ export const messagesByLocale = {
           languageTitle: "اللغة",
           languageDescription: "اختر لغة واجهة Design.",
           languageLabel: "لغة الواجهة",
-          experiments: "التجارب",
-          experimentsIntro:
+          labs: "Labs",
+          labsIntro:
             "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
-          experimentTweaks: "تعديلات التصميم",
-          experimentTweaksDescription:
-            "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
+          labTweaks: "تعديلات التصميم",
+          labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
         },
         designEditor: {
           toasts: {
