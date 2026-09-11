@@ -1,0 +1,597 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  VISUAL_INDENT,
+  parseNfmForEditor,
+  normalizeNfmForNotion,
+  normalizeNfmForStorage,
+  serializeEditorToNfm,
+} from "./notion-markdown";
+
+const EDITOR_INDENT = "&emsp;&emsp;";
+
+describe("parseNfmForEditor", () => {
+  describe("empty-block handling", () => {
+    it("converts <empty-block/> to visible &nbsp; paragraph", () => {
+      const result = parseNfmForEditor(
+        "text above\n<empty-block/>\ntext below",
+      );
+      expect(result).toContain("&nbsp;");
+      expect(result).not.toContain("<empty-block/>");
+    });
+
+    it("handles multiple consecutive empty blocks", () => {
+      const result = parseNfmForEditor(
+        "above\n<empty-block/>\n<empty-block/>\nbelow",
+      );
+      const nbspCount = (result.match(/&nbsp;/g) || []).length;
+      expect(nbspCount).toBe(2);
+    });
+
+    it("handles leading empty block", () => {
+      const result = parseNfmForEditor("<empty-block/>\nfirst content");
+      expect(result).toContain("&nbsp;");
+    });
+
+    it("handles empty-block with attributes", () => {
+      const result = parseNfmForEditor('<empty-block id="x"/>');
+      expect(result).not.toContain("<empty-block");
+    });
+  });
+
+  describe("tab-indented plain text → visual indent", () => {
+    it("converts single-tab indent to visual indentation", () => {
+      const result = parseNfmForEditor("parent\n\tchild");
+      expect(result).toContain(`${EDITOR_INDENT}child`);
+      expect(result).not.toContain("> child");
+      expect(result).not.toContain("\tchild");
+    });
+
+    it("converts double-tab indent to nested visual indentation", () => {
+      const result = parseNfmForEditor("parent\n\t\tgrandchild");
+      expect(result).toContain(`${EDITOR_INDENT.repeat(2)}grandchild`);
+    });
+
+    it("converts triple-tab indent to triply-nested visual indentation", () => {
+      const result = parseNfmForEditor("parent\n\t\t\tdeep");
+      expect(result).toContain(`${EDITOR_INDENT.repeat(3)}deep`);
+    });
+
+    it("normalizes legacy two-nbsp visual indents to tab-backed visual indentation", () => {
+      const result = parseNfmForEditor("parent\n&nbsp;&nbsp;child");
+      expect(result).toContain(`${EDITOR_INDENT}child`);
+      expect(result).not.toContain("&nbsp;&nbsp;child");
+    });
+
+    it("converts indented list items without a list parent to blockquote lists", () => {
+      const result = parseNfmForEditor("\t- list item");
+      expect(result).toContain("> - list item");
+      expect(result).not.toContain("    - list item");
+    });
+
+    it("converts indented numbered list items without a list parent to blockquote lists", () => {
+      const result = parseNfmForEditor("\t1. numbered");
+      expect(result).toContain("> 1. numbered");
+      expect(result).not.toContain("    1. numbered");
+    });
+
+    it("converts indented task items without a list parent to blockquote lists", () => {
+      const result = parseNfmForEditor("\t- [ ] task");
+      expect(result).toContain("> - [ ] task");
+      expect(result).not.toContain("    - [ ] task");
+    });
+  });
+
+  describe("tab-indented list items → space-indented", () => {
+    it("uses 4-space indentation for nested bullet lists", () => {
+      const result = parseNfmForEditor("- parent\n\t- child");
+      expect(result).toContain("    - child");
+    });
+
+    it("uses 4-space indentation for nested numbered lists", () => {
+      const result = parseNfmForEditor("1. parent\n\t1. child");
+      expect(result).toContain("    1. child");
+    });
+
+    it("handles double-nested list items", () => {
+      const result = parseNfmForEditor("- a\n\t- b\n\t\t- c");
+      expect(result).toContain("        - c");
+    });
+
+    it("does not turn a Notion list under a paragraph into an indented code block", () => {
+      const result = parseNfmForEditor(
+        [
+          "michael onboarding",
+          "\t- [notion doc](https://example.com)",
+          "\t- access: amplitude, fullstory, sigma, jira",
+        ].join("\n"),
+      );
+
+      expect(result).toContain("> - [notion doc](https://example.com)");
+      expect(result).toContain("> - access: amplitude, fullstory, sigma, jira");
+      expect(result).not.toMatch(/^ {4,}- /m);
+    });
+
+    it("keeps nested bullets under a real list parent as CommonMark list nesting", () => {
+      const result = parseNfmForEditor("- parent\n\t- child\n\t- child 2");
+      expect(result).toContain("- parent\n    - child\n    - child 2");
+      expect(result).not.toContain("> - child");
+    });
+
+    it("round-trips indented list blocks stably without four-space code indentation", () => {
+      const nfm = "michael onboarding\n\t- notion doc\n\t- access";
+      const editorMd = parseNfmForEditor(nfm);
+      const stored = serializeEditorToNfm(editorMd);
+      const editorMd2 = parseNfmForEditor(stored);
+
+      expect(editorMd2).toContain("> - notion doc");
+      expect(editorMd2).toContain("> - access");
+      expect(editorMd2).not.toMatch(/^ {4,}- /m);
+    });
+  });
+
+  describe("toggle (details) content conversion", () => {
+    it("converts toggle content from NFM to HTML", () => {
+      const input = [
+        "<details>",
+        "<summary>My Toggle</summary>",
+        "\tSome content here",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain("<details>");
+      expect(result).toContain("<summary>My Toggle</summary>");
+      // Base-level content inside toggle becomes <p>
+      expect(result).toContain("<p>Some content here</p>");
+      expect(result).toContain("</details>");
+    });
+
+    it("converts list items inside toggle to HTML lists with paragraph wrappers", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- item 1",
+        "\t- item 2",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain("<ul");
+      expect(result).toContain("<li>");
+      // List items must have <p> wrappers for TipTap's ListItem to parse them
+      expect(result).toContain("<p>item 1</p>");
+      expect(result).toContain("<p>item 2</p>");
+    });
+
+    it("preserves nested list indentation inside toggle", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- parent",
+        "\t  - child",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      // Should have nested <ul> structure
+      const ulCount = (result.match(/<ul\b/g) || []).length;
+      expect(ulCount).toBeGreaterThanOrEqual(2);
+      expect(result).toContain("<p>parent</p>");
+      expect(result).toContain("<p>child</p>");
+    });
+
+    it("handles nested indentation inside toggle", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\tparent text",
+        "\t\tchild text",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain(`<p>${VISUAL_INDENT}child text</p>`);
+    });
+
+    it("does not modify content outside toggle", () => {
+      const input =
+        "plain text\n<details>\n<summary>T</summary>\n\tcontent\n</details>\nmore text";
+      const result = parseNfmForEditor(input);
+      expect(result).toContain("plain text");
+      expect(result).toContain("more text");
+    });
+
+    it("keeps indented Notion toggle blocks out of markdown code blocks", () => {
+      const input = [
+        "parent",
+        "\t<details>",
+        "\t<summary>agents doing</summary>",
+        "\t</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain('<details data-nfm-indent="1">');
+      expect(result).toContain("<summary>agents doing</summary>");
+      expect(result).not.toMatch(/^\t<details/m);
+      expect(result).not.toMatch(/^ {4}<details/m);
+    });
+
+    it("keeps bullets in a single <ul> even with blank lines between items", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- item 1",
+        "",
+        "\t- item 2",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      const ulCount = (result.match(/<ul\b/g) || []).length;
+      expect(ulCount).toBe(1);
+      expect(result).toContain("<p>item 1</p>");
+      expect(result).toContain("<p>item 2</p>");
+    });
+
+    it("marks lists as data-tight for TipTap tight-list handling", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- item 1",
+        "\t- item 2",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain('data-tight="true"');
+    });
+
+    it("round-trips toggle with bullets stably", () => {
+      const nfm =
+        "<details>\n<summary>Toggle</summary>\n\t- item 1\n\t- item 2\n</details>";
+      const editorMd = parseNfmForEditor(nfm);
+      const stored = serializeEditorToNfm(editorMd);
+      const editorMd2 = parseNfmForEditor(stored);
+      const stored2 = serializeEditorToNfm(editorMd2);
+      expect(stored2).toBe(stored);
+    });
+
+    it("handles 4-space nested bullets without producing invalid <ul><ul>", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "- Item 1",
+        "- Item 2",
+        "    - Nested A",
+        "    - Nested B",
+        "- Item 3",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      // Nested items should be siblings, not parent-child
+      expect(result).toContain("<p>Nested A</p>");
+      expect(result).toContain("<p>Nested B</p>");
+      // Must have valid HTML: no <ul> directly inside <ul>
+      const lines = result.split("\n");
+      for (let i = 0; i < lines.length - 1; i++) {
+        if (
+          lines[i].trim().startsWith("<ul") &&
+          lines[i + 1].trim().startsWith("<ul")
+        ) {
+          throw new Error(
+            "Invalid HTML: <ul> directly inside <ul> without <li> wrapper",
+          );
+        }
+      }
+      // Should have exactly 2 <ul> levels (outer + nested)
+      const ulCount = (result.match(/<ul\b/g) || []).length;
+      expect(ulCount).toBe(2);
+    });
+
+    it("handles numbered lists inside toggle", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t1. First",
+        "\t2. Second",
+        "\t\t1. Nested first",
+        "\t3. Third",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain("<ul");
+      expect(result).toContain("<p>First</p>");
+      expect(result).toContain("<p>Second</p>");
+      expect(result).toContain("<p>Nested first</p>");
+      expect(result).toContain("<p>Third</p>");
+    });
+
+    it("normalizes large indent gaps to consecutive nesting levels", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "- Top",
+        "      - Deep",
+        "      - Also deep",
+        "- Back",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      // Deep items should be at level 2, not level 4
+      const ulCount = (result.match(/<ul\b/g) || []).length;
+      expect(ulCount).toBe(2);
+      expect(result).toContain("<p>Deep</p>");
+      expect(result).toContain("<p>Also deep</p>");
+    });
+  });
+
+  describe("paragraph separation", () => {
+    it("inserts blank line between consecutive plain text lines", () => {
+      const result = parseNfmForEditor("line one\nline two");
+      const lines = result.split("\n");
+      const idx = lines.indexOf("line one");
+      expect(lines[idx + 1]).toBe("");
+    });
+
+    it("does NOT insert blank line between list items", () => {
+      const result = parseNfmForEditor("- a\n- b");
+      expect(result).toBe("- a\n- b");
+    });
+
+    it("inserts blank line after visual indent before non-indented text", () => {
+      const result = parseNfmForEditor("parent\n\tchild\nnext paragraph");
+      expect(result).toContain(`${EDITOR_INDENT}child\n\nnext paragraph`);
+    });
+
+    it("inserts blank line before --- to prevent setext heading", () => {
+      const result = parseNfmForEditor("text\n---\nmore");
+      expect(result).toMatch(/text\n\n---/);
+    });
+
+    it("inserts blank line after </details>", () => {
+      const input = "<details>\n<summary>T</summary>\n\tx\n</details>\nnext";
+      const result = parseNfmForEditor(input);
+      expect(result).toMatch(/<\/details>\n\nnext/);
+    });
+  });
+
+  describe("code blocks are left untouched", () => {
+    it("preserves indentation inside code fences", () => {
+      const input = "```\n\tindented code\n\t\tmore\n```";
+      const result = parseNfmForEditor(input);
+      expect(result).toContain("\tindented code");
+      expect(result).toContain("\t\tmore");
+    });
+
+    it("does not convert empty-blocks inside code", () => {
+      const input = "```\n<empty-block/>\n```";
+      const result = parseNfmForEditor(input);
+      expect(result).toContain("<empty-block/>");
+    });
+  });
+
+  describe("callout content conversion", () => {
+    it("converts callout inner content to HTML with inline markdown", () => {
+      const input =
+        '<callout icon="💡">\n\tThis is **bold** and [a link](https://example.com)\n</callout>';
+      const result = parseNfmForEditor(input);
+      expect(result).toContain("<strong>bold</strong>");
+      expect(result).toContain('<a href="https://example.com">a link</a>');
+    });
+  });
+
+  describe("mixed content", () => {
+    it("handles heading followed by list followed by indented text", () => {
+      const input = "## Heading\n- item\nplain\n\tindented";
+      const result = parseNfmForEditor(input);
+      expect(result).toContain("## Heading");
+      expect(result).toContain("- item");
+      expect(result).toContain(`${EDITOR_INDENT}indented`);
+    });
+
+    it("handles empty input", () => {
+      expect(parseNfmForEditor("")).toBe("");
+    });
+
+    it("handles input with only empty blocks", () => {
+      const result = parseNfmForEditor(
+        "<empty-block/>\n<empty-block/>\n<empty-block/>",
+      );
+      expect(result).not.toContain("<empty-block");
+    });
+
+    it("preserves markdown links in indented text", () => {
+      const result = parseNfmForEditor("\t[link text](https://example.com)");
+      expect(result).toContain(
+        `${EDITOR_INDENT}[link text](https://example.com)`,
+      );
+    });
+  });
+
+  describe("round-trip stability", () => {
+    it("preserves all content through conversion", () => {
+      const nfm =
+        "heading\n<empty-block/>\nparent\n\tchild\n- bullet\n\t- nested";
+      const result = parseNfmForEditor(nfm);
+      expect(result).toContain("heading");
+      expect(result).toContain("parent");
+      expect(result).toContain("child");
+      expect(result).toContain("bullet");
+      expect(result).toContain("nested");
+      expect(result).not.toContain("<empty-block");
+      expect(result).not.toMatch(/^\t/m);
+    });
+
+    it("preserves content structure through parse", () => {
+      const nfm =
+        "heading\n<empty-block/>\nparent\n\tchild\n- bullet\n\t- nested";
+      const result = parseNfmForEditor(nfm);
+      // All content should be present
+      expect(result).toContain("heading");
+      expect(result).toContain("parent");
+      expect(result).toContain("child");
+      expect(result).toContain("bullet");
+      expect(result).toContain("nested");
+      // NFM constructs should be gone
+      expect(result).not.toContain("<empty-block");
+      expect(result).not.toMatch(/^\t/m);
+    });
+  });
+});
+
+describe("serializeEditorToNfm", () => {
+  describe("blockquote → tab-indented round-trip", () => {
+    it("converts single blockquote back to tab indent", () => {
+      const result = serializeEditorToNfm("> child text");
+      expect(result).toContain("\tchild text");
+      expect(result).not.toContain("> child text");
+    });
+
+    it("converts nested blockquotes back to nested tabs", () => {
+      const result = serializeEditorToNfm("> > grandchild");
+      expect(result).toContain("\t\tgrandchild");
+    });
+
+    it("does not modify code blocks", () => {
+      const result = serializeEditorToNfm("```\n> not a quote\n```");
+      expect(result).toContain("> not a quote");
+    });
+
+    it("preserves list items (not blockquotes)", () => {
+      const result = serializeEditorToNfm("- bullet\n    - nested");
+      expect(result).toContain("- bullet");
+      expect(result).toContain("nested");
+    });
+
+    it("treats four-space markdown list nesting as one Notion child level", () => {
+      const result = normalizeNfmForStorage("- parent\n    - child");
+      expect(result).toBe("- parent\n\t- child");
+    });
+
+    it("round-trips indented text correctly", () => {
+      const nfm = "parent\n\tchild\n\t\tgrandchild";
+      const editorMd = parseNfmForEditor(nfm);
+      const stored = serializeEditorToNfm(editorMd);
+      expect(stored).toContain("\tchild");
+      expect(stored).toContain("\t\tgrandchild");
+    });
+  });
+
+  describe("empty line preservation", () => {
+    it("converts consecutive blank lines to <empty-block/>", () => {
+      const result = serializeEditorToNfm("above\n\n\nbelow");
+      expect(result).toContain("<empty-block/>");
+      expect(result).toContain("above");
+      expect(result).toContain("below");
+    });
+
+    it("converts &nbsp; to <empty-block/>", () => {
+      const result = serializeEditorToNfm("above\n\n&nbsp;\n\nbelow");
+      expect(result).toContain("<empty-block/>");
+    });
+
+    it("preserves single blank lines as normal paragraph breaks", () => {
+      const result = serializeEditorToNfm("above\n\nbelow");
+      expect(result).not.toContain("<empty-block/>");
+    });
+
+    it("does not modify blank lines inside code blocks", () => {
+      const result = serializeEditorToNfm("```\n\n\n\n```");
+      expect(result).not.toContain("<empty-block/>");
+    });
+
+    it("round-trips empty blocks through editor", () => {
+      const nfm = "above\n<empty-block/>\nbelow";
+      const editorMd = parseNfmForEditor(nfm);
+      expect(editorMd).toContain("&nbsp;");
+      const stored = serializeEditorToNfm(editorMd);
+      expect(stored).toContain("<empty-block/>");
+    });
+
+    it("does not inflate empty-blocks on repeated save/load cycles", () => {
+      // Simulate editor output with 2 empty paragraphs between content
+      const editorMd = "Hello\n\n&nbsp;\n\n&nbsp;\n\nWorld";
+      const cycle1 = serializeEditorToNfm(editorMd);
+      const count1 = (cycle1.match(/<empty-block\/>/g) || []).length;
+      expect(count1).toBe(2);
+
+      // Second cycle: load → re-serialize must produce the same result
+      const loaded = parseNfmForEditor(cycle1);
+      const cycle2 = serializeEditorToNfm(loaded);
+      expect(cycle2).toBe(cycle1);
+
+      // Third cycle: still stable
+      const loaded2 = parseNfmForEditor(cycle2);
+      const cycle3 = serializeEditorToNfm(loaded2);
+      expect(cycle3).toBe(cycle1);
+    });
+
+    it("does not inflate single empty paragraph on round-trip", () => {
+      const editorMd = "above\n\n&nbsp;\n\nbelow";
+      const stored = serializeEditorToNfm(editorMd);
+      expect((stored.match(/<empty-block\/>/g) || []).length).toBe(1);
+
+      const loaded = parseNfmForEditor(stored);
+      const stored2 = serializeEditorToNfm(loaded);
+      expect(stored2).toBe(stored);
+    });
+  });
+});
+
+describe("normalizeNfmForNotion", () => {
+  it("strips editor-only details attrs and gives empty toggles a child block", () => {
+    const result = normalizeNfmForNotion(
+      '<details open="" data-heading-level="2">\n<summary>Toggle</summary>\n</details>',
+    );
+
+    expect(result).toBe(
+      [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t<empty-block/>",
+        "</details>",
+      ].join("\n"),
+    );
+  });
+
+  it("indents malformed toggle children so Notion treats them as children", () => {
+    const result = normalizeNfmForNotion(
+      [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "- item 1",
+        "plain child",
+        "</details>",
+      ].join("\n"),
+    );
+
+    expect(result).toBe(
+      [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- item 1",
+        "\tplain child",
+        "</details>",
+      ].join("\n"),
+    );
+  });
+
+  it("turns editor-only toggle indent attrs back into real Notion tabs", () => {
+    const result = normalizeNfmForNotion(
+      [
+        '<details data-nfm-indent="2">',
+        "<summary>Indented toggle</summary>",
+        "</details>",
+      ].join("\n"),
+    );
+
+    expect(result).toBe(
+      [
+        "\t\t<details>",
+        "\t\t<summary>Indented toggle</summary>",
+        "\t\t\t<empty-block/>",
+        "\t\t</details>",
+      ].join("\n"),
+    );
+  });
+
+  it("isolates dividers from adjacent text before pushing to Notion", () => {
+    expect(normalizeNfmForNotion("above\n---\nbelow")).toBe(
+      "above\n\n---\n\nbelow",
+    );
+  });
+});

@@ -1,0 +1,200 @@
+---
+title: "متقدم"
+description: "بدائيات (primitives) app/ ذات المستوى الأدنى ومخارج الطوارئ: الوصول المباشر إلى حالة التطبيق، الإرسال في الخلفية للمحادثة، شرائح الاقتراحات المخصصة، وجسر استضافة MCP App."
+---
+
+# متقدم
+
+تغطي نظرة عامة، والبيانات والمزامنة، ومحادثة الوكيل، والتوجيه الحالة النموذجية: الخطافات والأدوات المساعدة التي تحتاجها معظم الصفحات. تغطي هذه الصفحة البدائيات ذات المستوى الأدنى ومخارج الطوارئ الأضيق الموجودة تحتها. لا تلمس معظم التطبيقات هذه مباشرة أبدًا. استخدم واحدة منها عندما تبني شيئًا أكثر تخصيصًا من الخطافات الافتراضية التي تدعمها، مثل مزامنة تحديد مخصصة أو MCP App مضمّن. لمزامنة `useQuery` خام بمفتاح مصنوع يدويًا، راجع [آليات المزامنة الداخلية](/docs/client-sync-internals) بدلًا من ذلك.
+
+## حالة التطبيق {#application-state}
+
+`application_state` هو مخزن مفتاح/قيمة مدعوم بـ SQL يقرأه الوكيل لمعرفة ما تنظر إليه واجهة المستخدم حاليًا، بما في ذلك التنقل، والتحديد، وسياق الكائن المُركَّز عليه الآخر (راجع [الوعي بالسياق](/docs/context-awareness)). يُغلِّف `useAgentRouteState` و`useSemanticNavigationState` (المُغطّيان أيضًا في الوعي بالسياق) هذه البدائيات بالفعل لحالة التنقل الشائعة. استخدم البدائيات أدناه مباشرة عندما تكون تُزامن شيئًا لا تغطيه، مثل تحديد مخصص، أو الكتابة من خارج عرض مكون.
+
+### readClientAppState {#read-client-app-state}
+
+اقرأ القيمة الحالية لمفتاح. يُحل إلى آخر ما تمت كتابته لهذا المفتاح، أو `null` إذا لم تتم كتابة المفتاح مطلقًا.
+
+```ts
+import { readClientAppState } from "@agent-native/core/client/hooks";
+
+const selection = await readClientAppState("selection");
+// selection is exactly what was last written to that key, e.g.:
+// { kind: "tickets.rows", ids: ["tik_182", "tik_209"] }
+//
+// or, if nothing has written "selection" yet:
+// null
+```
+
+### writeClientAppState {#write-client-app-state}
+
+اكتب قيمة لمفتاح. على عكس `setClientAppState` أدناه، تكتب دائمًا، حتى إذا مررت `null`. تمرير `undefined` يرمي خطأ بدلًا من ذلك، لأن `undefined` ليس JSON صالحًا. استخدم `setClientAppState(key, undefined)` أو `deleteClientAppState()` لمسح مفتاح.
+
+```ts
+import { writeClientAppState } from "@agent-native/core/client/hooks";
+
+await writeClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+```
+
+### setClientAppState {#set-client-app-state}
+
+الغلاف المناسب الذي يجب أن تستخدمه معظم كود واجهة المستخدم: يكتب القيمة، أو يحذف المفتاح عندما تمرر `null`/`undefined`. استخدم هذا بدلاً من `writeClientAppState` إلا إذا كان موقع الاستدعاء يحتاج فعليًا إلى "الكتابة دائمًا، عدم الحذف مطلقًا".
+
+```ts
+import { setClientAppState } from "@agent-native/core/client/hooks";
+
+await setClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+await setClientAppState("selection", null); // clears the key, same as deleteClientAppState
+```
+
+### deleteClientAppState {#delete-client-app-state}
+
+احذف مفتاحًا بالكامل.
+
+```ts
+import { deleteClientAppState } from "@agent-native/core/client/hooks";
+
+await deleteClientAppState("pending-selection-context");
+```
+
+### readClientAppStateMany {#read-client-app-state-many}
+
+اقرأ عدة مفاتيح في طلب واحد. تُعيد `{ values, missing }`. تحتفظ `values` بإدخال لكل مفتاح يملك الخادم صفًا له، بما في ذلك مفتاح تمت كتابته صريحًا كـ `null`. تسرد `missing` المفاتيح التي لم تتم كتابتها مطلقًا. هذه هي الطريقة التي يبقى بها "لم تتم الكتابة مطلقًا" قابلًا للتمييز عن "مكتوب كـ null".
+
+```ts
+import { readClientAppStateMany } from "@agent-native/core/client/hooks";
+
+const { values, missing } = await readClientAppStateMany([
+  "selection",
+  "pending-selection-context",
+]);
+```
+
+يتم تجميع الطلبات التي تتجاوز 100 مفتاح تلقائيًا في مجموعات. يُبنى `readClientAppState()` نفسها على هذا: تُدمَج الاستدعاءات الصادرة في نفس اللحظة (tick) في طلب مُجمَّع واحد خلف الكواليس، لذا يكلف استدعاءها عدة مرات في تمريرة عرض واحدة رحلة ذهاب وعودة واحدة، لا رحلة لكل استدعاء.
+
+### الخيارات {#application-state-options}
+
+يُقبَل `signal` من قِبل جميع الدوال الخمس أعلاه، لإلغاء استدعاء قيد التنفيذ. ينطبق `requestSource` و`keepalive` فقط على دوال الكتابة الثلاث، لأنهما لا يعنيان شيئًا بالنسبة للقراءة.
+
+| الخيار          | النوع          | ينطبق على                                                          | الوصف                                                                                                   |
+| --------------- | -------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `requestSource` | `string?`      | `writeClientAppState`، `setClientAppState`، `deleteClientAppState` | يُضيف علامة على الكتابة بمعرِّف حتى يتمكن `useDbSync({ ignoreSource })` المطابق من تخطي إعادة الجلب لها |
+| `keepalive`     | `boolean?`     | `writeClientAppState`، `setClientAppState`، `deleteClientAppState` | يسمح للطلب بالاستمرار بعد تفريغ الصفحة (unload). استخدمه لكتابات التنظيف مثل مسح التحديد                |
+| `signal`        | `AbortSignal?` | جميع الدوال الخمس                                                  | يلغي الطلب                                                                                              |
+
+### سلوك الفشل {#failure-behavior}
+
+ترمي جميع الدوال الخمس خطأ عند فشل الطلب، أو استجابة غير 2xx، أو نص لا يمكن تحليله. يحمل `Error` المرمي خاصية `.status` عندما يستجيب الخادم، لذا يمكن للمستدعي التفريع بناءً على حالة HTTP إذا لزم الأمر. غلِّف الاستدعاء بـ `try`/`catch`، أو دعه ينتشر إلى حدود خطأ، تمامًا مثل أي استدعاء شبكة آخر.
+
+### ما هو TAB_ID {#tab-id}
+
+يُضبَط `requestSource` بشكل شائع على `TAB_ID`، وهو ثابت عادي يُصدِّره كل قالب من `app/lib/tab-id.ts`: سلسلة عشوائية قصيرة تبقى نفسها طوال عمر علامة تبويب وتختلف بين علامات التبويب. إقران `requestSource: TAB_ID` على كتابة مع `useDbSync({ ignoreSource: TAB_ID })` على جانب القراءة هو كيف تتجنب علامة التبويب إعادة جلب كتابتها الخاصة بينما تظل تتفاعل مع كل الآخرين. راجع [الوعي بالسياق](/docs/context-awareness#jitter-prevention) للحصول على الشرح الكامل.
+
+## sendToAgentChat: الإرسال في الخلفية {#background-send}
+
+استخدم `background: true` عندما ينبغي لإجراء واجهة مستخدم أن يبدأ عمل وكيل حقيقي دون
+فتح أو تركيز الشريط الجانبي. لا يزال هذا يُنشئ سلسلة محادثة/تشغيل عادية،
+ويستخدم أدوات/actions/سياق الوكيل، ويحافظ على إمكانية ملاحظة العمل من خلال
+علبة التشغيل. إنه ليس استدعاء نموذج فوري خام لمرة واحدة.
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+يُقصد إقران `background` مع `newTab` حتى لا يُغطّي العمل المخفي
+محادثة المستخدم النشطة. استخدم `tabId` المُعاد إذا كانت واجهة المستخدم تحتاج إلى
+ربط حالة المتابعة أو الربط العميق بالتشغيل لاحقًا.
+
+توجد بعض خيارات `AgentChatMessage` الإضافية بعيدًا عن الخيارات المُغطّاة في [محادثة الوكيل](/docs/client-agent-chat#agentchatmessage)، معظمها لحالات التضمين أو التكامل اللاحق:
+
+| الخيار                | النوع       | الوصف                                                                 |
+| --------------------- | ----------- | --------------------------------------------------------------------- |
+| `background`          | `boolean?`  | مع `newTab`، يعمل دون تركيز علامة التبويب ويعرض التشغيل في `RunsTray` |
+| `projectSlug`         | `string?`   | ارتباط ثابت اختياري للمشروع لسياق منظّم                               |
+| `preset`              | `string?`   | اسم إعداد مسبق اختياري للمستهلكين اللاحقين                            |
+| `referenceImagePaths` | `string[]?` | مسارات صور مرجعية اختيارية                                            |
+
+## جسر استضافة MCP App {#mcp-app-host-bridge}
+
+ينبغي أن تكون المسارات المُضمَّنة كتطبيقات MCP أولوية عنوان URL: تحميل العنصر الحالي من
+معلمات المسار/الاستعلام، وعرض مسار React الحقيقي أو مكون مشترك مُركَّز، واستخدام
+الجسر المضيف فقط للسلوك المملوك للمضيف. يُصدِّر `@agent-native/core/client`
+الأدوات المساعدة التي تستدعيها المسارات المُضمَّنة:
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client/agent-chat";
+```
+
+يقرأ `getMcpAppHostContext()` أحدث لقطة سياق مضيف مدفوعة.
+يشترك `useMcpAppHostContext()` مكونات React في التغييرات. تُعيد أدوات الطلب
+المساعدة (`openMcpAppHostLink`، `requestMcpAppDisplayMode`،
+`updateMcpAppModelContext`) `false` خارج إطار MCP App مُضمَّن، أو
+`Promise<boolean>` داخل إطار.
+
+يستخدم `sendToAgentChat()` (راجع [محادثة الوكيل](/docs/client-agent-chat#sendtoagentchat)) نفس الجسر للمطالبات المُرسَلة تلقائيًا من المسارات المُضمَّنة. داخل تضمين MCP App تم إنشاؤه بـ `embedApp()`، يتم توجيه الرسائل المُرسَلة تلقائيًا (حُذف `submit` أو `true`) إلى الجسر، الذي يطلب من المضيف المحتوي إضافة سياق مخفي وإرسال الدور المرئي للمستخدم. يبقى `context` مرئيًا للنموذج دون أن يُنشَر كمحادثة مواجهة للمستخدم. يحتفظ `submit: false` بسلوك التعبئة/المراجعة المسبقة المحلي لأن تطبيقات MCP لا تُعرِّف واجهة برمجة قياسية لتعبئة المسودة مسبقًا. داخليًا هذا هو مسار المحادثة المُرسَلة الذي يظهر أحيانًا كـ `agentNative.submitChat`. يجب أن يستمر كود التطبيق في استدعاء `sendToAgentChat()` بدلًا من نشر ذلك الحدث مباشرة.
+
+الجسر نفسه، ورسائل `ui/*` JSON-RPC، وترحيل الغلاف (wrapper relay) `agentNative.mcpHost.*`،
+والزرع (transplant) مقابل عرض الإطار المتحكم فيه، وسياق المضيف، و
+طلبات وضع العرض، مملوك لـ
+[الوكلاء الخارجيون](/docs/external-agents#mcp-app-bridge). راجع [تطبيقات MCP](/docs/mcp-apps) للتعرف على البروتوكول الكامل.
+
+## شرائح الاقتراحات المخصصة {#custom-suggestions}
+
+تدمج `dynamicSuggestions` الخاصة بـ `<AgentSidebar>` (راجع [محادثة الوكيل](/docs/client-agent-chat#dynamic-suggestions)) بالفعل `suggestions` الثابتة مع الاستدلال المدرك للسياق الخاص بإطار العمل. مرر دالة `getSuggestions` داخل `dynamicSuggestions` بدلًا من ذلك عندما يريد تطبيق شرائح حتمية خاصة بالمجال محسوبة من نفس سياق `application_state` بدلًا من استدلال إطار العمل الافتراضي.
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
+>
+  <App />
+</AgentSidebar>
+```
+
+تستقبل `getSuggestions` نفس لقطة `navigation`/`selection`/`pendingSelection` التي يقرأها الاستدلال المدمج، مكتوبة كـ `unknown` لأن شكلها يحدده التطبيق، لذا يجب تضييقها قبل قراءة حقولها. يمكن لتنفيذ مخصص أن يتفاعل مع الحالة نفسها التي يتفاعل معها الاستدلال الافتراضي بالضبط، فقط بقواعد خاصة بالتطبيق بدلًا من قواعد عامة.
+
+## ما هي الخطوة التالية
+
+- [**نظرة عامة**](/docs/client-overview) — تخطيط دليلَي `app/` و`public/` الذي تعيش فيه هذه البدائيات
+- [**البيانات والمزامنة**](/docs/client-data) — خطافات actions الافتراضية و`useDbSync` التي ينبغي أن تستخدمها معظم الصفحات بدلًا من ذلك
+- [**آليات المزامنة الداخلية**](/docs/client-sync-internals) — `useChangeVersion`/`useChangeVersions` والمساران اللذان يمكن أن تسلكهما إعادة الجلب
+- [**محادثة الوكيل**](/docs/client-agent-chat) — الأدوات المساعدة الافتراضية `sendToAgentChat`/`askUserQuestion` التي ينبغي أن تستخدمها معظم واجهات المستخدم بدلًا من ذلك، وواجهات برمجة حالة سياق محادثة الوكيل المرحلية
+- [**نقاط الدخول**](/docs/client-entry-points) — `app/entry.client.tsx`/`app/entry.server.tsx` وتخصيص بث SSR
+- [**الوعي بالسياق**](/docs/context-awareness) — دلالات `navigation`/`selection` المبنية على `application_state`، وشرح `TAB_ID`/منع الاهتزاز
+- [**واجهة المستخدم التوليدية**](/docs/generative-ui) — عناصر تحكم أكثر ثراءً مضمّنة في المحادثة تتجاوز `askUserQuestion`
+- [**الوكلاء الخارجيون**](/docs/external-agents#mcp-app-bridge) — آليات جسر استضافة MCP App الكاملة

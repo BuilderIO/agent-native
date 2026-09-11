@@ -1,0 +1,300 @@
+name: Deploy Netlify PR previews from GitHub Actions
+
+# pull_request_target is intentional: GitHub loads this workflow from the base
+# revision. The PR build job has no deployment secrets; the separate upload job
+# checks out the trusted base revision and only receives the built artifact.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: netlify-pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    name: Discover changed preview sites
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+      has_targets: ${{ steps.targets.outputs.has_targets }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # pull_request_target may run for a branch that predates this helper.
+          # Load the discovery code from the trusted workflow base instead.
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the PR head for the path diff
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags origin "$HEAD_SHA"
+
+      - name: Build the changed app site matrix
+        id: targets
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/netlify-pr-preview-targets.ts \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.site }} PR preview build
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.discover.outputs.has_targets == 'true'
+    needs: discover
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: preview
+      site: ${{ matrix.site }}
+      build_context: deploy-preview
+      source_ref: ${{ github.event.pull_request.head.sha }}
+      deploy: false
+      deploy_mode: draft
+      smoke: false
+      caller: pr-build-${{ github.event.pull_request.number }}
+      artifact_upload: true
+      artifact_name: pr-${{ github.event.pull_request.number }}-${{ matrix.site }}
+
+  deploy:
+    name: ${{ matrix.site }} PR preview
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.discover.outputs.has_targets == 'true'
+    needs: [discover, build]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: preview
+      site: ${{ matrix.site }}
+      build_context: deploy-preview
+      source_ref: ${{ github.event.pull_request.head.sha }}
+      checkout_ref: ${{ github.event.pull_request.base.sha }}
+      deploy: true
+      deploy_mode: draft
+      smoke: true
+      caller: pr-${{ github.event.pull_request.number }}
+      artifact_download: true
+      artifact_name: pr-${{ github.event.pull_request.number }}-${{ matrix.site }}
+      pull_request_number: ${{ github.event.pull_request.number }}
+      preview_alias: pr-${{ github.event.pull_request.number }}
+    secrets: inherit
+
+  comment:
+    name: ${{ matrix.site }} PR preview comment
+    if: >-
+      always() &&
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.discover.outputs.has_targets == 'true' &&
+      needs.deploy.result != 'cancelled'
+    needs: [discover, deploy]
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - name: Find the trusted PR preview deploy record
+        id: find_record
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SITE_NAME: ${{ matrix.site }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const siteName = process.env.SITE_NAME;
+            const prefix = `netlify-pr-preview-record-${siteName}-${context.runId}-${process.env.RUN_ATTEMPT}-`;
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const deployJob = jobs.find(
+              (job) =>
+                (job.name === `${siteName} PR preview` ||
+                  job.name.startsWith(`${siteName} PR preview /`)) &&
+                job.conclusion === 'success',
+            );
+            const deployStartedAt = Date.parse(deployJob?.started_at ?? '');
+            if (!Number.isFinite(deployStartedAt)) {
+              core.notice(`No successful deploy job for ${siteName}; skipping its preview comment.`);
+              return;
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const trustedArtifacts = artifacts
+              .filter(
+                (artifact) =>
+                  artifact.name.startsWith(prefix) &&
+                  artifact.expired !== true &&
+                  Date.parse(artifact.created_at) > deployStartedAt,
+              )
+              .sort(
+                (left, right) =>
+                  Date.parse(right.created_at) - Date.parse(left.created_at),
+              );
+            const artifact = trustedArtifacts[0];
+            if (!artifact) {
+              core.notice(`No trusted deploy record for ${siteName}; skipping its preview comment.`);
+              return;
+            }
+            core.setOutput('artifact_id', String(artifact.id));
+
+      - name: Download the trusted PR preview deploy record
+        if: always() && steps.find_record.outputs.artifact_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ steps.find_record.outputs.artifact_id }}
+          path: ${{ runner.temp }}/netlify-pr-preview-record
+
+      - name: Comment the PR preview URL
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RECORD_FILE: ${{ runner.temp }}/netlify-pr-preview-record/record.json
+          SITE_NAME: ${{ matrix.site }}
+          SOURCE_REF: ${{ github.event.pull_request.head.sha }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { existsSync, readFileSync } = require('node:fs');
+            if (!existsSync(process.env.RECORD_FILE)) {
+              core.notice(`No successful deploy record for ${process.env.SITE_NAME}; skipping its preview comment.`);
+              return;
+            }
+            const record = JSON.parse(readFileSync(process.env.RECORD_FILE, 'utf8'));
+            if (
+              record.pullRequestNumber !== context.issue.number ||
+              !record.deployId ||
+              !record.deployUrl ||
+              record.siteName !== process.env.SITE_NAME ||
+              record.sourceRef !== process.env.SOURCE_REF
+            ) {
+              core.setFailed('PR preview upload did not return a complete deploy record.');
+              return;
+            }
+            const marker = `<!-- agent-native-netlify-preview:${record.siteName} -->`;
+            const body = [
+              marker,
+              `**${record.siteName} preview:** [Open preview](${record.deployUrl})`,
+              '',
+              `Built by GitHub Actions from \`${record.sourceRef}\`; Netlify is serving the uploaded artifact.`,
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  fork:
+    name: Fork preview policy
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Fork PR previews are skipped because deployment secrets are unavailable to untrusted code."
+
+  cleanup:
+    name: Remove closed PR previews
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-production-sites.json
+          sparse-checkout-cone-mode: false
+
+      - name: Install the pinned Netlify CLI
+        run: npm install --global netlify-cli@27.0.0 --ignore-scripts
+
+      - name: Delete the PR's prebuilt deploys
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          prefix="GitHub Actions PR preview #${PR_NUMBER} "
+          matching_deploys_file="$RUNNER_TEMP/netlify-pr-preview-deploys-${PR_NUMBER}.txt"
+          : > "$matching_deploys_file"
+          while IFS=$'\t' read -r site_name site_id; do
+            page_number=1
+            while :; do
+              deploys="$(netlify api listSiteDeploys --data "{\"site_id\":\"$site_id\",\"per_page\":100,\"page\":$page_number}")"
+              page_count="$(jq 'length' <<<"$deploys")"
+              jq -r --arg prefix "$prefix" --arg site_id "$site_id" \
+                '.[] | select((.title // "") | startswith($prefix)) | [$site_id, .id] | @tsv' \
+                <<<"$deploys" >> "$matching_deploys_file"
+              if (( page_count < 100 )); then
+                break
+              fi
+              page_number=$((page_number + 1))
+            done
+          done < <(jq -r 'to_entries[] | select(.key != "workspace") | [.key, .value.siteId] | @tsv' scripts/netlify-production-sites.json)
+          while IFS=$'\t' read -r site_id deploy_id; do
+            [[ -z "$deploy_id" ]] && continue
+            site_name="$(jq -r --arg site_id "$site_id" 'to_entries[] | select(.value.siteId == $site_id) | .key' scripts/netlify-production-sites.json)"
+            echo "Deleting ${site_name} PR preview deploy ${deploy_id}."
+            netlify api deleteSiteDeploy --data "{\"site_id\":\"$site_id\",\"deploy_id\":\"$deploy_id\"}" >/dev/null
+          done < <(sort -u "$matching_deploys_file")

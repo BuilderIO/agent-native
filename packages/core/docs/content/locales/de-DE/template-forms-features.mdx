@@ -1,0 +1,154 @@
+---
+title: "Forms: Funktionen"
+description: "Jede zentrale Forms-Funktion, einschließlich Feldtypen, Veröffentlichung, Schutzmaßnahmen, Antworten, Einblicke und Weiterleitung, jeweils mit Einrichtungsschritten."
+---
+
+# Funktionen
+
+Jede zentrale Forms-Funktion: wie sie funktioniert und wie Sie sie einrichten. Einen Überblick finden Sie unter [Forms](/docs/template-forms), die vollständige Liste der Eingabeaufforderungen unter [Mit dem Agent sprechen](/docs/template-forms-agent).
+
+## Ein Formular erstellen
+
+Jedes Formular beginnt mit einer Reihe von Feldern. Beschreiben Sie dem Agenten, was Sie möchten, und er baut das Formular für Sie, oder beginnen Sie bei null und fügen Sie die Felder selbst im visuellen Builder hinzu. Beide Wege bearbeiten dasselbe Formular, sodass ein Wechsel zwischen ihnen nie etwas aus dem Gleichgewicht bringt. Sobald ein Formular existiert, hat sein Builder vier Tabs, Bearbeiten, Antworten, Einstellungen und Integrationen, mit denen Sie Beschriftungen, Platzhalter, Pflichtfelder, Optionen und Feldreihenfolge von Hand anpassen können, wann immer Sie mehr direkte Kontrolle möchten, als eine Änderung im Chat zu beschreiben.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1d93690182e42089cdd41c9b1eb9806?alt=media&token=da8d18fd-b0d7-4720-aabd-9e6f6edcc93a&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Ein kurzes Video, das ein bestehendes Formular zeigt, einschließlich des Hinzufügens von 'erforderlich' zu einem Feld."
+  caption="Ein kurzes Video, das ein bestehendes Formular zeigt, einschließlich des Hinzufügens von 'erforderlich' zu einem Feld."
+  autoplay={true}
+  loop={true}
+/>
+
+### Feldtypen {#field-types}
+
+Forms wird mit 11 Feldtypen ab Werk ausgeliefert. Bitten Sie den Agenten um einen davon namentlich, oder beschreiben Sie einfach die gewünschte Frage und lassen Sie ihn den passenden Typ wählen.
+
+<Table
+  id="doc-block-forms3"
+  title="Mitgelieferte Feldtypen"
+  columns={["Typ", "Braucht Optionen", "Beispielhafte Verwendung"]}
+  rows={[
+    ["text", "Nein", "Name, Firma"],
+    ["email", "Nein", "Kontakt-E-Mail"],
+    ["number", "Nein", "Alter, Menge"],
+    ["textarea", "Nein", "Nachricht, Kommentare"],
+    ["select", "Ja", "Land, Abteilung"],
+    ["multiselect", "Ja", "Fähigkeiten, Interessen"],
+    ["checkbox", "Nein", "Einwilligung, Opt-in"],
+    ["radio", "Ja", "Geschlecht, Präferenz"],
+    ["date", "Nein", "Geburtstag, Frist"],
+    ["rating", "Nein", "Zufriedenheit, Qualität (1-5 Sterne)"],
+    ["scale", "Nein", "NPS, Wahrscheinlichkeit (numerischer Bereich)"],
+  ]}
+/>
+
+Jedes Feld braucht eine Beschriftung und einen Typ. Felder wie `select`, `multiselect` und `radio` brauchen außerdem eine Liste von Optionen zur Auswahl. Sie können jedes Feld als Pflichtfeld markieren, eine Validierung wie einen Mindest- oder Höchstwert hinzufügen und wählen, ob es die volle Breite des Formulars einnimmt oder neben einem anderen Feld sitzt.
+
+### Bedingte Felder
+
+Ein Feld kann verborgen bleiben, bis eine frühere Antwort einer von Ihnen festgelegten Regel entspricht. Sie könnten zum Beispiel ein Freitextfeld „Erzähl uns mehr“ verstecken, es sei denn, jemand wählt bei einer früheren Frage „Sonstiges“.
+
+Das Feld, gegen das Sie prüfen, muss im Formular weiter vorne stehen. Eine Regel, die auf ein späteres Feld oder ein nicht existierendes Feld verweist, wird abgelehnt, bevor sie gespeichert werden kann. Sie können prüfen, ob eine frühere Antwort einem Wert entspricht, nicht entspricht oder einen Wert enthält, was auch bei Fragen funktioniert, bei denen jemand mehr als eine Option auswählen kann. Wird ein Feld durch seine Bedingung ausgeblendet, wird seine Antwort nie gespeichert oder gesendet, sodass ein ausgeblendetes Feld keinen alten oder Standardwert in Ihren Daten hinterlassen kann.
+
+Erstellen Sie Formulare direkt per Skript, statt sie im Chat zu beschreiben? Die Referenz für Felder- und Einstellungs-JSON finden Sie im [Entwicklerhandbuch](/docs/template-forms-developers#data-model).
+
+## Ihr Formular veröffentlichen
+
+Ein Formular durchläuft drei Status:
+
+| Status      | Bedeutung                                  | Öffentlicher Zugriff        |
+| ----------- | ------------------------------------------ | --------------------------- |
+| `draft`     | In Bearbeitung, nicht öffentlich verfügbar | Nein                        |
+| `published` | Live und nimmt Antworten entgegen          | Ja                          |
+| `closed`    | Nimmt keine Antworten mehr entgegen        | Zeigt eine Abschlussmeldung |
+
+Ein Formular kann nicht veröffentlicht werden, wenn es keine Felder hat, einem Feld eine Beschriftung fehlt oder ein `select`-, `multiselect`- oder `radio`-Feld keine Optionen hat. Wird die Veröffentlichung abgelehnt, erhalten Sie einen konkreten Grund.
+
+Die öffentliche URL sieht aus wie `/f/<slug>`, wobei der Slug aus dem Titel plus einem kurzen eindeutigen Suffix erzeugt wird, etwa `beta-signup-a1b2c3`. Er wird automatisch neu erzeugt, sobald sich der Titel ändert, es sei denn, Sie legen einen benutzerdefinierten Slug fest.
+
+### Antworten sammeln
+
+Jede Einreichung an ein veröffentlichtes Formular wird zu einer Antwort: die Antworten selbst, der Zeitpunkt des Eingangs und, sofern das Formular nicht anonym ist, wer sie gesendet hat und von wo. Öffnen Sie den Tab Antworten eines beliebigen Formulars, um jede Antwort im Detail zu sehen, oder fragen Sie einfach den Agenten:
+
+- „Wie viele Antworten hat das Beta-Anmeldeformular?“
+- „Wer hat heute eingereicht?“
+- „Zeig mir die Antworten für das Kundenfeedback-Formular.“
+
+Kam eine Antwort über einen in eine andere App eingebetteten Feedback-Button herein statt über die öffentliche Formularseite selbst, zeigt die Antworten-Tabelle auch, von welcher Seite und welcher App sie stammt. Diese Spalten erscheinen erst, sobald mindestens eine Antwort diese Information tatsächlich mitbringt.
+
+## Einstellungen
+
+Jedes Formular hat eigene Einstellungen, im Settings-Tab des Builders, für sein Verhalten und das, was Teilnehmende sehen.
+
+- **Text der Absenden-Schaltfläche.** Ändern Sie die Beschriftung der Absenden-Schaltfläche vom Standard „Submit“ zu etwas Spezifischerem, etwa „Feedback senden“ oder „Meinen Platz reservieren“.
+- **Erfolgsmeldung.** Legen Sie fest, was Teilnehmende direkt nach dem Absenden sehen, statt der Standardbestätigung.
+- **Weiterleitungs-URL.** Leiten Sie Teilnehmende nach dem Absenden auf eine andere Seite um, statt eine Erfolgsmeldung auf dem Formular selbst zu zeigen.
+- **Fortschrittsbalken.** Zeigen Sie bei einem längeren Formular oben einen Fortschrittsbalken, damit Teilnehmende sehen, wie viel noch übrig ist.
+- **Anonymer Modus.** Schalten Sie jede Nachverfolgung ab, wer geantwortet hat, sodass Einreichungen nie eine IP-Adresse, E-Mail oder einen Standort erfassen.
+- **Bei neuen Antworten benachrichtigen.** Erhalten Sie bei jeder Einreichung eine E-Mail, versendet über Ihren konfigurierten E-Mail-Anbieter.
+
+## Ein öffentliches Formular schützen und branden
+
+### Spam-Schutz
+
+Öffentliche Einreichungen können eine Verifizierung über [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) verlangen, bevor sie durchgelassen werden. Aktivieren Sie das, indem Sie in den Einstellungen einen Site Key und einen Secret Key festlegen. Zwei Schutzmaßnahmen bleiben auch ohne Turnstile aktiv: ein verstecktes Feld, das Bot-Einreichungen unauffällig verwirft, und eine Prüfung, die alles ablehnt, was schneller eingereicht wird, als eine Person das Formular vernünftigerweise ausfüllen könnte.
+
+<Callout tone="warning">
+
+Legen Sie beide Turnstile-Keys zusammen fest. Die öffentliche Formularseite zeigt das Verifizierungs-Widget nur, wenn der Site Key gesetzt ist, und der Server prüft es nur, wenn beide Keys gesetzt sind. Nur den Secret Key zu setzen verifiziert nichts, und nur den Site Key zu setzen zeigt ein Widget, das der Server nie tatsächlich prüft.
+
+</Callout>
+
+### Branding
+
+Jedes eigenständige öffentliche Formular zeigt in der Ecke ein kleines Abzeichen „Built with Agent-Native“. Das ist nichts, das Sie pro Formular ein- oder ausschalten. Es wird nur automatisch ausgeblendet, wenn das Formular in eine andere Seite eingebettet ist, wie ein Feedback-Popover, da diese Seite bereits ihr eigenes Branding trägt.
+
+### Einreichende Ursprünge einschränken
+
+Standardmäßig akzeptiert der Übermittlungslink eines Formulars Einreichungen von überall, was dem erwarteten Verhalten eines einfachen öffentlichen Formularlinks entspricht. Wenn Sie den Übermittlungslink eines Formulars in ein Widget auf einer anderen Website einbetten und sicherstellen möchten, dass nur diese Website ihn verwenden kann, können Sie Einreichungen auf eine bestimmte Liste von Website-Ursprüngen beschränken.
+
+Dafür gibt es heute keinen Schalter im Builder. Bitten Sie den Agenten, das einzurichten, zum Beispiel „erlaube die Einreichung dieses Formulars nur von https://example.com aus.“ Geben Sie dem Agenten für jede zulässige Website den genauen Ursprung (Schema und Domain, wie `https://example.com`, ohne abschließenden Pfad) an.
+
+## Einblicke in Antworten {#response-insights}
+
+Fragen Sie nach Trends oder Zusammenfassungen, statt durch Zeilen zu scrollen. Probieren Sie „Einreichungen nach Tag“, „wie viele Antworten diese Woche“ oder „fasse das Feedback dieser Woche zusammen“, und der Agent liefert Ihnen ein Diagramm, eine Tabelle oder beides, statt eine Wand aus Rohdaten.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc594fa6d6bfe4479a36114306401bb60?alt=media&token=fa7e9243-7a96-4418-9aeb-9eb3fa441e76&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Ein Beispiel für das Anfordern tabellarischer Daten aus einem Formular, basierend auf Antwortthemen."
+  caption="Ein Beispiel für das Anfordern tabellarischer Daten aus einem Formular, basierend auf Antwortthemen."
+  autoplay={true}
+  loop={true}
+/>
+
+Wenn Sie kein bestimmtes Formular nennen, durchsucht der Agent stattdessen Ihre zuletzt aktualisierten Formulare, standardmäßig bis zu 50 und höchstens 100. Das ist nützlich für eine Frage wie „wie entwickeln sich die Einreichungen über alle meine Formulare diesen Monat?“ Jede Antwort sagt Ihnen, ob sie alles oder nur eine Stichprobe zeigt, zusammen mit der Anzahl der erfassten Zeilen, sodass Sie immer wissen, was Sie vor sich haben.
+
+## Export
+
+Klicken Sie im Antworten-Tab eines Formulars auf **CSV exportieren**, um sofort eine CSV dessen herunterzuladen, was gerade auf dem Bildschirm zu sehen ist, einschließlich jeder angewendeten Suche oder Sortierung. Das funktioniert sofort, ohne Einrichtung.
+
+Sie können den Agenten auch um „eine CSV dieses Formulars“ oder „einen JSON-Export aller Antworten“ bitten. Das exportiert immer jede Antwort, nicht nur das aktuell Gefilterte, und braucht zuvor einen verbundenen Dateispeicher-Anbieter. Ist noch keiner verbunden, sagt Ihnen der Agent das und verweist Sie auf Einstellungen → Datei-Uploads, wo ein kostenloses Builder.io-Konto eine schnelle Option ist. Sobald der Speicher verbunden ist, gibt der Agent Ihnen einen Link zur Datei zurück, statt sie direkt herunterzuladen. Jeder Export verwendet Ihre Feldbeschriftungen als Spaltenüberschriften (bei CSV), und wenn jemand bei einem Feld mehr als eine Option ausgewählt hat, werden diese Auswahlen in einer Zelle zusammengeführt. Jede Antwort, die wie eine Tabellenkalkulationsformel aussehen könnte, wird zuvor neutralisiert, was Sie davor schützt, dass eine Einreichung beim Öffnen der Datei versucht, Code auszuführen.
+
+## Einreichungen weiterleiten
+
+Aktivieren Sie die automatische Zustellung, damit neue Antworten dort erscheinen, wo Ihr Team bereits arbeitet, statt dass jemand den Antworten-Tab prüft. Das ist eine formularspezifische Einstellung, konfiguriert im Integrationen-Tab des Builders.
+
+| Ziel          | Was benötigt wird                                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Slack         | Eine Incoming-Webhook-URL für den gewünschten Kanal                                                                    |
+| Discord       | Eine Webhook-URL für den gewünschten Kanal                                                                             |
+| Google Sheets | Eine Google-Apps-Script-URL, eingerichtet zum Empfangen von Einreichungen. Ein reiner Tabellenlink funktioniert nicht. |
+| Webhook       | Jede Webadresse, die die Einreichung als Daten empfangen kann                                                          |
+
+Das ist getrennt davon, Slack zu verbinden, damit der Agent selbst dort postet, was unter [Messaging](/docs/messaging) behandelt wird. Verbinden Sie das zuerst, wenn der Agent selbst Updates an Slack posten soll. Jede Zieladresse wird geprüft, um sicherzustellen, dass sie nicht auf ein privates Netzwerk oder eine interne Adresse zeigt, sowohl beim Speichern als auch bei jeder eingehenden Antwort, sodass ein Formular nicht dazu missbraucht werden kann, Ihr eigenes Netzwerk auszuspähen.
+
+Sie können außerdem eine E-Mail-Benachrichtigung aktivieren, damit der Formularinhaber bei jeder neuen Antwort eine E-Mail erhält, versendet über den bereits konfigurierten E-Mail-Dienst. Der Versand dieser E-Mail erfolgt nach bestem Bemühen. Eine Einreichung geht auch dann durch, wenn der Versand der Benachrichtigungs-E-Mail fehlschlägt.
+
+## Wie geht es weiter?
+
+- [**Forms**](/docs/template-forms) — der Überblick und was es ersetzt
+- [**Mit dem Agent sprechen**](/docs/template-forms-agent) — jede Eingabeaufforderung nach Aufgabe und wie der Agent Ihren Bildschirm sieht
+- [**Forms in einem Multi-App-Arbeitsbereich**](/docs/template-forms-integrations) — Delegation und der öffentliche Übermittlungsendpunkt, den andere Apps verwenden
+- [**Entwicklerhandbuch**](/docs/template-forms-developers) — die Felder-, Einstellungs- und Aktionsreferenz hinter diesen Funktionen
+- [**Freigabe**](/docs/sharing) — das Freigabemodell, auf dem Formularfreigaben aufbauen
+- [**Messaging**](/docs/messaging) — Slack verbinden, damit der Agent direkt postet

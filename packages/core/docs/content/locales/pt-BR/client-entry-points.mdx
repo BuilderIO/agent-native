@@ -1,0 +1,27 @@
+---
+title: "Pontos de entrada"
+description: "app/entry.client.tsx e app/entry.server.tsx: os wrappers leves de bootstrap de hidratação e SSR, e quando personalizar o comportamento de streaming."
+---
+
+# Pontos de entrada
+
+`app/entry.client.tsx` hidrata o HTML renderizado pelo servidor no navegador, e `app/entry.server.tsx` renderiza esse HTML no servidor. Ambos são wrappers leves gerados pelo React Router. Você raramente precisa editá-los.
+
+```ts filename="app/entry.server.tsx"
+import {
+  createDocumentRequestHandler,
+  streamTimeout,
+} from "@agent-native/core/server/entry-server";
+import { ServerRouter } from "react-router";
+
+export default createDocumentRequestHandler(ServerRouter);
+export { streamTimeout };
+```
+
+Recorra a eles apenas para personalização avançada de SSR, por exemplo mudando o comportamento de streaming. Páginas, layout e dados comuns não precisam de mudanças aqui. Veja [Roteamento](/docs/client-routing) para adicionar páginas em vez disso.
+
+## O que vem a seguir
+
+- [**Visão geral**](/docs/client-overview) — onde esses arquivos se encaixam em `app/`
+- [**Roteamento**](/docs/client-routing) — adicionando páginas, a forma normal de estender `app/`
+- [**Avançado**](/docs/client-advanced) — as outras primitivas de cliente de nível mais baixo e válvulas de escape
