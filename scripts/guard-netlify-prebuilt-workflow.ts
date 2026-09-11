@@ -1447,9 +1447,7 @@ if (
   !reusableBetaFreshness.includes("published_deploy_source_ref") ||
   !reusableBetaFreshness.includes("not on main") ||
   !reusableBetaFreshness.includes("is already newer") ||
-  !reusableBetaFreshness.includes(
-    "['ahead', 'identical'].includes",
-  ) ||
+  !reusableBetaFreshness.includes("['ahead', 'identical'].includes") ||
   reusableBetaFreshness.includes("mainSha.toLowerCase() === sourceRef") ||
   !reusableBetaFreshness.includes(
     "Verify beta source is current after publish",

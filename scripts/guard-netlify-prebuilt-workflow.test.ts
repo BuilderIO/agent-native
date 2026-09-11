@@ -573,16 +573,16 @@ describe("production Netlify site concurrency guard", () => {
       assert.match(script, /\['ahead', 'identical'\]\.includes/);
       assert.doesNotMatch(script, /mainSha\.toLowerCase\(\) === sourceRef/);
       assert.match(script, /not on main/);
-      assert.match(script, /published deploy \$\{publishedSha\} is already newer/);
+      assert.match(
+        script,
+        /published deploy \$\{publishedSha\} is already newer/,
+      );
       assert.equal(
         freshnessStep?.env?.PUBLISHED_SOURCE_REF,
         "${{ steps.previous.outputs.published_deploy_source_ref }}",
       );
     }
-    assert.match(
-      String(previousStep?.run),
-      /published_deploy_source_ref/,
-    );
+    assert.match(String(previousStep?.run), /published_deploy_source_ref/);
     assert.equal(betaMigration?.env?.BUILD_CONTEXT, "production");
     assert.equal(
       betaMigration?.env?.NETLIFY_MIGRATION_SITE_ID,
@@ -770,11 +770,11 @@ describe("production Netlify site concurrency guard", () => {
     );
     const confirmCurrentSourceStep = (
       (
-        ((betaResolveSource.jobs as Workflow)[
+        (betaResolveSource.jobs as Workflow)[
           "confirm-current-source"
-        ] as Workflow).steps as Array<Workflow>
-      ).find((step) => step.id === "source")
-    );
+        ] as Workflow
+      ).steps as Array<Workflow>
+    ).find((step) => step.id === "source");
     const confirmCurrentSourceScript = String(
       confirmCurrentSourceStep?.with?.script,
     );
