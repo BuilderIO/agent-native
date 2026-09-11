@@ -29,7 +29,6 @@ interface DeclarationValueSpan {
   start: number;
 }
 
-const STYLE_BLOCK_PATTERN = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
 const STYLE_ATTRIBUTE_PATTERN =
   /\sstyle\s*=\s*(?:"([\s\S]*?)"|'([\s\S]*?)'|([^\s>]+))/gi;
 const NON_RENDERED_HTML_PATTERN =
@@ -85,6 +84,11 @@ interface HtmlTagSpan {
   value: string;
 }
 
+interface StyleBlockSpan {
+  start: number;
+  value: string;
+}
+
 function htmlTagSpans(content: string): HtmlTagSpan[] {
   const tags: HtmlTagSpan[] = [];
   let start = -1;
@@ -120,6 +124,22 @@ function htmlTagSpans(content: string): HtmlTagSpan[] {
     }
   }
   return tags;
+}
+
+function styleBlockSpans(content: string): StyleBlockSpan[] {
+  const blocks: StyleBlockSpan[] = [];
+  let openingTag: HtmlTagSpan | null = null;
+  for (const tag of htmlTagSpans(content)) {
+    if (/^<style\b/i.test(tag.value)) {
+      openingTag = tag;
+      continue;
+    }
+    if (!openingTag || !/^<\/style\s*>/i.test(tag.value)) continue;
+    const start = openingTag.start + openingTag.value.length;
+    blocks.push({ start, value: content.slice(start, tag.start) });
+    openingTag = null;
+  }
+  return blocks;
 }
 
 function cssPropertyName(property: string): string {
@@ -313,12 +333,8 @@ function colorTokenSpansInHtml(content: string): ColorTokenSpan[] {
     }
   }
 
-  for (const match of maskedContent.matchAll(STYLE_BLOCK_PATTERN)) {
-    const css = match[1] ?? "";
-    const openingTagEnd = match[0].indexOf(">");
-    const cssOffset =
-      (match.index ?? 0) + (openingTagEnd < 0 ? 0 : openingTagEnd + 1);
-    tokens.push(...colorTokenSpansInCss(css, cssOffset));
+  for (const block of styleBlockSpans(maskedContent)) {
+    tokens.push(...colorTokenSpansInCss(block.value, block.start));
   }
 
   return tokens.sort((left, right) => left.start - right.start);

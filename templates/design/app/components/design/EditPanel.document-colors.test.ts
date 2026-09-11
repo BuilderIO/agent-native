@@ -189,7 +189,11 @@ describe("extractDocumentColorPalette", () => {
 
   it("anchors style-block replacement after the opening tag", () => {
     const content =
-      '<style data-source="color:#0066ff">.card { color:#0066ff }</style>';
+      '<style data-source="color:#0066ff>">.card { color:#0066ff }</style>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
 
     expect(
       replaceSelectionColorsInHtml(
@@ -199,7 +203,7 @@ describe("extractDocumentColorPalette", () => {
         "#ff0000",
       ),
     ).toBe(
-      '<style data-source="color:#0066ff">.card { color:#ff0000 }</style>',
+      '<style data-source="color:#0066ff>">.card { color:#ff0000 }</style>',
     );
   });
 
