@@ -78,6 +78,20 @@ describe("InlineExtensionFrame", () => {
     });
     expect(iframe?.getAttribute("aria-disabled")).toBe("true");
     expect(iframe?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow,
+          data: {
+            type: "agent-native-send-to-chat",
+            message: "Again",
+            submit: true,
+          },
+        }),
+      );
+    });
+    expect(sendToAgentChat).toHaveBeenCalledTimes(1);
   });
 
   it("keeps extension chat messages draft-only without explicit submission", async () => {
