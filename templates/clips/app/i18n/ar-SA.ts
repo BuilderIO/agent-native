@@ -662,9 +662,11 @@ const messages = {
     downloadAgain: "لم ينجح؟ حاول التنزيل مرة أخرى",
     alsoFor: "متاح أيضًا لـ {{platform}}",
     backToLibrary: "العودة إلى المكتبة",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "تحميل Clips",
     stable: "مستقر",
     nightly: "Nightly",
+    allPlatforms: "جميع المنصات",
+    releaseChannel: "قناة الإصدار",
     switchToNightly: "التبديل إلى إصدارات Nightly",
     switchToStable: "التبديل إلى الإصدارات المستقرة",
     retry: "إعادة المحاولة",
@@ -1345,13 +1347,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (مترجم)",
     chromeTitle: "Chrome extension (مترجم)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (مترجم)",
+    chromeDescription: "التقط علامات تبويب المتصفح باستخدام إضافة Chrome.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (مترجم)",
     desktopTitle: "Desktop app (مترجم)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (مترجم)",
+    desktopDescription: "سجّل باستخدام الاختصارات العامة وصوت النظام.",
     openDesktopApp: "Open desktop app (مترجم)",
   },
   editableTitle: {

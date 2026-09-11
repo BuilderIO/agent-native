@@ -632,9 +632,11 @@ const messages = {
     downloadAgain: "沒有成功？請再次下載",
     alsoFor: "也可用於 {{platform}}",
     backToLibrary: "返回媒體庫",
-    clipsDesktop: "Clips 桌面版",
+    clipsDesktop: "下載 Clips",
     stable: "穩定版",
     nightly: "Nightly",
+    allPlatforms: "所有平台",
+    releaseChannel: "發佈頻道",
     switchToNightly: "切換至 Nightly 建置",
     switchToStable: "切換至穩定版建置",
     retry: "重試",
@@ -1282,12 +1284,11 @@ const messages = {
     title: "選擇錄製工具",
     description: "需要瀏覽器記錄時使用 Chrome；日常擷取要最順暢則使用桌面版。",
     chromeTitle: "Chrome 擴充功能",
-    chromeDescription:
-      "適合需要從瀏覽器分頁取得遮罩後主控台與網路診斷資訊的情境。",
+    chromeDescription: "使用 Chrome 擴充功能擷取瀏覽器分頁。",
     chromePendingDescription:
       "瀏覽器記錄選項已就緒，正在等待 Chrome Web Store URL。",
     desktopTitle: "桌面應用程式",
-    desktopDescription: "最適合全域快捷鍵、選單列錄製、會議與重複擷取。",
+    desktopDescription: "使用全域快捷鍵和系統音訊錄製。",
     openDesktopApp: "開啟桌面應用程式",
   },
   editableTitle: {
