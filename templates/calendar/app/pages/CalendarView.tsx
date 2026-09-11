@@ -438,13 +438,14 @@ export default function CalendarView() {
   );
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const openCommandPalette = useCallback(() => {
+    if (commandPaletteOpen) return;
     trackEvent("calendar_search_opened", {
       app_name: "calendar",
       template_name: "calendar",
       surface: "calendar_view",
     });
     setCommandPaletteOpen(true);
-  }, []);
+  }, [commandPaletteOpen]);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
 

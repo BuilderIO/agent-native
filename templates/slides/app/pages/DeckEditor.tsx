@@ -437,16 +437,18 @@ export default function DeckEditor() {
 
   const openAnimationsForTarget = useCallback(
     (target: SelectedAnimationTarget) => {
-      trackEvent("slide_panel_opened", {
-        app_name: "slides",
-        template_name: "slides",
-        panel: "animations",
-      });
+      if (!animationsOpen) {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "animations",
+        });
+      }
       setLayersOpen(false);
       setAnimationTarget(target);
       setAnimationsOpen(true);
     },
-    [],
+    [animationsOpen],
   );
   const toggleAnimations = useCallback(() => {
     if (!animationsOpen) {
@@ -2342,11 +2344,13 @@ export default function DeckEditor() {
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         onGenerateImage={() => setImageGenOpen(!imageGenOpen)}
         onOpenAssetLibrary={() => {
-          trackEvent("slide_panel_opened", {
-            app_name: "slides",
-            template_name: "slides",
-            panel: "asset_library",
-          });
+          if (!assetLibraryOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "asset_library",
+            });
+          }
           setReplaceImageSrc(null);
           setAssetLibraryOpen(true);
         }}
@@ -2720,11 +2724,13 @@ export default function DeckEditor() {
             }}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
-              trackEvent("slide_panel_opened", {
-                app_name: "slides",
-                template_name: "slides",
-                panel: "asset_library",
-              });
+              if (!assetLibraryOpen) {
+                trackEvent("slide_panel_opened", {
+                  app_name: "slides",
+                  template_name: "slides",
+                  panel: "asset_library",
+                });
+              }
               setReplaceImageSrc(src);
               setAssetLibraryOpen(true);
             }}
@@ -2753,11 +2759,13 @@ export default function DeckEditor() {
             recentEdits={deckRecentEdits}
             onComment={(quotedText) => {
               if (!canComment) return;
-              trackEvent("slide_panel_opened", {
-                app_name: "slides",
-                template_name: "slides",
-                panel: "comments",
-              });
+              if (sidePanel !== "comments") {
+                trackEvent("slide_panel_opened", {
+                  app_name: "slides",
+                  template_name: "slides",
+                  panel: "comments",
+                });
+              }
               setPendingComment({ quotedText });
               setSidePanel("comments");
             }}

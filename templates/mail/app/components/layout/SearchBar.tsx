@@ -141,7 +141,12 @@ export function SearchBar({
         trackEvent("mail_search_submitted", {
           app_name: "mail",
           template_name: "mail",
-          query_length_bucket: trimmed.length <= 10 ? "3_10" : "11_plus",
+          query_length_bucket:
+            trimmed.length <= 2
+              ? "1_2"
+              : trimmed.length <= 10
+                ? "3_10"
+                : "11_plus",
         });
         lastSyncedQueryRef.current = trimmed;
         void navigate(`/all?q=${encodeURIComponent(trimmed)}`);
