@@ -68,12 +68,16 @@ export default defineAction({
 
       // Reopening a claimed Slack item or a parked GitHub PR only helps if the
       // metadata gate that took it out of the automation scan is cleared too;
-      // status alone leaves it invisible to the next run.
+      // status alone leaves it invisible to the next run. Resolving a GitHub
+      // PR must clear the same babysit gate: poll-github-sources.ts reselects
+      // parked rows by that metadata directly (not by status) and would
+      // otherwise silently flip a resolved item back to pr_observed.
       const metadataPatch: Record<string, undefined> = {};
-      if (outcome === "reopen") {
-        if (item.source === "slack")
-          metadataPatch.slackReactionName = undefined;
-        if (item.source === "github") metadataPatch.prBabysitState = undefined;
+      if (outcome === "reopen" && item.source === "slack") {
+        metadataPatch.slackReactionName = undefined;
+      }
+      if (item.source === "github") {
+        metadataPatch.prBabysitState = undefined;
       }
       const metadataJson =
         Object.keys(metadataPatch).length > 0

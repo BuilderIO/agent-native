@@ -164,6 +164,30 @@ describe("set-triage-item-outcome action", () => {
     );
   });
 
+  it("clears the parked babysit state when resolving a GitHub PR item too", async () => {
+    const { default: action } = await import("./set-triage-item-outcome.js");
+    const { setMock } = mockDb(
+      item({
+        id: "item-2",
+        source: "github",
+        status: "needs_manual",
+        metadataJson: JSON.stringify({ prBabysitState: "clean" }),
+      }),
+    );
+
+    const result = await action.run(
+      { factoryId: "default", itemId: "item-2", outcome: "resolved" },
+      {},
+    );
+
+    expect(result).toEqual({ ok: true, itemId: "item-2", status: "resolved" });
+    // poll-github-sources.ts reselects parked rows by prBabysitState alone,
+    // not by status, so a resolved PR must not still look parked.
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "resolved", metadataJson: "{}" }),
+    );
+  });
+
   it("throws when the item does not exist in this org/factory", async () => {
     const { default: action } = await import("./set-triage-item-outcome.js");
     mockDb(undefined);
