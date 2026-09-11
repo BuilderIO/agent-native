@@ -6764,6 +6764,8 @@ describe("runAgentLoop", () => {
     const run = vi.fn(async () => {
       throw new AgentActionStopError("mutate-dashboard: Dashboard is locked.", {
         errorCode: "permanent_precondition",
+        // Model-facing payload: must reach the tool result, never the headline.
+        toolResult: '{"status":"locked","dashboardId":"d1"}',
       });
     });
     const engine: AgentEngine = {
@@ -6816,6 +6818,10 @@ describe("runAgentLoop", () => {
     });
     expect((stop as { error: string }).error).toContain(
       "mutate-dashboard can't run yet: Dashboard is locked",
+    );
+    expect((stop as { error: string }).error).not.toContain('"status"');
+    expect((stop as { details: string }).details).toContain(
+      '"status":"locked"',
     );
   });
 

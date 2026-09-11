@@ -6254,19 +6254,20 @@ export async function runAgentLoop(opts: {
           ...(artifacts?.length ? { artifacts } : {}),
         });
       };
-      // An action that stops itself with `errorCode: "permanent_precondition"`
-      // has already classified the failure; its message need not match the
-      // text heuristics to get the reason-led headline.
-      let explicitPermanentPrecondition = false;
+      // An action that stops itself (AgentActionStopError) is classified on
+      // its user-facing `message`, not on the model-facing `toolResult` that
+      // becomes the tool result; an explicit `permanent_precondition` code is
+      // the classification and need not match the text heuristics.
+      let directStop: { message: string; explicit: boolean } | null = null;
       const finalizeToolErrorResult = (rawResult: string): string => {
         const sanitizedResult = sanitizeToolErrorText(rawResult);
         // Counting is the wrong instrument for a precondition the turn cannot
         // satisfy: six identical round-trips through a missing API key cost the
         // user minutes and end where the first one did. Classified first so the
         // remedy reaches them on attempt one.
-        const permanentRemedy = explicitPermanentPrecondition
-          ? sanitizedResult
-          : permanentPreconditionRemedy(sanitizedResult);
+        const permanentRemedy = directStop?.explicit
+          ? directStop.message
+          : permanentPreconditionRemedy(directStop?.message ?? sanitizedResult);
         if (permanentRemedy) {
           const reason = permanentPreconditionReason(
             toolCall.name,
@@ -7169,12 +7170,11 @@ export async function runAgentLoop(opts: {
             // A stop that is itself a permanent precondition gets its
             // reason-led headline from `finalizeToolErrorResult`; seeding the
             // raw message here would win its `??=` and hide that headline.
-            explicitPermanentPrecondition =
-              err.errorCode === "permanent_precondition";
-            if (
-              !explicitPermanentPrecondition &&
-              !permanentPreconditionRemedy(sanitizeToolErrorText(result))
-            ) {
+            directStop = {
+              message,
+              explicit: err.errorCode === "permanent_precondition",
+            };
+            if (!directStop.explicit && !permanentPreconditionRemedy(message)) {
               requestedActionStop ??= {
                 message,
                 ...(err.errorCode ? { errorCode: err.errorCode } : {}),
