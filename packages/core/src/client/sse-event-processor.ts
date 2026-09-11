@@ -850,6 +850,9 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     // `provider_rate_limited` below, not auto-continued.
     code === "http_429" ||
     code === "http_529" ||
+    // The gateway's own throttle codes, same reasoning.
+    code === "rate_limited" ||
+    code === "too_many_concurrent_requests" ||
     code === "provider_rate_limited" ||
     // The server already retried the bare-403 load-shedding signature before
     // this reached the client; another automatic POST would just hammer the
@@ -900,8 +903,6 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
-    code === "rate_limited" ||
-    code === "too_many_concurrent_requests" ||
     code === "overloaded_error" ||
     // A gateway stream that ended without a stop event. The partial turn is
     // real, so this continues rather than retrying: the code carries what the

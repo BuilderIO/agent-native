@@ -161,7 +161,10 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
-import { resolveFallbackModel } from "./model-config.js";
+import {
+  getContextWindowForModel,
+  resolveFallbackModel,
+} from "./model-config.js";
 import {
   maybeCompactThread,
   buildObservationalContext,
@@ -2830,6 +2833,8 @@ export function continuationReasonForResumableError(
   if (
     code === "http_429" ||
     code === "http_529" ||
+    // The gateway's own in-stream throttle stop (`rate_limited`, retryable).
+    code === "rate_limited" ||
     code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
     (err instanceof EngineError &&
       (err.statusCode === 429 ||
@@ -5761,7 +5766,16 @@ export async function runAgentLoop(opts: {
             model,
             engine.supportedModels,
           );
-          if (fallbackModel) {
+          // A sibling with a smaller window (sonnet → haiku) must not inherit
+          // a context that only fit the primary: that fails deterministically
+          // as a context-length error instead of recovering from throttling.
+          // ponytail: chars/4 is a coarse token estimate; swap in the engine's
+          // count when one is exposed.
+          const fallbackFits =
+            fallbackModel !== undefined &&
+            JSON.stringify(contextMessages).length / 4 <=
+              getContextWindowForModel(fallbackModel) * 0.8;
+          if (fallbackModel && fallbackFits) {
             fallbackModelAttempted = true;
             send({
               type: "activity",
@@ -7491,6 +7505,8 @@ export function isRecoverableContinuationError(event: {
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
+    // The gateway's in-stream throttle stop; same cap as `http_429` below.
+    code === "rate_limited" ||
     // Bare upstream 403 the gateway tags distinctly from a real credential
     // rejection — see the constant's own doc comment. Recoverable here does
     // NOT mean unbounded: `shouldChainBackgroundContinuation` below caps how

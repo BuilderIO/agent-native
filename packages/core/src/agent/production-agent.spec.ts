@@ -11444,6 +11444,14 @@ describe("continuationReasonForResumableError", () => {
     expect(continuationReasonForResumableError(err)).toBe("rate_limited");
   });
 
+  it("labels the gateway's in-stream rate_limited stop as rate_limited", () => {
+    const err = new EngineError("Too many requests", {
+      errorCode: "rate_limited",
+      providerRetryable: true,
+    });
+    expect(continuationReasonForResumableError(err)).toBe("rate_limited");
+  });
+
   it("labels provider_transient_rejection as rate_limited", () => {
     const err = new EngineError("Forbidden", {
       errorCode: "provider_transient_rejection",
@@ -11487,6 +11495,7 @@ describe("isRecoverableContinuationError", () => {
     for (const errorCode of [
       "http_429",
       "http_529",
+      "rate_limited",
       "provider_transient_rejection",
     ]) {
       expect(
@@ -12285,10 +12294,11 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   // here: a provider throttle would self-chain up to
   // MAX_BACKGROUND_RUN_CONTINUATIONS background invocations into the very limit
   // that just rejected the call, on every lane. `recoverable` — the server's own
-  // boundary signal — still chains, which is the distinction.
+  // boundary signal — still chains, which is the distinction. The gateway's
+  // `rate_limited` code is the one throttle that chains, because it is now
+  // bounded by the one-hop rate-limit cap (`rateLimitChainCapTripped`).
   it("does NOT chain on the engine's retry verdict alone", () => {
     for (const errorCode of [
-      "rate_limited",
       "too_many_concurrent_requests",
       "upstream_unavailable",
     ]) {
@@ -12334,6 +12344,32 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
           },
         ]),
         continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("chains the gateway's rate_limited stop once, then the cap stops it", () => {
+    const run = makeRun([
+      {
+        type: "error",
+        error: "Too many requests",
+        errorCode: "rate_limited",
+        providerRetryable: true,
+      },
+    ]);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 1,
+        priorContinuationReason: "rate_limited",
       }),
     ).toBe(false);
   });
