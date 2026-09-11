@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { docToNfm, nfmToDoc } from "@shared/nfm";
+import {
+  docToNfm,
+  nfmToDoc,
+  serializeInlineNode,
+  serializeInlineTextNodeWithOffsets,
+  type PMNode,
+} from "@shared/nfm";
 import { Editor } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
 
@@ -23,6 +29,36 @@ function editorRoundTrip(nfm: string): string {
 }
 
 const L = (...lines: string[]) => lines.join("\n");
+
+describe("inline text source offsets", () => {
+  it.each([
+    {
+      text: "a``b",
+      source: "```a``b```",
+      offsets: [3, 4, 5, 6, 7],
+    },
+    {
+      text: "`edge`",
+      source: "`` `edge` ``",
+      offsets: [3, 4, 5, 6, 7, 8, 9],
+    },
+    {
+      text: " edge ",
+      source: "`  edge  `",
+      offsets: [2, 3, 4, 5, 6, 7, 8],
+    },
+  ])(
+    "keeps code serialization and every visible boundary aligned for $source",
+    ({ text, source, offsets }) => {
+      const node: PMNode = { type: "text", text, marks: [{ type: "code" }] };
+      expect(serializeInlineTextNodeWithOffsets(node)).toEqual({
+        source,
+        textOffsets: offsets,
+      });
+      expect(serializeInlineNode(node)).toBe(source);
+    },
+  );
+});
 
 const CASES: Array<{ name: string; nfm: string }> = [
   { name: "plain paragraph", nfm: "Just a paragraph." },

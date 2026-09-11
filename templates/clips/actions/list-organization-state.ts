@@ -35,10 +35,23 @@ import {
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
 import {
+  getActiveOrganizationId,
   getCurrentOwnerEmail,
   ownerEmailMatches,
   requireOrganizationAccess,
 } from "../server/lib/recordings.js";
+
+function emptyOrganizationState(currentUserEmail: string) {
+  return {
+    currentUserEmail,
+    organization: null,
+    members: [],
+    spaces: [],
+    folders: [],
+    personalFolders: [],
+    invitations: [],
+  };
+}
 
 export default defineAction({
   description:
@@ -56,9 +69,17 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    const { organizationId } = await requireOrganizationAccess(
-      args.organizationId,
-    );
+    // Personal scope - no membership anywhere, or the caller just deleted
+    // their last organization - is a supported state, not a read failure.
+    // Throwing here reached the UI as a load error next to the
+    // create-organization card that already renders the same state correctly.
+    // An organization the caller may not read still errors.
+    const activeOrganizationId =
+      args.organizationId ?? (await getActiveOrganizationId());
+    if (!activeOrganizationId) return emptyOrganizationState(ownerEmail);
+
+    const { organizationId } =
+      await requireOrganizationAccess(activeOrganizationId);
 
     const [org] = await db
       .select({
@@ -69,16 +90,7 @@ export default defineAction({
       .from(organizations)
       .where(eq(organizations.id, organizationId))
       .limit(1);
-    if (!org) {
-      return {
-        organization: null,
-        members: [],
-        spaces: [],
-        folders: [],
-        personalFolders: [],
-        invitations: [],
-      };
-    }
+    if (!org) return emptyOrganizationState(ownerEmail);
 
     const [settings] = await db
       .select({

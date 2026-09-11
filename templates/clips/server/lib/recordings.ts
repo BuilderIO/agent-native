@@ -1,5 +1,9 @@
 import { readAppState } from "@agent-native/core/application-state";
-import { implicitServiceOrgRole, orgMembers } from "@agent-native/core/org";
+import {
+  implicitServiceOrgRole,
+  organizations,
+  orgMembers,
+} from "@agent-native/core/org";
 import { getSession } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -233,26 +237,40 @@ export async function getActiveOrganizationId(
   const email = getRequestUserEmail();
 
   if (email) {
+    // `undefined` records that the framework could not answer, which is not
+    // the same as it answering "no org" — only a definite answer is allowed
+    // to end the search below.
+    let resolved: string | null | undefined;
     try {
       // Honors the user's `active-org-id` setting with a fall back to the
       // first membership — the same logic getOrgContext uses for HTTP paths.
       // Don't reach into org_members directly: an ORDER BY here picks the
       // wrong org when the user belongs to more than one.
       const { resolveOrgIdForEmail } = await import("@agent-native/core/org");
-      const orgId = await resolveOrgIdForEmail(email);
-      if (orgId) return orgId;
+      resolved = await resolveOrgIdForEmail(email);
     } catch {
-      // fall through
+      // coercion-ok: the framework helper is unavailable in this context, and
+      // leaving `resolved` undefined is the typed "could not answer" the check
+      // below keeps distinct from a definite null.
     }
+    if (resolved) return resolved;
+    // A definite null covers both no membership and an explicit Personal
+    // selection, and the legacy sources below cannot improve on either: they
+    // are not scoped to a caller, so they would either hand over an org this
+    // caller has no relationship with or reactivate scope the user opted out
+    // of. Migration v61 seeds `org_members` for every legacy workspace owner
+    // and member, so a real legacy user resolves here rather than below.
+    if (resolved === null) return null;
   }
 
-  // Legacy fallback: old workspace UI's `current-workspace` app-state key,
-  // and the deprecated `workspaces` table.
+  // Legacy fallback: old workspace UI's `current-workspace` app-state key, and
+  // the deprecated `workspaces` table.
   try {
     const legacy = (await readAppState("current-workspace")) as {
       id?: string;
     } | null;
-    if (legacy?.id) return legacy.id;
+    const legacyOrgId = await legacyOrganizationIdForCaller(legacy?.id, email);
+    if (legacyOrgId) return legacyOrgId;
   } catch {
     // fall through
   }
@@ -263,12 +281,46 @@ export async function getActiveOrganizationId(
       .from(schema.workspaces)
       .orderBy(desc(schema.workspaces.createdAt))
       .limit(1);
-    if (row?.id) return row.id;
+    const legacyOrgId = await legacyOrganizationIdForCaller(row?.id, email);
+    if (legacyOrgId) return legacyOrgId;
   } catch {
     // fall through
   }
 
   return null;
+}
+
+/**
+ * Vet a legacy workspace id before it becomes an active organization id.
+ *
+ * Neither legacy source is scoped to a caller and neither is cleaned up when an
+ * organization is deleted: the app-state key keeps naming a deleted org, and
+ * the `workspaces` lookup takes the globally newest row, which can belong to
+ * someone else entirely. Either way the caller ends up with an org id they have
+ * no relationship with, and every org-scoped read answers 403 instead of the
+ * personal scope they actually have.
+ *
+ * Migration v61 seeds `org_members` for every legacy workspace owner and
+ * member, so a real legacy user resolves through membership well before this
+ * fallback runs. A caller with no identity at all (CLI, solo dev) has nothing
+ * to scope by, so an existing org is the best available answer there.
+ */
+async function legacyOrganizationIdForCaller(
+  organizationId: string | null | undefined,
+  email: string | undefined,
+): Promise<string | null> {
+  if (!organizationId) return null;
+
+  const [row] = await getDb()
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+  if (!row) return null;
+
+  if (!email) return organizationId;
+  const role = await getOrganizationRoleForEmail(organizationId, email);
+  return role ? organizationId : null;
 }
 
 /**

@@ -59,6 +59,17 @@ const pullRequestPreviewSource = readFileSync(
   ".github/workflows/deploy-netlify-pr-previews.yml",
   "utf8",
 );
+const trustedPreviewBuildStart = reusableSource.indexOf(
+  "      - name: Build trusted preview Functions for the PR artifact",
+);
+const trustedPreviewBuildEnd = reusableSource.indexOf(
+  "      - name: Run Plan release migrations",
+  trustedPreviewBuildStart,
+);
+const trustedPreviewBuildSource = reusableSource.slice(
+  trustedPreviewBuildStart,
+  trustedPreviewBuildEnd,
+);
 
 describe("Google callback deploy verification guard", () => {
   it("requires direct probe execution and rolls back only definitive mismatches", () => {
@@ -121,7 +132,54 @@ describe("Netlify PR preview workflow guard", () => {
       /needs\.deploy\.result != 'cancelled'/,
     );
     assert.match(pullRequestPreviewSource, /No successful deploy record/);
+    assert.match(pullRequestPreviewSource, /auto_merge: false/);
+    assert.match(pullRequestPreviewSource, /required_contexts: \[\]/);
+    assert.match(pullRequestPreviewSource, /createDeploymentStatus/);
+    assert.doesNotMatch(
+      pullRequestPreviewSource,
+      /issues: write|pull-requests: write|createComment/,
+    );
+    const previewJobs = preview.jobs as Record<string, Workflow>;
+    assert.equal(previewJobs.comment, undefined);
+    assert.deepEqual(previewJobs.deployment?.permissions, {
+      actions: "read",
+      contents: "read",
+      deployments: "write",
+    });
+    const deploymentStep = (
+      previewJobs.deployment.steps as Array<Workflow>
+    ).find((step) =>
+      String((step.with as Workflow | undefined)?.script ?? "").includes(
+        "createDeploymentStatus",
+      ),
+    );
+    assert.match(
+      String((deploymentStep?.with as Workflow).script),
+      /createDeploymentStatus/,
+    );
     assert.match(reusableSource, /build_args\+=\(--offline\)/);
+    assert.match(
+      trustedPreviewBuildSource,
+      /netlify build --context "\$BUILD_CONTEXT" --filter "\$SOURCE_TEMPLATE" --offline/,
+    );
+  });
+
+  it("fails when deployment options are missing or calls are swapped", () => {
+    const mutate = (needle: string, replacement: string) => {
+      const source = pullRequestPreviewSource.replace(needle, replacement);
+      return validateNetlifyPrPreviewWorkflow(
+        parse(source) as Workflow,
+        source,
+      );
+    };
+    for (const [needle, replacement] of [
+      ["ref: process.env.SOURCE_REF", "ref: process.env.OTHER_REF"],
+      ["auto_merge: false", "auto_merge: true"],
+      ["state: 'success'", "state: 'failure'"],
+      ["createDeployment(", "createDeploymentStatus("],
+    ]) {
+      assert.notDeepEqual(mutate(needle, replacement), []);
+    }
   });
 });
 
