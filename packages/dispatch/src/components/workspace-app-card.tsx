@@ -119,7 +119,7 @@ export function WorkspaceAppCard({
     app.status !== "pending" &&
     !isWorkspaceSsoApp(app) &&
     isPathMountedWorkspaceApp(app)
-      ? workspaceAppDirectHref(app, "/")
+      ? workspaceAppDirectHref(app, app.homePath ?? "/home")
       : null;
   const isPending = app.status === "pending";
   const pendingLabel = app.statusLabel || "Builder branch";

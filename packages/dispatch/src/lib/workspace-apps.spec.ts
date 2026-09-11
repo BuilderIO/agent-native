@@ -13,10 +13,18 @@ import {
   workspaceAppInitialPathFromSplat,
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
+  workspaceAppHref,
   workspaceAppRoute,
 } from "./workspace-apps";
 
 describe("workspace app routes", () => {
+  it("targets the registered authenticated home path", () => {
+    expect(
+      workspaceAppHref({ id: "mail", path: "/mail", homePath: "/inbox" }),
+    ).toBe("/mail/inbox");
+    expect(workspaceAppHref({ id: "mail", path: "/mail" })).toBe("/mail/home");
+  });
+
   it("round-trips encoded app ids", () => {
     const route = workspaceAppRoute("sales ops");
     expect(route).toBe("/apps/sales%20ops");

@@ -1426,6 +1426,7 @@ export function Layout({
         name: app.name,
         path: app.path,
         url: app.url,
+        homePath: app.homePath,
         enabled: app.status !== "pending" && app.archived !== true,
       });
     }
@@ -1463,7 +1464,10 @@ export function Layout({
         registration &&
         !isWorkspaceSsoApp(registration) &&
         isPathMountedWorkspaceApp(registration)
-          ? workspaceAppDirectHref(registration, "/")
+          ? workspaceAppDirectHref(
+              registration,
+              registration.homePath ?? "/home",
+            )
           : null;
       if (directHref && shouldOpenWorkspaceAppInTopWindow()) {
         if (navigateToWorkspaceApp(directHref)) return;

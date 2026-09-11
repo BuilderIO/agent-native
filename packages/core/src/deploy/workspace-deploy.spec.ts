@@ -237,6 +237,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         isDispatch: true,
         audience: "internal",
         publicPaths: [],
@@ -247,6 +248,7 @@ describe("workspace deploy", () => {
         name: "Starter",
         description: "",
         path: "/starter",
+        homePath: "/home",
         isDispatch: false,
         audience: "internal",
         publicPaths: [],
@@ -382,6 +384,7 @@ describe("workspace deploy", () => {
           name: "Dispatch",
           description: "",
           path: "/dispatch",
+          homePath: "/home",
           isDispatch: true,
           audience: "internal",
           publicPaths: [],
@@ -392,6 +395,7 @@ describe("workspace deploy", () => {
           name: "Starter",
           description: "",
           path: "/starter",
+          homePath: "/home",
           isDispatch: false,
           audience: "internal",
           publicPaths: [],
@@ -621,6 +625,7 @@ describe("workspace deploy", () => {
     );
     expect(manifest.find((app: any) => app.id === "portal")).toMatchObject({
       id: "portal",
+      homePath: "/home",
       audience: "public",
       publicPaths: ["/", "/pricing"],
       protectedPaths: ["/admin"],
@@ -969,7 +974,7 @@ describe("workspace deploy", () => {
     expect(execFile).toHaveBeenCalledTimes(1);
   });
 
-  it("writes workspace app URLs and preserves explicit manifest URLs", async () => {
+  it("writes workspace app URLs and preserves explicit manifest metadata", async () => {
     process.env.APP_URL = "https://workspace.example.test/dispatch";
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
       "https://directory.example.test";
@@ -979,6 +984,7 @@ describe("workspace deploy", () => {
         {
           id: "mail",
           path: "/mail",
+          homePath: "/inbox",
           url: "https://mail.custom.example.test/",
         },
       ],
@@ -1008,6 +1014,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
         audience: "internal",
@@ -1019,6 +1026,7 @@ describe("workspace deploy", () => {
         name: "Mail",
         description: "",
         path: "/mail",
+        homePath: "/inbox",
         url: "https://mail.custom.example.test",
         isDispatch: false,
         audience: "internal",
@@ -1085,6 +1093,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
         audience: "internal",
@@ -1096,6 +1105,7 @@ describe("workspace deploy", () => {
         name: "Mail",
         description: "",
         path: "/mail",
+        homePath: "/home",
         url: "https://workspace.example.test/mail",
         isDispatch: false,
         audience: "internal",

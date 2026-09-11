@@ -249,6 +249,7 @@ export interface WorkspaceAppFrameApp {
   id: string;
   name: string;
   path?: string | null;
+  homePath?: string | null;
   url?: string | null;
 }
 
@@ -320,6 +321,7 @@ export function WorkspaceAppFrame({
     id: app.id,
     name: app.name,
     path: app.path ?? "",
+    homePath: app.homePath ?? undefined,
     url: app.url,
   });
   const topWindowHref = useMemo(() => {
