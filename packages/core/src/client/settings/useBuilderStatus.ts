@@ -237,6 +237,13 @@ export interface BuilderConnectFlow {
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+// How long to keep polling after the popup itself has closed before giving up.
+// Must stay well above the couple of poll ticks a successful callback needs to
+// persist credentials and respond, so a slow-but-real confirmation still lands
+// before this fires (see the "keeps polling" tests below for the regression
+// this replaced). Anything past this is a cancelled/closed popup, not a slow
+// success, and the button must not spin for the full 5-minute ceiling.
+const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
 // Fallback timeout for callers of fetchStatus() with no external signal of
 // their own (the initial status fetch, the popup-open branches in `start`).
 // The connect-flow poll loop below gets its timeout from usePollLoop instead.
@@ -481,6 +488,18 @@ function navigateBuilderConnectPopup(opened: Window, url: string): boolean {
   }
 }
 
+function isPopupClosed(popup: Window | null): boolean {
+  if (!popup) return false;
+  try {
+    return popup.closed === true;
+  } catch {
+    // coercion-ok: `.closed` is readable cross-origin in every supported
+    // browser; a throw here means the reference itself is unusable, which is
+    // indistinguishable from "still open" for this check's purpose.
+    return false;
+  }
+}
+
 function isEmbeddedWindow(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -636,6 +655,10 @@ export function useBuilderConnectFlow(
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const connectStartedAtRef = useRef<number | null>(null);
   const connectAttemptIdRef = useRef<string | null>(null);
+  // Tracks the currently open popup so the poll loop can notice it closed
+  // without the callback ever landing (a cancelled/abandoned connect).
+  const activePopupRef = useRef<Window | null>(null);
+  const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
   const retryStatusRef = useRef<() => void>(() => {});
   const statusUnavailableRef = useRef(false);
@@ -835,6 +858,8 @@ export function useBuilderConnectFlow(
       connectStartedAtRef.current = started;
       connectAttemptIdRef.current = connectAttemptId;
       callbackSuccessStartedAtRef.current = null;
+      activePopupRef.current = null;
+      popupClosedAtRef.current = null;
       activeTrackingRef.current = {
         source: clickTrackingSource,
         flow: clickTrackingFlow,
@@ -899,6 +924,7 @@ export function useBuilderConnectFlow(
           source: clickTrackingSource,
           flow: clickTrackingFlow,
         });
+        if (opened) activePopupRef.current = opened;
         if (!opened) {
           // Agent-Native Desktop handles the popup in Electron and reports
           // null to the embedded webview, so null is not a blocker here.
@@ -910,6 +936,7 @@ export function useBuilderConnectFlow(
           flow: clickTrackingFlow,
           features: "width=600,height=700",
         });
+        if (opened) activePopupRef.current = opened;
         if (!opened) {
           if (!isEmbeddedWindow()) {
             connectStartedAtRef.current = null;
@@ -1100,6 +1127,32 @@ export function useBuilderConnectFlow(
             ? null
             : `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
         );
+      } else if (isPopupClosed(activePopupRef.current)) {
+        // The user closed or cancelled the popup before Builder confirmed
+        // credentials. Give a slow-but-real confirmation a grace window
+        // (see POPUP_CLOSED_CONFIRMATION_GRACE_MS) before giving up, but do
+        // not leave the button spinning for the full 5-minute ceiling below.
+        popupClosedAtRef.current ??= Date.now();
+        if (
+          Date.now() - popupClosedAtRef.current >
+          POPUP_CLOSED_CONFIRMATION_GRACE_MS
+        ) {
+          connectStartedAtRef.current = null;
+          setConnecting(false);
+          const { source, flow } = activeTrackingRef.current;
+          trackEvent("builder connect failed", {
+            feature: "builder",
+            stage: "client",
+            reason: "popup_closed_without_status",
+            source,
+            flow:
+              cleanTrackingParam(flow) ??
+              inferBuilderConnectTrackingFlow(source),
+          });
+          setError(
+            "Didn't finish connecting to Builder.io. Try again, or use your own keys.",
+          );
+        }
       } else if (Date.now() - started > POLL_TIMEOUT_MS) {
         connectStartedAtRef.current = null;
         setConnecting(false);

@@ -1034,7 +1034,7 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("Didn't hear back from Builder");
   });
 
-  it("keeps polling when the popup closes before status confirms credentials", async () => {
+  it("keeps polling briefly after the popup closes in case status confirmation is slow", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -1073,8 +1073,68 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(8000);
     });
 
+    // Still within the confirmation grace window: a real success can still land.
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("couldn't confirm");
+  });
+
+  it("resets the button after the popup closes without ever confirming credentials", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl:
+          "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+        appHost: "https://builder.io",
+        apiHost: "https://api.builder.io",
+        publicKeyConfigured: false,
+        privateKeyConfigured: false,
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+
+    (popup as unknown as { closed: boolean }).closed = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(26_000);
+    });
+
+    // No confirmation ever landed, so the button must stop spinning and become
+    // clickable again instead of hanging until the 5-minute overall timeout.
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+
+    const button = container.querySelector("button");
+    expect(button?.disabled).toBe(false);
+
+    // A retry click must work without a page reload.
+    openSpy.mockClear();
+    await act(async () => {
+      button?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(openSpy).toHaveBeenCalled();
   });
 
   it("does not replace the desktop webview when Electron reports a handled popup as null", async () => {
