@@ -16573,6 +16573,28 @@ function DesignEditor() {
     viewMode,
   ]);
 
+  const selectionColorScopeIdentity = JSON.stringify(
+    selectionColorScopes.map(
+      ({ fileId, sourceId, selector, wholeDocument }) => ({
+        fileId,
+        sourceId,
+        selector,
+        wholeDocument,
+      }),
+    ),
+  );
+
+  useEffect(() => {
+    selectionColorPreviewHistoryRef.current.clear();
+  }, [selectionColorScopeIdentity]);
+
+  useEffect(
+    () => () => {
+      selectionColorPreviewHistoryRef.current.clear();
+    },
+    [],
+  );
+
   const handleSelectionColorChange = useCallback(
     (from: string, to: string, meta?: StyleChangeMeta) =>
       runSelectionColorChange(

@@ -156,6 +156,25 @@ describe("extractDocumentColorPalette", () => {
         "<style>.card { background:#ff0000; background-image:url(#0066ff); }</style>",
     );
   });
+
+  it("skips CSS comments and handles greater-than signs in HTML attributes", () => {
+    const content = `<div aria-label="A > B" style="color:#0066ff; /* don't scan #123456 */ background:#00ff00"></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+      "#00FF00",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      `<div aria-label="A > B" style="color:#ff0000; /* don't scan #123456 */ background:#00ff00"></div>`,
+    );
+  });
 });
 
 describe("selectionColorValues", () => {
