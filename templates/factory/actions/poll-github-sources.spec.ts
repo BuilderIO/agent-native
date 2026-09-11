@@ -173,9 +173,11 @@ describe("parkedRecheckEvidencePatch", () => {
   const recheck = {
     humanReviewCommentCount: 1,
     humanReviewBodyCount: 0,
+    botReviewBodyKeys: ["1:fix this"],
     commentsTruncated: false,
     reviewsTruncated: false,
     changesRequested: false,
+    botErrorAfterPing: false,
     mergeable: null,
     mergeableState: "unknown",
   };

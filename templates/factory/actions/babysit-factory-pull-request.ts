@@ -21,11 +21,13 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
+import { buildBabysitAuditDetails } from "../server/triage/babysit-audit-details.js";
 import {
   babysitMechanicalVerdict,
   readBabysitEvidence,
   readBabysitStoredState,
 } from "../server/triage/babysit-evidence.js";
+import { computeBabysitRecommendation } from "../server/triage/babysit-recommendation.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import {
   metadataString,
@@ -35,11 +37,13 @@ import {
 } from "../server/triage/metadata.js";
 import {
   babysitAlreadyAskedClause,
+  babysitDeferClause,
   babysitFingerprint,
   babysitHeldPingClause,
   babysitOutOfScopeClause,
   babysitStuckClause,
-  countBabysitComments,
+  botReviewBodyKeys,
+  countFactoryBabysitComments,
   countHumanReviewBodies,
   countHumanReviewComments,
   DEFAULT_BABYSIT_BOT_AUTHORS,
@@ -49,10 +53,16 @@ import {
   reconcileBabysitState,
   shouldRecordBabysitAudit,
   shouldVetoDuplicateBabysitComment,
+  type BabysitAgentDecision,
   type BabysitPingReason,
 } from "../server/triage/pr-babysit.js";
 
-const babysitDecisionSchema = z.enum(["ping", "already_asked", "stuck"]);
+const babysitDecisionSchema = z.enum([
+  "ping",
+  "defer",
+  "already_asked",
+  "stuck",
+]);
 const BABYSIT_POST_CLAIM_TTL_MS = 120_000;
 
 async function tryAcquireBabysitPostClaim(
@@ -186,7 +196,7 @@ async function updateBabysitItem(
 
 export default defineAction({
   description:
-    "Act on one pull request after propose-pr-babysit-status. When inScope is true you must pass decision: ping asks Builder to fix feedback using the hardcoded comment, already_asked parks the item until new human review appears, stuck parks it for a human because another request cannot unblock it. A ping is refused when Factory already asked, when the comment list was capped, or when GitHub merely finished computing mergeability; a refused ping parks as waiting and returns a veto instead of posting. Every path leaves needsReview until new human review work appears. Pass inScope false to record a skip for a pull request this factory should not babysit. Never merges or approves.",
+    "Act on one pull request after propose-pr-babysit-status. When inScope is true you must pass decision: ping asks Builder to fix feedback using the hardcoded comment, defer parks while Builder is active within the quiet window, already_asked parks until new review work appears, stuck parks for a human because another request cannot unblock it. A ping is refused when Factory already posted on this head, when Builder is active, when the comment list was capped, or when GitHub merely finished computing mergeability; a refused ping parks as waiting and returns a veto instead of posting. Pass inScope false to record a skip for a pull request this factory should not babysit. Never merges or approves.",
   schema: z.object({
     itemId: z.string().min(1),
     factoryId: factoryIdSchema.optional(),
@@ -198,7 +208,7 @@ export default defineAction({
     decision: babysitDecisionSchema
       .optional()
       .describe(
-        "Required when inScope is true. ping, already_asked, or stuck.",
+        "Required when inScope is true. ping, defer, already_asked, or stuck.",
       ),
     failingJobLog: z.string().max(50_000).optional(),
   }),
@@ -229,7 +239,7 @@ export default defineAction({
     // not a default. Defaulting it would let the agent silently ping.
     if (inScope && !decision) {
       throw new Error(
-        "PR babysitting requires decision (ping, already_asked, or stuck) when inScope is true. Call propose-pr-babysit-status first.",
+        "PR babysitting requires decision (ping, defer, already_asked, or stuck) when inScope is true. Call propose-pr-babysit-status first.",
       );
     }
     await requireFactoryAutomation(
@@ -377,11 +387,46 @@ export default defineAction({
       reviewStates: details.reviews.map((review) => review.state),
     });
     const consumedPendingReopen = stored.pendingReopen;
+    const nextBotReviewBodyKeys = botReviewBodyKeys(details.comments);
+    const factoryPingCount = countFactoryBabysitComments(
+      details.issueComments,
+      stored.factoryAuthor,
+    );
+    const recommendationResult = computeBabysitRecommendation({
+      proposal,
+      mechanical,
+      checks: details.checks,
+      comments: details.comments,
+      lastCommentAtMs: stored.lastCommentAtMs,
+      lastPingHeadSha: stored.lastPingHeadSha,
+      headSha: pullRequest.headSha,
+      nowMs: now.getTime(),
+    });
+    const buildAuditDetails = (overrides?: {
+      veto?: string;
+      pingReason?: string;
+      commentUrl?: string;
+    }) =>
+      buildBabysitAuditDetails({
+        headSha: pullRequest.headSha,
+        proposal,
+        mechanical,
+        recommendation: recommendationResult.recommendation,
+        because: recommendationResult.because,
+        decision: decision as BabysitAgentDecision | undefined,
+        builderActive: recommendationResult.builderActive,
+        builderActiveUntil: recommendationResult.builderActiveUntil,
+        factoryPingCount,
+        lastFactoryPingAt: stored.lastCommentAt,
+        comments: details.comments,
+        ...overrides,
+      });
     const parkedPatch = {
       prBabysitHumanReviewCommentCount: countHumanReviewComments(
         details.comments,
       ),
       prBabysitHumanReviewBodyCount: countHumanReviewBodies(details.reviews),
+      prBabysitBotReviewBodyKeys: nextBotReviewBodyKeys,
       prBabysitCommentsTruncated: details.commentsTruncated === true,
       prBabysitReviewsTruncated: details.reviewsTruncated === true,
       prBabysitChangesRequested: hasHumanChangesRequested(details.reviews),
@@ -390,23 +435,15 @@ export default defineAction({
         mechanical.mergeability.mergeabilityComputed,
       ...(consumedPendingReopen ? { prBabysitPendingReopen: false } : {}),
     };
-    const evidenceDetails = {
-      author: pullRequest.userLogin,
-      headSha: pullRequest.headSha,
-      checks: details.checks.length,
-      comments: details.comments.length,
-      mergeable: pullRequest.mergeable,
-      mergeableState: pullRequest.mergeableState,
-      mergeabilityComputed: mechanical.mergeability.mergeabilityComputed,
-      babysitCommentCount: details.babysitCommentCount,
-      reviewFeedbackClean: proposal.isClean,
-      decision,
-    };
 
     const park = async (
       nextState: string,
       clause: string,
-      options?: { status?: string },
+      options?: {
+        status?: string;
+        veto?: BabysitPingReason;
+        metadata?: Record<string, unknown>;
+      },
     ): Promise<void> => {
       if (
         shouldRecordBabysitAudit({ previousState, nextState, posted: false })
@@ -422,7 +459,9 @@ export default defineAction({
             source: "github",
             sourceUrl: item.sourceUrl,
             summary: formatBabysitAuditSummary(item.pullRequestNumber, clause),
-            details: evidenceDetails,
+            details: buildAuditDetails({
+              veto: options?.veto ?? undefined,
+            }),
           },
           factoryId,
         );
@@ -435,24 +474,28 @@ export default defineAction({
           prBabysitFingerprint: fingerprint,
           prBabysitLastCheckedAt: nowIso,
           ...parkedPatch,
+          ...(options?.metadata ?? {}),
         },
         {
-          ...options,
+          status: options?.status,
+          veto: options?.veto,
           touchUpdatedAt: previousState !== nextState,
         },
       );
     };
 
     const vetoHeldPing = async (reason: BabysitPingReason) => {
-      await park("waiting", babysitHeldPingClause(reason));
+      await park("waiting", babysitHeldPingClause(reason), { veto: reason });
       return { ok: true as const, action: "waiting" as const, veto: reason };
     };
 
     const shouldVetoDuplicate = (count: number) =>
       shouldVetoDuplicateBabysitComment({
-        existingBabysitCommentCount: count,
+        existingFactoryBabysitCommentCount: count,
         newHumanWork: mechanical.newHumanWork,
+        newBotWork: mechanical.newBotWork,
         newDefiniteMergeConflict: mechanical.newDefiniteMergeConflict,
+        headShaChangedSinceLastPing: mechanical.headShaChangedSinceLastPing,
       });
 
     const scanIssueComments = async () =>
@@ -469,7 +512,14 @@ export default defineAction({
             veto: "comment-scan-truncated" as const,
           };
         }
-        if (shouldVetoDuplicate(countBabysitComments(contendedScan.comments))) {
+        if (
+          shouldVetoDuplicate(
+            countFactoryBabysitComments(
+              contendedScan.comments,
+              stored.factoryAuthor,
+            ),
+          )
+        ) {
           return {
             ok: true,
             action: "waiting",
@@ -481,7 +531,11 @@ export default defineAction({
     }
 
     try {
-      if (!mechanical.needsWork) {
+      if (
+        !mechanical.needsWork &&
+        proposal.isClean &&
+        proposal.unansweredBotComments.length === 0
+      ) {
         if (
           shouldRecordBabysitAudit({
             previousState,
@@ -503,7 +557,7 @@ export default defineAction({
                 item.pullRequestNumber,
                 "is clean; no Builder feedback request.",
               ),
-              details: evidenceDetails,
+              details: buildAuditDetails(),
             },
             factoryId,
           );
@@ -522,6 +576,15 @@ export default defineAction({
         return { ok: true, action: "clean" };
       }
 
+      if (decision === "defer" || mechanical.builderActive) {
+        await park("defer", babysitDeferClause(), {
+          metadata: mechanical.builderActiveUntil
+            ? { prBabysitBuilderActiveUntil: mechanical.builderActiveUntil }
+            : undefined,
+        });
+        return { ok: true, action: "defer" };
+      }
+
       if (decision === "stuck") {
         await park("stuck", babysitStuckClause(), { status: "needs_manual" });
         return { ok: true, action: "stuck" };
@@ -532,14 +595,25 @@ export default defineAction({
       }
       if (!mechanical.ping.allowed) {
         await park("waiting", babysitHeldPingClause(mechanical.ping.reason));
-        return { ok: true, action: "waiting", veto: mechanical.ping.reason };
+        return {
+          ok: true,
+          action: "waiting",
+          veto: mechanical.ping.reason,
+        };
       }
 
       const preClaimScan = await scanIssueComments();
       if (preClaimScan.truncated) {
         return vetoHeldPing("comment-scan-truncated");
       }
-      if (shouldVetoDuplicate(countBabysitComments(preClaimScan.comments))) {
+      if (
+        shouldVetoDuplicate(
+          countFactoryBabysitComments(
+            preClaimScan.comments,
+            stored.factoryAuthor,
+          ),
+        )
+      ) {
         return vetoHeldPing("duplicate-comment");
       }
 
@@ -547,7 +621,11 @@ export default defineAction({
       if (finalScan.truncated) {
         return vetoHeldPing("comment-scan-truncated");
       }
-      if (shouldVetoDuplicate(countBabysitComments(finalScan.comments))) {
+      if (
+        shouldVetoDuplicate(
+          countFactoryBabysitComments(finalScan.comments, stored.factoryAuthor),
+        )
+      ) {
         return vetoHeldPing("duplicate-comment");
       }
 
@@ -569,11 +647,10 @@ export default defineAction({
             item.pullRequestNumber,
             "posted the feedback-fix request.",
           ),
-          details: {
-            author: pullRequest.userLogin,
-            commentUrl: comment.htmlUrl,
+          details: buildAuditDetails({
             pingReason: mechanical.ping.reason,
-          },
+            commentUrl: comment.htmlUrl,
+          }),
         },
         factoryId,
       );
@@ -586,6 +663,8 @@ export default defineAction({
         prBabysitLastCheckedAt: nowIso,
         prBabysitLastCommentAt: nowIso,
         prBabysitLastCommentUrl: comment.htmlUrl,
+        prBabysitLastPingHeadSha: pullRequest.headSha,
+        prBabysitFactoryAuthor: comment.author,
         ...parkedPatch,
       });
       return {
