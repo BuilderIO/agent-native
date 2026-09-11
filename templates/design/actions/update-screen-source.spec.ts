@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { routeUrl } from "./add-localhost-screens.js";
-import { screenSourceMetadataForStatic } from "./update-screen-source.js";
+import {
+  screenSourceMetadataForStatic,
+  screenUrlMatchesConnection,
+} from "./update-screen-source.js";
 
 describe("update-screen-source metadata", () => {
   it("clears URL transport fields without dropping unrelated screen metadata", () => {
@@ -30,5 +33,15 @@ describe("update-screen-source metadata", () => {
         url: "http://127.0.0.1:5173/plans",
       }),
     ).toBe("http://localhost:5173/plans");
+  });
+
+  it("rejects an unregistered loopback origin after route canonicalization", () => {
+    const routed = routeUrl("http://localhost:5173", {
+      url: "http://127.0.0.2:5173/plans",
+    });
+
+    expect(screenUrlMatchesConnection("http://localhost:5173", routed)).toBe(
+      false,
+    );
   });
 });

@@ -60,24 +60,11 @@ function normalizeBaseUrl(value: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  return (
-    normalized === "localhost" ||
-    normalized === "::1" ||
-    /^127(?:\.\d{1,3}){3}$/.test(normalized)
-  );
-}
-
-function sameLoopbackOrigin(left: string, right: string): boolean {
-  const a = new URL(left);
-  const b = new URL(right);
-  return (
-    a.protocol === b.protocol &&
-    a.port === b.port &&
-    isLoopbackHostname(a.hostname) &&
-    isLoopbackHostname(b.hostname)
-  );
+export function screenUrlMatchesConnection(
+  connectionUrl: string,
+  screenUrl: string,
+): boolean {
+  return new URL(connectionUrl).origin === new URL(screenUrl).origin;
 }
 
 function sourceMetadataForUrl(args: {
@@ -308,10 +295,7 @@ export default defineAction({
       const nextUrl = routeUrl(baseUrl, {
         url: requestedUrl ?? requestedPath,
       });
-      if (
-        new URL(nextUrl).origin !== new URL(baseUrl).origin &&
-        !sameLoopbackOrigin(nextUrl, baseUrl)
-      ) {
+      if (!screenUrlMatchesConnection(baseUrl, nextUrl)) {
         throw new Error(
           `Screen URL must stay on localhost connection ${connection.id} (${connection.devServerUrl}).`,
         );
