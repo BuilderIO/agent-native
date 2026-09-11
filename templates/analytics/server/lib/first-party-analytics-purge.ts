@@ -1,5 +1,7 @@
 import { getDbExec } from "@agent-native/core/db";
 
+import { FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX } from "./first-party-analytics-delivery.js";
+
 export interface FirstPartyAnalyticsPurgeScope {
   userEmail: string;
   orgId: string;
@@ -29,12 +31,18 @@ const PURGE_COUNT_TIMEOUT_MS = 60_000;
 const DELIVERY_QUEUE_TABLE = "analytics_bigquery_delivery_queue";
 
 function pendingDeliveryFilter(enabled: boolean): string {
-  if (!enabled) return "";
-  return ` AND NOT EXISTS (
+  const queueFilter = enabled
+    ? ` AND NOT EXISTS (
     SELECT 1
     FROM ${DELIVERY_QUEUE_TABLE} AS delivery_queue
     WHERE delivery_queue.event_id = analytics_events.id
       AND delivery_queue.delivered_at IS NULL
+  )`
+    : "";
+  return `${queueFilter} AND NOT EXISTS (
+    SELECT 1
+    FROM settings AS fallback_marker
+    WHERE fallback_marker.key = '${FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX}' || analytics_events.id
   )`;
 }
 

@@ -90,7 +90,7 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
     ).rejects.toThrow("invalid value");
   });
 
-  it("continues without the pending-delivery filter before migration 151", async () => {
+  it("protects fallback markers before migration 151", async () => {
     execute
       .mockResolvedValueOnce({ rows: [{ table_name: null }] })
       .mockResolvedValue({ rows: [{ row_count: "1" }] });
@@ -100,6 +100,9 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
     ).resolves.toEqual({ eventRows: 1, dailyRollupRows: 1, userDayRows: 1 });
     expect(execute.mock.calls[1]?.[0]?.sql).not.toContain(
       "analytics_bigquery_delivery_queue",
+    );
+    expect(execute.mock.calls[1]?.[0]?.sql).toContain(
+      "FROM settings AS fallback_marker",
     );
   });
 });
