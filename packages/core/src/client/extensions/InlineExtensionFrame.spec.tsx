@@ -129,6 +129,51 @@ describe("InlineExtensionFrame", () => {
     });
   });
 
+  it("ignores duplicate submit events for transient extensions", async () => {
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: "<button>Send</button>",
+          }}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector("iframe");
+    const sendEvent = {
+      type: "agent-native-send-to-chat",
+      message: "One-time action",
+      submit: true,
+    };
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow ?? window,
+          data: sendEvent,
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow ?? window,
+          data: sendEvent,
+        }),
+      );
+    });
+
+    expect(sendToAgentChat).toHaveBeenCalledTimes(1);
+    expect(sendToAgentChat).toHaveBeenCalledWith({
+      message: "One-time action",
+      context: undefined,
+      submit: true,
+      openSidebar: true,
+    });
+  });
+
   it("dispatches passive output events from generated UI", async () => {
     await act(async () => {
       root.render(
