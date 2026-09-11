@@ -1,7 +1,21 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
-import { previewSitesForChangedPaths } from "./netlify-pr-preview-targets.ts";
+import {
+  previewSitesForChangedPaths,
+  workspacePackages,
+} from "./netlify-pr-preview-targets.ts";
+
+test("workspacePackages throws when a checkout has neither packages/ nor templates/", () => {
+  const emptyRepoRoot = mkdtempSync(path.join(tmpdir(), "netlify-preview-"));
+  assert.throws(
+    () => workspacePackages(emptyRepoRoot),
+    /neither packages\/ nor templates\/ exists/,
+  );
+});
 
 test("selects the app sites touched by a PR", () => {
   assert.deepEqual(

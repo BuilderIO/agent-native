@@ -119,7 +119,20 @@ function packageDirsUnder(parentDir: string, repoRoot: string): string[] {
 // Ports the same dependency-graph algorithm
 // cancel-stale-netlify-main-deploys.yml uses, as pure functions reading
 // package.json directly (no shelling out to pnpm).
-function workspacePackages(repoRoot: string): Map<string, WorkspacePackage> {
+export function workspacePackages(
+  repoRoot: string,
+): Map<string, WorkspacePackage> {
+  // A partial checkout (e.g. a sparse-checkout missing both manifest roots)
+  // must not silently compute a fan-out of zero packages/sites — that reads
+  // as "no site depends on this change" instead of "the checkout can't tell".
+  if (
+    !existsSync(path.join(repoRoot, "packages")) &&
+    !existsSync(path.join(repoRoot, "templates"))
+  ) {
+    throw new Error(
+      `workspacePackages: neither packages/ nor templates/ exists under ${repoRoot}; the checkout is missing the manifests needed to compute the preview fan-out.`,
+    );
+  }
   const packages = new Map<string, WorkspacePackage>();
   for (const dir of [
     ...packageDirsUnder("packages", repoRoot),

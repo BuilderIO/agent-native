@@ -1470,18 +1470,33 @@ jobs:
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
         with:
+          # Monotonic, not exact-equality: same check-1 policy as
+          # beta_pre_migration_freshness. There is no previous published
+          # deploy yet on this path, so there is nothing to check for
+          # regression against (check 2).
           script: |
             const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
+              core.setOutput('current', 'true');
+              return;
+            }
             const mainSha = (await github.rest.git.getRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: 'heads/main',
-            })).data.object.sha.toLowerCase();
-            const current = /^[0-9a-f]{40}$/.test(sourceRef) && sourceRef === mainSha;
-            core.setOutput('current', String(current));
-            if (!current) {
-              core.warning(
-                `First beta deploy source ${sourceRef || 'unknown'} became stale before publish; main is now ${mainSha}.`,
+            })).data.object.sha;
+            const onMain = ['ahead', 'identical'].includes(
+              (await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: sourceRef,
+                head: mainSha,
+              })).data.status,
+            );
+            core.setOutput('current', String(onMain));
+            if (!onMain) {
+              core.notice(
+                `First beta deploy source ${sourceRef} is no longer on main (main is ${mainSha}); skipping.`,
               );
             }
 
@@ -1506,7 +1521,11 @@ jobs:
         run: |
           set -euo pipefail
           main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
-          if [[ "${main_sha,,}" != "${SOURCE_REF,,}" ]]; then
+          # Monotonic, not exact-equality: same check-1 policy as
+          # beta_first_publish_freshness above, re-run immediately before the
+          # Netlify publish call since that step's result can be seconds stale.
+          compare_status="$(gh api "repos/$GITHUB_REPOSITORY/compare/${SOURCE_REF}...${main_sha}" --jq '.status')"
+          if [[ "$compare_status" != "ahead" && "$compare_status" != "identical" ]]; then
             echo "::error::First beta deploy became stale before publish; main is now $main_sha."
             exit 1
           fi
@@ -1774,18 +1793,33 @@ jobs:
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
         with:
+          # Monotonic, not exact-equality: same check-1 policy as
+          # beta_pre_migration_freshness/beta_freshness. Check 2 (regression
+          # against the previously published deploy) does not apply here —
+          # after our own publish above, the published deploy IS this source.
           script: |
             const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
+              core.setOutput('current', 'true');
+              return;
+            }
             const mainSha = (await github.rest.git.getRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: 'heads/main',
-            })).data.object.sha.toLowerCase();
-            const current = /^[0-9a-f]{40}$/.test(sourceRef) && sourceRef === mainSha;
-            core.setOutput('current', String(current));
-            if (!current) {
-              core.warning(
-                `Beta source ${sourceRef || 'unknown'} became stale while publishing; main is now ${mainSha}.`,
+            })).data.object.sha;
+            const onMain = ['ahead', 'identical'].includes(
+              (await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: sourceRef,
+                head: mainSha,
+              })).data.status,
+            );
+            core.setOutput('current', String(onMain));
+            if (!onMain) {
+              core.notice(
+                `Beta source ${sourceRef} is no longer on main (main is ${mainSha}); reverting.`,
               );
             }
 
