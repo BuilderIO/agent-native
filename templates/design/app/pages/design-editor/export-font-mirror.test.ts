@@ -369,6 +369,41 @@ describe("collectFontRequests generated content", () => {
     expect(specs).toEqual(['normal 700 20px "IconFont"']);
   });
 
+  /**
+   * Chromium substitutes `attr()` into the computed `content`, but an engine
+   * that leaves it unresolved used to yield an empty sample, so a private-use
+   * icon subset was never requested and the raster fell back.
+   */
+  it("resolves attr() content against the host element", () => {
+    const glyph = String.fromCodePoint(0xe001);
+    const doc = docWithComputedStyles(
+      `<i class="icon" data-icon="DATA_GLYPH"></i>`.replace(
+        "DATA_GLYPH",
+        glyph,
+      ),
+      (_el, pseudo) =>
+        pseudo === "::before"
+          ? {
+              content: "attr(data-icon)",
+              fontFamily: '"IconFont"',
+              fontSize: "20px",
+              fontWeight: "400",
+              fontStyle: "normal",
+            }
+          : {
+              content: "none",
+              fontFamily: "Inter",
+              fontSize: "16px",
+              fontWeight: "400",
+              fontStyle: "normal",
+            },
+    );
+
+    expect(collectFontRequests(doc)).toEqual([
+      { spec: 'normal 400 20px "IconFont"', text: glyph },
+    ]);
+  });
+
   it("ignores pseudo-elements with no painted content", () => {
     const doc = docWithComputedStyles(`<i class="plain"></i>`, () => ({
       content: "none",
@@ -398,9 +433,13 @@ describe("extractImportUrls", () => {
       ),
     ).toEqual({
       urls: [
-        { href: "https://cdn.example.com/css/a.css", media: "" },
-        { href: "https://cdn.example.com/css/b.css", media: "" },
-        { href: "https://cdn.example.com/css/c.css", media: "screen" },
+        { href: "https://cdn.example.com/css/a.css", media: "", supports: "" },
+        { href: "https://cdn.example.com/css/b.css", media: "", supports: "" },
+        {
+          href: "https://cdn.example.com/css/c.css",
+          media: "screen",
+          supports: "",
+        },
       ],
       unresolvable: [],
     });
@@ -664,7 +703,33 @@ describe("extractImportUrls media", () => {
         `@import url("a.css") layer(base) supports(display: grid) print;`,
         "https://cdn.example.com/x.css",
       ).urls,
-    ).toEqual([{ href: "https://cdn.example.com/a.css", media: "print" }]);
+    ).toEqual([
+      {
+        href: "https://cdn.example.com/a.css",
+        media: "print",
+        supports: "display: grid",
+      },
+    ]);
+  });
+
+  /**
+   * A `[^)]*` strip stopped at the inner `)`, leaving
+   * `or (display:flex)) screen` as the media query. That matches nothing, so a
+   * real screen import was dropped for the wrong reason.
+   */
+  it("balances parentheses inside supports()", () => {
+    expect(
+      extractImportUrls(
+        `@import url("a.css") supports((display:grid) or (display:flex)) screen;`,
+        "https://cdn.example.com/x.css",
+      ).urls,
+    ).toEqual([
+      {
+        href: "https://cdn.example.com/a.css",
+        media: "screen",
+        supports: "(display:grid) or (display:flex)",
+      },
+    ]);
   });
 
   it("ignores a commented-out import", () => {
@@ -759,6 +824,137 @@ describe("mirrorPreviewWebFonts import media", () => {
       );
       expect(requested).toEqual([outer]);
       expect(mirrored.faceCount).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does not fetch an @import behind an unsupported supports()", async () => {
+    const outer = "https://fonts.example.com/outer.css";
+    const requested: string[] = [];
+    const preview = document.implementation.createHTMLDocument("preview");
+    Object.defineProperty(preview, "styleSheets", {
+      value: [
+        {
+          href: outer,
+          get cssRules(): never {
+            throw new DOMException("cross-origin", "SecurityError");
+          },
+        },
+      ],
+    });
+    Object.defineProperty(preview, "defaultView", {
+      value: {
+        matchMedia: () => ({ matches: true }),
+        CSS: { supports: (condition: string) => condition !== "display: xyz" },
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((url: string) => {
+      requested.push(String(url));
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: () =>
+          Promise.resolve(`@import url("xyz.css") supports(display: xyz);`),
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const mirrored = await mirrorPreviewWebFonts(
+        preview,
+        document.implementation.createHTMLDocument("editor"),
+      );
+      expect(requested).toEqual([outer]);
+      expect(mirrored.faceCount).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+/**
+ * A stylesheet carries its own media list and `disabled` flag, and both keep it
+ * out of the preview's cascade while leaving it in `document.styleSheets`.
+ * Mirroring such a sheet would make its faces unconditional in the editor
+ * document, where they can outrank the face the preview laid out with.
+ */
+describe("mirrorPreviewWebFonts stylesheet activation", () => {
+  const FONT_FACE_RULE = 5;
+
+  function previewWithSheet(sheet: Record<string, unknown>): Document {
+    const preview = document.implementation.createHTMLDocument("preview");
+    Object.defineProperty(preview, "styleSheets", { value: [sheet] });
+    Object.defineProperty(preview, "defaultView", {
+      value: {
+        matchMedia: (query: string) => ({ matches: query !== "print" }),
+      },
+    });
+    return preview;
+  }
+
+  const printSheet = {
+    href: null,
+    media: { mediaText: "print" },
+    cssRules: [
+      {
+        type: FONT_FACE_RULE,
+        cssText: `@font-face { font-family: "PrintOnly"; src: url(p.woff2) }`,
+      },
+    ],
+  };
+
+  it("skips a print-only stylesheet", async () => {
+    const mirrored = await mirrorPreviewWebFonts(
+      previewWithSheet(printSheet),
+      document.implementation.createHTMLDocument("editor"),
+    );
+
+    expect(mirrored.faceCount).toBe(0);
+    expect(mirrored.unreadableStylesheets).toEqual([]);
+  });
+
+  it("keeps a screen stylesheet", async () => {
+    const mirrored = await mirrorPreviewWebFonts(
+      previewWithSheet({ ...printSheet, media: { mediaText: "screen" } }),
+      document.implementation.createHTMLDocument("editor"),
+    );
+
+    expect(mirrored.faceCount).toBe(1);
+  });
+
+  it("skips a disabled stylesheet", async () => {
+    const mirrored = await mirrorPreviewWebFonts(
+      previewWithSheet({ ...printSheet, media: undefined, disabled: true }),
+      document.implementation.createHTMLDocument("editor"),
+    );
+
+    expect(mirrored.faceCount).toBe(0);
+  });
+
+  it("does not fetch a cross-origin stylesheet the preview never applied", async () => {
+    const preview = previewWithSheet({
+      href: "https://fonts.example.com/print.css",
+      media: { mediaText: "print" },
+      get cssRules(): never {
+        throw new DOMException("cross-origin", "SecurityError");
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    const requested: string[] = [];
+    globalThis.fetch = ((url: string) => {
+      requested.push(String(url));
+      return Promise.reject(new Error("should not be requested"));
+    }) as unknown as typeof fetch;
+    try {
+      const mirrored = await mirrorPreviewWebFonts(
+        preview,
+        document.implementation.createHTMLDocument("editor"),
+      );
+      expect(requested).toEqual([]);
+      expect(mirrored.unreadableStylesheets).toEqual([]);
     } finally {
       globalThis.fetch = originalFetch;
     }

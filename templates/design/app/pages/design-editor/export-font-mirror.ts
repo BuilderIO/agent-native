@@ -256,11 +256,23 @@ function directText(element: HTMLElement): string {
     .join("");
 }
 
-/** Unquote a CSS `content` value so its glyphs can be requested. */
-function pseudoContentText(content: string): string {
+/**
+ * Unquote a CSS `content` value so its glyphs can be requested.
+ *
+ * `attr()` is resolved against the host element rather than dropped. Chromium
+ * already substitutes the attribute into the computed value, but engines that
+ * leave `attr(data-icon)` unresolved would otherwise contribute no sample at
+ * all, so a private-use icon subset would never load for that export.
+ * Functions that paint no text of their own are dropped.
+ */
+function pseudoContentText(content: string, host: Element): string {
   return content
     .trim()
-    .replace(/^(?:attr|counter|counters|url|image)\([^)]*\)/gi, "")
+    .replace(
+      /attr\(\s*([\w-]+)[^)]*\)/gi,
+      (_match, name: string) => host.getAttribute(name) ?? "",
+    )
+    .replace(/(?:counter|counters|url|image|image-set)\([^)]*\)/gi, "")
     .replace(/["']/g, "");
 }
 
@@ -320,7 +332,7 @@ export function collectFontRequests(doc: Document): FontRequest[] {
         continue;
       }
       if (!style || !pseudoContentIsPainted(style.content)) continue;
-      record(fontSpecFrom(style), pseudoContentText(style.content));
+      record(fontSpecFrom(style), pseudoContentText(style.content, element));
     }
   }
 
@@ -408,6 +420,17 @@ function harvestFontFaceRules(
       if (importMedia && !harvest.conditionApplies("media", importMedia)) {
         continue;
       }
+      // `@import` also accepts `supports(...)`, and a face behind a condition
+      // the preview could not satisfy was never used to lay it out.
+      const importSupports = (
+        importRule as CSSImportRule & { supportsText?: string | null }
+      ).supportsText;
+      if (
+        importSupports &&
+        !harvest.conditionApplies("supports", importSupports)
+      ) {
+        continue;
+      }
       let importedBase = baseUrl;
       try {
         importedBase = importRule.href
@@ -463,6 +486,15 @@ function collectPreviewFontFaceCss(doc: Document): FontFaceHarvest {
   };
   const seen = new Set<object>();
   for (const sheet of Array.from(doc.styleSheets)) {
+    // A sheet the preview never applied must not be mirrored: its faces would
+    // become unconditional in the editor document and could win over the face
+    // the preview actually laid out with. `<link media="print">` and an
+    // unselected alternate stylesheet both sit in `styleSheets` regardless.
+    // `media`/`disabled` stay readable cross-origin, unlike `cssRules`, so
+    // this also avoids fetching a print-only sheet in the network pass.
+    if (sheet.disabled) continue;
+    const sheetMedia = sheet.media?.mediaText;
+    if (sheetMedia && !harvest.conditionApplies("media", sheetMedia)) continue;
     const base = sheet.href ?? doc.baseURI;
     let cssRules: CSSRule[];
     try {
@@ -490,6 +522,73 @@ export interface CssImport {
   href: string;
   /** The import's media query, if it declared one. */
   media: string;
+  /** The import's `supports()` condition, if it declared one. */
+  supports: string;
+}
+
+/** Index just past the `)` closing the parenthesis that sits at `openIndex`. */
+function findParenEnd(text: string, openIndex: number): number {
+  let depth = 1;
+  let index = openIndex + 1;
+  while (index < text.length && depth > 0) {
+    const character = text[index]!;
+    if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    index += 1;
+  }
+  return depth === 0 ? index : -1;
+}
+
+/**
+ * Split an `@import` prelude into the conditions that decide whether the
+ * preview applied it.
+ *
+ * `supports()` nests parentheses - `supports((display:grid) or (display:flex))`
+ * - so stripping it with `[^)]*` stops at the first `)` and leaves the tail in
+ * the media text. The resulting `or (display:flex)) screen` matches nothing,
+ * which drops the sheet for the wrong reason and would silently drop a real
+ * screen import. Balance the parentheses instead, and keep the condition so it
+ * can be evaluated rather than assumed.
+ */
+export function splitImportPrelude(prelude: string): {
+  media: string;
+  supports: string;
+} {
+  let supports = "";
+  let rest = "";
+  let index = 0;
+  const functional = /(supports|layer)\(/gi;
+  while (index < prelude.length) {
+    functional.lastIndex = index;
+    const match = functional.exec(prelude);
+    if (!match) {
+      rest += prelude.slice(index);
+      break;
+    }
+    rest += prelude.slice(index, match.index);
+    const openIndex = match.index + match[0].length - 1;
+    const end = findParenEnd(prelude, openIndex);
+    // An unterminated condition cannot be read; nothing after it is trustworthy
+    // either, so stop rather than guess at a media query.
+    if (end === -1) break;
+    if (match[1]!.toLowerCase() === "supports") {
+      supports = prelude.slice(openIndex + 1, end - 1).trim();
+    }
+    index = end;
+  }
+  return { media: rest.replace(/\blayer\b/gi, "").trim(), supports };
+}
+
+/** Did an `@import`'s own conditions hold in the preview? */
+function importAppliesInPreview(
+  entry: CssImport,
+  conditionApplies: ConditionFilter,
+): boolean {
+  if (entry.media && !conditionApplies("media", entry.media)) return false;
+  if (entry.supports && !conditionApplies("supports", entry.supports)) {
+    return false;
+  }
+  return true;
 }
 
 export function extractImportUrls(
@@ -505,14 +604,10 @@ export function extractImportUrls(
   while ((match = pattern.exec(source))) {
     const raw = (match[2] ?? match[4] ?? "").trim();
     if (!raw) continue;
-    // Everything between the target and the `;` is layer()/supports()/media;
-    // only the media query decides whether the preview applied it.
-    const media = (match[5] ?? "")
-      .replace(/\b(?:layer|supports)\([^)]*\)/gi, "")
-      .replace(/\blayer\b/gi, "")
-      .trim();
+    // Everything between the target and the `;` is layer()/supports()/media.
+    const { media, supports } = splitImportPrelude(match[5] ?? "");
     try {
-      urls.push({ href: new URL(raw, baseUrl).href, media });
+      urls.push({ href: new URL(raw, baseUrl).href, media, supports });
     } catch {
       unresolvable.push(raw);
     }
@@ -566,9 +661,8 @@ async function fetchFontFaceRulesDeep(
   context.failed.push(...imports.unresolvable);
   const nested = await Promise.all(
     imports.urls
-      .filter(
-        (entry) =>
-          !entry.media || context.conditionApplies("media", entry.media),
+      .filter((entry) =>
+        importAppliesInPreview(entry, context.conditionApplies),
       )
       .map((entry) => fetchFontFaceRulesDeep(entry.href, context, depth + 1)),
   );
