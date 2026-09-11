@@ -1,0 +1,150 @@
+<svg width="940" height="460" viewBox="0 0 940 460" xmlns="http://www.w3.org/2000/svg">
+<title>Builder Code UI PR mockup</title>
+<desc>A GitHub-style merged pull request titled "Builder Code UI: Update icon styling and hover colors #8877", with a code diff panel and an overlapping AI agent panel summarizing the edit.</desc>
+<defs>
+<radialGradient id="glow1" cx="15%" cy="10%" r="55%">
+<stop offset="0%" stop-color="#5b3fd9" stop-opacity="0.30"/>
+<stop offset="100%" stop-color="#5b3fd9" stop-opacity="0"/>
+</radialGradient>
+<radialGradient id="glow2" cx="92%" cy="85%" r="50%">
+<stop offset="0%" stop-color="#1f6fd9" stop-opacity="0.18"/>
+<stop offset="100%" stop-color="#1f6fd9" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="mergedGrad" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#9457f2"/>
+<stop offset="100%" stop-color="#6f42c1"/>
+</linearGradient>
+<style>
+text{font-family:'Geist','Helvetica Neue',Helvetica,Arial,sans-serif}
+.mono{font-family:'SFMono-Regular','Menlo','Consolas',monospace}
+</style>
+</defs>
+
+<rect x="0" y="0" width="940" height="460" fill="#0a0a10"/>
+<rect x="0" y="0" width="940" height="460" fill="url(#glow1)"/>
+<rect x="0" y="0" width="940" height="460" fill="url(#glow2)"/>
+
+<!-- Title -->
+<text x="24" y="42" font-size="24" font-weight="700" fill="#F5F5F7">Builder Code UI: Update icon styling and hover colors <tspan fill="#8b8b93" font-weight="500" font-size="20">#8877</tspan></text>
+
+<!-- Merged row -->
+<rect x="24" y="60" width="88" height="25" rx="12.5" fill="url(#mergedGrad)"/>
+<circle cx="40" cy="72.5" r="6" fill="none" stroke="#fff" stroke-width="1.4"/>
+<path d="M37 72.5 l2 2 l4 -4.5" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="52" y="77.5" font-size="12.5" font-weight="600" fill="#fff">Merged</text>
+
+<text x="122" y="77" font-size="14" fill="#9a9aa2"><tspan fill="#c7c7cf" font-weight="600">steve8708</tspan> merged 8 commits into</text>
+<rect x="342" y="64" width="46" height="21" rx="5" fill="#1c1c24" stroke="#33333c"/>
+<text x="365" y="78.5" font-size="12" class="mono" fill="#cfd0d6" text-anchor="middle">main</text>
+<text x="396" y="77" font-size="14" fill="#9a9aa2">from</text>
+<rect x="424" y="64" width="122" height="21" rx="5" fill="#1c1c24" stroke="#33333c"/>
+<text x="485" y="78.5" font-size="12" class="mono" fill="#cfd0d6" text-anchor="middle">ai_main_c17bdd8b</text>
+<text x="556" y="77" font-size="14" fill="#9a9aa2">on June 2</text>
+
+<!-- Tabs -->
+<text x="24" y="116" font-size="14" fill="#F5F5F7">Conversation <tspan fill="#6f6f79">8</tspan></text>
+<line x1="24" y1="126" x2="118" y2="126" stroke="#F5F5F7" stroke-width="2"/>
+<text x="170" y="116" font-size="14" fill="#9a9aa2">Commits <tspan fill="#6f6f79">3</tspan></text>
+<text x="290" y="116" font-size="14" fill="#9a9aa2">Checks <tspan fill="#6f6f79">17</tspan></text>
+<text x="400" y="116" font-size="14" fill="#9a9aa2">Files changed <tspan fill="#6f6f79">2</tspan></text>
+<line x1="24" y1="132" x2="916" y2="132" stroke="#24242c" stroke-width="1"/>
+
+<!-- Diff card -->
+<rect x="24" y="150" width="580" height="290" rx="10" fill="#101018" stroke="#23232b"/>
+<rect x="25" y="151" width="578" height="42" rx="9" fill="#131320"/>
+<text x="40" y="170" font-size="10.5" class="mono" fill="#6f6f79">ai: completionId: cgen-3a6e1e9af2b6543eab77e5f2b20911a27|n|</text>
+<text x="40" y="184" font-size="10.5" class="mono" fill="#6f6f79">ncgen-3a6e1e9af2b6543eab77e5f2b20911a27</text>
+
+<circle cx="46" cy="212" r="7" fill="#2b2b36"/>
+<text x="60" y="216" font-size="12.5" fill="#9a9aa2">builderio-bot committed on May 30</text>
+<rect x="304" y="206" width="70" height="18" rx="4" fill="none" stroke="#33333c"/>
+<text x="339" y="218.5" font-size="10.5" fill="#8b8b93" text-anchor="middle">Unverified</text>
+
+<!-- diff rows -->
+<rect x="24" y="238" width="580" height="22" fill="#15151d"/>
+<text x="40" y="253" font-size="12" class="mono" fill="#6f6f79">@@ -482,7 +482,7 @@ const ProjectCard = observer(...</text>
+
+<text x="34" y="275" font-size="12" class="mono" fill="#4d4d57" text-anchor="end">482</text>
+<text x="70" y="275" font-size="12" class="mono" fill="#4d4d57" text-anchor="end">482</text>
+<text x="90" y="275" font-size="12" class="mono" fill="#c9cad0">right: project.pinned ? 8 : 16,</text>
+
+<text x="34" y="295" font-size="12" class="mono" fill="#4d4d57" text-anchor="end">483</text>
+<text x="70" y="295" font-size="12" class="mono" fill="#4d4d57" text-anchor="end">483</text>
+<text x="90" y="295" font-size="12" class="mono" fill="#c9cad0">background: 'var(--background)',</text>
+
+<rect x="24" y="304" width="580" height="20" fill="#f85149" fill-opacity="0.15"/>
+<text x="34" y="318" font-size="12" class="mono" fill="#f8b9b4" text-anchor="end">484</text>
+<text x="58" y="318" font-size="12" class="mono" fill="#f85149">-</text>
+<text x="90" y="318" font-size="12" class="mono" fill="#f0b6b1">'&amp;:hover': {</text>
+
+<rect x="24" y="324" width="580" height="20" fill="#f85149" fill-opacity="0.15"/>
+<text x="34" y="338" font-size="12" class="mono" fill="#f8b9b4" text-anchor="end">485</text>
+<text x="58" y="338" font-size="12" class="mono" fill="#f85149">-</text>
+<text x="90" y="338" font-size="12" class="mono" fill="#f0b6b1">&#160;&#160;opacity: 0.7,</text>
+
+<rect x="24" y="344" width="580" height="20" fill="#3fb950" fill-opacity="0.15"/>
+<text x="70" y="358" font-size="12" class="mono" fill="#9be3a6" text-anchor="end">484</text>
+<text x="58" y="358" font-size="12" class="mono" fill="#3fb950">+</text>
+<text x="90" y="358" font-size="12" class="mono" fill="#bfeec8">background: 'var(--bg-secondary)',</text>
+
+<rect x="24" y="364" width="580" height="20" fill="#3fb950" fill-opacity="0.15"/>
+<text x="70" y="378" font-size="12" class="mono" fill="#9be3a6" text-anchor="end">485</text>
+<text x="58" y="378" font-size="12" class="mono" fill="#3fb950">+</text>
+<text x="90" y="378" font-size="12" class="mono" fill="#bfeec8">&#160;&#160;opacity: 1,</text>
+
+<text x="34" y="398" font-size="12" class="mono" fill="#4d4d57" text-anchor="end">486</text>
+<text x="70" y="398" font-size="12" class="mono" fill="#4d4d57" text-anchor="end">486</text>
+<text x="90" y="398" font-size="12" class="mono" fill="#c9cad0">}</text>
+
+<!-- Floating panel 1: edit summary -->
+<rect x="490" y="150" width="392" height="58" rx="14" fill="#15151f" stroke="#2b2b36" stroke-width="1.5"/>
+<path d="M504,177 l6,6 l6,-6" fill="none" stroke="#9a9aa2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="528" y="184" font-size="15" font-weight="500" fill="#F5F5F7">Edited 1 file</text>
+<text x="655" y="184" font-size="14" font-weight="700" fill="#3fb950">+2</text>
+<text x="682" y="184" font-size="14" font-weight="700" fill="#f85149">−2</text>
+
+<circle cx="770" cy="179" r="15" fill="none" stroke="#33333c" stroke-width="1.3"/>
+<path d="M764 174 a8 8 0 1 1 -2 11" fill="none" stroke="#9a9aa2" stroke-width="1.4"/>
+<path d="M764 174 l0 5 l5 0" fill="none" stroke="#9a9aa2" stroke-width="1.4"/>
+
+<circle cx="806" cy="179" r="15" fill="none" stroke="#33333c" stroke-width="1.3"/>
+<path d="M799 183 q7 -11 13 -1" fill="none" stroke="#9a9aa2" stroke-width="1.5" stroke-linecap="round"/>
+
+<rect x="836" y="164" width="30" height="30" rx="9" fill="#e9e9ee"/>
+<path d="M846 186 q4 -9 12 -3" fill="none" stroke="#141420" stroke-width="1.6" stroke-linecap="round"/>
+
+<!-- Floating panel 2: summary + toolbar -->
+<rect x="360" y="196" width="440" height="200" rx="18" fill="#15151f" stroke="#2b2b36" stroke-width="1.5"/>
+<text x="386" y="232" font-size="17" font-weight="600" fill="#F5F5F7">Update icon hover colors to:</text>
+
+<circle cx="393" cy="253" r="2.6" fill="#c7c7cf"/>
+<text x="404" y="258" font-size="14.5" fill="#F5F5F7">Light mode: <tspan fill="#c7c7cf" font-weight="400">#E2E5E6 (light gray)</tspan></text>
+
+<circle cx="393" cy="283" r="2.6" fill="#c7c7cf"/>
+<text x="404" y="288" font-size="14.5" fill="#F5F5F7">Dark mode: <tspan fill="#c7c7cf" font-weight="400">#bbb (medium gray)</tspan></text>
+
+<line x1="384" y1="330" x2="776" y2="330" stroke="#26262f" stroke-width="1"/>
+
+<rect x="384" y="345" width="26" height="26" rx="7" fill="none" stroke="#3a3a44" stroke-width="1.3"/>
+<path d="M397 353 v10 M392 358 h10" stroke="#9a9aa2" stroke-width="1.6" stroke-linecap="round"/>
+
+<circle cx="440" cy="358" r="6" fill="#8b8b93"/>
+<circle cx="440" cy="358" r="10" fill="none" stroke="#3a3a44" stroke-width="1.2"/>
+
+<path d="M478 344 l7 14 h-14 z" fill="none" stroke="#8b8b93" stroke-width="1.4" stroke-linejoin="round"/>
+
+<circle cx="524" cy="358" r="11" fill="none" stroke="#8b8b93" stroke-width="1.3"/>
+<circle cx="524" cy="358" r="5" fill="none" stroke="#8b8b93" stroke-width="1.3"/>
+<circle cx="524" cy="358" r="1.4" fill="#8b8b93"/>
+
+<circle cx="700" cy="358" r="11" fill="none" stroke="#8b8b93" stroke-width="1.3"/>
+<line x1="700" y1="341" x2="700" y2="345" stroke="#8b8b93" stroke-width="1.4"/>
+<line x1="700" y1="371" x2="700" y2="375" stroke="#8b8b93" stroke-width="1.4"/>
+<line x1="683" y1="358" x2="687" y2="358" stroke="#8b8b93" stroke-width="1.4"/>
+<line x1="713" y1="358" x2="717" y2="358" stroke="#8b8b93" stroke-width="1.4"/>
+<circle cx="700" cy="358" r="3.5" fill="#8b8b93"/>
+
+<rect x="736" y="345" width="30" height="30" rx="8" fill="#6f42c1"/>
+<path d="M751 354 v14 M745 362 l6 -8 l6 8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+
+</svg>

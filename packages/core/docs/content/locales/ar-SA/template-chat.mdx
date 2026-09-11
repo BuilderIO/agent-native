@@ -24,14 +24,34 @@ description: "تطبيق وكيل أصلي بسيط قائم على الدردش
 
 </Cards>
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>كيف يمكنني المساعدة؟</h1><p class='wf-muted' style='margin:10px 0 0'>دردش حول أي شيء. أضف إجراءات، أو مكونات، أو صفحات، أو مهام، أو خلفيتك الخاصة.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>راسل الوكيل...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · عالٍ</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F890d00ea6365496f98a6717926bf3aae?alt=media&token=9f47fcb7-f89c-4df7-9ce5-7a77b8270800&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="تسجيل شاشة قصير للدردشة مع الوكيل في تطبيق Chat."
+  caption="جولة سريعة في تطبيق Chat."
+  autoplay={true}
+  loop={true}
+/>
+
+## البدء {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+راجع [الدردشة: دليل المطور](/docs/template-chat-developers#quick-start)
+للتعرف على التثبيت، والتشغيل الأول، وتوصيل نموذج لغوي. للعمل القائم على
+الأتمتة أولاً بدون أي واجهة مستخدم في المتصفح على الإطلاق، أنشئ السقالة
+باستخدام `--headless` عوضًا عن ذلك:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+استخدمها للمهام المُجدولة، أو قوائم الانتظار، أو حلقات CLI، أو سير عمل
+الوكلاء الخارجيين حيث لا تكون الدردشة وصفحات التطبيق مفيدة بعد. يبقى الثابت
+الأساسي كما هو: الإجراءات هي السطح المشترك للدردشة، وواجهة المستخدم، وHTTP،
+وMCP، وA2A، وCLI. راجع [تطبيقات الأتمتة أولاً](/docs/pure-agent-apps) لمعرفة
+هذا المسار بالتفصيل.
 
 ## ما يتم شحنه {#what-ships}
 
@@ -64,7 +84,7 @@ description: "تطبيق وكيل أصلي بسيط قائم على الدردش
 
 </Comparison>
 
-هذه هي النقطة تمامًا. الدردشة غلاف افتراضي رقيق ومفيد لوكيلك الخاص، لا منتج
+الدردشة غلاف افتراضي رقيق ومفيد لوكيلك الخاص، لا منتج
 مخصص لمجال معيّن يتنكّر في هيئة منتج عام.
 
 <Diagram id="doc-block-chat2" title="ما يتم شحنه في غلاف الدردشة" summary={"سطح دردشة رفيع فوق وقت التشغيل القياسي لإطار العمل — الإجراءات، والسلاسل الدائمة، والمزامنة المباشرة، والمصادقة — مع مساحة لإضافة واجهة المستخدم الخاصة بك."}>
@@ -140,43 +160,3 @@ description: "تطبيق وكيل أصلي بسيط قائم على الدردش
 - **تريد توصيل الواجهة الخلفية لوكيلك الخاص بواجهة دردشة مألوفة** مع الاحتفاظ
   بشكل إجراءات Agent-Native وحالته ومصادقته ونشره.
 - **تُعِدّ نموذجًا أوليًا لأداة داخلية مخصصة** لا تتطابق مع أي قالب مجال.
-
-## البدء {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-راجع [الدردشة: دليل المطور](/docs/template-chat-developers#quick-start)
-للتعرف على التثبيت، والتشغيل الأول، وتوصيل نموذج لغوي. للعمل القائم على
-الأتمتة أولاً بدون أي واجهة مستخدم في المتصفح على الإطلاق، أنشئ السقالة
-باستخدام `--headless` عوضًا عن ذلك:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-استخدمها للمهام المُجدولة، أو قوائم الانتظار، أو حلقات CLI، أو سير عمل
-الوكلاء الخارجيين حيث لا تكون الدردشة وصفحات التطبيق مفيدة بعد. يبقى الثابت
-الأساسي كما هو: الإجراءات هي السطح المشترك للدردشة، وواجهة المستخدم، وHTTP،
-وMCP، وA2A، وCLI. راجع [تطبيقات الأتمتة أولاً](/docs/pure-agent-apps) لمعرفة
-هذا المسار بالتفصيل.
-
-## ما التالي
-
-- [**ميزتك الأولى في الدردشة**](/docs/template-chat-first-edits) — مسار
-  الدردشة الأولي، مع تعليقات توضيحية، بالإضافة إلى شرح كامل لإضافة ميزة حقيقية
-- [**الدردشة: دليل المطور**](/docs/template-chat-developers) — البدء السريع،
-  والإجراءات، والجداول الأساسية، والمصادقة، وصفحات الإدارة التي تُشحن افتراضيًا
-- [**بدء الاستخدام**](/docs/getting-started) — بناء مسار الدردشة أولاً من
-  الإجراء إلى النتيجة المضمَّنة إلى صفحة التطبيق
-- [**القوالب**](/docs/cloneable-saas) — نموذج SaaS القابل للاستنساخ، وكل
-  قالب مجال آخر يمكنك البدء منه بدلًا من ذلك
-- [**أسطح الوكيل**](/docs/agent-surfaces) — أنماط الدردشة، وواجهة المستخدم
-  المضمَّنة، وصفحات التطبيق، والتضمين، والأتمتة، والوكلاء الخارجيين
-- [**الإجراءات**](/docs/actions-overview) — نظام الإجراءات الذي تستدعيه
-  الدردشة وواجهة المستخدم كلتاهما
-- [**واجهة المحادثة الأصلية**](/docs/native-chat-ui) — أساسيات سطح الدردشة
-  وخيارات وقت التشغيل
-- [**تطبيقات الأتمتة أولاً**](/docs/pure-agent-apps) — سير عمل بدون متصفح
-  للمهام، وقوائم الانتظار، والنصوص البرمجية، والوكلاء الخارجيين

@@ -26,14 +26,34 @@ Découvrez Discussion en direct : commencez une véritable conversation avec l'a
 
 </Cards>
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Comment puis-je aider ?</h1><p class='wf-muted' style='margin:10px 0 0'>Discutez de tout. Ajoutez des actions, des composants, des pages, des jobs, ou votre propre backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Écrire à l'agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Joindre'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · Élevé</span><span class='wf-pill'>Agir</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F890d00ea6365496f98a6717926bf3aae?alt=media&token=9f47fcb7-f89c-4df7-9ce5-7a77b8270800&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Un court enregistrement d'écran d'une conversation avec l'agent dans l'application Chat."
+  caption="Une brève visite guidée de l'application Chat."
+  autoplay={true}
+  loop={true}
+/>
+
+## Commencer {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+Consultez [Discussion : Guide développeur](/docs/template-chat-developers#quick-start)
+pour l'installation, la première exécution, et la connexion d'un LLM. Pour un
+travail automation-first sans aucune UI navigateur, échafaudez plutôt avec
+`--headless` :
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+Utilisez-le pour les jobs planifiés, les files d'attente, les boucles CLI, ou
+les workflows d'agents externes là où le chat et les pages d'application ne
+sont pas encore utiles. L'invariant clé reste le même : les actions sont la
+surface partagée pour le chat, l'UI, HTTP, MCP, A2A, et CLI. Consultez
+[Automation-First Apps](/docs/pure-agent-apps) pour approfondir ce chemin.
 
 ## Ce qui est livré {#what-ships}
 
@@ -70,7 +90,7 @@ Découvrez Discussion en direct : commencez une véritable conversation avec l'a
 
 </Comparison>
 
-C'est exactement le but. Discussion est un shell par défaut mince et utile pour
+Discussion est un shell par défaut mince et utile pour
 votre propre agent, pas un produit de domaine qui prétend être générique.
 
 <Diagram id="doc-block-chat2" title="Ce qui est livré dans le shell Discussion" summary={"Une fine surface de chat par-dessus le runtime standard du framework — actions, fils durables, synchronisation en direct, et authentification — avec de la place pour ajouter votre propre interface."}>
@@ -149,45 +169,3 @@ votre propre agent, pas un produit de domaine qui prétend être générique.
   authentification et déploiement d'Agent-Native.
 - **Vous prototypez un outil interne personnalisé** qui ne correspond à
   aucun modèle de domaine.
-
-## Commencer {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-Consultez [Discussion : Guide développeur](/docs/template-chat-developers#quick-start)
-pour l'installation, la première exécution, et la connexion d'un LLM. Pour un
-travail automation-first sans aucune UI navigateur, échafaudez plutôt avec
-`--headless` :
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-Utilisez-le pour les jobs planifiés, les files d'attente, les boucles CLI, ou
-les workflows d'agents externes là où le chat et les pages d'application ne
-sont pas encore utiles. L'invariant clé reste le même : les actions sont la
-surface partagée pour le chat, l'UI, HTTP, MCP, A2A, et CLI. Consultez
-[Automation-First Apps](/docs/pure-agent-apps) pour approfondir ce chemin.
-
-## Et ensuite
-
-- [**Votre première fonctionnalité dans Discussion**](/docs/template-chat-first-edits) —
-  la route de chat de démarrage, annotée, plus un guide complet pour ajouter
-  une véritable fonctionnalité
-- [**Discussion : Guide développeur**](/docs/template-chat-developers) —
-  démarrage rapide, actions, tables principales, authentification, et les
-  pages d'administration livrées par défaut
-- [**Bien démarrer**](/docs/getting-started) — construisez le chemin axé sur
-  le chat, de l'action au résultat en ligne jusqu'à la page d'application
-- [**Modèles**](/docs/cloneable-saas) — le modèle SaaS clonable, et tous les
-  modèles de domaine à partir desquels démarrer à la place
-- [**Surfaces d'agent**](/docs/agent-surfaces) — chat, UI en ligne, pages
-  d'application, intégré, automatisation, et patterns d'agents externes
-- [**Actions**](/docs/actions-overview) — le système d'actions que le chat
-  et l'UI appellent tous les deux
-- [**Interface de chat native**](/docs/native-chat-ui) — primitives de la
-  surface de chat et options d'exécution
-- [**Automation-First Apps**](/docs/pure-agent-apps) — workflows sans
-  navigateur pour les jobs, files d'attente, scripts, et agents externes

@@ -26,14 +26,32 @@ See Chat live: start a real conversation with the agent, no setup required.
 
 </Cards>
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>How can I help?</h1><p class='wf-muted' style='margin:10px 0 0'>Chat about anything. Add actions, components, pages, jobs, or your own backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Message the agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · High</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F890d00ea6365496f98a6717926bf3aae?alt=media&token=9f47fcb7-f89c-4df7-9ce5-7a77b8270800&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A short screen recording of chatting with the agent in the Chat app."
+  caption="A brief tour of the Chat application."
+  autoplay={true}
+  loop={true}
+/>
+
+## Get started {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+See [Chat: Developer Guide](/docs/template-chat-developers#quick-start) for
+install, first run, and connecting an LLM. For automation-first work with no
+browser UI at all, scaffold with `--headless` instead:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+Use it for scheduled jobs, queues, CLI loops, or external-agent workflows
+where chat and app pages are not useful yet. The key invariant stays the
+same: actions are the shared surface for chat, UI, HTTP, MCP, A2A, and CLI.
+See [Automation-First Apps](/docs/pure-agent-apps) for that path in depth.
 
 ## What ships {#what-ships}
 
@@ -67,7 +85,7 @@ See Chat live: start a real conversation with the agent, no setup required.
 
 </Comparison>
 
-That's the point. Chat is a thin, useful default shell for your own agent, not
+Chat is a thin, useful default shell for your own agent, not
 a domain product pretending to be generic.
 
 <Diagram id="doc-block-chat2" title="What ships in the Chat shell" summary={"A thin chat surface over the framework's standard runtime — actions, durable threads, live sync, and auth — with room to add your own UI."}>
@@ -144,42 +162,3 @@ a domain product pretending to be generic.
   keeping Agent-Native's actions, state, auth, and deployment shape.
 - **You are prototyping a custom internal tool** that does not match a domain
   template.
-
-## Get started {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-See [Chat: Developer Guide](/docs/template-chat-developers#quick-start) for
-install, first run, and connecting an LLM. For automation-first work with no
-browser UI at all, scaffold with `--headless` instead:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-Use it for scheduled jobs, queues, CLI loops, or external-agent workflows
-where chat and app pages are not useful yet. The key invariant stays the
-same: actions are the shared surface for chat, UI, HTTP, MCP, A2A, and CLI.
-See [Automation-First Apps](/docs/pure-agent-apps) for that path in depth.
-
-## What's next
-
-- [**Your First Feature in Chat**](/docs/template-chat-first-edits) — the
-  starter chat route, annotated, plus a full walkthrough of adding a real
-  feature
-- [**Chat: Developer Guide**](/docs/template-chat-developers) — quick start,
-  actions, core tables, auth, and the admin pages that ship by default
-- [**Getting Started**](/docs/getting-started) — build the chat-first path
-  from action to inline result to app page
-- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model, and every
-  domain template to start from instead
-- [**Agent Surfaces**](/docs/agent-surfaces) — chat, inline UI, app pages,
-  embedded, automation, and external-agent patterns
-- [**Actions**](/docs/actions-overview) — the action system chat and UI both
-  call
-- [**Native Chat UI**](/docs/native-chat-ui) — chat surface primitives and
-  runtime options
-- [**Automation-First Apps**](/docs/pure-agent-apps) — no-browser workflows
-  for jobs, queues, scripts, and external agents

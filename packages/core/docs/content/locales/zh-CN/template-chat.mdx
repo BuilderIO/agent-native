@@ -18,14 +18,27 @@ description: "一个极简的、以聊天为先的 agent-native 应用：持久�
 
 </Cards>
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>我能帮什么？</h1><p class='wf-muted' style='margin:10px 0 0'>聊任何事情。添加 actions、组件、页面、任务或你自己的后端。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>给代理发消息...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 高</span><span class='wf-pill'>执行</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F890d00ea6365496f98a6717926bf3aae?alt=media&token=9f47fcb7-f89c-4df7-9ce5-7a77b8270800&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="一段简短的屏幕录制，展示在 Chat 应用中与代理聊天的过程。"
+  caption="Chat 应用的简要导览。"
+  autoplay={true}
+  loop={true}
+/>
+
+## 开始使用 {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+请参阅 [聊天：开发者指南](/docs/template-chat-developers#quick-start) 了解安装、首次运行和连接 LLM 的方法。如果是完全没有浏览器 UI 的 automation-first 工作，请改用 `--headless` 来搭建脚手架：
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+适用于计划任务、队列、CLI 循环，或聊天和应用页面尚无用处的外部代理工作流。关键的不变量保持不变：actions 是聊天、UI、HTTP、MCP、A2A 和 CLI 共用的界面。有关这条路径的详细说明，请参阅 [Automation-First Apps](/docs/pure-agent-apps)。
 
 ## 包含哪些内容 {#what-ships}
 
@@ -51,7 +64,7 @@ description: "一个极简的、以聊天为先的 agent-native 应用：持久�
 
 </Comparison>
 
-这正是重点所在。聊天是为你自己的代理提供的一个精简而实用的默认外壳，而不是一个装作通用的领域产品。
+聊天是为你自己的代理提供的一个精简而实用的默认外壳，而不是一个装作通用的领域产品。
 
 <Diagram id="doc-block-chat2" title="聊天外壳包含哪些内容" summary={"框架标准运行时之上的一个精简聊天界面 —— actions、持久线程、实时同步和身份验证 —— 并留有添加你自己 UI 的空间。"}>
 
@@ -119,28 +132,3 @@ description: "一个极简的、以聊天为先的 agent-native 应用：持久�
 - **你想要默认的 Agent-Native 入门路径**：先有聊天，然后是 actions、原生结果和应用页面。
 - **你想把自己的代理后端接入一个熟悉的聊天 UI**，同时保留 Agent-Native 的 actions、状态、身份验证和部署形态。
 - **你正在为一个不匹配任何领域模板的自定义内部工具制作原型**。
-
-## 开始使用 {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-请参阅 [聊天：开发者指南](/docs/template-chat-developers#quick-start) 了解安装、首次运行和连接 LLM 的方法。如果是完全没有浏览器 UI 的 automation-first 工作，请改用 `--headless` 来搭建脚手架：
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-适用于计划任务、队列、CLI 循环，或聊天和应用页面尚无用处的外部代理工作流。关键的不变量保持不变：actions 是聊天、UI、HTTP、MCP、A2A 和 CLI 共用的界面。有关这条路径的详细说明，请参阅 [Automation-First Apps](/docs/pure-agent-apps)。
-
-## 接下来
-
-- [**在聊天中添加你的第一个功能**](/docs/template-chat-first-edits) — 带注释的入门聊天路由，以及添加一个真实功能的完整演练
-- [**聊天：开发者指南**](/docs/template-chat-developers) — 快速入门、actions、核心表、身份验证，以及默认包含的管理页面
-- [**快速入门**](/docs/getting-started) — 从 action 到内联结果再到应用页面，构建以聊天为先的路径
-- [**模板**](/docs/cloneable-saas) — 可克隆 SaaS 模型，以及可以作为起点的所有领域模板
-- [**Agent Surfaces**](/docs/agent-surfaces) — 聊天、内联 UI、应用页面、嵌入式、自动化和外部代理模式
-- [**Actions**](/docs/actions-overview) — 聊天和 UI 都会调用的 action 系统
-- [**Native 聊天界面**](/docs/native-chat-ui) — 聊天界面基元和运行时选项
-- [**Automation-First Apps**](/docs/pure-agent-apps) — 无浏览器的工作流，用于任务、队列、脚本和外部代理
