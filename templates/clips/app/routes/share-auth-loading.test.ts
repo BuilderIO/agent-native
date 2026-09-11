@@ -276,9 +276,12 @@ describe("authenticated recording route loading", () => {
     expect(shareRoute).toContain(
       'const panelParam = searchParams.get("panel")',
     );
-    const effectStart = shareRoute.indexOf('if (panelParam !== "comments")');
+    const effectStart = shareRoute.indexOf(
+      "if (recording && !recording.enableComments) {",
+    );
     expect(effectStart).toBeGreaterThan(-1);
-    const effect = shareRoute.slice(effectStart, effectStart + 250);
+    const effect = shareRoute.slice(effectStart, effectStart + 300);
+    expect(effect).toContain('if (panelParam === "comments") {');
     expect(effect).toContain("selectCommentsPanel();");
 
     // A share whose owner disabled comments after the link was shared must
