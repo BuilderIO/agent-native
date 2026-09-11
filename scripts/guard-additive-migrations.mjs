@@ -32,11 +32,21 @@
  *   - Two migration entries in the same array declaring the same
  *     `version` number — the exact parallel-branch collision above.
  *   - ADD COLUMN ... NOT NULL (or PRIMARY KEY) on an existing table with no
- *     DEFAULT and no auto-generated value (SERIAL/IDENTITY). Beta and
- *     production migrate independently against one shared database, so a
- *     not-null column with nothing to fill it breaks on the first existing
- *     row, and breaks any already-deployed INSERT that doesn't know the
- *     column exists yet.
+ *     usable DEFAULT and no self-filling value (SERIAL/IDENTITY/a stored
+ *     generated column). Beta and production migrate independently against
+ *     one shared database, so a not-null column with nothing to fill it
+ *     breaks on the first existing row, and breaks any already-deployed
+ *     INSERT that doesn't know the column exists yet. The ADD-COLUMN
+ *     detector runs SQL comments, string literals, and quoted identifiers
+ *     through `maskSqlNoise` first, so a keyword appearing inside one of
+ *     those can't be mistaken for a real constraint; parses `ALTER TABLE`'s
+ *     optional `IF EXISTS`/`ONLY` and quoted or schema-qualified relation
+ *     names properly instead of assuming the table name is one bare token;
+ *     and never confuses `ADD CONSTRAINT`/`CHECK`/`UNIQUE`/`PRIMARY
+ *     KEY`/`FOREIGN KEY`/`EXCLUDE` (table-level, no column involved) for an
+ *     `ADD COLUMN`. `DEFAULT` only counts when it's a real column default —
+ *     `... ON DELETE SET DEFAULT` and `DEFAULT NULL` are both rejected as
+ *     not providing an existing row a usable value.
  *
  * The additive alternative is always available: add a new nullable column
  * (or table) and backfill it, rather than dropping/renaming/retyping the
@@ -307,34 +317,80 @@ function isPragmaed(lines, lineNumber, pragmaRe = PRAGMA_RE) {
 }
 
 /**
- * Splits a comma-separated SQL clause list at depth 0 (respecting
- * parens and '...' strings), so `DEFAULT ARRAY[1,2]` or
- * `CHECK (a > 0 AND b < 10)` don't get mistaken for separate clauses.
+ * Splits a comma-separated clause list at paren depth 0. Callers only ever
+ * pass this function text that has already been through `maskSqlNoise`, so
+ * string/identifier literals hold no real `(`/`)`/`,` characters any more —
+ * this needs no quote-awareness of its own, only paren depth.
  */
-function splitTopLevelClauses(text) {
-  const out = [];
+function splitTopLevelClauseRanges(text) {
+  const ranges = [];
   let depth = 0;
   let start = 0;
-  let inSingle = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (ch === "'") {
-      if (inSingle && text[i + 1] === "'") {
-        i++;
-        continue;
-      }
-      inSingle = !inSingle;
-      continue;
-    }
-    if (inSingle) continue;
     if (ch === "(") depth++;
     if (ch === ")") depth--;
     if (ch === "," && depth === 0) {
-      out.push(text.slice(start, i));
+      ranges.push({ start, end: i });
       start = i + 1;
     }
   }
-  out.push(text.slice(start));
+  ranges.push({ start, end: text.length });
+  return ranges;
+}
+
+// Blanks out the content of block comments, '...' string literals, and
+// "..." quoted identifiers to a same-length run of spaces (newlines
+// preserved), while keeping every delimiter (the comment markers, the
+// quote characters, and escaped '' / "" pairs) exactly where it was. This
+// is what lets every keyword regex below (NOT NULL, PRIMARY KEY, DEFAULT,
+// SERIAL, ...) search plain SQL text without also matching a column named
+// not_null, a comment mentioning DEFAULT, or a string literal containing
+// "PRIMARY KEY" — while the ALTER TABLE header parser can still see the
+// quotes themselves to find where a quoted, possibly space-containing
+// identifier ends. Because it's length-preserving, an offset computed
+// against the masked text always lands on the same character in the
+// original text.
+function maskSqlNoise(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "/" && text[i + 1] === "*") {
+      out += "/*";
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) {
+        out += text[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < text.length) {
+        out += "*/";
+        i += 2;
+      }
+      continue;
+    }
+    if (text[i] === "'" || text[i] === '"') {
+      const quote = text[i];
+      out += quote;
+      i++;
+      while (i < text.length) {
+        if (text[i] === quote && text[i + 1] === quote) {
+          out += quote + quote;
+          i += 2;
+          continue;
+        }
+        if (text[i] === quote) break;
+        out += text[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < text.length) {
+        out += quote;
+        i++;
+      }
+      continue;
+    }
+    out += text[i];
+    i++;
+  }
   return out;
 }
 
@@ -343,6 +399,58 @@ function splitTopLevelClauses(text) {
 // the next sequence value, and GENERATED ... AS IDENTITY does the same.
 const SELF_FILLING_COLUMN_RE =
   /\b(?:SMALL|BIG)?SERIAL\b|\bGENERATED\s+(?:ALWAYS|BY\s+DEFAULT)\s+AS\s+IDENTITY\b/i;
+
+// Optional IF EXISTS / ONLY, then a possibly schema-qualified, possibly
+// double-quoted (with "" escapes) relation name, then an optional `*`
+// (explicit "include descendants") marker — the actual PostgreSQL grammar
+// for an ALTER TABLE header, so `ALTER TABLE ONLY "tenant orders" ADD ...`
+// strips its whole header instead of leaving `"tenant orders" ADD ...`
+// behind for the ADD-clause matcher to trip over.
+const ALTER_TABLE_HEADER_RE =
+  /^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:"(?:[^"]|"")+"|[A-Za-z_]\w*)(?:\.(?:"(?:[^"]|"")+"|[A-Za-z_]\w*))*\s*\*?\s*/i;
+
+// Matches only an actual ADD-COLUMN clause. `COLUMN` is optional in real
+// PostgreSQL grammar, so when it's absent this also has to reject the
+// table-level forms that share the same "ADD <keyword>" shape — ADD
+// CONSTRAINT/CHECK/UNIQUE/PRIMARY KEY/FOREIGN KEY/EXCLUDE — none of which
+// name a column at all, let alone one that needs a default.
+const ADD_COLUMN_CLAUSE_RE =
+  /^\s*ADD\s+(?:COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?\S|(?:IF\s+NOT\s+EXISTS\s+)?(?!(?:CONSTRAINT|CHECK|UNIQUE|PRIMARY|FOREIGN|EXCLUDE)\b)\S)/i;
+
+/**
+ * A real, usable column default: `DEFAULT` is only ever a column-default
+ * keyword here once the referential-action phrase `... SET DEFAULT` (from
+ * `ON DELETE`/`ON UPDATE SET DEFAULT`) is stripped out, and `DEFAULT NULL`
+ * is rejected outright — it backfills existing rows with NULL, which is
+ * exactly what a `NOT NULL` addition cannot tolerate.
+ */
+function hasUsableColumnDefault(maskedClause) {
+  const withoutReferentialAction = maskedClause.replace(
+    /\bSET\s+DEFAULT\b/gi,
+    "",
+  );
+  if (!/\bDEFAULT\b/i.test(withoutReferentialAction)) return false;
+  if (/\bDEFAULT\s+NULL\b/i.test(withoutReferentialAction)) return false;
+  return true;
+}
+
+/**
+ * True for `GENERATED ALWAYS AS ( <expr> ) STORED` — a stored generated
+ * column computes its value from the row's other columns, so it fills in
+ * on every existing row the same way a DEFAULT would. Depth-matches the
+ * parens (reusing the same helper the migration-array scanner uses below)
+ * instead of a non-greedy regex, so a generation expression with its own
+ * nested call — `COALESCE(a, b)`, `CONCAT(x, y)` — doesn't truncate the
+ * match at the first `)` it contains.
+ */
+function hasStoredGeneratedExpression(maskedClause) {
+  const marker = /GENERATED\s+ALWAYS\s+AS\s*\(/i.exec(maskedClause);
+  if (!marker) return false;
+  const openIdx = marker.index + marker[0].length - 1;
+  const closeIdx = findMatchingBracket(maskedClause, openIdx, "(", ")");
+  if (closeIdx >= maskedClause.length) return false;
+  return /^\s*STORED\b/i.test(maskedClause.slice(closeIdx + 1));
+}
 
 /**
  * `ADD COLUMN ... NOT NULL` (or `PRIMARY KEY`, which implies NOT NULL) with
@@ -353,21 +461,30 @@ const SELF_FILLING_COLUMN_RE =
  */
 function blockingAddColumnMatches(statementText) {
   if (!/\bALTER\s+TABLE\b/i.test(statementText)) return [];
-  const afterTable = statementText.replace(
-    /^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?\S+\s*/i,
-    "",
-  );
+  const maskedStatement = maskSqlNoise(statementText);
+  const header = ALTER_TABLE_HEADER_RE.exec(maskedStatement);
+  if (!header) return [];
+  const headerLength = header[0].length;
+  const maskedAfterTable = maskedStatement.slice(headerLength);
+  const originalAfterTable = statementText.slice(headerLength);
+
   const hits = [];
-  for (const clause of splitTopLevelClauses(afterTable)) {
-    if (!/^\s*ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\S/i.test(clause)) {
+  for (const range of splitTopLevelClauseRanges(maskedAfterTable)) {
+    const maskedClause = maskedAfterTable.slice(range.start, range.end);
+    if (!ADD_COLUMN_CLAUSE_RE.test(maskedClause)) continue;
+    const requiresValue =
+      /\bNOT\s+NULL\b/i.test(maskedClause) ||
+      /\bPRIMARY\s+KEY\b/i.test(maskedClause);
+    if (!requiresValue) continue;
+    if (hasUsableColumnDefault(maskedClause)) continue;
+    if (
+      SELF_FILLING_COLUMN_RE.test(maskedClause) ||
+      hasStoredGeneratedExpression(maskedClause)
+    ) {
       continue;
     }
-    const requiresValue =
-      /\bNOT\s+NULL\b/i.test(clause) || /\bPRIMARY\s+KEY\b/i.test(clause);
-    if (!requiresValue) continue;
-    if (/\bDEFAULT\b/i.test(clause)) continue;
-    if (SELF_FILLING_COLUMN_RE.test(clause)) continue;
-    hits.push(clause.trim().slice(0, 120));
+    const originalClause = originalAfterTable.slice(range.start, range.end);
+    hits.push(originalClause.trim().slice(0, 120));
   }
   return hits;
 }
