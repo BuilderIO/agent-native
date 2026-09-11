@@ -41,6 +41,15 @@ describe("LLM credential error helpers", () => {
     ).toBe(false);
   });
 
+  it("does not treat a transient provider rejection as a credential error", () => {
+    expect(
+      isLlmCredentialError(
+        new Error("The AI provider temporarily refused this request."),
+        "provider_transient_rejection",
+      ),
+    ).toBe(false);
+  });
+
   it("does not treat generic authentication failures as LLM setup failures", () => {
     expect(isLlmCredentialError("Authentication required")).toBe(false);
     expect(

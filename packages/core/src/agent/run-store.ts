@@ -286,6 +286,18 @@ const STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT = 3;
 const STALE_RUN_RECOVERY_NO_PROGRESS_WINDOW_MS = 20_000;
 
 /**
+ * Hard, order-independent cap on total `stale_run` successors per turn —
+ * separate from `STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT` because
+ * that check only trips on N *consecutive* stale_run rows: a single
+ * interleaved non-stale reap (e.g. an `http_429` between two dead-on-arrival
+ * successors) resets its streak to zero and lets recovery keep inserting
+ * successors indefinitely (prod: 12 successors over 38 minutes, none of them
+ * ever making real progress). Three dead-on-arrival successors in one turn is
+ * never a blip regardless of what else happened to that turn in between.
+ */
+export const STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN = 3;
+
+/**
  * Maximum time the stale reapers (`reapIfStale`, `reapAllStaleRuns`,
  * `cleanupOldRuns`'s heartbeat-stale pass) will suspend reaping a "running"
  * row that is marked in-flight (`in_flight_since`, see `setRunInFlightMarker`)
@@ -1026,6 +1038,14 @@ export interface UnclaimedBackgroundRunRow {
 }
 
 /**
+ * Maximum rows a single redispatch sweep may attempt. Each dispatch waits up
+ * to 15s for its handoff response, so four sequential attempts stay below the
+ * in-process poll timeout while an unbounded backlog cannot starve the
+ * durable scheduler's recurring-job work.
+ */
+export const UNCLAIMED_BACKGROUND_RUN_SWEEP_BATCH_LIMIT = 4;
+
+/**
  * Same eligibility as `listUnclaimedBackgroundRunIds`, but also returns each
  * row's original `started_at` so a caller can bound total redispatch time
  * (see `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`) independent of the
@@ -1033,12 +1053,17 @@ export interface UnclaimedBackgroundRunRow {
  * unclaimed-background-run sweep's redispatch pass; `listUnclaimedBackgroundRunIds`
  * is kept as the simpler, pre-existing surface for callers that only need ids.
  */
-export async function listUnclaimedBackgroundRunRows(): Promise<
-  UnclaimedBackgroundRunRow[]
-> {
+export async function listUnclaimedBackgroundRunRows(options?: {
+  limit?: number;
+}): Promise<UnclaimedBackgroundRunRow[]> {
   await ensureRunTables();
   if (!(await hasRunningRuns())) return [];
   const client = getDbExec();
+  const requestedLimit =
+    options?.limit ?? UNCLAIMED_BACKGROUND_RUN_SWEEP_BATCH_LIMIT;
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.floor(requestedLimit))
+    : UNCLAIMED_BACKGROUND_RUN_SWEEP_BATCH_LIMIT;
   const { rows } = await client.execute({
     // CAST keeps the ms-epoch param 64-bit on Postgres (see
     // backgroundAwareStaleCutoffSql for the int4-inference failure mode).
@@ -1048,7 +1073,9 @@ export async function listUnclaimedBackgroundRunRows(): Promise<
     sql: `SELECT id, started_at, (dispatch_payload IS NOT NULL) AS has_dispatch_payload FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
-            AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})`,
+            AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})
+          ORDER BY COALESCE(heartbeat_at, started_at) ASC, started_at ASC
+          LIMIT ${limit}`,
     args: [Date.now()],
   });
   const result: UnclaimedBackgroundRunRow[] = [];
@@ -1791,6 +1818,23 @@ async function attemptStaleRunRecovery(
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
 
+  // Serialize every per-turn decision below — the newer-run race check, the
+  // ledger budget, the successor cap and the insert — behind one lock: two
+  // concurrent reapers for the same turn could otherwise both pass the
+  // newer-run check, then serialize here and both insert (the first successor
+  // is still `running`, so the stale-count cap would not see it). On the transactional path `db` is
+  // the caller's open `tx` (see `reapSingleStaleRun`), so this lock is held
+  // until that transaction commits and a second reaper's acquire blocks
+  // until the first reaper's COUNT+INSERT are already visible to it. On the
+  // documented non-transactional fallback path `db` has no open transaction,
+  // so this statement autocommits and the lock releases immediately — that
+  // path's own accepted two-successor race (see its comment above) already
+  // covers this gap, so this is a no-op there rather than a fix.
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [`agent-native:stale-recovery:${turnId}`],
+  });
+
   const { rows: newerRows } = await db.execute({
     sql: `SELECT id FROM agent_runs WHERE turn_id = ? AND id != ? AND started_at > ? LIMIT 1`,
     args: [turnId, runId, startedAt],
@@ -1812,6 +1856,26 @@ async function attemptStaleRunRecovery(
   );
   if (Number.isFinite(turnRunCount) && turnRunLedgerExhausted(turnRunCount)) {
     return { outcome: "budget_exhausted" };
+  }
+
+  // See `STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN`. Counts PRIOR stale_run
+  // rows only (`id <> ?` excludes the row being reaped, whether or not its
+  // own `error_code` UPDATE is visible yet on this handle) so successors 1,
+  // 2, and 3 are created on the 1st/2nd/3rd stale reap for a turn and the
+  // 4th is declined — exactly three successors per turn, matching the
+  // constant's name.
+  const { rows: staleCountRows } = await db.execute({
+    sql: `SELECT COUNT(*) AS stale_count FROM agent_runs WHERE turn_id = ? AND error_code = ? AND id <> ?`,
+    args: [turnId, STALE_RUN_ERROR_EVENT.errorCode, runId],
+  });
+  const staleSuccessorCount = Number(
+    (staleCountRows?.[0] as { stale_count?: unknown } | undefined)?.stale_count,
+  );
+  if (
+    Number.isFinite(staleSuccessorCount) &&
+    staleSuccessorCount >= STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN
+  ) {
+    return { outcome: "repeated_no_progress" };
   }
 
   // See `STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT`: a run whose last
@@ -1907,6 +1971,31 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
       );
     }
   })();
+}
+
+/**
+ * Extracts the `stage` field from a `recordRunDiagnostic` JSON payload
+ * (`{ stage, detail?, at }`) read off `diag_stage`/`worker_stage`, falling
+ * back to the raw column text (truncated) for a value that isn't that shape
+ * — never throws, since a malformed prior value is diagnostic noise, not a
+ * reason to lose the rest of the reap forensics.
+ */
+function priorDiagStageLabel(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { stage?: unknown }).stage === "string"
+    ) {
+      return (parsed as { stage: string }).stage;
+    }
+  } catch {
+    // coercion-ok: not the `{stage,...}` JSON shape — the raw text is returned
+    // below, so the caller still sees the original value, not a blank.
+  }
+  return raw.slice(0, 120);
 }
 
 /**
@@ -2013,44 +2102,64 @@ async function reapSingleStaleRun(
   // recorded: the recovery outcome keeps its own stage name and leading
   // position, and the liveness numbers are appended.
   let forensics = "";
+  // `priorStageInfo` captures what the dying run's OWN worker last recorded
+  // (never started? claimed then died? lost the claim to a duplicate?) —
+  // read HERE, before `recordRunDiagnostic` below overwrites `diag_stage`
+  // with this reap's own `staleRunRecoveryAttempted` write, which is the
+  // last moment that answer is readable at all.
+  let priorStageInfo = "";
   if (reaped) {
-    forensics = await client
+    const read = await client
       .execute({
         sql: `SELECT started_at, heartbeat_at, last_progress_at, in_flight_since,
-                     dispatch_mode, dispatch_payload
+                     dispatch_mode, dispatch_payload, diag_stage, worker_stage
                 FROM agent_runs WHERE id = ?`,
         args: [runId],
       })
       .then((res) => {
         const row = (res.rows as unknown as Array<Record<string, unknown>>)[0];
-        if (!row) return "forensics=row_missing";
+        if (!row)
+          return { forensics: "forensics=row_missing", priorStageInfo: "" };
         const num = (v: unknown) => (v == null ? null : Number(v));
-        return describeStaleReap({
-          startedAt: num(row.started_at),
-          heartbeatAt: num(row.heartbeat_at),
-          lastProgressAt: num(row.last_progress_at),
-          inFlightSince: num(row.in_flight_since),
-          dispatchMode: (row.dispatch_mode as string | null) ?? null,
-          hasDispatchPayload: row.dispatch_payload != null,
-          ...(typeof maxStaleMs === "number" ? { maxStaleMs } : {}),
-          now: completedAt,
-        });
+        const priorParts: string[] = [];
+        const priorDiag = priorDiagStageLabel(row.diag_stage);
+        const priorWorker = priorDiagStageLabel(row.worker_stage);
+        if (priorDiag) priorParts.push(`priorDiag=${priorDiag}`);
+        if (priorWorker) priorParts.push(`priorWorker=${priorWorker}`);
+        return {
+          forensics: describeStaleReap({
+            startedAt: num(row.started_at),
+            heartbeatAt: num(row.heartbeat_at),
+            lastProgressAt: num(row.last_progress_at),
+            inFlightSince: num(row.in_flight_since),
+            dispatchMode: (row.dispatch_mode as string | null) ?? null,
+            hasDispatchPayload: row.dispatch_payload != null,
+            ...(typeof maxStaleMs === "number" ? { maxStaleMs } : {}),
+            now: completedAt,
+          }),
+          priorStageInfo: priorParts.join(" "),
+        };
       })
       // Best-effort throughout: a diagnostic that could fail a reap would be
       // strictly worse than no diagnostic. But an empty string reads as "reaped
       // with nothing worth saying" — the exact ambiguity these forensics exist
       // to remove — so an unreadable row says so instead of going quiet.
-      .catch(
-        (err) =>
-          `forensics=unreadable ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
-      );
+      .catch((err) => ({
+        forensics: `forensics=unreadable ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
+        priorStageInfo: "",
+      }));
+    forensics = read.forensics;
+    priorStageInfo = read.priorStageInfo;
   }
 
   if (reaped && outcome && outcome.outcome !== "not_background") {
-    const detail =
+    const outcomeDetail =
       outcome.outcome === "recovered"
         ? `recovered successorRunId=${outcome.successorRunId}`
         : `declined reason=${outcome.outcome}`;
+    const detail = priorStageInfo
+      ? `${outcomeDetail} ${priorStageInfo}`
+      : outcomeDetail;
     await recordRunDiagnostic(
       runId,
       RUN_DIAG_STAGE.staleRunRecoveryAttempted,

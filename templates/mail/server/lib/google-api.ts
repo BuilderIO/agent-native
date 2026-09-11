@@ -515,13 +515,26 @@ export function gmailGetAttachment(
   );
 }
 
+// Builds the shared format/metadataHeaders query string for a thread/message
+// get. `metadataHeaders` must be repeated query params (?metadataHeaders=From
+// &metadataHeaders=To&...), not a single joined value — same rule as
+// `historyTypes` on gmailListHistory below.
+function metadataQs(format?: string, metadataHeaders?: string[]): string {
+  const sp = new URLSearchParams();
+  if (format) sp.set("format", format);
+  for (const h of metadataHeaders || []) sp.append("metadataHeaders", h);
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
 export function gmailGetThread(
   accessToken: string,
   id: string,
   format?: string,
+  metadataHeaders?: string[],
 ) {
   return googleFetch(
-    `${GMAIL_BASE}/threads/${id}${qs({ format })}`,
+    `${GMAIL_BASE}/threads/${id}${metadataQs(format, metadataHeaders)}`,
     accessToken,
   );
 }
@@ -618,6 +631,7 @@ export function gmailListHistory(
     historyTypes?: string[];
     labelId?: string;
     maxResults?: number;
+    pageToken?: string;
   },
 ) {
   // Gmail's users.history.list expects `historyTypes` as repeated query
@@ -630,6 +644,7 @@ export function gmailListHistory(
   if (params.maxResults !== undefined) {
     sp.set("maxResults", String(params.maxResults));
   }
+  if (params.pageToken) sp.set("pageToken", params.pageToken);
   for (const t of params.historyTypes || []) sp.append("historyTypes", t);
   return googleFetch(`${GMAIL_BASE}/history?${sp.toString()}`, accessToken);
 }
@@ -785,13 +800,14 @@ export async function gmailBatchGetThreads(
   accessToken: string,
   ids: string[],
   format?: "full" | "metadata" | "minimal",
+  metadataHeaders?: string[],
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
-  const formatQs = format ? `?format=${format}` : "";
+  const query = metadataQs(format, metadataHeaders);
   return gmailBatchGet(
     accessToken,
     ids,
     10,
-    (id) => `/gmail/v1/users/me/threads/${encodeURIComponent(id)}${formatQs}`,
+    (id) => `/gmail/v1/users/me/threads/${encodeURIComponent(id)}${query}`,
   );
 }
 

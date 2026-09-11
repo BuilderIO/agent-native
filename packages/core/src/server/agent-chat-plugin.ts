@@ -94,7 +94,6 @@ import {
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
 import { markTurnAborted, readBackgroundRunClaim } from "../agent/run-store.js";
-import type { UnclaimedBackgroundRunRow } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -1185,6 +1184,7 @@ export function createAgentChatPlugin(
 
               // Fallback: bash-based wrapper for CLI-style scripts
               discoveredActionsAll[name] = {
+                cliWrapper: true,
                 tool: {
                   description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
                   parameters: {
@@ -2997,6 +2997,15 @@ export function createAgentChatPlugin(
           actionRouteAuth: options?.actionRouteAuth,
         });
       }
+      // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
+      // have to open the (single-process) local database itself while this
+      // server is already holding it open. Gated internally on deploy
+      // environment, loopback, and a per-process token — see dev-action-bridge.ts.
+      const { mountDevActionForwardRoute } =
+        await import("./dev-action-bridge.js");
+      mountDevActionForwardRoute(nitroApp, httpActions, {
+        appId: options?.appId,
+      });
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
         getOwnerContextFromEvent: resolveOwnerContext,
@@ -6788,9 +6797,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 : null;
             if (preparedMarkerRecord?.payloadRef === true) {
               const runStore = await import("../agent/run-store.js");
-              const rawPayload = await runStore
-                .readRunDispatchPayload(prepared.runId)
-                .catch(() => null);
+              const rawPayload = await runStore.readRunDispatchPayload(
+                prepared.runId,
+              );
               let parsedPayload: Record<string, unknown> | null = null;
               if (rawPayload) {
                 try {
@@ -7056,13 +7065,51 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const { sweepUnclaimedBackgroundRuns } =
+              await import("./unclaimed-background-runs.js");
+            const unclaimedBackgroundRuns = await sweepUnclaimedBackgroundRuns({
+              reapExpired: true,
+            }).catch((error: unknown) => {
+              console.error(
+                "[agent-chat] durable unclaimed-run sweep failed:",
+                error,
+              );
+              return null;
+            });
+            const triggerAvailability = scheduledTriggerAvailability();
+            if (unclaimedBackgroundRuns === null) {
+              setResponseStatus(event, 500);
+              return {
+                ok: false,
+                staleRunsReaped,
+                chatHealth,
+                unclaimedBackgroundRuns,
+                jobsSkipped: true,
+                jobsSkippedReason: "unclaimed-background-sweep-failed",
+              };
+            }
+            if (!triggerAvailability.available) {
+              return {
+                ok: true,
+                staleRunsReaped,
+                chatHealth,
+                unclaimedBackgroundRuns,
+                jobsSkipped: true,
+                jobsSkippedReason: triggerAvailability.reason,
+              };
+            }
             try {
               // Jobs may request MCP tools, and `getActions` is synchronous —
               // hydrate before the sweep so a serverless container that never
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
-              return { ok: true, staleRunsReaped, chatHealth };
+              return {
+                ok: true,
+                staleRunsReaped,
+                chatHealth,
+                unclaimedBackgroundRuns,
+              };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
               setResponseStatus(event, 500);
@@ -7070,6 +7117,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
                 chatHealth,
+                unclaimedBackgroundRuns,
               };
             }
           }),
@@ -7250,73 +7298,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // edit one site without the others (producer: chainServerDrivenContinuation
       // in production-agent.ts; guard + wire signal: run-manager.ts; recovery
       // actors: here).
-      const attemptUnclaimedBackgroundRunRedispatch = async (row: {
-        id: string;
-        startedAt: number;
-        hasDispatchPayload: boolean;
-      }): Promise<void> => {
-        // Eligibility for this sweep does not mean the row is redispatchable.
-        // The marker below asserts `payloadRef: true`, and a worker that then
-        // finds no payload fails the run as `dispatch_payload_missing` — so
-        // redispatching a payload-less row does not recover it, it destroys it.
-        // Leave it for the slow sweep's reap, which reports the true cause
-        // (`background_worker_never_started`) and is client-recoverable.
-        if (!row.hasDispatchPayload) return;
-        const { updateRunHeartbeat } = await import("../agent/run-store.js");
-        const { resolveAgentChatProcessRunDispatchPath } =
-          await import("../agent/durable-background.js");
-        const { fireInternalDispatch } = await import("./self-dispatch.js");
-        // Bump liveness BEFORE attempting the redispatch so the row doesn't
-        // look freshly-stale again the instant this tick returns —
-        // best-effort, the CAS is what actually matters for correctness, not
-        // this timing.
-        await updateRunHeartbeat(row.id).catch(() => {});
-        try {
-          // DELIBERATE: this marker omits `continuationCount`.
-          // `chainServerDrivenContinuation` (production-agent.ts) reads
-          // `backgroundRunMarker.continuationCount` to compute
-          // `backgroundContinuationCount`, defaulting to 0 when absent — so a
-          // chunk recovered here always starts a fresh nested-dispatch
-          // segment at depth 0, regardless of how deep the chain was before
-          // this sweep picked it up. This is what makes the sweep a genuine
-          // CHAIN BREAK, not just a retry: this redispatch fires from an
-          // unrelated, timer-driven invocation rather than from inside the
-          // prior chain's own live execution, so starting its nested-depth
-          // count over at 0 here is correct — see
-          // `MAX_NESTED_SELF_DISPATCH_DEPTH` in production-agent.ts for why
-          // nested depth is bounded and how this reset keeps a long turn
-          // progressing past Netlify's undocumented self-invocation
-          // loop-protection limit instead of dying at it. Do not "fix" this
-          // by adding `continuationCount` back without re-reading that
-          // constant's doc comment.
-          await fireInternalDispatch({
-            path: resolveAgentChatProcessRunDispatchPath(),
-            taskId: row.id,
-            body: {
-              internalContinuation: true,
-              [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-                runId: row.id,
-                payloadRef: true,
-              },
-            },
-            awaitResponse: true,
-            responseTimeoutMs: 15_000,
-          });
-          console.error(
-            "[agent-chat] redispatched unclaimed background run (handoff recovery):",
-            row.id,
-          );
-        } catch (redispatchErr) {
-          console.error(
-            "[agent-chat] unclaimed background run redispatch attempt failed (retrying until the redispatch bound, then reaping):",
-            row.id,
-            redispatchErr instanceof Error
-              ? redispatchErr.message
-              : redispatchErr,
-          );
-        }
-      };
-
       // FAST sweep — redispatch-only, tight cadence. See the invariant
       // comment above for why this exists and the timing budget in
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
@@ -7328,11 +7309,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("../agent/run-store.js");
             const job = startIntervalJob(
               async () => {
-                const {
-                  listUnclaimedBackgroundRunRows,
-                  shouldRedispatchUnclaimedBackgroundRun,
-                  reapAllStaleRuns,
-                } = await import("../agent/run-store.js");
+                const { reapAllStaleRuns } =
+                  await import("../agent/run-store.js");
                 // The unclaimed-background sweep below only matches
                 // dispatch_mode='background' — handoffs a worker never
                 // claimed. Once a worker CLAIMS a row nothing periodic looked
@@ -7355,25 +7333,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     error,
                   );
                 });
-                let rows: UnclaimedBackgroundRunRow[];
-                try {
-                  rows = await listUnclaimedBackgroundRunRows();
-                } catch {
-                  return; // Table may not exist yet on first boot
-                }
-                for (const row of rows) {
-                  if (!shouldRedispatchUnclaimedBackgroundRun(row)) continue;
-                  await attemptUnclaimedBackgroundRunRedispatch(row).catch(
-                    () => {},
+                const { sweepUnclaimedBackgroundRuns } =
+                  await import("./unclaimed-background-runs.js");
+                await sweepUnclaimedBackgroundRuns({
+                  reapExpired: false,
+                }).catch((error: unknown) => {
+                  console.error(
+                    "[agent-chat] in-process unclaimed-run redispatch sweep failed:",
+                    error,
                   );
-                }
+                });
               },
               { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
             );
             lifecycle.addCleanup(() => job.stop());
-          })().catch(() => {
-            // best-effort — if run-store fails to load, the slow sweep below
-            // still provides eventual (loud) recovery.
+          })().catch((error: unknown) => {
+            console.error(
+              "[agent-chat] in-process unclaimed-run redispatch sweep initialization failed:",
+              error,
+            );
           });
         }, 10_000); // Start 10s after init — before the slow sweep's first tick.
       })();
@@ -7396,46 +7374,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lastSweep = now;
 
             (async () => {
-              const {
-                listUnclaimedBackgroundRunRows,
-                reapUnclaimedBackgroundRun,
-                shouldRedispatchUnclaimedBackgroundRun,
-              } = await import("../agent/run-store.js");
-              let rows: UnclaimedBackgroundRunRow[];
-              try {
-                rows = await listUnclaimedBackgroundRunRows();
-              } catch {
-                return; // Table may not exist yet on first boot
-              }
-              for (const row of rows) {
-                try {
-                  // A row with no `dispatch_payload` can never be rehydrated by
-                  // a redispatched worker, so waiting out the redispatch bound
-                  // buys nothing — fall straight through to the reap below and
-                  // fail it loudly with its real cause.
-                  if (
-                    row.hasDispatchPayload &&
-                    shouldRedispatchUnclaimedBackgroundRun(row)
-                  ) {
-                    await attemptUnclaimedBackgroundRunRedispatch(row);
-                    continue;
-                  }
-                  // Redispatch bound exceeded — this handoff is not
-                  // recovering. Fall back to the pre-existing loud reap so
-                  // the turn fails loud instead of retrying forever.
-                  const reaped = await reapUnclaimedBackgroundRun(row.id);
-                  if (reaped) {
-                    console.error(
-                      "[agent-chat] swept unclaimed background run (handoff lost, redispatch bound exceeded):",
-                      row.id,
-                    );
-                  }
-                } catch {
-                  // best-effort per run
-                }
-              }
-            })().catch(() => {
-              // best-effort — never break the server
+              const { sweepUnclaimedBackgroundRuns } =
+                await import("./unclaimed-background-runs.js");
+              await sweepUnclaimedBackgroundRuns({
+                reapExpired: true,
+              }).catch((error: unknown) => {
+                console.error(
+                  "[agent-chat] in-process unclaimed-run sweep failed:",
+                  error,
+                );
+              });
+            })().catch((error: unknown) => {
+              console.error(
+                "[agent-chat] in-process unclaimed-run sweep initialization failed:",
+                error,
+              );
             });
           }, 30_000); // Check every 30s but only sweep once per 2min
         }, 20_000); // Start 20s after init (after the agent-teams sweep)

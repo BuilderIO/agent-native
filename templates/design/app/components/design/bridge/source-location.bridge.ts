@@ -87,23 +87,28 @@
     return false;
   }
 
-  function resolveFrameUrl(rawUrl: string): string | null {
+  function resolveFrameUrl(rawUrl: string): {
+    sourceFile: string;
+    localServedOutput: boolean;
+  } | null {
     if (rawUrl.indexOf("webpack-internal:///") === 0) {
       var wPath = rawUrl
         .slice("webpack-internal:///".length)
         .replace(/^\.\//, "");
-      return wPath || null;
+      return wPath ? { sourceFile: wPath, localServedOutput: false } : null;
     }
     try {
       var url = new URL(rawUrl);
       var path = decodeURIComponent(url.pathname);
+      var localServedOutput = path.indexOf("/@fs/") === 0;
       if (path.indexOf("/@fs/") === 0) {
         path = path.slice("/@fs".length);
       } else if (url.protocol !== "file:") {
         path = path.replace(/^\/+/, "");
       }
-      return path || null;
+      return path ? { sourceFile: path, localServedOutput } : null;
     } catch (_err) {
+      // coercion-ok: malformed stack URLs have no source location.
       return null;
     }
   }
@@ -123,13 +128,16 @@
     if (!match) return null;
     var functionName = match[1];
     var rawUrl = match[2]!;
-    var sourceFile = resolveFrameUrl(rawUrl);
-    if (!sourceFile || isNoisePath(sourceFile)) return null;
+    var resolved = resolveFrameUrl(rawUrl);
+    if (!resolved) return null;
+    if (!resolved.localServedOutput && isNoisePath(resolved.sourceFile)) {
+      return null;
+    }
     var lineNumber = Number(match[3]);
     var column = Number(match[4]);
     if (!isFinite(lineNumber) || !isFinite(column)) return null;
     return {
-      sourceFile: sourceFile,
+      sourceFile: resolved.sourceFile,
       line: lineNumber,
       column: column,
       functionName: functionName || undefined,
@@ -158,22 +166,6 @@
           return (node as unknown as Record<string, any>)[keys[i]!];
         }
       }
-    }
-    return null;
-  }
-
-  // Bounded climb to the nearest DOM ancestor React actually tracks — covers
-  // the case where the exact selected node (e.g. a plain wrapper inserted by
-  // non-React code) has no fiber key of its own, without pretending an
-  // unrelated ancestor's source location belongs to a non-React element.
-  function findNearestFiber(el: Element): any {
-    var node: Element | null = el;
-    var attempts = 0;
-    while (node && attempts < 8) {
-      var fiber = getFiberFromDom(node);
-      if (fiber) return fiber;
-      node = node.parentElement;
-      attempts += 1;
     }
     return null;
   }
@@ -295,36 +287,27 @@
   }
 
   function resolveFromFiber(el: Element): SourceLocationOutcome {
-    var leafFiber = findNearestFiber(el);
+    // The selected node owns the element location. An ancestor can identify
+    // the enclosing component, but it must never lend its line to this node.
+    var leafFiber = getFiberFromDom(el);
     if (!leafFiber) return { status: "unavailable", reason: "not-framework" };
 
-    var elementSource: {
-      sourceFile: string;
-      line: number;
-      column?: number;
-    } | null = null;
-    var elementMethod: "debug-source" | "debug-stack" | null = null;
+    var elementSource = debugSourceOf(leafFiber);
+    var elementMethod: "debug-source" | "debug-stack" | null = elementSource
+      ? hasStructuredDebugSource(leafFiber)
+        ? "debug-source"
+        : "debug-stack"
+      : null;
     var componentFiber: any = null;
 
-    var current = leafFiber;
+    var current =
+      leafFiber.return || leafFiber.parent || leafFiber._debugOwner || null;
     var depth = 0;
     while (current && depth < 12) {
-      if (!elementSource) {
-        var hasStructured = hasStructuredDebugSource(current);
-        var found = debugSourceOf(current);
-        if (found) {
-          elementSource = found;
-          elementMethod = hasStructured ? "debug-source" : "debug-stack";
-        }
-      }
-      if (
-        !componentFiber &&
-        current !== leafFiber &&
-        isComponentFiber(current)
-      ) {
+      if (!componentFiber && isComponentFiber(current)) {
         componentFiber = current;
       }
-      if (elementSource && componentFiber) break;
+      if (componentFiber) break;
       current = current.return || current.parent || current._debugOwner;
       depth += 1;
     }

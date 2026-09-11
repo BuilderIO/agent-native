@@ -397,6 +397,8 @@ interface DesignCanvasProps {
   sourceType?: "inline" | "localhost" | "fusion";
   /** Local design-connect bridge URL used to fetch editable snapshots for URL-backed localhost screens. */
   bridgeUrl?: string;
+  /** Authoritative URL for a live screen when its persisted source is changing. */
+  previewUrlOverride?: string;
   /** Stable local/Fusion connection scope for desktop session isolation. */
   connectionId?: string;
   /** Only the active focused/overview screen may own the desktop native backend. */
@@ -500,6 +502,8 @@ interface DesignCanvasProps {
   editorChromeScaleY?: number;
   editMode: boolean;
   interactMode: boolean;
+  /** Centers the focused responsive preview without resetting its camera. */
+  centerInteractPreview?: boolean;
   readOnly?: boolean;
   /** This screen's layout grid step in content px. 1 (or absent) means no grid,
    *  which leaves the whole-pixel floor every gesture already lands on. */
@@ -1115,6 +1119,7 @@ export function DesignCanvas({
   contentKey,
   sourceType,
   bridgeUrl,
+  previewUrlOverride,
   connectionId,
   nativePreviewActive = true,
   externalSnapshotHtml,
@@ -1145,6 +1150,7 @@ export function DesignCanvas({
   editorChromeScaleY = editorChromeScaleX,
   editMode,
   interactMode,
+  centerInteractPreview = false,
   layoutGridStep,
   readOnly = false,
   scaleMode = false,
@@ -1465,7 +1471,11 @@ export function DesignCanvas({
   // container through a same-origin proxy. `fusionUrl` only covers fusion
   // screens whose content is still the original inline HTML.
   const rawExternalPreviewUrl = useMemo(() => {
-    const contentUrl = getExternalPreviewUrl(renderedContent);
+    const overrideUrl = getExternalPreviewUrl(previewUrlOverride ?? "");
+    if (overrideUrl) return overrideUrl;
+    const contentUrl = getExternalPreviewUrl(
+      sourceType === "localhost" ? renderedContent : content,
+    );
     if (contentUrl) return contentUrl;
     if (sourceType === "fusion" && fusionUrl) {
       try {
@@ -1479,7 +1489,7 @@ export function DesignCanvas({
       }
     }
     return null;
-  }, [fusionUrl, renderedContent, sourceType]);
+  }, [content, fusionUrl, previewUrlOverride, renderedContent, sourceType]);
   const runtimeLayerSnapshotEnabled =
     (sourceType === "localhost" || sourceType === "fusion") &&
     Boolean(rawExternalPreviewUrl) &&
@@ -1625,7 +1635,19 @@ export function DesignCanvas({
   // already moved past — a failure indistinguishable from success. A viewer with
   // no bridge entitlement gets the real dev-server URL instead (see
   // externalPreviewUrl below), which is live even without editor chrome.
-  const iframeRenderContent = interactMode ? content : renderedContent;
+  // A source-mode transition is also an authoritative content boundary. A
+  // URL cached by the edit-mode bridge must not keep a URL-backed iframe alive
+  // after URL -> static, or the canvas shows the old live app behind a
+  // permanent bridge-loading surface. Same-mode localhost edits still keep
+  // their cached URL so the live document is not needlessly reloaded. Keep the
+  // legacy inline baseline stable for same-screen runtime replacements; only a
+  // stale URL marker needs the new source bytes immediately.
+  const iframeRenderContent =
+    interactMode ||
+    (sourceType !== "localhost" &&
+      Boolean(getExternalPreviewUrl(renderedContent)))
+      ? content
+      : renderedContent;
 
   const desktopNativeSnapshot = useDesktopDesignNativePreview({
     iframeRef,
@@ -2329,7 +2351,7 @@ export function DesignCanvas({
     // ~327,680px, comfortably under browser max-element-size limits.
     min: DEFAULT_CANVAS_MIN_ZOOM,
     max: DEFAULT_CANVAS_MAX_ZOOM,
-    zoomToCursor: deviceFrame === "none",
+    zoomToCursor: deviceFrame === "none" && !centerInteractPreview,
     enabled: Boolean(onZoomChange),
   });
 
@@ -2354,7 +2376,7 @@ export function DesignCanvas({
   // `deviceFrame !== "none"` branch below, without giving up the top-left
   // transform-origin the zoom-anchor math above depends on.
   useEffect(() => {
-    if (deviceFrame !== "none") return;
+    if (deviceFrame !== "none" || centerInteractPreview) return;
     const scroll = scrollContainerRef.current;
     const layer = zoomLayerRef.current;
     if (!scroll || !layer) return;
@@ -2377,7 +2399,7 @@ export function DesignCanvas({
     // gesture manages its own scroll delta and would otherwise be fought by
     // this effect on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceFrame, contentKey, previewWidthPx]);
+  }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
   // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
   // outside Edit mode. The editor chrome bridge is omitted for Interact mode
@@ -3229,7 +3251,7 @@ export function DesignCanvas({
           Math.min(DEFAULT_CANVAS_MAX_ZOOM, currentZoom * factor),
         );
         if (!Number.isFinite(nextZoom) || nextZoom === currentZoom) return;
-        if (deviceFrame === "none") {
+        if (deviceFrame === "none" && !centerInteractPreview) {
           const rawClientX = Number(e.data.clientX);
           const rawClientY = Number(e.data.clientY);
           if (!Number.isFinite(rawClientX) || !Number.isFinite(rawClientY)) {
@@ -3288,6 +3310,7 @@ export function DesignCanvas({
     onRuntimeStructureInsertRejected,
     onVisualDuplicateChange,
     onZoomChange,
+    centerInteractPreview,
     deviceFrame,
     onPrototypeNavigate,
     onComponentSourceJump,
@@ -5190,7 +5213,36 @@ export function DesignCanvas({
     >
       {/* Canvas area. "none" mode fills the canvas (responsive preview);
           framed modes are centered inside the canvas with zoom applied. */}
-      {deviceFrame === "none" ? (
+      {centerInteractPreview ? (
+        <div
+          className="relative flex min-h-full min-w-full items-center justify-center"
+          style={{ justifyContent: "safe center", alignItems: "safe center" }}
+        >
+          <div
+            className="shrink-0"
+            style={{
+              width:
+                previewWidthPx === undefined
+                  ? undefined
+                  : previewWidthPx * (zoom / 100),
+              height:
+                previewHeightPx === undefined
+                  ? undefined
+                  : previewHeightPx * (zoom / 100),
+            }}
+          >
+            <div
+              ref={zoomLayerRef}
+              style={{
+                transform: `scale(${zoom / 100})`,
+                transformOrigin: "top left",
+              }}
+            >
+              {wrappedContent}
+            </div>
+          </div>
+        </div>
+      ) : deviceFrame === "none" ? (
         <div
           ref={zoomLayerRef}
           className="relative h-full w-full"

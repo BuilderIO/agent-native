@@ -93,7 +93,7 @@ Seven capabilities, all sitting on top of the same workspace database the other 
 
 | Capability               | What it gives you                                                               | Set it up                                                                 |
 | ------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **Central inbox**        | Slack, email, Telegram, WhatsApp all reach one agent with shared memory + tools | **Settings → Messaging** ([Messaging](/docs/messaging))                   |
+| **Central inbox**        | Slack, email, Telegram, WhatsApp all reach one agent with shared memory + tools | **Admin → Messaging** ([Messaging](/docs/messaging))                      |
 | **Secret vault**         | Store each credential once; rotate in one place across every app                | **Vault** + access mode (all-apps or manual)                              |
 | **Cross-app delegation** | Routes a request to the right specialist app over A2A and replies in-thread     | Automatic ([A2A](/docs/a2a-protocol))                                     |
 | **Unified MCP gateway**  | One MCP connector for external agents reaches every granted workspace app       | [External Agents](/docs/external-agents)                                  |
@@ -105,7 +105,7 @@ Each is detailed below.
 
 ### Central inbox
 
-Slack, email, Telegram, and WhatsApp all flow into Dispatch's agent loop. Connect each platform once in **Settings → Messaging** and every channel reaches the same agent with the same memory and tools. A Slack DM and an email to `agent@yourcompany.com` end up as two surfaces on one conversation history, not two disconnected bots. See [Messaging](/docs/messaging) for the credentials and webhook URLs.
+Slack, email, Telegram, and WhatsApp all flow into Dispatch's agent loop. Connect each platform once in **Admin → Messaging** and every channel reaches the same agent with the same memory and tools. A Slack DM and an email to `agent@yourcompany.com` end up as two surfaces on one conversation history, not two disconnected bots. See [Messaging](/docs/messaging) for the credentials and webhook URLs.
 
 ### Secret vault
 
@@ -260,7 +260,7 @@ The whole pipeline is built to survive on every serverless host (Netlify, Vercel
 Three short steps:
 
 1. **Scaffold a workspace that includes Dispatch.** Run `npx @agent-native/core@latest create my-company-platform` and pick `dispatch` alongside whatever domain templates you want. Dispatch lives at `apps/dispatch` and the rest of the apps sit beside it. See [Multi-App Workspace](/docs/multi-app-workspace).
-2. **Connect messaging.** Open **Settings → Messaging** in Dispatch and click connect for Slack, Email, Telegram, or WhatsApp. The form fields match the env vars in the [Messaging](/docs/messaging) doc — refer there for what each platform needs.
+2. **Connect messaging.** Open **Admin → Messaging** in Dispatch and click connect for Slack, Email, Telegram, or WhatsApp. The form fields match the env vars in the [Messaging](/docs/messaging) doc — refer there for what each platform needs.
 3. **Add other apps.** Run `npx @agent-native/core@latest add-app` from the workspace root for each domain app. They auto-appear as A2A peers in Dispatch's `list-workspace-apps` — no manual registration, no agent-card editing. Dispatch will start delegating to them as soon as their agent cards are reachable.
 
 Then add credentials to the vault and (optionally) author global workspace resources under **Resources**. Vault keys can still be synced or granted depending on access mode; All-app workspace resources are inherited automatically. If you need per-app secret isolation, switch the vault access setting to manual before granting individual apps.

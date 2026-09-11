@@ -171,6 +171,7 @@ import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
   readDesktopSso,
   writeDesktopSso,
@@ -578,26 +579,81 @@ async function enrichLegacySessionIdentity(
   };
 }
 
+/**
+ * Delete one framework auth cookie from every jar this app could have written
+ * it into.
+ *
+ * A cookie's identity is name + domain + path + partition key, and a delete
+ * only removes an exact match, so two axes have to be swept:
+ *
+ * - **Domain**: a host-only cookie and a `Domain=` cookie of the same name are
+ *   separate entries, so a stale shared-domain cookie keeps shadowing the
+ *   isolated app session.
+ * - **Partition**: under CHIPS a `Partitioned` cookie lives in a jar keyed by
+ *   the top-level site, entirely separate from the unpartitioned cookie of the
+ *   same name. Framework auth cookies are written through
+ *   `crossSiteCookieAttrs`, which sets `Partitioned` on HTTPS, so a delete
+ *   without it empties the wrong jar and the browser keeps sending a revoked
+ *   session token. The reverse misses too: a cookie stored before CHIPS, or
+ *   over plain HTTP on a host later served over HTTPS, sits unpartitioned and
+ *   survives a `Partitioned`-only delete.
+ *
+ * `crossSiteCookieAttrs` is applied here rather than left to callers because a
+ * mismatched delete fails silently: the logout response still looks
+ * successful, and the surviving cookie only surfaces later as the previous
+ * account coming back for as long as any instance's session-email cache still
+ * resolves the revoked token.
+ */
 function deleteCookieFromEveryScope(
   event: H3Event,
   name: string,
   attributes: Parameters<typeof deleteCookie>[2] = {},
 ): void {
+  const scoped = { ...crossSiteCookieAttrs(event), ...attributes, path: "/" };
   // Clear host-only cookies first. Then clear any configured domain scope so
   // stale shared cookies stop shadowing isolated app sessions.
-  deleteCookie(event, name, { ...attributes, path: "/" });
+  deleteCookieFromBothPartitions(event, name, scoped);
   for (const domain of AUTH_COOKIE_NAMESPACE.frameworkCookieDomainsToClear) {
-    deleteCookie(event, name, { ...attributes, path: "/", domain });
+    deleteCookieFromBothPartitions(event, name, { ...scoped, domain });
+  }
+}
+
+/**
+ * Emit the partitioned AND unpartitioned delete for one name/domain/path.
+ *
+ * h3 dedupes `set-cookie` on name/domain/path and ignores `Partitioned`, so
+ * two `deleteCookie` calls that differ only by partition can collapse into
+ * one. It is not consistent about it — the eviction fires for a host-only
+ * cookie and misses when a `Domain` is present, because the scan side of the
+ * dedupe recovers the key from a re-parsed header rather than from the
+ * options — so this cannot rely on either outcome. Let h3 serialize the
+ * unpartitioned delete (cookie-es validates the name, the domain, and the
+ * `Partitioned`-requires-`Secure` pairing), then put it back only if the
+ * partitioned delete actually evicted it.
+ */
+function deleteCookieFromBothPartitions(
+  event: H3Event,
+  name: string,
+  scope: Parameters<typeof deleteCookie>[2],
+): void {
+  if (!scope?.partitioned) {
+    deleteCookie(event, name, scope);
+    return;
+  }
+  deleteCookie(event, name, { ...scope, partitioned: false });
+  const unpartitioned = event.res.headers.getSetCookie().at(-1);
+  deleteCookie(event, name, scope);
+  if (
+    unpartitioned &&
+    !event.res.headers.getSetCookie().includes(unpartitioned)
+  ) {
+    event.res.headers.append("set-cookie", unpartitioned);
   }
 }
 
 export function clearFrameworkSessionHintCookies(event: H3Event): void {
   for (const name of frameworkSessionCookieNamesToClear()) {
-    deleteCookieFromEveryScope(
-      event,
-      frameworkSessionHintCookieName(name),
-      crossSiteCookieAttrs(event),
-    );
+    deleteCookieFromEveryScope(event, frameworkSessionHintCookieName(name));
   }
 }
 
@@ -3774,6 +3830,16 @@ function createAuthGuardFn(
     // health exposes only aggregate readiness and a trivial `SELECT 1`.
     // Without this bypass the gate below 401s anonymous /_agent-native/*
     // requests before either probe can run.
+    // `pnpm action` forwarding target (dev-action-bridge.ts). The route
+    // verifies its own per-process token; the gate here only has to stop
+    // 401ing a loopback dev request before that check can run.
+    if (
+      p === "/_agent-native/dev/action" &&
+      resolveDeployEnvironment() !== "production" &&
+      isLoopbackRequest(event)
+    ) {
+      return;
+    }
     if (
       p === "/_agent-native/ping" ||
       p === "/_agent-native/health" ||

@@ -87,7 +87,7 @@ async function openEditor(page: Page, id: string): Promise<void> {
 /** Screen rect in page px, plus px-per-screen-unit. */
 async function screenBox(page: Page) {
   const box = (await page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .boundingBox())!;
   return { ...box, scale: box.width / 320 };
@@ -311,9 +311,8 @@ test("1:19 — the Screen tool makes a top-level screen, the Frame tool does not
   ).toBe(before.length + 1);
 });
 
-// boardSurfaceLocalPointToBoardPoint translates the board's 8192² document as
-// 1:1 canvas units, so a board-sourced drag's canvas y runs past the target
-// screen and getFrameEntryAtPoint never resolves a frame.
+// Board-to-screen drag still needs a reliable board-frame interaction harness;
+// keep the Clip regression visible until that path can be exercised honestly.
 test.fixme("4:24 — a board frame can be dragged into a screen and become a child", async ({
   page,
 }) => {
@@ -339,7 +338,6 @@ test.fixme("4:24 — a board frame can be dragged into a screen and become a chi
     .first();
   const from = (await boardFrame.boundingBox())!;
   const screen = await screenBox(page);
-
   await page
     .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
     .click();

@@ -3003,6 +3003,12 @@ export async function startDesignConnectBridge(
   // is never caller-controlled, bridge credentials are stripped, and only a
   // same-origin iframe (or an explicit preview-token caller) can open it.
   server.on("upgrade", (req, clientSocket, clientHead) => {
+    // A raw upgraded socket has no default error listener. A browser dropping
+    // its HMR/WebSocket connection surfaces as ECONNRESET here, and an
+    // unhandled socket error is an uncaughtException that the CLI's global
+    // handler turns into a daemon exit — the bridge used to die within minutes
+    // of a frame reloading. Every socket the proxy touches gets a listener.
+    clientSocket.on("error", () => clientSocket.destroy());
     const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
     const providedPreviewToken =
       readHeader(req, "x-design-preview-token") ||
@@ -3047,6 +3053,7 @@ export async function startDesignConnectBridge(
     if (cookie) upstreamHeaders.cookie = cookie;
 
     const requestImpl = targetUrl.protocol === "https:" ? https : http;
+    let upgraded = false;
     const upstreamRequest = requestImpl.request({
       protocol: targetUrl.protocol,
       hostname: targetUrl.hostname,
@@ -3055,9 +3062,16 @@ export async function startDesignConnectBridge(
       method: "GET",
       headers: upstreamHeaders,
     });
+    // Before the upstream upgrade completes there is no peer socket to tear
+    // down, so a client that resets early would otherwise leave this request
+    // dangling against the dev server.
+    clientSocket.once("close", () => {
+      if (!upgraded) upstreamRequest.destroy();
+    });
     upstreamRequest.on(
       "upgrade",
       (upstreamResponse, upstreamSocket, upstreamHead) => {
+        upgraded = true;
         const statusLine = `HTTP/1.1 ${upstreamResponse.statusCode ?? 101} ${upstreamResponse.statusMessage || "Switching Protocols"}\r\n`;
         const headerLines: string[] = [];
         for (
@@ -3073,6 +3087,7 @@ export async function startDesignConnectBridge(
         clientSocket.write(`${statusLine}${headerLines.join("\r\n")}\r\n\r\n`);
         if (clientHead.length > 0) upstreamSocket.write(clientHead);
         if (upstreamHead.length > 0) clientSocket.write(upstreamHead);
+        upstreamSocket.on("error", () => upstreamSocket.destroy());
         clientSocket.once("close", () => upstreamSocket.destroy());
         upstreamSocket.once("close", () => clientSocket.destroy());
         upstreamSocket.pipe(clientSocket);

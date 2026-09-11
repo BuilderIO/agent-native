@@ -64,6 +64,7 @@ export interface AuthPageProps {
   marketing?: AuthMarketingProps;
   marketingLocales: Record<string, AuthMarketingProps>;
   brandMarkSrc: string;
+  brandMarkLightSrc?: string;
   githubUrl: string;
   showGoogle: boolean;
   /** @deprecated Browser SSO entry points were removed. */
@@ -675,6 +676,7 @@ export function AuthPage(props: AuthPageProps) {
     marketing,
     marketingLocales,
     brandMarkSrc,
+    brandMarkLightSrc,
     githubUrl,
     showGoogle,
     signupLegalNotice,
@@ -2822,12 +2824,20 @@ export function AuthPage(props: AuthPageProps) {
       ) : (
         <div className="marketing-content">
           <h2 className="app-name">
-            <img
-              className="brand-mark"
-              src={brandMarkSrc}
-              alt=""
-              aria-hidden="true"
-            />
+            <picture>
+              {brandMarkLightSrc ? (
+                <source
+                  media="(prefers-color-scheme: light)"
+                  srcSet={brandMarkLightSrc}
+                />
+              ) : null}
+              <img
+                className="brand-mark"
+                src={brandMarkSrc}
+                alt=""
+                aria-hidden="true"
+              />
+            </picture>
             <span>{marketingCopy.appName}</span>
           </h2>
           <p className="app-tagline" data-marketing-field="tagline">
