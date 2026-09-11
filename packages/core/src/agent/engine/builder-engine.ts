@@ -1065,12 +1065,13 @@ async function* parseJsonlStream(
             const isProviderConnectionError =
               typeof explicitErrMsg === "string" &&
               isProviderConnectionErrorMessage(String(explicitErrMsg));
-            // A 403 with no structured gateway code and a bare SDK/proxy
-            // status echo ("403 status code (no body)", a bare "Forbidden")
-            // is the gateway load-shedding, not a rejected credential — same
-            // check as the HTTP-error path in emitHttpError above.
+            // A 403 with no structured gateway code, or the gateway's own
+            // "http_403" fallback code, plus a bare SDK/proxy status echo
+            // ("403 status code (no body)", a bare "Forbidden") is the
+            // gateway load-shedding, not a rejected credential — same check
+            // as the HTTP-error path in emitHttpError above.
             const isBareRejection =
-              !gatewayErrCode &&
+              (gatewayErrCode === undefined || gatewayErrCode === "http_403") &&
               Boolean(explicitErrMsg) &&
               isBareProviderRejectionMessage(String(errMsg));
             const errCode = isCredentialAuthError

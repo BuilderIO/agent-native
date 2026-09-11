@@ -719,4 +719,72 @@ describe("tool-call journal hard-block", () => {
     // served from the journal/cache.
     expect(readAction).not.toHaveBeenCalled();
   });
+
+  it("seeds repeat counts by call identity, not FIFO-per-tool-name, when concurrent same-tool calls resolve out of order", async () => {
+    // Two concurrent `get-data` calls with DIFFERENT inputs (id "1" and id
+    // "2") can complete and get journaled out of order. Only the id "2" call
+    // was answered as a resurfaced re-fetch; the seven id "1" calls are all
+    // genuine. FIFO-per-tool-name pairing lines up the wrong call with the
+    // resurfaced flag (the id "2" result is journaled BEFORE most of the id
+    // "1" tool_starts), wrongly consuming one of id "1"'s genuine repeats and
+    // wrongly crediting id "2" with a repeat it never made. Keying by
+    // (tool, input) identity instead must seed id "1" at the full genuine
+    // count of 7 and id "2" at 0.
+    const resurfacedResult =
+      "Skipped duplicate read-only call to get-data: identical input already ran in this turn. " +
+      "Its earlier result is no longer in view, so here it is again:\n\nold-id-2-result";
+    currentTurnEventsMock.mockResolvedValue([
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "2" } },
+      // id "2" completes FIRST — out of order relative to the id "1" calls
+      // still in flight below.
+      {
+        type: "tool_done",
+        tool: "get-data",
+        input: { id: "2" },
+        result: resurfacedResult,
+      },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+    ]);
+
+    const readAction: ActionEntry = {
+      tool: {
+        description: "A read action",
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: true,
+      run: vi.fn(async () => "fresh-read"),
+    };
+    const events: any[] = [];
+
+    // Seeded genuine count for id "1" is exactly MAX_IDENTICAL_TOOL_CALLS - 1
+    // (7); this chunk's single call to id "1" is the 8th, which must trip the
+    // hard block. The old FIFO-per-name pairing seeded id "1" at 5 (losing 2
+    // to the misattributed resurfaced flag and the wrongly-credited id "2"
+    // entry), so the 8th call would only reach 6 and never stop the turn.
+    await runAgentLoop({
+      engine: singleToolEngine("get-data", { id: "1" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "get-data": readAction },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-concurrent-out-of-order",
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_call",
+        recoverable: false,
+      }),
+    );
+  });
 });

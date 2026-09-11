@@ -273,6 +273,17 @@ describe("isProviderConnectionErrorMessage", () => {
       statusCode: 403,
     });
   });
+
+  it("keeps http_403 for a message that only starts with the status echo but names a reason", () => {
+    const partialEcho = Object.assign(
+      new Error("403 status code: invalid API key"),
+      { statusCode: 403 },
+    );
+    expect(classifyProviderError(partialEcho)).toEqual({
+      errorCode: "http_403",
+      statusCode: 403,
+    });
+  });
 });
 
 describe("isBareProviderRejectionMessage", () => {
@@ -294,6 +305,19 @@ describe("isBareProviderRejectionMessage", () => {
     expect(
       isBareProviderRejectionMessage("User is not authorized for this space"),
     ).toBe(false);
+    // "403 status code" is only a bare echo on its own — a message that goes
+    // on to name a reason after it must not match the same way "403 status
+    // code (no body)" does.
+    expect(
+      isBareProviderRejectionMessage("403 status code: invalid API key"),
+    ).toBe(false);
+  });
+
+  it("matches the exact status-echo forms with no reason", () => {
+    expect(isBareProviderRejectionMessage("403 status code")).toBe(true);
+    expect(isBareProviderRejectionMessage("403 status code (no body)")).toBe(
+      true,
+    );
   });
 });
 

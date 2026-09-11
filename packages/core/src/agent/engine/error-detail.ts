@@ -151,7 +151,7 @@ export function isBareProviderRejectionMessage(message: string): boolean {
   return (
     trimmed === "" ||
     /^forbidden$/i.test(trimmed) ||
-    /^403 status code\b/i.test(trimmed) ||
+    /^403 status code(?: \(no body\))?$/i.test(trimmed) ||
     /^builder gateway returned 403$/i.test(trimmed)
   );
 }

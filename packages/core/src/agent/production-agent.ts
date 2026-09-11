@@ -5071,28 +5071,47 @@ export async function runAgentLoop(opts: {
   /** Keyed WITHOUT the arguments — see MAX_SAME_ERROR_ACROSS_ARGUMENTS. */
   const repeatedToolErrorsAnyArgs = new Map<string, number>();
   const repeatedToolCalls = new Map<string, number>();
-  // FIFO per tool name, mirroring the `tool_start`/`tool_done` pairing
-  // `loadPriorTurnToolCallJournal` itself uses — the two journaled arrays are
-  // built from separate event types, so this is the only way to line a call
-  // back up with the result it produced.
-  const journaledResultsByTool = new Map<string, boolean[]>();
-  for (const result of journaledPriorToolResults) {
-    const resurfaced = result.content.startsWith(
-      resurfacedDuplicateReadOnlyToolResultPrefix(result.name),
-    );
-    const queue = journaledResultsByTool.get(result.name);
-    if (queue) queue.push(resurfaced);
-    else journaledResultsByTool.set(result.name, [resurfaced]);
-  }
+  // Keyed by (tool, input) identity, NOT FIFO-per-tool-name: two concurrent
+  // same-tool calls with different arguments can complete and get journaled
+  // out of order, so pairing the Nth call to the Nth result for that name
+  // could match the wrong call to a resurfaced result.
+  // `PriorTurnToolResultSummary.input` carries the identity to key on
+  // directly — the tool_done event's own input, or the FIFO-matched
+  // tool_start input `loadPriorTurnToolCallJournal` already resolved for
+  // legacy events with none.
+  const journaledCallCountByKey = new Map<string, number>();
   for (const prior of journaledPriorToolCalls) {
+    const key = toolCallCacheKey(prior.name, prior.input);
+    journaledCallCountByKey.set(
+      key,
+      (journaledCallCountByKey.get(key) ?? 0) + 1,
+    );
+  }
+  const resurfacedResultCountByKey = new Map<string, number>();
+  for (const result of journaledPriorToolResults) {
+    if (
+      !result.content.startsWith(
+        resurfacedDuplicateReadOnlyToolResultPrefix(result.name),
+      )
+    )
+      continue;
+    const key = toolCallCacheKey(result.name, result.input);
+    resurfacedResultCountByKey.set(
+      key,
+      (resurfacedResultCountByKey.get(key) ?? 0) + 1,
+    );
+  }
+  for (const [key, callCount] of journaledCallCountByKey) {
     // A resurfaced re-fetch from an earlier chunk is the same call answered
     // again because its result fell out of view, not a genuine repeat —
-    // pre-loading the counter from it would trip `repeated_tool_call` on a
-    // turn that never made a truly duplicate call (see the matching in-run
-    // skip in `runToolCall`'s resurfaced branch).
-    if (journaledResultsByTool.get(prior.name)?.shift() === true) continue;
-    const key = toolCallCacheKey(prior.name, prior.input);
-    repeatedToolCalls.set(key, (repeatedToolCalls.get(key) ?? 0) + 1);
+    // counting it would trip `repeated_tool_call` on a turn that never made a
+    // truly duplicate call (see the matching in-run skip in `runToolCall`'s
+    // resurfaced branch).
+    const genuine = Math.max(
+      callCount - (resurfacedResultCountByKey.get(key) ?? 0),
+      0,
+    );
+    if (genuine > 0) repeatedToolCalls.set(key, genuine);
   }
   for (const prior of journaledPriorToolResults) {
     if (!prior.isError) continue;
@@ -5731,7 +5750,15 @@ export async function runAgentLoop(opts: {
           hasBudgetForEngineRetry(budgetStartedAt, 0)
         ) {
           const fallbackModel = resolveFallbackModel(model);
-          if (fallbackModel) {
+          // `resolveFallbackModel` names a Builder-catalog id; only switch to
+          // it when the engine actually in use for this run advertises
+          // support for it (e.g. the direct Anthropic engine's model list
+          // excludes some Builder-only ids). No `supportedModels` list at
+          // all is treated as "don't fall back", not "anything goes".
+          if (
+            fallbackModel &&
+            engine.supportedModels?.includes(fallbackModel)
+          ) {
             fallbackModelAttempted = true;
             send({
               type: "activity",

@@ -11165,6 +11165,61 @@ describe("runAgentLoop model fallback", () => {
       vi.useRealTimers();
     }
   });
+
+  it("does not switch to a fallback the engine's supportedModels excludes, even when resolveFallbackModel maps one", async () => {
+    // "claude-haiku-4-5" DOES have a mapped fallback (claude-sonnet-5), but a
+    // direct-Anthropic engine can advertise a supportedModels list that omits
+    // the Builder-catalog fallback id (e.g. it only knows dated snapshot ids
+    // like "claude-haiku-4-5-20251001"). Switching anyway would send the next
+    // request to a model this engine cannot actually serve.
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        modelsUsed.push(opts.model);
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      },
+    };
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "claude-haiku-4-5",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+      const rejected = expect(run).rejects.toThrow("429 status code (no body)");
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+
+      // 1 initial + MAX_RETRIES (3), no fallback swap and no unsupported
+      // model ever reaches the engine.
+      expect(streamCalls).toBe(4);
+      expect(modelsUsed.every((m) => m === "claude-haiku-4-5")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ─── endsTurn (actions that hand control back to the user) ───────────────────
