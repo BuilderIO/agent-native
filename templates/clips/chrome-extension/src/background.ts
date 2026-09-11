@@ -390,6 +390,10 @@ async function restoreRuntimeState(): Promise<void> {
   );
   if (freshArmingSessionId && armingNativeRecordingSessionId === null) {
     armingNativeRecordingSessionId = freshArmingSessionId;
+  } else if (!freshArmingSessionId) {
+    // A failed earlier status probe can outlive the persisted guard. Do not let
+    // that stale in-memory value keep the popup locked after the TTL expires.
+    armingNativeRecordingSessionId = null;
   }
   const rt = stored.overlayRuntime as
     | {
@@ -446,10 +450,27 @@ async function restoreRuntimeState(): Promise<void> {
           freshArmingSessionId,
         );
       }
+    } else if (offscreenState?.preparedSessionId === freshArmingSessionId) {
+      // This is the normal acquire/create/attach gap before BEGIN. Keep the
+      // guard while the prepared streams are still owned by this arm.
     } else if (offscreenState) {
-      // The old worker died before BEGIN. Cancel through the normal cleanup
-      // path so prepared streams, the server row, and the REC badge all clear.
-      await cancelRecording(true);
+      // The old worker died before BEGIN. Cancel the guarded offscreen session
+      // even when its recording row was never persisted, then clean the local
+      // overlay without touching a different recording that may have resumed.
+      if (activeNativeRecording?.sessionId === freshArmingSessionId) {
+        await cancelRecording(true);
+      } else {
+        await sendOffscreenMessage({
+          type: "CLIPS_OFFSCREEN_CANCEL",
+          sessionId: freshArmingSessionId,
+        }).catch(() => undefined);
+        if (!activeNativeRecording) {
+          resetOverlay();
+          await broadcastUnmount();
+          broadcastOverlayState();
+          await clearNativeRecording();
+        }
+      }
       await setArmingGuard(null);
       armingRecovered = true;
     }
@@ -1274,6 +1295,9 @@ async function startRecordingFromTab(args: {
     (await sessionStorageGet(["armingNativeRecordingSessionId"]))
       .armingNativeRecordingSessionId,
   );
+  if (!persistedArmingSessionId) {
+    armingNativeRecordingSessionId = null;
+  }
   if (
     activeNativeRecording ||
     armingNativeRecordingSessionId ||
