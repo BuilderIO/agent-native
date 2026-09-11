@@ -794,14 +794,18 @@ export function buildExtensionHtml(
 	        _watchedAnimations.push(animation);
 	        try {
 	          var finished = animation.finished;
-	          if (finished && typeof finished.then === 'function') {
-	            finished.then(function() {
-	              _removeWatchedAnimation(animation);
-	              _scheduleResizeWork();
-	            }, function() {
-	              _removeWatchedAnimation(animation);
-	              _scheduleResizeWork();
-	            });
+          if (finished && typeof finished.then === 'function') {
+            finished.then(function() {
+              _removeWatchedAnimation(animation);
+              _reportHeight();
+              _motionElements.delete(animation.effect && animation.effect.target);
+              _scheduleResizeWork();
+            }, function() {
+              _removeWatchedAnimation(animation);
+              _reportHeight();
+              _motionElements.delete(animation.effect && animation.effect.target);
+              _scheduleResizeWork();
+            });
 	          }
 	        } catch (_) {
 	          _removeWatchedAnimation(animation);
@@ -854,7 +858,9 @@ export function buildExtensionHtml(
             return;
           }
           _positionMonitorActive = false;
-          _motionElements.clear();
+          if (!hasFiniteAnimation && !hasIndefiniteAnimation) {
+            _motionElements.clear();
+          }
           _scheduleResizeWork();
         });
       };
@@ -886,7 +892,7 @@ export function buildExtensionHtml(
           else if (_positionMonitorActive) _schedulePositionMonitor();
         }
       };
-	      var _finishPositionMonitor = function(event) {
+      var _finishPositionMonitor = function(event) {
         if (_activeCssMotionCount > 0) _activeCssMotionCount -= 1;
 	        var animations = _activeAnimations();
 	        if (animations) {
@@ -898,10 +904,26 @@ export function buildExtensionHtml(
         _positionMonitorActive =
           (animations && animations.length > 0) ||
           (animations === null && _activeCssMotionCount > 0);
-        if (!_positionMonitorActive) _motionElements.clear();
+        if (!_positionMonitorActive) {
+          _reportHeight();
+          _motionElements.clear();
+        }
         _scheduleResizeWork();
         if (_positionMonitorActive) _schedulePositionMonitor();
       };
+      if (
+        typeof Element !== 'undefined' &&
+        typeof Element.prototype.animate === 'function'
+      ) {
+        var _nativeAnimate = Element.prototype.animate;
+        Element.prototype.animate = function() {
+          var animation = _nativeAnimate.apply(this, arguments);
+          _trackPositionedElement(this);
+          _watchAnimationCompletion(animation);
+          _startPositionMonitor();
+          return animation;
+        };
+      }
       var _lastH = null;
       var _measurePositionedContent = function(body, bodyTop) {
         var bottom = 0;

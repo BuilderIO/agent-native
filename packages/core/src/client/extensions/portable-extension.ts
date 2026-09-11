@@ -774,9 +774,13 @@ export function buildAgentNativeExtensionHtml({
           if (finished && typeof finished.then === 'function') {
             finished.then(function() {
               removeWatchedAnimation(animation);
+              reportHeight();
+              motionElements.delete(animation.effect && animation.effect.target);
               scheduleResizeWork();
             }, function() {
               removeWatchedAnimation(animation);
+              reportHeight();
+              motionElements.delete(animation.effect && animation.effect.target);
               scheduleResizeWork();
             });
           }
@@ -831,7 +835,9 @@ export function buildAgentNativeExtensionHtml({
             return;
           }
           positionMonitorActive = false;
-          motionElements.clear();
+          if (!hasFiniteAnimation && !hasIndefiniteAnimation) {
+            motionElements.clear();
+          }
           scheduleResizeWork();
         });
       };
@@ -875,10 +881,26 @@ export function buildAgentNativeExtensionHtml({
         positionMonitorActive =
           (animations && animations.length > 0) ||
           (animations === null && activeCssMotionCount > 0);
-        if (!positionMonitorActive) motionElements.clear();
+        if (!positionMonitorActive) {
+          reportHeight();
+          motionElements.clear();
+        }
         scheduleResizeWork();
         if (positionMonitorActive) schedulePositionMonitor();
       };
+      if (
+        typeof Element !== 'undefined' &&
+        typeof Element.prototype.animate === 'function'
+      ) {
+        var nativeAnimate = Element.prototype.animate;
+        Element.prototype.animate = function() {
+          var animation = nativeAnimate.apply(this, arguments);
+          trackPositionedElement(this);
+          watchAnimationCompletion(animation);
+          startPositionMonitor();
+          return animation;
+        };
+      }
       var lastReportedHeight = null;
       var postHeight = function(height) {
         if (height === lastReportedHeight) return;
