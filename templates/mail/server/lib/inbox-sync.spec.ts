@@ -1,0 +1,340 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  listOAuthAccountsByOwner: vi.fn(),
+  gmailGetProfile: vi.fn(),
+  gmailListThreads: vi.fn(),
+  gmailListHistory: vi.fn(),
+  gmailListLabels: vi.fn(),
+  gmailBatchGetThreads: vi.fn(),
+  getClientForAccount: vi.fn(),
+  invalidateListCacheForOwner: vi.fn(),
+  ensureSyncAccountRow: vi.fn(),
+  claimSyncAccount: vi.fn(),
+  releaseSyncAccount: vi.fn(),
+  patchSyncAccount: vi.fn(),
+  resetSyncAccountProgress: vi.fn(),
+  upsertInboxThreadRows: vi.fn(),
+  deleteInboxThreadRow: vi.fn(),
+  markThreadsOutOfInboxBeforeSync: vi.fn(),
+  readSyncAccounts: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/oauth-tokens", () => ({
+  listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
+}));
+
+vi.mock("./google-api.js", () => ({
+  gmailGetProfile: mocks.gmailGetProfile,
+  gmailListThreads: mocks.gmailListThreads,
+  gmailListHistory: mocks.gmailListHistory,
+  gmailListLabels: mocks.gmailListLabels,
+  gmailBatchGetThreads: mocks.gmailBatchGetThreads,
+}));
+
+vi.mock("./google-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./google-auth.js")>();
+  return {
+    ...actual,
+    getClientForAccount: mocks.getClientForAccount,
+    invalidateListCacheForOwner: mocks.invalidateListCacheForOwner,
+  };
+});
+
+vi.mock("./inbox-store.js", () => ({
+  ensureSyncAccountRow: mocks.ensureSyncAccountRow,
+  claimSyncAccount: mocks.claimSyncAccount,
+  releaseSyncAccount: mocks.releaseSyncAccount,
+  patchSyncAccount: mocks.patchSyncAccount,
+  resetSyncAccountProgress: mocks.resetSyncAccountProgress,
+  upsertInboxThreadRows: mocks.upsertInboxThreadRows,
+  deleteInboxThreadRow: mocks.deleteInboxThreadRow,
+  markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
+  readSyncAccounts: mocks.readSyncAccounts,
+}));
+
+import { resetInboxSync, syncInboxAccount } from "./inbox-sync.js";
+
+const OWNER = "owner@example.com";
+const ACCOUNT = "acct1@example.com";
+
+function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "owner:acct1",
+    ownerEmail: OWNER,
+    accountEmail: ACCOUNT,
+    historyId: null,
+    fullSyncPageToken: null,
+    fullSyncHistoryId: null,
+    fullSyncStartedAt: null,
+    status: "syncing",
+    lastError: null,
+    lastSyncedAt: null,
+    syncClaimId: "claim-1",
+    syncClaimedAt: Date.now(),
+    // Fresh so tests don't also have to mock a labels.list round trip.
+    labels: [],
+    labelsUpdatedAt: Date.now(),
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function thread(
+  id: string,
+  opts: {
+    from: string;
+    labelIds: string[];
+    internalDate?: string;
+  },
+) {
+  return {
+    id,
+    historyId: "500",
+    snippet: `snippet ${id}`,
+    messages: [
+      {
+        id: `${id}-m1`,
+        internalDate: opts.internalDate ?? "1700000000000",
+        labelIds: opts.labelIds,
+        snippet: `snippet ${id}`,
+        payload: {
+          headers: [
+            { name: "From", value: `Sender <${opts.from}>` },
+            { name: "To", value: OWNER },
+            { name: "Subject", value: `Subject ${id}` },
+          ],
+        },
+      },
+    ],
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.listOAuthAccountsByOwner.mockResolvedValue([
+    { accountId: ACCOUNT, displayName: null, tokens: {} },
+  ]);
+  mocks.getClientForAccount.mockResolvedValue({
+    accessToken: "tok",
+    email: ACCOUNT,
+  });
+  mocks.claimSyncAccount.mockImplementation(async (_owner, _account) => ({
+    claimId: "claim-1",
+    row: currentRow,
+  }));
+  mocks.ensureSyncAccountRow.mockResolvedValue(baseRow());
+  mocks.patchSyncAccount.mockResolvedValue(undefined);
+  mocks.releaseSyncAccount.mockResolvedValue(undefined);
+  mocks.upsertInboxThreadRows.mockResolvedValue(undefined);
+  mocks.deleteInboxThreadRow.mockResolvedValue(undefined);
+  mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
+  mocks.resetSyncAccountProgress.mockResolvedValue(undefined);
+});
+
+// The row `claimSyncAccount` hands back for the call under test — tests set
+// this directly since `syncInboxAccount` always claims via the mock above.
+let currentRow: any;
+
+describe("syncInboxAccount — full sync", () => {
+  it("walks 2 pages, exhausting the budget after page 1, then resumes on the next call", async () => {
+    currentRow = baseRow();
+    mocks.gmailGetProfile.mockResolvedValue({ historyId: "9000" });
+
+    mocks.gmailListThreads.mockImplementationOnce(async () => {
+      // Simulate page 1 taking long enough to blow the budget.
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000);
+      return { threads: [{ id: "t1" }, { id: "t2" }], nextPageToken: "page2" };
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t1",
+        data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX", "UNREAD"] }),
+      },
+      {
+        id: "t2",
+        data: thread("t2", { from: "b@ex.com", labelIds: ["INBOX"] }),
+      },
+    ]);
+
+    const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 50 });
+
+    expect(first.state).toBe("initial");
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledTimes(1);
+    expect(mocks.upsertInboxThreadRows.mock.calls[0][0]).toHaveLength(2);
+    // Page token persisted so the next call resumes instead of restarting.
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      expect.objectContaining({ fullSyncPageToken: "page2" }),
+    );
+    expect(mocks.gmailListThreads).toHaveBeenCalledTimes(1);
+    expect(mocks.markThreadsOutOfInboxBeforeSync).not.toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+
+    // Resume: the row now carries the persisted page token + full-sync id.
+    currentRow = baseRow({
+      fullSyncHistoryId: "9000",
+      fullSyncStartedAt: 123,
+      fullSyncPageToken: "page2",
+    });
+    mocks.gmailListThreads.mockResolvedValueOnce({
+      threads: [{ id: "t3" }],
+      nextPageToken: undefined,
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t3",
+        data: thread("t3", { from: "c@ex.com", labelIds: ["INBOX"] }),
+      },
+    ]);
+
+    const second = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(second.state).toBe("ready");
+    expect(mocks.gmailListThreads).toHaveBeenCalledWith(
+      "tok",
+      expect.objectContaining({ pageToken: "page2" }),
+    );
+    expect(mocks.markThreadsOutOfInboxBeforeSync).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      123,
+    );
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      expect.objectContaining({ historyId: "9000", fullSyncPageToken: null }),
+    );
+  });
+});
+
+describe("syncInboxAccount — incremental sync", () => {
+  it("flips in_inbox to 0 when history reports a removed INBOX label", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [
+        {
+          labelsRemoved: [
+            { labelIds: ["INBOX"], message: { id: "t1-m1", threadId: "t1" } },
+          ],
+        },
+      ],
+      historyId: "1005",
+    });
+    // Refetching the thread shows its current (post-removal) state.
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t1",
+        data: thread("t1", { from: "a@ex.com", labelIds: ["UNREAD"] }),
+      },
+    ]);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("ready");
+    const upserted = mocks.upsertInboxThreadRows.mock.calls[0][0];
+    expect(upserted).toHaveLength(1);
+    expect(upserted[0].inInbox).toBe(false);
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      expect.objectContaining({ historyId: "1005" }),
+    );
+  });
+
+  it("walks every history page and only adopts the mailbox historyId once caught up", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory
+      .mockResolvedValueOnce({
+        history: [
+          {
+            id: "1001",
+            messagesAdded: [{ message: { id: "t1-m1", threadId: "t1" } }],
+          },
+        ],
+        nextPageToken: "p2",
+        historyId: "1010",
+      })
+      .mockResolvedValueOnce({
+        history: [
+          {
+            id: "1007",
+            messagesAdded: [{ message: { id: "t2-m1", threadId: "t2" } }],
+          },
+        ],
+        historyId: "1010",
+      });
+    mocks.gmailBatchGetThreads
+      .mockResolvedValueOnce([
+        {
+          id: "t1",
+          data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "t2",
+          data: thread("t2", { from: "b@ex.com", labelIds: ["INBOX"] }),
+        },
+      ]);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("ready");
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
+    expect(mocks.gmailListHistory.mock.calls[1][1]).toEqual(
+      expect.objectContaining({ pageToken: "p2" }),
+    );
+    const watermarks = mocks.patchSyncAccount.mock.calls
+      .map((call) => call[2].historyId)
+      .filter(Boolean);
+    // Page 1 must persist its last record id, never the mailbox id, so a
+    // budget cut between pages cannot skip page 2.
+    expect(watermarks).toEqual(["1001", "1007", "1010"]);
+  });
+
+  it("recovers from a 404 on history.list with a fresh full sync", async () => {
+    currentRow = baseRow({ historyId: "stale-1" });
+    mocks.gmailListHistory.mockRejectedValue(
+      new Error("Google API error (404): Requested entity was not found."),
+    );
+    mocks.gmailGetProfile.mockResolvedValue({ historyId: "2000" });
+    mocks.gmailListThreads.mockResolvedValue({
+      threads: [],
+      nextPageToken: undefined,
+    });
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.resetSyncAccountProgress).toHaveBeenCalledWith(OWNER, ACCOUNT);
+    expect(result.state).toBe("ready");
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      expect.objectContaining({ historyId: "2000" }),
+    );
+  });
+});
+
+describe("resetInboxSync", () => {
+  it("clears history for every connected account when no accountEmail is given", async () => {
+    mocks.readSyncAccounts.mockResolvedValue([
+      baseRow({ accountEmail: "a@example.com" }),
+      baseRow({ accountEmail: "b@example.com" }),
+    ]);
+
+    await resetInboxSync(OWNER);
+
+    expect(mocks.resetSyncAccountProgress).toHaveBeenCalledWith(
+      OWNER,
+      "a@example.com",
+    );
+    expect(mocks.resetSyncAccountProgress).toHaveBeenCalledWith(
+      OWNER,
+      "b@example.com",
+    );
+  });
+});

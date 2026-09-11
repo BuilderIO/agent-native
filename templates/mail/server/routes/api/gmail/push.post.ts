@@ -12,6 +12,7 @@ import {
   bumpHistoryWatermark,
   invalidateListCacheForOwner,
 } from "../../../lib/google-auth.js";
+import { syncInboxAccount } from "../../../lib/inbox-sync.js";
 
 // Cache Google's public keys for OIDC verification. jose handles TTL + refresh.
 // https://cloud.google.com/pubsub/docs/push#validate_tokens
@@ -120,7 +121,17 @@ export default defineEventHandler(async (event: H3Event) => {
         : undefined;
 
     bumpHistoryWatermark(emailAddress, historyId);
-    if (owner) invalidateListCacheForOwner(owner);
+    if (owner) {
+      invalidateListCacheForOwner(owner);
+      // Best-effort: drive the synced inbox store off the same push instead
+      // of waiting for the next 15s freshness check. A sync failure here
+      // must never fail the push ack (Pub/Sub would just redeliver it).
+      await syncInboxAccount(owner, emailAddress, { budgetMs: 8_000 }).catch(
+        (syncErr: any) => {
+          console.warn(`[gmail-push] inbox resync failed: ${syncErr?.message}`);
+        },
+      );
+    }
   } catch (err: any) {
     console.warn(`[gmail-push] processing failed: ${err.message}`);
   }

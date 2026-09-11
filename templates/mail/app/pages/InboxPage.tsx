@@ -26,6 +26,7 @@ import {
   useSettings,
 } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { resolveInboxTabId, useInboxThreads } from "@/hooks/use-inbox-threads";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -409,6 +410,37 @@ export function InboxPage() {
   );
   const searchQuery =
     activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
+
+  // The inbox view is split server-side (tabs, counts, and the rendered
+  // list all come from one `list-inbox-threads` call keyed by the resolved
+  // tab id) — see shared/inbox-threads.ts. Every other view still fetches
+  // through `useEmails` below, unchanged.
+  const isInboxView = view === "inbox";
+  const resolvedInboxTab = resolveInboxTabId(searchParams);
+  const inboxAccountEmails =
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined;
+  const inboxThreads = useInboxThreads(
+    {
+      tab: resolvedInboxTab,
+      accountEmails: inboxAccountEmails,
+      // ponytail: flat limit instead of real offset pagination — simplest
+      // thing that keeps scrolling snappy (virtualized list). Add
+      // offset-based "load more" if a tab regularly exceeds this.
+      limit: 200,
+    },
+    { enabled: isInboxView },
+  );
+  const inboxAccountErrors = useMemo(() => {
+    const errored = inboxThreads.data?.accounts.filter(
+      (account) => account.state === "error",
+    );
+    if (!errored?.length) return undefined;
+    return errored.map((account) => ({
+      email: account.accountEmail,
+      error: account.error ?? "",
+    }));
+  }, [inboxThreads.data?.accounts]);
+
   useEffect(() => {
     if (
       settingsLoading ||
@@ -487,24 +519,65 @@ export function InboxPage() {
       ? "all"
       : view;
   const {
-    data: rawEmails,
-    isLoading,
-    isFetching,
-    isError,
-    error: emailsError,
-    refetch: refetchEmails,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-    isFetchNextPageError,
-  } = useEmails(emailView, searchQuery, effectiveLabel);
-  const hasEmailData = rawEmails !== undefined;
+    data: fetchedEmails,
+    isLoading: emailsIsLoading,
+    isFetching: emailsIsFetching,
+    isError: emailsIsError,
+    error: emailsFetchError,
+    refetch: refetchFetchedEmails,
+    hasNextPage: emailsHasNextPage,
+    fetchNextPage: emailsFetchNextPage,
+    isFetchingNextPage: emailsIsFetchingNextPage,
+    isFetchNextPageError: emailsIsFetchNextPageError,
+    accountErrors: emailsAccountErrors,
+  } = useEmails(emailView, searchQuery, effectiveLabel, {
+    enabled: !isInboxView,
+  });
+
+  const rawEmails = isInboxView ? inboxThreads.data?.items : fetchedEmails;
+  const hasEmailData = isInboxView
+    ? inboxThreads.data !== undefined
+    : fetchedEmails !== undefined;
+  // Inbox rows come from one poll-refreshed snapshot rather than a live
+  // Gmail fetch: "loading" also covers the first sync pass while it has not
+  // produced any rows yet, so the list shows skeleton rows (not Inbox Zero)
+  // until there is something real to show either way.
+  const inboxStillSyncingEmpty =
+    isInboxView &&
+    inboxThreads.data?.syncing === true &&
+    (inboxThreads.data?.items.length ?? 0) === 0;
+  const isLoading = isInboxView
+    ? inboxThreads.isLoading || inboxStillSyncingEmpty
+    : emailsIsLoading;
+  const isFetching = isInboxView ? inboxThreads.isFetching : emailsIsFetching;
+  const isError = isInboxView ? inboxThreads.isError : emailsIsError;
+  const emailsError = isInboxView
+    ? (inboxThreads.error ?? null)
+    : emailsFetchError;
+  const refetchEmails = isInboxView
+    ? inboxThreads.refetch
+    : refetchFetchedEmails;
+  // The inbox view has no real pagination yet (see the `limit: 200` note
+  // above) — there is never a next page, so these must be `false`, not
+  // `undefined`: EmailList falls back to its own (disabled) internal query
+  // on `undefined` via `??`, which can resolve a stale/default `true` and
+  // show a spurious "Loading more…" row under a fully-loaded list.
+  const hasNextPage = isInboxView ? false : emailsHasNextPage;
+  const fetchNextPage = isInboxView ? undefined : emailsFetchNextPage;
+  const isFetchingNextPage = isInboxView ? false : emailsIsFetchingNextPage;
+  const isFetchNextPageError = isInboxView ? false : emailsIsFetchNextPageError;
+  const accountErrors = isInboxView ? inboxAccountErrors : emailsAccountErrors;
   const emailListLoading =
     isLoading ||
     !hasEmailData ||
     (!googleStatus.data && googleStatus.isLoading);
 
   const emails = useMemo(() => {
+    // The inbox view's split, membership, and account scoping are all
+    // server-computed (see shared/inbox-threads.ts) — the items are already
+    // exactly the rows this tab should show, one per thread.
+    if (isInboxView) return rawEmails ?? EMPTY_EMAILS;
+
     // Self-sent mail → virtual "important"/"note-to-self" so it lands in the
     // matching triage tab. Shared with the badge counts (AppLayout) so the
     // two agree on self-sent threads.
@@ -597,6 +670,7 @@ export function InboxPage() {
     return filtered;
   }, [
     rawEmails,
+    isInboxView,
     view,
     searchQuery,
     activeLabel,
@@ -631,7 +705,12 @@ export function InboxPage() {
       search: searchQ,
       label: activeLabel ?? undefined,
       filter: activeFilterId ?? undefined,
-      activeInboxTab: activeInboxTab ?? undefined,
+      // Report the server-resolved tab id (falls back to the raw URL param
+      // until the first response lands) so the agent sees the tab that is
+      // actually active, including the default tab when the URL has none.
+      activeInboxTab: isInboxView
+        ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)
+        : (activeInboxTab ?? undefined),
       activeAccounts:
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
       selectedThreadIds:
@@ -644,6 +723,9 @@ export function InboxPage() {
     searchQ,
     activeLabel,
     activeFilterId,
+    isInboxView,
+    inboxThreads.data?.activeTabId,
+    resolvedInboxTab,
     activeInboxTab,
     activeAccounts,
     selectedThreadIds,
@@ -842,6 +924,7 @@ export function InboxPage() {
     isSavedFilter: Boolean(activeSavedFilter),
     threadCount: threads.length,
     hasNextPage: Boolean(hasNextPage),
+    hasAccountErrors: Boolean(accountErrors?.length),
   });
   const [sidebarContactEmail, setSidebarContactEmail] = useState<
     string | undefined
@@ -919,6 +1002,12 @@ export function InboxPage() {
             isLoading={emailListLoading}
             isFetching={isFetching}
             emailsError={emailsError}
+            accountErrors={accountErrors}
+            labels={
+              isInboxView
+                ? (inboxThreads.data?.labels ?? EMPTY_LABELS)
+                : undefined
+            }
             refetchEmails={refetchEmails}
             hasNextPage={hasNextPage}
             fetchNextPage={fetchNextPage}

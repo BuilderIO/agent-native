@@ -25,6 +25,12 @@ import {
   gmailUntrashThread,
 } from "./google-api.js";
 import { getOAuth2Credentials, isConnected } from "./google-auth.js";
+import { syncInboxLabelDelta } from "./inbox-store-sync.js";
+import {
+  findAccountForMessage,
+  findAccountForThread,
+  findThreadIdsByMessageIds,
+} from "./inbox-store.js";
 import {
   readLocalEmails,
   withLocalEmailMutationLock,
@@ -107,6 +113,40 @@ export async function getAccountToken(
   const token = await getToken(acct);
   if (!token) throw new Error(`No valid access token for ${acct}`);
   return token;
+}
+
+/**
+ * Resolve which connected Gmail account owns a single-account mutation when
+ * the caller didn't pass accountEmail. Never falls back to ownerEmail — the
+ * owner's login identity is not necessarily a connected Gmail account (e.g.
+ * local dev, or a second personal inbox), and defaulting to it either 404s
+ * or silently targets the wrong account. Tries the synced store first, then
+ * the owner's sole connected account, and only then gives up loudly.
+ */
+export async function resolveMutationAccount(
+  ownerEmail: string,
+  accountEmail: string | undefined,
+  ctx: { threadId?: string; messageId?: string } = {},
+): Promise<string> {
+  if (accountEmail) return accountEmail;
+
+  if (ctx.threadId) {
+    const found = await findAccountForThread(ownerEmail, ctx.threadId);
+    if (found) return found;
+  }
+  if (ctx.messageId) {
+    const found = await findAccountForMessage(ownerEmail, ctx.messageId);
+    if (found) return found;
+  }
+
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  if (accounts.length === 1) return accounts[0].accountId;
+
+  throw new Error(
+    `Cannot determine which connected account owns thread ${
+      ctx.threadId ?? ctx.messageId ?? "unknown"
+    }; pass accountEmail`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +302,14 @@ export async function archiveEmail(
       await gmailModifyThread(token, resolvedThreadId, undefined, removeLabels);
       // Invalidate so thread-view doesn't serve cached pre-archive messages
       invalidateThreadCache(ownerEmail, resolvedThreadId);
+      await syncInboxLabelDelta(
+        ownerEmail,
+        account.accountId,
+        [resolvedThreadId],
+        {
+          remove: removeLabels,
+        },
+      );
       return { id, threadId: resolvedThreadId, isArchived: true };
     } catch (err: any) {
       lastErr = err;
@@ -323,10 +371,18 @@ export async function unarchiveEmail(
     });
   }
 
-  const token = await getAccountToken(accountEmail ?? ownerEmail, ownerEmail);
+  const resolvedAccount = await resolveMutationAccount(
+    ownerEmail,
+    accountEmail,
+    { messageId: id },
+  );
+  const token = await getAccountToken(resolvedAccount, ownerEmail);
   const msg = await gmailGetMessage(token, id, "minimal");
   await gmailModifyThread(token, msg.threadId, ["INBOX"]);
   invalidateThreadCache(ownerEmail, msg.threadId);
+  await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
+    add: ["INBOX"],
+  });
   return { id, threadId: msg.threadId, isArchived: false };
 }
 
@@ -405,6 +461,15 @@ export async function toggleStar(
       const resolvedThreadId = hintThreadId || updated.threadId;
       if (resolvedThreadId) {
         invalidateThreadCache(ownerEmail, resolvedThreadId);
+        await syncInboxLabelDelta(
+          ownerEmail,
+          account.accountId,
+          [resolvedThreadId],
+          {
+            add: isStarred ? ["STARRED"] : undefined,
+            remove: isStarred ? undefined : ["STARRED"],
+          },
+        );
       }
       return { id, threadId: resolvedThreadId, isStarred };
     } catch (err: any) {
@@ -482,6 +547,10 @@ export async function trashEmail(
       const msg = await gmailGetMessage(token, id, "minimal");
       await gmailTrashThread(token, msg.threadId);
       invalidateThreadCache(ownerEmail, msg.threadId);
+      await syncInboxLabelDelta(ownerEmail, account.accountId, [msg.threadId], {
+        add: ["TRASH"],
+        remove: ["INBOX"],
+      });
       return { id, threadId: msg.threadId, isTrashed: true };
     } catch (err: any) {
       lastErr = err;
@@ -543,10 +612,18 @@ export async function untrashEmail(
     });
   }
 
-  const token = await getAccountToken(accountEmail ?? ownerEmail, ownerEmail);
+  const resolvedAccount = await resolveMutationAccount(
+    ownerEmail,
+    accountEmail,
+    { messageId: id },
+  );
+  const token = await getAccountToken(resolvedAccount, ownerEmail);
   const msg = await gmailGetMessage(token, id, "minimal");
   await gmailUntrashThread(token, msg.threadId);
   invalidateThreadCache(ownerEmail, msg.threadId);
+  await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
+    remove: ["TRASH"],
+  });
   return { id, threadId: msg.threadId, isTrashed: false };
 }
 
@@ -616,6 +693,17 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
         isRead ? undefined : ["UNREAD"],
         isRead ? ["UNREAD"] : undefined,
       );
+      // No threadId hint at the message level — resolve it from the store's
+      // message_ids_json instead of an extra Gmail round-trip.
+      const threadId = (
+        await findThreadIdsByMessageIds(ownerEmail, account.accountId, [id])
+      ).get(id);
+      if (threadId) {
+        await syncInboxLabelDelta(ownerEmail, account.accountId, [threadId], {
+          add: isRead ? undefined : ["UNREAD"],
+          remove: isRead ? ["UNREAD"] : undefined,
+        });
+      }
       return { id, isRead };
     } catch (err: any) {
       lastErr = err;
@@ -754,7 +842,12 @@ export async function markThreadRead(
     });
   }
 
-  const token = await getAccountToken(accountEmail ?? ownerEmail, ownerEmail);
+  const resolvedAccount = await resolveMutationAccount(
+    ownerEmail,
+    accountEmail,
+    { threadId },
+  );
+  const token = await getAccountToken(resolvedAccount, ownerEmail);
   await gmailModifyThread(
     token,
     threadId,
@@ -762,5 +855,9 @@ export async function markThreadRead(
     isRead ? ["UNREAD"] : undefined,
   );
   invalidateThreadCache(ownerEmail, threadId);
+  await syncInboxLabelDelta(ownerEmail, resolvedAccount, [threadId], {
+    add: isRead ? undefined : ["UNREAD"],
+    remove: isRead ? ["UNREAD"] : undefined,
+  });
   return { threadId, isRead };
 }

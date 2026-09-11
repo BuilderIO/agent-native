@@ -84,8 +84,10 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain(
       'const emailView = activeSavedFilter\n    ? "inbox"',
     );
+    // The inbox view itself now fetches through `useInboxThreads` instead —
+    // this useEmails call stays disabled while on /inbox.
     expect(source).toContain(
-      "useEmails(emailView, searchQuery, effectiveLabel)",
+      "useEmails(emailView, searchQuery, effectiveLabel, {\n    enabled: !isInboxView,\n  })",
     );
   });
 
@@ -120,8 +122,11 @@ describe("Inbox navigation commands", () => {
     expect(navigationHookSource()).toContain("activeInboxTab?: string;");
     expect(navigationHookSource()).toContain("filter?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
+    // The inbox view reports the server-resolved tab id (falls back to the
+    // raw URL param before the first response lands) so the agent sees the
+    // actual active tab, including the default when the URL has none.
     expect(inboxSource()).toContain(
-      "activeInboxTab: activeInboxTab ?? undefined",
+      "activeInboxTab: isInboxView\n        ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)\n        : (activeInboxTab ?? undefined)",
     );
     expect(inboxSource()).toContain("filter: activeFilterId ?? undefined");
     expect(inboxSource()).toContain("const searchQ = searchQuery;");
@@ -240,6 +245,20 @@ describe("Inbox pagination", () => {
     expect(source).toContain("runPaginationRetry(fetchNextPage");
     expect(inboxSource()).toContain("shouldShowInboxZero");
     expect(inboxSource()).toContain("hasNextPage: Boolean(hasNextPage)");
+  });
+
+  it("never shows a spurious load-more row on the inbox view, which has no real next page", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      "const hasNextPage = isInboxView ? false : emailsHasNextPage;",
+    );
+    expect(source).toContain(
+      "const isFetchingNextPage = isInboxView ? false : emailsIsFetchingNextPage;",
+    );
+    expect(source).toContain(
+      "const isFetchNextPageError = isInboxView ? false : emailsIsFetchNextPageError;",
+    );
   });
 
   it("uses a contact-scoped search and bounded follow-up pages", () => {

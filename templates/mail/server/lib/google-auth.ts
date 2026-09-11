@@ -138,40 +138,28 @@ const PERMANENT_REFRESH_ERRORS = [
   "invalid_client",
 ];
 
-function isPermanentRefreshError(message: string): boolean {
+export function isPermanentRefreshError(message: string): boolean {
   const m = message.toLowerCase();
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
 }
 
-async function getValidAccessToken(
+// Single-flight refresh per stored token row. Concurrent callers for the same
+// account (labels, emails, settings, google-status all fire on mount) must
+// await one in-flight `oauth2.refreshToken` instead of each racing their own
+// — the loser's write would otherwise stomp the winner's via last-writer-wins
+// `saveOAuthTokens`, silently dropping the account for that caller. Keyed by
+// accountId alone: within provider "google" a row is uniquely identified by
+// accountId (saveOAuthTokens/deleteOAuthTokens resolve owner from the
+// existing row when omitted), and some callers (getAuthStatus) don't pass an
+// owner — keying on owner too would split the exact concurrent callers this
+// exists to coalesce.
+const refreshInflight = new Map<string, Promise<string>>();
+
+async function refreshAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
 ): Promise<string> {
-  if (!tokens.access_token && !tokens.refresh_token) {
-    // The stored record has no usable credentials at all — typically a row
-    // that failed to decrypt after a SECRETS_ENCRYPTION_KEY /
-    // BETTER_AUTH_SECRET rotation (core's parseStoredTokens returns `{}`
-    // instead of throwing). Unlike the missing-refresh-token path below, do
-    // NOT delete the row: a failed decrypt can also mean THIS process holds
-    // the wrong key (e.g. a dev server sharing a prod DB), and deleting
-    // would destroy tokens a correctly configured deployment can still
-    // decrypt. Throw so callers surface a reconnect instead of retrying.
-    throw new Error(
-      `No usable OAuth tokens for ${accountId} — please reconnect.`,
-    );
-  }
-
-  // If token is not expired (with 5-minute buffer), return it directly
-  if (
-    tokens.expiry_date &&
-    tokens.access_token &&
-    Date.now() < tokens.expiry_date - 5 * 60 * 1000
-  ) {
-    return tokens.access_token;
-  }
-
-  // Token is expired or about to expire — refresh it
   if (!tokens.refresh_token) {
     // No refresh_token means we can never recover this account; drop it so
     // the UI prompts a reconnect instead of showing a permanently-broken row.
@@ -223,6 +211,46 @@ async function getValidAccessToken(
   );
 
   return refreshed.access_token;
+}
+
+async function getValidAccessToken(
+  accountId: string,
+  tokens: GoogleTokens,
+  owner?: string,
+): Promise<string> {
+  if (!tokens.access_token && !tokens.refresh_token) {
+    // The stored record has no usable credentials at all — typically a row
+    // that failed to decrypt after a SECRETS_ENCRYPTION_KEY /
+    // BETTER_AUTH_SECRET rotation (core's parseStoredTokens returns `{}`
+    // instead of throwing). Unlike the missing-refresh-token path below, do
+    // NOT delete the row: a failed decrypt can also mean THIS process holds
+    // the wrong key (e.g. a dev server sharing a prod DB), and deleting
+    // would destroy tokens a correctly configured deployment can still
+    // decrypt. Throw so callers surface a reconnect instead of retrying.
+    throw new Error(
+      `No usable OAuth tokens for ${accountId} — please reconnect.`,
+    );
+  }
+
+  // If token is not expired (with 5-minute buffer), return it directly
+  if (
+    tokens.expiry_date &&
+    tokens.access_token &&
+    Date.now() < tokens.expiry_date - 5 * 60 * 1000
+  ) {
+    return tokens.access_token;
+  }
+
+  // Token is expired or about to expire — refresh it, coalescing concurrent
+  // callers onto one in-flight refresh.
+  const existing = refreshInflight.get(accountId);
+  if (existing) return existing;
+
+  const promise = refreshAccessToken(accountId, tokens, owner).finally(() => {
+    refreshInflight.delete(accountId);
+  });
+  refreshInflight.set(accountId, promise);
+  return promise;
 }
 
 export async function getAuthUrl(
@@ -442,37 +470,55 @@ export async function getClientsWithErrors(
   }> = [];
   const errors: Array<{ email: string; error: string }> = [];
 
-  for (const account of accounts) {
-    const tokens = account.tokens as unknown as GoogleTokens;
-    if (!tokens) continue;
+  // Refresh accounts in parallel rather than one at a time — sequential
+  // refreshes add seconds (one Google round-trip per account) to a request
+  // that already risks the Lambda timeout. getValidAccessToken's single-flight
+  // map still coalesces this with any concurrent caller refreshing the same
+  // account. Each account keeps its own try/catch, and results are applied
+  // in `accounts` order so `clients` ordering is unaffected by which refresh
+  // finishes first.
+  const results = await Promise.all(
+    accounts.map(async (account) => {
+      const tokens = account.tokens as unknown as GoogleTokens;
+      if (!tokens) return null;
 
-    const accountId = account.accountId;
-    // Preserve the stored owner on token refresh to avoid ownership conflicts
-    const ownerForRefresh: string =
-      forEmail ??
-      ("owner" in account && typeof account.owner === "string"
-        ? account.owner
-        : undefined) ??
-      accountId;
+      const accountId = account.accountId;
+      // Preserve the stored owner on token refresh to avoid ownership conflicts
+      const ownerForRefresh: string =
+        forEmail ??
+        ("owner" in account && typeof account.owner === "string"
+          ? account.owner
+          : undefined) ??
+        accountId;
 
-    try {
-      const accessToken = await getValidAccessToken(
-        accountId,
-        tokens,
-        ownerForRefresh,
-      );
+      try {
+        const accessToken = await getValidAccessToken(
+          accountId,
+          tokens,
+          ownerForRefresh,
+        );
+        return {
+          client: {
+            email: accountId,
+            accessToken,
+            refreshToken: tokens.refresh_token || "",
+          },
+        };
+      } catch (err: any) {
+        return {
+          error: {
+            email: accountId,
+            error: err?.message || "Unknown refresh error",
+          },
+        };
+      }
+    }),
+  );
 
-      clients.push({
-        email: accountId,
-        accessToken,
-        refreshToken: tokens.refresh_token || "",
-      });
-    } catch (err: any) {
-      errors.push({
-        email: accountId,
-        error: err?.message || "Unknown refresh error",
-      });
-    }
+  for (const result of results) {
+    if (!result) continue;
+    if (result.client) clients.push(result.client);
+    else if (result.error) errors.push(result.error);
   }
 
   if (clients.length === 0) {
@@ -1726,7 +1772,7 @@ async function listGmailMessagesUncached(
   };
 }
 
-function getHeader(
+export function getHeader(
   headers: Array<{ name?: string | null; value?: string | null }> | undefined,
   name: string,
 ): string {
@@ -1736,7 +1782,10 @@ function getHeader(
   );
 }
 
-function parseEmailAddress(raw: string): { name: string; email: string } {
+export function parseEmailAddress(raw: string): {
+  name: string;
+  email: string;
+} {
   const match = raw.match(/^(.+?)\s*<(.+?)>$/);
   if (match) {
     const name = match[1].trim();
@@ -1791,7 +1840,9 @@ function splitAddressList(raw: string): string[] {
   return addresses;
 }
 
-function parseAddressList(raw: string): Array<{ name: string; email: string }> {
+export function parseAddressList(
+  raw: string,
+): Array<{ name: string; email: string }> {
   if (!raw) return [];
   return splitAddressList(raw).map(parseEmailAddress);
 }

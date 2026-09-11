@@ -10,6 +10,7 @@ import {
   isConnected,
   markAllUnreadReadForAccount,
 } from "../server/lib/google-auth.js";
+import { syncInboxLabelDeltaForTargets } from "../server/lib/inbox-store-sync.js";
 
 export const MARK_READ_DESCRIPTION =
   'Mark explicit email IDs as read/unread, or use scope "all-unread" once to mark every unread message in one account read while preserving excluded thread IDs. Never loop mark-thread-read for broad cleanup.';
@@ -186,6 +187,14 @@ export default defineAction({
       for (const id of succeeded) results.push({ id, success: true });
       for (const f of failed)
         results.push({ id: f.id, success: false, error: f.error });
+      await syncInboxLabelDeltaForTargets(
+        ownerEmail,
+        targets.filter((t) => succeeded.includes(t.id)),
+        {
+          add: isRead ? undefined : ["UNREAD"],
+          remove: isRead ? ["UNREAD"] : undefined,
+        },
+      );
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];

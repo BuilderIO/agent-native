@@ -10,6 +10,7 @@ import {
   gmailBatchModifyByAccount,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { syncInboxLabelDeltaForTargets } from "../server/lib/inbox-store-sync.js";
 import { invalidateThreadCache } from "../server/lib/thread-cache.js";
 
 function userFacingActionError(message: string, statusCode: number): Error {
@@ -101,6 +102,11 @@ export default defineAction({
       }
       for (const f of failed)
         results.push({ id: f.id, success: false, error: f.error });
+      await syncInboxLabelDeltaForTargets(
+        ownerEmail,
+        targets.filter((t) => succeeded.includes(t.id)),
+        { remove: ["INBOX"] },
+      );
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];

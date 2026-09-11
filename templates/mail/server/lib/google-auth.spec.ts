@@ -18,6 +18,7 @@ import {
   exchangeCode,
   gmailToEmailMessage,
   getAuthUrl,
+  getClient,
   getClientsWithErrors,
   listGmailMessages,
   markAllUnreadReadForAccount,
@@ -677,6 +678,126 @@ describe("getClientsWithErrors with unusable token records", () => {
       errors: [],
     });
     expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe("getValidAccessToken single-flight refresh", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function mockExpiredAccount() {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "connected@example.com",
+        owner: "connected@example.com",
+        tokens: {
+          access_token: "stale-access-token",
+          refresh_token: "refresh-token",
+          // Already expired — every caller takes the refresh path.
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+  }
+
+  it("coalesces 5 concurrent callers into 1 refreshToken call, all resolving the same token", async () => {
+    mockExpiredAccount();
+    const refreshToken = vi.fn().mockResolvedValue({
+      access_token: "refreshed-token",
+      expires_in: 3600,
+    });
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => getClient("connected@example.com")),
+    );
+
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    for (const result of results) {
+      expect(result?.accessToken).toBe("refreshed-token");
+    }
+  });
+
+  it("rejects every waiter on a failed refresh, then retries on the next call", async () => {
+    mockExpiredAccount();
+    const refreshToken = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network error"))
+      .mockResolvedValueOnce({
+        access_token: "refreshed-token",
+        expires_in: 3600,
+      });
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    const settled = await Promise.allSettled(
+      Array.from({ length: 3 }, () => getClient("connected@example.com")),
+    );
+    for (const outcome of settled) {
+      expect(outcome.status).toBe("rejected");
+      expect((outcome as PromiseRejectedResult).reason?.message).toBe(
+        "network error",
+      );
+    }
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+
+    // The failed shared promise is cleared from the in-flight map, so the
+    // next call retries with a fresh refresh rather than replaying the
+    // rejection.
+    const retried = await getClient("connected@example.com");
+    expect(retried?.accessToken).toBe("refreshed-token");
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("getClientsWithErrors parallel refresh", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns the good client plus one error when one of two accounts fails to refresh", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "bad@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "stale-bad",
+          refresh_token: "bad-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+      {
+        accountId: "good@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "stale-good",
+          refresh_token: "good-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    const refreshToken = vi.fn(async (token: string) => {
+      if (token === "bad-refresh") throw new Error("invalid_grant");
+      return { access_token: "refreshed-good-token", expires_in: 3600 };
+    });
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    const { clients, errors } = await getClientsWithErrors("owner@example.com");
+
+    expect(clients).toEqual([
+      {
+        email: "good@example.com",
+        accessToken: "refreshed-good-token",
+        refreshToken: "good-refresh",
+      },
+    ]);
+    expect(errors).toEqual([
+      {
+        email: "bad@example.com",
+        error: expect.stringContaining("invalid_grant"),
+      },
+    ]);
+    expect(refreshToken).toHaveBeenCalledTimes(2);
   });
 });
 

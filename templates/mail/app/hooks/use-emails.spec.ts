@@ -9,6 +9,7 @@ import {
   confirmReadMutation,
   filterSuppressedThreads,
   markExternalEmailRefresh,
+  parseAccountErrorsHeader,
   rebasePinnedLabelsUpdate,
   rollbackReadMutation,
   suppressThread,
@@ -240,6 +241,23 @@ describe("useMarkThreadRead", () => {
     expect(hook).toContain("beginReadMutation(id, false, true)");
     expect(hook).not.toContain("context.previousThread");
   });
+
+  it("sends accountEmail with the mark-thread-read call so multi-account owners don't 401", () => {
+    // Repro: the mutation used to take a bare threadId, so the server fell
+    // back to the request owner's login email — wrong whenever that isn't
+    // the Gmail account the thread belongs to (a second/personal account,
+    // or local dev where the owner's login isn't a connected Gmail address).
+    const source = emailsHookSource();
+    const hook = source.slice(
+      source.indexOf("export function useMarkThreadRead()"),
+      source.indexOf("export function useToggleStar()"),
+    );
+
+    expect(hook).toContain(
+      'mutationFn: ({\n      threadId,\n      accountEmail,\n    }: {\n      threadId: string;\n      accountEmail?: string;\n    }) =>\n      callAction("mark-thread-read", { threadId, accountEmail })',
+    );
+    expect(hook).toContain("onMutate: async ({ threadId, accountEmail }) => {");
+  });
 });
 
 describe("serializePinnedLabelsUpdate", () => {
@@ -307,5 +325,31 @@ describe("useUpdateSettings", () => {
     expect(source).toContain("resetPinnedLabelsState(owner)");
     expect(source).toContain("settingsLoading || !prev || !owner");
     expect(source).toContain("requestSource: TAB_ID");
+  });
+});
+
+describe("parseAccountErrorsHeader", () => {
+  it("returns undefined for a missing header", () => {
+    expect(parseAccountErrorsHeader(null)).toBeUndefined();
+    expect(parseAccountErrorsHeader(undefined)).toBeUndefined();
+  });
+
+  it("parses a JSON array of per-account errors", () => {
+    expect(
+      parseAccountErrorsHeader(
+        JSON.stringify([{ email: "a@example.com", error: "quota exceeded" }]),
+      ),
+    ).toEqual([{ email: "a@example.com", error: "quota exceeded" }]);
+  });
+
+  it("ignores malformed JSON instead of throwing", () => {
+    expect(parseAccountErrorsHeader("not json")).toBeUndefined();
+  });
+
+  it("drops entries missing email or error and empty arrays", () => {
+    expect(
+      parseAccountErrorsHeader(JSON.stringify([{ email: "a@example.com" }])),
+    ).toBeUndefined();
+    expect(parseAccountErrorsHeader(JSON.stringify([]))).toBeUndefined();
   });
 });

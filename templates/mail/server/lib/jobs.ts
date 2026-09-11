@@ -27,6 +27,7 @@ import {
   getOAuth2Credentials,
   setAccountDisplayName,
 } from "./google-auth.js";
+import { syncInboxLabelDelta } from "./inbox-store-sync.js";
 import {
   readLocalEmails as readEmails,
   withLocalEmailMutationLock,
@@ -192,6 +193,9 @@ async function archiveThreadForSnooze(
       await gmailModifyThread(account.accessToken, threadId, undefined, [
         "INBOX",
       ]);
+      await syncInboxLabelDelta(ownerEmail, account.email, [threadId], {
+        remove: ["INBOX"],
+      });
       return;
     }
   }
@@ -413,6 +417,11 @@ export async function resurfaceEmail(
         await gmailModifyMessage(account.accessToken, emailId, ["INBOX"], []);
       }
       await gmailModifyMessage(account.accessToken, emailId, ["UNREAD"], []);
+      if (threadId) {
+        await syncInboxLabelDelta(ownerEmail, account.email, [threadId], {
+          add: ["INBOX", "UNREAD"],
+        });
+      }
       return;
     }
   }

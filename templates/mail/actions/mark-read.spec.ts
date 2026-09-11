@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   markAllUnreadReadForAccount: vi.fn(),
   markAllLocalUnreadRead: vi.fn(),
   track: vi.fn(),
+  syncInboxLabelDeltaForTargets: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -32,6 +33,10 @@ vi.mock("../server/lib/google-auth.js", () => ({
 vi.mock("../server/lib/email-state.js", () => ({
   markRead: mocks.markRead,
   markAllLocalUnreadRead: mocks.markAllLocalUnreadRead,
+}));
+
+vi.mock("../server/lib/inbox-store-sync.js", () => ({
+  syncInboxLabelDeltaForTargets: mocks.syncInboxLabelDeltaForTargets,
 }));
 
 import action, { MARK_READ_DESCRIPTION } from "./mark-read";
@@ -91,6 +96,28 @@ describe("mark-read action", () => {
         failed_count: 1,
       }),
       undefined,
+    );
+  });
+
+  it("syncs the inbox store from the Gmail bulk-modify path, grouped by account", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.gmailBatchModifyByAccount.mockResolvedValue({
+      succeeded: ["email-1", "email-2"],
+      failed: [],
+    });
+
+    await action.run({
+      id: "email-1,email-2",
+      accountEmails: "acct-a@example.com,acct-b@example.com",
+    });
+
+    expect(mocks.syncInboxLabelDeltaForTargets).toHaveBeenCalledWith(
+      OWNER,
+      [
+        { id: "email-1", accountEmail: "acct-a@example.com" },
+        { id: "email-2", accountEmail: "acct-b@example.com" },
+      ],
+      { add: undefined, remove: ["UNREAD"] },
     );
   });
 
