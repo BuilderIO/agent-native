@@ -204,7 +204,7 @@ export function localVisualEditWorkspacePrincipal(
 }
 
 function localVisualEditPath(designId: string): string {
-  return `/visual-edit/${encodeURIComponent(designId)}?editorView=overview`;
+  return `/visual-edit/${encodeURIComponent(designId)}?editorView=overview&embedChrome=1`;
 }
 
 function localVisualEditDeepLink(designId: string): string {

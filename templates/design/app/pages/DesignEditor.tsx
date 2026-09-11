@@ -926,9 +926,10 @@ function DesignEditor() {
   // so every `embedded` behaviour below would otherwise read as a standalone
   // Design page and put our own chrome and agent inside Builder's.
   const embedded = shellMode || isEmbedAuthActive();
+  const embedChromeRequested = isEmbedChromeRequested();
   // The shell keeps our rails and hands the host only the chat, so it must not
   // depend on `embedChrome` surviving in the URL Builder builds.
-  const hostOwnsChrome = embedded && !shellMode && !isEmbedChromeRequested();
+  const hostOwnsChrome = embedded && !shellMode && !embedChromeRequested;
   // Framed by a host that supplies the chat but not the canvas chrome: our
   // rails stay, our agent surface does not.
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
@@ -1462,10 +1463,14 @@ function DesignEditor() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
   const [uiHidden, setUiHidden] = useState(false);
-  // Embedded Design surfaces have less room than a full browser, so keep the
-  // canvas primary while leaving the style panel available for the first edit.
-  const minimalUiByDefault = embedded && !hostOwnsChrome;
+  // The standard visual-edit embed owns the canvas chrome; only host-framed
+  // embeds use the compact floating controls.
+  const minimalUiByDefault =
+    embedded && !hostOwnsChrome && !embedChromeRequested;
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
+  useEffect(() => {
+    setMinimalUi(minimalUiByDefault);
+  }, [minimalUiByDefault, embedChromeRequested, hostOwnsChrome]);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");

@@ -33,6 +33,7 @@ import {
   designEditorRoute,
   isDesignEditorRoute,
 } from "@/lib/design-editor-route";
+import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import { cn } from "@/lib/utils";
 
 import {
@@ -57,8 +58,8 @@ const BARE_PREFIXES = ["/present/"];
 
 /**
  * Routes where the page renders its own toolbar instead of the global Header
- * on a standalone page. Embedded app surfaces keep the global shell so the
- * host-provided chat rail can still be reopened from the app header.
+ * on a standalone page. Embedded surfaces opt into this mode when they own
+ * the canvas chrome.
  */
 const EDITOR_PREFIXES = ["/design/", "/visual-edit/", "/extensions"];
 
@@ -66,6 +67,7 @@ type DesignLayoutMode = "host-bare" | "standalone-editor" | "app-shell";
 
 function resolveDesignLayoutMode(input: {
   builderHostEmbed: boolean;
+  embedChromeRequested: boolean;
   embedded: boolean;
   hasSession: boolean;
   isDesignEditor: boolean;
@@ -76,7 +78,9 @@ function resolveDesignLayoutMode(input: {
   ) {
     return "host-bare";
   }
-  if (input.isDesignEditor && !input.embedded) return "standalone-editor";
+  if (input.isDesignEditor && (!input.embedded || input.embedChromeRequested)) {
+    return "standalone-editor";
+  }
   return "app-shell";
 }
 
@@ -89,6 +93,7 @@ export function Layout({ children }: LayoutProps) {
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
   const builderHostEmbed = isBuilderHostEmbed();
+  const embedChromeRequested = isEmbedChromeRequested();
   // The shell canvas is embedded without a session, so this cannot be the token
   // check alone or it renders Design's own nav inside Builder.
   const embedded = builderHostEmbed || isEmbedAuthActive();
@@ -98,6 +103,7 @@ export function Layout({ children }: LayoutProps) {
   const isDesignEditor = isDesignEditorRoute(location.pathname);
   const layoutMode = resolveDesignLayoutMode({
     builderHostEmbed,
+    embedChromeRequested,
     embedded,
     hasSession,
     isDesignEditor,
