@@ -2,7 +2,7 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -1059,6 +1059,33 @@ describe("workspace deploy", () => {
     ]);
   });
 
+  it("publishes configured app home paths while preserving manifest overrides", async () => {
+    process.env.APP_URL = "https://workspace.example.test/dispatch";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [{ id: "mail", homePath: "/compose" }],
+    });
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "calendar", { homePath: "/dashboard" });
+    makeWorkspaceApp(tmpDir, "mail", { homePath: "/inbox" });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const dispatchCall = buildCallForApp("dispatch");
+    expect(
+      JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
+    ).toEqual([
+      expect.objectContaining({ id: "dispatch", homePath: "/home" }),
+      expect.objectContaining({ id: "calendar", homePath: "/dashboard" }),
+      expect.objectContaining({ id: "mail", homePath: "/compose" }),
+    ]);
+  });
+
   it("uses public workspace URLs before loopback gateways when building apps", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
@@ -1501,6 +1528,7 @@ function makeWorkspaceApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    homePath?: string;
     protectedPaths?: string[];
     publicPaths?: string[];
     usesUnpooledDatabaseUrl?: boolean;
@@ -1522,6 +1550,25 @@ function makeWorkspaceApp(
     };
   }
   fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
+
+  if (opts.homePath) {
+    const coreConfigPath = pathToFileURL(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../app-config/index.ts",
+      ),
+    ).href;
+    const pluginsDir = path.join(appDir, "server", "plugins");
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, "config.ts"),
+      [
+        `import { defineAppConfig } from ${JSON.stringify(coreConfigPath)};`,
+        `export default defineAppConfig({ app: { homePath: ${JSON.stringify(opts.homePath)} } });`,
+        "",
+      ].join("\n"),
+    );
+  }
 
   if (opts.usesUnpooledDatabaseUrl) {
     fs.writeFileSync(

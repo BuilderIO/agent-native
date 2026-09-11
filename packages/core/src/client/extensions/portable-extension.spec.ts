@@ -37,6 +37,8 @@ describe("portable extension runtime", () => {
       "Math.max(paddingTop, bodyRect.height - paddingBottom)",
     );
     expect(html).toContain("body.querySelectorAll('*')");
+    expect(html).toContain("ancestorStyle.overflowY");
+    expect(html).toContain("auto|scroll|overlay|hidden|clip");
     expect(html).not.toContain("body.scrollHeight");
     expect(html).toContain('<div x-data="{ ready: true }">Hello</div>');
     expect(html).toContain("cus_123");

@@ -709,6 +709,12 @@ export function buildExtensionHtml(
 	        var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
         var contentBottom = Math.max(paddingTop, bodyRect.height - paddingBottom);
 	        Array.prototype.forEach.call(body.querySelectorAll('*'), function(element) {
+	          var ancestor = element.parentElement;
+	          while (ancestor && ancestor !== body) {
+	            var ancestorStyle = window.getComputedStyle(ancestor);
+	            if (/^(?:auto|scroll|overlay|hidden|clip)$/.test(ancestorStyle.overflowY)) return;
+	            ancestor = ancestor.parentElement;
+	          }
 	          var rect = element.getBoundingClientRect();
 	          contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
 	        });

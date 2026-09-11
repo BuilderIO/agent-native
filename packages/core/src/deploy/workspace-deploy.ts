@@ -17,6 +17,7 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
+import { pathToFileURL } from "url";
 
 import {
   AGENT_BACKGROUND_PROCESSOR_A2A,
@@ -169,7 +170,7 @@ export async function runWorkspaceDeploy(
     );
   }
   assertNoReservedWorkspaceAppIds(apps);
-  const workspaceApps = readWorkspaceAppManifest(workspaceRoot, apps);
+  const workspaceApps = await readWorkspaceAppManifest(workspaceRoot, apps);
 
   const preset = resolvePreset(opts.preset, rawArgs);
   assertWorkspaceDeployProductionEnv({ buildOnly, preset });
@@ -1451,52 +1452,118 @@ function writeWorkspaceAppManifests(
   }
 }
 
-function readWorkspaceAppManifest(
+async function readWorkspaceAppManifest(
   workspaceRoot: string,
   apps: string[],
-): WorkspaceAppManifestEntry[] {
+): Promise<WorkspaceAppManifestEntry[]> {
   const explicitApps = readExistingWorkspaceAppManifest(workspaceRoot);
+  const entries: WorkspaceAppManifestEntry[] = [];
 
-  return apps
-    .map((app) => {
-      const appDir = path.join(workspaceRoot, "apps", app);
-      const pkg = readPackageJson(path.join(appDir, "package.json"));
-      const appPath = `/${app}`;
-      const explicit = explicitApps.get(app);
-      const url =
-        normalizeWorkspaceAppUrl(explicit?.url) ?? workspaceAppUrl(appPath);
-      const audience =
-        workspaceAppAudienceFromPackageJson(pkg) ??
-        explicit?.audience ??
-        DEFAULT_WORKSPACE_APP_AUDIENCE;
-      const packageRouteAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-      // Prefer the package.json value whenever the field was set — including
-      // an explicit empty array, which is how a per-app package.json signals
-      // "clear any previously-published manifest override." Falling back on
-      // length > 0 would silently keep the explicit override even after the
-      // app owner blanked their list.
-      const publicPaths =
-        packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
-      const protectedPaths =
-        packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
-      return {
-        id: app,
-        name: pkg?.displayName || titleCase(app),
-        description: pkg?.description || "",
-        path: appPath,
-        homePath: normalizeWorkspaceAppHomePath(explicit?.homePath),
-        ...(url ? { url } : {}),
-        isDispatch: app === "dispatch",
-        audience,
-        publicPaths,
-        protectedPaths,
-      };
-    })
-    .sort((a, b) => {
-      if (a.id === "dispatch") return -1;
-      if (b.id === "dispatch") return 1;
-      return a.name.localeCompare(b.name);
+  for (const app of apps) {
+    const appDir = path.join(workspaceRoot, "apps", app);
+    const pkg = readPackageJson(path.join(appDir, "package.json"));
+    const appPath = `/${app}`;
+    const explicit = explicitApps.get(app);
+    const configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+    const url =
+      normalizeWorkspaceAppUrl(explicit?.url) ?? workspaceAppUrl(appPath);
+    const audience =
+      workspaceAppAudienceFromPackageJson(pkg) ??
+      explicit?.audience ??
+      DEFAULT_WORKSPACE_APP_AUDIENCE;
+    const packageRouteAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    // Prefer the package.json value whenever the field was set — including
+    // an explicit empty array, which is how a per-app package.json signals
+    // "clear any previously-published manifest override." Falling back on
+    // length > 0 would silently keep the explicit override even after the
+    // app owner blanked their list.
+    const publicPaths =
+      packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
+    const protectedPaths =
+      packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
+    entries.push({
+      id: app,
+      name: pkg?.displayName || titleCase(app),
+      description: pkg?.description || "",
+      path: appPath,
+      homePath: normalizeWorkspaceAppHomePath(
+        explicit?.homePath ?? configuredHomePath,
+      ),
+      ...(url ? { url } : {}),
+      isDispatch: app === "dispatch",
+      audience,
+      publicPaths,
+      protectedPaths,
     });
+  }
+
+  return entries.sort((a, b) => {
+    if (a.id === "dispatch") return -1;
+    if (b.id === "dispatch") return 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+async function readConfiguredWorkspaceAppHomePath(
+  appDir: string,
+): Promise<string | undefined> {
+  const pluginsDir = path.join(appDir, "server", "plugins");
+  if (!fs.existsSync(pluginsDir)) return undefined;
+
+  const pluginPaths = fs
+    .readdirSync(pluginsDir)
+    .filter((filename) => /\.(?:m?js|m?ts)$/.test(filename))
+    .filter((filename) => !/\.(?:spec|test)\./.test(filename))
+    .map((filename) => path.join(pluginsDir, filename))
+    .filter((pluginPath) => {
+      const source = fs.readFileSync(pluginPath, "utf8");
+      return (
+        path.basename(pluginPath).startsWith("config.") ||
+        /\bdefineAppConfig\s*\(/.test(source)
+      );
+    })
+    .sort();
+  if (pluginPaths.length === 0) return undefined;
+
+  const { createJiti } = await import("jiti");
+  const { getAppConfig, resetAppConfigForTests } =
+    await import("../app-config/index.js");
+  const globals = globalThis as typeof globalThis & {
+    __agentNativeAppConfig?: {
+      layers: Record<string, unknown>;
+      resolved?: unknown;
+      envSignature?: string;
+    };
+  };
+  const previousState = globals.__agentNativeAppConfig;
+  const previousLayers = previousState
+    ? { ...previousState.layers }
+    : undefined;
+  const previousResolved = previousState?.resolved;
+  const previousEnvSignature = previousState?.envSignature;
+  resetAppConfigForTests();
+  try {
+    const jiti = createJiti(pathToFileURL(pluginPaths[0]).href, {
+      interopDefault: true,
+    });
+    for (const pluginPath of pluginPaths) {
+      await jiti.import(pluginPath);
+    }
+    return getAppConfig().app.homePath;
+  } catch (error) {
+    throw new Error(
+      `Could not load workspace app configuration from ${appDir}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  } finally {
+    resetAppConfigForTests();
+    if (previousState) {
+      previousState.layers = previousLayers ?? {};
+      previousState.resolved = previousResolved;
+      previousState.envSignature = previousEnvSignature;
+      globals.__agentNativeAppConfig = previousState;
+    }
+  }
 }
 
 function readExistingWorkspaceAppManifest(
@@ -1553,7 +1620,10 @@ function parseWorkspaceAppsManifest(
       const id = typeof e.id === "string" ? e.id.trim() : "";
       if (!id) return null;
       const url = normalizeWorkspaceAppUrl(e.url);
-      const homePath = normalizeWorkspaceAppHomePath(e.homePath);
+      const hasHomePath = Object.prototype.hasOwnProperty.call(e, "homePath");
+      const homePath = hasHomePath
+        ? normalizeWorkspaceAppHomePath(e.homePath)
+        : undefined;
       const audience =
         e.audience === undefined
           ? undefined
@@ -1563,7 +1633,7 @@ function parseWorkspaceAppsManifest(
       return {
         id,
         ...(url ? { url } : {}),
-        homePath,
+        ...(homePath ? { homePath } : {}),
         ...(audience ? { audience } : {}),
         ...(publicPaths.length > 0 ? { publicPaths } : {}),
         ...(protectedPaths.length > 0 ? { protectedPaths } : {}),
