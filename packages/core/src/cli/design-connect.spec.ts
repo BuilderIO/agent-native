@@ -1313,6 +1313,23 @@ describe("design connect bridge endpoints", () => {
         `location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(`http://127.0.0.1:${devPort}/settings`)})`,
       );
 
+      // A no-referer POST that already reached the app keeps its response:
+      // recovery would re-issue it as a GET, so it is never injected there.
+      const noRefererPost = await fetch(`${base}/submit`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "q=1",
+      });
+      expect(noRefererPost.status).toBe(200);
+      const noRefererPostHtml = await noRefererPost.text();
+      expect(noRefererPostHtml).toContain("page /submit");
+      expect(noRefererPostHtml).not.toContain("location.replace(");
+
       // A reload of the rewritten URL itself carries the key in the request.
       const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
         redirect: "manual",

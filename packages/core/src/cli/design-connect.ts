@@ -2960,9 +2960,14 @@ export async function startDesignConnectBridge(
                           }` || "/"
                         );
                       })(),
+                      // Recovery re-issues the navigation as a GET, so it is
+                      // only offered to GET navigations: a body-bearing POST
+                      // that already reached the app must keep its response.
                       keyed
                         ? { bridgeKey: keyed.bridgeKey }
-                        : { recoverTargetUrl: targetUrl },
+                        : method === "GET"
+                          ? { recoverTargetUrl: targetUrl }
+                          : {},
                     ),
                   )
                 : proxied.body;
