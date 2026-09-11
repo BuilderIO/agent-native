@@ -100,7 +100,7 @@ describe("slide rich text normalization", () => {
         <div class="fmd-slide">
           <div style="font-size:14px"><h1>Canvas</h1></div>
           <div class="slide-shared-rich-editor">
-            <div class="an-rich-md-prose" style="font-size:14px"><h1>Editor</h1></div>
+            <div class="an-rich-md-unstyled" style="font-size:14px"><h1>Editor</h1></div>
           </div>
         </div>
       </div>
@@ -109,6 +109,42 @@ describe("slide rich text normalization", () => {
 
     expect(getComputedStyle(headings[0]!).fontSize).toBe("28px");
     expect(getComputedStyle(headings[1]!).fontSize).toBe("28px");
+  });
+
+  it("adds no box or text styling around the editor while editing", () => {
+    document.body.innerHTML = `
+      <div class="slide-content">
+        <div class="fmd-slide">
+          <div style="font-size:24px;line-height:1.2;letter-spacing:0.5px" data-editing-block="true">
+            <div class="slide-rich-editor-host">
+              <div class="an-rich-md-wrapper an-rich-md-wrapper--unstyled slide-shared-rich-editor">
+                <div class="an-rich-md-unstyled"><p>Edited</p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    const host = document.querySelector(".slide-rich-editor-host")!;
+    const inner = document.querySelector(".an-rich-md-unstyled p")!;
+    expect(getComputedStyle(host).display).toBe("contents");
+    // happy-dom returns the literal "inherit" keyword instead of resolving it
+    // to the ancestor's computed value, so font-size can't be asserted here;
+    // margin is asserted below because the matching rule sets it to a literal
+    // "0" rather than "inherit".
+    expect(getComputedStyle(inner).margin).toBe("0px");
+  });
+
+  it("keeps raw-html slide paragraphs on the block's own metrics", () => {
+    document.body.innerHTML = `
+      <div class="slide-content" data-slide-content-scope="slide-1">
+        <div style="font-size:28px;line-height:1.1">
+          <p>Set up</p>
+        </div>
+      </div>
+    `;
+    const paragraph = document.querySelector("p")!;
+    expect(getComputedStyle(paragraph).margin).toBe("0px");
   });
 
   it("preserves styled imported trailing paragraphs", () => {
