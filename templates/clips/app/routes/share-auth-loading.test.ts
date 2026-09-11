@@ -280,7 +280,7 @@ describe("authenticated recording route loading", () => {
       "if (recording && !recording.enableComments) {",
     );
     expect(effectStart).toBeGreaterThan(-1);
-    const effect = shareRoute.slice(effectStart, effectStart + 300);
+    const effect = shareRoute.slice(effectStart, effectStart + 700);
     expect(effect).toContain('if (panelParam === "comments") {');
     expect(effect).toContain("selectCommentsPanel();");
 
@@ -288,7 +288,28 @@ describe("authenticated recording route loading", () => {
     // land back on transcript - the comments tab and its content are both
     // conditionally rendered on recording.enableComments, so leaving `panel`
     // set to "comments" here would strand the Tabs value on nothing.
-    expect(effect).toContain('setPanel("transcript");');
+    expect(effect).toContain(
+      'setPanel((current) => (current === "comments" ? "transcript" : current));',
+    );
+  });
+
+  it("does not re-select comments every time the viewer changes tabs", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // `panel` must not be a dependency of the deep-link effect: if it were,
+    // switching to Transcript/Agent would re-run the effect, and
+    // `panelParam === "comments"` (still true, since it's read from the URL)
+    // would immediately call selectCommentsPanel() again, trapping the
+    // viewer on the deep link for the whole share session.
+    const effectStart = shareRoute.indexOf(
+      "if (recording && !recording.enableComments) {",
+    );
+    expect(effectStart).toBeGreaterThan(-1);
+    const depsStart = shareRoute.indexOf("}, [", effectStart);
+    const depsEnd = shareRoute.indexOf("]);", depsStart);
+    const deps = shareRoute.slice(depsStart, depsEnd);
+
+    expect(deps).not.toMatch(/(^|[^.\w])panel(?![.\w?])/);
   });
 
   it("re-runs the comments deep link when navigating between shares", () => {

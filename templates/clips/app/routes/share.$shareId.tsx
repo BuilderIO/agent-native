@@ -694,9 +694,12 @@ export default function ShareRoute() {
   const recording = dataQ.data?.data?.recording;
   useEffect(() => {
     if (recording && !recording.enableComments) {
-      if (panel === "comments") {
-        setPanel("transcript");
-      }
+      // Functional update so this branch doesn't need `panel` as a
+      // dependency below - depending on `panel` made this effect re-fire on
+      // every manual tab click (including away from Comments), and
+      // `panelParam === "comments"` would then re-select Comments right
+      // back, trapping the viewer on the deep link for the whole session.
+      setPanel((current) => (current === "comments" ? "transcript" : current));
       return;
     }
     if (panelParam === "comments") {
@@ -706,13 +709,7 @@ export default function ShareRoute() {
     // shares with the same `panelParam`/`enableComments` values still re-runs
     // this effect instead of leaving `panel` on whatever the previous share
     // left it at.
-  }, [
-    panel,
-    panelParam,
-    recording?.enableComments,
-    selectCommentsPanel,
-    shareId,
-  ]);
+  }, [panelParam, recording?.enableComments, selectCommentsPanel, shareId]);
   const {
     dismiss: dismissProcessingToast,
     error: failProcessingToast,
@@ -1423,6 +1420,7 @@ export default function ShareRoute() {
             <SignedOutShareActions
               recordingId={recording.id}
               startAt={startAt}
+              panel={panelParam}
               onCtaClick={fireShareCtaClick}
               onSignup={() => openCreateAccount("continue")}
             />
