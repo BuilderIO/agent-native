@@ -4103,6 +4103,9 @@ export function permanentPreconditionReason(
   const reason = message
     .replace(new RegExp(`^Error running ${escapedName}:\\s*`), "")
     .replace(new RegExp(`^${escapedName}:\\s*`), "")
+    // `runToolCall` suffixes a contract error's own code; it is the marker
+    // that classified this stop, not part of the reason.
+    .replace(/\s*\(errorCode: permanent_precondition\)\s*$/i, "")
     .trim()
     // The headline appends its own sentence punctuation.
     .replace(/[.。]+$/, "");
@@ -7157,10 +7160,15 @@ export async function runAgentLoop(opts: {
               sanitizeToolErrorValue(err.message) ||
               `Stopped after ${toolCall.name} failed.`;
             result = sanitizeToolErrorValue(err.toolResult || message);
-            requestedActionStop ??= {
-              message,
-              ...(err.errorCode ? { errorCode: err.errorCode } : {}),
-            };
+            // A stop that is itself a permanent precondition gets its
+            // reason-led headline from `finalizeToolErrorResult`; seeding the
+            // raw message here would win its `??=` and hide that headline.
+            if (!permanentPreconditionRemedy(sanitizeToolErrorText(result))) {
+              requestedActionStop ??= {
+                message,
+                ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+              };
+            }
           } else {
             const message = sanitizeToolErrorValue(err);
             // A code the action chose is worth more to the model than the

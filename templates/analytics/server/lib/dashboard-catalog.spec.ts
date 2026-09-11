@@ -266,9 +266,13 @@ describe("dashboard catalog", () => {
     ]) {
       const catalogPanel = requiredFirstPartyPanel(id);
       const seedPanel = seedPanels.find((panel) => panel.id === id);
-      expect(seedPanel?.sql).toContain(
-        "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')",
-      );
+      // retention-over-time's spine reaches 365 days back and each anchor
+      // needs the six first-seen days before it, so its base looks back 371.
+      const lookbackFilter =
+        id === "retention-over-time"
+          ? "event_date >= to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD')"
+          : "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
+      expect(seedPanel?.sql).toContain(lookbackFilter);
       // retention-over-time's description dropped the "previous 365 days"
       // wording when it switched to describing per-row return-window
       // maturity instead of the cohort lookback; the other two panels are
@@ -284,9 +288,7 @@ describe("dashboard catalog", () => {
             ? "), observed"
             : "), ranked_first_seen",
       );
-      const lookback = sql.indexOf(
-        "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')",
-      );
+      const lookback = sql.indexOf(lookbackFilter);
       expect(lookback).toBeGreaterThan(sql.indexOf("WITH base AS"));
       expect(lookback).toBeLessThan(baseEnd);
       if (id !== "retention-over-time") {

@@ -164,4 +164,45 @@ describe("retention-over-time panel SQL", () => {
       Array.from({ length: 8 }, (_, n) => offsetDate(today, 7 - n)),
     );
   });
+
+  it("keeps the oldest 365d anchor's trailing cohort inside the base lookback", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const oldestAnchor = offsetDate(today, 365);
+    // First seen three days before the oldest anchor (368 days ago): inside
+    // that anchor's trailing 7-day cohort window, outside a bare 365-day base.
+    const cohortDate = offsetDate(today, 368);
+    for (const userKey of ["o1", "o2", "o3", "o4", "o5"]) {
+      await seedFirstSeenEvent(client, userKey, cohortDate);
+      await seedFirstSeenEvent(client, userKey, oldestAnchor);
+    }
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolate(panel.sql, {
+      timeRange: "365d",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          rate: number | null;
+        }>;
+      }
+    ).rows;
+    const row = rows.find(
+      (r) => r.date === oldestAnchor && r.period === "1-7d return",
+    );
+    expect(row?.cohort_users).toBe(5);
+    expect(row?.rate).toBe(1);
+  });
 });

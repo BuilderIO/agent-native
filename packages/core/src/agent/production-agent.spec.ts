@@ -6481,6 +6481,14 @@ describe("runAgentLoop", () => {
         "connect-google-calendar: Connect Google Calendar in settings first.",
       ),
     ).toBe("Connect Google Calendar in settings first");
+    // The ordinary contract-error shape carries its own code suffix; that is
+    // the marker, not a nested stop narrative, so the reason survives.
+    expect(
+      permanentPreconditionReason(
+        "mutate-dashboard",
+        "Error running mutate-dashboard: Requires editor role on dashboard d1 (have viewer) (errorCode: permanent_precondition)",
+      ),
+    ).toBe("Requires editor role on dashboard d1 (have viewer)");
     // Capped at ~240 chars so a verbose nested-stop message doesn't blow up
     // the headline.
     const long = "x".repeat(300);
@@ -6683,6 +6691,70 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).toContain(
       "mutate-dashboard can't run yet: Requires editor role on dashboard " +
         "agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    );
+  });
+
+  // An action that stops itself (AgentActionStopError) with a permanent
+  // precondition must get the same reason-led headline as a thrown error:
+  // the catch used to seed the raw message first, so the classifier's
+  // headline lost the `??=`.
+  it("leads the headline with the concrete reason when the action stops itself", async () => {
+    const run = vi.fn(async () => {
+      throw new AgentActionStopError(
+        "connect-google-calendar: Connect Google Calendar in settings first.",
+        { errorCode: "not_connected" },
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "cal-1",
+              name: "connect-google-calendar",
+              input: {},
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "connect-google-calendar": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "connect-google-calendar can't run yet: Connect Google Calendar in settings first",
     );
   });
 
