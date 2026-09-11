@@ -49,6 +49,7 @@ describe("portable extension runtime", () => {
     expect(html).toContain("positionedElements.forEach");
     expect(html).toContain("motionElements.forEach");
     expect(html).toContain("watchAnimationCompletion");
+    expect(html).toContain("Element.prototype.animate");
     expect(html).toContain("document.addEventListener('animationend'");
     expect(html).toContain("document.addEventListener('transitionend'");
     expect(html).not.toContain(
@@ -56,8 +57,6 @@ describe("portable extension runtime", () => {
     );
     expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");
-    expect(html).not.toContain("document.createTreeWalker(body, 4)");
-    expect(html).not.toContain("range.getClientRects()");
     const reportStart = html.indexOf("function reportHeight()");
     const reportEnd = html.indexOf(
       "window.addEventListener('load', reportHeight)",
@@ -73,6 +72,9 @@ describe("portable extension runtime", () => {
     );
     expect(html.slice(reportStart, reportEnd)).not.toContain(
       "document.createTreeWalker(body, 4)",
+    );
+    expect(html.slice(reportStart, reportEnd)).not.toContain(
+      "range.getClientRects()",
     );
     expect(html).toContain(
       "document.addEventListener('DOMContentLoaded', setupResizeObservation)",
