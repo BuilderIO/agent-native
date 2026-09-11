@@ -335,6 +335,7 @@ export function InlineExtensionFrame({
     role: providedExtension?.content ? "owner" : "viewer",
     isAuthor: !!providedExtension?.content,
   });
+  const transientSubmitInProgressRef = useRef(false);
   const bindingLatchedRef = useRef(false);
   const [fetchedExtension, setFetchedExtension] =
     useState<InlineExtensionDefinition | null>(null);
@@ -407,6 +408,7 @@ export function InlineExtensionFrame({
       : { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
     setHasSubmitted(false);
+    transientSubmitInProgressRef.current = false;
     setHeight(initialHeight);
   }, [initialHeight, isTransient, resolvedId, extension?.updatedAt]);
 
@@ -492,7 +494,11 @@ export function InlineExtensionFrame({
         const text = serializeChatValue((message as any).message);
         if (!text?.trim()) return;
         const submit = (message as any).submit === true;
-        if (isTransient && submit) setHasSubmitted(true);
+        if (isTransient && submit) {
+          if (transientSubmitInProgressRef.current) return;
+          transientSubmitInProgressRef.current = true;
+          setHasSubmitted(true);
+        }
         sendToAgentChat({
           message: text,
           context: serializeChatValue((message as any).context),
