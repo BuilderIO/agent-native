@@ -215,7 +215,7 @@ function parseSuggestionMarkdown(markdown: string) {
 
 function unsupportedSuggestionStructure(
   node: SuggestionDocumentJson,
-  path: number[] = [],
+  path: string[] = [],
   result: unknown[] = [],
 ): unknown[] {
   if (node.type === "text") {
@@ -237,21 +237,58 @@ function unsupportedSuggestionStructure(
     result.push({ path, node });
     return result;
   }
-  for (const [index, child] of (node.content ?? []).entries()) {
-    unsupportedSuggestionStructure(child, [...path, index], result);
+  for (const child of node.content ?? []) {
+    unsupportedSuggestionStructure(child, [...path, node.type ?? ""], result);
   }
   return result;
+}
+
+/**
+ * The two sides with the edit's own span cut out — the part of the Page the
+ * suggestion leaves alone. Comparing each side against this, rather than
+ * against each other, is what separates "the edit moved or rewrote an
+ * unsupported node" from "an untouched image sits after a block the edit added
+ * or removed".
+ */
+function unchangedSurround(before: string, after: string): string {
+  let prefix = 0;
+  while (
+    prefix < before.length &&
+    prefix < after.length &&
+    before[prefix] === after[prefix]
+  ) {
+    prefix += 1;
+  }
+  let suffix = 0;
+  const maxSuffix = Math.min(before.length, after.length) - prefix;
+  while (
+    suffix < maxSuffix &&
+    before[before.length - suffix - 1] === after[after.length - suffix - 1]
+  ) {
+    suffix += 1;
+  }
+  return `${before.slice(0, prefix)}${before.slice(before.length - suffix)}`;
+}
+
+function unsupportedStructureKey(markdown: string): string {
+  return JSON.stringify(
+    unsupportedSuggestionStructure(
+      parseSuggestionMarkdown(markdown).toJSON() as SuggestionDocumentJson,
+    ),
+  );
 }
 
 function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
 ) {
-  const before = parseSuggestionMarkdown(beforeMarkdown);
   const after = parseSuggestionMarkdown(afterMarkdown);
+  const surround = unsupportedStructureKey(
+    unchangedSurround(beforeMarkdown, afterMarkdown),
+  );
   if (
-    JSON.stringify(unsupportedSuggestionStructure(before.toJSON())) !==
-    JSON.stringify(unsupportedSuggestionStructure(after.toJSON()))
+    unsupportedStructureKey(beforeMarkdown) !== surround ||
+    unsupportedStructureKey(afterMarkdown) !== surround
   ) {
     throw new Error(
       "Content v1 suggestions cannot add or change unsupported structures",
