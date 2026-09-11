@@ -1,0 +1,127 @@
+---
+title: "Synchronisation interne"
+description: "Le mécanisme de version de changement derrière useDbSync : useChangeVersion/useChangeVersions pour synchroniser un useQuery brut, et les deux chemins de latence qu'une relance peut prendre."
+---
+
+# Synchronisation interne
+
+[Synchronisation en direct](/docs/key-concepts#polling-sync) couvre le modèle mental : une écriture de l'agent devient un événement de changement, `useDbSync()` le capte, et les requêtes affectées se relancent. Cette page couvre le mécanisme sous-jacent que la plupart des applications ne touchent jamais directement : les compteurs de version de changement que `useDbSync()` incrémente, et comment les intégrer dans un appel `useQuery()` brut qui ne passe pas par `useActionQuery()`.
+
+`useActionQuery()` se relance déjà automatiquement lorsqu'une action de mutation se termine (voir [Données et synchronisation](/docs/client-data#fetching-mutating)). Recourez à `useChangeVersion()`/`useChangeVersions()` uniquement lorsque vous synchronisez un appel `useQuery()` brut hors de ce chemin, comme un assistant client de bas niveau lisant un statut d'intégration.
+
+## Comment fonctionnent les versions de changement {#how-it-works}
+
+Lorsqu'une mutation de base de données côté serveur se produit, le serveur enregistre un événement de changement marqué avec une clé `source`. `useDbSync()` reçoit cet événement et incrémente un compteur local pour cette source. Intégrer le compteur dans une clé de requête React Query fait que la requête se relance automatiquement chaque fois que le backend signale une nouvelle activité pour cette source.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description:
+        'La source d\'événement de changement à surveiller, par ex. `"dashboards"`.',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description:
+      "Un compteur qui s'incrémente chaque fois que la source donnée est mutée.",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description:
+        "Plusieurs sources d'événements de changement à surveiller à la fois.",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "La somme des compteurs de version pour chaque source donnée.",
+  }}
+/>
+
+Dans l'exemple ci-dessous, un appel `useQuery()` brut lit directement un tableau de bord, en intégrant le compteur de version de la source `"dashboards"` dans sa clé de requête afin qu'il se relance chaque fois que cette source change :
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev` garde les données précédentes affichées pendant la relance, afin que la vue ne clignote pas vers un état de chargement.
+
+## Deux chemins vers une relance {#latency-models}
+
+Une mutation atteint l'UI d'une des deux façons, et elles ont des latences différentes.
+
+Une mutation locale, celle qu'un appel `useActionMutation()` propre vient de faire, déclenche un événement `source: "action"` dès qu'elle réussit. Chaque requête dépendant de cette action se relance immédiatement. Il n'y a pas de délai d'aller-retour, puisque l'onglet qui a fait l'écriture la connaît déjà.
+
+Une mutation distante, provenant de l'agent, d'un webhook, d'un autre onglet, ou d'un autre utilisateur, doit atteindre cet onglet d'abord. `useDbSync()` la capte via SSE presque immédiatement, ou via le secours par interrogation en environ deux secondes si SSE n'est pas disponible. Ce n'est qu'une fois cet événement arrivé que le compteur de version pertinent s'incrémente et que la requête se relance en arrière-plan.
+
+<Diagram id="doc-block-client-sync-internals-3" title="Deux chemins vers une relance" summary="Une mutation locale invalide instantanément ses propres caches. Une écriture distante atteint cet onglet via SSE, ou le tick d'interrogation en secours.">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">Cet onglet</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >déclenche source: "action" en cas de succès &rarr; relance locale
+        instantanée</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">Agent · webhook · autre onglet</span
+      ><strong>Écriture distante</strong
+      ><small class="diagram-muted"
+        >push SSE, ou le tick d'interrogation ~2 s en secours &rarr; le compteur
+        de version augmente &rarr; relance en arrière-plan</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## Quelle est la prochaine étape
+
+- [**Synchronisation en direct**](/docs/key-concepts#polling-sync) — le modèle mental conceptuel sous lequel se trouve cette page
+- [**Données et synchronisation**](/docs/client-data) — `useActionQuery`/`useDbSync`, que la plupart des pages devraient utiliser à la place de ces primitives
+- [**Avancé**](/docs/client-advanced) — les autres primitives et échappatoires de bas niveau du client

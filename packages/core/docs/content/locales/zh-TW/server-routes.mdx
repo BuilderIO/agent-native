@@ -1,0 +1,199 @@
+---
+title: "路由"
+description: "基於檔案的 Nitro 伺服器路由、SSR 全捕獲路由、命名慣例，以及將自訂路由限定給經驗證使用者的範圍。"
+---
+
+# 路由
+
+在 Agent-Native 應用中，伺服器路由分為兩個介面。
+
+**框架路由**位於 `/_agent-native/*`，由框架管理。它們對外提供 agent 聊天迴圈、同步輪詢、action 端點及其他核心功能。您不會建立或修改這些路由。
+
+**自訂檔案路由**位於 `server/routes/` 中，是您新增自己端點的地方。Nitro 會根據檔案在目錄樹中的位置自動選取它們——無需註冊或設定。檔名決定 HTTP 方法，目錄路徑構成 URL 路徑，每個檔案匯出單一處理常式。
+
+## 框架掛載的路由 {#framework-routes}
+
+框架為自身的端點保留了 `/_agent-native/` 命名空間。切勿在此放置自訂路由。下表僅具代表性，並非詳盡清單。
+
+| 路由前綴                         | 用途                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| `/_agent-native/actions/:name`   | Action HTTP 端點                                                         |
+| `/_agent-native/agent-chat`      | Agent 聊天迴圈                                                           |
+| `/_agent-native/poll`            | 由 SQL 支援的 UI 同步                                                    |
+| `/_agent-native/runs`            | 進度基本元件。`RunsTray` 會輪詢此端點；請參閱 [Progress](/docs/progress) |
+| `/_agent-native/resources/*`     | 工作區資源                                                               |
+| `/_agent-native/extensions/*`    | 執行時擴充功能與擴充功能代理（舊版別名：`/_agent-native/tools/*`）       |
+| `/_agent-native/integrations/*`  | 訊息／webhook 整合                                                       |
+| `/_agent-native/a2a`             | Agent 對 Agent 的 JSON-RPC                                               |
+| `/mcp`                           | MCP 端點                                                                 |
+| `/_agent-native/onboarding/*`    | 設定檢查清單                                                             |
+| `/_agent-native/observability/*` | 追蹤、意見回饋、評估、實驗                                               |
+| `/_agent-native/file-upload`     | 檔案上傳提供者端點                                                       |
+
+自訂的應用路由請放在 `/api/*` 或其他不與 `/_agent-native/` 衝突的路徑下。
+
+## 何時使用自訂路由 {#when-custom-routes}
+
+Actions 涵蓋了絕大多數的應用操作。只有在您需要某些 action 無法表達的能力時，才在 `server/routes/` 中使用檔案路由。
+
+<Comparison>
+
+### 使用自訂路由 {#use-custom-route}
+
+- 檔案上傳或多部分表單資料
+- 串流回應或伺服器發送事件（SSE）
+- 需要驗證原始內文的傳入 webhook
+- OAuth 回呼
+- 公開、無需驗證的頁面
+- 需要特定 URL 路徑或回應格式的外部 REST 合約
+
+### 改用 action {#use-action-instead}
+
+- UI 與 agent 都需要的操作
+- 讀取或寫入應用資料
+- HTTP 形式的端點（使用 [Actions](/docs/actions-overview) 中的 `http` 選項）
+- 任何應該成為 agent 工具、MCP 工具或 CLI 指令的功能
+- 標準的 JSON 請求／回應 API
+
+</Comparison>
+
+### 範例：傳入 webhook {#example-webhook}
+
+Webhook 是明確適合使用自訂路由的情境。外部服務會傳送一個原始 HTTP 內文，必須以位元組形式讀取後才能解析，這樣才能驗證請求簽章。Actions 收到的是預先解析好的 JSON，無法存取原始內文，因此在 action 內部驗證簽章是不可能的。
+
+下方的路由處理 `POST /api/webhooks/events` 這個傳入 webhook。它讀取原始內文、驗證 HMAC 簽章，然後處理該負載。
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+Nitro 會自動將此檔案對應到 `POST /api/webhooks/events`。`WEBHOOK_SECRET` 環境變數應設定為外部服務提供的簽章密鑰。
+
+## 基於檔案的路由 {#file-based-routes}
+
+目錄路徑構成 URL 路徑，檔名後綴決定 HTTP 方法。位於 `server/routes/api/items/[id].get.ts` 的檔案會對應到 `GET /api/items/:id`——`items/` 來自目錄，`[id]` 變成 `:id` 參數，`.get` 決定方法。
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> SSR 全捕獲路由，供公開頁面使用
+```
+
+`defineEventHandler` 是撰寫路由所用的 H3 基本元件。它包裝您的處理常式函式，並讓其能存取 `event` 物件，該物件攜帶請求、回應、路由參數、查詢字串、標頭與內文。從處理常式回傳一個值，就會將其作為回應送出——一個普通物件會自動變成 JSON。拋出 `createError` 則會送出對應的 HTTP 錯誤狀態。
+
+像 `[id]` 這樣的路由參數,可用 `getRouterParam` 從 `event` 中讀取：
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### 命名慣例 {#naming-conventions}
+
+| 檔案路徑（相對於 `server/routes/`） | HTTP 方法 | URL 路徑         |
+| ----------------------------------- | --------- | ---------------- |
+| `api/items/index.get.ts`            | GET       | `/api/items`     |
+| `api/items/index.post.ts`           | POST      | `/api/items`     |
+| `api/items/[id].get.ts`             | GET       | `/api/items/:id` |
+| `api/items/[id].patch.ts`           | PATCH     | `/api/items/:id` |
+| `api/items/[id].delete.ts`          | DELETE    | `/api/items/:id` |
+| `api/items/[...slug].get.ts`        | GET       | `/api/items/*`   |
+
+## 請求脈絡與存取 {#request-context}
+
+框架掛載的 actions 會自動在具備請求脈絡的情況下執行。自訂路由則不會。若自訂路由要讀取或寫入可共用資源，請載入工作階段並包裝該工作：
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="將自訂路由限定給請求使用者的範圍"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "自訂路由沒有自動脈絡",
+      note: "與 actions 不同，檔案路由必須自行載入工作階段，並在沒有經驗證使用者時直接失敗關閉。",
+    },
+    {
+      lines: "13",
+      label: "建立請求脈絡",
+      note: "`runWithRequestContext` 讓範圍限定幫手在整個工作期間都能取得使用者／組織資訊。",
+    },
+    {
+      lines: "17-20",
+      label: "限定可共用讀取的範圍",
+      note: "`accessFilter` 會將查詢限制在呼叫者可見的行內。切勿在此執行未限定範圍的 `db.select().from(ownableTable)`。",
+    },
+  ]}
+/>
+
+`getDb` 是由每個應用透過 `server/db/index.ts` 中的 `createGetDb(schema)` 建立的，因此自訂路由是從範本路徑（`../../db/index.js`）匯入它，而不是從 `@agent-native/core/db` 匯入。請參閱 [資料庫](/docs/server-database#db-client)。
+
+<Callout tone="warning">
+  請勿在自訂路由中執行未限定範圍的
+  `db.select().from(ownableTable)`。查詢可共用資料之前，務必先用
+  `runWithRequestContext` 建立請求脈絡。
+</Callout>
+
+## SSR 全捕獲路由 {#ssr-catch-all}
+
+位於 `server/routes/` 根目錄的 `[...page].get.ts` 路由,負責處理面向公眾頁面的伺服器端渲染。它使用 `createH3SSRHandler` 將工作交給 React Router 的建置產物：
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+每個 SSR 回應都是一個不具個人化、公開的殼層，並在 CDN 快取。切勿在此處理常式中讀取 cookie、工作階段狀態或驗證分支。個人化是在用戶端 hydration 後才發生的。
+
+## 下一步是什麼 {#whats-next}
+
+- [**Actions**](/docs/actions-overview)：應用操作的首選介面；只有在不合用時才改用路由
+- [**外掛**](/docs/server-plugins)：啟動外掛與其初始化行為
+- [**中間件**](/docs/server-middleware)：保護所有路由（包括 `/api/*`）的驗證守衛
+- [**Security**](/docs/security#access-guards)：`accessFilter`／`assertAccess` 與完整的資料範圍限定模型

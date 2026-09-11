@@ -1,0 +1,54 @@
+{
+  "name": "@agent-native/frame",
+  "version": "0.1.154",
+  "private": true,
+  "description": "Local dev frame — agent chat + CLI sidebar with app iframe",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/frame"
+  },
+  "files": [
+    "client",
+    "src",
+    "index.html",
+    "vite.config.ts",
+    "CHANGELOG.md"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "catalog:",
+    "@tanstack/react-query": "^5.99.2",
+    "h3": "catalog:",
+    "listhen": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@agent-native/core": "workspace:*",
+    "@agent-native/shared-app-config": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "catalog:",
+    "tsx": "catalog:",
+    "typescript-7": "catalog:",
+    "vite": "catalog:"
+  },
+  "peerDependencies": {
+    "@agent-native/core": ">=0.24.0",
+    "@agent-native/shared-app-config": ">=0.1.0"
+  }
+}

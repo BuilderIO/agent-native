@@ -1,0 +1,274 @@
+import { callAction } from "@agent-native/core/client/hooks";
+import type { TweakDefinition } from "@shared/api";
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
+
+import type { UploadedFile } from "@/components/editor/PromptDialog";
+
+import {
+  coveredIntakeTopics,
+  INTAKE_QUESTION_TOPIC_LABELS,
+  INTAKE_QUESTION_TOPICS,
+  uncoveredIntakeTopics,
+  type IntakeTopicCoverage,
+} from "./intake-question-topics";
+
+const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
+  "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating or editing. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
+
+export function formatUploadedFileContext(files: UploadedFile[]): string {
+  if (files.length === 0) return "";
+
+  const lines: string[] = [
+    "",
+    `The user uploaded ${files.length} file(s) for context:`,
+  ];
+
+  files.forEach((file, index) => {
+    lines.push(
+      `${index + 1}. ${file.originalName} (${file.type}, ${(file.size / 1024).toFixed(1)}KB) at path: ${file.path}`,
+    );
+    const text = file.textContent?.trim();
+    if (text) {
+      lines.push(
+        `Extracted text${file.textTruncated ? " (truncated)" : ""}:\n${text}`,
+      );
+    }
+  });
+
+  return lines.join("\n");
+}
+
+export function imageAttachmentsFromUploadedFiles(
+  files: UploadedFile[],
+): string[] {
+  return files
+    .map((file) => file.dataUrl)
+    .filter((dataUrl): dataUrl is string => !!dataUrl?.trim());
+}
+
+export function formatTweakDefinitionsContext(
+  tweaks: TweakDefinition[],
+): string {
+  if (tweaks.length === 0) return "None yet.";
+  return JSON.stringify(
+    tweaks.map((tweak) => ({
+      id: tweak.id,
+      label: tweak.label,
+      type: tweak.type,
+      cssVar: tweak.cssVar,
+      defaultValue: tweak.defaultValue,
+      options: tweak.options,
+      min: tweak.min,
+      max: tweak.max,
+      step: tweak.step,
+    })),
+    null,
+    2,
+  );
+}
+
+export function designSystemGenerationDirectives(
+  designSystemId?: string | null,
+): string[] {
+  if (!designSystemId) return [];
+  return [
+    `Use design system id "${designSystemId}" for this generation.`,
+    "Use the selected design system context in this message as mandatory generation input. If details are missing or conflict, call `get-design-system` for that id before writing visual code.",
+    `When calling \`generate-design\`, pass \`designSystemId: "${designSystemId}"\` so the design remains linked.`,
+  ];
+}
+
+export function designSystemTemplateEditDirectives(
+  designSystemId?: string | null,
+): string[] {
+  if (!designSystemId) return [];
+  return [
+    `Use design system id "${designSystemId}" while adapting the copied template.`,
+    "Use the selected design system context in this message as mandatory edit input. If details are missing or conflict, call `get-design-system` for that id before editing.",
+    "Apply the system through `edit-design` while preserving the copied structure and every locked subtree. Do not call `generate-design`.",
+  ];
+}
+
+interface DesignSystemGenerationContextResult {
+  title?: string;
+  agentContext?: string;
+}
+
+export async function loadDesignSystemGenerationContext(
+  designSystemId?: string | null,
+): Promise<string> {
+  if (!designSystemId) return "";
+  try {
+    const result = (await callAction(
+      "get-design-system",
+      { id: designSystemId },
+      { method: "GET" },
+    )) as DesignSystemGenerationContextResult | undefined;
+    if (result?.agentContext?.trim()) {
+      return [
+        "",
+        result.agentContext.trim(),
+        "",
+        "The selected design system context above was hydrated before this agent run. Follow it directly; do not replace it with generic colors, fonts, spacing, or components.",
+      ].join("\n");
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "unknown loading error";
+    return [
+      "",
+      "## Selected Design System Context",
+      `The selected design system id "${designSystemId}" could not be loaded before generation: ${message}`,
+      "Before writing visual code, call `get-design-system` for this id. If it still fails, stop and tell the user the selected design system is unavailable instead of improvising a generic style.",
+    ].join("\n");
+  }
+  return [
+    "",
+    "## Selected Design System Context",
+    `The selected design system id "${designSystemId}" returned no generation context.`,
+    "Call `get-design-system` for this id before writing visual code. If it still has no usable tokens/docs, stop and ask the user to finish design-system indexing instead of improvising a generic style.",
+  ].join("\n");
+}
+
+export interface IntakeQuestionContextHint {
+  coverage: IntakeTopicCoverage;
+  /** True when the Creative Context lookup itself failed - see loadIntakeContext. */
+  contextUnavailable?: boolean;
+  unavailableReason?: string;
+}
+
+export function designIntakeQuestionDirectives(
+  designId: string,
+  designSystemId?: string | null,
+  referenceImageCount = 0,
+  contextHint?: IntakeQuestionContextHint,
+): string[] {
+  const covered = contextHint ? coveredIntakeTopics(contextHint.coverage) : [];
+  const uncovered = contextHint
+    ? uncoveredIntakeTopics(contextHint.coverage)
+    : [...INTAKE_QUESTION_TOPICS];
+  const uncoveredLabels = uncovered.map(
+    (topic) => INTAKE_QUESTION_TOPIC_LABELS[topic],
+  );
+  return [
+    `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
+    WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+    ...designSystemGenerationDirectives(designSystemId),
+    ...referenceImageDirectives(referenceImageCount),
+    "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
+    covered.length
+      ? `Available Creative Context already answers: ${covered.map((topic) => INTAKE_QUESTION_TOPIC_LABELS[topic]).join(", ")}. Do NOT ask about these - name what you're following from context in your summary instead.`
+      : "",
+    `Make the questions feel like Claude Design intake, covering what's genuinely still open: ${uncoveredLabels.join(", ")}. Omit or rephrase anything the user's prompt already answered.`,
+    contextHint?.contextUnavailable
+      ? `Creative Context could not be checked before this run (${contextHint.unavailableReason ?? "lookup failed"}). That is different from no context existing - do not treat it as "nothing saved". Ask the normal question set above, and mention in your reply that saved context couldn't be verified this time.`
+      : "",
+    "Use concise option chips with `allowOther: true`; include a practical `Decide for me` option where useful. Use `multiSelect: true` for feature/interactions questions.",
+    "Set a specific title like `Quick questions about your todo app` and a short description. After `show-design-questions` succeeds, wait for the user's answers.",
+  ].filter(Boolean);
+}
+
+export function promptRequestsVariantExploration(prompt: string): boolean {
+  const normalized = prompt.toLowerCase();
+  const asksForVariants =
+    /\b(variant|variants|variation|variations|direction|directions|option|options|concept|concepts|exploration|explorations)\b/.test(
+      normalized,
+    );
+  if (!asksForVariants) return false;
+  return (
+    /\b(2|3|4|5|two|three|four|five|multiple|several|distinct|different|choose|compare|side[-\s]?by[-\s]?side)\b/.test(
+      normalized,
+    ) || /\bto choose from\b/.test(normalized)
+  );
+}
+
+export function designVariantGenerationDirectives(
+  designId: string,
+  designSystemId?: string | null,
+): string[] {
+  return [
+    `Use the \`present-design-variants --designId="${designId}"\` action first. The design already exists - DO NOT call create-design.`,
+    WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+    ...designSystemGenerationDirectives(designSystemId),
+    "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
+    "Call `present-design-variants` with 2-5 concise directions (3 when unspecified). Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Every web design must be responsive; default each desktop direction to width 1440 and height 1024. Use mobile dimensions only when the user explicitly requested a mobile-first primary artboard.",
+    'Wait for the user\'s chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.',
+    DESIGN_MUTATION_REQUIRED_DIRECTIVE,
+  ];
+}
+
+/**
+ * An attached UI screenshot is the specification. Reproducing it is the whole
+ * job, so these directives ship in the same prompt as the image — the skill
+ * body is not in the system prompt and loses every conflict against directives
+ * that are.
+ */
+export function referenceImageDirectives(
+  referenceImageCount: number,
+): string[] {
+  if (referenceImageCount < 1) return [];
+  return [
+    `The user attached ${referenceImageCount} reference image(s) to this message. Treat any image showing a UI as a layout specification to reproduce, not as loose inspiration.`,
+    "Match its regions and their positions, navigation pattern, information hierarchy, density, component grammar (tabs vs pills, cards vs rows, sidebar vs topbar), and approximate proportions. Briefly name what you see before building so a misread can be corrected early.",
+    "Do NOT substitute your own composition, palette, or font for something the image or the linked design system already specifies — including choices a generic quality heuristic would discourage. Deviate only where the image is genuinely unreadable, and say so when you do.",
+    "Do NOT call `show-design-questions` or `present-design-variants` about anything the image already answers; the direction is chosen. Generate the one design it specifies.",
+  ];
+}
+
+/**
+ * The selected element's markup is a potential structural specification the
+ * same way an attached screenshot is a visual one (see
+ * `referenceImageDirectives` above) — but grounded in real markup/CSS
+ * instead of pixels, so there is nothing to infer visually. Unlike an
+ * attached image, a selection isn't necessarily a reference: the user might
+ * just be pointing at something to edit. So this always ships with the
+ * selection, and leaves the "is this a reference" call to the agent reading
+ * the user's own next message — a client-side keyword guess would both miss
+ * real phrasings ("build off this", "keep the same vibe") and misfire on
+ * ordinary edits that happen to say "this".
+ */
+export function structuralReferenceDirectives(label: string): string[] {
+  return [
+    `If the user's message asks for a design modeled after, similar to, or based on the selected element ("${label}") — rather than an edit to it — treat this markup as the reference specification.`,
+    "In that case, read the real colors, spacing, typography, and hierarchy directly from the markup below rather than treating it as loose inspiration, and model the new design after those precise, literal values (hex/OKLCH colors, font families and sizes, padding/margin/gap numbers, border radii, class names) instead of approximating them.",
+    "If the user's message is instead asking to edit or discuss this selected element itself, ignore this reference framing and handle it as a normal edit/question against the selection.",
+  ];
+}
+
+export function designGenerationDirectives(
+  designId: string,
+  designSystemId?: string | null,
+  referenceImageCount = 0,
+): string[] {
+  return [
+    `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
+    WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+    ...designSystemGenerationDirectives(designSystemId),
+    ...referenceImageDirectives(referenceImageCount),
+    'If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
+    'Responsive behavior is mandatory for every web design: use a mobile-first layout, include a viewport meta tag, stack or collapse desktop columns at narrow widths, and never rely on a fixed-width desktop shell. Default to a desktop primary artboard. For a Desktop or Both/responsive intake answer, pass `primaryViewport: "desktop"` and `canvasFrames` with width 1440 and height 1024; pass `primaryViewport: "mobile"` only when the user explicitly chooses a mobile-primary artboard.',
+    "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
+    "After generate-design succeeds, run `take-design-screenshot` at desktop and mobile viewports. Fix any horizontal overflow or layout breakage with edit-design before summarizing what was created.",
+    DESIGN_MUTATION_REQUIRED_DIRECTIVE,
+  ];
+}
+
+export function designTemplateRefinementDirectives(
+  designId: string,
+  templateId: string,
+  designSystemId?: string | null,
+): string[] {
+  return [
+    `This design was copied from template "${templateId}". Its files, canvas dimensions, defaults, and locked layers already exist.`,
+    WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+    ...designSystemTemplateEditDirectives(designSystemId),
+    `Call \`get-design-snapshot --designId="${designId}"\` exactly once before editing.`,
+    `The copied screens are edited in place, so they stop showing the template once this run saves. \`view-screen\` reports the template's authoritative dimensions and fonts as \`design.createdFromTemplate\` on every turn — keep them unchanged. Call \`get-design-template --designId="${designId}"\` when you need the template's original markup or locked layers.`,
+    "Refine the existing template with `edit-design`; do not call `generate-design`, `delete-file`, or create a replacement screen.",
+    'Layers marked `data-agent-native-locked="true"` and everything inside them must remain byte-for-byte unchanged. The server rejects changes to locked backgrounds, logos, and other fixed template layers.',
+    "Preserve canvasFrames and the template's width and height. Change only the unlocked content needed for the user's request.",
+    "Prefer one bounded search-replace edit pass. Use replace-file only when necessary, and keep every locked subtree exactly as it appeared in the snapshot.",
+    "After edit-design succeeds, stop and summarize the refinement.",
+    DESIGN_MUTATION_REQUIRED_DIRECTIVE,
+  ];
+}

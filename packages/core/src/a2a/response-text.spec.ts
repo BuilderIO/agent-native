@@ -1,0 +1,103 @@
+import { describe, expect, it } from "vitest";
+
+import type { AgentChatEvent } from "../agent/types.js";
+import { collectFinalResponseTextFromAgentEvents } from "./response-text.js";
+
+describe("collectFinalResponseTextFromAgentEvents", () => {
+  it("returns all text when no tools ran", () => {
+    expect(
+      collectFinalResponseTextFromAgentEvents([
+        { type: "text", text: "Hello " },
+        { type: "text", text: "there" },
+        { type: "done" },
+      ]),
+    ).toBe("Hello there");
+  });
+
+  it("drops pre-tool narration and keeps the final answer after the last tool", () => {
+    const events: AgentChatEvent[] = [
+      { type: "text", text: "I will check analytics." },
+      { type: "tool_start", tool: "call-agent", input: {} },
+      { type: "tool_done", tool: "call-agent", result: "371" },
+      { type: "text", text: "371 pageview events yesterday." },
+      { type: "done" },
+    ];
+
+    expect(collectFinalResponseTextFromAgentEvents(events)).toBe(
+      "371 pageview events yesterday.",
+    );
+  });
+
+  it("uses text after the last tool when several tools ran", () => {
+    const events: AgentChatEvent[] = [
+      { type: "text", text: "Let me route that." },
+      { type: "tool_start", tool: "call-agent", input: {} },
+      { type: "tool_done", tool: "call-agent", result: "queued" },
+      { type: "text", text: "I have the first result." },
+      { type: "tool_start", tool: "create-document", input: {} },
+      { type: "tool_done", tool: "create-document", result: "{}" },
+      { type: "text", text: "Here is the finished deck URL." },
+    ];
+
+    expect(collectFinalResponseTextFromAgentEvents(events)).toBe(
+      "Here is the finished deck URL.",
+    );
+  });
+
+  it("falls back to all text when the post-tool window is empty", () => {
+    const events: AgentChatEvent[] = [
+      { type: "text", text: "Created it." },
+      { type: "tool_start", tool: "create-document", input: {} },
+      { type: "tool_done", tool: "create-document", result: "{}" },
+      { type: "done" },
+    ];
+
+    expect(collectFinalResponseTextFromAgentEvents(events)).toBe("Created it.");
+  });
+
+  it("can leave the response empty instead of falling back to pre-tool narration", () => {
+    const events: AgentChatEvent[] = [
+      { type: "text", text: "I will ask Analytics to check that." },
+      { type: "tool_start", tool: "call-agent", input: {} },
+      {
+        type: "tool_done",
+        tool: "call-agent",
+        result:
+          "[agent-native:a2a-continuation-queued]\nThe Analytics agent is still working.",
+      },
+      { type: "done" },
+    ];
+
+    expect(
+      collectFinalResponseTextFromAgentEvents(events, {
+        fallbackToPreToolText: false,
+      }),
+    ).toBe("");
+  });
+
+  it("drops rejected guarded text before the latest clear", () => {
+    const events: AgentChatEvent[] = [
+      { type: "text", text: "Draft with fake data." },
+      { type: "clear" },
+      { type: "text", text: "Corrected answer." },
+      { type: "done" },
+    ];
+
+    expect(collectFinalResponseTextFromAgentEvents(events)).toBe(
+      "Corrected answer.",
+    );
+  });
+
+  it("does not fall back to pre-clear text after a rejected post-tool draft", () => {
+    const events: AgentChatEvent[] = [
+      { type: "text", text: "I will check analytics." },
+      { type: "tool_start", tool: "call-agent", input: {} },
+      { type: "tool_done", tool: "call-agent", result: "queued" },
+      { type: "text", text: "Rejected draft." },
+      { type: "clear" },
+      { type: "done" },
+    ];
+
+    expect(collectFinalResponseTextFromAgentEvents(events)).toBe("");
+  });
+});

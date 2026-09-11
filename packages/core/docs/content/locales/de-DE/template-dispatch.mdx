@@ -1,0 +1,153 @@
+---
+title: "Dispatch"
+description: "Dispatch ist die Kontrollebene des Arbeitsbereichs – zentraler Posteingang, App-übergreifende Orchestrierung, Tresor für Geheimnisse, Slack-/Telegram-Integration und geplante Jobs."
+---
+
+# Dispatch
+
+Dispatch ist die App, die Sie neben Ihren anderen Agent-Native-Apps betreiben, um einen Multi-App-Arbeitsbereich koordiniert zu halten: ein Posteingang für jeden Kanal, ein Tresor für Geheimnisse und ein Agent, der jede Anfrage an die richtige Spezial-App weiterleitet, anstatt zu versuchen, alles selbst zu erledigen. Sie ist für diejenigen gedacht, die den Arbeitsbereich betreiben – nicht für jemanden, der eine einzelne eigenständige App baut.
+
+<Callout tone="info">
+
+**Siehe auch:** Für den konzeptionellen Überblick darüber, was Dispatch tut und wann Sie es einsetzen möchten, siehe [Dispatch](/docs/dispatch). Diese Seite ist die vorlagenspezifische Referenz.
+
+</Callout>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65b2b76a0dec44dbbbaec738e5512228?alt=media&token=f5ad219e-c566-43b2-90ca-a51c72d9a607&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Eine kurze Bildschirmaufnahme, die einen Rundgang durch die Dispatch-Übersicht, den Posteingang und den App-Launcher zeigt."
+  caption="Ein kurzer Rundgang durch Dispatch."
+  autoplay={true}
+  loop={true}
+/>
+
+Wenn Sie einen [Multi-App-Arbeitsbereich](/docs/multi-app-workspace) mit vielen Apps betreiben, ist Dispatch der Klebstoff, der alles zusammenhält.
+
+## Dispatch in der Praxis {#in-practice}
+
+### Eine Frage in Slack wird zu einer Analysenotiz
+
+Eine Nachricht in einem Kanal kann am Ende zu einer Änderung in einer völlig anderen App führen, ohne dass jemand Informationen manuell kopieren muss.
+
+<Sequence>
+
+### Der Kanal **#marketing** erhält ein Update zu einem wichtigen Kunden
+
+### :blue: **Dispatch** sieht die Nachricht und erkennt sie als Analysenotiz
+
+### Eine Notiz zu diesem Kunden wird in **Analytics** hinzugefügt
+
+</Sequence>
+
+### Ein Montagsbericht zieht Daten aus einer anderen App
+
+Ein wiederkehrender Job braucht keine eigene Kopie der Daten einer anderen App. Er fragt sie einfach bei jedem Lauf an.
+
+<Sequence>
+
+### Ein wiederkehrender Job **erwacht** jeden Montag um 7 Uhr
+
+### :blue: **Dispatch** fragt den Analyseagenten nach den Anmeldungen der letzten Woche
+
+### Eine Zusammenfassung wird dem Team **per E-Mail zugesandt**
+
+</Sequence>
+
+### Ein rabattierter Deal erhält die Freigabe von zwei anderen Teams
+
+Eine einzelne Genehmigung kann mehrere Apps und Teams durchlaufen, bevor sie abgeschlossen ist, wobei Dispatch jede Anfrage und Antwort weiterleitet, sodass niemand seine eigene App verlassen muss, um sie voranzubringen.
+
+<Sequence>
+
+### Ein **Vertriebsmitarbeiter** beantragt eine Rabattgenehmigung im CRM
+
+### :blue: **Dispatch** fragt den Agenten der Finanzabteilung, ob dies richtlinienkonform ist
+
+### Die **Finanzabteilung** genehmigt es in ihrer eigenen App
+
+### :blue: **Dispatch** bittet den Agenten der Rechtsabteilung, die Vertragsbedingungen zu prüfen
+
+### Die **Rechtsabteilung** markiert eine Klausel und fordert eine Änderung
+
+### :blue: **Dispatch** leitet die Änderung zurück an den Vertriebsmitarbeiter
+
+</Sequence>
+
+## Was es ersetzt {#what-it-replaces}
+
+<Comparison>
+
+### Vorher
+
+- Ein Slack-Bot, ein E-Mail-Postfach und ein Support-Alias, jeweils manuell mit einer anderen App verdrahtet
+- Eine `.env`-Datei und eine Kopie jedes darin enthaltenen Schlüssels, dupliziert für jede App
+- Ein Cron-Job oder Admin-Skript pro App für alles Wiederkehrende
+- Keine zentrale Stelle, um zu sehen, was sich geändert hat, wer es genehmigt hat oder was eine App für LLM-Aufrufe ausgibt
+
+### Nachher
+
+- Ein Posteingang: Slack, Teams, Discord, Telegram, WhatsApp und E-Mail erreichen alle denselben Agenten
+- Ein Tresor: jede Anmeldeinformation wird einmal gespeichert und den Apps gewährt oder mit ihnen synchronisiert, die sie benötigen
+- Eine zentrale Stelle für wiederkehrende Jobs, die Speicher-Überprüfungsschleife von Dreams und Admin-Genehmigungen
+- Eine Operator-Konsole für Audit-Verlauf, Nutzung und Thread-Debugging über alle Apps hinweg
+
+</Comparison>
+
+<Callout tone="success">
+
+**Dispatch kann die nächste App für Sie erstellen.** Beschreiben Sie im Chat, was Sie brauchen – „baue mir eine App zur Verfolgung des Kunden-Onboardings" – und Dispatch startet eine brandneue Schwester-App unter `apps/`, anstatt einer bestehenden App weitere Bildschirme anzuflanschen. Siehe [App-Erstellungsübergabe](/docs/template-dispatch-developers#app-creation), um zu sehen, wie das tatsächlich funktioniert, lokal und in einer gehosteten Bereitstellung.
+
+</Callout>
+
+## Was es tut {#what-it-does}
+
+- **Zentraler Posteingang.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp und E-Mail landen alle an einem Ort. Dispatch sichtet die Anfragen und bearbeitet sie entweder selbst oder delegiert sie. Siehe [Zentraler Posteingang und Weiterleitung](/docs/template-dispatch-features#central-inbox-and-routing).
+- **Kontrollebenen-Shell.** Chats, Projekte, Läufe, Arbeitsbereichs-Apps, Agenten und Automatisierungen befinden sich in einer einzigen operativen Shell, mit statusorientierten Listen und Detailansichten anstelle von Einzel-Dashboards.
+- **Orchestrator, kein Spezialist.** Dispatch versucht _nicht_, die E-Mail-App oder die Analyse-App zu sein. Wenn jemand fragt „Fasse die Anmeldungen der letzten Woche zusammen", ruft Dispatch den Analyseagenten über A2A auf und gibt die Antwort zurück.
+- **Tresor für Geheimnisse und wiederverwendbare Integrationen.** API-Schlüssel, OAuth-Token und Anbieterkonten werden einmal gespeichert und den Apps gewährt, die sie benötigen, mit einem Anfrage-/Genehmigungsablauf und einem Prüfprotokoll. Siehe [Anmeldedaten und Integrationen](/docs/template-dispatch-features#credentials-and-integrations).
+- **Arbeitsbereichsressourcen.** Globale Skills, Leitplanken-Anweisungen, benutzerdefinierte Agentenprofile, Referenzressourcen und HTTP-MCP-Server können einmal in Dispatch erstellt werden. All-App-Ressourcen werden zur Laufzeit von jeder App ohne Kopierschritt übernommen; ausgewählte Berechtigungen decken app-spezifische Ausnahmen ab.
+- **Geplante Jobs und Dreams.** App-übergreifende wiederkehrende Jobs befinden sich hier, zusammen mit einer Überprüfungsschleife, die aktuelle Läufe untersucht und Verbesserungen an Speicher, Skills und Anweisungen vorschlägt. Siehe [Automatisierungen und geplante Jobs](/docs/template-dispatch-features#automations-and-scheduled-jobs) und [Dreams und Genehmigungen](/docs/template-dispatch-features#dreams-and-approvals).
+- **Genehmigungsablauf.** Dauerhafte Änderungen – gespeicherte Zustellziele, All-App-Arbeitsbereichsressourcen und geteilte oder teamweite Dream-Speichervorschläge – können die Zustimmung eines zweiten Administrators erfordern, bevor sie wirksam werden.
+- **Neue Apps aus dem Chat heraus erstellen.** Beschreiben Sie einen Bedarf in einfachen Worten, und Dispatch baut eine echte, unabhängige Schwester-App auf, anstatt einer bestehenden App einen weiteren Bildschirm hinzuzufügen.
+
+## Wann Sie es einsetzen sollten {#when-to-use}
+
+Verwenden Sie Dispatch, wenn:
+
+- Sie **zwei oder mehr** Agent-Native-Apps in einem Arbeitsbereich haben und einen zentralen Ort zur Koordination zwischen ihnen möchten.
+- Sie **zentralisierte Geheimnisse** mit App-spezifischen Berechtigungen und einem Prüfprotokoll benötigen.
+- Sie einen **Messaging-Hub** möchten, der Slack, Teams, Discord, Telegram, WhatsApp oder E-Mail an den richtigen Domänen-Agenten weiterleitet.
+- Sie **geplante Jobs** möchten, die Daten aus mehreren Apps abrufen.
+
+Verzichten Sie bei einem Einzel-App-Gerüst darauf – verwenden Sie stattdessen direkt die [Chat-Vorlage](/docs/template-chat) oder eine der Domänenvorlagen.
+
+Live-Demo: [dispatch.agent-native.com](https://dispatch.agent-native.com).
+
+## Was Sie damit im Alltag tun {#what-youll-do}
+
+- **Verbinden Sie Ihre Kanäle.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp oder E-Mail – siehe [Einen Kanal verbinden](/docs/template-dispatch-features#connecting-a-channel) für die Einrichtungsschritte.
+- **Speichern Sie Geheimnisse und verbinden Sie Anbieter einmalig.** Jede andere App im Arbeitsbereich greift auf den Tresor oder eine gemeinsame Verbindung zurück, anstatt eine eigene Kopie vorzuhalten. Siehe [Anmeldedaten und Integrationen](/docs/template-dispatch-features#credentials-and-integrations).
+- **Halten Sie den Unternehmenskontext global.** Legen Sie Personas, Positionierung, Unternehmensfakten und Leitplanken einmal in den Dispatch-Ressourcen ab und sehen Sie sich dann eine Vorschau des effektiven Stapels Arbeitsbereich → App/Organisation → Persönlich für eine beliebige App oder Nutzer:in an.
+- **Richten Sie wiederkehrende Jobs ein.** „Frage jeden Montag um 7 Uhr den Analyseagenten nach den Anmeldungen der letzten Woche und schicke mir eine Zusammenfassung per E-Mail." Siehe [Automatisierungen und geplante Jobs](/docs/template-dispatch-features#automations-and-scheduled-jobs).
+- **Überprüfen Sie Dream-Vorschläge.** Die Speicher-Überprüfungsschleife von Dispatch untersucht frühere Läufe und schlägt quellenbelegte Änderungen an dem vor, was sich der Arbeitsbereich merkt.
+- **Sichern Sie dauerhafte Änderungen ab.** Gespeicherte Ziele, All-App-Arbeitsbereichsressourcen und geteilte Dream-Vorschläge können die Zustimmung eines zweiten Administrators erfordern, bevor sie angewendet werden – siehe den [Genehmigungsablauf](/docs/template-dispatch-features#approval-flow).
+- **Behalten Sie die Operator-Konsole im Blick.** Monitoring, Datenbankverwaltung, Thread-Debugging, Audit-Verlauf und Nutzungsmetriken befinden sich alle unter einem Dach – siehe [Operator-Konsole im Überblick](/docs/template-dispatch-features#operator-console-at-a-glance).
+- **Starten Sie eine neue App aus dem Chat heraus.** Fragen Sie nach dem, was Sie brauchen, und Dispatch baut eine neue Schwester-App auf, anstatt eine bestehende zu erweitern.
+
+## Erste Schritte {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-platform
+# Dispatch wird automatisch einbezogen. Chat abwählen, um nur Dispatch zu erhalten, oder Domain-Apps auswählen, die daneben erstellt werden sollen
+```
+
+Dispatch wird fast immer zusammen mit den Apps, die es koordiniert, in einen Arbeitsbereich eingebaut – eine Kontrollebene ohne etwas zu koordinieren ist nur ein leerer Posteingang. Siehe [Erste Schritte](/docs/getting-started) zum Installieren der Abhängigkeiten, Starten des Entwicklungsservers und Erstellen Ihres ersten Kontos.
+
+## Nächste Schritte
+
+- [**Funktionen**](/docs/template-dispatch-features) – jeder Funktionsbereich mit den jeweiligen Einrichtungsschritten
+- [**Mit dem Agenten sprechen**](/docs/template-dispatch-agent) – Prompts nach Aufgabe und wie der Agent Ihren Bildschirm sieht
+- [**Dispatch in einem Multi-App-Arbeitsbereich**](/docs/template-dispatch-integrations) – wie andere Apps sich mit Dispatch verbinden und wie Dispatch sie entdeckt
+- [**Dispatch-Entwicklerhandbuch**](/docs/template-dispatch-developers) – die Aufteilung von Paket und App, das Gerüst und die Anpassung
+- [**Dispatch-Aktions- und Datenreferenz**](/docs/template-dispatch-reference) – das vollständige Aktionsinventar, das Datenbankschema und die Routenliste
+- [**Multi-App-Arbeitsbereich**](/docs/multi-app-workspace) – Dispatch zusammen mit mehreren Apps betreiben

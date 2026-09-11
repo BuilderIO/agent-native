@@ -1,0 +1,358 @@
+---
+title: "Extending Design"
+description: "The data model, action reference, and editor extension points for customizing or building on the Design template."
+---
+
+# Extending Design
+
+This page is for anyone customizing the Design template or building on top of it directly: the data model, the full action surface, and how the editor's overview canvas and extension points fit together.
+
+### Quick start
+
+```bash
+npx @agent-native/core@latest create my-design --standalone --template design
+```
+
+See [Getting started](/docs/getting-started) for installing dependencies, running the dev server, and the rest of the setup. For a workspace with Design alongside other apps, run `npx @agent-native/core@latest create my-platform` and pick Design during setup.
+
+### Where the code lives
+
+<FileTree
+  id="doc-block-design12"
+  title="templates/design/ — actions and skills"
+  entries={[
+    { path: "actions/", note: "~240 files — one per agent-callable operation" },
+    { path: "actions/create-design.ts", note: "Create the empty design shell" },
+    {
+      path: "actions/generate-design.ts",
+      note: "Write generated HTML/JSX file content",
+    },
+    {
+      path: "actions/edit-design.ts",
+      note: "Surgical search/replace edits to an existing file",
+    },
+    {
+      path: "actions/export-coding-handoff.ts",
+      note: "The canonical design-to-code handoff bundle",
+    },
+    { path: "app/routes/design.$id.tsx", note: "The editor route" },
+    { path: "app/routes/present.$id.tsx", note: "Presentation / share view" },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle schema — designs, files, versions, systems, shares, plus 7 feature tables",
+    },
+    {
+      path: ".agents/skills/design-generation/SKILL.md",
+      note: "5-phase generation flow, aesthetic quality bar",
+    },
+    {
+      path: ".agents/skills/design-systems/SKILL.md",
+      note: "Brand tokens, Figma import/read/paste",
+    },
+    {
+      path: ".agents/skills/full-app-build/SKILL.md",
+      note: "Flag-gated fusion (full app) mode",
+    },
+  ]}
+/>
+
+Core routes in the UI live under `templates/design/app/routes/`: `_index.tsx` (list), `design.$id.tsx` (editor), `present.$id.tsx` (presentation), `design-systems.tsx` and `design-systems_.setup.tsx`, `templates.tsx`, `examples.tsx`, `extensions.tsx` and its nested routes, `observability.tsx`, `visual-edit.tsx`, plus `settings.tsx` and `team.tsx`.
+
+## Data model
+
+All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schema.ts`. Designs and design systems carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+The table below covers the core ownable resources — designs, files, templates, versions, and design systems.
+
+| Table                                    | What it holds                                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `designs`                                | A design project — `title`, `description`, `project_type` (`prototype` / `other`), the `data` JSON blob, and an optional `design_system_id` link |
+| `design_files`                           | Individual files belonging to a design (`filename`, `content`, `file_type` defaulting to `html`)                                                 |
+| `design_templates`                       | Reusable template metadata, dimensions, defaults, source design reference, and locked-layer count                                                |
+| `design_template_files`                  | Snapshotted template files copied into a normal editable design when a user starts from a template                                               |
+| `design_template_shares`                 | Framework shares table for private, org, explicitly shared, and public template discovery                                                        |
+| `design_versions`                        | Point-in-time `snapshot`s of a design with an optional `label`, for history and rollback                                                         |
+| `design_systems`                         | Reusable brand tokens — `data` (colors/typography/spacing), `assets`, `custom_instructions`, and an `is_default` flag                            |
+| `design_shares` / `design_system_shares` | Framework shares tables mapping principals (users or orgs) to roles (viewer, editor, admin)                                                      |
+
+<DataModel
+  id="doc-block-design11"
+  title="Design data model"
+  summary={
+    "A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
+  }
+  entities={[
+    {
+      id: "designs",
+      name: "designs",
+      note: "A design project (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "project_type",
+          type: "text",
+          note: "prototype / other",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "starts as {}",
+        },
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "files",
+      name: "design_files",
+      note: "Files in a design",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "filename",
+          type: "text",
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "file_type",
+          type: "text",
+          note: "defaults to html",
+        },
+      ],
+    },
+    {
+      id: "versions",
+      name: "design_versions",
+      note: "History / rollback",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "snapshot",
+          type: "json",
+        },
+        {
+          name: "label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "systems",
+      name: "design_systems",
+      note: "Reusable brand tokens (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "design_shares",
+      name: "design_shares",
+      note: "Framework shares table",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "system_shares",
+      name: "design_system_shares",
+      note: "Framework shares table",
+      fields: [
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "designs",
+      to: "files",
+      kind: "1-n",
+    },
+    {
+      from: "designs",
+      to: "versions",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "designs",
+      kind: "1-n",
+      label: "applied to",
+    },
+    {
+      from: "designs",
+      to: "design_shares",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "system_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
+
+A design project is a shell until it has content: `create-design` makes an empty row (`data: "{}"`), then `generate-design` writes the actual standalone HTML/JSX files. The generated artifact, the editable source, and every export all come from the same HTML, so there is no separate "AI mockup" format to translate. A linked design system supplies tokens and `custom_instructions` that the agent honors on every generation pass.
+
+Seven more tables back features covered elsewhere in this tree rather than the core resource model: `design_localhost_connections` and `design_localhost_write_grants` back the [`/visual-edit` bridge](/docs/template-design-collaboration-and-full-apps#visual-edit), `component_index` backs [reusable components](/docs/template-design-quality-and-components#components), `motion_timeline` backs [editable motion](/docs/template-design-quality-and-components#motion), `design_state` holds named alternate states, static fixtures, and live-app captures for a design, `design_fusion_edits` backs the [fusion edit queue](/docs/template-design-collaboration-and-full-apps#full-app-building), and `design_review_snapshot` caches the accessibility findings and visual diff behind `get-design-review` (see [the audit pass](/docs/template-design-quality-and-components#audit-and-screenshot)).
+
+Persisted review comments and threads (`get-review-feedback`, `resolve-review-thread`, and the rest — see [review feedback](/docs/template-design-collaboration-and-full-apps#review-feedback)) are not a Design-specific table at all: they're the shared framework review system from `@agent-native/core/review` (`agent_review_comments` / `agent_review_statuses`), scoped to a design the same way any app can attach it.
+
+## Key actions
+
+Every design-specific operation is a TypeScript file in `templates/design/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. The groupings:
+
+- **Designs** — `create-design` (empty shell), `generate-design` (write generated HTML/JSX content), `edit-design`, `update-design`, `get-design`, `list-designs`, `duplicate-design`, `delete-design`, `apply-tweaks` for persisting live tweak-knob values, `present-design-variants` for the side-by-side variant picker, `show-design-questions`, and `generate-screens`.
+- **Files** — `create-file`, `update-file`, `list-files`, `delete-file`.
+- **Templates** — `list-design-templates`, `create-design-from-template`, `save-design-as-template`, `delete-design-template`.
+- **Design systems & brand import** — `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system`, `analyze-brand-assets`, `import-from-url`, `index-design-system-with-builder`, `import-design-tokens`, `import-document`, `import-design-project`.
+- **Figma** — `import-figma-frame`, `import-figma-clipboard`, `get-figma-design-context`, `get-figma-styles`, `get-figma-connection-status`, `list-figma-library-assets`, `insert-figma-library-asset`, `hydrate-figma-paste-images`.
+- **Breakpoints and screen states** — `add-breakpoint`, `remove-breakpoint`, `set-active-breakpoint`, `create-design-state`, `apply-design-state`, `capture-design-state`, `list-design-states`, `delete-design-state`.
+- **Components** — `create-component`, `index-components`, `get-component-details`, `preview-component-prop-edit`, `apply-component-prop-edit`, `detach-component-instance`, `swap-component-instance`, `go-to-main-component`, `open-component-source`.
+- **Motion & shaders** — `get-motion-timeline`, `apply-motion-edit`, `remove-motion-timeline`, `apply-shader`, `apply-shader-fill`, `preview-shader-fill`, `get-shader`.
+- **Quality** — `run-design-audit`, `apply-a11y-fix`, `take-design-screenshot`, `get-design-review`.
+- **Review feedback** (framework-level, not in `templates/design/actions`) — `get-review-feedback`, `create-review-comment`, `reply-review-comment`, `resolve-review-thread`, `send-review-thread-to-agent`, `consume-review-feedback`, `list-review-comments`, `delete-review-comment`, `set-review-status`.
+- **Export & handoff** — `export-html`, `export-zip`, `export-pdf`, `export-svg`, `export-design-as-figma-svg`, `export-coding-handoff`.
+- **Full App Building** (fusion, flag-gated) — `create-fusion-app`, `sync-fusion-app`, `add-fusion-screens`, `queue-fusion-edit`, `list-fusion-edits`, `apply-fusion-edits`, `send-fusion-message`, `push-fusion-app`, `deploy-fusion-app`, `get-fusion-deploy-status`, `create-design-branch`, `get-design-branch-diff`, `deploy-design-preview`, `migrate-inline-design-to-app`, `connect-builder-app`.
+- **Localhost bridge** (`/visual-edit`) — `connect-localhost`, `list-localhost-connections`, `add-localhost-screens`, `request-localhost-write-consent`, `grant-localhost-write-consent`, `revoke-localhost-write-consent`.
+- **Local/code source editing** — `read-source-file`, `apply-source-edit`, `list-source-files`, `get-code-layer-projection`, `read-local-file`, `write-local-file`, `list-local-files` — for localhost- and fusion-backed designs where the underlying files aren't inline HTML rows.
+- **Context & navigation** — `view-screen` (current design, open file, view, pending question or variant choice), `get-design-snapshot` (current state for an external agent to continue from), and `navigate`.
+
+### Working with the agent
+
+The agent always knows what you have open. The current design, the open file, the active view, and any pending question or variant choice are returned by `view-screen` and injected into every message, so you can say "make this denser" or "export this variant" without naming the design.
+
+Because a design is just standalone HTML/JSX files, the agent edits the same source the preview renders and every export comes from — there is no separate "AI mockup" format to translate. Select text or a region in the preview and hit Cmd+I to focus the agent on exactly that part.
+
+## Editor model
+
+Design is overview-first for multi-screen work. After generation or broad
+updates, the editor opens the screen overview: an infinite canvas where each
+screen is a static frame you can select, move, resize, drop, or duplicate.
+Use a frame's full-view button when one screen needs focused scrolling or
+prototype interaction.
+
+Single-screen mode is for scrolling, interacting with prototype behavior, and
+editing the DOM/code layers inside one rendered file. The layers panel reflects
+that split: screens are top-level frames, with nested DOM/code layers for the
+active screen.
+
+Every screen is one document rendered at different widths, not separate
+copies per breakpoint: a base (widest) frame cascades down, and edits made at
+a narrower active breakpoint persist as width-scoped overrides on top of it.
+
+## Editor extensions
+
+The editor includes an **Extensions** inspector tab after **Tweaks**. It works
+like a Design-specific plugin lane: users can click **+ Extension** to ask the
+agent to build an extension, or install an extension that declares the
+`design.editor.inspector` slot — using the framework's `create-extension`,
+`add-extension-slot-target`, and `install-extension` actions, not a
+Design-specific action.
+
+Design extensions render inline beside the artboard through the standard
+extension sandbox. The host passes `window.slotContext` and
+`window.onSlotContext(...)` updates with the current `designId`, active file,
+screen list, selected screen ids, selected element metadata, view mode, zoom,
+active tool, and tweak values. That lets an extension show information about
+the current selection, offer style controls, or build compact workflows around
+the open design.
+
+For deterministic work, extensions can call app actions through the extension
+bridge. For AI-driven changes, have the extension call
+`agentNative.chat.send(...)` with the selected element selector/source id and
+requested change. The agent should call `view-screen` first, then use
+`apply-visual-edit` for element style, class, text, or move changes, or
+`update-design` / `generate-design` with `canvasFrames` for artboard placement
+changes. See [Extensions](/docs/extensions#capabilities) for the
+sandbox, persistent state, and bridge APIs.
+
+## Customizing it
+
+Design is a complete, cloneable template. Some practical extension ideas:
+
+- "Add a reusable ecommerce design system with our tokens and sample components."
+- "Add an export step that uploads the ZIP to our internal review system."
+- "Let me paste existing landing-page HTML and ask the agent for three stronger versions."
+- "Add a saved prompt library for product-page, dashboard, and onboarding-screen briefs."
+- "Add a custom PDF export preset for stakeholder review."
+
+The agent edits routes, components, actions, and SQL-backed models as needed. See [Templates](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
+
+## What's next
+
+- [**Design**](/docs/template-design) — back to the overview
+- [**Brand Systems and Figma**](/docs/template-design-brand-and-figma) — design systems and Figma import
+- [**Quality Passes and Components**](/docs/template-design-quality-and-components) — the audit/screenshot pass, components, motion, shaders
+- [**Review, Handoff, and Full Apps**](/docs/template-design-collaboration-and-full-apps) — visual editing, review feedback, export, and fusion mode
+- [**Context Awareness**](/docs/context-awareness) — how the agent knows what the user is viewing
+- [**Creating Templates**](/docs/creating-templates) — current build patterns for agent-native templates

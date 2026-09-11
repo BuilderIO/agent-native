@@ -1,0 +1,153 @@
+---
+title: "Dispatch"
+description: "Dispatch 是工作區控制平面：中央收件箱、跨應用程式協調、秘密保管庫、Slack/Telegram 整合，以及排程工作。"
+---
+
+# Dispatch
+
+Dispatch 是您與其他 Agent-Native 應用程式一起執行的應用程式，用於讓多應用程式工作區保持協調：每個管道共用同一個收件箱、同一個秘密保管庫，以及一個會將每項請求路由到正確專業應用程式的代理，而不是自己包辦所有工作。它是給執行工作區的人使用的，不是給建置單一獨立應用程式的人使用的。
+
+<Callout tone="info">
+
+**另請參閱：** 有關 Dispatch 的功能，以及何時會需要它的概念總覽，請參閱 [Dispatch](/docs/dispatch)。此頁面是範本專屬的參考文件。
+
+</Callout>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65b2b76a0dec44dbbbaec738e5512228?alt=media&token=f5ad219e-c566-43b2-90ca-a51c72d9a607&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="一段簡短的畫面錄影，帶您瀏覽 Dispatch 總覽、收件箱與應用程式啟動器。"
+  caption="Dispatch 簡短導覽。"
+  autoplay={true}
+  loop={true}
+/>
+
+如果您正在執行帶有許多應用程式的 [multi-app workspace](/docs/multi-app-workspace)，Dispatch 就是粘合劑。
+
+## Dispatch 實際運作 {#in-practice}
+
+### Slack 中的提問變成一則分析記錄
+
+一個頻道中的訊息，最終可能變成完全不同應用程式中的一項變更，而不需要任何人手動複製資訊。
+
+<Sequence>
+
+### **#marketing** 頻道收到一項重要客戶的最新資訊
+
+### :blue: **Dispatch** 看到這則訊息，並將其識別為一則分析記錄
+
+### 系統會在 **分析** 中新增一筆與該客戶相關的記錄
+
+</Sequence>
+
+### 週一報表從另一個應用程式提取資料
+
+重複性工作不需要保留另一個應用程式資料的自有副本，它只需要在每次執行時去要資料即可。
+
+<Sequence>
+
+### 一項重複性工作每週一早上 7 點**啟動**
+
+### :blue: **Dispatch** 向分析代理詢問上週的註冊數
+
+### 一份摘要會**以電子郵件**傳送給團隊
+
+</Sequence>
+
+### 一筆折扣交易獲得另外兩個團隊的簽核
+
+一次核准可能會在完成之前牽涉多個應用程式和團隊，而 Dispatch 會轉發每項請求與回覆，讓所有人都不必離開自己的應用程式，就能推進流程。
+
+<Sequence>
+
+### 一位**業務代表**在 CRM 中請求核准折扣
+
+### :blue: **Dispatch** 詢問財務的代理這是否符合政策
+
+### **財務**在自己的應用程式中核准
+
+### :blue: **Dispatch** 請法務的代理檢查合約條款
+
+### **法務**標記出一項條款並要求修改
+
+### :blue: **Dispatch** 將此變更轉達給業務代表
+
+</Sequence>
+
+## 它取代了什麼 {#what-it-replaces}
+
+<Comparison>
+
+### 之前
+
+- 一個 Slack 機器人、一個電子郵件收件箱，以及一個支援別名，各自手動接到不同的應用程式
+- 一個 `.env` 檔案，以及其中每支金鑰的副本，在每個應用程式中都重複一份
+- 每個應用程式各自為任何重複性工作準備一個 cron 工作或管理員腳本
+- 沒有單一地方可以查看發生了什麼變更、是誰核准的，或某個應用程式在 LLM 呼叫上花費了多少
+
+### 之後
+
+- 一個收件箱：Slack、Teams、Discord、Telegram、WhatsApp 和電子郵件全都會抵達同一個代理
+- 一個保管庫：每項憑證只需儲存一次，再授予或同步給需要它的應用程式
+- 重複性工作、夢想的記憶審查迴圈，以及管理員核准，全都集中在同一個地方
+- 一個操作員主控台，涵蓋所有應用程式的審核歷史、使用量和對話串偵錯
+
+</Comparison>
+
+<Callout tone="success">
+
+**Dispatch 可以為您建置下一個應用程式。** 在聊天中描述您的需求，例如「幫我建置一個用來追蹤客戶引導流程的應用程式」，Dispatch 就會在 `apps/` 底下啟動一個全新的同層級應用程式，而不是在既有應用程式上疊加更多畫面。請參閱 [應用程式建立交接](/docs/template-dispatch-developers#app-creation)，了解它在本機和託管部署中實際如何運作。
+
+</Callout>
+
+## 它的作用 {#what-it-does}
+
+- **中央收件箱。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp 和電子郵件全都會集中在同一個地方。Dispatch 會進行分類，自行處理請求或將其委派出去。請參閱 [中央收件箱與路由](/docs/template-dispatch-features#central-inbox-and-routing)。
+- **控制平面 shell。** 聊天、專案、執行、工作區應用程式、代理和自動化全都位於同一個操作 shell 中，採用以狀態為優先的清單與細節深入檢視，而不是一次性的儀表板。
+- **協調者，而不是專家。** Dispatch _不會_ 試圖成為郵件應用程式或分析應用程式。當有人詢問「總結上週的註冊情況」時，Dispatch 會透過 A2A 呼叫分析代理並回傳答案。
+- **秘密保管庫與可重複使用的整合。** API 金鑰、OAuth 權杖和供應商帳戶只需儲存一次，即可授予給需要它們的應用程式，並搭配請求／核准流程與審核記錄。請參閱 [憑證與整合](/docs/template-dispatch-features#credentials-and-integrations)。
+- **工作區資源。** 全域 skills、護欄指令、自訂代理設定檔、參考資源，以及 HTTP MCP 伺服器，都可以在 Dispatch 中建立一次。所有應用程式範圍的資源會在執行時由每個應用程式繼承，不需要任何複製步驟。選定的授權則涵蓋特定應用程式的例外情況。
+- **排程工作與夢想。** 跨應用程式的重複性工作都集中在這裡，並搭配一個會檢查近期執行紀錄、進而提出記憶、skill 和指令改進建議的審查迴圈。請參閱 [自動化與排程工作](/docs/template-dispatch-features#automations-and-scheduled-jobs) 與 [夢想與核准](/docs/template-dispatch-features#dreams-and-approvals)。
+- **核准流程。** 持久性變更（包括已儲存的傳送目的地、所有應用程式範圍的工作區資源，以及共用或團隊範圍的夢想記憶提案）可以要求由第二位管理員核准後才會生效。
+- **從聊天中建置新的應用程式。** 只要用平常的語言描述需求，Dispatch 就會產生一個真正獨立的同層級應用程式，而不是在既有應用程式上再多加一個畫面。
+
+## 何時使用它 {#when-to-use}
+
+在以下情況下使用 Dispatch：
+
+- 您在工作區中擁有**兩個或以上**的 agent-native 應用程式，並希望有一個地方能在它們之間進行協調。
+- 您需要**集中管理的秘密**，並具備逐應用程式授權與審核記錄。
+- 您想要一個**訊息中心**，能將 Slack、Teams、Discord、Telegram、WhatsApp 或電子郵件路由到正確的領域代理。
+- 您想要**排程工作**，從多個應用程式中提取資料。
+
+如果只是單一應用程式的腳手架，可以跳過 Dispatch，直接使用 [Chat template](/docs/template-chat) 或任何領域範本。
+
+線上示範：[dispatch.agent-native.com](https://dispatch.agent-native.com)。
+
+## 您日常會用它做什麼 {#what-youll-do}
+
+- **連接您的管道。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp 或電子郵件，接線步驟請參閱 [連接一個管道](/docs/template-dispatch-features#connecting-a-channel)。
+- **儲存秘密並連接供應商一次即可。** 工作區中的其他每個應用程式都會從保管庫或共用連線中提取資料，而不是各自保留一份副本。請參閱 [憑證與整合](/docs/template-dispatch-features#credentials-and-integrations)。
+- **讓公司脈絡保持全域一致。** 只要將人物設定、定位、公司資訊和護欄放進 Dispatch 資源一次，就能為任何應用程式或使用者預覽有效的工作區 → 應用程式/組織 → 個人堆疊。
+- **設定重複性工作。**「每週一早上 7 點，向分析代理詢問上週的註冊數，並把摘要寄一封電子郵件給我。」請參閱 [自動化與排程工作](/docs/template-dispatch-features#automations-and-scheduled-jobs)。
+- **審查夢想提案。** Dispatch 的記憶審查迴圈會檢查先前的執行紀錄，並針對工作區所記住的內容提出有來源依據的變更建議。
+- **把關持久性變更。** 已儲存的傳送目的地、所有應用程式範圍的工作區資源，以及共用的夢想提案，都可以要求由第二位管理員核准後才會套用，請參閱 [核准流程](/docs/template-dispatch-features#approval-flow)。
+- **留意操作員主控台。** 監控、資料庫管理、對話串偵錯、審核歷史，以及使用量指標，全都集中在同一個地方，請參閱 [操作員主控台一覽](/docs/template-dispatch-features#operator-console-at-a-glance)。
+- **從聊天中快速建立新應用程式。** 只要提出您的需求，Dispatch 就會產生一個新的同層級應用程式，而不是擴增既有的應用程式。
+
+## 開始使用 {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-platform
+# Dispatch 會自動包含。取消勾選 Chat 可僅使用 Dispatch，或選擇要一起搭建的領域應用
+```
+
+Dispatch 幾乎總是與它所協調的應用程式一起被建置到工作區中，畢竟一個沒有任何東西可協調的控制平面，就只是一個空的收件箱。安裝相依套件、執行開發伺服器，以及建立您的第一個帳號，請參閱 [Getting started](/docs/getting-started)。
+
+## 下一步是什麼
+
+- [**Features**](/docs/template-dispatch-features) — 每個功能領域，並附上各自的設定步驟
+- [**Talk to the Agent**](/docs/template-dispatch-agent) — 依任務分類的提示語，以及代理如何看待您的畫面
+- [**Dispatch in a Multi-App Workspace**](/docs/template-dispatch-integrations) — 其他應用程式如何連接到 Dispatch，以及 Dispatch 如何發現它們
+- [**Dispatch developer guide**](/docs/template-dispatch-developers) — 套件與應用程式的拆分方式、腳手架搭建，以及如何自訂
+- [**Dispatch action and data reference**](/docs/template-dispatch-reference) — 完整的操作清單、資料庫結構描述，以及路由列表
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — 與多個應用程式一起執行 Dispatch

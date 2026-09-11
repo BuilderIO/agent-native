@@ -1,0 +1,40 @@
+---
+title: "Formularios en un espacio de trabajo con varias apps"
+description: "Cómo se conecta Formularios con Dispatch y otras apps, y los dos mecanismos reales que usan otras apps para actuar sobre un formulario o enviarle datos."
+---
+
+# Formularios en un espacio de trabajo con varias apps
+
+Formularios es una app entre muchas en un espacio de trabajo de [Dispatch](/docs/template-dispatch). Esta página cubre lo que eso significa en la práctica: cómo funciona la conexión, y formas concretas en que otras apps pueden actuar sobre un formulario o enviarle datos. Consulta [Formularios](/docs/template-forms) para ver la visión general.
+
+## Cómo se conecta Formularios con Dispatch
+
+Que esto sea automático depende de cómo se configuraron juntos Formularios y Dispatch, no de si alguno de los dos está alojado o ejecutándose localmente.
+
+### Mismo espacio de trabajo: automático
+
+Si Formularios y Dispatch se generaron o se añadieron juntos en un mismo espacio de trabajo de Agent-Native (mediante `create` o `add-app`) y se desplegaron como una sola unidad, ya comparten un `.env`, un `A2A_SECRET` y un registro de espacio de trabajo. Tanto el descubrimiento como las llamadas A2A autenticadas simplemente funcionan, sin nada que configurar, ya sea que ese espacio de trabajo se ejecute en tu máquina o en producción. Esta es la configuración esperada para un producto real con varias apps construido sobre Formularios.
+
+### Despliegues separados: un paso manual
+
+Si Formularios y Dispatch son dos proyectos de Agent-Native creados de forma independiente, no comparten un secreto y todavía no pueden llamarse entre sí. Conectarlos requiere un paso manual en cada lado: añade un recurso `remote-agents/<id>.json` con un secreto compartido, desde Configuración → Agentes conectados, la pestaña Conexiones de la página del Agent, o Dispatch → Agentes → Añadir agente externo. Consulta [Protocolo A2A](/docs/a2a-protocol) para ver el recorrido completo.
+
+Para comprobar en qué situación estás, pregúntale al agente de cualquiera de las dos apps "¿qué apps puedes ver?" Si Formularios falta en la respuesta de Dispatch, estás en el segundo caso.
+
+## Estrategias de integración
+
+**Delegación en lenguaje natural a través de Dispatch.** Una app hermana no necesita una integración especial para trabajar con Formularios. Puede pasarle al agente de Formularios una solicitud en lenguaje sencillo, como "cuántas respuestas tiene el formulario de registro beta," de la misma forma en que lo harías en el chat, y Formularios responde o actúa directamente sobre ella. Este es el mecanismo real detrás de algo como una pregunta que llega por Slack o Mail y se convierte en una respuesta real de Formularios: Dispatch (o la app que recibió el mensaje) delega la solicitud al agente de Formularios, y Formularios la gestiona como cualquier otra petición.
+
+**Otras apps enviando datos directamente a un formulario.** Formularios no necesita A2A ni Dispatch en absoluto para que otra app le envíe datos. Cualquier app puede mandar una solicitud web simple a la dirección de envío pública de un formulario, de la misma forma en que lo hace quien responde de forma anónima al llenar la página pública. El propio botón de comentarios del framework funciona exactamente así. Envía un envío a una app de Formularios desplegada desde dentro de la barra lateral de otra app, junto con de qué página y de qué app vinieron los comentarios, y Formularios lo registra como una respuesta normal. Esto significa que cualquier app de tu espacio de trabajo puede enviar datos estructurados a un formulario sin ninguna conexión A2A en absoluto, solo una solicitud web simple.
+
+**Mantenerse desacoplado.** Ya sea que Formularios esté respondiendo a una pregunta delegada o recibiendo un envío directo, nunca necesita conocer las credenciales de la app que lo llama, y la app que lo llama nunca necesita saber nada sobre cómo Formularios almacena sus datos. La delegación pasa por el agente como cualquier otra petición, y un envío directo pasa por la misma dirección pública que usaría un respondiente humano.
+
+## Qué sigue
+
+- [**Formularios**](/docs/template-forms) — la visión general y lo que sustituye
+- [**Funciones**](/docs/template-forms-features) — cada área de funciones, con pasos de configuración para cada una
+- [**Hablar con el Agent**](/docs/template-forms-agent) — cada petición por tarea y cómo ve el agente tu pantalla
+- [**Guía para desarrolladores**](/docs/template-forms-developers) — cada acción y el modelo de datos detrás de estas funciones
+- [**Dispatch**](/docs/template-dispatch) — el plano de control del espacio de trabajo bajo el que se ejecutan estos patrones
+- [**Protocolo A2A**](/docs/a2a-protocol) — cómo las apps se descubren, se autentican y se llaman entre sí
+- [**Espacio de trabajo con varias apps**](/docs/multi-app-workspace) — el patrón general de componer apps propias en lugar de anidarlas

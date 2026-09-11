@@ -1,0 +1,117 @@
+---
+title: "Content"
+description: "MDX 的开源 Obsidian：编辑本地 Markdown/MDX 文件，构建 Notion 风格的数据库，并使用 AI 代理进行写作。"
+---
+
+# Content
+
+Content 是 MDX 的开源 Obsidian：一个对本地文件友好的文档工作区，代理可以在其中为你读取、写入、重新组织并发布页面。打开一篇文档，说“把这段改写得更简洁一些”，或者“创建一个名为第四季度规划的页面，并添加目标、指标和风险几个子页面”，无论是你自己动手，还是让代理来做，结果都是一样的。
+
+<WireframeBlock id="doc-block-content1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+打开应用后，你会在编辑器旁边看到一个页面树。代理始终知道你正在查看哪个页面、选中了哪些文字，因此文档编辑可以始终基于当前页面进行。
+
+<Diagram id="doc-block-content2" title="一份文档，三个同步表面" summary={"你和代理都通过同一条实时编辑管道进行写入。SQL 是规范存储，本地文件、Notion 和 Builder CMS 是围绕它的可选同步表面。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      你输入<br /><small class="diagram-muted">slash 菜单、工具栏</small>
+    </div>
+    <div class="diagram-node">
+      代理编辑<br /><small class="diagram-muted"
+        >edit-document find/replace</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    documents (markdown)<br /><small class="diagram-muted">规范 SQL 存储</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      本地 .md / .mdx<br /><small class="diagram-muted">/local-files</small>
+    </div>
+    <div class="diagram-box">
+      Notion 页面<br /><small class="diagram-muted">拉取 · 推送</small>
+    </div>
+    <div class="diagram-box">
+      Builder CMS 条目<br /><small class="diagram-muted"
+        >拉取 · 受保护推送</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 你可以用它做什么
+
+- **编写和组织文档。** 富文本编辑、无限嵌套的页面树、收藏、评论、版本历史和共享。参见[编写与组织文档](/docs/template-content-editing)。
+- **构建 Notion 风格的数据库。** 每一行都是独立文档的表格，支持带类型的属性，以及表格、列表、画廊、看板、日历、时间线和表单视图。参见[数据库、属性与表单](/docs/template-content-databases)。
+- **收集结构化提交内容。** 把数据库变成一个接收表单，让代理、Slack 或其他应用都能安全地向其中提交数据。参见[数据库、属性与表单](/docs/template-content-databases)。
+- **像使用 Obsidian 一样在磁盘上编辑文件**，并让文档与 Notion 或 Builder CMS 保持同步。参见[本地文件、Notion 与 Builder CMS 同步](/docs/template-content-sync)。
+- **实时协作。** 多个人（以及代理）可以同时编辑同一份文档，而不会互相覆盖对方的修改。
+- **共享文档**给团队成员，或将其公开。文档默认是私有的，并提供查看者、编辑者和管理员三种角色。
+- **向代理提出任何需求**：“重写这段文字。”“在顶部加一段 TL;DR。”“找出我上周所有的会议记录。”“创建一个测试报名数据库，并配一个用于 Slack 提交的表单。”
+
+## 开始使用
+
+现场演示：[content.agent-native.com](https://content.agent-native.com)。
+
+打开应用后，点击侧边栏中的 **+ 新建页面**，为它取一个标题，然后开始写作。要使用代理，请在侧边栏中输入：
+
+- “创建一个名为 Onboarding 的页面，并在下面添加三个子页面。”
+- “把这段文字改写得更简洁一些。”（打开页面时）
+- “添加一个关于定价的部分，包含三个要点。”
+- “把这篇文档总结成顶部的一段 TL;DR。”
+- “从 Notion 拉取最新内容。”（链接 Notion 页面后）
+
+选中文字并按 Cmd+I，可以让代理聚焦在这段已预先加载的选中内容上。这样一来，“让这段更有力”这样的指令，就会精确作用于你选中的内容。
+
+要搭建你自己的 Content 副本：
+
+```bash
+npx @agent-native/core@latest create my-content --standalone --template content
+```
+
+关于其余的设置步骤（`cd`、`pnpm install`、`pnpm dev`）以及框架基础知识，请参见[开始使用](/docs/getting-started)。
+
+## 后续内容
+
+- [**编写与组织文档**](/docs/template-content-editing) — 编辑器、页面树、评论、版本历史和共享
+- [**数据库、属性与表单**](/docs/template-content-databases) — 内联数据库、属性类型、视图、外部数据源和接收表单
+- [**本地文件、Notion 与 Builder CMS 同步**](/docs/template-content-sync) — Obsidian 风格的文件夹工作流，以及与 Notion 和 Builder CMS 的双向同步
+- [**开发者指南**](/docs/template-content-developers) — 数据模型、action 清单、路由，以及如何扩展该模板
+- [**模板**](/docs/cloneable-saas) — 克隆并拥有的模式，以及可作为起点的所有其他领域模板
+- [**开始使用**](/docs/getting-started) — 框架基础：actions、application state 和实时同步
+- [**实时协作**](/docs/real-time-collaboration) — 文档与其他协作表面共享的 Yjs 管道
+- [**共享**](/docs/sharing) — 文档所基于的共享授权模型

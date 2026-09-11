@@ -1,0 +1,123 @@
+---
+title: "Contenu"
+description: "Obsidian open source pour MDX : modifiez des fichiers Markdown/MDX locaux, créez des bases de données façon Notion et écrivez avec un agent IA."
+---
+
+# Contenu
+
+Contenu est Obsidian open source pour MDX : un espace de travail documentaire adapté aux fichiers locaux, dans lequel l'agent peut lire, écrire, réorganiser et publier des pages pour vous. Ouvrez un document, demandez "réécris ce paragraphe pour qu'il soit plus concis" ou "crée une page appelée Planification T4 avec des sous-pages pour Objectifs, Métriques et Risques". Le résultat est le même, que vous le fassiez vous-même ou que vous le demandiez à l'agent.
+
+<WireframeBlock id="doc-block-content1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+Lorsque vous ouvrez l'application, vous voyez une arborescence de pages à côté de l'éditeur. L'agent sait toujours quelle page vous consultez et quel texte vous avez sélectionné, de sorte que les modifications du document restent ancrées dans la page actuelle.
+
+<Diagram id="doc-block-content2" title="Un document, trois surfaces de synchronisation" summary={"Vous et l'agent écrivez tous les deux via le même pipeline d'édition en direct. SQL est le magasin canonique. Les fichiers locaux, Notion et Builder CMS sont des surfaces de synchronisation facultatives autour de lui."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Vous saisissez<br /><small class="diagram-muted"
+        >menu slash, barre d'outils</small
+      >
+    </div>
+    <div class="diagram-node">
+      L'agent modifie<br /><small class="diagram-muted"
+        >edit-document find/replace</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    documents (markdown)<br /><small class="diagram-muted"
+      >stockage SQL canonique</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Fichiers locaux .md / .mdx<br /><small class="diagram-muted"
+        >/local-files</small
+      >
+    </div>
+    <div class="diagram-box">
+      Pages Notion<br /><small class="diagram-muted">pull · push</small>
+    </div>
+    <div class="diagram-box">
+      Entrées Builder CMS<br /><small class="diagram-muted"
+        >pull · push protégé</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Ce que vous pouvez en faire
+
+- **Rédigez et organisez des documents.** Édition de texte enrichi, arborescence de pages infiniment imbriquée, favoris, commentaires, historique des versions et partage. Voir [Rédiger et organiser des documents](/docs/template-content-editing).
+- **Créez des bases de données façon Notion.** Des tables où chaque ligne est elle-même un document, avec des propriétés typées et des vues tableau, liste, galerie, kanban, calendrier, chronologie ou formulaire. Voir [Bases de données, propriétés et formulaires](/docs/template-content-databases).
+- **Recueillez des soumissions structurées.** Transformez une base de données en formulaire d'admission dans lequel l'agent, Slack ou une autre application peut envoyer des données en toute sécurité. Voir [Bases de données, propriétés et formulaires](/docs/template-content-databases).
+- **Modifiez des fichiers sur disque comme avec Obsidian**, et gardez vos documents synchronisés avec Notion ou Builder CMS. Voir [Synchronisation avec les fichiers locaux, Notion et Builder CMS](/docs/template-content-sync).
+- **Collaborez en temps réel.** Plusieurs personnes (et l'agent) peuvent modifier le même document en même temps, sans que les modifications des uns n'écrasent celles des autres.
+- **Partagez des documents** avec vos coéquipiers ou rendez-les publics. Ils sont privés par défaut, avec des rôles de lecteur, éditeur ou administrateur.
+- **Demandez n'importe quoi à l'agent** : "Réécris ce paragraphe." "Ajoute un TL;DR en haut." "Trouve toutes mes notes de réunion de la semaine dernière." "Crée une base de données d'inscription à la bêta avec un formulaire pour les soumissions Slack."
+
+## Démarrer
+
+Démo en direct : [content.agent-native.com](https://content.agent-native.com).
+
+Lorsque vous ouvrez l'application, cliquez sur **+ Nouvelle page** dans la barre latérale, donnez-lui un titre et commencez à écrire. Pour utiliser l'agent, saisissez dans la barre latérale :
+
+- "Crée une page appelée Onboarding et ajoute trois sous-pages en dessous."
+- "Réécris ce paragraphe pour qu'il soit plus concis." (avec une page ouverte)
+- "Ajoute une section sur les tarifs avec trois puces."
+- "Résume ce document en un TL;DR en haut."
+- "Récupère les dernières modifications depuis Notion." (après avoir lié une page Notion)
+
+Sélectionnez du texte et appuyez sur Cmd+I pour ouvrir l'agent avec cette sélection préchargée. "Rends ça plus percutant" agit alors exactement sur ce que vous avez surligné.
+
+Pour créer votre propre copie de Contenu :
+
+```bash
+npx @agent-native/core@latest create my-content --standalone --template content
+```
+
+Voir [Bien démarrer](/docs/getting-started) pour le reste de la configuration (`cd`, `pnpm install`, `pnpm dev`) et les fondamentaux du framework.
+
+## Quelle est la prochaine étape
+
+- [**Rédiger et organiser des documents**](/docs/template-content-editing) — l'éditeur, l'arborescence de pages, les commentaires, l'historique des versions et le partage
+- [**Bases de données, propriétés et formulaires**](/docs/template-content-databases) — bases de données en ligne, types de propriétés, vues, sources externes et formulaires d'admission
+- [**Synchronisation avec les fichiers locaux, Notion et Builder CMS**](/docs/template-content-sync) — le flux de travail façon Obsidian pour les dossiers, ainsi que les allers-retours avec Notion et Builder CMS
+- [**Guide du développeur**](/docs/template-content-developers) — modèle de données, inventaire des actions, routes et comment étendre le template
+- [**Templates**](/docs/cloneable-saas) — le modèle Cloneable SaaS, et tous les autres templates de domaine pour démarrer
+- [**Bien démarrer**](/docs/getting-started) — les fondamentaux du framework : actions, état de l'application et synchronisation en direct
+- [**Collaboration en temps réel**](/docs/real-time-collaboration) — le pipeline Yjs que les documents partagent avec les autres surfaces collaboratives
+- [**Partage**](/docs/sharing) — le modèle de partage par autorisation sur lequel s'appuient les documents

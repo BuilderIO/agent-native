@@ -1,0 +1,14 @@
+---
+title: Doctor
+description: Comprobaciones de seguridad y migración.
+---
+
+# Doctor
+
+Las apps y los workspaces generados contienen código fuente que puede cambiarse mediante el flujo de desarrollo del repositorio, incluso por un frame de agente al que se hayan concedido intencionalmente herramientas de workspace y escritura. `agent-native doctor` examina el código fuente para verificar invariantes de seguridad críticos. Es de solo lectura: nunca edita el código, solo informa.
+
+`agent-native doctor` ejecuta nueve guardas de código: las ocho guardas de seguridad y `migration-manifest`. Esta última encuentra imports que aparecen en el `migration-manifest.json` instalado; no admite opt-out. Usa `agent-native doctor --only migration-manifest`, previsualiza con `npx @agent-native/core@latest upgrade --codemods` y aplica con `--yes`. La salida JSON incluye los nueve nombres en `guardsRun`.
+
+El CLI añade a cada app y workspace nuevo los comandos `pnpm doctor` y `pnpm agent-native:doctor`. Desde la raíz de un workspace, comprueba cada app en `apps/<name>`. Las builds fallan ante hallazgos de forma predeterminada; usa `failOnBuild: false` solo como excepción revisada.
+
+Las entradas marcadas como `planned` solo se muestran como advertencias y no se reescriben. Las entradas activas son hallazgos; el codemod solo las reescribe cuando el export de destino está instalado.
