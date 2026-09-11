@@ -261,6 +261,14 @@ describe("extractDocumentColorPalette", () => {
       String.raw`<div style='background-image: u\72 l(#0066ff); color:#ff0000'></div>`,
     );
   });
+
+  it("does not throw on invalid CSS escape code points", () => {
+    const content = String.raw`<div style='background-image: u\ffffffl(#0066ff)'></div>`;
+
+    expect(() =>
+      extractDocumentColorPalette([{ id: "file-1", content }]),
+    ).not.toThrow();
+  });
 });
 
 describe("selectionColorValues", () => {

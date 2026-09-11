@@ -285,9 +285,13 @@ function readCssIdentifier(
       cursor += 1;
     }
     if (cursor > escapeStart) {
-      name += String.fromCodePoint(
-        parseInt(value.slice(escapeStart, cursor), 16),
-      );
+      const codePoint = parseInt(value.slice(escapeStart, cursor), 16);
+      name +=
+        codePoint === 0 ||
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+          ? "\uFFFD"
+          : String.fromCodePoint(codePoint);
       if (/\s/.test(value[cursor] ?? "")) cursor += 1;
     } else {
       name += value[cursor];
