@@ -33,9 +33,7 @@ describe("portable extension runtime", () => {
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");
     expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
-    expect(html).toContain(
-      "Math.max(paddingTop, bodyRect.height - paddingBottom)",
-    );
+    expect(html).toContain("bodyRect.height - paddingBottom");
     expect(html).toContain("body.querySelectorAll('*')");
     expect(html).toContain("style.overflowY");
     expect(html).toContain("auto|scroll|overlay|hidden|clip");
@@ -48,10 +46,10 @@ describe("portable extension runtime", () => {
     expect(html).toContain("activeCssMotionCount");
     expect(html).toContain("animationProbeTimer");
     expect(html).toContain("document.getAnimations()");
-    expect(html).toContain("positionedContent.forEach");
-    expect(html).toContain("refreshHeightCandidates");
+    expect(html).toContain("positionedElements.forEach");
+    expect(html).toContain("motionElements.forEach");
     expect(html).toContain("watchAnimationCompletion");
-    expect(html).toContain("timing.endTime !== Infinity");
+    expect(html).toContain("Element.prototype.animate");
     expect(html).toContain("document.addEventListener('animationend'");
     expect(html).toContain("document.addEventListener('transitionend'");
     expect(html).not.toContain(
@@ -59,12 +57,28 @@ describe("portable extension runtime", () => {
     );
     expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");
-    expect(html).toContain("document.createTreeWalker(body, 4)");
-    expect(html).toContain("range.getClientRects()");
+    expect(html).not.toContain("document.createTreeWalker(body, 4)");
+    expect(html).not.toContain("range.getClientRects()");
+    const reportStart = html.indexOf("function reportHeight()");
+    const reportEnd = html.indexOf(
+      "window.addEventListener('load', reportHeight)",
+      reportStart,
+    );
+    expect(reportStart).toBeGreaterThanOrEqual(0);
+    expect(reportEnd).toBeGreaterThan(reportStart);
+    expect(html.slice(reportStart, reportEnd)).toContain(
+      "measurePositionedContent",
+    );
+    expect(html.slice(reportStart, reportEnd)).not.toContain(
+      "querySelectorAll('*')",
+    );
+    expect(html.slice(reportStart, reportEnd)).not.toContain(
+      "document.createTreeWalker(body, 4)",
+    );
     expect(html).toContain(
       "document.addEventListener('DOMContentLoaded', setupResizeObservation)",
     );
-    expect(html).not.toContain("body.scrollHeight");
+    expect(html).toContain("body.scrollHeight");
     expect(html).toContain('<div x-data="{ ready: true }">Hello</div>');
     expect(html).toContain("cus_123");
   });

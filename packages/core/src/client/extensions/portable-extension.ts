@@ -678,6 +678,8 @@ export function buildAgentNativeExtensionHtml({
       var resizeObserver = null;
       var positionedElements = new Set();
       var motionElements = new Set();
+      var positionedContent = [];
+      var staticContentBottom = 0;
       var isExcludedFromHeight = function(element, body) {
         if (!element) return false;
         if (window.getComputedStyle(element).position === 'fixed') return true;
@@ -701,6 +703,7 @@ export function buildAgentNativeExtensionHtml({
       };
       var observePositioned = function() {
         if (!document.body) return;
+        positionedElements.clear();
         positionedElements.forEach(function(element) {
           if (!document.body.contains(element)) positionedElements.delete(element);
         });
@@ -713,12 +716,16 @@ export function buildAgentNativeExtensionHtml({
         }
         Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(element) {
           var style = window.getComputedStyle(element);
-          if (style.position === 'absolute') positionedElements.add(element);
-          else if (style.position !== 'static' || style.transform !== 'none') positionedElements.add(element);
+          if (style.position !== 'static' || style.transform !== 'none') {
+            positionedElements.add(element);
+          }
           if (resizeObserver && style.position === 'absolute') {
             resizeObserver.observe(element);
           }
         });
+        if (typeof refreshHeightCandidates === 'function') {
+          refreshHeightCandidates();
+        }
       };
       var enqueueResizeWork = function(callback) {
         if (typeof window.requestAnimationFrame === 'function') {
@@ -757,7 +764,8 @@ export function buildAgentNativeExtensionHtml({
         resizeWorkScheduled = true;
         enqueueResizeWork(function() {
           resizeWorkScheduled = false;
-          reportHeight();
+          var measured = measurePositionedContent(body.getBoundingClientRect().top);
+          if (measured.changed) reportPositionedHeight(measured.bottom);
         });
       };
       var watchedAnimations = [];
@@ -803,34 +811,21 @@ export function buildAgentNativeExtensionHtml({
           if (!body) return;
           reportHeight();
           var animations = activeAnimations();
-          var hasFiniteAnimation = false;
-          var hasIndefiniteAnimation = false;
+          var shouldContinue = activeCssMotionCount > 0;
           if (animations) {
             animations.forEach(function(animation) {
               var effect = animation.effect;
               trackPositionedElement(effect && effect.target);
               watchAnimationCompletion(animation);
-              var timing =
-                effect && typeof effect.getComputedTiming === 'function'
-                  ? effect.getComputedTiming()
-                  : null;
-              if (timing && timing.endTime === Infinity) {
-                hasIndefiniteAnimation = true;
-              } else {
-                hasFiniteAnimation = true;
-              }
+              shouldContinue = true;
             });
           }
-          if (activeCssMotionCount > 0) hasFiniteAnimation = true;
-          if (
-            hasFiniteAnimation ||
-            hasIndefiniteAnimation ||
-            (animations === null && activeCssMotionCount > 0)
-          ) {
+          if (shouldContinue) {
             schedulePositionMonitor();
             return;
           }
           positionMonitorActive = false;
+          motionElements.clear();
           scheduleResizeWork();
         });
       };
@@ -857,7 +852,6 @@ export function buildAgentNativeExtensionHtml({
         }
       };
       var finishPositionMonitor = function(event) {
-        if (event && event.target) motionElements.delete(event.target);
         if (activeCssMotionCount > 0) activeCssMotionCount -= 1;
         var animations = activeAnimations();
         if (animations) {
@@ -869,23 +863,21 @@ export function buildAgentNativeExtensionHtml({
         positionMonitorActive =
           (animations && animations.length > 0) ||
           (animations === null && activeCssMotionCount > 0);
+        if (!positionMonitorActive) motionElements.clear();
         scheduleResizeWork();
         if (positionMonitorActive) schedulePositionMonitor();
       };
-      if (
-        typeof Element !== 'undefined' &&
-        typeof Element.prototype.animate === 'function'
-      ) {
-        var nativeAnimate = Element.prototype.animate;
-        Element.prototype.animate = function() {
-          var animation = nativeAnimate.apply(this, arguments);
-          trackPositionedElement(this);
-          startPositionMonitor();
-          watchAnimationCompletion(animation);
-          return animation;
-        };
-      }
-
+      var lastReportedHeight = null;
+      var postHeight = function(height) {
+        if (height === lastReportedHeight) return;
+        lastReportedHeight = height;
+        window.parent.postMessage({
+          type: messageTypes.extension.RESIZE,
+          extensionId: extensionId,
+          slotId: slotId,
+          height: height,
+        }, '*');
+      };
       var measureTextBottom = function(textNode, body, bodyTop) {
         if (
           !textNode ||
@@ -923,17 +915,6 @@ export function buildAgentNativeExtensionHtml({
         });
         return { changed: changed, bottom: bottom };
       };
-      var lastReportedHeight = null;
-      var postHeight = function(height) {
-        if (height === lastReportedHeight) return;
-        lastReportedHeight = height;
-        window.parent.postMessage({
-          type: messageTypes.extension.RESIZE,
-          extensionId: extensionId,
-          slotId: slotId,
-          height: height,
-        }, '*');
-      };
       var reportPositionedHeight = function(positionedBottom) {
         var body = document.body;
         if (!body) return;
@@ -947,7 +928,6 @@ export function buildAgentNativeExtensionHtml({
         );
         postHeight(Math.ceil(contentBottom + paddingBottom));
       };
-
       var refreshHeightCandidates = function() {
         var body = document.body;
         if (!body) return;
@@ -991,7 +971,6 @@ export function buildAgentNativeExtensionHtml({
         staticContentBottom = contentBottom;
         positionedContent = nextPositionedContent;
       };
-
       function reportHeight() {
         try {
           var body = document.body;
