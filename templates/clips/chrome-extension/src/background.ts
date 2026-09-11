@@ -415,26 +415,41 @@ async function restoreRuntimeState(): Promise<void> {
     overlayTabId = typeof rt.overlayTabId === "number" ? rt.overlayTabId : null;
   }
 
+  let armingRecovered = !freshArmingSessionId;
   if (freshArmingSessionId) {
-    if (activeNativeRecording) {
-      // The recorder row is durable, so a worker restart after BEGIN can keep
-      // the recording alive without leaving the arming guard stuck on.
+    let offscreenState: OffscreenRecordingState | null = null;
+    try {
+      await ensureOffscreenDocument();
+      offscreenState = await sendOffscreenMessage<OffscreenRecordingState>({
+        type: "CLIPS_OFFSCREEN_STATUS",
+      });
+    } catch (error) {
+      // Keep the guard and disabled action until a later status request can
+      // distinguish a live recorder from an interrupted picker.
+      console.warn(
+        "[clips-bg] could not inspect interrupted arming state:",
+        error,
+      );
+    }
+
+    if (
+      offscreenState?.activeSessionId === freshArmingSessionId &&
+      activeNativeRecording
+    ) {
+      // The recorder row was persisted before BEGIN, so a worker restart here
+      // can keep the live recorder without leaving the arming guard stuck on.
       await setArmingGuard(null);
-    } else {
-      // The old worker may have died between the native picker and BEGIN. Do
-      // not leave the action disabled or let a stale offscreen acquire linger.
-      await sendOffscreenMessage({
-        type: "CLIPS_OFFSCREEN_CANCEL",
-        sessionId: freshArmingSessionId,
-      }).catch(() => undefined);
+      armingRecovered = true;
+    } else if (offscreenState) {
+      // The old worker died before BEGIN. Cancel through the normal cleanup
+      // path so prepared streams, the server row, and the REC badge all clear.
+      await cancelRecording();
       await setArmingGuard(null);
-      resetOverlay();
-      await broadcastUnmount();
-      broadcastOverlayState();
+      armingRecovered = true;
     }
   }
 
-  if (overlayPhase !== "idle" && activeNativeRecording) {
+  if (armingRecovered && overlayPhase !== "idle" && activeNativeRecording) {
     // Recording survived a worker restart. The offscreen document owns the
     // recorder + pre-roll timer, so it kept running; restore the active-recording
     // popup before the user can click the extension icon again.
@@ -1510,6 +1525,9 @@ async function armRecording(args: {
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
   };
+  // Persist before BEGIN so a worker restart cannot mistake a live offscreen
+  // recorder for picker-only arming and cancel it before its row is durable.
+  await saveActiveNativeRecording();
   // 4) Start the recorder when the (already-running) countdown ends. The
   //    offscreen owns the pre-roll timer (a reliable context, unlike the
   //    suspendable worker) and reports "recording" back when it actually starts.
