@@ -1,0 +1,136 @@
+---
+title: "Toolkit"
+description: "一個均衡的目錄，涵蓋可重用基礎、編輯器與畫布、智慧代理脈絡、治理、工作區框架、營運以及 Toolkit 能力模組。"
+---
+
+<!-- i18n-docs-ignore -->
+
+# Toolkit
+
+Toolkit 是面向高品質智慧代理應用程式、可重複使用且經過實戰驗證的建構元件。它將跨應用程式反覆出現的困難產品工作轉化為標準介面：人類與智慧代理之間的即時協作、面向人類和智慧代理的分享、設定、團隊、設定流程、資源、歷程、審閱和可觀測性。
+
+每個套件都封裝了使用者期待能持續一致運作的 UI 模式、動作契約、應用程式狀態預期、存取邊界和智慧代理可見行為。應用程式仍擁有自己的領域模型和視覺識別；Toolkit 讓通用產品系統從第一個版本起就完整可用，而不是每次以稍有不同的方式重新建立。
+
+<WireframeBlock id="doc-block-toolkits-index">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:grid;grid-template-columns:200px 1fr 280px;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:14px'><div style='display:flex;align-items:center;gap:8px'><div style='width:26px;height:26px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center;font-size:12px;flex:none'>A</div><strong style='flex:1'>Acme</strong><span data-icon='chevronDown'></span></div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='search'></span> Home</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='edit'></span> Documents</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='user'></span> Team</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='settings'></span> Settings</div><div style='flex:1'></div><div style='display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1.4px solid var(--wf-line)'><div style='width:24px;height:24px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><small style='flex:1'>Steve</small><span data-icon='dots'></span></div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><div style='flex:1'></div><div style='display:flex'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><button class='primary'><span data-icon='user'></span> Share</button></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Revenue by month</small><div style='display:flex;align-items:flex-end;gap:10px;height:120px'><div style='flex:1;height:45%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:65%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:55%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:80%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:95%;background:var(--wf-accent);border-radius:4px'></div></div></div><div style='display:flex;gap:10px'><div class='wf-box' style='flex:1'><small class='wf-muted'>ARR</small><br/><strong>$4.2M</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Win rate</small><br/><strong>28%</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Pipeline</small><br/><strong>3.2x</strong></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Agent</strong><div class='wf-box'>Summarize Q3 versus Q2 and flag risks.</div><div class='wf-box' style='background:var(--wf-accent-soft)'>Revenue up 12%. Two pipeline risks flagged.</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><span class='wf-muted'>Ask about this dashboard...</span><div style='display:flex;align-items:center;gap:6px'><span class='wf-pill'>Q3 Forecast</span><span class='wf-pill'>GPT-5</span><div style='flex:1'></div><button class='primary'><span data-icon='send'></span></button></div></div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+<Diagram id="doc-block-toolkits-boundary" title="三個層次如何配合" summary={"Core 是框架基礎。Toolkit 是可選的可重複使用基礎設施與 UI。Templates 是建構在 Core 上、通常使用 Toolkit 的可選應用程式。"}>
+
+```html
+<div class="diagram-row">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Core</span><br />
+    動作、SQL、驗證、應用程式狀態、存取檢查、即時傳輸
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Toolkit</span><br />
+    協作、分享、設定流程、審閱、歷程、可觀測性
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Templates</span><br />
+    領域結構描述、路由、動作、品牌、專門工作流程
+  </div>
+</div>
+```
+
+```css
+.diagram-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.diagram-row .diagram-card {
+  flex: 1 1 210px;
+  padding: 14px;
+}
+.diagram-row .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+Core 就是框架。Toolkit 是框架可選的可重複使用部件集合。Templates 是建構在 Core 上的可選應用程式；它們可以使用 Toolkit，也可以分叉作為完整起點。應用程式也可以不採用 Toolkit 或範本而直接使用 Core。
+
+## 目錄 {#catalog}
+
+| 領域               | 從這裡開始                                     | 涵蓋內容                                                     |
+| ------------------ | ---------------------------------------------- | ------------------------------------------------------------ |
+| 基礎               | [UI 原語](/docs/toolkit-ui)                    | 共用控制項、Hook、應用程式配接器和 Shell 接點。              |
+| 編輯器與畫布       | [編輯器與畫布](/docs/toolkit-editors-canvases) | 豐富編輯、結構化區塊、可重用畫布控制項和 Design 模式。       |
+| 智慧代理體驗與脈絡 | [脈絡與知識](/docs/toolkit-context-knowledge)  | Context X-Ray、資源、知識、Composer 脈絡和智慧代理可見狀態。 |
+| 協作與治理         | [協作](/docs/toolkit-collaboration)            | 分享、在線狀態、審閱、歷程、稽核和組織邊界。                 |
+| 工作區框架         | [應用程式框架](/docs/toolkit-settings)         | 設定、團隊、設定流程、導覽、資源和智慧代理 UX。              |
+| 營運               | [可觀測性](/docs/toolkit-observability)        | 使用情況、意見回饋、重播、診斷和營運可見性。                 |
+| Toolkit 能力模組   | [能力套件](/docs/toolkit-capability-packages)  | 依需要安裝的領域套件及其生命週期資訊清單。                   |
+
+## 產品套件 {#product-kits}
+
+| 套件                                              | 用途                                                                               |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [分享](/docs/toolkit-sharing)                     | 可擁有資源、分享對話方塊、可見性徽章、分享動作、公開／私人／組織存取。             |
+| [協作](/docs/toolkit-collaboration)               | 即時編輯、在線狀態、即時游標、最近編輯醒目提示、協作復原。                         |
+| [設定](/docs/toolkit-settings)                    | 標準設定頁面和分頁，讓應用程式設定與智慧代理／提供者設定位於一個可預期的位置。     |
+| [組織與團隊](/docs/toolkit-org-team)              | 團隊頁面、組織切換、邀請、組織網域、角色和應用程式切換。                           |
+| [設定流程與連線](/docs/toolkit-setup-connections) | 上手引導、密鑰、工作區連線、OAuth／提供者就緒狀態和 Builder 連線（提供免費方案）。 |
+| [命令與導覽](/docs/toolkit-command-navigation)    | 命令選單、深層連結、標準應用程式路由、側欄和 Shell 模式。                          |
+| [資源](/docs/toolkit-resources)                   | 資源樹、編輯器、檔案選擇／搜尋、附件和本機檔案模式。                               |
+| [智慧代理 UX](/docs/toolkit-agent-ux)             | Composer、模型選擇器、脈絡籤、核准、執行復原和執行托盤。                           |
+| [歷程](/docs/toolkit-history)                     | 版本歷程、稽核日誌、復原／重做、還原和「有何變更」介面。                           |
+| [評論與審閱](/docs/toolkit-comments-review)       | 內嵌評論、註解、提及、已解決討論串和審閱狀態。                                     |
+| [可觀測性](/docs/toolkit-observability)           | 使用量、支出、意見回饋、重播、錯誤和執行診斷。                                     |
+
+## 套件成熟度與所有權 {#package-maturity-and-ownership}
+
+- 豐富編輯器由 **Toolkit** 擁有；移轉期間，現有 Core import 持續作為精簡的相容性 re-export。
+- Design 是使用可重用 `design-tweaks` 的**範本模式**，不是完整的即插即用編輯器或畫布。
+- 此階段 Blocks 和 Context X-Ray 引擎仍由 **Core** 擁有；可重用的 Context X-Ray 呈現由 Toolkit 擁有。
+- Creative Context、Scheduling 和 Pinpoint 是依需要安裝的 **Toolkit 能力模組**；它們保留獨立 npm 套件和生命週期資訊清單。Dispatch 仍是獨立產品。
+
+## 儀表板套件 {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` 是可退出的純呈現單元，提供指標與統計卡片、
+表格、日期範圍、面板排序與版面配置及通用圖表。應用程式提供列資料和回呼；
+此套件不取得資料，也不擁有儀表板狀態或憑證。請為每個應用程式個別建立
+`@agent-native/core/dashboard-storage` 的結構描述和存取控制；預設 `program` source
+會執行應用程式自有的資料程式。
+套用前請執行 `agent-native eject inspect toolkit/dashboard`。提供者解析器應保留在擁有其連線和查詢政策的應用程式中。
+
+## 實作邊界 {#implementation-boundary}
+
+套件首先是產品介面。有些部分由執行階段支援（`@agent-native/core`），有些是呈現原語（`@agent-native/toolkit`），應用程式通常會透過本機配接器封裝兩者。請使用擁有所需行為的套件路徑，但將面向使用者的設定、協作、分享、團隊、審閱和設定流程體驗設計為一個連貫的套件，而不要在應用程式中暴露套件邊界。
+
+## 基礎元件 {#foundation-pieces}
+
+- [UI 原語](/docs/toolkit-ui) 涵蓋 `@agent-native/toolkit/ui/*` 下共用的 shadcn 風格原語。
+- [應用程式配接器](/docs/toolkit-ui#app-adapters) 說明應用程式如何透過本機 `@/components/*` 配接器封裝 Toolkit 元件。
+- [Shell 與 Hook](/docs/toolkit-ui#shell-hooks) 涵蓋頁首動作、行動裝置 Hook、Toast 和小型應用程式 Shell 輔助工具。
+- [元件 API](/docs/components) 仍是公開 React 匯出的低階參考。
+
+## 設計規則 {#design-rule}
+
+當行為在各應用程式間重複出現，且使用者期待標準體驗時，請使用 Toolkit：分享、設定、團隊、評論、歷程和智慧代理進度不應在每個範本中略有不同。請將領域特定的資料、工作流程、標籤和視覺樣式保留在應用程式中。
+
+## 下一步
+
+- [**Toolkit UI 原語**](/docs/toolkit-ui) — 共用原語、應用程式配接器和 Shell Hook。
+- [**分享套件**](/docs/toolkit-sharing) — 資源、分享對話框和可見性的良好起點。
+- [**建立範本**](/docs/creating-templates) — 端到端建立範本，並了解套件如何融入其中。
+- [**元件 API**](/docs/components) — 所有公開 React 匯出的參考。
+- [**套件生命週期**](/docs/package-lifecycle) — 安全地檢查、新增和彈出由資訊清單驅動的 Toolkit 能力模組。
+
+## 自訂或退出套件 {#customize-or-eject}
+
+請依序操作：設定公開 API → 組合公開元件 → 退出最小單元 → 提出共用擴充介面。先用 `agent-native eject --list` 和 `agent-native eject inspect <unit>` 尋找；加入 `--apply` 前，先預覽 `agent-native eject <unit> --app <app>`。
+
+Toolkit 資訊清單涵蓋所有公開進入點。應用程式會將來源與 import 重寫記錄到 `agent-native.ejections.json`。`agent-native eject diff <unit> --app <app>` 會顯示偏差；只有雜湊與 import 維持不變時，`restore` 才會執行。第一方單元也涵蓋遠端 MCP 目錄、工作區連線、provider API 定義、訊息轉接器、設定/就緒 UI 和領域套件。缺少第一方配方會讓發佈檢查失敗；外部套件會收到 add 藍圖；受保護的 Core 契約仍位於公開擴充介面之後。

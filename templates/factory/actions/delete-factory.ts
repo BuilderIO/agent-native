@@ -1,0 +1,216 @@
+import { defineAction } from "@agent-native/core/action";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb } from "../server/db/index.js";
+import {
+  factoryAuditEvents,
+  factoryComments,
+  factoryDefinitions,
+  factoryGraphVersions,
+  factoryPollCursors,
+  triageConfig,
+  triageDecisions,
+  triageFeedback,
+  triageItems,
+  triageRules,
+  triageRuns,
+} from "../server/db/schema.js";
+import {
+  DEFAULT_FACTORY_ID,
+  readFactoryDefinition,
+} from "../server/factory-graph/store.js";
+import { factoryIdSchema } from "../server/lib/factory-scope.js";
+import {
+  requireWorkspaceMember,
+  workspaceMemberIdentityFromContext,
+} from "../server/lib/require-workspace-member.js";
+import {
+  listFactoryAutomationCleanupPaths,
+  removeFactoryAutomationResources,
+  removeFactoryAutomationRunHistory,
+  restoreFactoryAutomationSnapshots,
+  snapshotFactoryAutomations,
+} from "../server/plugins/factory-scheduler-job.js";
+
+export default defineAction({
+  description:
+    "Permanently delete a user-created Factory and all Factory-owned graph versions, comments, observations, rules, decisions, runs, feedback, audit events, settings, poll cursors, scheduled automations, and those automations' run history. The default product-feedback Factory cannot be deleted. Requires the Factory's exact current name as confirmation; provider work already in progress is not cancelled. When the delete commits but the follow-up read cannot confirm the Factory or its jobs are gone, the action returns ok with verified:false instead of reporting a failed deletion.",
+  schema: z.object({
+    factoryId: factoryIdSchema,
+    confirmName: z.string().trim().min(1).max(120),
+  }),
+  http: { method: "DELETE" },
+  needsApproval: true,
+  run: async ({ factoryId, confirmName }, context) => {
+    const { userEmail, orgId } = await requireWorkspaceMember(
+      workspaceMemberIdentityFromContext(context),
+    );
+    if (factoryId === DEFAULT_FACTORY_ID) {
+      throw new Error("The default Factory cannot be deleted.");
+    }
+
+    const factory = await readFactoryDefinition(orgId, factoryId);
+    if (!factory) throw new Error("Factory not found.");
+    if (confirmName !== factory.name) {
+      throw new Error("Factory name confirmation does not match.");
+    }
+
+    const snapshots = await snapshotFactoryAutomations(
+      userEmail,
+      orgId,
+      factoryId,
+    );
+
+    const db = getDb();
+    try {
+      // Remove schedules before SQL so no new run can start; restore both if
+      // either step fails so a partial cleanup cannot disable a surviving Factory.
+      await removeFactoryAutomationResources(
+        orgId,
+        factoryId,
+        userEmail,
+        snapshots.map((snapshot) => snapshot.path),
+      );
+      await db.transaction(async (tx) => {
+        const deleted = await tx
+          .delete(factoryDefinitions)
+          .where(
+            and(
+              eq(factoryDefinitions.id, factoryId),
+              eq(factoryDefinitions.orgId, orgId),
+              eq(factoryDefinitions.name, confirmName),
+            ),
+          )
+          .returning({ id: factoryDefinitions.id });
+        if (deleted.length === 0) {
+          const existing = (
+            await tx
+              .select({ name: factoryDefinitions.name })
+              .from(factoryDefinitions)
+              .where(
+                and(
+                  eq(factoryDefinitions.id, factoryId),
+                  eq(factoryDefinitions.orgId, orgId),
+                ),
+              )
+              .limit(1)
+          )[0];
+          if (existing) {
+            throw new Error(
+              "Factory changed before deletion. Confirm its current name and try again.",
+            );
+          }
+        }
+
+        const scopedTables = [
+          factoryComments,
+          factoryGraphVersions,
+          factoryAuditEvents,
+          factoryPollCursors,
+          triageFeedback,
+          triageDecisions,
+          triageRuns,
+          triageRules,
+          triageItems,
+          triageConfig,
+        ] as const;
+        for (const table of scopedTables) {
+          await tx
+            .delete(table)
+            .where(and(eq(table.orgId, orgId), eq(table.factoryId, factoryId)));
+        }
+      });
+    } catch (error) {
+      try {
+        await restoreFactoryAutomationSnapshots(orgId, snapshots);
+      } catch (repairError) {
+        throw new Error(
+          `Factory deletion failed and its automations could not be restored. Deletion error: ${
+            error instanceof Error ? error.message : String(error)
+          }. Restore error: ${
+            repairError instanceof Error
+              ? repairError.message
+              : String(repairError)
+          }.`,
+        );
+      }
+      throw error;
+    }
+
+    let remaining: Awaited<ReturnType<typeof readFactoryDefinition>>;
+    try {
+      remaining = await readFactoryDefinition(orgId, factoryId);
+    } catch (error) {
+      return {
+        ok: true,
+        factoryId,
+        name: factory.name,
+        verified: false,
+        verificationError:
+          error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (remaining) {
+      try {
+        await restoreFactoryAutomationSnapshots(orgId, snapshots);
+      } catch (repairError) {
+        throw new Error(
+          `Factory still exists and its automations could not be restored. Restore error: ${
+            repairError instanceof Error
+              ? repairError.message
+              : String(repairError)
+          }.`,
+        );
+      }
+      throw new Error("Factory deletion could not be verified.");
+    }
+
+    let leftoverJobs: string[];
+    try {
+      leftoverJobs = await listFactoryAutomationCleanupPaths(
+        orgId,
+        factoryId,
+        userEmail,
+      );
+    } catch (error) {
+      return {
+        ok: true,
+        factoryId,
+        name: factory.name,
+        verified: false,
+        verificationError:
+          error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (leftoverJobs.length > 0) {
+      return {
+        ok: true,
+        factoryId,
+        name: factory.name,
+        verified: false,
+        verificationError: `Automations still present: ${leftoverJobs.join(", ")}`,
+      };
+    }
+
+    try {
+      await removeFactoryAutomationRunHistory(
+        orgId,
+        factoryId,
+        userEmail,
+        snapshots.map((snapshot) => snapshot.path),
+      );
+    } catch (error) {
+      return {
+        ok: true,
+        factoryId,
+        name: factory.name,
+        verified: false,
+        verificationError:
+          error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    return { ok: true, factoryId, name: factory.name, verified: true };
+  },
+});

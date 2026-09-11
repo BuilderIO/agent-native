@@ -1,0 +1,308 @@
+/* The capture chrome is deliberately theme-invariant. Both recorder shells
+ * provide the same --pill-* tokens; these fallbacks keep the web shell equal
+ * to the desktop overlay when it is rendered outside that scope. */
+.recording-playhead {
+  /* guard:allow-raw-color — theme-invariant capture chrome, same as desktop */
+  --playhead-chrome: var(--pill-chrome, #1e1e1e);
+  /* guard:allow-raw-color — theme-invariant capture chrome, same as desktop */
+  --playhead-rec: var(--pill-rec, #e0473f);
+  /* guard:allow-raw-color — theme-invariant capture chrome, same as desktop */
+  --playhead-on-chrome: var(--pill-on-chrome, #ffffff);
+  /* guard:allow-raw-color — theme-invariant capture chrome, same as desktop */
+  --playhead-soft: var(--pill-soft, rgba(255, 255, 255, 0.15));
+  /* guard:allow-raw-color — theme-invariant capture chrome, same as desktop */
+  --playhead-q-ink: var(--pill-q-ink, rgba(255, 255, 255, 0.82));
+  /* guard:allow-raw-color — theme-invariant capture chrome, same as desktop */
+  --playhead-ghost-ink: var(--pill-ghost-ink, rgba(255, 255, 255, 0.72));
+  /* guard:allow-raw-color — theme-invariant capture chrome, same as desktop */
+  --playhead-meter: var(--pill-meter, var(--waveform, #97c459));
+  --playhead-ease: var(--pill-ease, cubic-bezier(0.3, 0, 0, 1));
+  display: inline-flex;
+  height: 42px;
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  border-radius: 9999px;
+  background: var(--playhead-chrome);
+  padding: 6px;
+  color: var(--playhead-on-chrome);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.recording-playhead[data-orientation="vertical"] {
+  width: 42px;
+  height: auto;
+  min-height: 42px;
+  flex-direction: column;
+  justify-content: flex-start;
+  border-radius: 22px;
+}
+
+.recording-playhead[data-orientation="vertical"][data-confirming="true"] {
+  width: 176px;
+  box-sizing: border-box;
+}
+
+/* Collapsible segments use measured pixels, never max-width. The trailing edge
+ * stays solid while a segment grows, which is the desktop pill's motion. */
+.recording-playhead__segment {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  width: 0;
+  opacity: 0;
+  white-space: nowrap;
+}
+
+.recording-playhead__segment--mid {
+  width: auto;
+  opacity: 1;
+}
+
+.recording-playhead__segment > .recording-playhead__inline {
+  opacity: 0;
+  transition: opacity 72ms var(--playhead-ease);
+}
+
+.recording-playhead__segment[data-state="open"] > .recording-playhead__inline,
+.recording-playhead__segment--mid > .recording-playhead__inline {
+  opacity: 1;
+}
+
+.recording-playhead__segment[data-state="closed"]
+  > .recording-playhead__inline {
+  opacity: 0;
+}
+
+.recording-playhead[data-orientation="vertical"] .recording-playhead__segment {
+  width: auto;
+  height: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__segment--mid {
+  height: auto;
+}
+
+.recording-playhead__inline {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.recording-playhead[data-orientation="vertical"] .recording-playhead__inline {
+  flex-direction: column;
+}
+
+.recording-playhead__button {
+  display: flex;
+  height: 30px;
+  width: 30px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--playhead-ghost-ink);
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.recording-playhead__button:hover:not(:disabled) {
+  color: var(--playhead-on-chrome);
+}
+
+.recording-playhead__button:focus-visible {
+  outline: 2px solid var(--playhead-on-chrome);
+  outline-offset: 2px;
+}
+
+.recording-playhead__button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.recording-playhead__stop {
+  color: var(--playhead-rec);
+}
+
+.recording-playhead__stop:hover:not(:disabled) {
+  color: var(--playhead-rec);
+}
+
+.recording-playhead__stop-icon {
+  height: 13px;
+  width: 13px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.recording-playhead__timer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-left: 6px;
+  color: var(--playhead-rec);
+  font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  transition: color 150ms ease;
+}
+
+.recording-playhead[data-orientation="vertical"] .recording-playhead__timer {
+  margin-top: 6px;
+  margin-left: 0;
+  font-size: 12px;
+}
+
+.recording-playhead__meter-wrap {
+  display: inline-flex;
+  height: 18px;
+  width: 18px;
+  flex: none;
+  align-items: center;
+  margin-left: 14px;
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__meter-wrap {
+  margin-top: 8px;
+  margin-left: 0;
+}
+
+.recording-playhead__meter-wrap > * {
+  color: var(--playhead-meter);
+}
+
+.recording-playhead__pause {
+  margin-left: 6px;
+}
+
+.recording-playhead[data-orientation="vertical"] .recording-playhead__pause {
+  margin-top: 6px;
+  margin-left: 0;
+}
+
+.recording-playhead__confirm-question {
+  padding-left: 10px;
+  color: var(--playhead-q-ink);
+  font-size: 12px;
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__confirm-question {
+  max-width: 140px;
+  padding-top: 10px;
+  padding-left: 0;
+  line-height: 1.35;
+  white-space: normal;
+  text-align: center;
+}
+
+.recording-playhead__confirm-action,
+.recording-playhead__resume-action {
+  display: flex;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  border: 0;
+  border-radius: 9999px;
+  padding-right: 14px;
+  padding-left: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.recording-playhead__confirm-action {
+  margin-left: 10px;
+  background: var(--playhead-rec);
+  color: var(--playhead-on-chrome);
+}
+
+.recording-playhead__confirm-action[data-intent="restart"] {
+  background: var(--playhead-on-chrome);
+  color: var(--playhead-chrome);
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__confirm-action,
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__resume-action {
+  margin-top: 8px;
+  margin-left: 0;
+  width: 108px;
+  justify-content: center;
+  padding-right: 10px;
+  padding-left: 10px;
+}
+
+.recording-playhead__resume-action {
+  margin-left: 8px;
+  background: var(--playhead-soft);
+  color: var(--playhead-on-chrome);
+}
+
+.recording-playhead__confirm-action:hover:not(:disabled),
+.recording-playhead__resume-action:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.recording-playhead__confirm-action:focus-visible,
+.recording-playhead__resume-action:focus-visible {
+  outline: 2px solid var(--playhead-on-chrome);
+  outline-offset: 2px;
+}
+
+.recording-playhead__confirm-action:disabled,
+.recording-playhead__resume-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.recording-playhead__divider {
+  height: 18px;
+  width: 1px;
+  flex: none;
+  margin-left: 6px;
+  background: var(--playhead-soft);
+}
+
+.recording-playhead[data-orientation="vertical"] .recording-playhead__divider {
+  height: 1px;
+  width: 18px;
+  margin-top: 6px;
+  margin-left: 0;
+}
+
+.recording-playhead__extras-restart {
+  margin-left: 6px;
+}
+
+.recording-playhead__extras-delete {
+  margin-left: 0;
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__extras-restart,
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__extras-delete {
+  margin-top: 0;
+  margin-left: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recording-playhead__segment > .recording-playhead__inline,
+  .recording-playhead__button,
+  .recording-playhead__timer {
+    transition: none;
+  }
+}
