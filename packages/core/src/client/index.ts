@@ -82,6 +82,14 @@ export {
   type LabValues,
   type LabsSettingsProps,
 } from "./labs/index.js";
+export {
+  ExperimentsSettings,
+  useExperiment,
+  useExperimentState,
+  useExperiments,
+  type ExperimentValues,
+  type ExperimentsSettingsProps,
+} from "./experiments/index.js";
 export { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 export {
   SettingsPanel,

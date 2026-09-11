@@ -160,6 +160,15 @@ function normalizeTabId(value?: string | null): string | null {
   return normalized;
 }
 
+function normalizeSettingsRoute(value: string): string {
+  const normalized = normalizeTabId(value) ?? value;
+  const legacyPrefix = "experiments:experiment-";
+  if (normalized.startsWith(legacyPrefix)) {
+    return `labs:lab-${normalized.slice(legacyPrefix.length)}`;
+  }
+  return normalized;
+}
+
 function resolveTabId(
   tabs: SettingsTabItem[],
   value?: string | null,
@@ -573,9 +582,10 @@ function SettingsTabsPageContent({
         }
       })
       .join(":");
+    const canonicalRouteValue = normalizeSettingsRoute(routeValue);
     const prefix = `${selectedTab.id}:`;
-    if (!routeValue.startsWith(prefix)) return;
-    const section = routeValue.slice(prefix.length);
+    if (!canonicalRouteValue.startsWith(prefix)) return;
+    const section = canonicalRouteValue.slice(prefix.length);
     const targetId =
       selectedTab.searchEntries?.find(
         (entry) => normalizeTabId(entry.hash ?? entry.id) === section,

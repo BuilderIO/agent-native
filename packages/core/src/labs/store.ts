@@ -11,7 +11,7 @@ async function getStoredLabs(
   email: string,
 ): Promise<Record<string, unknown> | null> {
   const labs = await getUserSetting(email, LABS_SETTING_KEY);
-  return labs ?? getUserSetting(email, LEGACY_LABS_SETTING_KEY);
+  return labs ?? (await getUserSetting(email, LEGACY_LABS_SETTING_KEY));
 }
 
 export function normalizeLabValues(

@@ -234,6 +234,7 @@ export {
   createFeatureFlagsPlugin,
 } from "../feature-flags/server.js";
 export { createLabsPlugin } from "../labs/server.js";
+export { createExperimentsPlugin } from "../experiments/server.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,

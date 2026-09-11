@@ -79,6 +79,8 @@ export interface FrameworkToolsOption {
   featureFlags?: boolean;
   /** `get-labs`, `set-lab`. */
   labs?: boolean;
+  /** @deprecated Use `frameworkTools.labs`. */
+  experiments?: boolean;
   /** `get-localization-preference`, `set-localization-preference`. */
   localization?: boolean;
   /** `list-audit-events`, `get-audit-event`, `export-audit-events`. */
@@ -211,13 +213,27 @@ export function resolveFrameworkTools(
     );
   }
 
+  const legacyLabs = option.experiments;
+  if (legacyLabs !== undefined) {
+    if (
+      option.labs !== undefined &&
+      (legacyLabs === true) !== (option.labs === true)
+    ) {
+      conflict("labs", "frameworkTools.experiments", legacyLabs, option.labs);
+    }
+    console.warn(
+      "[agent-native] `frameworkTools.experiments` is deprecated - use `frameworkTools: { labs: … }`.",
+    );
+  }
+
   const database =
     option.database ?? legacyDatabase ?? (minimal ? "off" : undefined);
   const extensions = option.extensions ?? legacyExtensions ?? false;
+  const labs = option.labs ?? legacyLabs;
 
   const disabledGroups = new Set<FrameworkToolGroup>();
   for (const group of FRAMEWORK_TOOL_GROUPS) {
-    const explicit = option[group];
+    const explicit = group === "labs" ? labs : option[group];
     if (explicit === false || (explicit === undefined && minimal)) {
       disabledGroups.add(group);
     }
@@ -266,6 +282,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
 
   "get-labs": "labs",
   "set-lab": "labs",
+  "get-experiments": "labs",
+  "set-experiment": "labs",
 
   "list-recurring-jobs": "automation",
   "manage-recurring-job": "automation",

@@ -16,7 +16,9 @@ vi.mock("../labs/LabsSettings.js", () => ({
   }) => (
     <div data-testid="labs-content">
       {labs.map((lab) => (
-        <span key={lab.key}>{lab.displayName ?? lab.key}</span>
+        <span key={lab.key} id={`lab-${lab.key}`}>
+          {lab.displayName ?? lab.key}
+        </span>
       ))}
     </div>
   ),
@@ -296,24 +298,51 @@ describe("SettingsTabsPage", () => {
   });
 
   it("resolves legacy experiment routes to Labs", async () => {
-    await act(async () => {
-      root.render(
-        <MemoryRouter
-          initialEntries={["/settings/experiments/experiment-clips.meetings"]}
-        >
-          <SettingsTabsPage
-            general={<div>General content</div>}
-            labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
-          />
-        </MemoryRouter>,
-      );
+    const previousScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
     });
 
-    expect(
-      container
-        .querySelector("#settings-tab-labs")
-        ?.getAttribute("aria-selected"),
-    ).toBe("true");
+    try {
+      runAnimationFramesImmediately();
+      await act(async () => {
+        root.render(
+          <MemoryRouter
+            initialEntries={["/settings/experiments/experiment-clips.meetings"]}
+          >
+            <SettingsTabsPage
+              general={<div>General content</div>}
+              labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
+            />
+          </MemoryRouter>,
+        );
+      });
+
+      expect(
+        container
+          .querySelector("#settings-tab-labs")
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "start",
+        behavior: "smooth",
+      });
+    } finally {
+      if (previousScrollIntoView) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          previousScrollIntoView,
+        );
+      } else {
+        delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+      }
+    }
   });
 
   it("restores a connections tab from its canonical route after a remount", () => {

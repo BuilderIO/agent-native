@@ -493,6 +493,22 @@ describe("action discovery", () => {
     expect(registry["set-localization-preference"]).toBeDefined();
   });
 
+  it("merges Labs actions and their legacy experiment aliases", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "get-labs",
+      "set-lab",
+      "get-experiments",
+      "set-experiment",
+    ]) {
+      expect(registry[name], `${name} should be merged`).toBeDefined();
+      expect(registry[name].frameworkGroup).toBe("labs");
+    }
+    expect(registry["get-experiments"].http).toEqual({ method: "GET" });
+  });
+
   it("merges toolkit history and review actions", async () => {
     const registry: Record<string, any> = {};
     await mergeCoreSharingActions(registry);
