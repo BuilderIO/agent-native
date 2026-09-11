@@ -1062,6 +1062,12 @@ export default function CalendarView() {
   }, [events, sidebarEvent]);
 
   function handleNavigate(direction: "prev" | "next") {
+    trackEvent("calendar_date_navigated", {
+      app_name: "calendar",
+      template_name: "calendar",
+      direction,
+      view_type: viewMode,
+    });
     const fns =
       direction === "next"
         ? { month: addMonths, week: addWeeks, day: addDays }
@@ -1070,6 +1076,11 @@ export default function CalendarView() {
   }
 
   function handleToday() {
+    trackEvent("calendar_today_clicked", {
+      app_name: "calendar",
+      template_name: "calendar",
+      view_type: viewMode,
+    });
     const today = getDateKeyInTimezone(new Date(), displayTimezone);
     if (today) setSelectedDate(dateKeyToDate(today));
   }
@@ -1996,7 +2007,14 @@ export default function CalendarView() {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 sm:h-7 sm:w-7"
-                    onClick={() => setCommandPaletteOpen(true)}
+                    onClick={() => {
+                      trackEvent("calendar_search_opened", {
+                        app_name: "calendar",
+                        template_name: "calendar",
+                        surface: "calendar_view",
+                      });
+                      setCommandPaletteOpen(true);
+                    }}
                   >
                     <IconSearch className="h-4 w-4" />
                   </Button>

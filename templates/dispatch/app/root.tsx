@@ -1,4 +1,7 @@
-import { configureTracking } from "@agent-native/core/client/analytics";
+import {
+  configureTracking,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
@@ -200,12 +203,21 @@ function PrivateAppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const handleCommandMenuOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      trackEvent("dispatch_command_menu_opened", {
+        app_name: "dispatch",
+        template_name: "dispatch",
+      });
+    }
+    setCmdkOpen(open);
+  }, []);
   return (
     <>
       <DbSyncSetup />
       <CommandMenu
         open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
+        onOpenChange={handleCommandMenuOpenChange}
         changelog={changelog}
         changelogKey="dispatch"
       >

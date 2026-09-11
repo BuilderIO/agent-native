@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage } from "@shared/types";
 import { IconLoader2, IconPin, IconX } from "@tabler/icons-react";
@@ -137,6 +138,11 @@ export function SearchBar({
     (q: string) => {
       const trimmed = q.trim();
       if (trimmed && trimmed !== lastSyncedQueryRef.current) {
+        trackEvent("mail_search_submitted", {
+          app_name: "mail",
+          template_name: "mail",
+          query_length_bucket: trimmed.length <= 10 ? "3_10" : "11_plus",
+        });
         lastSyncedQueryRef.current = trimmed;
         void navigate(`/all?q=${encodeURIComponent(trimmed)}`);
       }
@@ -147,6 +153,11 @@ export function SearchBar({
   const selectContact = useCallback(
     (contact: Contact) => {
       const q = contact.email;
+      trackEvent("mail_search_result_selected", {
+        app_name: "mail",
+        template_name: "mail",
+        result_type: "contact",
+      });
       setQuery(q);
       lastSyncedQueryRef.current = q;
       void navigate(`/all?q=${encodeURIComponent(q)}`);
@@ -159,6 +170,11 @@ export function SearchBar({
     (thread: ThreadSummary) => {
       const email = thread.latestMessage;
       const targetThreadId = email.threadId || email.id;
+      trackEvent("mail_search_result_selected", {
+        app_name: "mail",
+        template_name: "mail",
+        result_type: "thread",
+      });
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
       void navigate(`/all/${targetThreadId}`);
       inputRef.current?.blur();

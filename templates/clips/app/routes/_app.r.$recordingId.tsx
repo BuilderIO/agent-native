@@ -582,6 +582,12 @@ export default function RecordingPage() {
   // the player, so nothing needs to scroll there.
   const openSidePanel = useCallback(
     (next: ToolbarPanel) => {
+      trackEvent("clip_panel_opened", {
+        app_name: "clips",
+        template_name: "clips",
+        surface: "recording_page",
+        panel: next,
+      });
       setPanel(next);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("panel", next);
@@ -596,6 +602,12 @@ export default function RecordingPage() {
     [isCompactLayout, searchParams, setSearchParams],
   );
   const openCommentsPanel = useCallback(() => {
+    trackEvent("clip_panel_opened", {
+      app_name: "clips",
+      template_name: "clips",
+      surface: "recording_page",
+      panel: "comments",
+    });
     setPanel("comments");
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("panel", "comments");
