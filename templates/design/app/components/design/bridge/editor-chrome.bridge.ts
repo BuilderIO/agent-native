@@ -11609,8 +11609,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ctrl: Boolean(e.ctrlKey),
         target: dndTarget(currentTarget),
       });
-      var reorderSelector = getSelector(reorderEl);
-      var reorderSourceId = getSourceId(reorderEl);
       crossScreenClaimedByHost = false;
       var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
       var reorderRect = reorderEl.getBoundingClientRect();
