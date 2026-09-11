@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { selectionColorValues } from "./edit-panel/document-colors";
+import {
+  replaceSelectionColorsInHtml,
+  selectionColorValues,
+} from "./edit-panel/document-colors";
 import { extractDocumentColorPalette } from "./EditPanel";
 import type { ElementInfo } from "./types";
 
@@ -188,7 +191,7 @@ describe("selectionColorValues", () => {
       }),
     );
 
-    expect(values).toEqual([{ property: "color", value: "#111111" }]);
+    expect(values).toEqual([{ property: "color", value: "#111111", count: 3 }]);
   });
 
   it("keeps unparseable non-color values through (e.g. a Mixed sentinel)", () => {
@@ -202,5 +205,75 @@ describe("selectionColorValues", () => {
     );
 
     expect(values).toEqual([{ property: "color", value: "Mixed" }]);
+  });
+
+  it("scans every descendant in a selected source range and counts reuse", () => {
+    const content = [
+      '<section data-agent-native-node-id="root" style="color:#0066ff">',
+      '<div style="background:#0066FF"></div>',
+      '<div style="border-color:rgb(0, 102, 255)"></div>',
+      '<div style="color:#ff0000"></div>',
+      "</section>",
+      '<aside style="color:#0066ff"></aside>',
+    ].join("");
+
+    expect(
+      selectionColorValues(
+        [],
+        [{ fileId: "screen", content, sourceId: "root" }],
+      ),
+    ).toEqual([
+      { property: "color", value: "#0066ff", count: 3 },
+      { property: "color", value: "#ff0000" },
+    ]);
+  });
+
+  it("replaces a color throughout selected descendants but not outside them", () => {
+    const content = [
+      '<section data-agent-native-node-id="root" style="color:#0066ff">',
+      '<div style="background:#0066FF"></div>',
+      "</section>",
+      '<aside style="color:#0066ff"></aside>',
+    ].join("");
+    const next = replaceSelectionColorsInHtml(
+      content,
+      [{ fileId: "screen", content, sourceId: "root" }],
+      "#0066ff",
+      "#ff0000",
+    );
+
+    expect(next).toBe(
+      [
+        '<section data-agent-native-node-id="root" style="color:#ff0000">',
+        '<div style="background:#ff0000"></div>',
+        "</section>",
+        '<aside style="color:#0066ff"></aside>',
+      ].join(""),
+    );
+  });
+
+  it("aggregates and replaces the same color across multiple selected ranges", () => {
+    const content = [
+      '<div data-agent-native-node-id="first" style="color:#0066ff"></div>',
+      '<div data-agent-native-node-id="outside" style="color:#0066ff"></div>',
+      '<div data-agent-native-node-id="second" style="background:#0066ff"></div>',
+    ].join("");
+    const scopes = [
+      { fileId: "screen", content, sourceId: "first" },
+      { fileId: "screen", content, sourceId: "second" },
+    ];
+
+    expect(selectionColorValues([], scopes)).toEqual([
+      { property: "color", value: "#0066ff", count: 2 },
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(content, scopes, "#0066ff", "#00aa00"),
+    ).toBe(
+      [
+        '<div data-agent-native-node-id="first" style="color:#00aa00"></div>',
+        '<div data-agent-native-node-id="outside" style="color:#0066ff"></div>',
+        '<div data-agent-native-node-id="second" style="background:#00aa00"></div>',
+      ].join(""),
+    );
   });
 });

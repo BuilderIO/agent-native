@@ -243,6 +243,7 @@ import {
   type DocumentColorSourceFile,
   type InspectCodeData,
   type InspectorTab,
+  type SelectionColorScope,
   type ScreenGeometrySelection,
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
@@ -579,6 +580,7 @@ import { runScreenTextContentChange } from "./design-editor/commands/screen-text
 import { runScreenVisualDuplicateChange } from "./design-editor/commands/screen-visual-duplicate-change";
 import { runScreenVisualStructureChange } from "./design-editor/commands/screen-visual-structure-change";
 import { runScreenVisualStyleChange } from "./design-editor/commands/screen-visual-style-change";
+import { runSelectionColorChange } from "./design-editor/commands/selection-color-change";
 import { runSendOverviewAnnotations } from "./design-editor/commands/send-overview-annotations";
 import { runSendRuntimeLayerMoveSemanticHandoff } from "./design-editor/commands/send-runtime-layer-move-semantic-handoff";
 import { runSendRuntimeLayerSemanticHandoff } from "./design-editor/commands/send-runtime-layer-semantic-handoff";
@@ -16528,6 +16530,67 @@ function DesignEditor() {
     selectedScreenOwnsItsMarkup,
   ]);
 
+  const selectionColorScopes = useMemo<SelectionColorScope[]>(() => {
+    if (selectedLayerTargets.length > 0) {
+      return selectedLayerTargets.map((target) => ({
+        fileId: target.fileId,
+        content:
+          target.fileId === activeFile?.id
+            ? activeContent
+            : getScreenContent(target.fileId),
+        sourceId: bridgeSourceIdForCodeLayerNode(target.node),
+        selector: target.node.selector,
+      }));
+    }
+    if (selectedElement && activeFile?.id) {
+      return [
+        {
+          fileId: activeFile.id,
+          content: activeContent,
+          sourceId: selectedElement.sourceId,
+          selector: selectedElement.selector,
+        },
+      ];
+    }
+    if (viewMode !== "overview") return [];
+    return overviewSelectedScreenIds.flatMap((screenId) => {
+      const content = getProjectionContentForScreen(screenId);
+      return content && externalPreviewUrlForContent(content) === null
+        ? [{ fileId: screenId, content, wholeDocument: true }]
+        : [];
+    });
+  }, [
+    activeContent,
+    activeFile?.id,
+    getProjectionContentForScreen,
+    getScreenContent,
+    overviewSelectedScreenIds,
+    selectedElement,
+    selectedLayerTargets,
+    viewMode,
+  ]);
+
+  const handleSelectionColorChange = useCallback(
+    (from: string, to: string, meta?: StyleChangeMeta) =>
+      runSelectionColorChange(
+        {
+          activeFileId: activeFile?.id,
+          applyFileContentUpdate,
+          canEditDesign,
+          scopes: selectionColorScopes,
+        },
+        from,
+        to,
+        meta,
+      ),
+    [
+      activeFile?.id,
+      applyFileContentUpdate,
+      canEditDesign,
+      selectionColorScopes,
+    ],
+  );
+
   useEffect(() => {
     const pendingScreenId = pendingOverviewScreenSelectionRef.current;
     if (!pendingScreenId) return;
@@ -19893,6 +19956,10 @@ function DesignEditor() {
       : undefined,
     onSelectedScreenStylesChange: canEditDesign
       ? handleSelectedScreenStylesChange
+      : undefined,
+    selectionColorScopes,
+    onSelectionColorChange: canEditDesign
+      ? handleSelectionColorChange
       : undefined,
     viewMode,
     mode,

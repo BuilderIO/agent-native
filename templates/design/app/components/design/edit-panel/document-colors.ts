@@ -1,3 +1,4 @@
+import { buildCodeLayerProjection } from "@shared/code-layer";
 import { parseCssColor, rgbaToHex } from "@shared/color-utils";
 
 import type { ElementInfo } from "../types";
@@ -58,40 +59,238 @@ export function extractDocumentColorPalette(
 export interface SelectionColorValue {
   property: string;
   value: string;
+  count?: number;
+}
+
+export interface SelectionColorScope {
+  fileId: string;
+  content: string;
+  sourceId?: string;
+  selector?: string;
+  wholeDocument?: boolean;
+}
+
+export interface SelectionColorRange {
+  start: number;
+  end: number;
+}
+
+const COLOR_STYLE_PROPERTIES = new Set([
+  "color",
+  "background",
+  "background-color",
+  "backgroundColor",
+  "backgroundImage",
+  "background-image",
+  "border",
+  "border-color",
+  "borderColor",
+  "outline",
+  "outline-color",
+  "outlineColor",
+  "fill",
+  "stroke",
+  "box-shadow",
+  "boxShadow",
+  "text-shadow",
+  "textShadow",
+  "text-decoration-color",
+  "textDecorationColor",
+  "-webkit-text-stroke-color",
+  "webkitTextStrokeColor",
+]);
+
+function cssColorTokens(value: string): string[] {
+  const matches = value.match(CSS_COLOR_TOKEN_PATTERN) ?? [];
+  if (matches.length > 0) return matches;
+  return parseCssColor(value) ? [value] : [];
+}
+
+function colorKey(value: string): string {
+  const parsed = parseCssColor(value);
+  return parsed
+    ? rgbaToHex(parsed, true).toUpperCase()
+    : value.trim().toLowerCase();
+}
+
+function isVisibleColor(value: string): boolean {
+  const parsed = parseCssColor(value);
+  return !parsed || parsed.a > 0;
+}
+
+function addColorValue(
+  values: Map<string, SelectionColorValue>,
+  property: string,
+  value: string,
+  increment = true,
+) {
+  const trimmed = value.trim();
+  if (!trimmed || !isVisibleColor(trimmed)) return;
+  const key = colorKey(trimmed);
+  const existing = values.get(key);
+  if (existing) {
+    if (increment) existing.count = (existing.count ?? 1) + 1;
+    return;
+  }
+  values.set(key, {
+    property,
+    value: trimmed,
+  });
+}
+
+function addStyleColors(
+  values: Map<string, SelectionColorValue>,
+  styles: Record<string, string>,
+  increment: boolean,
+) {
+  Object.entries(styles).forEach(([property, value]) => {
+    if (!COLOR_STYLE_PROPERTIES.has(property) && !value.includes("(")) {
+      return;
+    }
+    const tokens = cssColorTokens(value);
+    if (tokens.length > 0) {
+      tokens.forEach((token) =>
+        addColorValue(values, property, token, increment),
+      );
+      return;
+    }
+    if (
+      [
+        "color",
+        "backgroundColor",
+        "background-color",
+        "borderColor",
+        "border-color",
+        "outlineColor",
+        "outline-color",
+      ].includes(property)
+    ) {
+      addColorValue(values, property, value, increment);
+    }
+  });
+}
+
+function scopeNodeRange(
+  scope: SelectionColorScope,
+): SelectionColorRange | null {
+  if (scope.wholeDocument) {
+    return { start: 0, end: scope.content.length };
+  }
+  const projection = buildCodeLayerProjection(scope.content);
+  const node = projection.nodes.find((candidate) => {
+    const stableIds = [
+      candidate.id,
+      candidate.dataAttributes["data-agent-native-node-id"],
+      candidate.dataAttributes["data-code-layer-id"],
+      candidate.dataAttributes["data-layer-id"],
+      candidate.dataAttributes["data-builder-id"],
+      candidate.dataAttributes["data-loc"],
+      typeof candidate.attributes.id === "string"
+        ? candidate.attributes.id
+        : undefined,
+    ];
+    if (scope.sourceId && stableIds.includes(scope.sourceId)) return true;
+    if (!scope.selector) return false;
+    return [candidate.selector, candidate.path, ...candidate.selectors].some(
+      (selector) => selector === scope.selector,
+    );
+  });
+  const source = node?.source;
+  return source ? { start: source.start, end: source.end } : null;
+}
+
+function mergedScopeRanges(
+  scopes: SelectionColorScope[],
+): SelectionColorRange[] {
+  const ranges = scopes
+    .map(scopeNodeRange)
+    .filter((range): range is SelectionColorRange => Boolean(range))
+    .sort((left, right) => left.start - right.start);
+  const merged: SelectionColorRange[] = [];
+  ranges.forEach((range) => {
+    const previous = merged[merged.length - 1];
+    if (!previous || range.start > previous.end) {
+      merged.push({ ...range });
+    } else {
+      previous.end = Math.max(previous.end, range.end);
+    }
+  });
+  return merged;
+}
+
+export function selectionColorScopeRanges(
+  scopes: SelectionColorScope[],
+): Map<string, SelectionColorRange[]> {
+  const byFile = new Map<string, SelectionColorScope[]>();
+  scopes.forEach((scope) => {
+    byFile.set(scope.fileId, [...(byFile.get(scope.fileId) ?? []), scope]);
+  });
+  return new Map(
+    Array.from(byFile, ([fileId, fileScopes]) => [
+      fileId,
+      mergedScopeRanges(fileScopes),
+    ]),
+  );
+}
+
+export function replaceSelectionColorsInHtml(
+  content: string,
+  scopes: SelectionColorScope[],
+  from: string,
+  to: string,
+): string {
+  const target = colorKey(from);
+  const ranges = mergedScopeRanges(scopes);
+  if (ranges.length === 0) return content;
+  let next = content;
+  for (let index = ranges.length - 1; index >= 0; index -= 1) {
+    const range = ranges[index];
+    if (!range) continue;
+    const segment = content
+      .slice(range.start, range.end)
+      .replace(CSS_COLOR_TOKEN_PATTERN, (token) =>
+        colorKey(token) === target ? to : token,
+      );
+    next = `${next.slice(0, range.start)}${segment}${next.slice(range.end)}`;
+  }
+  return next;
 }
 
 export function selectionColorValues(
-  element: ElementInfo,
+  element: ElementInfo | ElementInfo[],
+  scopes: SelectionColorScope[] = [],
 ): SelectionColorValue[] {
-  const styles = element.computedStyles;
-  const rawValues: SelectionColorValue[] = [
-    { property: "color", value: styles.color },
-    { property: "backgroundColor", value: styles.backgroundColor },
-    { property: "borderColor", value: styles.borderColor },
-    { property: "outlineColor", value: styles.outlineColor },
-  ];
-  const seen = new Set<string>();
-  return rawValues
-    .map((color) => ({ ...color, value: color.value?.trim() }))
-    .filter((color): color is SelectionColorValue => Boolean(color.value))
-    .filter((color) => {
-      // Skip fully transparent colors — not a meaningful "selection color"
-      // swatch (matches extractDocumentColorPalette's same alpha check
-      // below). Parsed via parseCssColor rather than compared against the
-      // two literal spellings "transparent"/"rgba(0, 0, 0, 0)" — a border/
-      // outline color can be zero-alpha in many other forms (e.g.
-      // "rgba(255, 0, 0, 0)", "hsla(0, 0%, 0%, 0)", no-space formatting)
-      // and those previously slipped through as a bogus opaque-looking
-      // swatch instead of being hidden like every other invisible color.
-      const parsed = parseCssColor(color.value);
-      return !parsed || parsed.a > 0;
-    })
-    .filter((color) => {
-      const key = color.value.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+  const elements = Array.isArray(element) ? element : [element];
+  const values = new Map<string, SelectionColorValue>();
+  const rangesByFile = selectionColorScopeRanges(scopes);
+
+  // Source ranges are the authoritative selection-wide scan. They include
+  // every literal in descendants, including nodes beyond the bridge's compact
+  // runtime payload. Computed values fill in colors supplied by shared CSS.
+  for (const [fileId, ranges] of rangesByFile) {
+    const scope = scopes.find((candidate) => candidate.fileId === fileId);
+    if (!scope) continue;
+    for (const range of ranges) {
+      const content = scope.content.slice(range.start, range.end);
+      cssColorTokens(content).forEach((token) =>
+        addColorValue(values, "color", token),
+      );
+    }
+  }
+
+  for (const current of elements) {
+    addStyleColors(values, current.computedStyles, scopes.length === 0);
+    current.portableStyleSnapshot?.nodes.forEach((node) =>
+      addStyleColors(values, node.styles, scopes.length === 0),
+    );
+    if (scopes.length === 0 && current.htmlContent) {
+      cssColorTokens(current.htmlContent).forEach((token) =>
+        addColorValue(values, "color", token),
+      );
+    }
+  }
+
+  return Array.from(values.values());
 }
 
 /** Uppercase 6-char hex (no #) for a CSS color, matching the design editor's row readout. */

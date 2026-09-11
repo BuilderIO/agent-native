@@ -59,6 +59,12 @@ export type StyleChangeHandler = (
   meta?: StyleChangeMeta,
 ) => void;
 
+export type SelectionColorChangeHandler = (
+  from: string,
+  to: string,
+  meta?: StyleChangeMeta,
+) => void;
+
 /**
  * Result of converting a container to a flex/grid flow. Only `"unsupported"`
  * (no inline source for this node) may fall back to writing the container
