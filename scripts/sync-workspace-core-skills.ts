@@ -676,6 +676,12 @@ function isWithin(root, candidate) {
   );
 }
 
+function isAbsoluteLinkTarget(target) {
+  return (
+    isAbsolute(target) || /^[A-Za-z]:[\\/]/.test(target) || /^\\\\/.test(target)
+  );
+}
+
 function resolveSourceSkill(skill) {
   const sourceSkillDir = realpathSync(join(sourceDir, skill));
   if (!allowedSourceRoots.some((root) => isWithin(root, sourceSkillDir))) {
@@ -686,19 +692,27 @@ function resolveSourceSkill(skill) {
   return sourceSkillDir;
 }
 
+function validateSourceSkills() {
+  for (const skill of new Set([
+    ...workspaceSkillIncludes,
+    ...templateSharedSkillIncludes,
+  ])) {
+    resolveSourceSkill(skill);
+  }
+}
+
 function copySkill(skill, targetSkillDir) {
+  const sourceSkillDir = resolveSourceSkill(skill);
   if (
     existsSync(targetSkillDir) &&
     lstatSync(targetSkillDir).isSymbolicLink() &&
-    !isAbsolute(readlinkSync(targetSkillDir))
+    !isAbsoluteLinkTarget(readlinkSync(targetSkillDir))
   ) {
     return;
   }
   rmSync(targetSkillDir, { recursive: true, force: true });
   mkdirSync(dirname(targetSkillDir), { recursive: true });
-  cpSync(resolveSourceSkill(skill), targetSkillDir, {
-    recursive: true,
-  });
+  cpSync(sourceSkillDir, targetSkillDir, { recursive: true });
 }
 
 function syncWorkspaceCoreSkills() {
@@ -722,6 +736,7 @@ function syncTemplateSharedSkills() {
 
 try {
   assertCategorized();
+  validateSourceSkills();
   if (check) {
     checkInSync();
     checkTemplateSharedSkillsInSync();
