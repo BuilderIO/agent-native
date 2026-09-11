@@ -13,9 +13,12 @@ import {
   isLoopProtectionDispatchError,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
   AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD,
+  AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD,
+  AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD,
   AGENT_CHAT_TURN_INPUT_TOKENS_FIELD,
   resolveContinuationDispatchBudget,
   resolvePriorContinuationReason,
+  resolvePriorContinuationState,
   resolveSelfChainContinuationBudget,
   SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
   type BackgroundNoProgressRepeat,
@@ -324,6 +327,28 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       noProgressErrorCode: "builder_gateway_internal_error",
       noProgressCount: 1,
     });
+    // Same companion-field treatment as `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD`:
+    // a stale-run/unclaimed-run recovery redispatch only delivers a skeleton
+    // marker, so the streak must also ride the persisted body — see
+    // `resolvePriorContinuationState`.
+    const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
+    const payload = JSON.parse(insertOptions.dispatchPayload);
+    expect(payload[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]).toBe(
+      "builder_gateway_internal_error",
+    );
+    expect(payload[AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]).toBe(1);
+  });
+
+  it("omits the no-progress body companion fields when the chunk made progress", async () => {
+    const h = makeHarness();
+    await runChain(h, { noProgressRepeat: { count: 0, tripped: false } });
+
+    const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
+    const payload = JSON.parse(insertOptions.dispatchPayload);
+    expect(
+      payload[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD],
+    ).toBeUndefined();
+    expect(payload[AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]).toBeUndefined();
   });
 
   it("labels the successor marker's continuationReason as rate_limited for an http_429 boundary", async () => {
@@ -1021,5 +1046,48 @@ describe("resolvePriorContinuationReason", () => {
     expect(
       resolvePriorContinuationReason({ runId: "run-1" }, {}),
     ).toBeUndefined();
+  });
+});
+
+describe("resolvePriorContinuationState", () => {
+  it("resolves priorNoProgressErrorCode/priorNoProgressCount from the body for a skeleton-marker redelivery", () => {
+    // Same shape as a real stale-run/unclaimed-run recovery redispatch: the
+    // delivered marker carries only `{ runId, payloadRef: true }`, and the
+    // no-progress streak has to come from the run row's persisted
+    // `dispatch_payload` instead — see the companion fields' doc comment.
+    const state = resolvePriorContinuationState(
+      { runId: "run-1", payloadRef: true },
+      {
+        [AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]: "rate_limited",
+        [AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]:
+          "builder_gateway_internal_error",
+        [AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]: 1,
+      },
+    );
+    expect(state).toEqual({
+      continuationReason: "rate_limited",
+      noProgressErrorCode: "builder_gateway_internal_error",
+      noProgressCount: 1,
+    });
+  });
+
+  it("prefers the marker over the body when both carry the no-progress streak", () => {
+    const state = resolvePriorContinuationState(
+      { noProgressErrorCode: "http_429", noProgressCount: 2 },
+      {
+        [AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]: "stale_body_value",
+        [AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]: 99,
+      },
+    );
+    expect(state.noProgressErrorCode).toBe("http_429");
+    expect(state.noProgressCount).toBe(2);
+  });
+
+  it("defaults noProgressCount to 0 when neither the marker nor the body carries it", () => {
+    expect(resolvePriorContinuationState(null, {})).toEqual({
+      continuationReason: undefined,
+      noProgressErrorCode: undefined,
+      noProgressCount: 0,
+    });
   });
 });

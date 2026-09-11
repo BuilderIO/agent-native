@@ -8332,22 +8332,68 @@ export const AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD =
   "__agentNativePriorContinuationReason";
 
 /**
- * `priorContinuationReason` for `rateLimitChainCapTripped`. The delivered
- * `__backgroundRun` marker carries it on every normal chain hop
- * (`continuationMarker.continuationReason` in `chainServerDrivenContinuation`);
- * a recovery redispatch's skeleton marker never does, so this falls back to
- * the body-level `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD` companion that
- * survives the same rehydration the marker does not.
+ * Same rationale as `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD` above, for
+ * the no-progress streak (`BackgroundNoProgressRepeat`): a recovery
+ * redispatch's skeleton marker carries neither, so the breaker
+ * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`) would otherwise reset on
+ * every such hop. See `resolvePriorContinuationState`.
  */
+export const AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD =
+  "__agentNativePriorNoProgressErrorCode";
+export const AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD =
+  "__agentNativePriorNoProgressCount";
+
+/**
+ * Marker-first-then-body resolution for the three pieces of continuation
+ * state a stale-run / unclaimed-run redispatch's skeleton
+ * `{ runId, payloadRef: true }` marker cannot carry: the preceding chunk's
+ * `continuationReason` (for `rateLimitChainCapTripped`) and no-progress
+ * streak (for `resolveBackgroundNoProgressRepeat`). The delivered
+ * `__backgroundRun` marker carries all three on every normal chain hop
+ * (`continuationMarker` in `chainServerDrivenContinuation`); a recovery
+ * redispatch never does, so each falls back to its body-level companion
+ * field, which survives the same rehydration the marker does not.
+ */
+export function resolvePriorContinuationState(
+  backgroundRunMarker: Record<string, unknown> | null | undefined,
+  body: Record<string, unknown>,
+): {
+  continuationReason: string | undefined;
+  noProgressErrorCode: string | undefined;
+  noProgressCount: number;
+} {
+  const continuationReason =
+    typeof backgroundRunMarker?.continuationReason === "string"
+      ? backgroundRunMarker.continuationReason
+      : typeof body[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD] === "string"
+        ? (body[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD] as string)
+        : undefined;
+  const noProgressErrorCode =
+    typeof backgroundRunMarker?.noProgressErrorCode === "string"
+      ? backgroundRunMarker.noProgressErrorCode
+      : typeof body[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD] === "string"
+        ? (body[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD] as string)
+        : undefined;
+  const noProgressCountSource =
+    typeof backgroundRunMarker?.noProgressCount === "number" &&
+    Number.isFinite(backgroundRunMarker.noProgressCount)
+      ? backgroundRunMarker.noProgressCount
+      : body[AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD];
+  const noProgressCount =
+    typeof noProgressCountSource === "number" &&
+    Number.isFinite(noProgressCountSource)
+      ? Math.max(0, Math.floor(noProgressCountSource))
+      : 0;
+  return { continuationReason, noProgressErrorCode, noProgressCount };
+}
+
+/** Thin wrapper kept for callers/tests that only need the reason. */
 export function resolvePriorContinuationReason(
   backgroundRunMarker: Record<string, unknown> | null | undefined,
   body: Record<string, unknown>,
 ): string | undefined {
-  if (typeof backgroundRunMarker?.continuationReason === "string") {
-    return backgroundRunMarker.continuationReason;
-  }
-  const stashed = body[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD];
-  return typeof stashed === "string" ? stashed : undefined;
+  return resolvePriorContinuationState(backgroundRunMarker, body)
+    .continuationReason;
 }
 
 /**
@@ -8798,6 +8844,14 @@ export async function chainServerDrivenContinuation(opts: {
       ? { [AGENT_CHAT_TURN_INPUT_TOKENS_FIELD]: opts.turnInputTokens }
       : {}),
     [AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]: continuationReason,
+    ...(opts.noProgressRepeat?.errorCode
+      ? {
+          [AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]:
+            opts.noProgressRepeat.errorCode,
+          [AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]:
+            opts.noProgressRepeat.count,
+        }
+      : {}),
   };
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   try {
@@ -9278,26 +9332,20 @@ export function createProductionAgentHandler(
       Number.isFinite(backgroundRunMarker.continuationCount)
         ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
         : 0;
-    // No-progress streak so far, carried on the marker: this invocation has no
-    // other memory of what the previous chunk failed with.
-    const priorNoProgressErrorCode =
-      typeof backgroundRunMarker?.noProgressErrorCode === "string"
-        ? backgroundRunMarker.noProgressErrorCode
-        : undefined;
-    const priorNoProgressCount =
-      typeof backgroundRunMarker?.noProgressCount === "number" &&
-      Number.isFinite(backgroundRunMarker.noProgressCount)
-        ? Math.max(0, Math.floor(backgroundRunMarker.noProgressCount))
-        : 0;
-    // What the PRECEDING chunk of this turn ended with — see
+    // No-progress streak and the PRECEDING chunk's continuation reason,
+    // carried on the marker: this invocation has no other memory of what the
+    // previous chunk failed with. Falls back to the body companion fields
+    // when a recovery redispatch delivered only a skeleton marker (see
+    // `resolvePriorContinuationState`). The reason feeds
     // `rateLimitChainCapTripped`, which caps a rate-limit-class repeat at one
-    // hop using this same marker, no new DB read. Falls back to the body
-    // companion field when a recovery redispatch delivered only a skeleton
-    // marker (see `resolvePriorContinuationReason`).
-    const priorContinuationReason = resolvePriorContinuationReason(
+    // hop using this same marker, no new DB read.
+    const priorContinuationState = resolvePriorContinuationState(
       backgroundRunMarker,
       body as unknown as Record<string, unknown>,
     );
+    const priorNoProgressErrorCode = priorContinuationState.noProgressErrorCode;
+    const priorNoProgressCount = priorContinuationState.noProgressCount;
+    const priorContinuationReason = priorContinuationState.continuationReason;
     let backgroundRunClaimedEarly = false;
     if (isBackgroundWorker && bgRunId) {
       const earlyClaim = await claimBackgroundWorkerRunEarly({
