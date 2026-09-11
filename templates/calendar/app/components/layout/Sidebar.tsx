@@ -79,7 +79,6 @@ import {
 import { useGoogleCalendars } from "@/hooks/use-google-calendars";
 import {
   useOverlayPeople,
-  useRemoveOverlayPerson,
   useUpdateOverlayPersonColor,
 } from "@/hooks/use-overlay-people";
 import { useSettings } from "@/hooks/use-settings";
@@ -604,35 +603,35 @@ function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
   return (
     <div className="px-1.5 py-1.5">
       <div className="mb-1 flex min-h-8 items-center justify-between px-3">
-          <div className="flex items-center">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              {t("sidebar.myCalendars")}
-            </span>
-          </div>
-          <div className="flex items-center">
-            <button
-              type="button"
-              aria-label={t("sidebar.addGoogleAccount")}
-              onClick={() => {
-                setAddCalendarDefaultTab("google");
-                setAddCalendarOpen(true);
-              }}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            >
-              <IconPlus className="h-3.5 w-3.5" />
-            </button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  to="/settings"
-                  onClick={onClose}
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                >
-                  <IconSettings className="h-3.5 w-3.5" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("sidebar.googleCalendarSettings")}
+        <div className="flex items-center">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t("sidebar.myCalendars")}
+          </span>
+        </div>
+        <div className="flex items-center">
+          <button
+            type="button"
+            aria-label={t("sidebar.addGoogleAccount")}
+            onClick={() => {
+              setAddCalendarDefaultTab("google");
+              setAddCalendarOpen(true);
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          >
+            <IconPlus className="h-3.5 w-3.5" />
+          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/settings"
+                onClick={onClose}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <IconSettings className="h-3.5 w-3.5" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t("sidebar.googleCalendarSettings")}
             </TooltipContent>
           </Tooltip>
         </div>
@@ -660,7 +659,7 @@ export function Sidebar({
     toggleHiddenCalendar,
     isHiddenCalendar,
   } = useCalendarContext();
-const googleStatus = useGoogleAuthStatus();
+  const googleStatus = useGoogleAuthStatus();
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = useMemo(
     () =>
@@ -952,130 +951,130 @@ const googleStatus = useGoogleAuthStatus();
                   <IconPlus className="h-3.5 w-3.5" />
                 </button>
               </div>
-                {(otherCalendarItems.length > 0 ||
-                  externalCalendars.length > 0) && (
-                  <div className="mt-1 space-y-1">
-                    {otherCalendarItems.length > 0 && (
-                      <div className="space-y-0.5">
-                        {visibleOtherCalendarItems.map((item) => {
-                          const visible = isOtherItemVisible(item);
-                          const color = otherItemColor(item);
-                          return (
-                            <div
-                              key={item.key}
-                              className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+              {(otherCalendarItems.length > 0 ||
+                externalCalendars.length > 0) && (
+                <div className="mt-1 space-y-1">
+                  {otherCalendarItems.length > 0 && (
+                    <div className="space-y-0.5">
+                      {visibleOtherCalendarItems.map((item) => {
+                        const visible = isOtherItemVisible(item);
+                        const color = otherItemColor(item);
+                        return (
+                          <div
+                            key={item.key}
+                            className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+                          >
+                            <ColorPickerPopover
+                              color={color}
+                              onColorChange={(nextColor) =>
+                                setOtherItemColor(item, nextColor)
+                              }
                             >
-                              <ColorPickerPopover
-                                color={color}
-                                onColorChange={(nextColor) =>
-                                  setOtherItemColor(item, nextColor)
-                                }
-                              >
-                                <button
-                                  type="button"
-                                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                                >
-                                  <span
-                                    className={cn(
-                                      "block h-2.5 w-2.5 rounded-full",
-                                      !visible && "opacity-40",
-                                    )}
-                                    style={{ backgroundColor: color }}
-                                  />
-                                </button>
-                              </ColorPickerPopover>
-                              <span
-                                className={cn(
-                                  "min-w-0 flex-1 truncate",
-                                  visible
-                                    ? "text-muted-foreground"
-                                    : "text-muted-foreground/40",
-                                )}
-                              >
-                                {item.label}
-                              </span>
-                              {item.person &&
-                                overlayStatusByEmail?.get(
-                                  item.person.email.toLowerCase(),
-                                )?.status === "error" && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span
-                                        tabIndex={0}
-                                        className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                        aria-label={t(
-                                          "sidebar.overlayCalendarUnavailable",
-                                          {
-                                            email:
-                                              item.person.name ||
-                                              item.person.email,
-                                          },
-                                        )}
-                                      >
-                                        <IconAlertTriangle
-                                          className="h-3 w-3 text-muted-foreground/60"
-                                          aria-hidden="true"
-                                        />
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right">
-                                      {t("sidebar.overlayCalendarUnavailable", {
-                                        email:
-                                          item.person.name || item.person.email,
-                                      })}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
                               <button
                                 type="button"
-                                onClick={() => toggleOtherItemVisibility(item)}
-                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                aria-label={
-                                  visible
-                                    ? t("sidebar.hideCalendar")
-                                    : t("sidebar.showCalendar")
-                                }
+                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
                               >
-                                {visible ? (
-                                  <IconEye className="h-3 w-3" />
-                                ) : (
-                                  <IconEyeOff className="h-3 w-3" />
-                                )}
+                                <span
+                                  className={cn(
+                                    "block h-2.5 w-2.5 rounded-full",
+                                    !visible && "opacity-40",
+                                  )}
+                                  style={{ backgroundColor: color }}
+                                />
                               </button>
-                            </div>
-                          );
-                        })}
-                        {otherCalendarItems.length > 8 && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setShowAllOtherCalendars((current) => !current)
-                            }
-                            className="mx-3 mt-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            {
-                              showAllOtherCalendars
-                                ? t("common.showLess") // i18n-key-ignore generated calendar catalog
-                                : t("common.showMore") // i18n-key-ignore generated calendar catalog
-                            }{" "}
-                            ({otherCalendarItems.length - 8})
-                          </button>
-                        )}
-                        {/* Removing a peer also stops their working hours
+                            </ColorPickerPopover>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate",
+                                visible
+                                  ? "text-muted-foreground"
+                                  : "text-muted-foreground/40",
+                              )}
+                            >
+                              {item.label}
+                            </span>
+                            {item.person &&
+                              overlayStatusByEmail?.get(
+                                item.person.email.toLowerCase(),
+                              )?.status === "error" && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span
+                                      tabIndex={0}
+                                      className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                      aria-label={t(
+                                        "sidebar.overlayCalendarUnavailable",
+                                        {
+                                          email:
+                                            item.person.name ||
+                                            item.person.email,
+                                        },
+                                      )}
+                                    >
+                                      <IconAlertTriangle
+                                        className="h-3 w-3 text-muted-foreground/60"
+                                        aria-hidden="true"
+                                      />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right">
+                                    {t("sidebar.overlayCalendarUnavailable", {
+                                      email:
+                                        item.person.name || item.person.email,
+                                    })}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            <button
+                              type="button"
+                              onClick={() => toggleOtherItemVisibility(item)}
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                              aria-label={
+                                visible
+                                  ? t("sidebar.hideCalendar")
+                                  : t("sidebar.showCalendar")
+                              }
+                            >
+                              {visible ? (
+                                <IconEye className="h-3 w-3" />
+                              ) : (
+                                <IconEyeOff className="h-3 w-3" />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {otherCalendarItems.length > 8 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowAllOtherCalendars((current) => !current)
+                          }
+                          className="mx-3 mt-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {
+                            showAllOtherCalendars
+                              ? t("common.showLess") // i18n-key-ignore generated calendar catalog
+                              : t("common.showMore") // i18n-key-ignore generated calendar catalog
+                          }{" "}
+                          ({otherCalendarItems.length - 8})
+                        </button>
+                      )}
+                      {/* Removing a peer also stops their working hours
                             backing your booking links, so it lives on the
                             booking-links page rather than as a hover target
                             next to a plain hide toggle. */}
-                        {overlayPeople.length > 0 && (
-                          <Link
-                            to="/booking-links?tab=shared"
-                            onClick={onClose}
-                            className="mx-3 flex h-7 items-center rounded text-xs text-muted-foreground hover:text-foreground"
-                          >
-                            {t("sidebar.managePeerAvailability")}
-                          </Link>
-                        )}
-                      </div>
-                    )}
+                      {overlayPeople.length > 0 && (
+                        <Link
+                          to="/booking-links?tab=shared"
+                          onClick={onClose}
+                          className="mx-3 flex h-7 items-center rounded text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          {t("sidebar.managePeerAvailability")}
+                        </Link>
+                      )}
+                    </div>
+                  )}
 
                   {externalCalendars.length > 0 && (
                     <Collapsible
