@@ -731,8 +731,6 @@ export function buildAgentNativeExtensionHtml({
       var positionMonitorScheduled = false;
       var positionMonitorActive = false;
       var activeCssMotionCount = 0;
-      // ponytail: cap polling for motion without a reliable completion signal.
-      var positionMonitorFramesRemaining = 0;
       var activeAnimations = function() {
         if (typeof document.getAnimations !== 'function') return null;
         var animations;
@@ -804,29 +802,16 @@ export function buildAgentNativeExtensionHtml({
           if (!body) return;
           reportHeight();
           var animations = activeAnimations();
-          var hasFiniteAnimation = false;
-          var hasIndefiniteAnimation = activeCssMotionCount > 0;
+          var hasActiveAnimation = false;
           if (animations) {
             animations.forEach(function(animation) {
               var effect = animation.effect;
               trackPositionedElement(effect && effect.target);
               watchAnimationCompletion(animation);
-              var timing =
-                effect && typeof effect.getComputedTiming === 'function'
-                  ? effect.getComputedTiming()
-                  : null;
-              if (timing && timing.endTime !== Infinity) {
-                hasFiniteAnimation = true;
-              } else {
-                hasIndefiniteAnimation = true;
-              }
+              hasActiveAnimation = true;
             });
           }
-          if (hasIndefiniteAnimation) positionMonitorFramesRemaining -= 1;
-          if (
-            hasFiniteAnimation ||
-            (hasIndefiniteAnimation && positionMonitorFramesRemaining > 0)
-          ) {
+          if (hasActiveAnimation || activeCssMotionCount > 0) {
             schedulePositionMonitor();
             return;
           }
@@ -846,7 +831,6 @@ export function buildAgentNativeExtensionHtml({
           activeCssMotionCount += 1;
         }
         positionMonitorActive = true;
-        positionMonitorFramesRemaining = 120;
         schedulePositionObservation();
         scheduleResizeWork();
         schedulePositionMonitor();
@@ -875,26 +859,10 @@ export function buildAgentNativeExtensionHtml({
         positionMonitorActive =
           (animations && animations.length > 0) ||
           (animations === null && activeCssMotionCount > 0);
-        if (positionMonitorActive && positionMonitorFramesRemaining <= 0) {
-          positionMonitorFramesRemaining = 120;
-        }
         if (!positionMonitorActive) motionElements.clear();
         scheduleResizeWork();
         if (positionMonitorActive) schedulePositionMonitor();
       };
-      if (
-        typeof Element !== 'undefined' &&
-        typeof Element.prototype.animate === 'function'
-      ) {
-        var nativeAnimate = Element.prototype.animate;
-        Element.prototype.animate = function() {
-          var animation = nativeAnimate.apply(this, arguments);
-          trackPositionedElement(this);
-          startPositionMonitor();
-          watchAnimationCompletion(animation);
-          return animation;
-        };
-      }
       var lastReportedHeight = null;
       var postHeight = function(height) {
         if (height === lastReportedHeight) return;

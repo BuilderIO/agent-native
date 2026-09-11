@@ -754,8 +754,6 @@ export function buildExtensionHtml(
 	      var _positionMonitorScheduled = false;
 	      var _positionMonitorActive = false;
 	      var _activeCssMotionCount = 0;
-	      // ponytail: cap polling for motion without a reliable completion signal.
-	      var _positionMonitorFramesRemaining = 0;
 	      var _activeAnimations = function() {
 	        if (typeof document.getAnimations !== 'function') return null;
 	        var animations;
@@ -827,29 +825,16 @@ export function buildExtensionHtml(
           if (!body) return;
           _reportHeight();
           var animations = _activeAnimations();
-          var hasFiniteAnimation = false;
-          var hasIndefiniteAnimation = _activeCssMotionCount > 0;
+          var hasActiveAnimation = false;
           if (animations) {
             animations.forEach(function(animation) {
               var effect = animation.effect;
               _trackPositionedElement(effect && effect.target);
               _watchAnimationCompletion(animation);
-              var timing =
-                effect && typeof effect.getComputedTiming === 'function'
-                  ? effect.getComputedTiming()
-                  : null;
-              if (timing && timing.endTime !== Infinity) {
-                hasFiniteAnimation = true;
-              } else {
-                hasIndefiniteAnimation = true;
-              }
+              hasActiveAnimation = true;
             });
           }
-          if (hasIndefiniteAnimation) _positionMonitorFramesRemaining -= 1;
-          if (
-            hasFiniteAnimation ||
-            (hasIndefiniteAnimation && _positionMonitorFramesRemaining > 0)
-          ) {
+          if (hasActiveAnimation || _activeCssMotionCount > 0) {
             _schedulePositionMonitor();
             return;
           }
@@ -869,7 +854,6 @@ export function buildExtensionHtml(
 	          _activeCssMotionCount += 1;
 	        }
 	        _positionMonitorActive = true;
-	        _positionMonitorFramesRemaining = 120;
 	        _schedulePositionObservation();
 		        _scheduleResizeWork();
 	        _schedulePositionMonitor();
@@ -898,26 +882,10 @@ export function buildExtensionHtml(
         _positionMonitorActive =
           (animations && animations.length > 0) ||
           (animations === null && _activeCssMotionCount > 0);
-        if (_positionMonitorActive && _positionMonitorFramesRemaining <= 0) {
-          _positionMonitorFramesRemaining = 120;
-        }
         if (!_positionMonitorActive) _motionElements.clear();
         _scheduleResizeWork();
         if (_positionMonitorActive) _schedulePositionMonitor();
       };
-      if (
-        typeof Element !== 'undefined' &&
-        typeof Element.prototype.animate === 'function'
-      ) {
-        var _nativeAnimate = Element.prototype.animate;
-        Element.prototype.animate = function() {
-          var animation = _nativeAnimate.apply(this, arguments);
-          _trackPositionedElement(this);
-          _startPositionMonitor();
-          _watchAnimationCompletion(animation);
-          return animation;
-        };
-      }
       var _lastH = null;
       var _measurePositionedContent = function(body, bodyTop) {
         var bottom = 0;

@@ -49,7 +49,7 @@ describe("portable extension runtime", () => {
     expect(html).toContain("positionedElements.forEach");
     expect(html).toContain("motionElements.forEach");
     expect(html).toContain("watchAnimationCompletion");
-    expect(html).toContain("Element.prototype.animate");
+    expect(html).not.toContain("Element.prototype.animate");
     expect(html).toContain("document.addEventListener('animationend'");
     expect(html).toContain("document.addEventListener('transitionend'");
     expect(html).not.toContain(
