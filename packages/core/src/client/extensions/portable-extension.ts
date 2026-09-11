@@ -677,14 +677,19 @@ export function buildAgentNativeExtensionHtml({
 
       function reportHeight() {
         try {
-          var doc = document.documentElement;
           var body = document.body;
-          var height = Math.max(
-            doc ? doc.scrollHeight : 0,
-            doc ? doc.offsetHeight : 0,
-            body ? body.scrollHeight : 0,
-            body ? body.offsetHeight : 0,
-          );
+          if (!body) return;
+          var bodyRect = body.getBoundingClientRect();
+          var bodyTop = bodyRect.top;
+          var bodyStyle = window.getComputedStyle(body);
+          var paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+          var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+          var contentBottom = paddingTop;
+          Array.prototype.forEach.call(body.querySelectorAll('*'), function(element) {
+            var rect = element.getBoundingClientRect();
+            contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+          });
+          var height = Math.ceil(contentBottom + paddingBottom);
           window.parent.postMessage({
             type: messageTypes.extension.RESIZE,
             extensionId: extensionId,

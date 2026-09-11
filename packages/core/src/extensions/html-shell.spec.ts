@@ -149,6 +149,9 @@ describe("buildExtensionHtml", () => {
     );
     expect(html).toContain("agent-native-extension-resize");
     expect(html).not.toContain("min-height: 100vh");
+    expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
+    expect(html).toContain("body.querySelectorAll('*')");
+    expect(html).not.toContain("body.scrollHeight");
   });
 
   it("serializes authenticated extension binding metadata", () => {
