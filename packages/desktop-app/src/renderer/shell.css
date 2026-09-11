@@ -349,9 +349,9 @@ body {
   -webkit-app-region: drag;
 }
 
-/* Collapsed macOS rails use a fixed-width custom cluster because native
-   traffic lights cannot expose only two buttons. Keep it at shell level so it
-   remains above the settings surface. */
+/* Collapsed macOS rails use a fixed-width custom cluster while the native
+   traffic lights are hidden. Keep it at shell level so it remains above the
+   settings surface. */
 .desktop-chat-first-mac-window-controls {
   display: none;
 }
@@ -373,33 +373,12 @@ body {
   -webkit-app-region: no-drag;
 }
 
-.collapsed-mac-window-controls::before {
-  position: absolute;
-  z-index: 0;
-  top: -3px;
-  left: -5px;
-  width: 78px;
-  height: 28px;
-  border: 1px solid hsl(var(--sidebar-foreground) / 0.14);
-  border-radius: 999px;
-  background-color: hsl(var(--sidebar-background));
-  box-shadow: 0 4px 14px hsl(var(--sidebar-background) / 0.42);
-  content: "";
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--ease-collapse);
-}
-
 .collapsed-mac-window-controls .win-btn {
   position: absolute;
-  z-index: 1;
   top: 5px;
   width: 12px;
   height: 12px;
   padding: 0;
-  transition:
-    opacity var(--ease-collapse),
-    transform var(--ease-collapse);
 }
 
 .collapsed-mac-window-controls .win-btn--close {
@@ -412,42 +391,6 @@ body {
 
 .collapsed-mac-window-controls .win-btn--maximize {
   left: 50px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-4px) scale(0.8);
-}
-
-.collapsed-mac-window-controls:hover::before,
-.collapsed-mac-window-controls:focus-within::before {
-  opacity: 1;
-}
-
-.collapsed-mac-window-controls:hover .win-btn--maximize,
-.collapsed-mac-window-controls:focus-within .win-btn--maximize {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0) scale(1);
-}
-
-.platform-darwin
-  .shell:has(.settings-overlay)
-  .collapsed-mac-window-controls::before,
-.platform-darwin
-  .shell:has(.settings-overlay)
-  .collapsed-mac-window-controls:hover::before,
-.platform-darwin
-  .shell:has(.settings-overlay)
-  .collapsed-mac-window-controls:focus-within::before {
-  opacity: 0;
-}
-
-.platform-darwin
-  .shell:has(.settings-overlay)
-  .collapsed-mac-window-controls
-  .win-btn--maximize {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0) scale(1);
 }
 
 .collapsed-mac-window-controls .win-btn:focus-visible {
@@ -1079,13 +1022,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .desktop-chat-first-mac-window-controls,
   .collapsed-mac-window-controls,
-  .collapsed-mac-window-controls::before,
   .collapsed-mac-window-controls .win-btn {
     transition: none;
-  }
-
-  .collapsed-mac-window-controls .win-btn--maximize {
-    transform: none;
   }
 }
 
