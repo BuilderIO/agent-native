@@ -202,7 +202,7 @@ export function createBabysitPullRequestAction(
         { userEmail, orgId },
         {
           action: "propose-pr-babysit-status",
-          kind: "investigation",
+          kind: "read",
           status: "success",
           itemId,
           source: "github",

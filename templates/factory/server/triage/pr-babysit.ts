@@ -1,4 +1,5 @@
 import type { TriageCoverage } from "./contracts.js";
+import { metadataString, type TriageMetadata } from "./metadata.js";
 import type { PullRequestCheckObservation } from "./pr-monitor.js";
 
 export const DEFAULT_BABYSIT_BOT_AUTHORS = [
@@ -497,6 +498,17 @@ export function hasNewHumanReviewWork(
  * reopens for one. Takes the rising edge rather than the raw conflict bits, so
  * reopen and the ping veto cannot disagree about what counts as a new conflict.
  */
+export function deferBabysitQuietWindowExpired(
+  metadata: TriageMetadata,
+  nowMs: number,
+): boolean {
+  if (metadataString(metadata, "prBabysitState") !== "defer") return false;
+  const until = metadataString(metadata, "prBabysitBuilderActiveUntil");
+  if (!until) return false;
+  const untilMs = Date.parse(until);
+  return Number.isFinite(untilMs) && nowMs >= untilMs;
+}
+
 export function shouldReopenParkedBabysit(
   input: HumanReviewWorkComparison & {
     parked: boolean;

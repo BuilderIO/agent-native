@@ -167,9 +167,14 @@ describe("babysitMechanicalVerdict", () => {
   const verdict = (
     stored: Parameters<typeof readBabysitStoredState>[0],
     overrides: Partial<typeof details> = {},
-    live: { mergeable: boolean | null; mergeableState: string | null } = {
+    live: {
+      mergeable: boolean | null;
+      mergeableState: string | null;
+      headSha: string;
+    } = {
       mergeable: null,
       mergeableState: "unknown",
+      headSha: "abc123",
     },
   ) =>
     babysitMechanicalVerdict({
@@ -200,7 +205,7 @@ describe("babysitMechanicalVerdict", () => {
         prBabysitHumanReviewCommentCount: 1,
         prBabysitFactoryAuthor: "factory-bot",
       }),
-      summary: { mergeable: true, mergeableState: "clean" },
+      summary: { mergeable: true, mergeableState: "clean", headSha: "abc123" },
       details: {
         ...details,
         factoryBabysitCommentCount: 1,
@@ -247,7 +252,7 @@ describe("babysitMechanicalVerdict", () => {
           },
         ],
       },
-      { mergeable: false, mergeableState: "dirty" },
+      { mergeable: false, mergeableState: "dirty", headSha: "abc123" },
     );
 
     expect(result.newDefiniteMergeConflict).toBe(false);
@@ -266,7 +271,11 @@ describe("babysitMechanicalVerdict", () => {
         prBabysitMergeConflict: true,
         prBabysitMergeabilityComputed: true,
       }),
-      summary: { mergeable: null, mergeableState: "unknown" },
+      summary: {
+        mergeable: null,
+        mergeableState: "unknown",
+        headSha: "abc123",
+      },
       details,
       proposal: reconcileBabysitState({
         comments: [],

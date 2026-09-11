@@ -1,4 +1,13 @@
+import { useT } from "@agent-native/core/client/i18n";
+
 import { cn } from "@/lib/utils";
+
+export type InboxPillData = {
+  key: string;
+  labelKey: string;
+  tone: PillTone;
+  hintKey?: string;
+};
 
 type PillTone =
   | "muted"
@@ -74,4 +83,21 @@ export function TriageRiskPill({ risk }: { risk?: string | null }) {
 
 export function TriageStatusPill({ status }: { status?: string | null }) {
   return <Pill value={status} tone={statusTone(status)} />;
+}
+
+export function InboxPill({ pill }: { pill: InboxPillData }) {
+  const t = useT();
+  const label = t(pill.labelKey);
+  const hint = pill.hintKey ? t(pill.hintKey) : null;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        TONE_CLASS[pill.tone],
+      )}
+      title={hint ?? undefined}
+    >
+      {label}
+    </span>
+  );
 }

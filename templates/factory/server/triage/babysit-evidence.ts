@@ -206,7 +206,11 @@ export interface BabysitMechanicalVerdict {
  */
 export function babysitMechanicalVerdict(input: {
   stored: BabysitStoredState;
-  summary: { mergeable: boolean | null; mergeableState: string | null };
+  summary: {
+    mergeable: boolean | null;
+    mergeableState: string | null;
+    headSha: string;
+  };
   details: BabysitEvidenceDetails;
   proposal: BabysitProposal;
   nextHumanReviewCommentCount: number;

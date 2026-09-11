@@ -609,7 +609,7 @@ describe("auditItemSubject", () => {
           source: "github",
           sourceUrl: "https://github.com/o/r/pull/1",
           action: "propose-pr-babysit-status",
-          kind: "investigation",
+          kind: "read",
           status: "success",
           summary: "#4683 briefing: recommend ping — 3 open bot threads.",
           details: {
