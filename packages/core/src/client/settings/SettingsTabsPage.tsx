@@ -162,9 +162,15 @@ function normalizeTabId(value?: string | null): string | null {
 
 function normalizeSettingsRoute(value: string): string {
   const normalized = normalizeTabId(value) ?? value;
-  const legacyPrefix = "experiments:experiment-";
-  if (normalized.startsWith(legacyPrefix)) {
-    return `labs:lab-${normalized.slice(legacyPrefix.length)}`;
+  const legacyPrefixes = [
+    ["labs:experiments:experiment-", "labs:lab-"],
+    ["experiments:experiment-", "labs:lab-"],
+    ["experiment-", "labs:lab-"],
+  ] as const;
+  for (const [legacyPrefix, canonicalPrefix] of legacyPrefixes) {
+    if (normalized.startsWith(legacyPrefix)) {
+      return `${canonicalPrefix}${normalized.slice(legacyPrefix.length)}`;
+    }
   }
   return normalized;
 }
@@ -173,7 +179,7 @@ function resolveTabId(
   tabs: SettingsTabItem[],
   value?: string | null,
 ): string | null {
-  const normalized = normalizeTabId(value);
+  const normalized = normalizeSettingsRoute(value ?? "");
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
   // Keep old settings links working after the user-facing tab rename.
@@ -293,7 +299,10 @@ function buildSettingsEntryRoute(tabId: string, section?: string): string {
 
 function updateRouteForTab(tabId: string, section?: string) {
   if (typeof window === "undefined") return;
-  const route = buildSettingsEntryRoute(tabId, section);
+  const route = buildSettingsEntryRoute(
+    tabId,
+    section ? normalizeSettingsRoute(section) : section,
+  );
   window.history.pushState(
     null,
     "",
@@ -567,8 +576,8 @@ function SettingsTabsPageContent({
   const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
   useEffect(() => {
-    if (!routerLocation || !selectedTab) return;
-    const pathname = appLocalPathname(routerLocation.pathname);
+    if (!selectedTab) return;
+    const pathname = appLocalPathname(routerLocation?.pathname);
     if (!pathname.startsWith("/settings/")) return;
     const routeValue = pathname
       .slice("/settings/".length)

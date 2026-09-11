@@ -345,6 +345,58 @@ describe("SettingsTabsPage", () => {
     }
   });
 
+  it.each([
+    "#experiments:experiment-clips.meetings",
+    "#experiment-clips.meetings",
+  ])("canonicalizes legacy experiment hash %s", async (hash) => {
+    const previousScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      window.history.replaceState(null, "", `/${hash}`);
+      runAnimationFramesImmediately();
+      await act(async () => {
+        root.render(
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
+          />,
+        );
+      });
+
+      expect(
+        container
+          .querySelector("#settings-tab-labs")
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+      expect(window.location.pathname).toBe(
+        "/settings/labs/lab-clips.meetings",
+      );
+      expect(window.location.hash).toBe("");
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "start",
+        behavior: "smooth",
+      });
+    } finally {
+      if (previousScrollIntoView) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          previousScrollIntoView,
+        );
+      } else {
+        delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+      }
+    }
+  });
+
   it("restores a connections tab from its canonical route after a remount", () => {
     const props = {
       general: <div>General content</div>,
