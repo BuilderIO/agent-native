@@ -2,7 +2,8 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
+import { useSearchParams } from "react-router";
 
 import {
   useCalendarContext,
@@ -103,6 +104,29 @@ export function useNavigationState() {
   setEventDraftRef.current = setEventDraft;
   const openAddPersonPrefilledRef = useRef(openAddPersonPrefilled);
   openAddPersonPrefilledRef.current = openAddPersonPrefilled;
+
+  // `f_addPersonEmail` (from the overlay-request email's deep link) is
+  // forwarded directly onto this page's URL by the `/open` route redirect
+  // (see send-overlay-request.ts), so it's read straight from the URL on
+  // first load here rather than through the cross-tab one-shot `navigate`
+  // app-state command — a fresh tab opened from an email link has no
+  // existing tab-scoped session to reliably receive that command.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const email = searchParams.get("f_addPersonEmail");
+    if (!email) return;
+    openAddPersonPrefilledRef.current(email);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("f_addPersonEmail");
+        return next;
+      },
+      { replace: true },
+    );
+    // Only ever consumed once per mount from the URL present at load time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useAgentRouteState<NavigationState>({
     // The `/_agent-native/open` deep-link route (e.g. the overlay-request

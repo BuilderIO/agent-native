@@ -222,9 +222,15 @@ export default defineAction({
       buildDeepLink({
         app: "calendar",
         view: "calendar",
+        // `f_`-prefixed params are forwarded directly onto the redirect
+        // URL's query string (see open-route.ts), so the recipient's first
+        // page load can read it synchronously — unlike a plain param, which
+        // only reaches the client through the cross-tab one-shot `navigate`
+        // app-state command, and a fresh tab from an email link has no
+        // existing tab-scoped session to receive that command reliably.
         // The owner, not the peer: the peer is the recipient, being asked to
         // add the owner back.
-        params: { addPersonEmail: ownerEmail },
+        params: { f_addPersonEmail: ownerEmail },
       }),
       getAppProductionUrl(),
     );
