@@ -3,7 +3,9 @@ import { pathToFileURL } from "node:url";
 
 import { requestNetlifyApi } from "./netlify-api-request.ts";
 
-const PREVIEW_CONTEXT = "deploy-preview";
+const PREVIEW_CONTEXT = "branch-deploy";
+const LEGACY_PREVIEW_CONTEXT = "deploy-preview";
+const PREVIEW_CONTEXTS = [PREVIEW_CONTEXT, LEGACY_PREVIEW_CONTEXT];
 const DATABASE_ENV_KEY_PATTERN = /(?:^|_)DATABASE_URL(?:_UNPOOLED)?$/;
 const DATABASE_SCOPES = ["builds", "functions", "runtime"];
 
@@ -13,6 +15,7 @@ type Requester = (url: string, options?: RequestInit) => Promise<Response>;
 
 type NetlifyEnvValue = {
   context: string;
+  context_parameter?: string;
   id?: string;
 };
 
@@ -132,6 +135,9 @@ export function parseNetlifyDatabaseVariables(
       }
       values.push({
         context: value.context,
+        ...(typeof value.context_parameter === "string"
+          ? { context_parameter: value.context_parameter }
+          : {}),
         ...(typeof value.id === "string" ? { id: value.id } : {}),
       });
     }
@@ -178,18 +184,23 @@ async function deletePreviewValue({
   value: NetlifyEnvValue;
 }): Promise<void> {
   if (!value.id) {
-    throw new Error(`${key}: deploy-preview value has no Netlify id.`);
+    throw new Error(`${key}: preview value has no Netlify id.`);
   }
-  await assertResponse(
-    await request(netlifyEnvUrl(accountId, siteId, key, value.id), {
+  const response = await request(
+    netlifyEnvUrl(accountId, siteId, key, value.id),
+    {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${token}`,
         "User-Agent": "agent-native-netlify-preview-database-sync",
       },
-    }),
-    `${key} deploy-preview value deletion`,
+    },
   );
+  if (response.status === 404) {
+    await response.arrayBuffer();
+    return;
+  }
+  await assertResponse(response, `${key} preview value deletion`);
 }
 
 export async function mirrorProductionDatabaseVariables({
@@ -250,7 +261,7 @@ export async function mirrorProductionDatabaseVariables({
       if (createResponse.ok) continue;
       if (createStatus !== 409) {
         throw new Error(
-          `${variable.key} deploy-preview environment creation failed with HTTP ${createStatus}.`,
+          `${variable.key} branch-deploy environment creation failed with HTTP ${createStatus}.`,
         );
       }
 
@@ -277,18 +288,9 @@ export async function mirrorProductionDatabaseVariables({
     }
 
     const previewValues = current.values.filter(
-      ({ context }) => context === PREVIEW_CONTEXT,
+      ({ context, context_parameter }) =>
+        context === PREVIEW_CONTEXT && !context_parameter,
     );
-    for (const value of previewValues.slice(1)) {
-      await deletePreviewValue({
-        accountId,
-        key: variable.key,
-        request,
-        siteId,
-        token,
-        value,
-      });
-    }
     await assertResponse(
       await request(netlifyEnvUrl(accountId, siteId, variable.key), {
         method: "PATCH",
@@ -298,8 +300,25 @@ export async function mirrorProductionDatabaseVariables({
           value: variable.value,
         }),
       }),
-      `${variable.key} deploy-preview environment update`,
+      `${variable.key} branch-deploy environment update`,
     );
+
+    for (const value of [
+      ...previewValues.slice(1),
+      ...current.values.filter(
+        ({ context, context_parameter }) =>
+          context === LEGACY_PREVIEW_CONTEXT && !context_parameter,
+      ),
+    ]) {
+      await deletePreviewValue({
+        accountId,
+        key: variable.key,
+        request,
+        siteId,
+        token,
+        value,
+      });
+    }
   }
 
   // Keep an already-live preview usable if a later cleanup request fails. All
@@ -308,7 +327,8 @@ export async function mirrorProductionDatabaseVariables({
   for (const variable of existing) {
     if (desiredKeys.has(variable.key)) continue;
     for (const value of variable.values.filter(
-      ({ context }) => context === PREVIEW_CONTEXT,
+      ({ context, context_parameter }) =>
+        PREVIEW_CONTEXTS.includes(context) && !context_parameter,
     )) {
       await deletePreviewValue({
         accountId,
@@ -349,11 +369,11 @@ async function main(): Promise<void> {
     token,
   });
   console.log(
-    `Mirrored ${result.mirroredKeys.length} production database variable(s) into deploy-preview context: ${result.mirroredKeys.join(", ")}`,
+    `Mirrored ${result.mirroredKeys.length} production database variable(s) into branch-deploy context: ${result.mirroredKeys.join(", ")}`,
   );
   if (result.removedKeys.length > 0) {
     console.log(
-      `Removed stale deploy-preview database override(s): ${result.removedKeys.join(", ")}`,
+      `Removed stale preview database override(s): ${result.removedKeys.join(", ")}`,
     );
   }
 }
