@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
@@ -145,10 +143,6 @@ export default defineAction({
       {
         app_name: "mail",
         template_name: "mail",
-        query_hash: createHash("sha256")
-          .update(args.q)
-          .digest("hex")
-          .slice(0, 16),
         view,
       },
       ctx,

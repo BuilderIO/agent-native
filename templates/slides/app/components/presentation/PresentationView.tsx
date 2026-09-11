@@ -296,7 +296,7 @@ export default function PresentationView({
     if (trackedDeckRef.current === deckId) return;
     trackedDeckRef.current = deckId;
     trackEvent("presented", {
-      output_id: deckId,
+      ...(isShared ? {} : { output_id: deckId }),
       output_type: "deck",
       slide_count: safeSlides.length,
       is_shared: isShared,

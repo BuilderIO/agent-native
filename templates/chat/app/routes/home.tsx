@@ -38,6 +38,7 @@ export default function ChatRoute() {
   const navigate = useNavigate();
   const t = useT();
   const trackedMessageCount = useRef(0);
+  const hasObservedMessageCount = useRef(false);
   const threadUrlSync = threadId
     ? {
         routeThreadId: threadId,
@@ -48,6 +49,7 @@ export default function ChatRoute() {
 
   useEffect(() => {
     trackedMessageCount.current = 0;
+    hasObservedMessageCount.current = false;
     if (threadId) {
       trackEvent("thread_resumed", { thread_id: threadId });
     }
@@ -88,8 +90,11 @@ export default function ChatRoute() {
         composerLayoutVariant="hero"
         composerPlaceholder={t("chat.composerPlaceholder")}
         onMessageCountChange={(count) => {
-          if (count > trackedMessageCount.current) {
-            if (trackedMessageCount.current === 0) {
+          const previousCount = trackedMessageCount.current;
+          const initialObservation = !hasObservedMessageCount.current;
+          hasObservedMessageCount.current = true;
+          if (count > previousCount && !(threadId && initialObservation)) {
+            if (previousCount === 0 && !threadId) {
               trackEvent("thread_created", {
                 ...(threadId ? { output_id: threadId } : {}),
                 output_type: "thread",

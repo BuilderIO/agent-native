@@ -9,7 +9,12 @@ import {
   optionalCredentialKeys,
   partitionCredentialUpdate,
 } from "../server/lib/credential-keys";
-import { deleteCredential, saveCredential } from "../server/lib/credentials";
+import {
+  deleteCredential,
+  hasCredential,
+  saveCredential,
+  type CredentialContext,
+} from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import {
@@ -49,6 +54,22 @@ function validateCredential(key: string, value: string): string | null {
   }
 
   return null;
+}
+
+async function providerConnected(
+  provider: (typeof credentialProviderConfigs)[number],
+  context: CredentialContext,
+): Promise<boolean | undefined> {
+  const results = await Promise.allSettled(
+    provider.requiredKeys.map((key) => hasCredential(key, context)),
+  );
+  if (results.some((result) => result.status === "rejected")) return undefined;
+  const present = results.map(
+    (result) => result.status === "fulfilled" && result.value,
+  );
+  return provider.requiredMode === "any"
+    ? present.some(Boolean)
+    : present.every(Boolean);
 }
 
 export default defineAction({
@@ -92,6 +113,22 @@ export default defineAction({
     const ctx = tryRequestCredentialContext();
     if (!ctx) throw new Error("Sign in to save credentials");
 
+    const changedKeys = new Set([...toSave.map(({ key }) => key), ...toDelete]);
+    const affectedProviders = credentialProviderConfigs.filter((provider) =>
+      provider.requiredKeys.some((key) => changedKeys.has(key)),
+    );
+    const previousConnections = new Map(
+      await Promise.all(
+        affectedProviders.map(
+          async (provider) =>
+            [
+              provider.provider,
+              await providerConnected(provider, ctx),
+            ] as const,
+        ),
+      ),
+    );
+
     for (const { key, value } of toSave) {
       await saveCredential(key, value, ctx);
     }
@@ -121,13 +158,13 @@ export default defineAction({
       }
     }
 
-    const updatedKeys = new Set(toSave.map((entry) => entry.key));
-    for (const provider of credentialProviderConfigs) {
-      const connected =
-        provider.requiredMode === "any"
-          ? provider.requiredKeys.some((key) => updatedKeys.has(key))
-          : provider.requiredKeys.every((key) => updatedKeys.has(key));
-      if (!connected) continue;
+    for (const provider of affectedProviders) {
+      const connected = await providerConnected(provider, ctx);
+      if (
+        connected !== true ||
+        previousConnections.get(provider.provider) !== false
+      )
+        continue;
       track(
         "connector_added",
         {

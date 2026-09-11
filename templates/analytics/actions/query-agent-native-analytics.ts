@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   dataTableWidgetResultSchema,
@@ -84,7 +82,6 @@ export default defineAction({
         query_mode: "first_party",
         surface: "agent",
         query_length: args.sql.length,
-        query_text_hash: createHash("sha256").update(args.sql).digest("hex"),
       },
       actionContext,
     );

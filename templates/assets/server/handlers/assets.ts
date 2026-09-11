@@ -147,7 +147,10 @@ async function assertFolderBelongsToLibrary(
   }
 }
 
-async function withUserContext(event: any, fn: () => Promise<unknown>) {
+async function withUserContext(
+  event: any,
+  fn: (userEmail: string) => Promise<unknown>,
+) {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
     setResponseStatus(event, 401);
@@ -155,12 +158,12 @@ async function withUserContext(event: any, fn: () => Promise<unknown>) {
   }
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId ?? undefined },
-    fn,
+    () => fn(session.email),
   );
 }
 
 export const uploadAssets = defineEventHandler(async (event) =>
-  withUserContext(event, async () => {
+  withUserContext(event, async (userEmail) => {
     const parts = await readMultipartFormData(event);
     const libraryId = readField(parts, "libraryId");
     if (!libraryId) {
@@ -315,14 +318,18 @@ export const uploadAssets = defineEventHandler(async (event) =>
       };
     }
     if (assets.length > 0) {
-      track("brand_uploaded", {
-        app_name: "assets",
-        template_name: "assets",
-        output_id: libraryId,
-        output_type: "asset_library",
-        asset_type: category,
-        asset_count: assets.length,
-      });
+      track(
+        "brand_uploaded",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: libraryId,
+          output_type: "asset_library",
+          asset_type: category,
+          asset_count: assets.length,
+        },
+        { userId: userEmail },
+      );
     }
     return {
       count: assets.length,

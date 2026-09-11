@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 
 import { emit } from "@agent-native/core/event-bus";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import {
   assertAccess,
   ForbiddenError,
@@ -65,6 +65,14 @@ export const planCommentResolutionTargetSchema = z.enum(
   PLAN_COMMENT_RESOLUTION_TARGETS,
 );
 export const planAuthorSchema = z.enum(PLAN_AUTHORS);
+
+function trackPlanEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  const actorEmail = getRequestContext()?.userEmail;
+  track(name, properties, actorEmail ? { userId: actorEmail } : undefined);
+}
 
 export const sectionInputSchema = z.object({
   id: z.string().optional(),
@@ -593,7 +601,7 @@ export function emitPlanCreated(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
-    track("plan_created", {
+    trackPlanEvent("plan_created", {
       app_name: "plan",
       template_name: "plan",
       output_id: input.planId,
@@ -649,7 +657,7 @@ export function emitPlanCommented(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
-    track("comment_added", {
+    trackPlanEvent("comment_added", {
       app_name: "plan",
       template_name: "plan",
       output_id: input.planId,
@@ -687,7 +695,7 @@ export function emitPlanPublished(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
-    track("share_link_created", {
+    trackPlanEvent("share_link_created", {
       app_name: "plan",
       template_name: "plan",
       output_id: input.planId,
@@ -723,7 +731,7 @@ export function emitPlanStatusChanged(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
-    track("plan_status_changed", {
+    trackPlanEvent("plan_status_changed", {
       app_name: "plan",
       template_name: "plan",
       output_id: input.planId,

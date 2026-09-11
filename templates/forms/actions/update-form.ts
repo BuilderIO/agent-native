@@ -234,7 +234,7 @@ export default defineAction({
           ctx,
         );
       }
-      if (args.status === "published") {
+      if (args.status === "published" && existing.status !== "published") {
         track(
           "form_published",
           {
