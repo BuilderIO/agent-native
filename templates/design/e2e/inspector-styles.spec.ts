@@ -133,12 +133,19 @@ async function selectedElementStyle(
   return designFrame(page)
     .getByText(text, { exact: false })
     .first()
-    .evaluate(
-      (el, name) =>
-        (el as HTMLElement).style.getPropertyValue(name) ||
-        window.getComputedStyle(el).getPropertyValue(name),
-      property,
-    );
+    .evaluate((el, name) => {
+      // `getByText` returns the SMALLEST element holding the text, which for
+      // a painted leaf is the editor's own `data-an-text` wrapper. The
+      // inspector writes to the element that wrapper sits inside.
+      const node = el as HTMLElement;
+      const styled = node.hasAttribute("data-an-text")
+        ? (node.parentElement ?? node)
+        : node;
+      return (
+        styled.style.getPropertyValue(name) ||
+        window.getComputedStyle(styled).getPropertyValue(name)
+      );
+    }, property);
 }
 
 async function resolvedColorChannels(

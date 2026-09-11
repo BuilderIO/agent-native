@@ -549,14 +549,17 @@ test.describe("multi-selection", () => {
 
     const aDelta =
       aBefore - styleNum(styleOf(await indexHtml(page, id), "loose-a"), "top");
-    // Snapping is on, so the drop is pulled up to SNAP_THRESHOLD_PX (6) onto
-    // an alignment guide. Cmd is Figma's snap bypass but is overloaded with
-    // deep-select here, so an exact-delta drag is not expressible.
+    // Snapping is on, so the drop is pulled onto an alignment guide. The
+    // bridge holds SNAP_THRESHOLD_PX (6) constant on SCREEN, so zoomed out it
+    // spans 6/s content px — the delta is measured in content px. Cmd is
+    // Figma's snap bypass but is overloaded with deep-select here, so an
+    // exact-delta drag is not expressible.
+    const tolerance = Math.ceil(6 / s);
     expect(
       Math.abs(100 - aDelta),
-      `dragging 100px up landed ${aDelta}, which is further than the 6px snap ` +
-        `threshold can account for`,
-    ).toBeLessThanOrEqual(6);
+      `dragging 100px up landed ${aDelta}; at zoom ${s} the 6px screen snap ` +
+        `threshold spans ${tolerance} content px, which cannot account for it`,
+    ).toBeLessThanOrEqual(tolerance);
   });
 
   test("a multi-selection shows one combined bounding box", async ({

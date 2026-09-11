@@ -88,6 +88,50 @@ export async function createFixtureDesign(
   return designId;
 }
 
+/**
+ * Screen px per content px for the first mounted screen.
+ *
+ * The canvas opens well below 1:1, so a gesture offset written as a screen-px
+ * literal covers several content px. Offsets meant to land in a gap between
+ * two elements overshoot into a neighbour, and tolerances stated in content px
+ * demand sub-pixel pointer precision. Size both through this.
+ */
+export async function canvasZoom(page: Page): Promise<number> {
+  const card = await page.locator("[data-screen-card]").first().boundingBox();
+  if (!card) throw new Error("no screen card to measure zoom against");
+  const contentWidth = await page
+    .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
+    .first()
+    .contentFrame()
+    .locator("body")
+    .evaluate(() => document.documentElement.clientWidth);
+  if (!contentWidth) throw new Error("screen reported no content width");
+  return card.width / contentWidth;
+}
+
+/**
+ * Flags registered by `server/plugins/feature-flags.ts` are default-off, so a
+ * spec covering flagged chrome must turn its flag on or it asserts against an
+ * editor that deliberately renders nothing.
+ *
+ * A flag rule is org-wide state in the shared database, so leaving one on
+ * leaks into every later spec in the same shard — returns a disposer, and
+ * callers must run it.
+ */
+export async function enableFeatureFlag(
+  page: Page,
+  key: string,
+): Promise<() => Promise<void>> {
+  await postAction(page, "set-feature-flag", {
+    operation: "replace-rules",
+    key,
+    rules: { mode: "on" },
+  });
+  return async () => {
+    await postAction(page, "set-feature-flag", { operation: "off", key });
+  };
+}
+
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
 const E2E_BASE_URL = process.env.E2E_BASE_URL;
 const E2E_BASE_PATH = (() => {

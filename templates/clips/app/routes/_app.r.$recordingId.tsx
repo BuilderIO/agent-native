@@ -9,7 +9,6 @@ import {
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import { useExperiment } from "@agent-native/core/client/experiments";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -21,6 +20,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -34,8 +34,8 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
-import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/experiments";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
+import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -556,8 +556,8 @@ export default function RecordingPage() {
   const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
   const panelParam = searchParams.get("panel");
   const { session, isLoading: sessionLoading } = useSession();
-  const videoEditingExperimentEnabled = useExperiment(CLIPS_VIDEO_EDITING.key);
-  const meetingsExperimentEnabled = useExperiment(CLIPS_MEETINGS.key);
+  const videoEditingLabEnabled = useLab(CLIPS_VIDEO_EDITING.key);
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
 
@@ -1241,7 +1241,7 @@ export default function RecordingPage() {
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor =
-    canEdit && videoEditingExperimentEnabled && !isLoomEmbedBacked;
+    canEdit && videoEditingLabEnabled && !isLoomEmbedBacked;
   const canDelete = role === "owner";
   const canDownloadRecording = Boolean(
     recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
@@ -2586,7 +2586,7 @@ export default function RecordingPage() {
                     </div>
                     {/* G9 — "From meeting" badge surfaced when this recording is
                       attached to a meeting (server fix 6 attaches `meeting`). */}
-                    {meetingsExperimentEnabled && playerDataQ.data?.meeting ? (
+                    {meetingsLabEnabled && playerDataQ.data?.meeting ? (
                       <NavLink
                         to={`/meetings/${playerDataQ.data.meeting.id}`}
                         className="mb-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
