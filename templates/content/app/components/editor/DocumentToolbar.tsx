@@ -1097,11 +1097,17 @@ export function DocumentToolbar({
                   )}
                   aria-label={t("comments.title")}
                   aria-pressed={commentsHistoryOpen}
-                  onClick={() =>
-                    onUtilityPanelChange(
-                      commentsHistoryOpen ? null : "comments",
-                    )
-                  }
+                  onClick={() => {
+                    const nextPanel = commentsHistoryOpen ? null : "comments";
+                    if (nextPanel === "comments") {
+                      trackEvent("document_utility_panel_opened", {
+                        app_name: "content",
+                        template_name: "content",
+                        panel: "comments",
+                      });
+                    }
+                    onUtilityPanelChange(nextPanel);
+                  }}
                 >
                   <IconMessageCircle size={16} />
                 </button>
@@ -1189,11 +1195,17 @@ export function DocumentToolbar({
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem
-                  onSelect={() =>
-                    onUtilityPanelChange(
-                      utilityPanel === "info" ? null : "info",
-                    )
-                  }
+                  onSelect={() => {
+                    const nextPanel = utilityPanel === "info" ? null : "info";
+                    if (nextPanel === "info") {
+                      trackEvent("document_utility_panel_opened", {
+                        app_name: "content",
+                        template_name: "content",
+                        panel: "info",
+                      });
+                    }
+                    onUtilityPanelChange(nextPanel);
+                  }}
                   className={cn(
                     utilityPanel === "info" &&
                       "bg-accent text-accent-foreground",
@@ -1235,7 +1247,15 @@ export function DocumentToolbar({
               ) : (
                 <>
                   <DropdownMenuGroup>
-                    <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        trackEvent("document_history_opened", {
+                          app_name: "content",
+                          template_name: "content",
+                        });
+                        setHistoryOpen(true);
+                      }}
+                    >
                       <IconHistory className="me-2 h-4 w-4" />
                       {t("editor.toolbar.versionHistory")}
                     </DropdownMenuItem>

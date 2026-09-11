@@ -1,4 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
+import { normalizeTrackingDimension } from "@agent-native/core/shared";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { askGrantedDispatchMcpApp } from "../server/lib/mcp-gateway.js";
@@ -20,6 +22,21 @@ export default defineAction({
       .optional()
       .describe("Maximum inline wait in milliseconds."),
   }),
-  run: async ({ app, message, async, maxWaitMs }) =>
-    askGrantedDispatchMcpApp(app, message, { async, maxWaitMs }),
+  run: async ({ app, message, async, maxWaitMs }, ctx) => {
+    const result = await askGrantedDispatchMcpApp(app, message, {
+      async,
+      maxWaitMs,
+    });
+    track(
+      "a2a_delegated",
+      {
+        app_name: "dispatch",
+        template_name: "dispatch",
+        target_app: normalizeTrackingDimension(app) ?? app.trim().toLowerCase(),
+        job_type: async === true ? "async" : "inline",
+      },
+      ctx,
+    );
+    return result;
+  },
 });

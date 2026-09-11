@@ -1,4 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
@@ -1014,6 +1015,18 @@ function SqlDashboardPageContent({
     ) {
       viewedDashboardIdRef.current = dashboardId;
       incrementItemView("dashboard", dashboardId);
+      trackEvent("dashboard_viewed", {
+        app_name: "analytics",
+        template_name: "analytics",
+        dashboard_id: dashboardId,
+        output_id: dashboardId,
+        output_type: "dashboard",
+        is_owner: Boolean(
+          session?.email &&
+          fetched.createdBy &&
+          session.email.toLowerCase() === fetched.createdBy.toLowerCase(),
+        ),
+      });
     }
   }, [
     dashboardId,
@@ -1414,6 +1427,11 @@ function SqlDashboardPageContent({
 
   const openEditPanel = useCallback(
     (panel: SqlPanel) => {
+      trackEvent("dashboard_panel_editor_opened", {
+        app_name: "analytics",
+        template_name: "analytics",
+        panel_type: panel.chartType,
+      });
       setEditingPanel(panel);
       setEditorOpen(true);
       awareness?.setLocalStateField("editingPanelId", panel.id);
@@ -1594,6 +1612,13 @@ function SqlDashboardPageContent({
 
   const handleTabChange = useCallback(
     (value: string) => {
+      trackEvent("dashboard_tab_changed", {
+        app_name: "analytics",
+        template_name: "analytics",
+        tab_position: Math.max(0, tabs.indexOf(value)) + 1,
+        tab_count: tabs.length,
+        has_nested_tabs: groupedTabs.hasNestedTabs,
+      });
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -1603,7 +1628,7 @@ function SqlDashboardPageContent({
         { replace: true },
       );
     },
-    [setSearchParams],
+    [groupedTabs.hasNestedTabs, setSearchParams, tabs],
   );
   const handleTabGroupChange = useCallback(
     (groupName: string) => {
@@ -2058,6 +2083,10 @@ function SqlDashboardPageContent({
                   onSelect={(event) => {
                     event.preventDefault();
                     setDashboardActionsOpen(false);
+                    trackEvent("dashboard_history_opened", {
+                      app_name: "analytics",
+                      template_name: "analytics",
+                    });
                     setHistoryOpen(true);
                   }}
                 >

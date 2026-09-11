@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronDown,
@@ -93,6 +94,17 @@ export default function ExplorerPage() {
     sql,
     { enabled: hasValidEvents && sql.length > 0 },
   );
+
+  useEffect(() => {
+    if (!result || result.error || !hasValidEvents) return;
+    trackEvent("sql_run", {
+      app_name: "analytics",
+      template_name: "analytics",
+      surface: "explorer",
+      row_count: result.rows.length,
+      column_count: result.schema?.length ?? 0,
+    });
+  }, [hasValidEvents, result]);
 
   const handleSave = () => {
     if (currentId) {

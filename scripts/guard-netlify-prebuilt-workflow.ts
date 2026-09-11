@@ -613,6 +613,9 @@ if (
     "inputs.target == 'beta' && format(",
   ) ||
   !normalizedReusableConcurrencyGroup.includes(
+    "inputs.target == 'beta' && (!inputs.deploy || inputs.deploy_mode != 'production') && format('netlify-prebuilt-beta-build-{0}-{1}', inputs.site, github.run_id)",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
     "'agent-native-production-site-{0}', inputs.site == 'chat' && 'starter' || inputs.site",
   ) ||
   !normalizedReusableConcurrencyGroup.includes(
@@ -1165,6 +1168,16 @@ for (const [path, target, buildContext] of [
   ) {
     issues.push(`${path} must allow beta artifact builds to run concurrently`);
   }
+  if (
+    path === betaPath &&
+    (deployWith?.artifact_download !== true ||
+      typeof deployWith?.artifact_name !== "string" ||
+      !String(deployWith.artifact_name).includes("github.run_id"))
+  ) {
+    issues.push(
+      `${path} publish job must deploy the per-run prebuilt artifact`,
+    );
+  }
 }
 
 const betaResolveSourceJob = asRecord(
@@ -1180,6 +1193,13 @@ const betaResolveSourceScript = String(
 const betaDeployJob = asRecord(
   asRecord(parsedWorkflows.get(betaPath)?.jobs)?.deploy,
 );
+const betaBuildJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.build,
+);
+const betaBuildWith = asRecord(betaBuildJob?.with);
+const betaBuildNeeds = Array.isArray(betaBuildJob?.needs)
+  ? betaBuildJob.needs
+  : [];
 const betaDeployNeeds = Array.isArray(betaDeployJob?.needs)
   ? betaDeployJob.needs
   : [];
@@ -1197,8 +1217,19 @@ const productionDiscoverOutputs = asRecord(productionDiscoverJob?.outputs);
 const productionJobs = asRecord(parsedWorkflows.get(productionPath)?.jobs);
 if (
   asRecord(parsedWorkflows.get(betaPath)?.permissions)?.contents !== "read" ||
+  betaBuildJob?.uses !== `./${reusablePath}` ||
+  betaBuildWith?.target !== "beta" ||
+  betaBuildWith?.deploy !== false ||
+  betaBuildWith?.deploy_mode !== "draft" ||
+  betaBuildWith?.artifact_upload !== true ||
+  typeof betaBuildWith?.artifact_name !== "string" ||
+  !String(betaBuildWith.artifact_name).includes("github.run_id") ||
+  asRecord(betaBuildJob?.strategy)?.["max-parallel"] !== 16 ||
+  !betaBuildNeeds.includes("resolve-source") ||
+  !betaBuildNeeds.includes("discover-sites") ||
   !betaDeployNeeds.includes("resolve-source") ||
   !betaDeployNeeds.includes("discover-sites") ||
+  !betaDeployNeeds.includes("build") ||
   betaDeployNeeds.includes("schema-gate") ||
   asRecord(parsedWorkflows.get(betaPath)?.jobs)?.["schema-gate"] ||
   beta.includes("migrated_source_sha") ||

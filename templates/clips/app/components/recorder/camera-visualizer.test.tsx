@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
-      "cameraVisualizer.bubble": "translated:camera-bubble",
       "cameraVisualizer.live": "translated:camera-live",
       "cameraVisualizer.waiting": "translated:camera-waiting",
       "cameraVisualizer.opening": "translated:camera-opening",
@@ -30,7 +29,10 @@ vi.mock("@/lib/camera-blur", () => ({
   createBackgroundBlurStream: vi.fn(),
 }));
 
-import { CameraVisualizer } from "./camera-visualizer";
+import {
+  CameraVisualizer,
+  type CameraVisualizerHandle,
+} from "./camera-visualizer";
 
 class MockTrack extends EventTarget {
   stop = vi.fn();
@@ -49,6 +51,7 @@ describe("CameraVisualizer", () => {
   let track: MockTrack;
   let getUserMedia: ReturnType<typeof vi.fn>;
   let permissionState: PermissionState;
+  let visualizerRef: React.RefObject<CameraVisualizerHandle | null>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -95,6 +98,7 @@ describe("CameraVisualizer", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    visualizerRef = React.createRef<CameraVisualizerHandle>();
   });
 
   afterEach(() => {
@@ -108,35 +112,28 @@ describe("CameraVisualizer", () => {
     props: Partial<React.ComponentProps<typeof CameraVisualizer>> = {},
   ) {
     await act(async () => {
-      root.render(<CameraVisualizer deviceId={null} {...props} />);
+      root.render(
+        <CameraVisualizer ref={visualizerRef} deviceId={null} {...props} />,
+      );
       await Promise.resolve();
     });
   }
 
   async function startTest() {
-    const button = Array.from(container.querySelectorAll("button")).find(
-      (candidate) => candidate.textContent === "translated:camera-test",
-    );
-    if (!button) throw new Error("Expected translated camera test button");
+    if (!visualizerRef.current) throw new Error("Expected camera test handle");
     await act(async () => {
-      button.click();
+      visualizerRef.current?.startTest();
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
   }
 
-  it("keeps the disabled state explicit without requesting a device", async () => {
+  it("keeps the idle disabled state hidden without requesting a device", async () => {
     await renderVisualizer({ disabled: true });
 
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "translated:camera-off",
-    );
-    expect(
-      Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "translated:camera-test",
-      )?.disabled,
-    ).toBe(true);
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.querySelectorAll("button")).toHaveLength(0);
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(
       Array.from(container.querySelectorAll("button")).some((button) =>
@@ -154,13 +151,15 @@ describe("CameraVisualizer", () => {
     );
     await renderVisualizer();
 
-    const testButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "translated:camera-test",
-    );
     await act(async () => {
-      testButton?.click();
+      visualizerRef.current?.startTest();
+      await Promise.resolve();
+      await Promise.resolve();
       await Promise.resolve();
     });
+    const testButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "translated:camera-opening",
+    );
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "translated:camera-opening",
     );

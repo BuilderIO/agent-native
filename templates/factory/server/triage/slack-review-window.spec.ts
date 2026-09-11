@@ -8,9 +8,9 @@ import {
 } from "./slack-review-window.js";
 
 describe("slack review window", () => {
-  it("treats eyes and robot_face as claimed Slack markers", () => {
+  it("treats eyes as the claimed Slack marker", () => {
     expect(isClaimedSlackReactionName("eyes")).toBe(true);
-    expect(isClaimedSlackReactionName(" robot_face ")).toBe(true);
+    expect(isClaimedSlackReactionName(" robot_face ")).toBe(false);
     expect(isClaimedSlackReactionName("thumbsup")).toBe(false);
     expect(isClaimedSlackReactionName(undefined)).toBe(false);
   });
@@ -25,7 +25,7 @@ describe("slack review window", () => {
     expect(
       slackFeedbackLeavesReviewWindow({
         status: "received",
-        slackReactionName: "robot_face",
+        slackReactionName: "eyes",
       }),
     ).toBe(true);
     expect(slackFeedbackLeavesReviewWindow({ status: "received" })).toBe(false);

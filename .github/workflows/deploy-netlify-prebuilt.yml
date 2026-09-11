@@ -205,6 +205,9 @@ concurrency:
         || inputs.caller == 'release-migration'
         && 'agent-native-release-migrations'
         || inputs.target == 'beta'
+        && (!inputs.deploy || inputs.deploy_mode != 'production')
+        && format('netlify-prebuilt-beta-build-{0}-{1}', inputs.site, github.run_id)
+        || inputs.target == 'beta'
         && (inputs.site == 'design' || inputs.site == 'slides')
         && 'agent-native-production-site-design-slides'
         || inputs.target == 'beta'

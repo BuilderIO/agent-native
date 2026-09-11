@@ -13,6 +13,7 @@ import {
   parseScheduleFromCron,
   readFactoryAutomationConfig,
   replaceUserPrompt,
+  restoreFactoryAutomationIdentityFields,
   templateIdForSeedName,
 } from "./factory-automation-config.js";
 
@@ -142,6 +143,37 @@ Observe Slack.
     );
     expect(next).toContain("slackChannelId: C0BUK2293SA");
     expect(next).toContain("slackChannelName: feedback");
+  });
+
+  it("restores editor-owned identity fields dropped during metadata repair", () => {
+    const original = `---
+source: slack
+template: slack-feedback
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+slackChannelName: product-feedback
+authorMode: exclude
+authorIds: U096KN3EL2Y
+---
+
+Observe Slack.
+`;
+    const repaired = `---
+source: slack
+template: slack-feedback
+authorMode: exclude
+---
+
+Observe Slack.
+`;
+    const next = restoreFactoryAutomationIdentityFields(
+      original,
+      repaired,
+      "factory-slack-feedback",
+    );
+    expect(next).toContain("displayName: Product feedback");
+    expect(next).toContain("slackChannelId: C0ATH3CCZT4");
+    expect(next).toContain("authorIds: U096KN3EL2Y");
   });
 
   it("deletes a stored Slack channel when the config clears it", () => {
