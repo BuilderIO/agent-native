@@ -1632,9 +1632,15 @@ export function DesignCanvas({
   // URL cached by the edit-mode bridge must not keep a URL-backed iframe alive
   // after URL -> static, or the canvas shows the old live app behind a
   // permanent bridge-loading surface. Same-mode localhost edits still keep
-  // their cached URL so the live document is not needlessly reloaded.
+  // their cached URL so the live document is not needlessly reloaded. Keep the
+  // legacy inline baseline stable for same-screen runtime replacements; only a
+  // stale URL marker needs the new source bytes immediately.
   const iframeRenderContent =
-    interactMode || sourceType !== "localhost" ? content : renderedContent;
+    interactMode ||
+    (sourceType !== "localhost" &&
+      Boolean(getExternalPreviewUrl(renderedContent)))
+      ? content
+      : renderedContent;
 
   const desktopNativeSnapshot = useDesktopDesignNativePreview({
     iframeRef,
