@@ -298,7 +298,7 @@ jobs:
                 core.setFailed('Beta source_ref must be a full 40-character commit SHA.');
                 return;
               }
-              if (process.env.CALLER.trim() === 'automatic-build') {
+              if (['automatic', 'automatic-build'].includes(process.env.CALLER.trim())) {
                 const comparison = await github.rest.repos.compareCommits({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -1217,7 +1217,7 @@ jobs:
         id: beta_freshness
         if: >-
           success() && inputs.target == 'beta' && inputs.deploy &&
-          steps.beta_pre_migration_freshness.outputs.current == 'true'
+          steps.beta_pre_migration_freshness.outcome == 'success'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}

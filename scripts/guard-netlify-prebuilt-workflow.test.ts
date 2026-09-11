@@ -531,6 +531,7 @@ describe("production Netlify site concurrency guard", () => {
       (step) =>
         step.name === "Verify beta source is current immediately before upload",
     );
+    const betaFreshness = reusableSteps[betaFreshnessIndex];
     const buildIndex = reusableSteps.findIndex(
       (step) => step.name === "Build with the Netlify project configuration",
     );
@@ -550,6 +551,14 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String(betaMigration?.if),
+      /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(betaFreshness?.if),
+      /steps\.beta_pre_migration_freshness\.outcome == 'success'/,
+    );
+    assert.doesNotMatch(
+      String(betaFreshness?.if),
       /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
     );
     assert.equal(betaMigration?.env?.BUILD_CONTEXT, "production");
@@ -732,6 +741,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       String(betaResolveStep?.with?.script),
       /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
+    );
+    assert.match(
+      reusableSource,
+      /\['automatic', 'automatic-build'\]\.includes\(process\.env\.CALLER\.trim\(\)\)/,
     );
     assert.match(
       String(betaResolveStep?.with?.script),
