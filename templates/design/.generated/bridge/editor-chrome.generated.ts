@@ -5355,7 +5355,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       if (typeof selector !== "string" || !selector) {
-        return allowDocumentBody ? document.body : null;
+        return allowDocumentBody && !(typeof sourceId === "string" && sourceId) && !(typeof pendingId === "string" && pendingId) ? document.body : null;
       }
       try {
         var selectorMatches = document.querySelectorAll(selector);

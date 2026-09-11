@@ -840,6 +840,20 @@ describe("Chromium reparent matrix", () => {
             },
           }),
         );
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 44,
+              html: '<div data-agent-native-node-id="stale-copy">Stale</div>',
+              anchorSelector: "",
+              anchorSourceId: "stale-source",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
       });
 
       const result = await page.evaluate(() => {
@@ -861,7 +875,11 @@ describe("Chromium reparent matrix", () => {
       });
 
       expect(result.parent).toBe("BODY");
-      expect(result.rejected).toHaveLength(0);
+      expect(result.rejected).toHaveLength(1);
+      expect(result.rejected[0]).toMatchObject({
+        requestId: 44,
+        reason: "anchor-unresolved",
+      });
       expect(result.structures).toHaveLength(1);
       await page.close();
     },

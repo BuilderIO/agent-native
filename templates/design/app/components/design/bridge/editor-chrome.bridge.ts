@@ -7372,7 +7372,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     if (typeof selector !== "string" || !selector) {
-      return allowDocumentBody ? document.body : null;
+      // An empty anchor is the explicit hit-test shape for a blank root drop;
+      // never reinterpret a failed stable or pending identity as the root.
+      return allowDocumentBody &&
+        !(typeof sourceId === "string" && sourceId) &&
+        !(typeof pendingId === "string" && pendingId)
+        ? document.body
+        : null;
     }
     try {
       var selectorMatches = document.querySelectorAll(selector);
