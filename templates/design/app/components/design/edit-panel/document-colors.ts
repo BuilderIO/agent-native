@@ -31,28 +31,6 @@ interface DeclarationValueSpan {
 
 const STYLE_ATTRIBUTE_PATTERN =
   /\sstyle\s*=\s*(?:"([\s\S]*?)"|'([\s\S]*?)'|([^\s>]+))/gi;
-const NON_RENDERED_HTML_PATTERN =
-  /<!--[\s\S]*?-->|<script\b[\s\S]*?<\/script\s*>|<noscript\b[\s\S]*?<\/noscript\s*>/gi;
-
-function maskNonRenderedHtml(
-  content: string,
-  styleBlocks: StyleBlockSpan[],
-): string {
-  const protectedContent = content.split("");
-  for (const block of styleBlocks) {
-    const end = block.start + block.value.length;
-    for (let index = block.start; index < end; index += 1) {
-      if (content[index] !== "\r" && content[index] !== "\n") {
-        protectedContent[index] = " ";
-      }
-    }
-  }
-  return protectedContent
-    .join("")
-    .replace(NON_RENDERED_HTML_PATTERN, (match) =>
-      match.replace(/[^\r\n]/g, " "),
-    );
-}
 
 function maskCssComments(css: string): string {
   const masked = css.split("");
@@ -157,6 +135,76 @@ function styleBlockSpans(content: string): StyleBlockSpan[] {
     }
   }
   return blocks;
+}
+
+function htmlTagEnd(content: string, start: number): number {
+  let quote: string | null = null;
+  for (let index = start; index < content.length; index += 1) {
+    const character = content[index];
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === ">") return index + 1;
+  }
+  return -1;
+}
+
+function maskNonRenderedHtml(content: string): string {
+  const masked = content.split("");
+  const maskRange = (start: number, end: number) => {
+    for (let index = start; index < end; index += 1) {
+      if (content[index] !== "\r" && content[index] !== "\n") {
+        masked[index] = " ";
+      }
+    }
+  };
+
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.indexOf("<", cursor);
+    if (start < 0) break;
+    if (content.startsWith("<!--", start)) {
+      const commentEnd = content.indexOf("-->", start + 4);
+      const end = commentEnd < 0 ? content.length : commentEnd + 3;
+      maskRange(start, end);
+      cursor = end;
+      continue;
+    }
+    if (!/[A-Za-z!?/]/.test(content[start + 1] ?? "")) {
+      cursor = start + 1;
+      continue;
+    }
+    const end = htmlTagEnd(content, start);
+    if (end < 0) break;
+    const tag = content.slice(start, end);
+    const opening = tag.match(/^<\s*([A-Za-z][\w:-]*)\b/i);
+    if (!opening) {
+      cursor = end;
+      continue;
+    }
+    const tagName = opening[1].toLowerCase();
+    if (tagName !== "script" && tagName !== "noscript" && tagName !== "style") {
+      cursor = end;
+      continue;
+    }
+
+    const closingTag = new RegExp(`</\\s*${tagName}\\s*>`, "gi");
+    closingTag.lastIndex = end;
+    const closing = closingTag.exec(content);
+    if (!closing) {
+      if (tagName !== "style") maskRange(start, content.length);
+      break;
+    }
+    const closingEnd = closing.index + closing[0].length;
+    if (tagName !== "style") maskRange(start, closingEnd);
+    cursor = closingEnd;
+  }
+  return masked.join("");
 }
 
 function cssPropertyName(property: string): string {
@@ -404,8 +452,8 @@ function colorTokenSpansInCss(css: string, offset = 0): ColorTokenSpan[] {
 }
 
 function colorTokenSpansInHtml(content: string): ColorTokenSpan[] {
-  const styleBlocks = styleBlockSpans(content);
-  const maskedContent = maskNonRenderedHtml(content, styleBlocks);
+  const maskedContent = maskNonRenderedHtml(content);
+  const styleBlocks = styleBlockSpans(maskedContent);
   const tokens: ColorTokenSpan[] = [];
 
   for (const { start: tagOffset, value: tag } of htmlTagSpans(maskedContent)) {

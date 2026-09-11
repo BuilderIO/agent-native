@@ -261,6 +261,31 @@ describe("extractDocumentColorPalette", () => {
     ).toBe('<style data-x="\\">.card { color:#ff0000 }</style>');
   });
 
+  it("ignores style-like markup in non-rendered HTML", () => {
+    const content =
+      "<!-- <style>.comment { color:#111111 }</style> -->" +
+      '<script>const template = "<style>.script { color:#222222 }</style>";</script>' +
+      "<noscript><style>.noscript { color:#333333 }</style></noscript>" +
+      "<style>.real { color:#0066ff }</style>";
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      "<!-- <style>.comment { color:#111111 }</style> -->" +
+        '<script>const template = "<style>.script { color:#222222 }</style>";</script>' +
+        "<noscript><style>.noscript { color:#333333 }</style></noscript>" +
+        "<style>.real { color:#ff0000 }</style>",
+    );
+  });
+
   it("does not treat quoted URL fragments as colors", () => {
     const content = `<div style='background-image: url("sprite)#0066ff.svg"); color:#0066ff'></div>`;
 
