@@ -1085,6 +1085,16 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("preserves elliptical dashboard clauses beside an automation", () => {
+    for (const request of [
+      "Create an automation, then a dashboard",
+      "Create an automation plus a dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+    }
+  });
+
   it("does not treat dashboard automation compounds as dashboard construction", () => {
     expect(
       looksLikeDashboardConstructionRequest(
@@ -1383,6 +1393,8 @@ describe("incomplete evidence detection", () => {
       "Are scheduled dashboard automations active?",
       "Show active dashboard automations",
       "List paused dashboard automations",
+      "Show active automations for the Sales dashboard",
+      "List paused workflows for the dashboard",
       "How many dashboard automations are there?",
       "How many automation dashboards exist?",
       "What is the status of dashboard automations?",
@@ -1527,6 +1539,16 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("does not treat analytics dashboard follow-ups as construction", () => {
+    for (const request of [
+      "What is the dashboard refresh rate and dashboard performance?",
+      "Show the dashboard refresh rate and dashboard metrics",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
+  });
+
   it("does not treat a dashboard template input as dashboard construction", () => {
     for (const request of [
       "Use a dashboard template to create an automation",
@@ -1548,6 +1570,13 @@ describe("incomplete evidence detection", () => {
         "Create a workflow to update, refresh, and rename the Revenue dashboard",
       ),
     ).toBe(false);
+  });
+
+  it("bounds long automation classifier inputs", () => {
+    const request = `Create an automation to ${"refresh ".repeat(10_000)}finish`;
+
+    expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
   });
 
   it("keeps automation dashboards that use a template as construction", () => {
