@@ -335,8 +335,8 @@ function clearCountdownTimer(): void {
   countdownEndsAtMs = 0;
 }
 
-// Toggle the toolbar popup off while recording so clicking the extension icon
-// fires onClicked (immediate stop & save) instead of opening the popup.
+// Keep the toolbar popup available while recording so the extension icon opens
+// the active-recording controls instead of stopping the take immediately.
 function setActionPopup(path: string): void {
   try {
     void chrome.action.setPopup({ popup: path });
@@ -417,10 +417,9 @@ async function restoreRuntimeState(): Promise<void> {
 
   if (overlayPhase !== "idle" && activeNativeRecording) {
     // Recording survived a worker restart. The offscreen document owns the
-    // recorder + pre-roll timer, so it kept running; just restore immediate-stop
-    // mode. If the pre-roll already elapsed, assume the offscreen started the
-    // recorder so the icon click does Stop (not Discard).
-    setActionPopup("");
+    // recorder + pre-roll timer, so it kept running; restore the active-recording
+    // popup before the user can click the extension icon again.
+    setActionPopup("src/popup.html");
     if (
       overlayPhase === "countdown" &&
       countdownEndsAtMs > 0 &&
@@ -1413,8 +1412,8 @@ async function armRecording(args: {
   // so the popup-close disconnect won't tear down the live recording overlay.
   previewTabId = null;
   setRecordingFlag(true);
-  // Clicking the icon now stops & saves immediately instead of opening the popup.
-  setActionPopup("");
+  // Keep the active-recording stop and discard controls behind the popup.
+  setActionPopup("src/popup.html");
   overlayTabId = tab.id as number;
   await mountOverlayOnTab(tab.id as number);
   broadcastOverlayState();
@@ -2745,9 +2744,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })();
 });
 
-// While recording, the popup is disabled (setActionPopup("")), so clicking the
-// extension icon lands here: stop & save immediately (or discard if we're still
-// in the pre-roll countdown). When idle, the popup opens and this never fires.
+// The popup normally handles the icon click while recording. Keep this as a
+// fallback for environments where the action popup cannot be configured.
 chrome.action.onClicked.addListener(() => {
   void (async () => {
     // Await restore — the click may have woken the worker, leaving the module
