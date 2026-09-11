@@ -1555,6 +1555,14 @@ export interface CoreRoutesPluginOptions {
   sseRoute?: string;
   /** Disable the SSE endpoint entirely. */
   disableSSE?: boolean;
+  /**
+   * Close an SSE stream after this many milliseconds instead of holding it
+   * open indefinitely. On a serverless host, set it below the platform's
+   * function ceiling (e.g. 280_000 under Vercel's 300s limit): the stream then
+   * ends at 200 and the client reconnects, instead of the platform killing the
+   * invocation and recording a runtime timeout. Default: unset (no cap).
+   */
+  sseMaxDurationMs?: number;
   /** Disable the /_agent-native/ping health check. */
   disablePing?: boolean;
   /** Disable the /_agent-native/health DB liveness + warmup probe. */
@@ -2524,7 +2532,12 @@ export function createCoreRoutesPlugin(
       // SSE
       if (!options.disableSSE) {
         for (const route of resolveFrameworkSseRoutes(options.sseRoute)) {
-          getH3App(nitroApp).use(route, createPollEventsHandler());
+          getH3App(nitroApp).use(
+            route,
+            createPollEventsHandler(undefined, {
+              maxDurationMs: options.sseMaxDurationMs,
+            }),
+          );
         }
       }
 
