@@ -171,6 +171,7 @@ import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
   readDesktopSso,
   writeDesktopSso,
@@ -3774,6 +3775,16 @@ function createAuthGuardFn(
     // health exposes only aggregate readiness and a trivial `SELECT 1`.
     // Without this bypass the gate below 401s anonymous /_agent-native/*
     // requests before either probe can run.
+    // `pnpm action` forwarding target (dev-action-bridge.ts). The route
+    // verifies its own per-process token; the gate here only has to stop
+    // 401ing a loopback dev request before that check can run.
+    if (
+      p === "/_agent-native/dev/action" &&
+      resolveDeployEnvironment() !== "production" &&
+      isLoopbackRequest(event)
+    ) {
+      return;
+    }
     if (
       p === "/_agent-native/ping" ||
       p === "/_agent-native/health" ||
