@@ -59,6 +59,7 @@ import {
   calendarGetEvent,
   calendarPatchEvent,
   gmailGetAttachment,
+  GmailQuotaCooldownError,
 } from "../lib/google-api.js";
 import {
   isConnected,
@@ -384,6 +385,26 @@ function parseEmailPageLimit(value: string | undefined): number {
   return Math.min(Math.max(Math.floor(n), 10), 50);
 }
 
+// Gmail errors carry their HTTP status in the message text ("(404)"),
+// except quota cooldowns, whose message is deliberately jargon-free — those
+// must be classified by type so the client sees 429 + Retry-After.
+function gmailErrorStatus(error: unknown): {
+  status: number;
+  retryAfterSeconds?: number;
+} {
+  if (error instanceof GmailQuotaCooldownError) {
+    return {
+      status: 429,
+      retryAfterSeconds: Math.min(
+        Math.max(1, Math.ceil(error.retryAfterMs / 1000)),
+        300,
+      ),
+    };
+  }
+  const parsed = (error as any)?.message?.match(/\((\d+)\)/)?.[1];
+  return { status: parsed ? Number(parsed) : 502 };
+}
+
 // ─── Email list ───────────────────────────────────────────────────────────────
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
@@ -662,10 +683,13 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
           });
           return messages;
         } catch (error: any) {
-          const status = error?.message?.match(/\((\d+)\)/)?.[1];
-          if (status === "404") continue;
+          const { status, retryAfterSeconds } = gmailErrorStatus(error);
+          if (status === 404) continue;
           console.error("[getThreadMessages] Gmail error:", error.message);
-          setResponseStatus(event, parseInt(status) || 502);
+          setResponseStatus(event, status);
+          if (retryAfterSeconds !== undefined) {
+            setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+          }
           return { error: error.message };
         }
       }
@@ -710,10 +734,13 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
         );
         return gmailToEmailMessage(msg, acctEmail, labelMap);
       } catch (error: any) {
-        const status = error?.message?.match(/\((\d+)\)/)?.[1];
-        if (status === "404") continue;
+        const { status, retryAfterSeconds } = gmailErrorStatus(error);
+        if (status === 404) continue;
         console.error("[getEmail] Gmail error:", error.message);
-        setResponseStatus(event, parseInt(status) || 502);
+        setResponseStatus(event, status);
+        if (retryAfterSeconds !== undefined) {
+          setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+        }
         return { error: error.message };
       }
     }
