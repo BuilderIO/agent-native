@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getDbExec: vi.fn(),
   runWithRequestContext: vi.fn(),
   insert: vi.fn(),
+  insertWithResults: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/db", () => ({
@@ -15,13 +16,16 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("./first-party-analytics-backend.js", () => ({
   FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS: ["id", "owner_email", "org_id"],
   insertFirstPartyAnalyticsRows: mocks.insert,
+  insertFirstPartyAnalyticsRowsWithResults: mocks.insertWithResults,
 }));
 
 const {
   FIRST_PARTY_ANALYTICS_DELIVERY_STALE_MS,
   firstPartyAnalyticsDeliveryNeedsAttention,
   getFirstPartyAnalyticsDeliveryHealth,
+  isFirstPartyAnalyticsDeliveryQueueMissingError,
   runFirstPartyAnalyticsBigQueryDeliveryOnce,
+  unavailableFirstPartyAnalyticsDeliverySweep,
 } = await import("./first-party-analytics-delivery.js");
 
 const queueRow = {
@@ -45,7 +49,12 @@ beforeEach(() => {
     .mockImplementation(async (_context: unknown, fn: () => Promise<unknown>) =>
       fn(),
     );
-  mocks.insert.mockReset().mockResolvedValue(1);
+  mocks.insert.mockReset();
+  mocks.insertWithResults.mockReset().mockResolvedValue({
+    acceptedIds: ["evt_1"],
+    rejectedIds: [],
+    error: null,
+  });
 });
 
 describe("BigQuery delivery queue", () => {
@@ -62,6 +71,7 @@ describe("BigQuery delivery queue", () => {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rows: [eventRow] })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({
           rows: [
@@ -95,7 +105,10 @@ describe("BigQuery delivery queue", () => {
       { userEmail: "owner@example.com", orgId: "org_builder" },
       expect.any(Function),
     );
-    expect(mocks.insert).toHaveBeenCalledWith([eventRow], queueRow.table_ref);
+    expect(mocks.insertWithResults).toHaveBeenCalledWith(
+      [eventRow],
+      queueRow.table_ref,
+    );
   });
 
   it("records a retry and exposes the failed receipt to the canary", async () => {
@@ -111,6 +124,7 @@ describe("BigQuery delivery queue", () => {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rows: [eventRow] })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({
           rows: [
@@ -131,7 +145,9 @@ describe("BigQuery delivery queue", () => {
         ),
     };
     mocks.getDbExec.mockReturnValue(db);
-    mocks.insert.mockRejectedValueOnce(new Error("warehouse unavailable"));
+    mocks.insertWithResults.mockRejectedValueOnce(
+      new Error("warehouse unavailable"),
+    );
     const errorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -181,6 +197,26 @@ describe("BigQuery delivery queue", () => {
         now,
       ),
     ).toBe(true);
+  });
+
+  it("recognizes a rollout where the queue migration has not run yet", () => {
+    expect(
+      isFirstPartyAnalyticsDeliveryQueueMissingError(
+        new Error(
+          'relation "analytics_bigquery_delivery_queue" does not exist',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isFirstPartyAnalyticsDeliveryQueueMissingError(
+        new Error("BigQuery is temporarily unavailable"),
+      ),
+    ).toBe(false);
+    expect(unavailableFirstPartyAnalyticsDeliverySweep()).toMatchObject({
+      status: "unavailable",
+      batches: 0,
+      delivered: 0,
+    });
   });
 
   it("scopes health to the organization and its personal fallback", async () => {

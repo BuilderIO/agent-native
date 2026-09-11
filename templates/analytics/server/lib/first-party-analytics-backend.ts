@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { getDbExec } from "@agent-native/core/db";
 
 import {
@@ -117,6 +119,12 @@ export interface FirstPartyAnalyticsInsertOptions {
   maxRowsPerRequest?: number;
   /** Maximum insertAll requests in flight for a dedicated backfill worker. */
   maxConcurrentRequests?: number;
+}
+
+export interface FirstPartyAnalyticsInsertResult {
+  acceptedIds: string[];
+  rejectedIds: string[];
+  error: string | null;
 }
 
 const backendConfigCache = new Map<
@@ -347,11 +355,26 @@ function firstPartyEventRowToBigQuery(
   };
 }
 
+interface InsertBatchResult {
+  rejectedIndexes: number[];
+  error: string | null;
+}
+
+interface InsertPayloadResult {
+  acceptedRows: Record<string, unknown>[];
+  rejectedRows: Record<string, unknown>[];
+  error: string | null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function insertBatch(
   table: BigQueryTableRef,
   token: string,
   rows: Record<string, unknown>[],
-): Promise<void> {
+): Promise<InsertBatchResult> {
   const response = await fetchGoogleWithRetry(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${table.projectId}/datasets/${table.datasetId}/tables/${table.tableId}/insertAll`,
     {
@@ -383,17 +406,37 @@ async function insertBatch(
       errors?: Array<{ message?: string }>;
     }>;
   };
-  if (result.insertErrors?.length) {
-    const detail = result.insertErrors
-      .flatMap((entry) => entry.errors ?? [])
-      .map((entry) => entry.message)
-      .filter((message): message is string => Boolean(message))
-      .slice(0, 3)
-      .join("; ");
-    throw new Error(
-      `BigQuery rejected ${result.insertErrors.length} event row(s)${detail ? `: ${detail}` : ""}`,
-    );
+  const insertErrors = Array.isArray(result.insertErrors)
+    ? result.insertErrors
+    : [];
+  if (!insertErrors.length) return { rejectedIndexes: [], error: null };
+
+  const rejectedIndexes = insertErrors.map((entry) => entry.index);
+  if (
+    rejectedIndexes.some(
+      (index) =>
+        typeof index !== "number" ||
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >= rows.length,
+    ) ||
+    new Set(rejectedIndexes).size !== rejectedIndexes.length
+  ) {
+    throw new Error("BigQuery returned row errors without valid row indexes");
   }
+
+  const detail = insertErrors
+    .flatMap((entry) => entry.errors ?? [])
+    .map((entry) => entry.message)
+    .filter((message): message is string => Boolean(message))
+    .slice(0, 3)
+    .join("; ");
+  return {
+    rejectedIndexes: rejectedIndexes.filter(
+      (index): index is number => typeof index === "number",
+    ),
+    error: `BigQuery rejected ${insertErrors.length} event row(s)${detail ? `: ${detail}` : ""}`,
+  };
 }
 
 function boundedInsertOption(
@@ -414,7 +457,7 @@ async function insertPayloadRows(
   token: string,
   payloadRows: Record<string, unknown>[],
   options: FirstPartyAnalyticsInsertOptions = {},
-): Promise<void> {
+): Promise<InsertPayloadResult> {
   const maxRowsPerRequest = boundedInsertOption(
     options.maxRowsPerRequest,
     MAX_INSERT_BATCH_SIZE,
@@ -458,22 +501,94 @@ async function insertPayloadRows(
   if (currentBatch.length > 0) batches.push(currentBatch);
 
   let nextBatch = 0;
+  const rejectedRows = new Set<Record<string, unknown>>();
+  const rejectionMessages: string[] = [];
   const worker = async (): Promise<void> => {
     while (true) {
       const batchIndex = nextBatch;
       nextBatch += 1;
       const batch = batches[batchIndex];
       if (!batch) return;
-      await insertBatch(table, token, batch);
+      const result = await insertBatch(table, token, batch);
+      for (const index of result.rejectedIndexes) {
+        rejectedRows.add(batch[index]!);
+      }
+      if (result.error) rejectionMessages.push(result.error);
     }
   };
 
-  await Promise.all(
+  const workerResults = await Promise.allSettled(
     Array.from(
       { length: Math.min(maxConcurrentRequests, batches.length) },
       () => worker(),
     ),
   );
+  const failedWorker = workerResults.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failedWorker) throw failedWorker.reason;
+
+  return {
+    acceptedRows: payloadRows.filter((row) => !rejectedRows.has(row)),
+    rejectedRows: payloadRows.filter((row) => rejectedRows.has(row)),
+    error: rejectionMessages[0] ?? null,
+  };
+}
+
+function payloadRowId(row: Record<string, unknown>): string {
+  if (typeof row.id !== "string" || !row.id) {
+    throw new Error("First-party Analytics BigQuery row is missing its id");
+  }
+  return row.id;
+}
+
+async function reconcileInsertedPayloadRows(
+  table: BigQueryTableRef,
+  payloadRows: Record<string, unknown>[],
+): Promise<InsertPayloadResult> {
+  const ids = payloadRows.map(payloadRowId);
+  const nonce = randomUUID();
+  const result = await runQuery(
+    `SELECT id FROM \`${table.fullyQualified}\`
+      WHERE id IN (${ids.map(sqlLiteral).join(", ")})
+        AND ${sqlLiteral(nonce)} IS NOT NULL`,
+  );
+  const acceptedIds = new Set(
+    result.rows
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  return {
+    acceptedRows: payloadRows.filter((row) =>
+      acceptedIds.has(payloadRowId(row)),
+    ),
+    rejectedRows: payloadRows.filter(
+      (row) => !acceptedIds.has(payloadRowId(row)),
+    ),
+    error: null,
+  };
+}
+
+async function insertPayloadRowsWithResults(
+  table: BigQueryTableRef,
+  token: string,
+  payloadRows: Record<string, unknown>[],
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<InsertPayloadResult> {
+  try {
+    return await insertPayloadRows(table, token, payloadRows, options);
+  } catch (error) {
+    let reconciled: InsertPayloadResult;
+    try {
+      reconciled = await reconcileInsertedPayloadRows(table, payloadRows);
+    } catch {
+      throw error;
+    }
+    return {
+      ...reconciled,
+      error: errorMessage(error),
+    };
+  }
 }
 
 /**
@@ -495,8 +610,53 @@ export async function createFirstPartyAnalyticsInserter(
     if (!rows.length) return 0;
     const token = await getAccessToken();
     const payloadRows = rows.map(firstPartyEventRowToBigQuery);
-    await insertPayloadRows(table, token, payloadRows, options);
-    return payloadRows.length;
+    const result = await insertPayloadRowsWithResults(
+      table,
+      token,
+      payloadRows,
+      options,
+    );
+    if (result.rejectedRows.length) {
+      throw new Error(
+        result.error ??
+          `BigQuery rejected ${result.rejectedRows.length} event row(s)`,
+      );
+    }
+    return result.acceptedRows.length;
+  };
+}
+
+async function insertFirstPartyAnalyticsRowsWithResultsInternal(
+  rows: Array<FirstPartyAnalyticsEventRow | Record<string, unknown>>,
+  configuredTable?: string | null,
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<InsertPayloadResult> {
+  if (!rows.length) {
+    return { acceptedRows: [], rejectedRows: [], error: null };
+  }
+  requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
+  const [table, token] = await Promise.all([
+    getFirstPartyAnalyticsTable(configuredTable),
+    getAccessToken(),
+  ]);
+  const payloadRows = rows.map(firstPartyEventRowToBigQuery);
+  return insertPayloadRowsWithResults(table, token, payloadRows, options);
+}
+
+export async function insertFirstPartyAnalyticsRowsWithResults(
+  rows: Array<FirstPartyAnalyticsEventRow | Record<string, unknown>>,
+  configuredTable?: string | null,
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<FirstPartyAnalyticsInsertResult> {
+  const result = await insertFirstPartyAnalyticsRowsWithResultsInternal(
+    rows,
+    configuredTable,
+    options,
+  );
+  return {
+    acceptedIds: result.acceptedRows.map(payloadRowId),
+    rejectedIds: result.rejectedRows.map(payloadRowId),
+    error: result.error,
   };
 }
 
@@ -505,15 +665,18 @@ export async function insertFirstPartyAnalyticsRows(
   configuredTable?: string | null,
   options: FirstPartyAnalyticsInsertOptions = {},
 ): Promise<number> {
-  if (!rows.length) return 0;
-  requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
-  const [table, token] = await Promise.all([
-    getFirstPartyAnalyticsTable(configuredTable),
-    getAccessToken(),
-  ]);
-  const payloadRows = rows.map(firstPartyEventRowToBigQuery);
-  await insertPayloadRows(table, token, payloadRows, options);
-  return payloadRows.length;
+  const result = await insertFirstPartyAnalyticsRowsWithResults(
+    rows,
+    configuredTable,
+    options,
+  );
+  if (result.rejectedIds.length) {
+    throw new Error(
+      result.error ??
+        `BigQuery rejected ${result.rejectedIds.length} event row(s)`,
+    );
+  }
+  return result.acceptedIds.length;
 }
 
 function sqlLiteral(value: string | null): string {

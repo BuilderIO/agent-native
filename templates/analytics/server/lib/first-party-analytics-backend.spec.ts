@@ -30,6 +30,7 @@ import {
   getFirstPartyAnalyticsBigQueryMetrics,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
+  insertFirstPartyAnalyticsRowsWithResults,
   renderFirstPartyAnalyticsBigQuerySql,
   resetFirstPartyAnalyticsBackendCacheForTests,
   saveFirstPartyAnalyticsBackend,
@@ -512,6 +513,52 @@ describe("first-party BigQuery backend", () => {
     expect(
       JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string).rows,
     ).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("delivers only rows BigQuery did not reject", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        insertErrors: [{ index: 1, errors: [{ message: "invalid event" }] }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      insertFirstPartyAnalyticsRowsWithResults(
+        [{ id: "event-1" }, { id: "event-2" }],
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toEqual({
+      acceptedIds: ["event-1"],
+      rejectedIds: ["event-2"],
+      error: "BigQuery rejected 1 event row(s): invalid event",
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("reconciles rows after an ambiguous insert response", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("socket closed"));
+    vi.stubGlobal("fetch", fetchMock);
+    runQuery.mockResolvedValue({
+      rows: [{ id: "event-1" }],
+      schema: [{ name: "id", type: "STRING" }],
+    });
+
+    await expect(
+      insertFirstPartyAnalyticsRowsWithResults(
+        [{ id: "event-1" }, { id: "event-2" }],
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toEqual({
+      acceptedIds: ["event-1"],
+      rejectedIds: ["event-2"],
+      error: "socket closed",
+    });
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.stringContaining("SELECT id FROM"),
+    );
     vi.unstubAllGlobals();
   });
 

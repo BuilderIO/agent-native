@@ -27,6 +27,15 @@ const PURGE_BATCH_SIZE = 10_000;
 const PURGE_BATCH_TIMEOUT_MS = 60_000;
 const PURGE_COUNT_TIMEOUT_MS = 60_000;
 
+function pendingDeliveryFilter(): string {
+  return ` AND NOT EXISTS (
+    SELECT 1
+    FROM analytics_bigquery_delivery_queue AS delivery_queue
+    WHERE delivery_queue.event_id = analytics_events.id
+      AND delivery_queue.delivered_at IS NULL
+  )`;
+}
+
 function purgeWhereSql(
   table: CountTable,
   scope: FirstPartyAnalyticsPurgeScope,
@@ -49,7 +58,8 @@ function purgeWhereSql(
   );
   const eventFilter =
     table === "analytics_events"
-      ? " AND event_name IS DISTINCT FROM 'http.response'"
+      ? " AND event_name IS DISTINCT FROM 'http.response'" +
+        pendingDeliveryFilter()
       : "";
   return {
     sql: `${scopeSql}${eventFilter} AND ${timeColumn} >= $${timeParameter}`,
@@ -74,7 +84,8 @@ async function countScopedRows(
   const timeParameter = args.length + 1;
   const eventFilter =
     table === "analytics_events"
-      ? "\n             AND event_name IS DISTINCT FROM 'http.response'"
+      ? "\n             AND event_name IS DISTINCT FROM 'http.response'" +
+        pendingDeliveryFilter()
       : "";
   args.push(
     timeColumn === "received_at"

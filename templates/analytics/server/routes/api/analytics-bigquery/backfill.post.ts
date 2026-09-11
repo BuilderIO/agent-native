@@ -4,7 +4,11 @@ import { createError, defineEventHandler, getHeader } from "h3";
 
 // guard:allow-action-twin — the generated scheduled worker authenticates before invoking this job route.
 import { runFirstPartyAnalyticsBigQueryBackfillOnce } from "../../../jobs/analytics-bigquery-backfill.js";
-import { runFirstPartyAnalyticsBigQueryDeliveryOnce } from "../../../lib/first-party-analytics-delivery.js";
+import {
+  isFirstPartyAnalyticsDeliveryQueueMissingError,
+  runFirstPartyAnalyticsBigQueryDeliveryOnce,
+  unavailableFirstPartyAnalyticsDeliverySweep,
+} from "../../../lib/first-party-analytics-delivery.js";
 
 declare global {
   var __AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_SCHEDULED_RUNTIME__:
@@ -49,7 +53,17 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  const delivery = await runFirstPartyAnalyticsBigQueryDeliveryOnce();
+  let delivery;
+  try {
+    delivery = await runFirstPartyAnalyticsBigQueryDeliveryOnce();
+  } catch (error) {
+    if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
+    console.error(
+      "[first-party-analytics] BigQuery delivery queue migration is pending; running backfill only:",
+      error,
+    );
+    delivery = unavailableFirstPartyAnalyticsDeliverySweep();
+  }
   const backfill = await runFirstPartyAnalyticsBigQueryBackfillOnce();
 
   return {

@@ -108,5 +108,8 @@ describe("purgeFirstPartyAnalyticsPostgresRows", () => {
         maxAttempts: 1,
       }),
     );
+    expect(execute.mock.calls[3]?.[0]?.sql).toContain(
+      "analytics_bigquery_delivery_queue",
+    );
   });
 });

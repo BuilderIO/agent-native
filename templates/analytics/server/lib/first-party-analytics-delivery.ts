@@ -5,7 +5,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
   FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS,
-  insertFirstPartyAnalyticsRows,
+  insertFirstPartyAnalyticsRowsWithResults,
 } from "./first-party-analytics-backend.js";
 import type { AnalyticsScope } from "./first-party-analytics.js";
 
@@ -55,10 +55,33 @@ export interface FirstPartyAnalyticsDeliveryHealth {
 }
 
 export interface FirstPartyAnalyticsDeliverySweepResult extends FirstPartyAnalyticsDeliveryHealth {
-  status: "disabled" | "idle" | "progress" | "retry-scheduled";
+  status: "disabled" | "idle" | "progress" | "retry-scheduled" | "unavailable";
   batches: number;
   delivered: number;
   cleaned: number;
+}
+
+export function isFirstPartyAnalyticsDeliveryQueueMissingError(
+  error: unknown,
+): boolean {
+  const message = errorMessage(error);
+  return (
+    /analytics_bigquery_delivery_queue/i.test(message) &&
+    /(does not exist|undefined table|no such table)/i.test(message)
+  );
+}
+
+export function unavailableFirstPartyAnalyticsDeliverySweep(): FirstPartyAnalyticsDeliverySweepResult {
+  return {
+    status: "unavailable",
+    batches: 0,
+    delivered: 0,
+    cleaned: 0,
+    pendingCount: 0,
+    oldestPendingAt: null,
+    lastDeliveredAt: null,
+    lastError: null,
+  };
 }
 
 function executor(): Executor {
@@ -321,6 +344,33 @@ async function hydrateDeliveryRows(
   });
 }
 
+async function renewDeliveryRows(
+  db: Executor,
+  rows: DeliveryQueueRow[],
+  now: string,
+): Promise<void> {
+  const leaseExpiresAt = new Date(
+    Date.parse(now) + DELIVERY_LEASE_MS,
+  ).toISOString();
+  const updated = await db.execute({
+    sql: `UPDATE ${DELIVERY_TABLE}
+             SET lease_expires_at = $1,
+                 updated_at = $2
+           WHERE lease_token = $3
+             AND delivered_at IS NULL
+             AND event_id IN (${idPlaceholders(4, rows.length)})`,
+    args: [
+      leaseExpiresAt,
+      now,
+      rows[0]!.leaseToken,
+      ...rows.map((row) => row.eventId),
+    ],
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+  });
+  requireRowsAffected(updated, rows.length, "Renewing BigQuery delivery rows");
+}
+
 function groupKey(row: DeliveryQueueRow): string {
   return JSON.stringify([row.ownerEmail, row.orgId, row.tableRef]);
 }
@@ -482,12 +532,46 @@ export async function runFirstPartyAnalyticsBigQueryDeliveryOnce(): Promise<Firs
       const first = rows[0]!;
       try {
         const events = await hydrateDeliveryRows(db, rows);
-        await runWithRequestContext(
+        await renewDeliveryRows(db, rows, new Date().toISOString());
+        const insertResult = await runWithRequestContext(
           { userEmail: first.ownerEmail, orgId: first.orgId ?? undefined },
-          () => insertFirstPartyAnalyticsRows(events, first.tableRef),
+          () =>
+            insertFirstPartyAnalyticsRowsWithResults(events, first.tableRef),
         );
-        await markDeliveryRowsDelivered(db, rows, new Date().toISOString());
-        delivered += rows.length;
+        const acceptedIds = new Set(insertResult.acceptedIds);
+        const rejectedIds = new Set(insertResult.rejectedIds);
+        if (
+          acceptedIds.size + rejectedIds.size !== rows.length ||
+          rows.some(
+            (row) =>
+              !acceptedIds.has(row.eventId) && !rejectedIds.has(row.eventId),
+          )
+        ) {
+          throw new Error(
+            "BigQuery delivery returned an incomplete row result",
+          );
+        }
+        const acceptedRows = rows.filter((row) => acceptedIds.has(row.eventId));
+        const rejectedRows = rows.filter((row) => rejectedIds.has(row.eventId));
+        if (acceptedRows.length) {
+          await markDeliveryRowsDelivered(
+            db,
+            acceptedRows,
+            new Date().toISOString(),
+          );
+          delivered += acceptedRows.length;
+        }
+        if (rejectedRows.length) {
+          retryScheduled = true;
+          const message =
+            insertResult.error ??
+            `BigQuery rejected ${rejectedRows.length} event row(s)`;
+          await scheduleDeliveryRetry(db, rejectedRows, message);
+          console.error(
+            "[first-party-analytics] BigQuery delivery rejected rows; retry scheduled:",
+            message,
+          );
+        }
       } catch (error) {
         retryScheduled = true;
         const message = errorMessage(error);
@@ -500,7 +584,12 @@ export async function runFirstPartyAnalyticsBigQueryDeliveryOnce(): Promise<Firs
     }
   }
 
-  const cleaned = await cleanupDeliveredRows(db);
+  let cleaned = 0;
+  for (let index = 0; index < MAX_DELIVERY_BATCHES_PER_SWEEP; index += 1) {
+    const batch = await cleanupDeliveredRows(db);
+    cleaned += batch;
+    if (batch < DELIVERY_BATCH_SIZE) break;
+  }
   const health = await getFirstPartyAnalyticsDeliveryHealth(undefined, db);
   if (firstPartyAnalyticsDeliveryNeedsAttention(health)) {
     console.error(
