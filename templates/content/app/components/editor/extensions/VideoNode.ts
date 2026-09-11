@@ -7,6 +7,7 @@ import { VideoBlock } from "./VideoBlock";
 export interface ContentVideoOptions {
   HTMLAttributes: Record<string, unknown>;
   documentId?: string;
+  canMutateMedia?: () => boolean;
   onVideoComment?: (quotedText: string, offsetTop: number) => void;
 }
 
@@ -60,6 +61,7 @@ export const VideoNode = Node.create<ContentVideoOptions>({
     return {
       HTMLAttributes: {},
       documentId: undefined,
+      canMutateMedia: undefined,
       onVideoComment: undefined,
     };
   },

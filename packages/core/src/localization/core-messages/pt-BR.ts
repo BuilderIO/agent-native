@@ -165,6 +165,15 @@ const messages: AgentChatTranslation = {
   "history.searching": "Pesquisando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ontem",
+  "integrations.availableSection": "Integrações disponíveis",
+  "integrations.connectedSection": "Conectado",
+  "integrations.goToApiKeys": "Ir para chaves de API",
+  "integrations.goToIntegrations": "Ir para integrações",
+  "integrations.lookingForApiKeys": "Procurando uma chave de API em vez disso?",
+  "integrations.lookingForProviders": "Procurando provedores OAuth ou MCP?",
+  "integrations.manage": "Gerenciar",
+  "integrations.recommended": "Recomendado",
+  "integrations.subtitle": "Conecte as ferramentas que seu agente pode usar.",
   "limit.account": "sua conta",
   "limit.descriptionAll":
     "O agente usou todas as etapas disponíveis. Continue em uma nova interação ou aumente primeiro o limite de {{scope}}.",
@@ -235,12 +244,19 @@ const messages: AgentChatTranslation = {
     "O fluxo anterior do agente terminou durante a recuperação. Continue ou tente novamente para se reconectar à execução.",
   "recovery.reconnectBuilder": "Reconectar o Builder.io",
   "secrets.addCustomKeyNamed": 'Adicionar "{{name}}" como chave personalizada',
+  "secrets.chooseKey": "Escolha uma chave",
   "secrets.customKey": "Chave personalizada",
   "secrets.customKeyHint": "Adicione qualquer chave pelo nome",
+  "secrets.emptyHint": "Adicione uma chave para usar suas próprias contas.",
+  "secrets.emptyMore":
+    "e mais {{count}} em Novo, ou adicione qualquer chave personalizada",
+  "secrets.emptyTitle": "Nenhuma chave ainda.",
   "secrets.fromEnvironment": "Fornecido pelo ambiente de implantação.",
   "secrets.managedInVault":
     "Gerenciado no Vault do espaço de trabalho. Todos os apps deste espaço de trabalho usam este valor.",
   "secrets.openVault": "Abrir Vault",
+  "secrets.newKey": "Novo",
+  "secrets.noKeysFound": "Nenhuma chave encontrada.",
   "secrets.overridesVault":
     "Esta chave pessoal substitui o valor do Vault do espaço de trabalho. Remova-a para usar a chave do Vault.",
   "secrets.overridesWorkspace":
@@ -250,6 +266,8 @@ const messages: AgentChatTranslation = {
   "secrets.sourceVault": "Vault",
   "secrets.sourceWorkspace": "Espaço de trabalho",
   "secrets.statusUnavailable": "Indisponível",
+  "secrets.required": "Obrigatório",
+  "secrets.searchKeys": "Pesquisar chaves...",
   "secrets.usePersonalKey": "Usar uma chave pessoal",
   "selection.attached": "{{formattedCount}} caracteres da seleção anexados",
   "selection.clear": "Limpar contexto da seleção",
@@ -589,6 +607,8 @@ const messages: AgentChatTranslation = {
     "Não foi possível acessar o provedor do modelo. Verifique sua conexão e tente novamente.",
   "errorMessages.providerRateLimit":
     "O provedor do modelo está limitando temporariamente este chat. Aguarde um momento e tente novamente.",
+  "errorMessages.providerTransientRejection":
+    "O provedor de IA recusou temporariamente esta solicitação. Isso costuma se resolver em menos de um minuto — tente novamente.",
   "errorMessages.startNewChat": "Iniciar novo chat",
   "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
   "feedback.inaccurate": "Impreciso",

@@ -1,14 +1,20 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { markAllLocalUnreadRead, markRead } from "../server/lib/email-state.js";
+import {
+  markAllLocalUnreadRead,
+  markRead,
+  resolveMutationAccounts,
+} from "../server/lib/email-state.js";
 import {
   gmailBatchModifyByAccount,
   isConnected,
   markAllUnreadReadForAccount,
 } from "../server/lib/google-auth.js";
+import { syncInboxLabelDeltaForTargets } from "../server/lib/inbox-store-sync.js";
 
 export const MARK_READ_DESCRIPTION =
   'Mark explicit email IDs as read/unread, or use scope "all-unread" once to mark every unread message in one account read while preserving excluded thread IDs. Never loop mark-thread-read for broad cleanup.';
@@ -85,7 +91,7 @@ export default defineAction({
         });
       }
     }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const ids = args.id
       ?.split(",")
       .map((s) => s.trim())
@@ -139,6 +145,18 @@ export default defineAction({
         error.details = result;
         throw error;
       }
+      track(
+        "inbox_triaged",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          action: "mark_read",
+          items_triaged: result.changedMessages,
+          succeeded: true,
+          scope: "all_unread",
+        },
+        ctx,
+      );
       return result;
     }
 
@@ -164,15 +182,35 @@ export default defineAction({
         id,
         accountEmail: accountEmailList?.[i] || args.accountEmail,
       }));
-      const { succeeded, failed } = await gmailBatchModifyByAccount(
+      // Resolve every target's account once, up front, with the same rule
+      // used by the single-item path — so the Gmail mutation below and the
+      // store mirror after it never group by different accounts.
+      const { resolved, unresolved } = await resolveMutationAccounts(
         ownerEmail,
         targets,
+      );
+      const { succeeded, failed } = await gmailBatchModifyByAccount(
+        ownerEmail,
+        resolved,
         isRead ? undefined : ["UNREAD"],
         isRead ? ["UNREAD"] : undefined,
       );
       for (const id of succeeded) results.push({ id, success: true });
       for (const f of failed)
         results.push({ id: f.id, success: false, error: f.error });
+      for (const u of unresolved)
+        results.push({ id: u.id, success: false, error: u.error });
+      await syncInboxLabelDeltaForTargets(
+        ownerEmail,
+        resolved.filter((t) => succeeded.includes(t.id)),
+        {
+          add: isRead ? undefined : ["UNREAD"],
+          remove: isRead ? ["UNREAD"] : undefined,
+          // Message-scoped: mark-read targets are message ids, not whole
+          // threads (see applyLocalLabelDelta's scope handling).
+          scope: "message",
+        },
+      );
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
@@ -194,6 +232,21 @@ export default defineAction({
 
     const action = isRead ? "read" : "unread";
     const succeeded = results.filter((r) => r.success).length;
+    const failed = results.length - succeeded;
+    track(
+      "inbox_triaged",
+      {
+        app_name: "mail",
+        template_name: "mail",
+        action: isRead ? "mark_read" : "mark_unread",
+        items_triaged: succeeded,
+        succeeded: failed === 0,
+        partial: succeeded > 0 && failed > 0,
+        failed_count: failed,
+        scope: "explicit",
+      },
+      ctx,
+    );
     return `Marked ${succeeded}/${ids.length} email(s) as ${action}`;
   },
 });

@@ -18,10 +18,11 @@ describe("Factory review skill alignment", () => {
     expect(prompt).toContain("answered clarifications");
     expect(prompt).toContain("@agent-native Fixed, In progress, or");
     expect(prompt).toContain("Clarification needed");
-    expect(prompt).toContain("reaction: robot_face");
-    expect(prompt).toContain("🤖");
-    expect(prompt).toContain("already has eyes 👀 or robot_face 🤖");
-    expect(prompt).toContain("Do not pass reaction eyes");
+    expect(prompt).toContain("reaction: eyes");
+    expect(prompt).toContain("MUST pass");
+    expect(prompt).toContain("already has eyes 👀");
+    expect(prompt).not.toContain("robot_face");
+    expect(prompt).not.toContain("Do not pass reaction eyes");
     expect(prompt).toContain("alreadyClaimed: true");
     expect(prompt).toContain("clearBug` may be");
     expect(prompt).not.toContain("with `clearBug: false`, omit reaction");

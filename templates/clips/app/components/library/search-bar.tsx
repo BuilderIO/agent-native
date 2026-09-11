@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -119,6 +120,15 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
   }, []);
 
   function pickResult(hit: SearchHit) {
+    trackEvent("recording_search_result_opened", {
+      app_name: "clips",
+      template_name: "clips",
+      surface: "library",
+      match_type: hit.matchType,
+      has_match_time:
+        typeof hit.matchMs === "number" && Number.isFinite(hit.matchMs),
+      has_match_panel: Boolean(hit.matchPanel),
+    });
     setOpen(false);
     setQuery("");
     const params = new URLSearchParams();

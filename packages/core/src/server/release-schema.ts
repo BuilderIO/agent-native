@@ -305,6 +305,13 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
     () => import("../review/store.js").then((m) => m.ensureReviewTables()),
   ],
   [
+    "ReviewSuggestions",
+    () =>
+      import("../review/suggestions/store.js").then((m) =>
+        m.ensureSuggestionTables(),
+      ),
+  ],
+  [
     "SandboxExecutions",
     () =>
       import("../coding-tools/sandbox/executions-store.js").then((m) =>

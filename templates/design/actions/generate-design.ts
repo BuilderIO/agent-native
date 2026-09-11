@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -719,6 +720,18 @@ const generateDesignAction = defineAction({
     context,
   ) => {
     await assertAccess("design", designId, "editor");
+    track(
+      "generation_started",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        prompt_type: "ui",
+        has_reference_design_system: Boolean(designSystemId),
+      },
+      context,
+    );
     await snapshotDesignBeforeAgentEdit(designId, context);
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
@@ -1288,6 +1301,19 @@ const generateDesignAction = defineAction({
       savedFiles,
       generationSession,
       creativeContextProvenance,
+    );
+
+    track(
+      "design_edited",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        edit_type: "generation",
+        file_count: savedFiles.length,
+      },
+      context,
     );
 
     // Land on the overview canvas focused on the first renderable screen

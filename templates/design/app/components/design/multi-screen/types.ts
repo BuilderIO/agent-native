@@ -247,6 +247,9 @@ export interface MultiScreenCanvasProps {
    *  the same widths, and a per-screen parameter here only ever promised
    *  scoping the action cannot deliver. */
   onAddBreakpoint?: (widthPx: number) => void;
+  /** True while an add/remove breakpoint mutation is in flight — disables the
+   *  "+" affordance and shows a brief spinner so the click is acknowledged. */
+  breakpointMutationPending?: boolean;
   /**
    * Called when the user clicks a breakpoint frame header to make it the
    * active edit scope.
@@ -324,6 +327,10 @@ export interface MultiScreenCanvasProps {
     sourcePointerOffset?: Point;
     /** Host-captured HTML for a board root, including its current DOM subtree. */
     sourceHtmlSnapshot?: string;
+    /** True when the source bridge is carrying an Alt-drag copy. */
+    duplicate?: boolean;
+    /** Runtime HTML for an Alt-drag copy whose source must remain in place. */
+    sourceCloneHtml?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
   }) => void;

@@ -332,6 +332,42 @@ describe("import-figma-clipboard", () => {
     expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
   });
 
+  it("treats the typed figma_auth_required as a missing token, like the raw resolver message", async () => {
+    // What the provider wrapper now raises instead of the raw core message.
+    mocks.executeProviderApiRequest.mockRejectedValue(
+      Object.assign(new Error("No Figma access token is available"), {
+        errorCode: "figma_auth_required",
+        statusCode: 401,
+      }),
+    );
+
+    const result: any = await action.run({
+      figmetaFileKey: FILE_KEY,
+      clipboardHtml: CLIPBOARD_HTML_HERO,
+    } as any);
+
+    expect(result.figmaApiKeyMissing).toBe(true);
+    expect(result.strategy).toBe("htmlFallback");
+    expect(result.guidance).toMatch(/connect your figma access token/i);
+  });
+
+  it("treats a provider quota cooldown as transient so the local buffer still decodes", async () => {
+    mocks.executeProviderApiRequest.mockRejectedValue(
+      Object.assign(new Error("Design is pacing its own Figma requests"), {
+        errorCode: "figma_provider_quota_cooldown",
+        statusCode: 429,
+      }),
+    );
+
+    const result: any = await action.run({
+      figmetaFileKey: FILE_KEY,
+      clipboardHtml: CLIPBOARD_HTML_HERO,
+    } as any);
+
+    expect(result.figmaApiKeyMissing).toBe(false);
+    expect(result.matchStatus).toBe("error");
+  });
+
   it("falls back to the HTML preview with a key-missing hint when Figma credentials aren't configured", async () => {
     mocks.executeProviderApiRequest.mockRejectedValue(
       new Error("figma credential not configured. Tried: FIGMA_ACCESS_TOKEN"),

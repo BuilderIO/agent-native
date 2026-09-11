@@ -19,6 +19,7 @@ import {
   IconPhoto,
   IconPlus,
   IconRefresh,
+  IconTrash,
   IconVector,
 } from "@tabler/icons-react";
 import {
@@ -39,6 +40,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -68,11 +76,13 @@ import { ComponentSection } from "./edit-panel/component-section";
 import {
   type DocumentColorSourceFile,
   extractDocumentColorPalette,
+  type SelectionColorScope,
   selectionColorValues,
   selectionDisplayHex,
 } from "./edit-panel/document-colors";
 import { EffectsProperties } from "./edit-panel/effects-properties";
 import {
+  elementHasComponentAnnotation,
   elementIsComponentSelection,
   inspectorObjectTitle,
   isContainerElement,
@@ -145,6 +155,7 @@ import {
   type BreakpointOverrideFieldContext,
   type MotionKeyframeFieldContext,
   type ApplyLayoutFlowHandler,
+  type SelectionColorChangeHandler,
   type StyleChangeHandler,
   type StyleChangeMeta,
   type StylesChangeHandler,
@@ -224,7 +235,13 @@ export { authoredStyleValue, resolveInteractionStateValue };
 export { isTextElement };
 export { ComponentSection };
 export { extractDocumentColorPalette, type DocumentColorSourceFile };
-export type { StyleChangeHandler, StyleChangeMeta, StylesChangeHandler };
+export type {
+  SelectionColorChangeHandler,
+  SelectionColorScope,
+  StyleChangeHandler,
+  StyleChangeMeta,
+  StylesChangeHandler,
+};
 
 export function mergeOptimisticInteractionStateStyles(
   persisted: Record<string, string> | undefined,
@@ -273,6 +290,23 @@ interface EditPanelProps {
       Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
     >,
   ) => void;
+  /** Source mode and route for the selected overview screen. */
+  selectedScreenSource?: ScreenSourceSelection | null;
+  /** True when the active live frame has no resolvable source locations. */
+  sourceLocationUnavailable?: boolean;
+  /** Localhost connections available to URL-backed screen settings. */
+  localhostConnections?: LocalhostConnectionOption[];
+  onScreenSourceChange?: (
+    screenId: string,
+    next: {
+      sourceType: "static" | "url";
+      url?: string;
+      connectionId?: string;
+    },
+  ) => void;
+  onAddLocalhostScreen?: () => void;
+  onRemoveScreen?: () => void;
+  screenSourcePending?: boolean;
   pageStyles?: Record<string, string>;
   /** The selected screen's own document element, plus the writer for it. A
    *  screen's box comes from the board and its paint from that document, which
@@ -284,6 +318,10 @@ interface EditPanelProps {
    *  properties at once; without this they degrade to one-at-a-time writes
    *  that each rebuild from the same stale projection. */
   onSelectedScreenStylesChange?: StylesChangeHandler;
+  /** Source ranges covered by the current selection for Figma-style color
+   *  replacement. Multiple scopes may belong to one file or several screens. */
+  selectionColorScopes?: SelectionColorScope[];
+  onSelectionColorChange?: SelectionColorChangeHandler;
   zoom?: number;
   headerTrailing?: ReactNode;
   /** Draws the inspector's canonical 28-column / 8px baseline overlay. */
@@ -575,6 +613,18 @@ export interface ScreenGeometrySelection {
   height: number;
 }
 
+export interface ScreenSourceSelection {
+  sourceType: "static" | "url";
+  url?: string;
+  connectionId?: string;
+}
+
+export interface LocalhostConnectionOption {
+  id: string;
+  name?: string | null;
+  devServerUrl?: string | null;
+}
+
 /**
  * Data backing the "Inspect code" popover. The parent resolves the selected
  * node's HTML and (for real-app sources) its source file location.
@@ -611,7 +661,11 @@ function sourcePrecisionLabel(
   method: InspectCodeSourceLocation["method"],
 ): string | null {
   if (method === "debug-stack") return "Runtime-transformed location"; // i18n-ignore design inspector technical provenance label
-  if (method === "debug-source" || method === "data-attribute") {
+  if (
+    method === "debug-source" ||
+    method === "debug-stack-remapped" ||
+    method === "data-attribute"
+  ) {
     return "Authored source location"; // i18n-ignore design inspector technical provenance label
   }
   return null;
@@ -1066,6 +1120,7 @@ function SelectionHeader({
   /** Data for the "Inspect code" popover. When omitted the button renders disabled. */
   inspectCode?: InspectCodeData;
 }) {
+  const t = useT();
   if (!element) return null;
 
   const title =
@@ -1074,6 +1129,10 @@ function SelectionHeader({
       : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
   const isComponentSelection = elementIsComponentSelection(element);
+  // One row of a repeat is one source element, so an edit here reaches every
+  // row. Without this the propagation is invisible until the canvas changes.
+  const repeatCount =
+    selectedCount > 1 ? 0 : (element.repeat?.instanceCount ?? 0);
 
   return (
     <div className="shrink-0 border-b border-border/90 px-2">
@@ -1091,6 +1150,11 @@ function SelectionHeader({
               )}
             />
             <span className="truncate">{title}</span>
+            {repeatCount > 1 ? (
+              <span className="shrink-0 rounded-sm bg-[var(--design-editor-panel-raised-bg)] px-1 text-[10px] text-muted-foreground">
+                {t("editPanel.repeatAffectsAll", { count: repeatCount })}
+              </span>
+            ) : null}
           </div>
         </InspectorGridCell>
         {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
@@ -1193,6 +1257,12 @@ function ScreenSizePresetPicker({
 function ScreenGeometryProperties({
   screen,
   onGeometryChange,
+  selectedScreenSource,
+  localhostConnections = [],
+  onScreenSourceChange,
+  onAddLocalhostScreen,
+  onRemoveScreen,
+  screenSourcePending = false,
 }: {
   screen: ScreenGeometrySelection;
   onGeometryChange?: (
@@ -1201,10 +1271,65 @@ function ScreenGeometryProperties({
       Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
     >,
   ) => void;
+  selectedScreenSource?: ScreenSourceSelection | null;
+  localhostConnections?: LocalhostConnectionOption[];
+  onScreenSourceChange?: (
+    screenId: string,
+    next: {
+      sourceType: "static" | "url";
+      url?: string;
+      connectionId?: string;
+    },
+  ) => void;
+  onAddLocalhostScreen?: () => void;
+  onRemoveScreen?: () => void;
+  screenSourcePending?: boolean;
 }) {
   const t = useT();
   const noop = useCallback(() => {}, []);
   const editable = Boolean(onGeometryChange);
+  const sourceEditable = Boolean(onScreenSourceChange);
+  const persistedSourceType = selectedScreenSource?.sourceType ?? "static";
+  const [sourceMode, setSourceMode] = useState<"static" | "url">(
+    persistedSourceType,
+  );
+  const [sourceUrlDraft, setSourceUrlDraft] = useState(
+    selectedScreenSource?.url ?? "",
+  );
+  const [connectionDraft, setConnectionDraft] = useState(
+    selectedScreenSource?.connectionId ?? "",
+  );
+
+  useEffect(() => {
+    setSourceMode(persistedSourceType);
+    setSourceUrlDraft(selectedScreenSource?.url ?? "");
+    setConnectionDraft(selectedScreenSource?.connectionId ?? "");
+  }, [
+    persistedSourceType,
+    screen.id,
+    selectedScreenSource?.connectionId,
+    selectedScreenSource?.url,
+  ]);
+
+  const commitUrl = useCallback(
+    (nextConnectionId = connectionDraft) => {
+      const url = sourceUrlDraft.trim();
+      if (!sourceEditable || !url || screenSourcePending) return;
+      onScreenSourceChange?.(screen.id, {
+        sourceType: "url",
+        url,
+        ...(nextConnectionId ? { connectionId: nextConnectionId } : {}),
+      });
+    },
+    [
+      connectionDraft,
+      onScreenSourceChange,
+      screen.id,
+      screenSourcePending,
+      sourceEditable,
+      sourceUrlDraft,
+    ],
+  );
   const commit = useCallback(
     (
       next: Partial<
@@ -1215,69 +1340,209 @@ function ScreenGeometryProperties({
   );
 
   return (
-    <PanelSection title={t("editPanel.sections.positionLayout")}>
-      <div className="design-sidebar-property-group">
-        <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-        <InspectorActionPairGrid
-          className="items-center"
-          left={
-            <ScrubStyleInput
-              label="X"
-              value={`${Math.round(screen.x)}px`}
-              onChange={editable ? (value) => commit({ x: value }) : noop}
-              disabled={!editable}
-              inputClassName="h-6"
-            />
-          }
-          right={
-            <ScrubStyleInput
-              label="Y"
-              value={`${Math.round(screen.y)}px`}
-              onChange={editable ? (value) => commit({ y: value }) : noop}
-              disabled={!editable}
-              inputClassName="h-6"
-            />
-          }
-        />
-      </div>
-      <div className="design-sidebar-property-group">
-        <SubsectionLabel>
-          {"Size" /* i18n-ignore design inspector label */}
-        </SubsectionLabel>
-        <InspectorActionPairGrid
-          className="items-center"
-          left={
-            <ScrubStyleInput
-              label="W"
-              value={`${Math.round(screen.width)}px`}
-              onChange={editable ? (value) => commit({ width: value }) : noop}
-              min={MIN_SCREEN_FRAME_SIZE_PX}
-              disabled={!editable}
-              inputClassName="h-6"
-            />
-          }
-          right={
-            <ScrubStyleInput
-              label="H"
-              value={`${Math.round(screen.height)}px`}
-              onChange={editable ? (value) => commit({ height: value }) : noop}
-              min={MIN_SCREEN_FRAME_SIZE_PX}
-              disabled={!editable}
-              inputClassName="h-6"
-            />
-          }
-          action={
-            editable ? (
-              <ScreenSizePresetPicker
-                onPick={(preset) =>
-                  commit({ width: preset.width, height: preset.height })
+    <>
+      <PanelSection title={t("editPanel.sections.page")}>
+        <div className="design-sidebar-property-group space-y-2">
+          <SubsectionLabel>{t("editPanel.screenSource.title")}</SubsectionLabel>
+          <div className="grid grid-cols-2 gap-1 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
+            <Button
+              type="button"
+              size="sm"
+              variant={sourceMode === "static" ? "secondary" : "ghost"}
+              className="h-6 justify-center px-2 text-[11px]"
+              disabled={!sourceEditable || screenSourcePending}
+              onClick={() => {
+                if (persistedSourceType === "static") {
+                  setSourceMode("static");
+                  return;
                 }
+                // Keep the control pessimistic while a URL-to-static snapshot
+                // is in flight. A failed bridge snapshot must not make the
+                // inspector claim that the screen changed modes.
+                setSourceMode("url");
+                onScreenSourceChange?.(screen.id, { sourceType: "static" });
+              }}
+            >
+              {t("editPanel.positionOptions.static")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={sourceMode === "url" ? "secondary" : "ghost"}
+              className="h-6 justify-center px-2 text-[11px]"
+              disabled={!sourceEditable || screenSourcePending}
+              onClick={() => setSourceMode("url")}
+            >
+              {t("editPanel.screenSource.url")}
+            </Button>
+          </div>
+          {sourceMode === "url" ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Input
+                  value={sourceUrlDraft}
+                  onChange={(event) => setSourceUrlDraft(event.target.value)}
+                  onBlur={() => commitUrl()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitUrl();
+                    }
+                    if (event.key === "Escape") {
+                      setSourceUrlDraft(selectedScreenSource?.url ?? "");
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  placeholder={t("editPanel.screenSource.urlPlaceholder")}
+                  aria-label={t("editPanel.screenSource.urlLabel")}
+                  disabled={!sourceEditable || screenSourcePending}
+                  className="h-7 min-w-0 flex-1 text-[11px]"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 shrink-0 px-2 text-[11px]"
+                  disabled={
+                    !sourceEditable ||
+                    screenSourcePending ||
+                    !sourceUrlDraft.trim()
+                  }
+                  onClick={() => commitUrl()}
+                >
+                  {screenSourcePending
+                    ? "…"
+                    : t("editPanel.screenSource.update")}
+                </Button>
+              </div>
+              {localhostConnections.length > 1 ? (
+                <Select
+                  value={connectionDraft}
+                  onValueChange={(next) => {
+                    setConnectionDraft(next);
+                    if (persistedSourceType === "url") commitUrl(next);
+                  }}
+                  disabled={!sourceEditable || screenSourcePending}
+                >
+                  <SelectTrigger className="h-7 w-full min-w-0 text-[11px]">
+                    <SelectValue
+                      placeholder={t("editPanel.screenSource.chooseLocalApp")}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {localhostConnections.map((connection) => (
+                      <SelectItem
+                        key={connection.id}
+                        value={connection.id}
+                        className="text-[11px]"
+                      >
+                        {connection.name ||
+                          connection.devServerUrl ||
+                          connection.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between gap-2 pt-0.5">
+            {onAddLocalhostScreen ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 px-1.5 text-[11px]"
+                disabled={!sourceEditable || screenSourcePending}
+                onClick={onAddLocalhostScreen}
+              >
+                <IconPlus className="size-3.5" />
+                {t("layersPanel.addScreen")}
+              </Button>
+            ) : (
+              <span />
+            )}
+            {onRemoveScreen ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-7 text-muted-foreground hover:text-destructive"
+                disabled={!sourceEditable || screenSourcePending}
+                onClick={onRemoveScreen}
+                aria-label={t("editPanel.screenSource.remove")}
+              >
+                <IconTrash className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </PanelSection>
+      <PanelSection title={t("editPanel.sections.positionLayout")}>
+        <div className="design-sidebar-property-group">
+          <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
+          <InspectorActionPairGrid
+            className="items-center"
+            left={
+              <ScrubStyleInput
+                label="X"
+                value={`${Math.round(screen.x)}px`}
+                onChange={editable ? (value) => commit({ x: value }) : noop}
+                disabled={!editable}
+                inputClassName="h-6"
               />
-            ) : null
-          }
-        />
-      </div>
-    </PanelSection>
+            }
+            right={
+              <ScrubStyleInput
+                label="Y"
+                value={`${Math.round(screen.y)}px`}
+                onChange={editable ? (value) => commit({ y: value }) : noop}
+                disabled={!editable}
+                inputClassName="h-6"
+              />
+            }
+          />
+        </div>
+        <div className="design-sidebar-property-group">
+          <SubsectionLabel>
+            {"Size" /* i18n-ignore design inspector label */}
+          </SubsectionLabel>
+          <InspectorActionPairGrid
+            className="items-center"
+            left={
+              <ScrubStyleInput
+                label="W"
+                value={`${Math.round(screen.width)}px`}
+                onChange={editable ? (value) => commit({ width: value }) : noop}
+                min={MIN_SCREEN_FRAME_SIZE_PX}
+                disabled={!editable}
+                inputClassName="h-6"
+              />
+            }
+            right={
+              <ScrubStyleInput
+                label="H"
+                value={`${Math.round(screen.height)}px`}
+                onChange={
+                  editable ? (value) => commit({ height: value }) : noop
+                }
+                min={MIN_SCREEN_FRAME_SIZE_PX}
+                disabled={!editable}
+                inputClassName="h-6"
+              />
+            }
+            action={
+              editable ? (
+                <ScreenSizePresetPicker
+                  onPick={(preset) =>
+                    commit({ width: preset.width, height: preset.height })
+                  }
+                />
+              ) : null
+            }
+          />
+        </div>
+      </PanelSection>
+    </>
   );
 }
 
@@ -1661,17 +1926,19 @@ function ExportPreviewDisclosure({
 }
 
 function SelectionColorsProperties({
-  element,
-  onStyleChange,
+  elements,
+  scopes,
+  onColorChange,
 }: {
-  element: ElementInfo;
-  onStyleChange: StyleChangeHandler;
+  elements: ElementInfo[];
+  scopes?: SelectionColorScope[];
+  onColorChange?: SelectionColorChangeHandler;
 }) {
   // M6 · the design editor's Selection colors collapses to a single "Show selection colors"
   // affordance, expanding to one editable [swatch · hex · opacity] row per
   // unique color — matching the Fill row grammar instead of a swatch strip.
   const [expanded, setExpanded] = useState(false);
-  const colors = selectionColorValues(element);
+  const colors = selectionColorValues(elements, scopes);
   if (!colors.length) return null;
 
   return (
@@ -1684,13 +1951,14 @@ function SelectionColorsProperties({
             const parsed = parseCssColor(color.value);
             const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
             return (
-              <InspectorGridCell key={`${color.value}-${index}`} span={28}>
+              <InspectorGridCell key={index} span={28}>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
                       className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
                       aria-label={color.value}
+                      disabled={!onColorChange}
                     >
                       <span
                         className="size-4 shrink-0 rounded-[3px] border border-border/60"
@@ -1702,6 +1970,11 @@ function SelectionColorsProperties({
                       <span className="shrink-0 tabular-nums text-muted-foreground">
                         {opacity}%
                       </span>
+                      {color.count && color.count > 1 ? (
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          ×{color.count}
+                        </span>
+                      ) : null}
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
@@ -1719,15 +1992,16 @@ function SelectionColorsProperties({
                       // commit on gesture-end — same split as ColorInput's
                       // setNext (see its PF12 comment above).
                       onChange={(value) =>
-                        onStyleChange(color.property, value, {
+                        onColorChange?.(color.value, value, {
                           phase: "preview",
                         })
                       }
                       onChangeComplete={(value) =>
-                        onStyleChange(color.property, value, {
+                        onColorChange?.(color.value, value, {
                           phase: "commit",
                         })
                       }
+                      disabled={!onColorChange}
                     />
                   </PopoverContent>
                 </Popover>
@@ -1786,10 +2060,19 @@ export const EditPanel = memo(function EditPanel({
   canvasBackgroundFallback,
   onCanvasBackgroundChange,
   onScreenGeometryChange,
+  selectedScreenSource,
+  sourceLocationUnavailable = false,
+  localhostConnections,
+  onScreenSourceChange,
+  onAddLocalhostScreen,
+  onRemoveScreen,
+  screenSourcePending,
   pageStyles = {},
   selectedScreenElement,
   onSelectedScreenStyleChange,
   onSelectedScreenStylesChange,
+  selectionColorScopes = [],
+  onSelectionColorChange: onSelectionColorChangeProp,
   viewMode,
   mode,
   headerTrailing,
@@ -1919,7 +2202,7 @@ export const EditPanel = memo(function EditPanel({
   const selectionAlreadyComponent =
     selectedCount === 1 &&
     (selectedElementAlreadyComponent ||
-      elementIsComponentSelection(selectedElement));
+      elementHasComponentAnnotation(selectedElement));
   const canCreateComponent = Boolean(
     onCreateComponent &&
     selectedElement &&
@@ -2118,6 +2401,15 @@ export const EditPanel = memo(function EditPanel({
     },
     [onStylesChangeProp, interactionState],
   );
+  const onSelectionColorChange = useCallback<SelectionColorChangeHandler>(
+    (from, to, meta) =>
+      onSelectionColorChangeProp?.(
+        from,
+        to,
+        interactionState ? { ...meta, interactionState } : meta,
+      ),
+    [interactionState, onSelectionColorChangeProp],
+  );
 
   // Breakpoint override indicators — see `breakpointContext` on
   // EditPanelProps. `undefined` (feature off, no stable node id, or a
@@ -2228,6 +2520,16 @@ export const EditPanel = memo(function EditPanel({
             {!inspectorElement && selectedScreenGeometry ? (
               <ScreenSelectionHeader screen={selectedScreenGeometry} />
             ) : null}
+            {sourceLocationUnavailable ? (
+              <div
+                role="status"
+                className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
+              >
+                {
+                  "No source locations available for this app." /* i18n-ignore design inspector status */
+                }
+              </div>
+            ) : null}
 
             <div
               className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
@@ -2330,6 +2632,16 @@ export const EditPanel = memo(function EditPanel({
                     onGeometryChange={
                       readOnly ? undefined : onScreenGeometryChange
                     }
+                    selectedScreenSource={selectedScreenSource}
+                    localhostConnections={localhostConnections}
+                    onScreenSourceChange={
+                      readOnly ? undefined : onScreenSourceChange
+                    }
+                    onAddLocalhostScreen={
+                      readOnly ? undefined : onAddLocalhostScreen
+                    }
+                    onRemoveScreen={readOnly ? undefined : onRemoveScreen}
+                    screenSourcePending={screenSourcePending}
                   />
                   {onLayoutGridChange ? (
                     <LayoutGridProperties
@@ -2358,9 +2670,32 @@ export const EditPanel = memo(function EditPanel({
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                       />
+                      <SelectionColorsProperties
+                        elements={[selectedScreenElement]}
+                        scopes={selectionColorScopes}
+                        onColorChange={
+                          readOnly || interactionState
+                            ? undefined
+                            : onSelectionColorChange
+                        }
+                      />
                     </>
                   ) : null}
                 </>
+              ) : null}
+
+              {!inspectorElement &&
+              !selectedScreenGeometry &&
+              selectionColorScopes.length > 0 ? (
+                <SelectionColorsProperties
+                  elements={[]}
+                  scopes={selectionColorScopes}
+                  onColorChange={
+                    readOnly || interactionState
+                      ? undefined
+                      : onSelectionColorChange
+                  }
+                />
               ) : null}
 
               {!inspectorElement &&
@@ -2446,8 +2781,13 @@ export const EditPanel = memo(function EditPanel({
                     motionKeyframeContext={motionKeyframeFieldContext}
                   />
                   <SelectionColorsProperties
-                    element={stateResolvedInspectorElement ?? inspectorElement}
-                    onStyleChange={onStyleChange}
+                    elements={effectiveSelectedElements}
+                    scopes={selectionColorScopes}
+                    onColorChange={
+                      readOnly || interactionState
+                        ? undefined
+                        : onSelectionColorChange
+                    }
                   />
                   {selectionHasContainerElement ? (
                     <LayoutGuideProperties

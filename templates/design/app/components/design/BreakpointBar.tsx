@@ -120,6 +120,8 @@ export interface BreakpointDeviceControlProps {
   baseWidthPx?: number | null;
   /** Gates add/remove/change affordances; selection is allowed read-only. */
   canEdit: boolean;
+  /** Disables add/remove/change while a breakpoint mutation is in flight. */
+  mutationPending?: boolean;
   /** Linked side-by-side frames toggle (overview). Hidden when undefined. */
   showAllFrames?: boolean;
   onShowAllFramesChange?: (value: boolean) => void;
@@ -139,6 +141,7 @@ export function BreakpointDeviceControl({
   activeWidthPx,
   baseWidthPx,
   canEdit,
+  mutationPending = false,
   showAllFrames,
   onShowAllFramesChange,
   onSelect,
@@ -149,6 +152,7 @@ export function BreakpointDeviceControl({
 }: BreakpointDeviceControlProps) {
   const t = useT();
   const [addOpen, setAddOpen] = useState(false);
+  const canMutateBreakpoints = canEdit && !mutationPending;
   const [customWidth, setCustomWidth] = useState("");
   /** Which breakpoint's "…" menu is open (id), if any. */
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
@@ -215,7 +219,9 @@ export function BreakpointDeviceControl({
           const active = activeWidthPx === breakpoint.widthPx;
           const menuOpen = menuOpenFor === breakpoint.id;
           const showMenuAffordance = Boolean(
-            canEdit && (onRemove || onChangeWidth) && (active || menuOpen),
+            canMutateBreakpoints &&
+            (onRemove || onChangeWidth) &&
+            (active || menuOpen),
           );
           return (
             <div key={breakpoint.id} className="relative flex items-center">
@@ -327,7 +333,7 @@ export function BreakpointDeviceControl({
       </div>
 
       {/* "+" — Framer default widths or a custom width. */}
-      {canEdit && onAdd ? (
+      {canMutateBreakpoints && onAdd ? (
         <Popover open={addOpen} onOpenChange={setAddOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -335,6 +341,7 @@ export function BreakpointDeviceControl({
               size="icon"
               className="size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
               title={t("designEditor.breakpointBar.addBreakpoint")}
+              disabled={mutationPending}
             >
               <IconPlus className="size-3.5" />
             </Button>

@@ -168,6 +168,7 @@ import {
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
   normalizeBuilderAgentContext,
+  parseBuilderConnectStateCookie,
   provisionBuilderAccount,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
@@ -503,11 +504,16 @@ export async function resolveBuilderOrgMutation(
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
   return [
-    { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+    {
+      key: "ENABLE_BUILDER",
+      label: "Enable Builder.io features",
+      secret: false,
+    },
     {
       key: "AGENT_ENGINE_PREFER_BYO_KEY",
       label:
         "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
+      secret: false,
     },
     {
       key: "RESEND_API_KEY",
@@ -526,6 +532,7 @@ export function getFrameworkEnvKeys(): EnvKeyConfig[] {
       label: "Email from address",
       helpText:
         "Sender address for transactional email. Required when using SendGrid.",
+      secret: false,
     },
     ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
       key: envVar,
@@ -832,6 +839,7 @@ const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
 const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
+  "design_make_real_waitlist",
   "docs_build_online_waitlist",
   "docs_edit_online_waitlist",
 ]);
@@ -1260,6 +1268,36 @@ export async function readBuilderConnectPendingState(
     // callback the same way so attackers cannot probe storage errors.
     return null;
   }
+}
+
+/**
+ * Narrows cookie-recovered states to the flows that could still complete.
+ * Returns null when the pending store cannot be read: unreadable is not the
+ * same as dead, and treating it as dead would discard live flows.
+ */
+export async function selectLiveBuilderConnectStates(
+  states: string[],
+  now = Date.now(),
+  read: typeof getSetting = getSetting,
+): Promise<string[] | null> {
+  const live: string[] = [];
+  for (const state of states) {
+    let pending: Record<string, unknown> | null;
+    try {
+      pending = await read(`builder-connect-pending:${state}`);
+    } catch (err) {
+      console.error(
+        "[builder] Could not read pending-connect state:",
+        (err as Error)?.message ?? err,
+      );
+      return null;
+    }
+    if (!pending || pending.consumed === true) continue;
+    const expiresAt = pending.expiresAt;
+    if (typeof expiresAt !== "number" || now >= expiresAt) continue;
+    live.push(state);
+  }
+  return live;
 }
 
 const BUILDER_CONNECT_PENDING_PREFIX = "builder-connect-pending:";
@@ -3858,12 +3896,50 @@ export function createCoreRoutesPlugin(
           // from the host-only cookie set by /builder/connect; the pending row
           // and authenticated session still bind it to this account.
           const queryState = requestUrl.searchParams.get("state");
-          const state = resolveBuilderConnectCallbackState(
-            queryState,
-            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
-          );
+          const rawStateCookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
+          const cookieStates = parseBuilderConnectStateCookie(rawStateCookie);
+          // A consumed, expired, or already-failed state must not make a
+          // recoverable callback look ambiguous. A null selection means the
+          // pending store could not be read, so keep the cookie as-is and let
+          // the resolver fail closed on it.
+          const liveStates = cookieStates?.length
+            ? await selectLiveBuilderConnectStates(cookieStates)
+            : cookieStates;
+          const { state, resetStateCookie } =
+            resolveBuilderConnectCallbackState(
+              queryState,
+              liveStates ? liveStates.join(",") : rawStateCookie,
+            );
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
           let callbackAttemptId = requestConnectAttemptId;
+          // A finished attempt — succeeded or failed — must not leave its
+          // state in the cookie, or the next restart resolves against two
+          // states and fails for a reason the user cannot clear.
+          const dropConnectStateCookie = (finishedState: string) => {
+            const cookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
+            if (!cookie) return;
+            const remaining = removeBuilderConnectStateCookie(
+              cookie,
+              finishedState,
+            );
+            // Rewriting a cookie this attempt does not own would resurrect
+            // states a concurrent callback just finished with.
+            if (remaining === cookie) return;
+            if (!remaining) {
+              deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
+              return;
+            }
+            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remaining, {
+              httpOnly: true,
+              secure: (
+                resolveBuilderConnectCallbackUrl(event, finishedState) ??
+                parentOrigin
+              ).startsWith("https://"),
+              sameSite: "lax",
+              path: "/",
+              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
+            });
+          };
           const fail = async (
             status: number,
             message: string,
@@ -3871,6 +3947,7 @@ export function createCoreRoutesPlugin(
             reason?: string,
             tracking: BuilderConnectTrackingParams = {},
           ) => {
+            if (state) dropConnectStateCookie(state);
             if (ownerEmail) {
               await putSetting(
                 getBuilderConnectErrorKey(ownerEmail, callbackAttemptId),
@@ -3906,6 +3983,16 @@ export function createCoreRoutesPlugin(
           };
 
           if (!state || !isSignedBuilderConnectState(state)) {
+            // This route is a SameSite=Lax GET, so a prefetch, a history
+            // revisit, or a cross-site link reaches it without a payload.
+            // Only a request carrying a real OAuth result may discard the
+            // recovery states of flows still running in other tabs.
+            const carriesOAuthResult =
+              requestUrl.searchParams.has("code") ||
+              requestUrl.searchParams.has("error");
+            if (resetStateCookie && carriesOAuthResult) {
+              deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
+            }
             return fail(
               403,
               "No active Builder connect flow found. Restart the connection from Settings.",
@@ -4056,21 +4143,7 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          const remainingStates = removeBuilderConnectStateCookie(
-            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
-            state,
-          );
-          if (remainingStates) {
-            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remainingStates, {
-              httpOnly: true,
-              secure: expectedRedirectUri.startsWith("https://"),
-              sameSite: "lax",
-              path: "/",
-              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
-            });
-          } else {
-            deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
-          }
+          dropConnectStateCookie(state);
 
           try {
             await Promise.all([
