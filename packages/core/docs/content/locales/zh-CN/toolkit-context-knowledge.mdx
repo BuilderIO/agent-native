@@ -1,0 +1,12 @@
+---
+title: "上下文与知识"
+description: "在引擎、数据访问和可复用呈现之间保持正确边界，构建面向智能体的上下文表面。"
+---
+
+# 上下文与知识
+
+Core 负责应用状态、范围受限的访问和 Context X-Ray 引擎。Toolkit 提供可复用呈现；应用负责领域记录、分类法和选择规则。
+
+Context X-Ray 引擎仍归 Core。可用 Toolkit 统一呈现上下文，但状态和访问决策应保留在 Core 与 actions 中。[Context awareness](/docs/context-awareness) 让导航、选择和聚焦对象对智能体可见；[Resources](/docs/toolkit-resources) 处理文件与附件。
+
+上下文不能替代访问控制。检索提供商知识前必须保留资源和凭据检查。

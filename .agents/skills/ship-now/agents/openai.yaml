@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ship Now"
+  short_description: "Targeted prep, whole-branch merge, then monitor"
+  default_prompt: "Use $ship-now to run prep or targeted recovery, push the complete nonignored branch snapshot, admin-merge immediately without waiting for full CI or soak, rotate, and monitor the release tail."

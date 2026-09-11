@@ -1,0 +1,18 @@
+{
+  "js/ts.experimental.useTsgo": true,
+  "typescript.native-preview.tsdk": "./node_modules/typescript-7",
+  "typescript.native-preview.goMemLimit": "4GiB",
+  "typescript.native-preview.showDebugInfo": true,
+  "[typescript]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode",
+    "editor.formatOnSave": true
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode",
+    "editor.formatOnSave": true
+  },
+  "[json]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode",
+    "editor.formatOnSave": true
+  }
+}

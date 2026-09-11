@@ -1,0 +1,191 @@
+---
+title: "Chat"
+description: "Um app agent-native minimalista com foco em chat: threads de chat duráveis, actions, estado da aplicação, sincronização ao vivo, autenticação e espaço para adicionar sua própria UI."
+---
+
+# Chat
+
+Chat é o ponto de partida mais simples do agent-native: um shell no estilo
+ChatGPT com o chat no centro, uma lista de threads, autenticação e uma action
+de exemplo, sem nada específico de domínio. É para desenvolvedores que querem
+um app real e implantável para construir seu próprio agente e telas por cima,
+não um produto finalizado para uma tarefa específica.
+
+Se você quiser um formato de produto de domínio finalizado, comece pelo
+[Calendar](/docs/template-calendar), [Mail](/docs/template-mail),
+[Content](/docs/template-content), [Forms](/docs/template-forms),
+[Analytics](/docs/template-analytics) ou outro template de domínio. Se você
+realmente ainda não precisa de uma UI de navegador, veja [Automation-First
+Apps](/docs/pure-agent-apps).
+
+<Cards columns={1}>
+
+### [Experimente agora →](https://chat.agent-native.com)
+
+Veja o Chat em funcionamento: comece uma conversa real com o agente, sem
+nenhuma configuração.
+
+</Cards>
+
+<WireframeBlock id="doc-block-chat1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Como posso ajudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Converse sobre qualquer coisa. Adicione actions, componentes, páginas, jobs ou seu próprio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Envie uma mensagem ao agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · Alto</span><span class='wf-pill'>Agir</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## O que vem incluído {#what-ships}
+
+<Comparison>
+
+### :green: Incluído
+
+- Chat em página inteira em `/` usando a superfície de chat do framework e
+  threads de chat duráveis
+- Lista de threads na barra lateral do app para criar, reabrir, renomear,
+  fixar e arquivar chats
+- O loop integrado de app-agente, pré-configurado para o plugin de chat
+- Autenticação via Better Auth: login, cadastro, sessões, organizações
+- Um diretório de actions com um exemplo (`actions/hello.ts`) mais as actions
+  padrão `view-screen` e `navigate`
+- As tabelas centrais do framework para threads de chat, estado da aplicação,
+  configurações, sessões, recursos e histórico de execuções, além de uma
+  página de administração do Database e um dashboard de Observability,
+  montados quer você chegue a abri-los ou não
+- Sincronização ao vivo (`useDbSync`) já conectada, para que a UI seja
+  atualizada quando o agente grava no SQL
+- Rotas de Extensões montadas por padrão, para mini-apps isolados que seus
+  usuários construam dentro do chat mais adiante
+- AGENTS.md com orientação centrada em chat para adicionar actions, rotas,
+  skills e estado da aplicação
+
+### :red: Não incluído
+
+- Tabelas de domínio ou dados iniciais
+- Dashboards, listas, gráficos, formulários ou integrações com provedores
+- Actions específicas de domínio além do stub de exemplo
+
+</Comparison>
+
+Esse é o ponto. Chat é um shell padrão fino e útil para o seu próprio agente,
+não um produto de domínio fingindo ser genérico.
+
+<Diagram id="doc-block-chat2" title="O que vem incluído no shell do Chat" summary={"Uma superfície de chat fina sobre o runtime padrão do framework — actions, threads duráveis, sincronização ao vivo e autenticação — com espaço para adicionar sua própria UI."}>
+
+```html
+<div class="diagram-chat">
+  <div class="diagram-col left">
+    <div class="diagram-node">
+      Lista de threads<br /><small class="diagram-muted"
+        >criar · reabrir · fixar · arquivar</small
+      >
+    </div>
+    <div class="diagram-node">
+      Chat em página inteira<br /><small class="diagram-muted"
+        >superfície de chat do framework em /</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted">hello.ts · view-screen · navigate</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col right">
+    <div class="diagram-box">
+      Tabelas centrais do SQL<br /><small class="diagram-muted"
+        >threads · application_state · settings · sessions · runs</small
+      >
+    </div>
+    <div class="diagram-pill ok">Sincronização ao vivo &#8635;</div>
+    <div class="diagram-box">
+      Better Auth<br /><small class="diagram-muted"
+        >login · orgs · sessões</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-chat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-chat .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-chat .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-chat .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Quando escolhê-lo {#when-to-pick}
+
+- **Você quer um app básico com o qual os usuários possam conversar
+  imediatamente** e depois estender com actions e UI.
+- **Você quer o ponto de entrada padrão do Agent-Native**: chat primeiro,
+  depois actions, resultados nativos e páginas de app.
+- **Você quer plugar seu próprio backend de agente em uma UI de chat
+  familiar** mantendo as actions, o estado, a autenticação e o formato de
+  deploy do Agent-Native.
+- **Você está prototipando uma ferramenta interna personalizada** que não se
+  encaixa em nenhum template de domínio.
+
+## Comece agora {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+Veja [Chat: Guia do desenvolvedor](/docs/template-chat-developers#quick-start)
+para instalação, primeira execução e conexão com um LLM. Para trabalhos
+automation-first sem nenhuma UI de navegador, faça o scaffold com `--headless`
+em vez disso:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+Use isso para jobs agendados, filas, loops de CLI ou fluxos de trabalho de
+agentes externos onde o chat e as páginas de app ainda não são úteis. O
+invariante principal permanece o mesmo: actions são a superfície
+compartilhada para chat, UI, HTTP, MCP, A2A e CLI. Veja [Automation-First
+Apps](/docs/pure-agent-apps) para esse caminho em profundidade.
+
+## O que vem a seguir
+
+- [**Seu primeiro recurso no Chat**](/docs/template-chat-first-edits) — a
+  rota de chat inicial, anotada, mais um passo a passo completo de como
+  adicionar um recurso real
+- [**Chat: Guia do desenvolvedor**](/docs/template-chat-developers) — início
+  rápido, actions, tabelas centrais, autenticação e as páginas de
+  administração que vêm por padrão
+- [**Primeiros passos**](/docs/getting-started) — construa o caminho
+  chat-first desde a action até o resultado inline e a página de app
+- [**Templates**](/docs/cloneable-saas) — o modelo Cloneable SaaS, e todos
+  os templates de domínio para começar em vez deste
+- [**Superfícies do agente**](/docs/agent-surfaces) — chat, UI inline,
+  páginas de app, incorporado, automação e padrões de agentes externos
+- [**Actions**](/docs/actions-overview) — o sistema de actions que o chat e
+  a UI chamam
+- [**Native Chat UI**](/docs/native-chat-ui) — primitivas da superfície de
+  chat e opções de runtime
+- [**Automation-First Apps**](/docs/pure-agent-apps) — fluxos de trabalho
+  sem navegador para jobs, filas, scripts e agentes externos

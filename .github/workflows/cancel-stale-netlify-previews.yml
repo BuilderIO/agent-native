@@ -1,0 +1,89 @@
+name: Cancel stale Netlify previews
+
+on:
+  pull_request:
+    types: [synchronize, closed]
+
+permissions:
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: scripts/netlify-sites.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          BRANCH: ${{ github.head_ref }}
+          LATEST_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          ACTION: ${{ github.event.action }}
+        with:
+          script: |
+            const fs = require('fs');
+            const SITES = Object.entries(
+              JSON.parse(fs.readFileSync('scripts/netlify-sites.json', 'utf8'))
+            );
+
+            const token = process.env.NETLIFY_TOKEN;
+            if (!token) {
+              core.info('NETLIFY_AUTH_TOKEN secret not set; skipping stale preview cleanup.');
+              return;
+            }
+
+            const branch = process.env.BRANCH;
+            const latestSha = process.env.LATEST_SHA;
+            const closed = process.env.ACTION === 'closed';
+            const headers = { Authorization: `Bearer ${token}` };
+
+            // On close (merged or not), cancel every non-terminal preview for this branch.
+            // On synchronize, cancel only deploys whose commit_ref differs from the latest SHA.
+            const STALE_STATES = new Set(['new', 'enqueued', 'building', 'uploading', 'uploaded', 'preparing', 'prepared', 'processing']);
+
+            const results = await Promise.all(SITES.map(async ([name, id]) => {
+              const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?branch=${encodeURIComponent(branch)}&per_page=100`;
+              let r;
+              try {
+                r = await fetch(url, { headers });
+              } catch (err) {
+                return { name, error: `list fetch failed: ${err?.message || err}` };
+              }
+              if (!r.ok) return { name, error: `list ${r.status}` };
+              let deploys;
+              try {
+                deploys = await r.json();
+              } catch (err) {
+                return { name, error: `list json failed: ${err?.message || err}` };
+              }
+              const stale = deploys.filter(d =>
+                d.context === 'deploy-preview' &&
+                STALE_STATES.has(d.state) &&
+                (closed || d.commit_ref !== latestSha)
+              );
+              const cancelled = await Promise.all(stale.map(async d => {
+                try {
+                  const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
+                  return { id: d.id, ok: c.ok, status: c.status, sha: (d.commit_ref || '').slice(0, 7), state: d.state };
+                } catch (err) {
+                  return { id: d.id, ok: false, status: err?.message || 'fetch failed', sha: (d.commit_ref || '').slice(0, 7), state: d.state };
+                }
+              }));
+              return { name, total: stale.length, cancelled };
+            }));
+
+            let total = 0;
+            for (const r of results) {
+              if (r.error) { core.warning(`[${r.name}] ${r.error}`); continue; }
+              if (!r.total) continue;
+              total += r.total;
+              core.info(`[${r.name}] cancelled ${r.cancelled.filter(x => x.ok).length}/${r.total}`);
+              for (const c of r.cancelled) {
+                core.info(`  ${c.ok ? 'OK' : 'FAIL'} ${c.id} ${c.sha} (${c.state})`);
+              }
+            }
+            core.info(`Total cancelled: ${total} (action=${process.env.ACTION}, branch=${branch})`);

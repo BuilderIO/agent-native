@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Enable camera & microphone — Clips</title>
+    <style>
+      /* Design tokens mirrored from the popup/options styles.css so this page
+         matches the rest of the extension and the Clips app. */
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --surface: #f5f6f9;
+        --surface-hover: #eef0f5;
+        --fg: #0f172a;
+        --fg-muted: #64748b;
+        --fg-subtle: #94a3b8;
+        --border: hsl(220 10% 90%);
+        --border-strong: #d4d9e4;
+        --brand: #18181b;
+        --brand-hover: #27272a;
+        --brand-ring: rgba(24, 24, 27, 0.28);
+        --status-ok: #22c55e;
+        --danger: #b42318;
+        --radius: 12px;
+        --radius-sm: 8px;
+        --shadow-md:
+          0 4px 16px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto,
+          ui-sans-serif, system-ui, sans-serif;
+        font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115;
+          --surface: #181b23;
+          --surface-hover: #1e2230;
+          --fg: #f1f5f9;
+          --fg-muted: #94a3b8;
+          --fg-subtle: #64748b;
+          --border: #252938;
+          --border-strong: #323747;
+          --brand: #f4f4f5;
+          --brand-hover: #e4e4e7;
+          --brand-ring: rgba(244, 244, 245, 0.28);
+          --danger: hsl(6 88% 70%);
+          --shadow-md:
+            0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--fg);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      .card {
+        width: 100%;
+        max-width: 420px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        padding: 28px;
+      }
+      .glyph {
+        width: 44px;
+        height: 44px;
+        border-radius: var(--radius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--fg);
+        margin-bottom: 18px;
+      }
+      .glyph svg {
+        width: 22px;
+        height: 22px;
+        display: block;
+      }
+      h1 {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 8px;
+        letter-spacing: -0.01em;
+      }
+      p {
+        font-size: 13.5px;
+        color: var(--fg-muted);
+        margin: 0 0 20px;
+      }
+      .rows {
+        display: grid;
+        gap: 8px;
+        margin: 0 0 22px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 11px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--surface);
+        font-size: 13px;
+        color: var(--fg);
+      }
+      .row .check {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: 1.5px solid var(--border-strong);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        color: var(--fg-subtle);
+        flex: none;
+      }
+      .row.granted {
+        border-color: var(--status-ok);
+      }
+      .row.granted .check {
+        border-color: var(--status-ok);
+        background: rgba(34, 197, 94, 0.14);
+        color: var(--status-ok);
+      }
+      .row-sub {
+        color: var(--fg-subtle);
+        font-size: 12px;
+      }
+      .success-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        margin-top: -4px;
+        padding: 18px 16px;
+        border: 1px solid var(--status-ok);
+        border-radius: var(--radius-sm);
+        background: rgba(34, 197, 94, 0.1);
+        text-align: center;
+      }
+      .success-icon {
+        display: inline-flex;
+        width: 58px;
+        height: 58px;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid var(--status-ok);
+        border-radius: 50%;
+        background: var(--bg);
+        color: var(--status-ok);
+      }
+      .success-icon svg {
+        width: 32px;
+        height: 32px;
+      }
+      .success-title {
+        margin: 0;
+        color: var(--fg);
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+      .success-copy {
+        margin: 0;
+        color: var(--fg-muted);
+        font-size: 13.5px;
+      }
+      button {
+        font: inherit;
+        appearance: none;
+        border: 0;
+        border-radius: var(--radius-sm);
+        background: var(--brand);
+        color: var(--bg);
+        font-size: 14px;
+        font-weight: 600;
+        padding: 11px 18px;
+        width: 100%;
+        cursor: pointer;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        transition:
+          background 120ms,
+          transform 80ms;
+      }
+      button:hover:not(:disabled) {
+        background: var(--brand-hover);
+      }
+      button:active:not(:disabled) {
+        transform: translateY(0.5px);
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .status {
+        margin-top: 14px;
+        font-size: 12.5px;
+        min-height: 16px;
+        color: var(--fg-muted);
+        text-align: center;
+      }
+      .status.error {
+        color: var(--danger);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="glyph">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M23 7l-7 5 7 5V7z" />
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+        </svg>
+      </div>
+      <h1>Enable camera &amp; microphone</h1>
+      <p>
+        Clips needs access once so it can show your camera bubble and record
+        your voice. Grant it below — Chrome still asks before each recording
+        starts.
+      </p>
+      <div class="rows">
+        <div class="row" id="row-mic">
+          <span class="check" id="check-mic">●</span>
+          <span
+            >Microphone
+            <span class="row-sub">— record your narration</span></span
+          >
+        </div>
+        <div class="row" id="row-cam">
+          <span class="check" id="check-cam">●</span>
+          <span
+            >Camera
+            <span class="row-sub">— show your face in recordings</span></span
+          >
+        </div>
+      </div>
+      <div class="success-state" id="success-state" role="status" hidden>
+        <div class="success-icon" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </div>
+        <div class="success-title" id="success-title">You're all done</div>
+        <p class="success-copy" id="success-copy">
+          You can close this tab and start recording from the Clips icon.
+        </p>
+      </div>
+      <button id="enable">Enable camera &amp; microphone</button>
+      <div class="status" id="status"></div>
+    </div>
+    <script type="module" src="./permission.ts"></script>
+  </body>
+</html>

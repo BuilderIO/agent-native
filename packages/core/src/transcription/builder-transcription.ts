@@ -1,0 +1,134 @@
+import {
+  resolveBuilderGatewayAuth,
+  getBuilderProxyOrigin,
+  recordBuilderGatewayAuthFailure,
+} from "../server/credential-provider.js";
+
+export interface BuilderTranscribeOptions {
+  audioBytes: Uint8Array;
+  mimeType: string;
+  model?: string;
+  diarize?: boolean;
+  minSpeakers?: number;
+  maxSpeakers?: number;
+  language?: string;
+  instructions?: string;
+  timeoutMs?: number;
+}
+
+export interface BuilderTranscribeResult {
+  text: string;
+  language: string;
+  durationSeconds: number;
+  segments: Array<{
+    startMs: number;
+    endMs: number;
+    text: string;
+    speakerLabel?: string;
+    words?: Array<{
+      startMs: number;
+      endMs: number;
+      text: string;
+      confidence?: number;
+    }>;
+  }>;
+}
+
+function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = (err as Error & { cause?: unknown }).cause;
+  const causeText = cause ? `; cause: ${describeError(cause)}` : "";
+  return `${err.name}: ${err.message}${causeText}`;
+}
+
+export async function transcribeWithBuilder(
+  opts: BuilderTranscribeOptions,
+): Promise<BuilderTranscribeResult> {
+  const auth = await resolveBuilderGatewayAuth();
+  if (!auth) {
+    throw new Error(
+      "Builder private key not configured. Connect your Builder.io account (free tier available) in Settings.",
+    );
+  }
+
+  const params = new URLSearchParams();
+  params.set("mimeType", opts.mimeType);
+  if (opts.model) params.set("model", opts.model);
+  if (opts.diarize != null) params.set("diarize", String(opts.diarize));
+  if (opts.minSpeakers != null)
+    params.set("minSpeakers", String(opts.minSpeakers));
+  if (opts.maxSpeakers != null)
+    params.set("maxSpeakers", String(opts.maxSpeakers));
+  if (opts.language) params.set("language", opts.language);
+  if (opts.instructions) params.set("instructions", opts.instructions);
+
+  const url = `${getBuilderProxyOrigin()}/agent-native/transcribe-audio?${params.toString()}`;
+
+  // Copy to a plain ArrayBuffer so TS6 accepts it as BodyInit (Uint8Array
+  // with ArrayBufferLike doesn't satisfy the strict BlobPart/BodyInit types).
+  const body = opts.audioBytes.buffer.slice(
+    opts.audioBytes.byteOffset,
+    opts.audioBytes.byteOffset + opts.audioBytes.byteLength,
+  ) as ArrayBuffer;
+
+  const timeoutMs =
+    typeof opts.timeoutMs === "number" && Number.isFinite(opts.timeoutMs)
+      ? Math.max(1, Math.floor(opts.timeoutMs))
+      : 45_000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: auth.authorization,
+        "Content-Type": "application/octet-stream",
+        // A gateway token without a space id is rejected before any route
+        // policy is consulted, so the space id travels with every call.
+        ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+        ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
+      },
+      body,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") {
+      throw new Error(
+        `Builder transcription timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`,
+      );
+    }
+    throw new Error(
+      `Builder transcription request failed before response: ${describeError(err)}`,
+      { cause: err },
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (res.status === 402) {
+    throw new Error(
+      "Builder transcription credits exhausted. Upgrade your Builder.io plan or configure another supported fallback.",
+    );
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    // The chat path records this so a rejected credential is not retried for
+    // BUILDER_AUTH_FAILURE_TTL_MS; transcription never did, so one bad
+    // credential re-sent the same doomed request on every attempt -- prod
+    // logged 24 identical `Missing Authentication header` 401s in a day off a
+    // single unusable credential, with nothing to stop the next one.
+    if (res.status === 401 || res.status === 403) {
+      await recordBuilderGatewayAuthFailure({
+        status: res.status,
+        message: text,
+      });
+    }
+    throw new Error(
+      `Builder transcription failed (${res.status} ${res.statusText}): ${text}`,
+    );
+  }
+
+  return (await res.json()) as BuilderTranscribeResult;
+}

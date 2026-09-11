@@ -1,0 +1,153 @@
+---
+title: "Dispatch"
+description: "Dispatch はワークスペースのコントロール プレーンであり、中央受信トレイ、クロスアプリ オーケストレーション、シークレット ボールト、Slack/Telegram 統合、およびスケジュールされたジョブです。"
+---
+
+# Dispatch
+
+Dispatch は、マルチアプリ ワークスペースの調整を保つために他の Agent-Native アプリと並行して実行するアプリです。あらゆるチャネル向けの 1 つの受信箱、1 つのシークレット ボールト、そしてすべてを自分でこなそうとするのではなく各リクエストを適切な専門アプリにルーティングする 1 つのエージェントを提供します。これはワークスペースを運用する人のためのものであり、単一のスタンドアロン アプリを構築する人のためのものではありません。
+
+<Callout tone="info">
+
+**こちらも参照:** Dispatch の機能と、どのようなときに使うべきかについての概念的な概要は [Dispatch](/docs/dispatch) を参照してください。このページはテンプレート固有のリファレンスです。
+
+</Callout>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65b2b76a0dec44dbbbaec738e5512228?alt=media&token=f5ad219e-c566-43b2-90ca-a51c72d9a607&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Dispatch の概要、受信箱、アプリ ランチャーを紹介する短い画面録画です。"
+  caption="Dispatch の簡単なツアーです。"
+  autoplay={true}
+  loop={true}
+/>
+
+多くのアプリを含む [multi-app workspace](/docs/multi-app-workspace) を実行している場合、Dispatch がその接着剤の役割を果たします。
+
+## 実践における Dispatch {#in-practice}
+
+### Slack での質問が Analytics のメモになる
+
+あるチャンネルのメッセージが、誰も手作業で情報をコピーすることなく、まったく別のアプリでの変更になることがあります。
+
+<Sequence>
+
+### **#marketing** チャンネルに主要クライアントについての更新が届く
+
+### :blue: **Dispatch** がメッセージを見て、それを Analytics のメモとして認識する
+
+### そのクライアントについてのメモが **Analytics** に追加される
+
+</Sequence>
+
+### 月曜のレポートが別のアプリのデータを取得する
+
+定期的なジョブは、別のアプリのデータを自分用にコピーしておく必要はありません。実行するたびに、そのつど問い合わせるだけです。
+
+<Sequence>
+
+### 定期的なジョブが毎週月曜午前 7 時に **起動する**
+
+### :blue: **Dispatch** が分析エージェントに先週のサインアップを問い合わせる
+
+### 概要がチームに **メール送信される**
+
+</Sequence>
+
+### 値引き案件が他の 2 つのチームから承認を得る
+
+1 件の承認が完了するまでに複数のアプリとチームに関わることがありますが、Dispatch が各リクエストと回答を中継するため、誰も自分のアプリを離れることなく話を前に進められます。
+
+<Sequence>
+
+### **営業担当者** が CRM で値引きの承認をリクエストする
+
+### :blue: **Dispatch** が Finance のエージェントにポリシーの範囲内かどうかを確認する
+
+### **Finance** が自分たちのアプリでそれを承認する
+
+### :blue: **Dispatch** が Legal のエージェントに契約条件の確認を依頼する
+
+### **Legal** が 1 つの条項にフラグを立て、変更を要求する
+
+### :blue: **Dispatch** が変更内容を営業担当者に伝える
+
+</Sequence>
+
+## 置き換えるもの {#what-it-replaces}
+
+<Comparison>
+
+### 導入前
+
+- Slack ボット、メールの受信箱、サポート用エイリアスがそれぞれ別々のアプリに手作業で配線されている
+- `.env` ファイルと、その中のすべてのキーのコピーが、アプリごとに重複している
+- 定期的な処理のために、アプリごとに cron ジョブや管理スクリプトが必要
+- 何が変更されたか、誰が承認したか、アプリが LLM 呼び出しにいくら費やしているかを確認できる単一の場所がない
+
+### 導入後
+
+- 1 つの受信箱: Slack、Teams、Discord、Telegram、WhatsApp、メールがすべて同じエージェントに届く
+- 1 つのボールト: すべての認証情報を一度だけ保存し、必要なアプリに許可または同期する
+- 定期的なジョブ、Dreams のメモリ レビュー ループ、管理者承認のための単一の場所
+- すべてのアプリにわたる監査履歴、使用状況、スレッドのデバッグのための単一の運用コンソール
+
+</Comparison>
+
+<Callout tone="success">
+
+**Dispatch は次のアプリをあなたの代わりに構築できます。** チャットで必要なものを説明してください。たとえば「顧客のオンボーディングを追跡するアプリを作って」のように伝えると、Dispatch は既存のアプリに画面を継ぎ足すのではなく、`apps/` の下にまったく新しい兄弟アプリを作成します。実際にどう動くか、ローカルとホスト型デプロイの両方について、[アプリ作成の引き継ぎ](/docs/template-dispatch-developers#app-creation) を参照してください。
+
+</Callout>
+
+## 機能 {#what-it-does}
+
+- **中央受信箱。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp、メールはすべて 1 か所に届きます。Dispatch がトリアージを行い、自身でリクエストを処理するか、委任します。[中央受信箱とルーティング](/docs/template-dispatch-features#central-inbox-and-routing) を参照してください。
+- **コントロール プレーン シェル。** チャット、プロジェクト、実行、ワークスペース アプリ、エージェント、オートメーションが 1 つの運用シェルの中に存在し、単発のダッシュボードではなく、ステータス優先のリストとドリルダウンで表示されます。
+- **オーケストレーターであり、スペシャリストではない。** Dispatch は、メール アプリや分析アプリになろうと _しません_。誰かが「先週のサインアップを要約して」と尋ねると、Dispatch は A2A 経由で分析エージェントを呼び出し、回答を返します。
+- **シークレット ボールトと再利用可能な統合。** API キー、OAuth トークン、プロバイダー アカウントは一度だけ保存され、必要なアプリに許可されます。リクエスト/承認フローと監査証跡も備えています。[認証情報と統合](/docs/template-dispatch-features#credentials-and-integrations) を参照してください。
+- **ワークスペース リソース。** グローバルな skills、ガードレール命令、カスタム エージェント プロファイル、参照リソース、HTTP MCP サーバーは、Dispatch 内で一度だけ作成できます。すべてのアプリ向けのリソースは、コピー手順なしに実行時にすべてのアプリへ継承されます。個別の許可はアプリ固有の例外に対応します。
+- **スケジュールされたジョブと Dreams。** クロスアプリの定期的なジョブはここに存在し、最近の実行を検査してメモリ、スキル、指示の改善を提案するレビュー ループも備えています。[オートメーションとスケジュール済みジョブ](/docs/template-dispatch-features#automations-and-scheduled-jobs) と [Dreams と承認](/docs/template-dispatch-features#dreams-and-approvals) を参照してください。
+- **承認フロー。** 永続的な変更 — 保存された配信先、すべてのアプリ向けのワークスペース リソース、共有またはチーム全体の Dream メモリ提案 — は、有効になる前に 2 人目の管理者の承認を必要とするよう設定できます。
+- **チャットから新しいアプリを構築する。** 平易な言葉でニーズを説明すれば、Dispatch は既存のアプリにもう 1 画面追加するのではなく、実在する独立した兄弟アプリをスキャフォールディングします。
+
+## いつ使用するか {#when-to-use}
+
+次の場合に Dispatch を使用します。
+
+- ワークスペース内に **2 つ以上** の Agent-Native アプリがあり、それらの間を調整する単一の場所が欲しい場合。
+- アプリごとの許可と監査証跡を備えた **一元化されたシークレット** が必要な場合。
+- Slack、Teams、Discord、Telegram、WhatsApp、またはメールを適切なドメイン エージェントにルーティングする **メッセージング ハブ** が欲しい場合。
+- 複数のアプリからデータを取得する **スケジュールされたジョブ** が欲しい場合。
+
+単一アプリのスキャフォールドの場合はスキップしてください。[Chat template](/docs/template-chat) または任意のドメイン テンプレートを直接使用します。
+
+ライブ デモ: [dispatch.agent-native.com](https://dispatch.agent-native.com)。
+
+## 日々の使い方 {#what-youll-do}
+
+- **チャネルを接続する。** Slack、Microsoft Teams、Discord、Telegram、WhatsApp、メール。配線手順については [チャネルを接続する](/docs/template-dispatch-features#connecting-a-channel) を参照してください。
+- **シークレットを保存し、プロバイダーに一度だけ接続する。** ワークスペース内の他のすべてのアプリは、独自のコピーを持つのではなく、ボールトまたは共有接続から取得します。[認証情報と統合](/docs/template-dispatch-features#credentials-and-integrations) を参照してください。
+- **会社のコンテキストをグローバルに保つ。** ペルソナ、ポジショニング、会社の事実、ガードレールを Dispatch のリソースに一度だけ配置し、任意のアプリまたはユーザーについて実効的なワークスペース → アプリ/組織 → 個人のスタックをプレビューします。
+- **定期的なジョブを設定する。** 「毎週月曜午前 7 時に、分析エージェントに先週のサインアップを問い合わせて、概要をメールで送ってほしい」。[オートメーションとスケジュール済みジョブ](/docs/template-dispatch-features#automations-and-scheduled-jobs) を参照してください。
+- **Dream の提案をレビューする。** Dispatch のメモリ レビュー ループが過去の実行を検査し、ワークスペースが記憶している内容に対して根拠のある変更を提案します。
+- **永続的な変更をゲートする。** 保存された宛先、すべてのアプリ向けのワークスペース リソース、共有 Dream 提案は、適用される前に 2 人目の管理者の承認を必要とするよう設定できます。[承認フロー](/docs/template-dispatch-features#approval-flow) を参照してください。
+- **運用コンソールを見守る。** モニタリング、データベース管理、スレッドのデバッグ、監査履歴、使用状況の指標はすべて 1 つ屋根の下にあります。[運用コンソールの概要](/docs/template-dispatch-features#operator-console-at-a-glance) を参照してください。
+- **チャットから新しいアプリを立ち上げる。** 必要なものを頼めば、Dispatch は既存のアプリを大きくするのではなく、新しい兄弟アプリをスキャフォールディングします。
+
+## はじめに {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-platform
+# Dispatch は自動的に含まれます。Dispatch のみにするには Chat の選択を解除し、一緒に生成するドメインアプリがあれば選択します
+```
+
+Dispatch は、それが調整するアプリと一緒にワークスペースにスキャフォールディングされるのがほとんどです。調整するものが何もないコントロール プレーンは、単なる空の受信箱にすぎません。依存関係のインストール、開発サーバーの実行、最初のアカウントの作成については [Getting started](/docs/getting-started) を参照してください。
+
+## 次のステップ
+
+- [**Features**](/docs/template-dispatch-features) — 各機能領域と、それぞれのセットアップ手順
+- [**Talk to the Agent**](/docs/template-dispatch-agent) — タスク別のプロンプトと、エージェントが画面をどのように見ているか
+- [**Dispatch in a Multi-App Workspace**](/docs/template-dispatch-integrations) — 他のアプリが Dispatch にどのように接続するか、Dispatch がそれらをどのように検出するか
+- [**Dispatch developer guide**](/docs/template-dispatch-developers) — パッケージとアプリの分割、スキャフォールディング、カスタマイズ
+- [**Dispatch action and data reference**](/docs/template-dispatch-reference) — 完全なアクションの一覧、データベース スキーマ、ルート一覧
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — 複数のアプリと一緒に Dispatch を実行する

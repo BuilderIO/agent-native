@@ -1,0 +1,1738 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { Writable } from "node:stream";
+
+import { afterEach, describe, expect, it } from "vitest";
+
+import type { EngineContentPart } from "../agent/engine/types.js";
+import type { AgentEngine } from "../agent/engine/types.js";
+import {
+  buildCodeAgentSystemPrompt,
+  buildRepoInstructionsBlock,
+  buildStructuredMessagesFromEvents,
+  classifyCodeAgentCommandPermission,
+  codeAgentMcpInvocationPolicy,
+  codeAgentSystemPrompt,
+  executeDenyCodeAgentApproval,
+  executeCodeAgentRun,
+  executePendingCodeAgentApproval,
+  writeCodeAgentUsageSnapshot,
+} from "./code-agent-executor.js";
+import {
+  appendCodeAgentTranscriptEvent,
+  createCodeAgentRunRecord,
+  codeAgentRunTranscriptPath,
+  getCodeAgentRunRecord,
+  listCodeAgentTranscriptEvents,
+  queueCodeAgentFollowUp,
+  updateCodeAgentRunRecord,
+} from "./code-agent-runs.js";
+import type { CodeAgentTranscriptEvent } from "./code-agent-runs.js";
+
+const tmpRoots: string[] = [];
+const providerEnvKeys = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "GROQ_API_KEY",
+  "MISTRAL_API_KEY",
+  "COHERE_API_KEY",
+  "BUILDER_PRIVATE_KEY",
+] as const;
+const originalProviderEnv = new Map(
+  providerEnvKeys.map((key) => [key, process.env[key]]),
+);
+const originalPath = process.env.PATH;
+const originalAgentEngine = process.env.AGENT_ENGINE;
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+afterEach(() => {
+  delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+  delete process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE;
+  delete process.env.AGENT_NATIVE_CODE_USAGE_FILE;
+  delete process.env.AGENT_NATIVE_CODE_TOOL_PROFILE;
+  process.env.PATH = originalPath;
+  if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
+  else process.env.AGENT_ENGINE = originalAgentEngine;
+  for (const key of providerEnvKeys) {
+    const original = originalProviderEnv.get(key);
+    if (original === undefined) delete process.env[key];
+    else process.env[key] = original;
+  }
+  for (const root of tmpRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+describe("executeCodeAgentRun", () => {
+  it("writes the structured usage snapshot requested by CI", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-usage-"));
+    tmpRoots.push(root);
+    process.env.AGENT_NATIVE_CODE_USAGE_FILE = path.join(root, "usage.json");
+    const usage = {
+      inputTokens: 800,
+      outputTokens: 120,
+      cacheReadTokens: 60,
+      cacheWriteTokens: 4,
+      model: "deepseek-chat",
+    };
+
+    writeCodeAgentUsageSnapshot(root, usage);
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, "usage.json"), "utf8")),
+    ).toEqual(usage);
+  });
+
+  it("runs a file-backed Agent-Native Code session with a fake engine", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE =
+      "I checked the workspace and found the issue.";
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Fix auth tests",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(updated).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      progress: { completed: 1, total: 1, percent: 100 },
+    });
+    expect(output.read()).toContain("I checked the workspace");
+    expect(
+      listCodeAgentTranscriptEvents(run.id).map((event) => event.kind),
+    ).toEqual(expect.arrayContaining(["user", "status", "system", "status"]));
+  });
+
+  it("pauses with a credential hint when no provider key is available", async () => {
+    useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Fix auth tests",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+
+    await executeCodeAgentRun({ runId: run.id, prompt: "fix auth tests" });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(updated).toMatchObject({
+      status: "paused",
+      phase: "missing-credentials",
+      needsApproval: false,
+    });
+    const lastEvent = listCodeAgentTranscriptEvents(run.id).at(-1);
+    expect(lastEvent?.message).toContain("No LLM provider key was found");
+    // Structured marker so UI consumers don't have to regex-match the hint
+    // text (see isCredentialGapCodeAgentEvent).
+    expect(lastEvent?.signal).toBe("credential-gap");
+  });
+
+  it("runs a Codex CLI-backed session without provider API keys", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalDesktopChild = process.env.AGENT_NATIVE_DESKTOP_CHILD;
+    const originalDesktopUrl =
+      process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL;
+    const originalDesktopToken =
+      process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN;
+    const desktopToken = "x".repeat(43);
+    process.env.MCP_SERVERS = JSON.stringify({
+      workspaceHttp: {
+        type: "http",
+        url: "https://workspace.example/mcp",
+      },
+    });
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL =
+      "http://127.0.0.1:43123/mcp";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN = desktopToken;
+    const binDir = path.join(root, "bin");
+    const promptPath = path.join(root, "codex-prompt.txt");
+    const argsPath = path.join(root, "codex-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "const execIndex = args.indexOf('exec');",
+        "const approvalIndex = args.indexOf('--ask-for-approval');",
+        "if (approvalIndex > execIndex) {",
+        "  process.stderr.write(\"unexpected argument '--ask-for-approval' found\");",
+        "  process.exit(2);",
+        "}",
+        "const outIndex = args.indexOf('--output-last-message');",
+        "const outPath = outIndex === -1 ? '' : args[outIndex + 1];",
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => { input += chunk.toString(); });",
+        "process.stdin.on('end', () => {",
+        `  fs.writeFileSync(${JSON.stringify(promptPath)}, input);`,
+        "  if (outPath) fs.writeFileSync(outPath, 'Codex final answer');",
+        "  process.stdout.write('Codex streamed output');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Codex",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli", model: "codex-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
+    try {
+      expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+        status: "completed",
+        phase: "complete",
+        metadata: {
+          engine: "codex-cli",
+          model: "codex-default",
+        },
+      });
+      expect(output.read()).toContain("Codex streamed output");
+      expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
+      const execIndex = args.indexOf("exec");
+      expect(execIndex).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeLessThan(execIndex);
+      expect(args.indexOf("--sandbox")).toBeGreaterThan(-1);
+      expect(args.indexOf("--sandbox")).toBeLessThan(execIndex);
+      expect(args.indexOf("--cd")).toBeGreaterThan(-1);
+      expect(args.indexOf("--cd")).toBeLessThan(execIndex);
+      expect(args.indexOf("-c")).toBeGreaterThan(-1);
+      expect(args.indexOf("-c")).toBeLessThan(execIndex);
+      expect(args).toContain(
+        'mcp_servers.agent-native-desktop-computer.url="http://127.0.0.1:43123/mcp"',
+      );
+      expect(args).toContain(
+        `mcp_servers.agent-native-desktop-computer.http_headers={"Authorization"="Bearer ${desktopToken}"}`,
+      );
+      expect(args.indexOf("--ignore-user-config")).toBeGreaterThan(execIndex);
+      expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
+      expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "system",
+            message: "Codex final answer",
+            metadata: expect.objectContaining({ engine: "codex-cli" }),
+          }),
+        ]),
+      );
+    } finally {
+      if (originalMcpServers === undefined) delete process.env.MCP_SERVERS;
+      else process.env.MCP_SERVERS = originalMcpServers;
+      restoreEnv("AGENT_NATIVE_DESKTOP_CHILD", originalDesktopChild);
+      restoreEnv("AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL", originalDesktopUrl);
+      restoreEnv(
+        "AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN",
+        originalDesktopToken,
+      );
+    }
+  });
+
+  it("runs a Claude Code CLI-backed session through a Claude subscription", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "claude-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => { input += chunk.toString(); });",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Claude streamed output' }] } }) + '\\n');",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'Claude final answer' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: {
+        engine: "claude-cli",
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: {
+        engine: "claude-cli",
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      },
+    });
+    expect(output.read()).toContain("Claude streamed output");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+    expect(args).toContain("--model");
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5");
+    expect(args).toContain("--effort");
+    expect(args[args.indexOf("--effort") + 1]).toBe("high");
+    expect(args).toEqual(
+      expect.arrayContaining(["--permission-mode", "acceptEdits"]),
+    );
+    expect(args).not.toEqual(
+      expect.arrayContaining(["--permission-mode", "plan"]),
+    );
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "system",
+          message: "Claude final answer",
+          metadata: expect.objectContaining({ engine: "claude-cli" }),
+        }),
+      ]),
+    );
+  });
+
+  it("shows friendly Claude auth errors while retaining raw execution metadata", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "process.stderr.write('Not logged in');",
+        "process.exit(1);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the workspace",
+    });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(updated).toMatchObject({
+      status: "errored",
+      metadata: {
+        executionError: expect.stringContaining("Command failed"),
+      },
+    });
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message:
+            "Claude Code run failed: Claude authentication check failed. Run `claude auth login` and try again.",
+        }),
+      ]),
+    );
+  });
+
+  it("persists Codex JSON tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outputIndex = args.indexOf('--output-last-message');",
+        "const outputPath = outputIndex === -1 ? '' : args[outputIndex + 1];",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  if (outputPath) fs.writeFileSync(outputPath, 'Codex final answer');",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'item.started', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', status: 'in_progress' } });",
+        "  emit({ type: 'item.completed', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', aggregated_output: 'package.json', exit_code: 0, status: 'completed' } });",
+        "  emit({ type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: 'I inspected the workspace.' } });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Codex tool events",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the workspace",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "bash",
+            input: { command: "rg --files" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "bash",
+            result: "package.json",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "system",
+          message: "I inspected the workspace.",
+          metadata: expect.objectContaining({ role: "assistant" }),
+        }),
+      ]),
+    );
+  });
+
+  it("persists Claude stream-json tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'package.json' } }] } });",
+        "  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: '{\\\"name\\\":\\\"agentnative\\\"}' }] } });",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'text', text: 'I inspected package.json.' }] } });",
+        "  emit({ type: 'result', result: 'Claude final answer' });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Claude tool events",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect package.json",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "Read",
+            input: { file_path: "package.json" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "Read",
+            result: '{"name":"agentnative"}',
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("maps read-only OpenCode runs to the built-in Plan agent", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    process.env.AGENT_ENGINE = "opencode-cli";
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "opencode-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const opencodeBin = path.join(binDir, "opencode");
+    fs.writeFileSync(
+      opencodeBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "process.stdout.write('OpenCode streamed output');",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Inspect with OpenCode",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "read-only",
+      metadata: {},
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the repository",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: { engine: "opencode-cli" },
+    });
+    expect(output.read()).toContain("OpenCode streamed output");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+    expect(args).toEqual(expect.arrayContaining(["--agent", "plan"]));
+    expect(args[args.indexOf("--agent") + 1]).toBe("plan");
+  });
+
+  it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    process.env.AGENT_ENGINE = "codex-cli";
+    const binDir = path.join(root, "bin");
+    const promptPath = path.join(root, "codex-prompt.txt");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outIndex = args.indexOf('--output-last-message');",
+        "const outPath = outIndex === -1 ? '' : args[outIndex + 1];",
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => { input += chunk.toString(); });",
+        "process.stdin.on('end', () => {",
+        `  fs.writeFileSync(${JSON.stringify(promptPath)}, input);`,
+        "  if (outPath) fs.writeFileSync(outPath, 'Codex final answer');",
+        "  process.stdout.write('Codex streamed output');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    // No `engine` in metadata — the Codex CLI runner must be selected purely
+    // from AGENT_ENGINE, the same fallback resolveExecutorEngine already uses.
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Codex via AGENT_ENGINE",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: {},
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: { engine: "codex-cli", model: "codex-default" },
+    });
+    expect(output.read()).toContain("Codex streamed output");
+    expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+  });
+
+  it("pauses a canceled Codex CLI run and can recover it on a later invocation", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const codexBin = path.join(binDir, "codex");
+    const startedPath = path.join(root, "codex-started");
+    const stoppedPath = path.join(root, "codex-stopped");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
+        "process.on('SIGTERM', () => {",
+        `  fs.writeFileSync(${JSON.stringify(stoppedPath)}, 'stopped');`,
+        "  process.exit(143);",
+        "});",
+        "setInterval(() => {}, 1_000);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Cancelable Codex run",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+    const controller = new AbortController();
+    const execution = executeCodeAgentRun({
+      runId: run.id,
+      prompt: "wait until canceled",
+      signal: controller.signal,
+    });
+
+    await waitForFile(startedPath);
+    controller.abort();
+    await execution;
+
+    expect(fs.readFileSync(stoppedPath, "utf8")).toBe("stopped");
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "paused",
+      phase: "paused",
+      progress: { failed: 0 },
+    });
+
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outputIndex = args.indexOf('--output-last-message');",
+        "fs.writeFileSync(args[outputIndex + 1], 'Recovered Codex run.');",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "resume after cancellation",
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+    });
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "system",
+          message: "Recovered Codex run.",
+        }),
+      ]),
+    );
+  });
+
+  it("forwards cancellation through a denied approval when the Codex run resumes", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const codexBin = path.join(binDir, "codex");
+    const startedPath = path.join(root, "codex-resume-started");
+    const stoppedPath = path.join(root, "codex-resume-stopped");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
+        "process.on('SIGTERM', () => {",
+        `  fs.writeFileSync(${JSON.stringify(stoppedPath)}, 'stopped');`,
+        "  process.exit(143);",
+        "});",
+        "setInterval(() => {}, 1_000);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Denied approval cancellation",
+      status: "needs-approval",
+      phase: "approval-required",
+      needsApproval: true,
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+    appendCodeAgentTranscriptEvent({
+      runId: run.id,
+      kind: "user",
+      message: "resume after denying the command",
+    });
+    updateCodeAgentRunRecord(run.id, {
+      metadata: {
+        pendingApproval: {
+          id: "approval-cancel",
+          tool: "bash",
+          command: "rm -rf generated-output",
+          reason: "destructive cleanup",
+          requestedAt: new Date().toISOString(),
+          permissionMode: "ask-before-edit",
+        },
+      },
+    });
+    const controller = new AbortController();
+    const execution = executeDenyCodeAgentApproval(run.id, {
+      signal: controller.signal,
+    });
+
+    await waitForFile(startedPath);
+    controller.abort();
+    await execution;
+
+    expect(fs.readFileSync(stoppedPath, "utf8")).toBe("stopped");
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(updated).toMatchObject({
+      status: "paused",
+      phase: "paused",
+      metadata: {
+        lastApproval: { id: "approval-cancel", denied: true },
+      },
+    });
+    expect(updated?.metadata?.pendingApproval).toBeUndefined();
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message: "Codex CLI run paused.",
+          metadata: expect.objectContaining({
+            status: "paused",
+            phase: "paused",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("can execute a run whose initial prompt was written by Desktop", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Desktop run done.";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Desktop task",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+    fs.mkdirSync(path.dirname(codeAgentRunTranscriptPath(run.id)), {
+      recursive: true,
+    });
+    fs.appendFileSync(
+      codeAgentRunTranscriptPath(run.id),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        id: "desktop-event-1",
+        runId: run.id,
+        type: "user",
+        text: "fix desktop-started run",
+        createdAt: new Date().toISOString(),
+      })}\n`,
+    );
+    const output = createStringOutput();
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      appendUserEvent: false,
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+    });
+    expect(output.read()).toContain("Desktop run done.");
+    expect(listCodeAgentTranscriptEvents(run.id)[0]).toMatchObject({
+      kind: "user",
+      message: "fix desktop-started run",
+    });
+  });
+
+  it("records the run mode during execution", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Permission noted.";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Explain repo",
+      permissionMode: "read-only",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "explain repo",
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      metadata: {
+        permissionMode: "read-only",
+      },
+    });
+  });
+
+  it("exposes the shared minimal coding tools to the Code CLI executor", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Inspect tool surface",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "full-auto",
+    });
+    let toolNames: string[] = [];
+    const engine = createToolCaptureEngine((names) => {
+      toolNames = names;
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect tools",
+      engine,
+    });
+
+    expect(toolNames).toEqual(
+      expect.arrayContaining(["bash", "read", "edit", "write"]),
+    );
+    expect(toolNames).toEqual(expect.arrayContaining(["tool-search"]));
+    expect(toolNames).not.toEqual(
+      expect.arrayContaining([
+        "list_files",
+        "search_files",
+        "read_file",
+        "write_file",
+        "apply_patch",
+        "run_command",
+      ]),
+    );
+  });
+
+  it("keeps structured tool output out of the assistant stdout stream", async () => {
+    useTempCodeAgentsHome();
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Render tool output separately",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "run a command",
+      stdout: output.stream,
+      streamToolOutputToStdout: false,
+      engine: createBashExecutionEngine(),
+    });
+
+    expect(output.read()).toContain("done");
+    expect(output.read()).not.toContain("desktop-tool-output");
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            result: expect.stringContaining("desktop-tool-output"),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("limits recap-source runs to repository reads and one output writer", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Author recap source",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "auto-edit",
+    });
+    let toolNames: string[] = [];
+    const engine = createToolCaptureEngine((names) => {
+      toolNames = names;
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "write recap-source.json",
+      engine,
+    });
+
+    expect(toolNames).toEqual(["read", "write", "tool-search"]);
+  });
+
+  it("blocks recap-source runs from writing any other file", async () => {
+    const root = useTempCodeAgentsHome();
+    const cwd = path.join(root, "repo");
+    fs.mkdirSync(cwd, { recursive: true });
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Try another output",
+      status: "queued",
+      cwd,
+      permissionMode: "auto-edit",
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "write another file",
+      engine: createWriteAttemptEngine("stolen.txt"),
+    });
+
+    expect(fs.existsSync(path.join(cwd, "stolen.txt"))).toBe(false);
+    expect(
+      listCodeAgentTranscriptEvents(run.id).some((event) =>
+        String(event.metadata?.result ?? "").includes(
+          "only recap-source.json may be written",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("runs pending follow-ups after the current execution completes", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Turn done.";
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Active task",
+      status: "running",
+      phase: "executing",
+      cwd: process.cwd(),
+    });
+    queueCodeAgentFollowUp({
+      runId: run.id,
+      prompt: "follow up after completion",
+      mode: "queued",
+      source: "test",
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "finish current work",
+      stdout: output.stream,
+    });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    const events = listCodeAgentTranscriptEvents(run.id);
+    expect(updated).toMatchObject({
+      status: "completed",
+      phase: "complete",
+    });
+    expect(updated?.metadata?.pendingFollowUps).toBeUndefined();
+    expect(output.read().match(/Turn done\./g)).toHaveLength(2);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message: "Agent-Native Code run completed; running queued follow-up.",
+        }),
+      ]),
+    );
+  });
+
+  it("executes a legacy run_command pending approval and clears it", async () => {
+    const root = useTempCodeAgentsHome();
+    const cwd = path.join(root, "repo");
+    const target = path.join(cwd, "approval-target");
+    fs.mkdirSync(target, { recursive: true });
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Approved cleanup",
+      status: "needs-approval",
+      phase: "approval-required",
+      needsApproval: true,
+      cwd,
+    });
+    updateCodeAgentRunRecord(run.id, {
+      metadata: {
+        pendingApproval: {
+          id: "approval-test",
+          tool: "run_command",
+          command: "rm -rf approval-target",
+          reason: "destructive recursive delete",
+          requestedAt: new Date().toISOString(),
+          permissionMode: "ask-before-edit",
+        },
+      },
+    });
+    const output = createStringOutput();
+
+    await executePendingCodeAgentApproval(run.id, { stdout: output.stream });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    // The approved command should have run.
+    expect(fs.existsSync(target)).toBe(false);
+    // Approval metadata is always recorded regardless of auto-resume outcome.
+    expect(updated?.metadata?.lastApproval).toMatchObject({
+      id: "approval-test",
+      exitCode: 0,
+    });
+    // pendingApproval must be cleared.
+    expect(updated?.metadata?.pendingApproval).toBeUndefined();
+    // After approval, the run auto-resumes. In the test environment there is
+    // no LLM provider, so the resumed run terminates with missing-credentials.
+    // Verify it progressed past approval (not stuck in needs-approval).
+    expect(updated?.status).not.toBe("needs-approval");
+    expect(output.read()).toContain("Approved command finished");
+  });
+});
+
+describe("classifyCodeAgentCommandPermission", () => {
+  it("allows read-only inspection commands", () => {
+    expect(classifyCodeAgentCommandPermission("git status --short")).toEqual({
+      kind: "read",
+    });
+    expect(classifyCodeAgentCommandPermission("rg button src")).toEqual({
+      kind: "read",
+    });
+  });
+
+  it("does not classify shell redirection or compound commands as read-only", () => {
+    expect(classifyCodeAgentCommandPermission("git diff > notes.txt")).toEqual({
+      kind: "write",
+    });
+    expect(
+      classifyCodeAgentCommandPermission("rg button; node -e '1'"),
+    ).toEqual({
+      kind: "write",
+    });
+  });
+
+  it("classifies file-writing commands as write operations", () => {
+    expect(classifyCodeAgentCommandPermission("echo hi > notes.txt")).toEqual({
+      kind: "write",
+    });
+    expect(classifyCodeAgentCommandPermission("pnpm add left-pad")).toEqual({
+      kind: "write",
+    });
+  });
+
+  it("blocks forbidden git commands and requests approval for destructive commands", () => {
+    expect(
+      classifyCodeAgentCommandPermission("git reset --hard"),
+    ).toMatchObject({ kind: "forbidden" });
+    expect(classifyCodeAgentCommandPermission("rm -rf dist")).toMatchObject({
+      kind: "approval-required",
+    });
+  });
+
+  // The shell strips quoting before the command word exists, so each of these
+  // runs exactly what the unquoted form runs. Matching the raw text alone let
+  // every one of them through as a plain `write`.
+  it.each([
+    ["git 'checkout' main", "forbidden"],
+    ['git "checkout" main', "forbidden"],
+    ["gi''t checkout main", "forbidden"],
+    ["git check\\out main", "forbidden"],
+    ['drizzle-kit "push"', "forbidden"],
+    ["rm -'r'f /data", "approval-required"],
+    ["su''do rm x", "approval-required"],
+    ["npm 'publish'", "approval-required"],
+  ] as const)("sees through shell quoting in %s", (command, kind) => {
+    expect(classifyCodeAgentCommandPermission(command)).toMatchObject({ kind });
+  });
+
+  // Each of these executes a forbidden operation whose tokens never appear in
+  // the source string, so "no rule matched" proves nothing about what will run.
+  it.each([
+    "$'\\x67it' checkout main",
+    "$(printf git) $(printf checkout) main",
+    "`printf git` checkout main",
+  ])("asks rather than guessing for %s", (command) => {
+    expect(classifyCodeAgentCommandPermission(command)).toMatchObject({
+      kind: "approval-required",
+    });
+  });
+
+  it("still blocks outright when the forbidden text is visible inside a substitution", () => {
+    expect(
+      classifyCodeAgentCommandPermission('echo "$(git checkout main)"'),
+    ).toMatchObject({ kind: "forbidden" });
+  });
+
+  // Single quotes make substitution literal, so nothing is hidden and the
+  // command is not escalated. (The read-only allowlist separately refuses any
+  // raw `$(`, which is why this lands on `write` rather than `read`.)
+  it("does not escalate substitution syntax that single quotes make literal", () => {
+    expect(classifyCodeAgentCommandPermission("rg '$(foo)' src")).toMatchObject(
+      { kind: "write" },
+    );
+  });
+
+  it("leaves ordinary quoted arguments classified as before", () => {
+    expect(
+      classifyCodeAgentCommandPermission('rg "some phrase" src'),
+    ).toMatchObject({ kind: "read" });
+    expect(
+      classifyCodeAgentCommandPermission("node -e 'console.log(1)'"),
+    ).toMatchObject({ kind: "write" });
+  });
+});
+
+describe("codeAgentMcpInvocationPolicy", () => {
+  it("enforces read-only MCP calls in Plan mode", () => {
+    expect(codeAgentMcpInvocationPolicy("read-only")).toEqual({
+      mode: "read-only",
+    });
+  });
+
+  it.each(["ask-before-edit", "auto-edit", "full-auto"] as const)(
+    "does not impose the Plan MCP policy in %s mode",
+    (permissionMode) => {
+      expect(codeAgentMcpInvocationPolicy(permissionMode)).toEqual({
+        mode: "allow-all",
+      });
+    },
+  );
+});
+
+function createStringOutput(): {
+  stream: Writable;
+  read: () => string;
+} {
+  let text = "";
+  const stream = new Writable({
+    write(chunk, _encoding, callback) {
+      text += chunk.toString();
+      callback();
+    },
+  });
+  return {
+    stream,
+    read: () => text,
+  };
+}
+
+function createToolCaptureEngine(
+  onTools: (names: string[]) => void,
+): AgentEngine {
+  return {
+    name: "tool-capture",
+    label: "Tool Capture",
+    defaultModel: "tool-capture",
+    supportedModels: ["tool-capture"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream(opts) {
+      onTools(opts.tools.map((tool) => tool.name));
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text", text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+}
+
+function createBashExecutionEngine(): AgentEngine {
+  let turn = 0;
+  return {
+    name: "bash-execution",
+    label: "Bash Execution",
+    defaultModel: "bash-execution",
+    supportedModels: ["bash-execution"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream() {
+      if (turn++ === 0) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "bash-output",
+              name: "bash",
+              input: { command: "echo desktop-tool-output" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text" as const, text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+}
+
+function createWriteAttemptEngine(filePath: string): AgentEngine {
+  let turn = 0;
+  return {
+    name: "write-attempt",
+    label: "Write Attempt",
+    defaultModel: "write-attempt",
+    supportedModels: ["write-attempt"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream() {
+      turn += 1;
+      if (turn === 1) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "write-other-file",
+              name: "write",
+              input: { path: filePath, content: "secret" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text" as const, text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+}
+
+function useTempCodeAgentsHome(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-exec-"));
+  tmpRoots.push(root);
+  process.env.AGENT_NATIVE_CODE_AGENTS_HOME = path.join(root, "code-agents");
+  return root;
+}
+
+async function waitForFile(filePath: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!fs.existsSync(filePath)) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${filePath}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// buildStructuredMessagesFromEvents unit tests
+// ---------------------------------------------------------------------------
+
+describe("buildStructuredMessagesFromEvents", () => {
+  function event(
+    id: string,
+    kind: CodeAgentTranscriptEvent["kind"],
+    message: string,
+    metadata?: Record<string, unknown>,
+  ): CodeAgentTranscriptEvent {
+    return {
+      schemaVersion: 1,
+      id,
+      runId: "run-test",
+      kind,
+      message,
+      createdAt: `2026-06-01T00:00:${id.length.toString().padStart(2, "0")}.000Z`,
+      metadata,
+    };
+  }
+
+  it("maps a user event to a user message", () => {
+    const events = [event("e1", "user", "hello world")];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ role: "user" });
+    const textPart = msgs[0].content.find(
+      (p: EngineContentPart) => p.type === "text",
+    );
+    expect(textPart).toMatchObject({ type: "text", text: "hello world" });
+  });
+
+  it("maps a system assistant event to an assistant message", () => {
+    const events = [
+      event("e1", "user", "fix it"),
+      event("e2", "system", "I fixed it.", { role: "assistant" }),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[1].role).toBe("assistant");
+    const textPart = msgs[1].content.find(
+      (p: EngineContentPart) => p.type === "text",
+    );
+    expect(textPart).toMatchObject({ type: "text", text: "I fixed it." });
+  });
+
+  it("pairs tool_start and tool_done into assistant tool-call + user tool-result", () => {
+    const events = [
+      event("e1", "user", "run tests"),
+      event("e2", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "pnpm test" },
+      }),
+      event("e3", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: "All tests passed.",
+      }),
+      event("e4", "system", "Tests passed.", { role: "assistant" }),
+    ];
+
+    const msgs = buildStructuredMessagesFromEvents(events);
+
+    // user, assistant (tool-call), user (tool-result), assistant (text)
+    expect(msgs).toHaveLength(4);
+    expect(msgs[0].role).toBe("user");
+
+    expect(msgs[1].role).toBe("assistant");
+    const toolCallPart = msgs[1].content.find(
+      (p: EngineContentPart) => p.type === "tool-call",
+    );
+    expect(toolCallPart).toMatchObject({
+      type: "tool-call",
+      name: "bash",
+    });
+    expect((toolCallPart as { id: string }).id).toMatch(/^tc-/);
+
+    expect(msgs[2].role).toBe("user");
+    const toolResultPart = msgs[2].content.find(
+      (p: EngineContentPart) => p.type === "tool-result",
+    );
+    expect(toolResultPart).toMatchObject({
+      type: "tool-result",
+      toolName: "bash",
+      content: "All tests passed.",
+    });
+    // toolCallId must match the id from the tool-call part
+    expect((toolResultPart as { toolCallId: string }).toolCallId).toBe(
+      (toolCallPart as { id: string }).id,
+    );
+
+    expect(msgs[3].role).toBe("assistant");
+  });
+
+  it("merges consecutive same-role messages", () => {
+    const events = [
+      event("e1", "user", "first"),
+      event("e2", "user", "second"),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[0].content).toHaveLength(2);
+  });
+
+  it("excludes thinking events from history", () => {
+    const events = [
+      event("e1", "user", "think"),
+      event("e2", "status", "Reasoning about the problem...", {
+        type: "thinking",
+      }),
+      event("e3", "system", "Answer.", { role: "assistant" }),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[1].role).toBe("assistant");
+    // No content from thinking event
+    const allText = msgs
+      .flatMap((m) => m.content)
+      .filter((p: EngineContentPart) => p.type === "text")
+      .map((p) => (p as { text: string }).text)
+      .join(" ");
+    expect(allText).not.toContain("Reasoning about");
+  });
+
+  it("falls back to plain text for orphaned tool_done with no matching start", () => {
+    const events = [
+      event("e1", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: "output here",
+      }),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("user");
+    const textPart = msgs[0].content.find(
+      (p: EngineContentPart) => p.type === "text",
+    );
+    expect((textPart as { text: string }).text).toContain("output here");
+  });
+
+  it("truncates long tool results to the result cap", () => {
+    const longResult = "x".repeat(100_000);
+    const events = [
+      event("e1", "status", "Running read.", {
+        type: "tool_start",
+        tool: "read",
+        input: { path: "big.ts" },
+      }),
+      event("e2", "status", "Finished read.", {
+        type: "tool_done",
+        tool: "read",
+        result: longResult,
+      }),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    const toolResultPart = msgs
+      .flatMap((m) => m.content)
+      .find((p: EngineContentPart) => p.type === "tool-result");
+    expect((toolResultPart as { content: string }).content.length).toBeLessThan(
+      longResult.length,
+    );
+  });
+
+  it("handles malformed events without throwing", () => {
+    // Events with missing or null metadata
+    const events = [
+      event("e1", "status", "no type in metadata", {}),
+      event("e2", "status", "null metadata"),
+    ];
+    expect(() => buildStructuredMessagesFromEvents(events)).not.toThrow();
+    const msgs = buildStructuredMessagesFromEvents(events);
+    // Neither event maps to a user/assistant message
+    expect(msgs).toHaveLength(0);
+  });
+
+  it("handles multiple tool call/result pairs in sequence", () => {
+    const events = [
+      event("e1", "user", "do two things"),
+      event("e2", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "ls" },
+      }),
+      event("e3", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: "file1.ts",
+      }),
+      event("e4", "status", "Running read.", {
+        type: "tool_start",
+        tool: "read",
+        input: { path: "file1.ts" },
+      }),
+      event("e5", "status", "Finished read.", {
+        type: "tool_done",
+        tool: "read",
+        result: "const x = 1;",
+      }),
+    ];
+
+    const msgs = buildStructuredMessagesFromEvents(events);
+    // user, assistant(bash call), user(bash result), assistant(read call), user(read result)
+    expect(msgs).toHaveLength(5);
+
+    const bashCall = msgs[1].content.find(
+      (p: EngineContentPart) => p.type === "tool-call",
+    ) as { id: string; name: string } | undefined;
+    const bashResult = msgs[2].content.find(
+      (p: EngineContentPart) => p.type === "tool-result",
+    ) as { toolCallId: string; toolName: string; content: string } | undefined;
+    expect(bashCall?.name).toBe("bash");
+    expect(bashResult?.toolName).toBe("bash");
+    expect(bashResult?.content).toContain("file1.ts");
+    expect(bashResult?.toolCallId).toBe(bashCall?.id);
+
+    const readCall = msgs[3].content.find(
+      (p: EngineContentPart) => p.type === "tool-call",
+    ) as { id: string; name: string } | undefined;
+    const readResult = msgs[4].content.find(
+      (p: EngineContentPart) => p.type === "tool-result",
+    ) as { toolCallId: string; toolName: string } | undefined;
+    expect(readCall?.name).toBe("read");
+    expect(readResult?.toolCallId).toBe(readCall?.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildRepoInstructionsBlock + buildCodeAgentSystemPrompt unit tests
+// ---------------------------------------------------------------------------
+
+describe("buildRepoInstructionsBlock", () => {
+  it("returns empty string when content is empty", () => {
+    expect(buildRepoInstructionsBlock("")).toBe("");
+    expect(buildRepoInstructionsBlock("   ")).toBe("");
+  });
+
+  it("wraps content under a Repository instructions heading", () => {
+    const result = buildRepoInstructionsBlock("Always use TypeScript.");
+    expect(result).toContain("## Repository instructions");
+    expect(result).toContain("Always use TypeScript.");
+  });
+
+  it("truncates content longer than 16,000 characters with a note", () => {
+    const longContent = "x".repeat(20_000);
+    const result = buildRepoInstructionsBlock(longContent);
+    expect(result.length).toBeLessThan(longContent.length);
+    expect(result).toContain(
+      "[Note: AGENTS.md was truncated to 16000 characters",
+    );
+  });
+
+  it("does not truncate content under the cap", () => {
+    const shortContent = "y".repeat(100);
+    const result = buildRepoInstructionsBlock(shortContent);
+    expect(result).not.toContain("[Note:");
+    expect(result).toContain(shortContent);
+  });
+});
+
+describe("buildCodeAgentSystemPrompt", () => {
+  it("inlines AGENTS.md content when the file exists in cwd", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-agents-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "AGENTS.md"),
+      "Always run pnpm typecheck before committing.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("## Repository instructions");
+    expect(prompt).toContain("Always run pnpm typecheck before committing.");
+  });
+
+  it("uses the configured development instruction file without leaking runtime instructions", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-audiences-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "agent-native.json"),
+      JSON.stringify({
+        instructions: {
+          runtime: "app-agent/AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      }),
+    );
+    fs.mkdirSync(path.join(root, "app-agent"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app-agent", "AGENTS.md"),
+      "Runtime-only instructions.",
+    );
+    fs.writeFileSync(
+      path.join(root, "DEVELOPING.md"),
+      "Development-only instructions.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("Development-only instructions.");
+    expect(prompt).not.toContain("Runtime-only instructions.");
+  });
+
+  it("falls back to CLAUDE.md when AGENTS.md is absent", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-claude-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "CLAUDE.md"),
+      "Project-specific Claude instructions.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("## Repository instructions");
+    expect(prompt).toContain("Project-specific Claude instructions.");
+  });
+
+  it("omits the repo instructions section when neither AGENTS.md nor CLAUDE.md exists", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-empty-"));
+    tmpRoots.push(root);
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).not.toContain("## Repository instructions");
+  });
+
+  it("inlines a skills index when .agents/skills/ skills exist", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-skills-"));
+    tmpRoots.push(root);
+    const skillDir = path.join(root, ".agents", "skills", "my-feature");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      [
+        "---",
+        "name: my-feature",
+        "description: Explains how to add new features.",
+        "---",
+        "# My Feature Skill",
+      ].join("\n"),
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("my-feature");
+    expect(prompt).toContain("Explains how to add new features.");
+    expect(prompt).toContain("SKILL.md");
+  });
+
+  it("includes dev-scoped skills and omits runtime-only skills", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-scope-"));
+    tmpRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agents", "skills", "dev-skill"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "dev-skill", "SKILL.md"),
+      [
+        "---",
+        "name: dev-skill",
+        "description: For connected repo agents.",
+        "scope: dev",
+        "---",
+        "# Dev Skill",
+      ].join("\n"),
+    );
+    fs.mkdirSync(path.join(root, ".agents", "skills", "runtime-skill"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "runtime-skill", "SKILL.md"),
+      [
+        "---",
+        "name: runtime-skill",
+        "description: For deployed app agents.",
+        "scope: runtime",
+        "---",
+        "# Runtime Skill",
+      ].join("\n"),
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("dev-skill");
+    expect(prompt).toContain("For connected repo agents.");
+    expect(prompt).not.toContain("runtime-skill");
+    expect(prompt).not.toContain("For deployed app agents.");
+  });
+
+  it("omits skills section when no skills directory exists", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-noskills-"));
+    tmpRoots.push(root);
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).not.toContain("<skills>");
+  });
+
+  it("includes nested AGENTS.md precedence note in every prompt", () => {
+    const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain("only project checkout for this run");
+    expect(prompt).toContain(
+      "More deeply nested AGENTS.md files take precedence",
+    );
+  });
+
+  it("scales verification to the changed area instead of requiring a ritual", () => {
+    const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain(
+      "use the narrowest relevant test, typecheck, formatter, or direct invocation",
+    );
+    expect(prompt).toContain(
+      "Do not restart a dev server or run broad checks as a generic post-edit ritual",
+    );
+  });
+
+  it("caps truncated AGENTS.md and adds a note", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-cap-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(path.join(root, "AGENTS.md"), "z".repeat(20_000));
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain(
+      "[Note: AGENTS.md was truncated to 16000 characters",
+    );
+  });
+});

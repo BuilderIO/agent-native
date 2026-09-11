@@ -1,0 +1,254 @@
+---
+title: "日历：功能"
+description: "日历的每一项核心功能，包括视图、可用性、查找时段和预订链接，以及每一项的设置步骤。"
+---
+
+# 功能
+
+日历的每一项核心功能：它是如何运作的，以及如何进行设置。有关概览，请参阅
+[日历](/docs/template-calendar)；有关完整的提示列表，请参阅
+[与 Agent 对话](/docs/template-calendar-agent)。
+
+## 日历视图
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd033f1071872452687ea570ed2ab6da3?alt=media&token=c6318aee-94cc-4898-be16-32b8fbf4fb2f&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="日历视图的简要导览。"
+  caption="日历视图导览，包括查看他人日历和添加活动。"
+  autoplay={true}
+  loop={true}
+/>
+
+在工具栏中切换日、周和月视图。每个视图读取的都是您真实连接的 Google
+Calendar，没有任何缓存或虚构的数据。
+
+- **多个账户**：如果您连接了多个 Google 账户（工作账户和个人账户），它们会
+  以不同颜色显示在同一个网格中。
+- **只读的 ICS/`webcal://` 订阅源**涵盖公司假期、会议日程或队友的公开日历
+  等内容。它们会以各自的颜色混合显示在同一视图中，不过您无法编辑来自订阅源
+  的活动。
+- **叠加队友的日历**，让他们的活动与您的活动并排显示，各自使用不同的颜
+  色。这在经理需要查看直接下属的日程时很有用。
+- **与会者时区**：当 Google 提供该信息时，会显示访客的本地开始时间；如果
+  没有提供，则使用为该访客保存的时区覆盖设置。
+- **工作地点**（居家、办公室、其他）会显示为一个真实的状态，而不是一个泛
+  泛的全天活动，并且永远不会占用您的可用时间。**重复活动**从头到尾都受到
+  支持。您可以编辑单次活动，也可以编辑整个系列。
+
+<Callout tone="warning">
+
+如果您的日程有部分内容加载失败，无论是某个账户的令牌过期，还是某个订阅源
+的 URL 超时，应用都会告诉您是哪个来源出了问题，而不是悄悄地显示一个空白的
+一天。空白日历和连接故障被特意设计成看起来不同，这样您就永远不会把“没有加
+载出来”误认为“没有安排任何活动”。
+
+</Callout>
+
+<Steps>
+
+### 连接您的日历
+
+打开**设置**，点击**连接 Google Calendar**，然后完成授权。如果您想同时叠
+加个人和工作账户，可以用同样的方式连接更多账户。
+
+### 订阅只读订阅源
+
+在**设置 → 外部日历**中，粘贴一个 ICS 或 `webcal://` URL。
+
+### 叠加队友的日历
+
+让代理帮您“把 Priya 的日历以蓝色叠加到我的视图中”，或者从**设置 → 叠
+加**中添加。
+
+</Steps>
+
+## 查找时段
+
+让代理帮您查找时段，它会检查您的可用性和您真实的 Google Calendar 活动。
+如果您指名了其他人，它还会检查他们的忙闲状态，然后提出具体的时段建议。一
+旦您选定一个，代理就会直接在 Google Calendar 上完成预订。
+
+当您要和一位新的对象安排日程时，可以按姓名或邮箱搜索，而不必输入完整准确
+的地址。日历会搜索您的 Google 联系人以及您的 Workspace 目录，因此您可以
+问“Acme 的 Dana 是谁”或“查找名叫 Priya 的人”，然后从真实的匹配结果中进行
+选择。
+
+<Diagram id="doc-block-calendar3" title="从可用性到预订完成的活动" summary="代理会先综合您的可用性规则、现有活动，以及（在指名的情况下）其他与会者的忙闲状态，然后再提出时段建议。">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-box">
+      您的可用性<br /><small class="diagram-muted"
+        >每周时段、缓冲时间、提前通知</small
+      >
+    </div>
+    <div class="diagram-box">
+      现有活动<br /><small class="diagram-muted">Google Calendar，实时</small>
+    </div>
+    <div class="diagram-box">
+      与会者忙闲状态<br /><small class="diagram-muted">当您指名人员时</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">查找时段</span
+    ><small class="diagram-muted">候选时段</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">您选择一个</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">活动已在 Google Calendar 上创建</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<Steps>
+
+### 请求一个时段
+
+“帮我在下周找一个和 Sam、Priya 都有空的 1 小时时段。”
+
+### 选择一个
+
+代理会提出具体的时段建议。您可以在聊天中选择一个，也可以从界面上显示的建
+议选项中选择。
+
+### 预订完成
+
+代理会直接在 Google Calendar 上创建活动，并立即显示在您的视图中。
+
+</Steps>
+
+## 预订链接
+
+预订链接是公开页面，任何人都可以在上面选择一个时段，并直接预订到您的日历
+上。这是日历中 Calendly 风格的部分：设置会议类型、它们所依据的可用性，并
+跟踪是谁进行了预订。
+
+### 会议类型
+
+一种会议类型对应一个特定的预订链接，例如“15 分钟介绍”或“30 分钟演示”，
+每种类型都有自己的时长、字段和会议工具选择。
+
+<Steps>
+
+### 创建会议类型
+
+为它设置一个标题和时长（例如“15 分钟介绍”对应 15 分钟），然后请代理帮您
+创建，或点击**新建预订链接**。
+
+### 添加选项
+
+设置备选时长，让访客可以在同一个链接上选择 15、30 或 60 分钟；设置自定义
+字段来收集公司名称或主题；选择会议工具（Google Meet、Zoom 或自定义链
+接）；设置颜色；以及设置必需的联合主持人，即其他必须同时有空才能开放某个
+时段的人。一旦有人完成预订，所有人（您和您的联合主持人）都会被邀请加入生
+成的 Google Calendar 活动。
+
+### 连接 Zoom（可选）
+
+Google Meet 无需任何设置，它的添加方式和任何 Google Calendar 邀请获得
+Meet 链接的方式相同。对于 Zoom，只需在**设置**中连接一次您的账户。之后，
+任何设置为使用 Zoom 的会议类型都会为每个新预订创建一个真实的 Zoom 会议，
+并将加入链接附加到确认信息中。
+
+### 分享它
+
+在任何地方分享这个公开 URL。如果需要队友协助管理，可以从链接的**共享**菜
+单中授予他们查看者/编辑者/管理员权限。这与公开预订访问权限是分开的，只要
+链接处于活跃状态，任何拥有该 URL 的人始终都能进行预订。
+
+</Steps>
+
+每种会议类型都有一个公开 URL，格式为 `/book/{your-booking-name}/{slug}`，
+例如 `/book/steve/30min`。您的预订名称会在您首次创建链接时根据邮箱自动生
+成，之后可以从设置中更改（每 30 天最多可更改三次，因为它是您分享出去的每
+个公开链接的一部分）。
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3dda132ad91b44dfa11c9d4e4b9e1b79?alt=media&token=b25577a1-ef91-48f8-a474-e5a39b246c25&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="展示如何创建新预订会议类型的视频。"
+  caption="展示如何创建新预订会议类型的视频。"
+  autoplay={true}
+  loop={true}
+/>
+
+- **重命名会议类型**：您可以随时更改它的 URL slug，例如从
+  `/book/steve/into-call` 改为 `/book/steve/intro`。旧的 URL 会继续有效：
+  仍持有旧链接的访客会自动跳转到新链接，因此您已经分享出去的内容不会失效。
+
+### 可用性
+
+可用性是一个每周日程：您在哪些天工作，以及每天开放哪些时段，此外还包括您
+的时区。在此基础上，您还可以设置会议之间的**缓冲时间**，避免出现背靠背的
+预订；设置**最短提前通知**时间，防止别人在五分钟后就预订您；设置人们可以
+**提前多久**预订（提前预订窗口）；以及为新会议类型设置**默认时长**。
+
+代理读取的是与界面编辑的同一份日程，因此“把我的工作时间设为工作日 9 点到
+5 点”和在可用性标签页中拖动滑块，得到的结果是一样的。
+
+<Steps>
+
+### 设置每周时段
+
+切换到**可用性**标签页，开启您有空的天数和时段，如有需要可按天单独设置。
+
+### 添加缓冲时间和提前通知
+
+设置会议之间的**缓冲时间**，以及**最短提前通知**窗口，防止别人在五分钟后
+就预订您。
+
+### 设置提前预订窗口和默认时长
+
+选择人们可以提前多久预订，以及新会议类型默认使用的时长。
+
+</Steps>
+
+或者直接让代理帮您：“把我周五下午的时间设为不可用。”
+
+### 预订记录
+
+访客从您真实的可用时段中选择一个时间，填写姓名、邮箱以及您添加的任何自定
+义字段，然后确认预订。他们会收到一封确认信息，其中包含一个私密的管理链
+接。无需登录，因为链接本身就是凭证。
+
+- **管理预订**：您（主持人）可以在**预订**标签页中查看每一条预订，包括
+  过去和未来的，并可按全部、已确认或已取消进行筛选。
+- **改期或取消**：访客可以使用管理链接改到另一个空闲时段，或直接取消，
+  无需账户。您也可以自行在**预订**标签页中取消一条预订。
+
+或者让代理帮您：“给我看看这周的预订。”
+
+## 接下来
+
+- [**日历**](/docs/template-calendar) — 概览及入门步骤
+- [**与 Agent 对话**](/docs/template-calendar-agent) — 按任务分类的所有提示、应用状态和扩展
+- [**多应用工作区中的日历**](/docs/template-calendar-integrations) — 集成策略以及与 Dispatch 的连接
+- [**开发者指南**](/docs/template-calendar-developers) — 支撑这些功能的 actions 和数据模型
+- [**共享**](/docs/sharing) — 预订链接所依托的共享授权模型

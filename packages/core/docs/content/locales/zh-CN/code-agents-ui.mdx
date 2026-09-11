@@ -1,0 +1,520 @@
+---
+title: "Agent-Native 代码 UI"
+description: "使用共享的 UI 包、桌面主机桥和 CLI 运行存储构建和自定义 Agent-Native 代码表面。"
+---
+
+# Agent-Native 代码 UI
+
+> **这是谁的：** 构建或自定义编码工作空间的主机作者
+> 共享代码 UI 包上的表面（CLI、桌面或浏览器模板）。
+
+## 我需要哪个编码文档？ {#which-doc}
+
+| 你想要……                                               | 使用                                   |
+| ------------------------------------------------------ | -------------------------------------- |
+| 渲染 Claude-Code/Codex-style **编码工作区 UI**         | **Agent-Native 代码 UI**（本页）       |
+| 使用自己的循环+工具**作为代理**运行Claude代码/Codex/Pi | [Harness Agents](/docs/harness-agents) |
+| 交换运行代理 **`run-code` 工具**的后端                 | [Adapters](/docs/sandbox-adapters)     |
+| 封装一个CLI工具（`gh`、`ffmpeg`）供代理调用            | [Adapters](/docs/sandbox-adapters)     |
+
+Agent-Native Code 是 Agent-Native 编码界面：本地 Claude Code/Codex 风格的工作区，用于编码会话、斜线命令、迁移、审计、转录、运行控制和后续操作。一个简单的 `npx @agent-native/core@latest` 命令可以打开这个工作区； `npx @agent-native/core@latest code` 是相同体验的显式子命令。
+
+共有三层：
+
+- **CLI**：`npx @agent-native/core@latest` 和 `npx @agent-native/core@latest code` 启动、恢复、检查和停止运行。
+- **桌面**：左侧边栏“代码”选项卡添加本机终端启动、应用程序 Web 视图和桌面深层链接，同时使用相同的运行模型。
+- **共享 UI**：`@agent-native/code-agents-ui` 渲染可重用的 React 表面。
+
+<Diagram id="doc-block-bkcsek" title={"一间经营商店三层"} summary={"CLI、Desktop 和共享 UI 是同一文件支持的运行存储和执行器上的不同表面；主机通过 CodeAgentsHost 合约对其进行调整。"}>
+
+```html
+<div class="diagram-layers">
+  <div class="diagram-row">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill">CLI</span
+      ><small class="diagram-muted">启动 · 恢复 · 状态 · 停止</small>
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill">Desktop</span
+      ><small class="diagram-muted">原生终端 · webviews · 深链接</small>
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">分享d UI</span
+      ><small class="diagram-muted">@agent-native/code-agents-ui</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill">CodeAgentsHost</span
+    ><small class="diagram-muted">host contract</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    文件支持的运行存储 + 执行器<br /><small class="diagram-muted"
+      >@agent-native/core/code-agents</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.diagram-layers .diagram-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.diagram-layers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-layers .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-layers .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+当前的拆分是有意融合的：标准代理侧边栏和代理团队在核心 `run-manager` 生命周期上运行，而 Agent-Native Code 使用由基于文件的代码运行存储和共享后台运行控制器词汇表支持的本地长时间运行会话。
+
+共享的 UI 是主机驱动的。它不知道自己是在 Electron、浏览器模板还是未来的托管 shell 中运行。主机提供 `CodeAgentsHost` 实现。
+
+```ts
+import { CodeAgentsApp, type CodeAgentsHost } from "@agent-native/code-agents-ui";
+import "@agent-native/code-agents-ui/styles.css";
+
+const host: CodeAgentsHost = {
+  listRuns: (goalId) => listRunsSomehow(goalId),
+  listCodePacks: () => listCodePacksSomehow(),
+  createRun: (request) => createRunSomehow(request),
+  subscribeTranscript: (request, callback) =>
+    subscribeToTranscriptSomehow(request, callback),
+  readTranscript: (request) => readTranscriptSomehow(request),
+  appendFollowUp: (request) => appendFollowUpSomehow(request),
+  updateRun: (request) => updateRunSomehow(request),
+  retryRun: (request) => retryRunSomehow(request),
+  rerunRun: (request) => rerunRunSomehow(request),
+  controlRun: (goalId, runId, command, permissionMode) =>
+    controlRunSomehow({ goalId, runId, command, permissionMode }),
+};
+
+export function CodeSurface() {
+  return <CodeAgentsApp apps={[]} host={host} />;
+}
+```
+
+主机可以在同一列表中混合运行源。本地 Agent-Native 代码会话
+可以出现在代理团队或其他后台运行的适配器旁边，只要每个适配器的长度相同
+条目标准化为`CodeAgentRun`。当主机提供`sourceLabel`时，
+`source`或`kind`，集线器呈现一个小的源标签，例如“本地代码”
+或运行列表和选定会话标题中的“代理团队”。省略这些字段
+对于单源表面；空状态和基本布局保持不变。
+
+## 桌面主机
+
+桌面使用共享的 UI 但保留 Electron 中的特权功能：
+
+- 打开本机终端
+- 使用 `AppWebview` 渲染可选的应用程序支持的表面
+- 处理 `agentnative://open?...` 链接
+- 跟踪本地运行进程
+- 记录主动运行的转向与排队后续操作
+- 重试并重新运行本机代码会话，包括 `/migrate` 和 `/audit`
+- 停止它启动的进程
+
+分离很重要。 UI 可以被模板重用，但本机流程控制应保留在 Desktop 或 CLI 中。
+
+## Codex CLI 授权 {#codex-cli-auth}
+
+Agent-Native 代码可以使用本地 Codex CLI 登录名，而不是 OpenAI API 密钥。
+在 `PATH` 上安装 Codex CLI，登录一次，然后重新启动 Desktop 或
+代码 UI（如果已打开）：
+
+```bash
+npm install -g @openai/codex@latest
+codex login
+codex login status
+```
+
+桌面和 CLI 读取 `codex login status` 并运行 `codex exec`，因此它们
+重用您安装的 Codex CLI 的任何 ChatGPT 订阅或 API 密钥身份验证
+报告。这与使用的 `@ai-sdk/harness-codex` 包是分开的
+[Harness Agents](/docs/harness-agents)；线束适配器可以复制本地
+仅当 `codexCliAuth: true` 为时，Codex CLI 才授权进入可信沙箱
+显式启用。
+
+## 浏览器主机
+
+旧的隐藏 `code` 模板已被删除。要构建浏览器托管的代码表面，请创建一个普通应用程序并使用主机实现挂载共享 UI 包：
+
+```bash
+npx @agent-native/core@latest create my-code-ui --template chat
+cd my-code-ui
+pnpm add @agent-native/code-agents-ui
+pnpm install
+pnpm dev
+```
+
+您的主机可以通过正常的 actions 包装本地运行存储。这些是
+主机拥有的 actions 您可以自己定义 - 它们不是附带的框架
+actions — 将每个 `CodeAgentsHost` 方法映射到运行存储，例如：
+
+- 支持 `listRuns` 的“列表运行”操作
+- 支持 `listCodePacks` 的“列出代码包”操作
+- 支持 `createRun` 的“创建运行”操作
+- 支持 `readTranscript` 的“阅读记录”操作
+- 支持 `appendFollowUp` 的“追加后续”操作
+- 支持 `updateRun` 的“更新运行”操作
+- 支持`controlRun`的“控制运行”动作
+
+每个都调用 `@agent-native/core/code-agents`，它公开相同的内容
+CLI 使用的文件支持的运行存储和执行器。
+
+## CLI 运行控件
+
+顶级 CLI 的行为类似于 Claude 代码或 Codex：
+
+```bash
+npx @agent-native/core@latest
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
+```
+
+当您需要显式命名空间时，请使用 `npx @agent-native/core@latest code`。内置斜线
+目标和项目命令可以在交互式工作区中运行或直接运行
+来自外壳：
+
+```bash
+npx @agent-native/core@latest code /migrate ./legacy-app --emit ./migration-dossier
+npx @agent-native/core@latest code /audit --url https://example.com
+npx @agent-native/core@latest code /release-check
+```
+
+这里`/migrate`和`/audit`是内置目标（内置目标是
+`task`、`migrate` 和 `audit`）。 `/release-check` 作为示例显示
+项目命令 - 在 `.agents/commands/` 中定义，不是内置目标。项目
+命令来自`.agents/commands/*.md`；项目skills来自
+`.agents/skills/*/SKILL.md`。控制命令在同一运行中运行
+记录桌面代码选项卡和共享UI显示：
+
+```bash
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code status --last
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code stop --last
+npx @agent-native/core@latest code ui
+```
+
+`resume` 附加上下文并继续运行，`status` 报告最新运行
+状态，`stop`要求主动控制器停止工作，`ui`打开本地
+代码表面。这些是运行控制，而不是单独的实施路径。如果一个
+高风险命令暂停等待批准，`approve --last` 运行该命令
+命令，然后指示您返回以恢复会话。
+
+运行模式使每个会话的编辑策略变得明确：
+
+| 模式         | CLI 标志 | 行为                                                                      |
+| ------------ | -------- | ------------------------------------------------------------------------- |
+| **计划模式** | `--plan` | 检查、计划和解释，无需编写文件或运行突变。                                |
+| **自动模式** | `--auto` | 仅针对真正具有破坏性的文件、git、发布或数据操作编辑文件、运行检查和暂停。 |
+
+自动模式是本地 Agent-Native 代码会话的默认模式。使用计划模式用于
+评估、架构、审核或您之前需要提案的任何任务
+编辑。
+
+对于跨表面列表、仪表板或监控窗格，首选共享
+通过读取代码从 `@agent-native/core/code-agents` 后台运行导出
+直接运行文件。他们将本地代码会话标准化为相同的词汇表
+由托管后台工作使用：运行 ID、状态、cwd、需求输入，
+需求批准、转录事件和工件根。
+
+托管代理团队也会从浏览器的代理聊天路由中公开
+需要代码中心兼容列表而不直接服务器导入的主机：
+`GET /_agent-native/agent-chat/runs/list?goalId=agent-team` 返回
+`{ status: "ok", goalId, runs }`，其中每次运行都包含 `kind`，
+`source`、`sourceLabel`、`status`、`title`、时间戳和任务元数据。
+`GET /_agent-native/agent-chat/runs/:id/background-events` 返回
+为代理团队运行共享后台转录事件。
+
+适配器支持的主机还可以附加源元数据：
+
+```ts
+{
+  id: run.id,
+  goalId: "task",
+  title: run.title,
+  source: "agent-teams",
+  sourceLabel: "Agent Teams",
+  kind: "background-run",
+  status: run.status,
+  createdAt: run.createdAt,
+  updatedAt: run.updatedAt,
+}
+```
+
+## 运行商店
+
+本地 Agent-Native 代码运行存储在：
+
+```text
+~/.agent-native/code-agents
+```
+
+设置 `AGENT_NATIVE_CODE_AGENTS_HOME` 以隔离模板或测试运行存储。
+
+```bash
+AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
+```
+
+## 主机合约
+
+`CodeAgentsHost` 故意很小：
+
+| 方法                                                  | 目的                                     |
+| ----------------------------------------------------- | ---------------------------------------- |
+| `listRuns(goalId?)`                                   | 列出所选目标的会话                       |
+| `listCodePacks?()`                                    | 列出`.agents/commands`和`.agents/skills` |
+| `createRun(request)`                                  | 开始新的运行                             |
+| `subscribeTranscript?(request, callback)`             | 将记录更新推送到共享对话                 |
+| `readTranscript(request)`                             | 轮询记录事件作为兼容性回退               |
+| `appendFollowUp(request)`                             | 添加后续工作，引导活动工作或排队         |
+| `updateRun(request)`                                  | 更新模式或运行元数据                     |
+| `retryRun?(request)`                                  | 就地重试所选运行                         |
+| `rerunRun?(request)`                                  | 从先前的提示开始新的运行                 |
+| `controlRun(goalId, runId, command, permissionMode?)` | 恢复、批准、刷新或停止                   |
+| `openTerminal?(request)`                              | 可选的本机终端挂钩                       |
+
+浏览器主机应该返回一个正常的 `openTerminal` 错误，而不是尝试模拟本机终端启动。
+
+## 共享作曲家
+
+Agent-Native 代码使用相同的 `AgentComposerFrame` + `PromptComposer` /
+从 `@agent-native/core/client/composer` 导出的 `TiptapComposer` 堆栈作为
+框架代理侧边栏。不要分叉单独的
+文本区域、编码工具选择器、上传选择器、语音按钮、模型选择器或 Enter-to-submit
+类似代码表面的实现。如果主机需要一个额外的控制，请传递
+它通过共享的composer扩展点，所以侧边栏，代码UI，和
+大脑聊天保持相同的交互模型和视野。
+
+Brain 的 Ask 路线使用 `AgentChatSurface`，该路线已得到支持
+标准侧边栏编辑器。代码直接使用`PromptComposer`，因为主机
+拥有运行创建、成绩单和后续交付。
+
+## 共享编码工具
+
+侧边栏开发代理和Agent-Native代码都使用相同的最小值
+编码工具配置文件：`bash`、`read`、`edit` 和 `write`。默认为`bash`
+用于列出/搜索文件、运行测试以及调用项目 CLIs； `read`
+显示行编号的文件切片； `edit` 应用精确的文本替换；和
+`write` 保留用于新文件或有意完全重写。旧别名
+例如`shell`、`read-file`、`write-file`、`list-files`和`search-files`
+仅兼容，不属于默认广告表面的一部分。
+
+特定于代码的 UI 属于作曲家周围，而不是分叉的聊天字段内。
+共享代码 UI 可能会添加插槽：
+
+- 自动/计划模式控件。
+- 选定的 cwd、项目选择器和运行元数据。
+- 仅限主机的功能，例如打开终端。
+
+其他所有内容都保留在共享编辑器中：附件、引用、斜杠和
+技能插入、粘贴文本处理、语音听写、草稿、键盘
+快捷方式和提交语义。
+
+面向用户的文字记录应保持会话式。代码主机标准化原始
+将转录/状态/工具事件写入共享对话渲染器：助手
+文本合并为一圈，低信号生命周期噪音远离主线
+表面和工具活动呈现为带有详细信息的紧凑内联摘要
+需要时可用。
+
+## 斜线命令
+
+Agent-Native 代码将迁移视为一种功能，而不是单独的应用程序类别。 `/migrate` 可以是内置目标、项目命令或同一主机合约之上的自定义指令包。
+
+### 使用`/migrate`迁移到Agent-Native {#migrate}
+
+`/migrate` 是将现有应用程序、URL 或描述的产品移动到 Agent-Native 的内置目标。它是代码工作区中的一个斜线目标 - 不是一个单独的脚手架模板，也不是一次性产品 - 因此它与其他所有代码会话共享相同的会话存储、脚本、运行控件和桌面中心，并且您可以以相同的方式恢复、附加、检查和停止它。
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus dashboard"
+npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reports and CSV imports" --emit
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
+```
+
+本地源路径是只读的；生成的输出必须位于源树之外。使用 `--emit <dir>` 编写便携式迁移档案（`AGENTS.md`、`MIGRATION_PLAYBOOK.md`、评估和 `ir.json` 库存（如果可用））并将其交给另一个编码代理，而不是打开内部运行表面。 `/migrate` 重用框架的正常凭证系统 - 没有特定于迁移的密钥存储。 `@agent-native/migrate` 包公开了一个用于自定义工作流程的可重用引擎（`createMigrationRun`、`discoverMigration`、`planMigration`、源/目标适配器）。
+
+特定于项目的命令位于：
+
+```text
+.agents/commands/*.md
+```
+
+将它们用于团队工作流程，例如版本检查、迁移变体、框架升级或审核。
+
+项目 skills 位于：
+
+```text
+.agents/skills/*/SKILL.md
+```
+
+当主机实现`listCodePacks`时，共享的UI在导轨中显示项目命令和skills。命令行插入 `/<command>`，技能行插入重点“使用 `<skill>` 技能...”提示，以便导轨保持可操作性。内置斜线目标 `/migrate` 和 `/audit` 保留为全局 Agent-Native 代码控件保留，运行控制名称（例如 `status` 和 `resume`）也是如此 — 这些是不带斜线调用的子命令（`npx @agent-native/core@latest code status`、`npx @agent-native/core@latest code resume`），而不是斜线目标。
+
+不要为新的代码主机创建单独的斜杠命令注册表。项目
+命令和skills是从`.agents/commands/*.md`发现的
+`.agents/skills/*/SKILL.md`； UI 应该渲染这些包并插入提示
+通过共享作曲家。
+
+## 后台代理运行管理器
+
+后台编码代理工作应重用与运行管理器相同的基础
+Agent-Native 的其余部分：
+
+- 使用代码运行存储/执行器进行本地代码会话。
+- 当表面需要列出时，使用共享后台运行适配器/基础，
+  检查或桥接本地代码会话以及其他后台工作。
+- 使用核心 `run-manager` 进行托管代理运行，以便进行流式传输、中止、心跳，
+  可恢复性、软超时和卡住运行清理的行为一致。
+- 当 UI 将工作委派给 a 时使用 `agent-teams` / `spawnTask()`
+  来自普通应用聊天的后台子代理。
+
+不要仅仅因为新表面需要一个并行的后台代理运行程序
+不同的布局。在共享顶部构建主机适配器或 UI 插槽
+改为运行管理器基础。
+
+## 后续行动
+
+主动运行的后续支持两种交付模式：
+
+- 按 Enter 或单击发送会记录立即转向提示
+  活跃跑步者在下一个安全继续点申请。
+- 在 macOS 上按 Cmd+Enter 或在其他地方按 Ctrl+Enter 会将提示排队运行
+  当前回合结束后。
+
+非活动运行保持兼容行为：追加后续操作并立即恢复运行。
+
+这为代码提供了与代理团队相同的面向用户的双向消息传递形式：
+用户可以继续与活动工作对话，但执行仅消耗该内容
+在安全继续点的消息。如果跑步者无法立即转向，
+必须将后续工作保留为排队工作，而不是丢弃或抢占它。
+
+## 远程调度
+
+桌面可以将本地代码代理运行程序公开给已部署的调度中继，因此
+电话或 Telegram 聊天可以启动、监控和继续会话，而
+计算机已唤醒。
+
+连接仅从桌面出站：
+
+1. 桌面与 Dispatch 配对并在本地存储设备令牌。
+2. 桌面长轮询 `/_agent-native/integrations/remote/poll`。
+3. 移动会话和 Telegram `/code` 在中继数据库中排队命令。
+4. 桌面声明命令、驱动本地运行存储并发布结果
+   将事件记录回 Dispatch。
+5. 移动设备从 Dispatch 读取 `hosts`、`runs` 和 `transcript`；它从不说话
+   直接到桌面。
+
+<Diagram id="doc-block-xtmvmh" title={"远程 Dispatch 仅限出站"} summary={"移动设备从不直接与桌面对话。 Desktop 长轮询 Dispatch，声明命令，驱动本地运行存储，并将结果镜像回来。"}>
+
+```html
+<div class="diagram-remote">
+  <div class="diagram-node" data-rough>
+    移动端 / Telegram<br /><small class="diagram-muted">/code · 会话</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Dispatch 中继<br /><small class="diagram-muted">主机 · 运行 · 转录</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-node" data-rough>
+    Desktop<br /><small class="diagram-muted"
+      >长轮询 · 领取 · 驱动运行存储</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-remote {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-remote .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+规范的远程中继端点是：
+
+<Endpoint id="doc-block-1ocymjy" title={"桌面声明排队的工作"} method="POST" path="/_agent-native/integrations/remote/poll" summary={"桌面长轮询中继以声明排队的命令"} auth="Desktop device token" responses={[
+  {
+    "status": "200",
+    "description": "Claimed commands for this host (may be empty after the long-poll window)."
+  }
+]}>
+
+Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.
+
+</Endpoint>
+
+| 方法       | 路线                                                     | 呼叫者        | 目的                       |
+| ---------- | -------------------------------------------------------- | ------------- | -------------------------- |
+| `POST`     | `/_agent-native/integrations/remote/register`            | 桌面会话      | 配对桌面主机并返回令牌一次 |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | 移动/会话     | 列出配对的主机             |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | 移动/会话     | 撤销配对主机               |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | 移动设备/会话 | 撤销配对主机               |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | 桌面令牌      | 领取工作                   |
+| `POST`     | `/_agent-native/integrations/remote/result`              | 桌面令牌      | 完成或失败工作             |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | 桌面令牌      | 镜像转录事件               |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | 移动设备/会话 | 列出会话                   |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | 移动设备/会话 | 阅读会议摘要               |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | 移动设备/会话 | 读取镜像转录本             |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | 移动设备/会话 | 注册博览会/移动推送令牌    |
+
+Telegram 通过 Dispatch 使用相同的中继。支持的命令有：
+
+```text
+/code <prompt>
+/code list
+/code status <run>
+/code continue <run> <text>
+/code approve <id>
+/code deny <id>
+/code stop <run>
+```
+
+## 样式
+
+导入包样式表：
+
+```ts
+import "@agent-native/code-agents-ui/styles.css";
+```
+
+样式表使用与模板和桌面 shell 相同的 shadcn 样式 HSL 自定义属性。在分叉共享的 UI 之前，最好在主机应用程序中更改令牌或小类覆盖。
+
+## 限制
+
+浏览器模板是本地优先的。当其本地节点服务器处于活动状态时，它可以启动和恢复运行。对于本机进程生命周期、终端启动和应用程序 Web 视图，请使用桌面。

@@ -1,0 +1,95 @@
+---
+title: "Quality Passes and Components"
+description: "The accessibility and screenshot audit Design runs before calling a prototype ready, plus reusable components, durable motion timelines, and code-backed shader effects."
+---
+
+# Quality Passes and Components
+
+Design treats a finished-looking prototype and a ready one as different things. This page covers the automatic checks the agent runs before it calls a design done, and three ways to keep a growing prototype consistent: reusable components, editable motion, and code-backed visual effects.
+
+## Why the results don't look generic
+
+Generic AI output happens when one prompt has to pick a font, a color, a layout, and the final code all at once — the safe answer is always the same average look. Design splits that decision into steps instead: it settles on a direction first (asking a couple of quick questions when a prompt is vague), shows a few genuinely different variants side by side so you pick a look rather than getting the first idea, and only then writes the code for the version you chose. That's why two designs from the same account don't come out looking like siblings, and why fonts and colors don't default to the same handful of overused choices.
+
+## The accessibility and screenshot audit {#audit-and-screenshot}
+
+Before reporting a design as ready, the agent runs two automatic passes. The first checks the HTML itself for missing image and field labels, small tap targets, focus visibility, whether animation respects a "reduce motion" preference, a contrast hint, and — on a multi-screen design — whether the shared colors and fonts have drifted between screens. Anything it can fix on its own gets fixed automatically; everything else gets fixed by hand before moving on. A design with open issues from this pass is not considered ready.
+
+<Diagram id="doc-block-design6" title="Generate, check, fix" summary={"Every generation or edit runs through an automatic audit and screenshot pass before the agent calls a design ready."}>
+
+```html
+<div class="diagram-qualityloop">
+  <div class="diagram-box" data-rough>
+    Generate / edit<br /><small class="diagram-muted"
+      >generate-design · edit-design</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Audit + screenshot<br /><small class="diagram-muted"
+      >run-design-audit · take-design-screenshot</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill warn">Fix</span
+    ><small class="diagram-muted">apply-a11y-fix · edit-design</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Ready</span
+    ><small class="diagram-muted">clean audit + clean screenshot</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-qualityloop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-qualityloop .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-qualityloop .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+The second pass renders the design in a real browser at both desktop and mobile width and checks the actual computed contrast, whether anything overflows its container, broken images, and browser console errors — the same things a person would notice looking at it, checked against the real rendered page instead of by eye.
+
+## Reusable components {#components}
+
+Once a card, button, or nav item repeats three or more times in a design, it can be promoted into a named component instead of staying three separate copies. Existing components are recognized automatically too, so the agent doesn't reinvent a "Feature Card" that's already there. Selecting a component instance opens an inspector showing its variants and props; changing a prop can preview instantly and apply to every instance of that component, or one instance can be detached to diverge on its own. A "Go to main component" link jumps back to the original definition.
+
+<WireframeBlock id="doc-block-design7">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Pricing screen</h1><span class='wf-pill accent'>Inspector</span><div style='flex:1'></div><button>Tweaks</button><button class='primary'>Extensions</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-columns:1fr 260px;gap:14px'><div class='wf-box' style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:20px'><div class='wf-card' style='min-height:110px'></div><div class='wf-card' style='min-height:110px;outline:2px dashed var(--wf-line)'></div><div class='wf-card' style='min-height:110px'></div></div><div style='display:flex;flex-direction:column;gap:10px;border-left:1.4px solid var(--wf-line);padding-left:14px'><strong>Component · PricingCard</strong><span class='wf-muted'>3 instances on this screen</span><div class='wf-card'><strong>title</strong><span class='wf-muted'>\"Pro plan\"</span></div><div class='wf-card'><strong>price</strong><span class='wf-muted'>\"$49/mo\"</span></div><div class='wf-card'><strong>featured</strong><span class='wf-muted'>true</span></div><button>Swap instance</button><button>Detach instance</button><span class='wf-pill'>Go to main component</span></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## Motion {#motion}
+
+Motion in Design is deliberate rather than a uniform default — quick for a hover or button press, a little longer for a panel or modal, and at most one bigger orchestrated reveal on page load. Unlike a one-shot CSS animation baked into the markup, motion is stored as its own editable timeline: it can be inspected and adjusted after the fact the same way a color tweak can, without re-generating the whole screen.
+
+## Shader fills {#shader-fills}
+
+Animated backgrounds and effects — waves, noise, mesh gradients, grain, halftone — can be built as real, editable code instead of a stock video or GIF. Each one is a small shader with a handful of named controls (speed, color, center point) that show up as sliders in the inspector, and the underlying code is visible and editable directly in the Code panel. A library of curated presets covers common looks as a starting point, and from there it's the user's code to change.
+
+## What's next
+
+- [**Design**](/docs/template-design) — back to the overview
+- [**Brand Systems and Figma**](/docs/template-design-brand-and-figma) — design systems and Figma import
+- [**Review, Handoff, and Full Apps**](/docs/template-design-collaboration-and-full-apps) — visual editing, review feedback, and export
+- [**Extending Design**](/docs/template-design-developers) — the full action reference
