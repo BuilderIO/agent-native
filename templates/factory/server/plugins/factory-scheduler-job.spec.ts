@@ -132,15 +132,15 @@ Babysit pull requests.
 
   it("keeps the Slack template prompt lean and names the reaction argument", () => {
     const prompt = factoryAutomationTemplatePrompt("slack-feedback", "slack");
-    expect(prompt).toContain("reaction robot_face 🤖");
+    expect(prompt).toContain("MUST pass reaction eyes");
     expect(prompt).toContain("get-slack-feedback-context");
     expect(prompt).toContain("productUxImplications false");
     expect(prompt).toContain("visual/UI defects");
-    expect(prompt).toContain("already has eyes 👀 or robot_face 🤖");
+    expect(prompt).toContain("already has eyes 👀");
     expect(prompt).toContain("alreadyClaimed true");
     expect(prompt).toContain("clearBug may be omitted");
-    expect(prompt).toContain("neither eyes nor robot_face");
     expect(prompt).toContain("omit reaction");
+    expect(prompt).not.toContain("robot_face");
     expect(prompt).not.toContain("limit 20");
     expect(prompt).not.toContain("that action adds 👀");
   });

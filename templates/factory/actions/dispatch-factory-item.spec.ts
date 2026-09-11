@@ -45,6 +45,7 @@ import {
   ownerOwnedAreaValuesForItem,
   recordAutomaticBuilderDecision,
   relatedDispatchConflictReason,
+  slackClearBugReactionRequirement,
   githubBotDispatchText,
   parseFactoryGitHubIssueNumber,
   replyTextForItem,
@@ -94,10 +95,60 @@ describe("dispatch-factory-item schema guidance", () => {
     ).schema.parse({
       itemId: "item-1",
       alreadyClaimed: true,
-      reason: "Parent already has robot_face.",
+      reason: "Parent already has eyes.",
     });
     expect(parsed.alreadyClaimed).toBe(true);
     expect(parsed.clearBug).toBe(false);
+  });
+});
+
+describe("slackClearBugReactionRequirement", () => {
+  it("requires eyes before dispatching a Slack clear bug", () => {
+    expect(
+      slackClearBugReactionRequirement({
+        source: "slack",
+        clearBug: true,
+        alreadyClaimed: false,
+        blocked: false,
+        reactionName: null,
+      }),
+    ).toMatch(/reaction eyes/);
+    expect(
+      slackClearBugReactionRequirement({
+        source: "slack",
+        clearBug: true,
+        alreadyClaimed: false,
+        blocked: false,
+        reactionName: "eyes",
+      }),
+    ).toBeNull();
+    expect(
+      slackClearBugReactionRequirement({
+        source: "slack",
+        clearBug: false,
+        alreadyClaimed: false,
+        blocked: true,
+        reactionName: null,
+      }),
+    ).toBeNull();
+    expect(
+      slackClearBugReactionRequirement({
+        source: "slack",
+        clearBug: true,
+        alreadyClaimed: true,
+        blocked: true,
+        reactionName: null,
+      }),
+    ).toBeNull();
+    expect(
+      slackClearBugReactionRequirement({
+        source: "github_issue",
+        clearBug: true,
+        alreadyClaimed: false,
+        blocked: false,
+        reactionName: null,
+      }),
+    ).toBeNull();
   });
 });
 
