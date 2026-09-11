@@ -1225,6 +1225,65 @@ describe("design connect bridge endpoints", () => {
         bridgeKey: "screen-gone",
       });
 
+      // A target that already carries a stale key gets exactly one, the
+      // requested one.
+      const restamped = await getText(
+        `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?agentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      expect(restamped.status).toBe(200);
+      expect(restamped.body).toContain(
+        JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
+      );
+      expect(restamped.body).not.toContain("agentNativeBridgeKey=screen-b");
+
+      // A stale keyed POST is refused with its body drained, so the same
+      // keep-alive connection serves the next request normally.
+      const keepAlive = new http.Agent({ keepAlive: true, maxSockets: 1 });
+      const onSameConnection = (
+        options: http.RequestOptions,
+        body?: string,
+      ): Promise<{ status: number; body: string }> =>
+        new Promise((resolve, reject) => {
+          const request = http.request(
+            { ...options, agent: keepAlive, host: "127.0.0.1", port },
+            (response) => {
+              const chunks: Buffer[] = [];
+              response.on("data", (chunk) => chunks.push(chunk));
+              response.on("end", () =>
+                resolve({
+                  status: response.statusCode ?? 0,
+                  body: Buffer.concat(chunks).toString("utf8"),
+                }),
+              );
+            },
+          );
+          request.on("error", reject);
+          request.end(body);
+        });
+      try {
+        const staleOnKeepAlive = await onSameConnection(
+          {
+            method: "POST",
+            path: "/submit",
+            headers: {
+              ...auth,
+              "sec-fetch-dest": "iframe",
+              "content-type": "application/x-www-form-urlencoded",
+              referer: `${base}/home?agentNativeBridgeKey=screen-gone`,
+            },
+          },
+          "q=".padEnd(64 * 1024, "x"),
+        );
+        expect(staleOnKeepAlive.status).toBe(409);
+        const next = await onSameConnection({
+          method: "GET",
+          path: "/health",
+        });
+        expect(next.status).toBe(200);
+      } finally {
+        keepAlive.destroy();
+      }
+
       // A reload of the rewritten URL itself carries the key in the request.
       const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
         redirect: "manual",

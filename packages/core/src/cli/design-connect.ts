@@ -1107,7 +1107,10 @@ function resolvePreviewSnapshotUrl(
   if (!sameOrigin(parsed.toString(), base)) {
     throw new Error("Snapshot URL must stay on the connected dev server.");
   }
-  return parsed.toString();
+  // The frame identity param is bridge-only; a rewritten route that comes
+  // back through /live-edit must not hand it to the app.
+  const search = stripQueryPair(parsed.search, FRAME_BRIDGE_KEY_PARAM);
+  return `${parsed.origin}${parsed.pathname}${search}`;
 }
 
 /**
@@ -2484,9 +2487,12 @@ export async function startDesignConnectBridge(
             // A keyed frame keeps its key on the rewritten URL so a later
             // navigation (whose Referer is that URL) can be sent back through
             // /live-edit with the same identity.
+            // The requested key is authoritative: a stale copy already on the
+            // target (a rewritten route reloaded through /live-edit) must not
+            // remain as a duplicate the client would read first.
             const targetSearch = requestedBridgeKey
               ? appendQueryPair(
-                  targetParsed.search,
+                  stripQueryPair(targetParsed.search, FRAME_BRIDGE_KEY_PARAM),
                   FRAME_BRIDGE_KEY_PARAM,
                   requestedBridgeKey,
                 )
@@ -2857,6 +2863,9 @@ export async function startDesignConnectBridge(
               ? liveEditBridgeScripts.get(keyed.bridgeKey)
               : undefined;
             if (keyed && !keyedScript) {
+              // Answer without consuming the body, but let the stream drain so
+              // a keep-alive connection is not left with an unread request.
+              req.resume();
               sendJson(res, 409, {
                 ok: false,
                 code: "unknown-bridge-key",
