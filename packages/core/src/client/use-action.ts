@@ -43,6 +43,7 @@ import {
   reloadForClientCompatibilityMismatch,
 } from "./build-compatibility.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
 
@@ -493,6 +494,14 @@ async function performActionFetch<T>(
   }
 
   if (!res.ok) {
+    // The server does not recognise this browser any more. Nothing else
+    // tells the session gate that, so without this the shell stays mounted
+    // on a stale authenticated answer and the failure reaches the user as a
+    // generic load error instead of a redirect to sign-in. 403 is
+    // deliberately excluded: that is an authenticated caller being refused
+    // one thing.
+    if (res.status === 401) recheckSessionAfterUnauthorized();
+
     // Text the action itself wrote for the caller, as opposed to transport
     // noise. Only a JSON `error`/`message` qualifies: an HTML error page or a
     // bare status line is not something a UI should ever put in a toast.

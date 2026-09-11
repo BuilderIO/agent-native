@@ -50,7 +50,7 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("accessDeniedStatus");
     expect(route).toContain('const startAt = searchParams.get("at")');
     expect(route).toContain(
-      "buildShareContinuationQuery(attribution, startAt)",
+      "buildShareContinuationQuery(attribution, startAt, panelParam)",
     );
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
@@ -148,7 +148,7 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("CaptureInstallButton");
     expect(route).toContain('t("sharePage.downloadDesktopApp")');
     expect(route).not.toContain("agentNativeClips");
-    expect(route).toContain('useState<SharePanel>("transcript")');
+    expect(route).toContain('useState<SharePanel>("comments")');
     expect(route).toContain("lg:grid-cols-[minmax(0,1fr)_360px]");
     expect(route).toContain("col-span-full row-start-1");
     expect(route).toContain("lg:col-start-2");
@@ -194,7 +194,8 @@ describe("authenticated recording route loading", () => {
 
   it("keeps public comments in flow and consolidates recording insights", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
-    expect(shareRoute).toContain('<ViewerTabsTrigger value="comments">');
+    expect(shareRoute).toContain('value="comments"');
+    expect(shareRoute).toContain('useState<SharePanel>("comments")');
     expect(shareRoute).toContain('presentation="inline"');
     expect(shareRoute).toContain(
       'className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
@@ -264,5 +265,87 @@ describe("authenticated recording route loading", () => {
     expect(agentPanel).toContain("scope={");
     expect(agentPanel).toContain('type: "recording"');
     expect(agentPanel).toContain("id: recording.id");
+  });
+
+  it("opens the comments panel on the public share page for ?panel=comments links", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // The signed-in recording route supports a ?panel=comments deep link
+    // (used by search results and the command menu); the public share route
+    // rendered the same param unread and always defaulted to "transcript".
+    expect(shareRoute).toContain(
+      'const panelParam = searchParams.get("panel")',
+    );
+    const effectStart = shareRoute.indexOf(
+      "if (recording && !recording.enableComments) {",
+    );
+    expect(effectStart).toBeGreaterThan(-1);
+    const effect = shareRoute.slice(effectStart, effectStart + 700);
+    expect(effect).toContain('if (panelParam === "comments") {');
+    expect(effect).toContain("selectCommentsPanel();");
+
+    // A share whose owner disabled comments after the link was shared must
+    // land back on transcript - the comments tab and its content are both
+    // conditionally rendered on recording.enableComments, so leaving `panel`
+    // set to "comments" here would strand the Tabs value on nothing.
+    expect(effect).toContain(
+      'setPanel((current) => (current === "comments" ? "transcript" : current));',
+    );
+  });
+
+  it("does not re-select comments every time the viewer changes tabs", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // `panel` must not be a dependency of the deep-link effect: if it were,
+    // switching to Transcript/Agent would re-run the effect, and
+    // `panelParam === "comments"` (still true, since it's read from the URL)
+    // would immediately call selectCommentsPanel() again, trapping the
+    // viewer on the deep link for the whole share session.
+    const effectStart = shareRoute.indexOf(
+      "if (recording && !recording.enableComments) {",
+    );
+    expect(effectStart).toBeGreaterThan(-1);
+    const depsStart = shareRoute.indexOf("}, [", effectStart);
+    const depsEnd = shareRoute.indexOf("]);", depsStart);
+    const deps = shareRoute.slice(depsStart, depsEnd);
+
+    expect(deps).not.toMatch(/(^|[^.\w])panel(?![.\w?])/);
+  });
+
+  it("re-runs the comments deep link when navigating between shares", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // Without `shareId` in the effect's dependency array, navigating from
+    // /share/A?panel=comments to /share/B?panel=comments would not re-run the
+    // effect when both recordings have the same enableComments value, leaving
+    // the new share on whatever `panel` the previous share was left at.
+    const effectStart = shareRoute.indexOf(
+      "if (recording && !recording.enableComments) {",
+    );
+    expect(effectStart).toBeGreaterThan(-1);
+    const depsStart = shareRoute.indexOf("}, [", effectStart);
+    const depsEnd = shareRoute.indexOf("]);", depsStart);
+    const deps = shareRoute.slice(depsStart, depsEnd);
+
+    expect(deps).toContain("panelParam");
+    expect(deps).toContain("recording?.enableComments");
+    expect(deps).toContain("shareId");
+  });
+
+  it("preserves ?panel in the sign-in continuation URL for public shares", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // Anonymous viewers who open a ?panel=comments share and then sign in
+    // must return to the comments panel, not lose it because shareReturnTo
+    // only forwarded attribution and `at`.
+    expect(shareRoute).toContain(
+      "buildShareContinuationQuery(attribution, startAt, panelParam)",
+    );
+
+    const attributionSrc = readFileSync(
+      resolve(process.cwd(), "shared/share-attribution.ts"),
+      "utf8",
+    );
+    expect(attributionSrc).toContain('if (panel) params.set("panel", panel);');
   });
 });

@@ -378,6 +378,8 @@ const messages: AgentChatTranslation = {
     "मॉडल प्रदाता तक पहुँचा नहीं जा सका। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
   "errorMessages.providerRateLimit":
     "मॉडल प्रदाता अभी इस चैट की अनुरोध दर सीमित कर रहा है। कुछ देर रुकें, फिर से प्रयास करें।",
+  "errorMessages.providerTransientRejection":
+    "AI प्रदाता ने इस अनुरोध को अस्थायी रूप से अस्वीकार कर दिया। यह आमतौर पर एक मिनट के भीतर ठीक हो जाता है — फिर से प्रयास करें।",
   "errorMessages.startNewChat": "नई चैट शुरू करें",
   "errorMessages.upgradeAtBuilder": "Builder.io पर अपग्रेड करें",
   "feedback.inaccurate": "गलत जानकारी",

@@ -66,6 +66,9 @@ const INITIAL_TOOL_NAMES = [
   "open-visual-edit",
   "add-localhost-screens",
   "list-localhost-connections",
+  "update-screen-source",
+  "add-breakpoint",
+  "remove-breakpoint",
   "edit-design",
   "generate-design",
   "present-design-variants",
@@ -80,9 +83,6 @@ const INITIAL_TOOL_NAMES = [
   "rename-screen",
   "export-png",
   "navigate",
-  "provider-api-catalog",
-  "provider-api-docs",
-  "provider-api-request",
 ];
 
 const DESIGN_EDIT_TOOLS = new Set([
@@ -109,6 +109,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "swap-component-instance",
   "update-design",
   "update-file",
+  "update-screen-source",
 ]);
 
 const DESIGN_FILE_TARGET_TOOLS = new Set([
@@ -240,7 +241,7 @@ export default createAgentChatPlugin({
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
       "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-png for one screen, or export-html / export-zip / export-coding-handoff / export-design-as-figma-svg for other formats. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
-      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation.',
+      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. In a page-capable WebMCP host, call the page-local get-visual-edit-prompt tool after visual edits to retrieve the latest source handoff; no separate MCP install is required.',
   },
   externalAgents: { writes: "allowlisted" },
   finalResponseGuard: designFinalResponseGuard,

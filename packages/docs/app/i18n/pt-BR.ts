@@ -58,6 +58,10 @@ const ptBR = {
     draftLabel: "Rascunho",
     draftDescription:
       "Esta página está em andamento. O conteúdo pode estar incompleto ou sujeito a alterações antes da publicação.",
+    translationLabel: "Traduzido automaticamente",
+    translationDescription:
+      "Esta página foi traduzida automaticamente e pode não ser totalmente precisa.",
+    translationViewOriginal: "Ver o original em inglês",
   },
   search: {
     dialogLabel: "Pesquisar documentação",
@@ -2371,10 +2375,11 @@ const ptBR = {
     designCollaborationAndFullApps: "Revisão e entrega",
     designDevelopers: "Guia do desenvolvedor",
     dispatchOverview: "Visão geral",
-    dispatchMessagingRouting: "Mensagens e roteamento",
-    dispatchOperations: "Console do operador",
-    dispatchVaultIntegrations: "Segredos e integrações",
+    dispatchFeatures: "Funcionalidades",
+    dispatchAgent: "Conversar com o Agent",
+    dispatchIntegrations: "Uso entre apps",
     dispatchDevelopers: "Guia do desenvolvedor",
+    dispatchReference: "Referência de ações e dados",
     forms: "Formularios",
     formsOverview: "Visão geral",
     formsFeatures: "Funcionalidades",

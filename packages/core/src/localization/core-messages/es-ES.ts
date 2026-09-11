@@ -622,6 +622,8 @@ const messages: AgentChatTranslation = {
     "No se pudo contactar con el proveedor del modelo. Comprueba tu conexión y vuelve a intentarlo.",
   "errorMessages.providerRateLimit":
     "El proveedor del modelo está limitando temporalmente este chat. Espera un momento y vuelve a intentarlo.",
+  "errorMessages.providerTransientRejection":
+    "El proveedor de IA rechazó temporalmente esta solicitud. Esto suele resolverse en menos de un minuto: vuelve a intentarlo.",
   "errorMessages.startNewChat": "Iniciar un chat nuevo",
   "errorMessages.upgradeAtBuilder": "Mejorar el plan en Builder.io",
   "feedback.inaccurate": "Impreciso",

@@ -208,6 +208,7 @@ const MAX_DESCRIPTION_LENGTH = 800;
 const MAX_COMPONENT_LENGTH = 160;
 const MAX_ID_LENGTH = 120;
 const MAX_SCREEN_ID_LENGTH = 160;
+const MAX_SOURCE_PATH_LENGTH = 1_000;
 
 export interface BuildRuntimeReactStructureMoveHandoffInput {
   subjectAnchor: ReactSourceAnchor;
@@ -316,6 +317,9 @@ function ownerAnchorFields(anchor: ReactSourceAnchor) {
   const ownerPath =
     safeRelativePath(anchor.ownerRelPath) ??
     safeRelativePath(anchor.ownerSourceFile);
+  const rawOwnerPath =
+    bounded(anchor.ownerRelPath, MAX_SOURCE_PATH_LENGTH) ??
+    bounded(anchor.ownerSourceFile, MAX_SOURCE_PATH_LENGTH);
   const hasOwnerPosition =
     !!ownerPath &&
     Number.isInteger(anchor.ownerLine) &&
@@ -334,7 +338,21 @@ function ownerAnchorFields(anchor: ReactSourceAnchor) {
             : {}),
           ...(anchor.ownerMethod ? { ownerMethod: anchor.ownerMethod } : {}),
         }
-      : {}),
+      : rawOwnerPath
+        ? {
+            ownerSourceFile: rawOwnerPath,
+            ownerSourcePathStatus: "outside-connected-root" as const,
+            ...(Number.isInteger(anchor.ownerLine) &&
+            (anchor.ownerLine ?? 0) > 0
+              ? { ownerLine: anchor.ownerLine }
+              : {}),
+            ...(Number.isInteger(anchor.ownerColumn) &&
+            (anchor.ownerColumn ?? 0) > 0
+              ? { ownerColumn: anchor.ownerColumn }
+              : {}),
+            ...(anchor.ownerMethod ? { ownerMethod: anchor.ownerMethod } : {}),
+          }
+        : {}),
     ...(bounded(anchor.ownerComponent, MAX_COMPONENT_LENGTH)
       ? { ownerComponent: bounded(anchor.ownerComponent, MAX_COMPONENT_LENGTH) }
       : {}),
@@ -347,12 +365,14 @@ function ownerAnchorFields(anchor: ReactSourceAnchor) {
 /** What prompt serialization emits: the anchor plus its honest precision. */
 export type RedactedReactSourceAnchor = ReactSourceAnchor & {
   positionPrecision: SourcePositionPrecision;
+  sourcePathStatus?: "outside-connected-root";
+  ownerSourcePathStatus?: "outside-connected-root";
 };
 
 /**
  * Bound an optional live-preview anchor for prompt serialization. Absolute
- * Fiber paths are replaced by the bridge-safe relPath when available, or
- * omitted when no safe project-relative path has been resolved yet.
+ * Fiber paths use the bridge-safe relPath when available; otherwise the
+ * bounded absolute path remains visible with an explicit root-status marker.
  *
  * `positionPrecision` always ships with the coordinates: a reader that sees
  * `line` without it would take a React 19 stack line for the authored one.
@@ -362,7 +382,8 @@ export function redactReactSourceAnchor(
 ): RedactedReactSourceAnchor | undefined {
   if (!anchor) return undefined;
   const relPath = safeRelativePath(anchor.relPath);
-  const sourceFile = safeRelativePath(anchor.sourceFile);
+  const rawSourceFile = bounded(anchor.sourceFile, MAX_SOURCE_PATH_LENGTH);
+  const sourceFile = safeRelativePath(rawSourceFile);
   const canonicalPath = relPath ?? sourceFile;
   return {
     positionPrecision: sourcePositionPrecision(anchor.method),
@@ -374,7 +395,12 @@ export function redactReactSourceAnchor(
           relPath: canonicalPath,
           sourceFile: sourceFile ?? canonicalPath,
         }
-      : {}),
+      : rawSourceFile
+        ? {
+            sourceFile: rawSourceFile,
+            sourcePathStatus: "outside-connected-root" as const,
+          }
+        : {}),
     ...(Number.isInteger(anchor.line) && (anchor.line ?? 0) > 0
       ? { line: anchor.line }
       : {}),

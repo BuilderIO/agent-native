@@ -387,6 +387,8 @@ const messages: AgentChatTranslation = {
     "تعذّر الوصول إلى مزوّد النموذج. تحقّق من اتصالك وأعد المحاولة.",
   "errorMessages.providerRateLimit":
     "يفرض مزوّد النموذج حاليًا حدًا على معدل طلبات هذه المحادثة. انتظر قليلًا، ثم أعد المحاولة.",
+  "errorMessages.providerTransientRejection":
+    "رفض مزوّد الذكاء الاصطناعي هذا الطلب مؤقتًا. عادةً ما يُحل هذا خلال دقيقة — أعد المحاولة.",
   "errorMessages.startNewChat": "بدء محادثة جديدة",
   "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
   "feedback.inaccurate": "غير دقيق",

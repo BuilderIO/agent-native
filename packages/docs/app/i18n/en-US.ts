@@ -56,6 +56,10 @@ const enUS = {
     draftLabel: "Draft",
     draftDescription:
       "This page is a work in progress. Content may be incomplete or subject to change before publication.",
+    translationLabel: "Machine-translated",
+    translationDescription:
+      "This page was translated automatically and may not be fully accurate.",
+    translationViewOriginal: "View the original in English",
   },
   common: {
     copied: "Copied",
@@ -2357,10 +2361,11 @@ const enUS = {
     designCollaborationAndFullApps: "Review & Handoff",
     designDevelopers: "Developer Guide",
     dispatchOverview: "Overview",
-    dispatchMessagingRouting: "Messaging & Routing",
-    dispatchOperations: "Operator Console",
-    dispatchVaultIntegrations: "Secrets & Integrations",
+    dispatchFeatures: "Features",
+    dispatchAgent: "Talk to the Agent",
+    dispatchIntegrations: "Cross-App Use",
     dispatchDevelopers: "Developer Guide",
+    dispatchReference: "Action & Data Reference",
     forms: "Forms",
     formsOverview: "Overview",
     formsFeatures: "Features",

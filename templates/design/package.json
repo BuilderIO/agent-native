@@ -30,6 +30,7 @@
     "@agent-native/creative-context": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@fontsource-variable/inter": "^5.2.8",
+    "@jridgewell/trace-mapping": "0.3.31",
     "@noble/hashes": "^2.3.0",
     "@paper-design/shaders-react": "0.0.76",
     "@tabler/icons-react": "catalog:",

@@ -22,6 +22,16 @@ import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import {
+  adjustInboxThreadUnreadOptimistic,
+  INBOX_THREADS_QUERY_KEY,
+  invalidateInboxThreads,
+  markInboxThreadReadOptimistic,
+  removeInboxThreadsOptimistic,
+  restoreInboxThreadsOptimistic,
+  snapshotInboxThreads,
+  toggleInboxThreadsStarOptimistic,
+} from "@/hooks/use-inbox-threads";
 import { gmailMutationQueue } from "@/lib/gmail-mutation-queue";
 import { TAB_ID } from "@/lib/tab-id";
 import {
@@ -66,13 +76,17 @@ function assertActionSuccess<T>(result: T): T {
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
-async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+async function apiFetch<T>(
+  url: string,
+  options?: RequestInit & { onHeaders?: (headers: Headers) => void },
+): Promise<T> {
+  const { onHeaders, ...init } = options ?? {};
   const res = await fetch(appApiPath(url), {
     headers: {
       "Content-Type": "application/json",
       "X-Request-Source": TAB_ID,
     },
-    ...options,
+    ...init,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -80,7 +94,37 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     (error as Error & { status?: number }).status = res.status;
     throw error;
   }
+  onHeaders?.(res.headers);
   return res.json();
+}
+
+export type AccountError = { email: string; error: string };
+
+/** Parses the `X-Account-Errors` header the emails API sets when some
+ * (not all) connected accounts failed to list — a 200 that silently
+ * dropped part of the inbox otherwise looks identical to a complete one. */
+export function parseAccountErrorsHeader(
+  raw: string | null | undefined,
+): AccountError[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return undefined;
+    const errors = parsed.filter(
+      (entry): entry is AccountError =>
+        !!entry &&
+        typeof entry.email === "string" &&
+        typeof entry.error === "string",
+    );
+    return errors.length > 0 ? errors : undefined;
+  } catch (error) {
+    // coercion-ok: this header is a best-effort diagnostic, not core data —
+    // a malformed value must not break the actual email list. Logged (not
+    // swallowed silently) so a genuinely broken header stays debuggable
+    // instead of just reading as "no account errors".
+    console.error("Failed to parse X-Account-Errors header", error);
+    return undefined;
+  }
 }
 
 export function fetchThreadMessages(
@@ -626,6 +670,18 @@ interface EmailsPage {
   emails: EmailMessage[];
   nextPageToken?: string;
   totalEstimate?: number;
+  /** Present when some (not all) connected accounts failed this fetch. */
+  accountErrors?: AccountError[];
+}
+
+// Retryable: transient upstream trouble (rate limit / gateway) and network
+// errors with no status at all. Never an auth failure — retrying a 401/403
+// just burns time before the UI can show the real "reconnect" state.
+function isRetryableEmailsError(error: unknown): boolean {
+  if (isAuthFailure(error)) return false;
+  const status = (error as { status?: unknown } | undefined)?.status;
+  if (typeof status !== "number") return true;
+  return status === 429 || status === 502 || status === 503 || status === 504;
 }
 
 function emailQueryOptions(
@@ -637,7 +693,7 @@ function emailQueryOptions(
   const queryKey = ["emails", view, search, label] as const;
   return {
     queryKey,
-    queryFn: ({
+    queryFn: async ({
       pageParam,
       signal,
     }: {
@@ -660,14 +716,26 @@ function emailQueryOptions(
       const requestSignal = prefetchTimeoutMs
         ? AbortSignal.any([signal, AbortSignal.timeout(prefetchTimeoutMs)])
         : signal;
-      return apiFetch<EmailsPage>(`/api/emails?${params}`, {
+      let accountErrors: AccountError[] | undefined;
+      const page = await apiFetch<EmailsPage>(`/api/emails?${params}`, {
         signal: requestSignal,
+        onHeaders: (headers) => {
+          accountErrors = parseAccountErrorsHeader(
+            headers.get("X-Account-Errors"),
+          );
+        },
       });
+      return accountErrors ? { ...page, accountErrors } : page;
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
     staleTime: search ? 30_000 : 60_000,
-    retry: false,
+    // A page reload starts from an empty cache, so one 429/502/503 on the
+    // very first request used to leave the inbox looking permanently empty.
+    // Bounded retry only for transient/network errors — never for auth.
+    retry: (failureCount: number, error: unknown) =>
+      failureCount < 2 && isRetryableEmailsError(error),
+    retryDelay: (failureCount: number) => (failureCount === 0 ? 750 : 1500),
   };
 }
 
@@ -740,6 +808,18 @@ export function useEmails(
     return applyRecentSentEmails(visible, view, search, label);
   }, [q.data, view, search, label]);
 
+  // Union account errors across every loaded page, de-duped by account — a
+  // partial failure on page 2 must not get silently dropped just because
+  // page 1 fetched clean.
+  const accountErrors = useMemo(() => {
+    if (!q.data) return undefined;
+    const byEmail = new Map<string, AccountError>();
+    for (const page of q.data.pages as EmailsPage[]) {
+      for (const err of page.accountErrors ?? []) byEmail.set(err.email, err);
+    }
+    return byEmail.size > 0 ? [...byEmail.values()] : undefined;
+  }, [q.data]);
+
   // Placeholder InfiniteData includes the previous query's page token. Keep
   // pagination disabled until the new query owns the pages.
   const canPaginate = !q.isPlaceholderData;
@@ -756,6 +836,7 @@ export function useEmails(
     isError: q.isError && !hasCurrentQueryData,
     error: q.isError && !hasCurrentQueryData ? toError(q.error) : null,
     totalEstimate: q.data?.pages[0]?.totalEstimate,
+    accountErrors,
     refetch: q.refetch,
     hasNextPage: canPaginate && q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
@@ -871,6 +952,15 @@ export function useMarkRead() {
           emails.map((e) => (e.id === id ? { ...e, isRead } : e)),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      // Message-scoped: this only touches one message, so the row's unread
+      // count must move by ±1, not snap the whole thread to read/unread —
+      // see adjustInboxThreadUnreadOptimistic's doc.
+      adjustInboxThreadUnreadOptimistic(
+        qc,
+        resolvedThreadId ?? id,
+        isRead ? -1 : 1,
+      );
       const restartThread = resolvedThreadId
         ? supersedeCachedThreadFetch(resolvedThreadId)
         : false;
@@ -887,6 +977,7 @@ export function useMarkRead() {
       return {
         mutationVersion,
         threadId: resolvedThreadId,
+        inboxSnapshot,
         refreshThread:
           resolvedThreadId && restartThread
             ? { threadId: resolvedThreadId, accountEmail }
@@ -912,12 +1003,19 @@ export function useMarkRead() {
         new Map([[id, confirmedState]]),
         context?.threadId,
       );
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
     onSettled: (_data, _error, _variables, context) => {
       if (context?.refreshThread) {
         refreshThreadAfterMutations(context.refreshThread);
       }
-      delayedInvalidate(qc, [["emails"], ["labels"]]);
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]);
     },
   });
 }
@@ -925,9 +1023,17 @@ export function useMarkRead() {
 export function useMarkThreadRead() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (threadId: string) =>
-      callAction("mark-thread-read", { threadId }).then(assertActionSuccess),
-    onMutate: async (threadId) => {
+    mutationFn: ({
+      threadId,
+      accountEmail,
+    }: {
+      threadId: string;
+      accountEmail?: string;
+    }) =>
+      callAction("mark-thread-read", { threadId, accountEmail }).then(
+        assertActionSuccess,
+      ),
+    onMutate: async ({ threadId, accountEmail }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
@@ -952,6 +1058,8 @@ export function useMarkThreadRead() {
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
       }
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      markInboxThreadReadOptimistic(qc, new Set([threadId]), true);
       // Optimistic update
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
@@ -968,17 +1076,20 @@ export function useMarkThreadRead() {
       }
       return {
         mutations,
+        inboxSnapshot,
         refreshThread: restartThread
           ? {
               threadId,
-              accountEmail: allEmails.find(
-                (email) => (email.threadId || email.id) === threadId,
-              )?.accountEmail,
+              accountEmail:
+                accountEmail ??
+                allEmails.find(
+                  (email) => (email.threadId || email.id) === threadId,
+                )?.accountEmail,
             }
           : undefined,
       };
     },
-    onSuccess: (_data, threadId, context) => {
+    onSuccess: (_data, { threadId }, context) => {
       const confirmed = new Map<string, boolean | undefined | null>();
       for (const mutation of context?.mutations ?? []) {
         confirmed.set(
@@ -988,7 +1099,7 @@ export function useMarkThreadRead() {
       }
       applyReadMutationStates(qc, confirmed, threadId);
     },
-    onError: (_err, threadId, context) => {
+    onError: (_err, { threadId }, context) => {
       const rollback = new Map<string, boolean | undefined | null>();
       for (const mutation of context?.mutations ?? []) {
         rollback.set(
@@ -997,12 +1108,19 @@ export function useMarkThreadRead() {
         );
       }
       applyReadMutationStates(qc, rollback, threadId);
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
-    onSettled: (_data, _error, _threadId, context) => {
+    onSettled: (_data, _error, _variables, context) => {
       if (context?.refreshThread) {
         refreshThreadAfterMutations(context.refreshThread);
       }
-      delayedInvalidate(qc, [["emails"], ["labels"]]);
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]);
     },
   });
 }
@@ -1045,6 +1163,31 @@ export function useToggleStar() {
           emails.map((e) => (e.id === id ? { ...e, isStarred } : e)),
         ),
       );
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      const threadKey = resolvedThreadId ?? id;
+      if (isStarred) {
+        // Starring one message stars the thread row — correct as-is.
+        toggleInboxThreadsStarOptimistic(qc, new Set([threadKey]), true);
+      } else if (previousThread) {
+        // Only clear the row's star if no OTHER message in the thread is
+        // still starred — the server never removes STARRED at message scope
+        // (see applyLocalLabelDelta), so neither should we.
+        const otherStarred = previousThread.some(
+          (message) => message.id !== id && message.isStarred,
+        );
+        if (!otherStarred) {
+          toggleInboxThreadsStarOptimistic(qc, new Set([threadKey]), false);
+        }
+      } else {
+        // Thread not cached — only safe to clear when we can see from the
+        // inbox row itself that it's a single-message thread.
+        const row = inboxSnapshot
+          .flatMap(([, data]) => data?.items ?? [])
+          .find((item) => (item.threadId || item.id) === threadKey);
+        if ((row?.messageCount ?? 1) === 1) {
+          toggleInboxThreadsStarOptimistic(qc, new Set([threadKey]), false);
+        }
+      }
       if (resolvedThreadId && previousThread) {
         setCachedThread(
           resolvedThreadId,
@@ -1053,7 +1196,12 @@ export function useToggleStar() {
           ),
         );
       }
-      return { previous, previousThread, threadId: resolvedThreadId };
+      return {
+        previous,
+        previousThread,
+        threadId: resolvedThreadId,
+        inboxSnapshot,
+      };
     },
     onError: (_err, { id }, context) => {
       clearOptimisticOverride(id);
@@ -1061,8 +1209,16 @@ export function useToggleStar() {
       if (context?.threadId && context.previousThread) {
         setCachedThread(context.threadId, context.previousThread);
       }
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1111,48 +1267,75 @@ export function useArchiveEmail() {
           emails.filter((e) => (e.threadId || e.id) !== threadId),
         ),
       );
-      return { previous, threadId };
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      removeInboxThreadsOptimistic(qc, new Set([threadId]));
+      return { previous, threadId, inboxSnapshot };
     },
     onError: (err, _vars, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
       toast.error(
         archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
       );
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
+}
+
+export interface EmailAccountRef {
+  id: string;
+  accountEmail?: string;
 }
 
 export function useUnarchiveEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => {
+    mutationFn: ({ id, accountEmail }: EmailAccountRef) => {
       // Undo often lands inside the debounce window — drop the pending
       // archive so we never send a modify we immediately reverse.
       const cancelled = gmailMutationQueue.cancel("archive", id);
       if (cancelled) return Promise.resolve("cancelled-pending-archive");
-      return callAction("unarchive-email", { id }).then(assertActionSuccess);
+      return callAction("unarchive-email", { id, accountEmail }).then(
+        assertActionSuccess,
+      );
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      invalidateInboxThreads(qc);
+    },
   });
 }
 
 export function useUntrashEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      callAction("untrash-email", { id }).then(assertActionSuccess),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    mutationFn: ({ id, accountEmail }: EmailAccountRef) =>
+      callAction("untrash-email", { id, accountEmail }).then(
+        assertActionSuccess,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      invalidateInboxThreads(qc);
+    },
   });
 }
 
 export function useTrashEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      callAction("trash-email", { id }).then(assertActionSuccess),
-    onMutate: async (id: string) => {
+    mutationFn: ({ id, accountEmail }: EmailAccountRef) =>
+      callAction("trash-email", { id, accountEmail }).then(assertActionSuccess),
+    onMutate: async ({ id }: EmailAccountRef) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
@@ -1169,13 +1352,23 @@ export function useTrashEmail() {
           emails.filter((e) => (e.threadId || e.id) !== threadId),
         ),
       );
-      return { previous, threadId };
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      removeInboxThreadsOptimistic(qc, new Set([threadId]));
+      return { previous, threadId, inboxSnapshot };
     },
     onError: (_err, _id, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1238,18 +1431,28 @@ export function useBulkArchiveEmails() {
           emails.filter((e) => !threadIdSet.has(e.threadId || e.id)),
         ),
       );
-      return { previous, threadIds: [...threadIdSet] };
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      removeInboxThreadsOptimistic(qc, threadIdSet);
+      return { previous, threadIds: [...threadIdSet], inboxSnapshot };
     },
     onError: (err, _vars, context) => {
       for (const threadId of context?.threadIds ?? []) {
         unsuppressThread(threadId);
       }
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
       toast.error(
         archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
       );
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1284,15 +1487,25 @@ export function useBulkTrashEmails() {
           emails.filter((e) => !threadIdSet.has(e.threadId || e.id)),
         ),
       );
-      return { previous, threadIds: [...threadIdSet] };
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      removeInboxThreadsOptimistic(qc, threadIdSet);
+      return { previous, threadIds: [...threadIdSet], inboxSnapshot };
     },
     onError: (_err, _vars, context) => {
       for (const threadId of context?.threadIds ?? []) {
         unsuppressThread(threadId);
       }
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1327,13 +1540,27 @@ export function useBulkToggleStar() {
           emails.map((e) => (ids.has(e.id) ? { ...e, isStarred } : e)),
         ),
       );
-      return { previous, ids: [...ids] };
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      toggleInboxThreadsStarOptimistic(
+        qc,
+        new Set(targets.map((t) => t.threadId || t.id)),
+        isStarred,
+      );
+      return { previous, ids: [...ids], inboxSnapshot };
     },
     onError: (_err, _vars, context) => {
       for (const id of context?.ids ?? []) clearOptimisticOverride(id);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1368,13 +1595,27 @@ export function useBulkMarkRead() {
           emails.map((e) => (ids.has(e.id) ? { ...e, isRead } : e)),
         ),
       );
-      return { previous, ids: [...ids] };
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      markInboxThreadReadOptimistic(
+        qc,
+        new Set(targets.map((t) => t.threadId || t.id)),
+        isRead,
+      );
+      return { previous, ids: [...ids], inboxSnapshot };
     },
     onError: (_err, _vars, context) => {
       for (const id of context?.ids ?? []) clearOptimisticOverride(id);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxSnapshot) {
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+      }
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1410,7 +1651,12 @@ export function useMoveEmail() {
     onError: (_err, _vars, context) => {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1651,7 +1897,12 @@ export function useReportSpam() {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1689,7 +1940,12 @@ export function useBlockSender() {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1715,7 +1971,12 @@ export function useMuteThread() {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: () =>
+      delayedInvalidate(qc, [
+        ["emails"],
+        LABELS_QUERY_KEY,
+        INBOX_THREADS_QUERY_KEY,
+      ]),
   });
 }
 
@@ -1736,11 +1997,25 @@ export function useContacts() {
 
 export const EMPTY_LABELS: Label[] = [];
 
+/** Real action query key prefix for `list-labels` — matches every
+ * `accountEmails` variant, unlike the old (dead) `["labels"]` literal every
+ * caller used to invalidate. See useActionQuery's `["action", name, params]`
+ * key shape. */
+export const LABELS_QUERY_KEY = ["action", "list-labels"];
+
+interface ListLabelsResult {
+  labels: Label[];
+  errors: Array<{ accountEmail: string; error: string }>;
+}
+
+/** `data` stays `Label[]` for existing consumers even though the action
+ * returns `{ labels, errors }` — per-account label-fetch failures surface
+ * separately via `accountErrors`. */
 export function useLabels(accountEmails?: readonly string[]) {
   const accountFilter = accountEmails?.length
     ? [...new Set(accountEmails.map((email) => email.toLowerCase()))].sort()
     : undefined;
-  return useActionQuery<Label[]>(
+  const query = useActionQuery<ListLabelsResult>(
     "list-labels",
     accountFilter?.length ? { accountEmails: accountFilter } : {},
     {
@@ -1751,6 +2026,13 @@ export function useLabels(accountEmails?: readonly string[]) {
       staleTime: 60_000,
     },
   );
+  const accountErrors: AccountError[] | undefined = query.data?.errors.length
+    ? query.data.errors.map(({ accountEmail, error }) => ({
+        email: accountEmail,
+        error,
+      }))
+    : undefined;
+  return { ...query, data: query.data?.labels, accountErrors };
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────

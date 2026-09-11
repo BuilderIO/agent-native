@@ -220,7 +220,8 @@ export interface AgentChatRequest {
       | "no_progress"
       | "stream_ended"
       | "gateway_timeout"
-      | "network_interrupted";
+      | "network_interrupted"
+      | "rate_limited";
     actionPreparationTool?: string;
     /**
      * Number of server-driven background→background continuations already
@@ -571,6 +572,7 @@ export const CONTINUATION_REASONS = [
   "stream_ended",
   "gateway_timeout",
   "network_interrupted",
+  "rate_limited",
 ] as const;
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];

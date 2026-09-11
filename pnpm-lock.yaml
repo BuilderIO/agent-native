@@ -3703,6 +3703,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
+      '@jridgewell/trace-mapping':
+        specifier: 0.3.31
+        version: 0.3.31
       '@noble/hashes':
         specifier: ^2.3.0
         version: 2.3.0

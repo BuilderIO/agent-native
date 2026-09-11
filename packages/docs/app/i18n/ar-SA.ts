@@ -58,6 +58,10 @@ const arSA = {
     draftLabel: "مسودة",
     draftDescription:
       "هذه الصفحة قيد الإنشاء. قد يكون المحتوى غير مكتمل أو عرضة للتغيير قبل النشر.",
+    translationLabel: "مترجمة آليًا",
+    translationDescription:
+      "تمت ترجمة هذه الصفحة تلقائيًا وقد لا تكون دقيقة بشكل كامل.",
+    translationViewOriginal: "عرض النسخة الأصلية بالإنجليزية",
   },
   search: {
     dialogLabel: "البحث في الوثائق",
@@ -2344,10 +2348,11 @@ const arSA = {
     designCollaborationAndFullApps: "المراجعة والتسليم",
     designDevelopers: "دليل المطور",
     dispatchOverview: "نظرة عامة",
-    dispatchMessagingRouting: "المراسلة والتوجيه",
-    dispatchOperations: "وحدة تحكم المشغل",
-    dispatchVaultIntegrations: "الأسرار والتكاملات",
+    dispatchFeatures: "الميزات",
+    dispatchAgent: "التحدث مع الوكيل",
+    dispatchIntegrations: "الاستخدام عبر التطبيقات",
     dispatchDevelopers: "دليل المطور",
+    dispatchReference: "مرجع الإجراءات والبيانات",
     forms: "النماذج",
     formsOverview: "نظرة عامة",
     formsFeatures: "الميزات",

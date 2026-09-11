@@ -58,6 +58,10 @@ const koKR = {
     draftLabel: "초안",
     draftDescription:
       "이 페이지는 작업 중입니다. 게시 전까지 콘텐츠가 불완전하거나 변경될 수 있습니다.",
+    translationLabel: "기계 번역",
+    translationDescription:
+      "이 페이지는 자동으로 번역되었으며 내용이 완전히 정확하지 않을 수 있습니다.",
+    translationViewOriginal: "영어 원문 보기",
   },
   search: {
     dialogLabel: "문서 검색",
@@ -2352,10 +2356,11 @@ const koKR = {
     designCollaborationAndFullApps: "리뷰 및 핸드오프",
     designDevelopers: "개발자 가이드",
     dispatchOverview: "개요",
-    dispatchMessagingRouting: "메시징 및 라우팅",
-    dispatchOperations: "운영자 콘솔",
-    dispatchVaultIntegrations: "시크릿 및 통합",
+    dispatchFeatures: "기능",
+    dispatchAgent: "Agent와 대화",
+    dispatchIntegrations: "앱 간 사용",
     dispatchDevelopers: "개발자 가이드",
+    dispatchReference: "액션 및 데이터 참조",
     forms: "양식",
     formsOverview: "개요",
     formsFeatures: "기능",

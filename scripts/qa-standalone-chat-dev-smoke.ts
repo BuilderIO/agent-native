@@ -962,6 +962,7 @@ function discardSettledNavigationAborts(httpErrors: string[]): void {
 
 function isBenignConsoleError(text: string): boolean {
   if (text.includes("favicon")) return true;
+  // React 19 dev warns when agent-readable JSON discovery uses <script> tags.
   if (
     text.includes("Encountered a script tag while rendering React component")
   ) {

@@ -1187,6 +1187,7 @@ export function createAgentChatPlugin(
 
               // Fallback: bash-based wrapper for CLI-style scripts
               discoveredActionsAll[name] = {
+                cliWrapper: true,
                 tool: {
                   description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
                   parameters: {
@@ -3047,6 +3048,15 @@ export function createAgentChatPlugin(
           actionRouteAuth: options?.actionRouteAuth,
         });
       }
+      // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
+      // have to open the (single-process) local database itself while this
+      // server is already holding it open. Gated internally on deploy
+      // environment, loopback, and a per-process token — see dev-action-bridge.ts.
+      const { mountDevActionForwardRoute } =
+        await import("./dev-action-bridge.js");
+      mountDevActionForwardRoute(nitroApp, httpActions, {
+        appId: options?.appId,
+      });
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
         getOwnerContextFromEvent: resolveOwnerContext,

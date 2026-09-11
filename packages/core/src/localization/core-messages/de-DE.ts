@@ -616,6 +616,8 @@ const messages: AgentChatTranslation = {
     "Der Modellanbieter konnte nicht erreicht werden. Prüfe deine Verbindung und versuche es erneut.",
   "errorMessages.providerRateLimit":
     "Der Modellanbieter begrenzt diesen Chat derzeit. Warte einen Moment und versuche es dann erneut.",
+  "errorMessages.providerTransientRejection":
+    "Der KI-Anbieter hat diese Anfrage vorübergehend abgelehnt. Das behebt sich meist innerhalb einer Minute – versuche es erneut.",
   "errorMessages.startNewChat": "Neuen Chat starten",
   "errorMessages.upgradeAtBuilder": "Bei Builder.io upgraden",
   "feedback.inaccurate": "Ungenau",

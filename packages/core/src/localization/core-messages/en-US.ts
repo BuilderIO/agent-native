@@ -382,6 +382,8 @@ const messages = {
     "The model provider could not be reached. Check your connection and retry.",
   "errorMessages.providerRateLimit":
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+  "errorMessages.providerTransientRejection":
+    "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
   "errorMessages.startNewChat": "Start new chat",
   "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
   "feedback.inaccurate": "Inaccurate",

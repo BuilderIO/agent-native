@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -1055,6 +1056,81 @@ describe("design connect bridge endpoints", () => {
       expect(viaQuery.status).toBe(200);
       expect(viaQuery.body).toBe(tinyModule);
     } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("survives a client resetting a proxied WebSocket upgrade", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    // A dev server that accepts the upgrade and then holds the socket open,
+    // so the reset comes from the bridge's client side while both proxied
+    // sockets are live.
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(404);
+      res.end();
+    });
+    const devSockets: net.Socket[] = [];
+    devServer.on("upgrade", (_req, socket) => {
+      devSockets.push(socket);
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
+      );
+      socket.on("error", () => socket.destroy());
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const client = net.connect(port, "127.0.0.1");
+      await new Promise<void>((resolve, reject) => {
+        client.once("connect", resolve);
+        client.once("error", reject);
+      });
+      client.on("error", () => {});
+      client.write(
+        [
+          `GET /ws?previewToken=${bridge.previewToken} HTTP/1.1`,
+          `Host: 127.0.0.1:${port}`,
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version: 13",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+      await new Promise<void>((resolve) =>
+        client.once("data", () => resolve()),
+      );
+      // RST instead of FIN: this is what an abruptly closed tab produces and
+      // what surfaced as `read ECONNRESET` in the bridge.
+      client.resetAndDestroy();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const health = await getJson(`http://127.0.0.1:${port}/health`);
+      expect(health.status).toBe(200);
+      expect(health.body["ok"]).toBe(true);
+    } finally {
+      // The dev server still holds the proxied upstream socket open; drop
+      // every connection so close() does not wait on it.
+      for (const socket of devSockets) socket.destroy();
+      bridge.server.closeAllConnections();
+      devServer.closeAllConnections();
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );

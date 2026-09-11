@@ -32,12 +32,18 @@ import {
   type AgentNativeConfigContext,
   type AgentNativeConfigInput,
 } from "../config.js";
+import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import {
   RECURRING_JOBS_BUILD_MARKER_ENV_VAR,
   resolveRecurringJobsBuildMarker,
 } from "../server/agent-chat/recurring-jobs-runtime.js";
+import {
+  hashDatabaseKey,
+  removeDevActionDiscoveryFile,
+  writeDevActionDiscoveryFile,
+} from "../server/dev-action-bridge.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
@@ -3092,6 +3098,37 @@ function portExposer(): Plugin {
   };
 }
 
+/**
+ * Publish a discovery file while this dev server is listening so `pnpm
+ * action` can forward to it instead of opening the (single-process) local
+ * database itself. See `server/dev-action-bridge.ts` for the protocol and
+ * the route this pairs with.
+ */
+function devActionBridgePlugin(): Plugin {
+  return {
+    name: "agent-native-dev-action-bridge",
+    apply: "serve",
+    configureServer(server) {
+      const appRoot = process.cwd();
+      server.httpServer?.once("listening", () => {
+        const addr = server.httpServer?.address();
+        if (!addr || typeof addr !== "object" || !addr.port) return;
+        const databaseKey = hashDatabaseKey(
+          getRuntimeDatabaseUrl("pglite:./data/pglite"),
+        );
+        writeDevActionDiscoveryFile(
+          appRoot,
+          `http://127.0.0.1:${addr.port}`,
+          databaseKey,
+        );
+      });
+      const cleanup = () => removeDevActionDiscoveryFile(appRoot);
+      server.httpServer?.once("close", cleanup);
+      process.once("exit", cleanup);
+    },
+  };
+}
+
 function isNitroEnvironmentUnavailable(error: unknown): boolean {
   const candidate = error as {
     name?: unknown;
@@ -3950,6 +3987,7 @@ function createAgentNativePlugins(
     baseRedirectGuard(),
     frameworkDevDynamicForwarder(),
     portExposer(),
+    devActionBridgePlugin(),
     nitroStartupGate(),
     reactRouterVirtualInvalidationMirrorPlugin(),
     silenceConnectionResets(),

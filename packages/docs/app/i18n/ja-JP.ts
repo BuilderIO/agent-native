@@ -58,6 +58,10 @@ const jaJP = {
     draftLabel: "ドラフト",
     draftDescription:
       "このページは作成中です。内容は公開前に不完全であったり変更される場合があります。",
+    translationLabel: "機械翻訳",
+    translationDescription:
+      "このページは自動的に翻訳されたもので、内容が完全に正確でない場合があります。",
+    translationViewOriginal: "英語の原文を見る",
   },
   search: {
     dialogLabel: "ドキュメントを検索",
@@ -2367,10 +2371,11 @@ const jaJP = {
     designCollaborationAndFullApps: "レビューとハンドオフ",
     designDevelopers: "開発者ガイド",
     dispatchOverview: "概要",
-    dispatchMessagingRouting: "メッセージングとルーティング",
-    dispatchOperations: "オペレーターコンソール",
-    dispatchVaultIntegrations: "シークレットと連携",
+    dispatchFeatures: "機能",
+    dispatchAgent: "Agent との対話",
+    dispatchIntegrations: "クロスアプリ利用",
     dispatchDevelopers: "開発者ガイド",
+    dispatchReference: "アクションとデータのリファレンス",
     forms: "フォーム",
     formsOverview: "概要",
     formsFeatures: "機能",

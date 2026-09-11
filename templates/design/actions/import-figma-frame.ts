@@ -4,9 +4,12 @@ import { z } from "zod";
 
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+} from "../server/lib/figma-import-errors.js";
+import {
   buildScreenFilesFromFigmaNodes,
   fetchFigmaNode,
-  isFigmaRateLimitError,
   resolveTargetNodeId,
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
@@ -55,20 +58,24 @@ const schemaInput = z
 
 export default defineAction({
   description:
-    "Import a Figma frame/component by URL or file key + node id, mapping supported structure to fidelity-aware HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. Geometry and paint models HTML/CSS cannot represent faithfully (including masks, vector/boolean geometry, lines/arcs, advanced strokes/text, and transformed image crops) use rendered fallbacks instead of silently importing the wrong visual. Returns a fidelity report of which nodes were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret.",
+    "Import a Figma frame/component by URL or file key + node id, mapping supported structure to fidelity-aware HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. Geometry and paint models HTML/CSS cannot represent faithfully (including masks, vector/boolean geometry, lines/arcs, advanced strokes/text, and transformed image crops) use rendered fallbacks instead of silently importing the wrong visual. Returns a fidelity report of which nodes were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret. A failure names its own cause (unusable URL, node the token cannot read, oversized frame, Figma rate limit, missing durable file storage) and carries a stable errorCode — relay that message to the user instead of reporting a generic failure.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args, context) => {
     if (args.asNewScreen === false) {
-      throw new Error(
+      failFigmaImport(
         "asNewScreen: false is not supported yet. Omit it or pass true — the imported frame is always saved as a new screen.",
+        FIGMA_IMPORT_ERROR_CODES.unsupportedOption,
       );
     }
 
     const fileKey =
       parseFigmaFileKey(args.fileKey) ?? parseFigmaFileKey(args.figmaUrl);
     if (!fileKey) {
-      throw new Error("Could not find a Figma file key in the provided URL.");
+      failFigmaImport(
+        "Could not find a Figma file key in the provided URL.",
+        FIGMA_IMPORT_ERROR_CODES.urlInvalid,
+      );
     }
     const requestedNodeId =
       parseFigmaNodeId(args.nodeId) ?? parseFigmaNodeId(args.figmaUrl);
@@ -80,44 +87,32 @@ export default defineAction({
     const designId = await resolveImportDesignId(args.designId);
     await assertAccess("design", designId, "editor");
 
-    try {
-      const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
-      const rootNode = await fetchFigmaNode(fileKey, nodeId);
+    const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
+    const rootNode = await fetchFigmaNode(fileKey, nodeId);
 
-      const { files, fidelityEntries, omissionWarnings } =
-        await buildScreenFilesFromFigmaNodes(
-          fileKey,
-          { [nodeId]: rootNode },
-          {
-            source: () => ({ figmaUrl: args.figmaUrl ?? null }),
-          },
-        );
+    const { files, fidelityEntries, omissionWarnings } =
+      await buildScreenFilesFromFigmaNodes(
+        fileKey,
+        { [nodeId]: rootNode },
+        {
+          source: () => ({ figmaUrl: args.figmaUrl ?? null }),
+        },
+      );
 
-      await snapshotDesignBeforeAgentEdit(designId, context);
-      const saved = await saveImportedDesignFiles({
-        designId,
-        sourceType: "figma-import",
-        files,
-      });
+    await snapshotDesignBeforeAgentEdit(designId, context);
+    const saved = await saveImportedDesignFiles({
+      designId,
+      sourceType: "figma-import",
+      files,
+    });
 
-      return {
-        ...saved,
-        warnings: [...(saved.warnings ?? []), ...omissionWarnings],
-        figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
-        fidelityReport: summarizeFidelity(fidelityEntries),
-        guidance:
-          "Review fidelityReport.imageFallbacks for subtrees rendered as PNG (masks, vector/boolean geometry, lines/arcs, advanced strokes/text, transformed image crops, and unsupported node types) and fidelityReport.approximated for properties CSS cannot express exactly (rotation, per-side stroke alignment, radial/angular/diamond gradients, blur radius scale, and live component/variable/prototype semantics).",
-      };
-    } catch (err) {
-      if (isFigmaRateLimitError(err)) {
-        throw Object.assign(err, {
-          rateLimitRetryAfter: err.retryAfterSeconds,
-          rateLimitPlanTier: err.figmaPlanTier,
-          rateLimitType: err.figmaRateLimitType,
-          rateLimitUpgradeUrl: err.figmaUpgradeUrl,
-        });
-      }
-      throw err;
-    }
+    return {
+      ...saved,
+      warnings: [...(saved.warnings ?? []), ...omissionWarnings],
+      figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
+      fidelityReport: summarizeFidelity(fidelityEntries),
+      guidance:
+        "Review fidelityReport.imageFallbacks for subtrees rendered as PNG (masks, vector/boolean geometry, lines/arcs, advanced strokes/text, transformed image crops, and unsupported node types) and fidelityReport.approximated for properties CSS cannot express exactly (rotation, per-side stroke alignment, radial/angular/diamond gradients, blur radius scale, and live component/variable/prototype semantics).",
+    };
   },
 });

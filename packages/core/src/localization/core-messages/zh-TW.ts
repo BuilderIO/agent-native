@@ -363,6 +363,8 @@ const messages: AgentChatTranslation = {
     "無法連線至模型供應商。請檢查網路連線後重試。",
   "errorMessages.providerRateLimit":
     "模型供應商目前正在限制這個聊天的要求頻率。請稍候再試。",
+  "errorMessages.providerTransientRejection":
+    "AI 供應商暫時拒絕了這個請求。這種情況通常會在一分鐘內恢復,請重試。",
   "errorMessages.startNewChat": "開始新聊天",
   "errorMessages.upgradeAtBuilder": "在 Builder.io 升級",
   "feedback.inaccurate": "不準確",

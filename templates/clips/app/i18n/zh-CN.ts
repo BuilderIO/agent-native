@@ -1768,6 +1768,7 @@ const messages = {
       "{{consoleCount}} 个控制台问题 · {{networkCount}} 个失败请求",
     noFailures: "未检测到失败",
     failuresPresent: "检测到浏览器故障",
+    unviewedCount: "{{count}} 条未读",
     captureSuccessful: "诊断信息采集成功",
     capturedFrom: "采集自 {{source}}",
     browserCapture: "浏览器采集",

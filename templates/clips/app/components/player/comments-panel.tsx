@@ -498,22 +498,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
   );
 
   return (
-    <div
-      className={cn(
-        "flex min-h-0 flex-col bg-transparent",
-        !isInlinePresentation && "h-full",
-        isInlinePresentation && "lg:h-full lg:min-h-0",
-      )}
-    >
+    <div className="flex h-full min-h-0 flex-col bg-transparent">
       {isInlinePresentation && enableComments ? (
         <div className="mb-3 shrink-0">{composer}</div>
       ) : null}
       <div
         className={cn(
-          "min-h-0",
-          isInlinePresentation
-            ? "lg:flex-1 lg:overflow-y-auto lg:overscroll-contain"
-            : "flex-1 overflow-y-auto",
+          "min-h-0 flex-1 overflow-y-auto",
+          isInlinePresentation && "overscroll-contain",
           isSharePresentation && "flex min-h-0 flex-col",
         )}
       >
@@ -1099,6 +1091,7 @@ function CommentCard({
             <InlineMarkdown
               content={comment.content}
               className="mt-0.5 text-sm text-foreground"
+              renderLists
               protectedSpans={commentMentionSpans(comment.mentions)}
             />
 

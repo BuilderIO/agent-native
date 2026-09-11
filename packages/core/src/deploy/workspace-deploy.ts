@@ -40,6 +40,7 @@ import {
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppAudience,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromPackageJson,
@@ -48,6 +49,7 @@ import {
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
+import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
 import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
@@ -110,6 +112,7 @@ interface WorkspaceAppManifestEntry {
   name: string;
   description: string;
   path: string;
+  homePath: string;
   url?: string;
   isDispatch: boolean;
   audience: WorkspaceAppAudience;
@@ -120,6 +123,7 @@ interface WorkspaceAppManifestEntry {
 interface WorkspaceAppManifestOverride {
   id: string;
   url?: string;
+  homePath?: string;
   audience?: WorkspaceAppAudience;
   publicPaths?: string[];
   protectedPaths?: string[];
@@ -166,7 +170,7 @@ export async function runWorkspaceDeploy(
     );
   }
   assertNoReservedWorkspaceAppIds(apps);
-  const workspaceApps = readWorkspaceAppManifest(workspaceRoot, apps);
+  const workspaceApps = await readWorkspaceAppManifest(workspaceRoot, apps);
 
   const preset = resolvePreset(opts.preset, rawArgs);
   assertWorkspaceDeployProductionEnv({ buildOnly, preset });
@@ -1445,51 +1449,56 @@ function writeWorkspaceAppManifests(
   }
 }
 
-function readWorkspaceAppManifest(
+async function readWorkspaceAppManifest(
   workspaceRoot: string,
   apps: string[],
-): WorkspaceAppManifestEntry[] {
+): Promise<WorkspaceAppManifestEntry[]> {
   const explicitApps = readExistingWorkspaceAppManifest(workspaceRoot);
+  const entries: WorkspaceAppManifestEntry[] = [];
 
-  return apps
-    .map((app) => {
-      const appDir = path.join(workspaceRoot, "apps", app);
-      const pkg = readPackageJson(path.join(appDir, "package.json"));
-      const appPath = `/${app}`;
-      const explicit = explicitApps.get(app);
-      const url =
-        normalizeWorkspaceAppUrl(explicit?.url) ?? workspaceAppUrl(appPath);
-      const audience =
-        workspaceAppAudienceFromPackageJson(pkg) ??
-        explicit?.audience ??
-        DEFAULT_WORKSPACE_APP_AUDIENCE;
-      const packageRouteAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-      // Prefer the package.json value whenever the field was set — including
-      // an explicit empty array, which is how a per-app package.json signals
-      // "clear any previously-published manifest override." Falling back on
-      // length > 0 would silently keep the explicit override even after the
-      // app owner blanked their list.
-      const publicPaths =
-        packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
-      const protectedPaths =
-        packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
-      return {
-        id: app,
-        name: pkg?.displayName || titleCase(app),
-        description: pkg?.description || "",
-        path: appPath,
-        ...(url ? { url } : {}),
-        isDispatch: app === "dispatch",
-        audience,
-        publicPaths,
-        protectedPaths,
-      };
-    })
-    .sort((a, b) => {
-      if (a.id === "dispatch") return -1;
-      if (b.id === "dispatch") return 1;
-      return a.name.localeCompare(b.name);
+  for (const app of apps) {
+    const appDir = path.join(workspaceRoot, "apps", app);
+    const pkg = readPackageJson(path.join(appDir, "package.json"));
+    const appPath = `/${app}`;
+    const explicit = explicitApps.get(app);
+    const configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+    const url =
+      normalizeWorkspaceAppUrl(explicit?.url) ?? workspaceAppUrl(appPath);
+    const audience =
+      workspaceAppAudienceFromPackageJson(pkg) ??
+      explicit?.audience ??
+      DEFAULT_WORKSPACE_APP_AUDIENCE;
+    const packageRouteAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    // Prefer the package.json value whenever the field was set — including
+    // an explicit empty array, which is how a per-app package.json signals
+    // "clear any previously-published manifest override." Falling back on
+    // length > 0 would silently keep the explicit override even after the
+    // app owner blanked their list.
+    const publicPaths =
+      packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
+    const protectedPaths =
+      packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
+    entries.push({
+      id: app,
+      name: pkg?.displayName || titleCase(app),
+      description: pkg?.description || "",
+      path: appPath,
+      homePath: normalizeWorkspaceAppHomePath(
+        explicit?.homePath ?? configuredHomePath,
+      ),
+      ...(url ? { url } : {}),
+      isDispatch: app === "dispatch",
+      audience,
+      publicPaths,
+      protectedPaths,
     });
+  }
+
+  return entries.sort((a, b) => {
+    if (a.id === "dispatch") return -1;
+    if (b.id === "dispatch") return 1;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 function readExistingWorkspaceAppManifest(
@@ -1546,6 +1555,10 @@ function parseWorkspaceAppsManifest(
       const id = typeof e.id === "string" ? e.id.trim() : "";
       if (!id) return null;
       const url = normalizeWorkspaceAppUrl(e.url);
+      const hasHomePath = Object.prototype.hasOwnProperty.call(e, "homePath");
+      const homePath = hasHomePath
+        ? normalizeWorkspaceAppHomePath(e.homePath)
+        : undefined;
       const audience =
         e.audience === undefined
           ? undefined
@@ -1555,6 +1568,7 @@ function parseWorkspaceAppsManifest(
       return {
         id,
         ...(url ? { url } : {}),
+        ...(homePath ? { homePath } : {}),
         ...(audience ? { audience } : {}),
         ...(publicPaths.length > 0 ? { publicPaths } : {}),
         ...(protectedPaths.length > 0 ? { protectedPaths } : {}),

@@ -10,7 +10,11 @@ const analyticsMocks = vi.hoisted(() => ({
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
-import { notifySessionInvalidated, useSession } from "./use-session.js";
+import {
+  notifySessionInvalidated,
+  recheckSessionAfterUnauthorized,
+  useSession,
+} from "./use-session.js";
 
 /**
  * A fresh copy of the session module. `signingOut` is one-way for the life of a
@@ -486,6 +490,89 @@ describe("useSession", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
+    expect(container.textContent).toBe("signing-out");
+  });
+
+  it("re-resolves the session after an authenticated request comes back 401", async () => {
+    // The half-authenticated state behind the reported logout race: the last
+    // completed read said "authenticated", so the shell stays mounted and every
+    // data query paints its own generic load error. Nothing else tells the gate
+    // the server stopped recognising this browser.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ userId: "user-401", email: "stale@example.com" }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: "Not authenticated" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderConsumers(["first"]);
+    expect(container.textContent).toBe("stale@example.com");
+
+    await act(async () => {
+      recheckSessionAfterUnauthorized();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("signed-out");
+  });
+
+  it("throttles the 401 re-check so one failing screen cannot storm the session endpoint", async () => {
+    // A listing page fails many queries at once. Each invalidation schedules a
+    // fresh read, so an unthrottled re-check turns one expired cookie into a
+    // request per failing query.
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ userId: "user-storm", email: "storm@example.com" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderConsumers(["first"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      recheckSessionAfterUnauthorized();
+      recheckSessionAfterUnauthorized();
+      recheckSessionAfterUnauthorized();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores a 401 re-check once sign-out has started", async () => {
+    // Sign-out revokes the session and then navigates, so the 401s it produces
+    // are expected. Asking again here is exactly how a late reply used to
+    // resurrect the session the document had already given up.
+    const {
+      beginSignOut: begin,
+      recheckSessionAfterUnauthorized: recheck,
+      useSession: useFreshSession,
+    } = await freshSessionModule();
+    function Probe() {
+      return <div data-testid="status">{useFreshSession().status}</div>;
+    }
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ userId: "user-out", email: "leaving@example.com" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      begin();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fetchMock.mockClear();
+
+    await act(async () => {
+      recheck();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(container.textContent).toBe("signing-out");
   });
 

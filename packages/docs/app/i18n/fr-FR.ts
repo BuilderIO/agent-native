@@ -58,6 +58,10 @@ const frFR = {
     draftLabel: "Brouillon",
     draftDescription:
       "Cette page est en cours de rédaction. Le contenu peut être incomplet ou sujet à modification avant publication.",
+    translationLabel: "Traduction automatique",
+    translationDescription:
+      "Cette page a été traduite automatiquement et peut ne pas être entièrement exacte.",
+    translationViewOriginal: "Voir l'original en anglais",
   },
   search: {
     dialogLabel: "Rechercher la documentation",
@@ -2384,10 +2388,11 @@ const frFR = {
     designCollaborationAndFullApps: "Revue et transfert",
     designDevelopers: "Guide développeur",
     dispatchOverview: "Vue d'ensemble",
-    dispatchMessagingRouting: "Messagerie et routage",
-    dispatchOperations: "Console opérateur",
-    dispatchVaultIntegrations: "Secrets et intégrations",
+    dispatchFeatures: "Fonctionnalités",
+    dispatchAgent: "Parler à l'agent",
+    dispatchIntegrations: "Utilisation multi-apps",
     dispatchDevelopers: "Guide développeur",
+    dispatchReference: "Référence des actions et données",
     forms: "Formulaires",
     formsOverview: "Vue d'ensemble",
     formsFeatures: "Fonctionnalités",

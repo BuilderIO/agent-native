@@ -28,6 +28,7 @@
  * helpers (search for "// keep in sync" comments).
  */
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
+import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
 declare var __READ_ONLY__: boolean;
 declare var __TEXT_EDITING_ENABLED__: boolean;
@@ -591,7 +592,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
    * Resolve a DOM element to the authored source site exposed by its framework
    * dev runtime, read-only, so the editor and coding agent anchor to evidence
    * instead of a selector guess. Explicit data-source-* / data-loc attributes
-   * still win at the call sites below.
+   * still win at the call sites below; an app that stamps those attributes at
+   * build time opts into authored precision without relying on runtime fibers.
    *
    * React tiers:
    *   • React <=18 — the structured `_debugSource` fiber field (authored file,
@@ -617,9 +619,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
    * the transformed line, not the authored one — `_debugSource` and
    * data-source-* attributes are authored coordinates. React 19 has ONLY the
    * stack tier, so this is the common case, not the corner: on the React 19.2 +
-   * Vite 8 target an `<h1>` authored at line 13 reports as line 26. That is why
-   * every result carries `method`, and why nothing downstream may present a
-   * `debug-stack` position as the authored JSX line.
+   * Vite 8 target an `<h1>` authored at line 13 reports as line 26. The bridge
+   * fetches that served module's source map and upgrades a verified mapping to
+   * `debug-stack-remapped`; until then every result carries `method`, and
+   * nothing downstream may present a plain `debug-stack` position as authored.
    *
    * Keep in sync with ../../../pages/design-editor/source-location.ts (the
    * unit-tested parser) and source-location.bridge.ts; bridge files may not
@@ -644,23 +647,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   // webpack-internal:/// (webpack/Next.js/CRA), Vite's /@fs/ absolute serving,
   // plain http(s) dev-server paths and file: URLs all reduce to one path here.
-  function resolveProvenanceFrameUrl(rawUrl: string): string | null {
+  // Keep the served URL as well: React 19 reports transformed coordinates, and
+  // the matching Vite source map is only available from that URL.
+  function resolveProvenanceFrameUrl(rawUrl: string): {
+    sourceFile: string;
+    servedUrl?: string;
+    localServedOutput: boolean;
+  } | null {
     if (rawUrl.indexOf("webpack-internal:///") === 0) {
       var webpackPath = rawUrl
         .slice("webpack-internal:///".length)
         .replace(/^\.\//, "");
-      return webpackPath || null;
+      return webpackPath
+        ? { sourceFile: webpackPath, localServedOutput: false }
+        : null;
     }
     try {
-      var url = new URL(rawUrl);
+      var baseUrl =
+        typeof document !== "undefined" ? document.baseURI : undefined;
+      var url = baseUrl ? new URL(rawUrl, baseUrl) : new URL(rawUrl);
       var path = decodeURIComponent(url.pathname);
+      var localServedOutput = path.indexOf("/@fs/") === 0;
       if (path.indexOf("/@fs/") === 0) {
         path = path.slice("/@fs".length);
       } else if (url.protocol !== "file:") {
         path = path.replace(/^\/+/, "");
       }
-      return path || null;
+      return path
+        ? {
+            sourceFile: path,
+            servedUrl: url.href,
+            localServedOutput: localServedOutput,
+          }
+        : null;
     } catch (_error) {
+      // coercion-ok: malformed stack URLs have no source location.
       return null;
     }
   }
@@ -673,19 +694,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     line: number;
     column: number;
     functionName?: string;
+    servedUrl?: string;
+    localServedOutput: boolean;
   } | null {
     var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
     if (!match) return null;
-    var sourceFile = resolveProvenanceFrameUrl(match[2]!);
-    if (!sourceFile || isProvenanceNoisePath(sourceFile)) return null;
+    var resolved = resolveProvenanceFrameUrl(match[2]!);
+    if (!resolved) return null;
+    // A Vite /@fs/ frame is a real local file even when its path contains
+    // dist/ or node_modules/. Ordinary runtime/module frames retain the noise
+    // filter so React internals never become element provenance.
+    if (
+      !resolved.localServedOutput &&
+      isProvenanceNoisePath(resolved.sourceFile)
+    ) {
+      return null;
+    }
     var line = parseInt(match[3]!, 10);
     var column = parseInt(match[4]!, 10);
     if (!isFinite(line) || !isFinite(column)) return null;
     return {
-      sourceFile: sourceFile,
+      sourceFile: resolved.sourceFile,
       line: line,
       column: column,
       functionName: match[1] || undefined,
+      servedUrl: resolved.servedUrl,
+      localServedOutput: resolved.localServedOutput,
     };
   }
 
@@ -695,6 +729,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     column?: number;
     functionName?: string;
     structured: boolean;
+    servedUrl?: string;
   } | null {
     var source =
       fiber._debugSource ||
@@ -726,6 +761,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           column: parsed.column,
           functionName: parsed.functionName,
           structured: false,
+          servedUrl: parsed.servedUrl,
         };
       }
     }
@@ -748,12 +784,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       | "data-attribute"
       | "debug-source"
       | "debug-stack"
+      | "debug-stack-remapped"
       | "vue-inspector"
       | "svelte-meta";
     // Which tier produced ownerLine/ownerColumn. Tracked separately because an
     // element can carry an authored data-source-* position while its owner site
     // is only reachable through the (transformed) owner stack.
-    ownerMethod?: "debug-source" | "debug-stack";
+    ownerMethod?: "debug-source" | "debug-stack" | "debug-stack-remapped";
     unavailableReason?: "not-framework" | "no-debug-info";
   };
 
@@ -807,20 +844,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var leafFiber = reactFiberOf(el);
     if (!leafFiber) return { unavailableReason: "not-framework" };
 
-    var elementLocation: ReturnType<typeof fiberDebugLocation> = null;
+    var elementLocation = fiberDebugLocation(leafFiber);
     var componentFiber: any = null;
-    var fiber = leafFiber;
+    var fiber = leafFiber.return || leafFiber.parent || leafFiber._debugOwner;
     for (var depth = 0; fiber && depth < 12; depth += 1) {
-      if (!elementLocation) elementLocation = fiberDebugLocation(fiber);
-      if (
-        !componentFiber &&
-        fiber !== leafFiber &&
-        typeof fiber.type === "function"
-      ) {
+      if (!componentFiber && typeof fiber.type === "function") {
         componentFiber = fiber;
       }
-      if (elementLocation && componentFiber) break;
-      fiber = fiber.return;
+      if (componentFiber) break;
+      fiber = fiber.return || fiber.parent || fiber._debugOwner;
     }
     if (!elementLocation) {
       return { framework: "react", unavailableReason: "no-debug-info" };
@@ -831,6 +863,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         componentFiber.type &&
         (componentFiber.type.displayName || componentFiber.type.name)) ||
       elementLocation.functionName ||
+      elementLocation.sourceFile.split("/").pop()?.split(".")[0] ||
       undefined;
     var provenance: FrameworkDebugProvenance = {
       framework: "react",
@@ -857,6 +890,193 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     reactDebugProvenanceCache?.set(el, provenance);
     return provenance;
+  }
+
+  var sourceMapPromiseCache =
+    typeof Map !== "undefined" ? new Map<string, Promise<any>>() : null;
+
+  function unavailableProvenanceValue(): null {
+    return null;
+  }
+
+  function sourceMapRequestFailure(_error: unknown): null {
+    return unavailableProvenanceValue();
+  }
+
+  function sourceMapUrlForFrame(servedUrl: string | undefined): string | null {
+    if (!servedUrl) return null;
+    try {
+      var baseUrl =
+        typeof document !== "undefined" ? document.baseURI : undefined;
+      var url = baseUrl ? new URL(servedUrl, baseUrl) : new URL(servedUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+      url.pathname = url.pathname + ".map";
+      return url.href;
+    } catch (_error) {
+      // coercion-ok: a non-URL stack source has no fetchable source map.
+      return unavailableProvenanceValue();
+    }
+  }
+
+  function loadProvenanceSourceMap(
+    servedUrl: string | undefined,
+  ): Promise<any> {
+    var mapUrl = sourceMapUrlForFrame(servedUrl);
+    if (!mapUrl) return Promise.resolve(null);
+    var cached = sourceMapPromiseCache?.get(mapUrl);
+    if (cached) return cached;
+    var request = fetch(mapUrl, { credentials: "same-origin" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .catch(sourceMapRequestFailure);
+    sourceMapPromiseCache?.set(mapUrl, request);
+    return request;
+  }
+
+  function sourceFileFromSourceMap(
+    source: unknown,
+    mapUrl: string,
+    sourceRoot: unknown,
+  ): string | null {
+    if (typeof source !== "string" || !source) return null;
+    try {
+      var base =
+        typeof sourceRoot === "string" && sourceRoot
+          ? new URL(sourceRoot, mapUrl)
+          : new URL(".", mapUrl);
+      var sourceUrl = new URL(source, base);
+      return resolveProvenanceFrameUrl(sourceUrl.href)?.sourceFile || null;
+    } catch (_error) {
+      // coercion-ok: an invalid map source is an unavailable authored path.
+      return unavailableProvenanceValue();
+    }
+  }
+
+  function traceMappedProvenanceLocation(
+    location: ReturnType<typeof fiberDebugLocation>,
+    map: any,
+    mapUrl: string,
+  ): any {
+    if (!location || !map || typeof map !== "object") return null;
+    try {
+      var original = originalPositionFor(new TraceMap(map), {
+        line: location.line,
+        column: Math.max(0, Number(location.column || 1) - 1),
+      });
+      if (
+        !original ||
+        typeof original.source !== "string" ||
+        !Number.isFinite(original.line) ||
+        !Number.isFinite(original.column)
+      ) {
+        return null;
+      }
+      var sourceFile = sourceFileFromSourceMap(
+        original.source,
+        mapUrl,
+        map.sourceRoot,
+      );
+      if (!sourceFile) return null;
+      return {
+        sourceFile: sourceFile,
+        line: original.line,
+        column: original.column + 1,
+        functionName: original.name || location.functionName,
+        structured: false,
+        servedUrl: undefined,
+      };
+    } catch (_error) {
+      // coercion-ok: malformed source maps remain a transformed location.
+      return unavailableProvenanceValue();
+    }
+  }
+
+  function remapProvenanceLocation(
+    location: ReturnType<typeof fiberDebugLocation>,
+  ): Promise<any> {
+    if (!location || location.structured || !location.servedUrl) {
+      return Promise.resolve(null);
+    }
+    var mapUrl = sourceMapUrlForFrame(location.servedUrl);
+    if (!mapUrl) return Promise.resolve(null);
+    return loadProvenanceSourceMap(location.servedUrl).then(function (map) {
+      return traceMappedProvenanceLocation(location, map, mapUrl);
+    });
+  }
+
+  function remapReactElementProvenance(
+    el: Element,
+    provenance: FrameworkDebugProvenance,
+  ): Promise<FrameworkDebugProvenance | null> {
+    if (
+      provenance.framework !== "react" ||
+      (!provenance.sourceFile && !provenance.ownerSourceFile)
+    ) {
+      return Promise.resolve(null);
+    }
+    var leafFiber = reactFiberOf(el);
+    if (!leafFiber) return Promise.resolve(null);
+    var leafLocation = fiberDebugLocation(leafFiber);
+    var componentFiber: any = null;
+    var fiber = leafFiber.return || leafFiber.parent || leafFiber._debugOwner;
+    for (var depth = 0; fiber && depth < 12; depth += 1) {
+      if (typeof fiber.type === "function") {
+        componentFiber = fiber;
+        break;
+      }
+      fiber = fiber.return || fiber.parent || fiber._debugOwner;
+    }
+    var ownerLocation = componentFiber
+      ? fiberDebugLocation(componentFiber)
+      : null;
+    return Promise.all([
+      provenance.method === "debug-stack"
+        ? remapProvenanceLocation(leafLocation)
+        : Promise.resolve(null),
+      provenance.ownerMethod === "debug-stack"
+        ? remapProvenanceLocation(ownerLocation)
+        : Promise.resolve(null),
+    ]).then(function ([mappedLeaf, mappedOwner]) {
+      if (!mappedLeaf && !mappedOwner) return null;
+      var next = { ...provenance };
+      if (mappedLeaf) {
+        next.sourceFile = mappedLeaf.sourceFile;
+        next.line = mappedLeaf.line;
+        next.column = mappedLeaf.column;
+        next.method = "debug-stack-remapped";
+      }
+      if (mappedOwner) {
+        next.ownerSourceFile = mappedOwner.sourceFile;
+        next.ownerLine = mappedOwner.line;
+        next.ownerColumn = mappedOwner.column;
+        next.ownerMethod = "debug-stack-remapped";
+      }
+      reactDebugProvenanceCache?.set(el, next);
+      return next;
+    });
+  }
+
+  function remapReactDocumentProvenance(): void {
+    if (!runtimeLayerSnapshotEnabled || !document.body) return;
+    var elements = Array.prototype.slice.call(
+      document.body.querySelectorAll("*"),
+    ) as Element[];
+    var pending: Promise<FrameworkDebugProvenance | null>[] = [];
+    elements.forEach(function (element) {
+      var provenance = frameworkDebugProvenance(element);
+      if (
+        provenance.framework === "react" &&
+        (provenance.method === "debug-stack" ||
+          provenance.ownerMethod === "debug-stack")
+      ) {
+        pending.push(remapReactElementProvenance(element, provenance));
+      }
+    });
+    if (pending.length === 0) return;
+    void Promise.all(pending).then(function (results) {
+      if (results.some(Boolean)) scheduleRuntimeLayerSnapshot();
+    });
   }
 
   function parseFrameworkDataLoc(
@@ -1051,6 +1271,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       method:
         declaredMethod === "debug-source" ||
         declaredMethod === "debug-stack" ||
+        declaredMethod === "debug-stack-remapped" ||
         declaredMethod === "vue-inspector" ||
         declaredMethod === "svelte-meta"
           ? declaredMethod
@@ -2634,7 +2855,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function postElementSelect(el: Element, e?: MouseEvent): void {
+    var selectionGenerationAtPost = ++selectionGeneration;
     rememberLiveVisualEditOriginalStyles(el);
+    var intent = e ? selectionIntentFromEvent(e) : undefined;
     var message: {
       type: string;
       payload: unknown;
@@ -2643,8 +2866,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       type: "element-select",
       payload: getElementInfo(el),
     };
-    if (e) message.intent = selectionIntentFromEvent(e);
+    if (intent) message.intent = intent;
     (window.parent as Window).postMessage(message, "*");
+
+    // React 19 gives us a transformed stack coordinate synchronously. Resolve
+    // its Vite map after the first paint, then echo the same selection with the
+    // authored location. The generation and identity checks keep a slow map
+    // response from stealing a newer hit or changing additive selection state.
+    var framework = frameworkDebugProvenance(el);
+    if (
+      framework.framework === "react" &&
+      (framework.method === "debug-stack" ||
+        framework.ownerMethod === "debug-stack")
+    ) {
+      void remapReactElementProvenance(el, framework).then(function (mapped) {
+        if (
+          !mapped ||
+          el.isConnected === false ||
+          selectedEl !== el ||
+          selectionGeneration !== selectionGenerationAtPost
+        ) {
+          return;
+        }
+        (window.parent as Window).postMessage(
+          { type: "element-select", payload: getElementInfo(el) },
+          "*",
+        );
+        remapReactDocumentProvenance();
+      });
+    }
   }
 
   // Every element the click path can reach, not just the id-bearing ones: an id
@@ -3180,6 +3430,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
+  var selectionGeneration = 0;
   // When true, selection chrome stays hidden through async reflows so a
   // keyboard-nudge burst does not flicker; selection itself is unchanged.
   var selectionChromeHidden = false;
