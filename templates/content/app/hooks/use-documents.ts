@@ -26,6 +26,7 @@ import {
   documentQueryFilter,
   type DocumentQueryContext,
 } from "../lib/document-query";
+import { DOCUMENT_SCOPED_READ_RETRY_OPTIONS } from "../lib/document-scoped-read-retry";
 import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseItemsContainingDocumentFilter,
@@ -562,7 +563,14 @@ export function usePreviewDocumentDraft(documentId: string | null) {
   return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
     "get-preview-document-draft",
     documentId ? { documentId } : undefined,
-    { enabled: !!documentId, retry: false },
+    {
+      enabled: !!documentId,
+      // This read only runs for a document that already reported canEdit, so it
+      // cannot legitimately refuse its own draft: 403/404 means the row is not
+      // visible to this connection yet. Every other failure class stays
+      // terminal exactly as before.
+      ...DOCUMENT_SCOPED_READ_RETRY_OPTIONS,
+    },
   );
 }
 
