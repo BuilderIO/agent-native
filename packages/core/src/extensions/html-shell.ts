@@ -733,6 +733,8 @@ export function buildExtensionHtml(
 	      var _resizeWorkScheduled = false;
 	      var _positionObservationScheduled = false;
 	      var _positionMonitorScheduled = false;
+	      // ponytail: cap animation polling at 120 frames; target affected properties for longer motion.
+	      var _positionMonitorFramesRemaining = 0;
 	      var _scheduleResizeWork = function() {
 	        if (_resizeWorkScheduled) return;
 	        _resizeWorkScheduled = true;
@@ -750,10 +752,12 @@ export function buildExtensionHtml(
 	        });
 	      };
 	      var _schedulePositionMonitor = function() {
+	        if (_positionMonitorFramesRemaining <= 0) return;
 	        if (_positionMonitorScheduled) return;
 	        _positionMonitorScheduled = true;
 	        _enqueueResizeWork(function() {
 	          _positionMonitorScheduled = false;
+	          _positionMonitorFramesRemaining -= 1;
 	          _scheduleResizeWork();
 	          if (typeof document.getAnimations !== 'function') return;
 	          var animations = document.getAnimations();
@@ -767,6 +771,10 @@ export function buildExtensionHtml(
 	            }
 	          }
 	        });
+	      };
+	      var _startPositionMonitor = function() {
+	        _positionMonitorFramesRemaining = 120;
+	        _schedulePositionMonitor();
 	      };
 	      var _lastH = 0;
 	      var _reportHeight = function() {
@@ -802,10 +810,9 @@ export function buildExtensionHtml(
 	      };
 	      window.addEventListener('scroll', _scheduleResizeWork, true);
 	      window.addEventListener('resize', _scheduleResizeWork);
-	      document.addEventListener('animationstart', _schedulePositionMonitor, true);
-	      document.addEventListener('animationiteration', _schedulePositionMonitor, true);
-	      document.addEventListener('transitionrun', _schedulePositionMonitor, true);
-	      document.addEventListener('transitionstart', _schedulePositionMonitor, true);
+	      document.addEventListener('animationstart', _startPositionMonitor, true);
+	      document.addEventListener('transitionrun', _startPositionMonitor, true);
+	      document.addEventListener('transitionstart', _startPositionMonitor, true);
 	      if (typeof ResizeObserver !== 'undefined') {
 	        _ro = new ResizeObserver(_scheduleResizeWork);
 	        document.addEventListener('DOMContentLoaded', function() {

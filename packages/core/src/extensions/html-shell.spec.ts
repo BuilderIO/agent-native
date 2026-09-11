@@ -163,7 +163,11 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("requestAnimationFrame");
     expect(html).toContain("_positionObservationScheduled");
     expect(html).toContain("_schedulePositionObservation");
+    expect(html).toContain("_positionMonitorFramesRemaining");
     expect(html).toContain("document.getAnimations()");
+    expect(html).not.toContain(
+      "document.addEventListener('animationiteration'",
+    );
     expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");
     expect(html).toContain("document.createTreeWalker(body, 4)");

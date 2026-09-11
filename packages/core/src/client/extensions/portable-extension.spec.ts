@@ -46,7 +46,11 @@ describe("portable extension runtime", () => {
     expect(html).toContain("requestAnimationFrame");
     expect(html).toContain("positionObservationScheduled");
     expect(html).toContain("schedulePositionObservation");
+    expect(html).toContain("positionMonitorFramesRemaining");
     expect(html).toContain("document.getAnimations()");
+    expect(html).not.toContain(
+      "document.addEventListener('animationiteration'",
+    );
     expect(html).toContain("document.addEventListener('transitionstart'");
     expect(html).toContain("new MutationObserver");
     expect(html).toContain("document.createTreeWalker(body, 4)");
