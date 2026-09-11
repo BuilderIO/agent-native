@@ -1131,6 +1131,36 @@ function stripPreviewTokenQueryParam(search: string): string {
   return kept.length > 0 ? `?${kept.join("&")}` : "";
 }
 
+/** Browser navigations of a top-level document or a frame. Sec-Fetch-Dest is a
+ *  forbidden header, so page JS cannot forge it; Node's fetch never sends it. */
+function isFrameNavigationRequest(req: IncomingMessage): boolean {
+  const dest = readHeader(req, "sec-fetch-dest");
+  return dest === "document" || dest === "iframe" || dest === "frame";
+}
+
+/** The bridgeKey (and previewToken) of the /live-edit page a navigation came
+ *  from, when its referer is that page on this bridge. */
+function keyedLiveEditOrigin(
+  referer: string | undefined,
+  bridgeUrl: string,
+): { bridgeKey: string; previewToken: string } | null {
+  if (!referer) return null;
+  try {
+    const url = new URL(referer);
+    if (url.origin !== new URL(bridgeUrl).origin) return null;
+    if (url.pathname !== "/live-edit") return null;
+    const bridgeKey = url.searchParams.get("bridgeKey")?.trim() ?? "";
+    if (!bridgeKey) return null;
+    return {
+      bridgeKey,
+      previewToken: url.searchParams.get("previewToken")?.trim() ?? "",
+    };
+  } catch {
+    // coercion-ok: an unparseable referer carries no bridge identity.
+    return null;
+  }
+}
+
 function resolvePreviewProxyUrl(
   devServerUrl: string,
   requestUrl: string | undefined,
@@ -2741,6 +2771,28 @@ export async function startDesignConnectBridge(
               `${proxyRequestUrl.pathname}${stripPreviewTokenQueryParam(proxyRequestUrl.search)}`,
             );
             const method = req.method ?? "GET";
+            // A keyed frame that navigates (router redirect, home link) lands
+            // here with no key of its own; injecting the unkeyed script would
+            // boot it with whichever screen registered last. Its referer is
+            // the /live-edit URL it came from, so send it back through
+            // /live-edit with that key and the frame keeps its identity.
+            if (method === "GET" && isFrameNavigationRequest(req)) {
+              const origin = keyedLiveEditOrigin(
+                readHeader(req, "referer"),
+                manifest.bridgeUrl,
+              );
+              if (origin) {
+                const next = new URL("/live-edit", manifest.bridgeUrl);
+                next.searchParams.set("url", targetUrl);
+                next.searchParams.set("bridgeKey", origin.bridgeKey);
+                if (origin.previewToken) {
+                  next.searchParams.set("previewToken", origin.previewToken);
+                }
+                res.writeHead(302, { location: next.toString() });
+                res.end();
+                return;
+              }
+            }
             const requestBody =
               method === "GET" || method === "HEAD"
                 ? undefined
@@ -2764,11 +2816,7 @@ export async function startDesignConnectBridge(
             // A frame navigating to the app's own routes is a document too:
             // without the bridge injection here, a redirect or home link
             // inside a visual-edit frame would silently drop live editing.
-            const navigationDest = readHeader(req, "sec-fetch-dest");
-            const documentNavigation =
-              navigationDest === "document" ||
-              navigationDest === "iframe" ||
-              navigationDest === "frame";
+            const documentNavigation = isFrameNavigationRequest(req);
             const responseBody =
               documentNavigation && contentType.includes("html")
                 ? Buffer.from(

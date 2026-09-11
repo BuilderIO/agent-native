@@ -1062,6 +1062,90 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("sends a keyed frame's navigation back through /live-edit with its own bridgeKey", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(
+        `<!doctype html><title>${req.url}</title><h1>page ${req.url}</h1>`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const auth = { "x-design-preview-token": bridge.previewToken };
+      await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
+          bridgeKey: "screen-a",
+        },
+        auth,
+      );
+      // Registered last: this is what the unkeyed slot would hand out.
+      await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            '<script>window.__screenBridge="B";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
+          bridgeKey: "screen-b",
+        },
+        auth,
+      );
+      // Frame A follows a link to /home. The browser tags it as an iframe
+      // navigation and its referer is the keyed /live-edit URL it came from.
+      const navigated = await fetch(`${base}/home`, {
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          referer: `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+        },
+      });
+      expect(navigated.status).toBe(302);
+      const location = new URL(navigated.headers.get("location") ?? "");
+      expect(location.pathname).toBe("/live-edit");
+      expect(location.searchParams.get("url")).toBe(
+        `http://127.0.0.1:${devPort}/home`,
+      );
+      expect(location.searchParams.get("bridgeKey")).toBe("screen-a");
+      const landed = await getText(location.toString());
+      expect(landed.status).toBe(200);
+      expect(landed.body).toContain("page /home");
+      expect(landed.body).toContain('window.__screenBridge="A"');
+      expect(landed.body).not.toContain('window.__screenBridge="B"');
+
+      // A navigation with no keyed referer still gets the proxied page with
+      // the unkeyed bridge, as before.
+      const unkeyed = await fetch(`${base}/home`, {
+        redirect: "manual",
+        headers: { ...auth, "sec-fetch-dest": "iframe" },
+      });
+      expect(unkeyed.status).toBe(200);
+      expect(await unkeyed.text()).toContain("page /home");
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("proxies a frame navigation to the bare root instead of serving the control-plane manifest", async () => {
     const root = tmpDir();
     const devPort = await freePort();
