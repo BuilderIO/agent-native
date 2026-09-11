@@ -4,6 +4,8 @@ import type { EmailMessage } from "@shared/types";
 import { describe, expect, it, afterEach, vi } from "vitest";
 
 import {
+  apiFetch,
+  type ApiError,
   consumeExternalEmailRefresh,
   beginReadMutation,
   confirmReadMutation,
@@ -361,6 +363,44 @@ describe("parseAccountErrorsHeader", () => {
       parseAccountErrorsHeader(JSON.stringify([{ email: "a@example.com" }])),
     ).toBeUndefined();
     expect(parseAccountErrorsHeader(JSON.stringify([]))).toBeUndefined();
+  });
+});
+
+describe("apiFetch quota signaling", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("attaches status and retryAfterMs from a 429 + Retry-After response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: "Google is busy. We'll try again in a moment.",
+          }),
+          { status: 429, headers: { "Retry-After": "45" } },
+        ),
+      ),
+    );
+
+    await expect(apiFetch("/api/emails")).rejects.toMatchObject({
+      status: 429,
+      retryAfterMs: 45_000,
+    });
+  });
+
+  it("leaves retryAfterMs undefined without a Retry-After header", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 502 })),
+    );
+
+    const error = (await apiFetch("/api/emails").catch(
+      (e: ApiError) => e,
+    )) as ApiError;
+    expect(error).toMatchObject({ status: 502 });
+    expect(error.retryAfterMs).toBeUndefined();
   });
 });
 
