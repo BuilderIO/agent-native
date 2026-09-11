@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   org: undefined as { orgId: string | null } | undefined,
   orgLoading: false,
   orgError: false,
+  orgFetching: false,
   actionCalls: [] as string[],
   actionParams: [] as unknown[],
   actionResult: {
@@ -38,6 +39,7 @@ vi.mock("@agent-native/core/client/org", () => ({
     data: state.org,
     isLoading: state.orgLoading,
     isError: state.orgError,
+    isFetching: state.orgFetching,
   }),
 }));
 
@@ -53,6 +55,7 @@ beforeEach(() => {
   state.org = undefined;
   state.orgLoading = false;
   state.orgError = false;
+  state.orgFetching = false;
   state.actionCalls = [];
   state.actionParams = [];
   state.actionResult = { data: undefined, isPending: false, isError: false };
@@ -92,6 +95,21 @@ describe("OrganizationIdentityCard", () => {
 
     expect(markup).toContain("organizationSettings.brandingLoadFailed");
     expect(state.actionCalls).toEqual(["list-organization-state"]);
+  });
+
+  it("waits instead of flashing the error while the active org is still in flight", () => {
+    // Deleting an org invalidates every query at once, so `useOrg()` keeps
+    // naming the outgoing org while it refetches. The branding read then 403s
+    // for an org the caller just left - that is the wrong question, not an
+    // unreadable organization.
+    state.org = { orgId: "org_deleted" };
+    state.orgFetching = true;
+    state.actionResult = { data: undefined, isPending: false, isError: true };
+
+    const markup = renderToStaticMarkup(<OrganizationIdentityCard />);
+
+    expect(markup).not.toContain("organizationSettings.brandingLoadFailed");
+    expect(markup).toContain("skeleton");
   });
 
   it("scopes the branding request to the active organization", () => {
