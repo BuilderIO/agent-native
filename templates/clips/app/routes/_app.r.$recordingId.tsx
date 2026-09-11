@@ -1996,7 +1996,7 @@ export default function RecordingPage() {
             {t("browserDiagnostics.debug")}
             {unviewedDebugEventCount > 0 ? (
               <Badge
-                variant="destructive"
+                variant="secondary"
                 className="h-4 min-w-4 justify-center rounded-full px-1 py-0 text-[10px] leading-none"
                 aria-label={t("browserDiagnostics.unviewedCount", {
                   count: unviewedDebugEventCount,

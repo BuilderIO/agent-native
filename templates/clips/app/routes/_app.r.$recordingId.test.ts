@@ -303,7 +303,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('panel === "debug",');
     expect(debugTab).toContain("unviewedDebugEventCount > 0");
     expect(debugTab).toContain("<Badge");
-    expect(debugTab).toContain('variant="destructive"');
+    expect(debugTab).toContain('variant="secondary"');
     expect(debugTab).toContain('t("browserDiagnostics.unviewedCount"');
     expect(debugTab).toContain("{unviewedDebugEventCount}");
     // The old always-on failure dot must be gone: it never cleared and fired
