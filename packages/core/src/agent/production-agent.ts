@@ -5104,8 +5104,8 @@ export async function runAgentLoop(opts: {
   let effectiveReasoningEffort = opts.reasoningEffort;
 
   // Set when an in-loop processor aborts via `abort()` / throws a `TripWire`.
-  // The loop emits the `tripwire` event, surfaces the reason as a final
-  // assistant message, and stops cleanly.
+  // The loop emits the `tripwire` event, preserves the reason for the result
+  // hook, and installs a terminal error so run-manager cannot synthesize done.
   let tripwire: TripWire | null = null;
   const emitTripwire = (err: TripWire) => {
     tripwire = err;
@@ -5114,7 +5114,17 @@ export async function runAgentLoop(opts: {
       reason: err.message,
       ...(err.processor ? { processor: err.processor } : {}),
     });
-    send({ type: "text", text: err.message });
+    const errorCode =
+      err.processor === "run-input-token-budget"
+        ? "budget_exhausted"
+        : err.processor
+          ? `guardrail:${err.processor}`
+          : "guardrail";
+    terminalActionStop = {
+      message: err.message,
+      errorCode,
+    };
+    sendTerminalActionStop(terminalActionStop);
     messages.push({
       role: "assistant",
       content: [{ type: "text", text: err.message }],
@@ -5816,10 +5826,12 @@ export async function runAgentLoop(opts: {
           continue;
         }
         send({ type: "clear" });
-        send({
-          type: "text",
-          text: "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
-        });
+        terminalActionStop = {
+          message:
+            "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+          errorCode: "empty_final_response",
+        };
+        sendTerminalActionStop(terminalActionStop);
         break;
       }
 
@@ -7179,12 +7191,7 @@ export async function runAgentLoop(opts: {
     }
     reportOutcome({
       state: "failed",
-      code:
-        terminalTripwire.processor === "run-input-token-budget"
-          ? "budget_exhausted"
-          : terminalTripwire.processor
-            ? `guardrail:${terminalTripwire.processor}`
-            : "guardrail",
+      code: terminalActionStop?.errorCode ?? "guardrail",
       // Re-running the same request with the same deterministic guardrail
       // would reproduce the stop. A caller can issue a smaller follow-up, but
       // must not automatically replay this turn.
@@ -7886,6 +7893,41 @@ export function resolveSelfChainContinuationBudget(
     return { skipToBoundary: true, softTimeoutMs: 0 };
   }
   return { skipToBoundary: false, softTimeoutMs: remaining };
+}
+
+/**
+ * Resolve a pre-send step with the bounded fallback used by durable workers.
+ * The timeout callback runs before the fallback resolves so required setup can
+ * record failure synchronously; a late promise settlement cannot turn it back
+ * into a successful empty value.
+ */
+export function resolvePresendWithCap<T>(opts: {
+  enabled: boolean;
+  thunk: () => Promise<T>;
+  fallback: T;
+  timeoutMs: number;
+  onTimeout?: () => void;
+}): Promise<T> {
+  if (!opts.enabled) return opts.thunk();
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => {
+      opts.onTimeout?.();
+      resolve(opts.fallback);
+    }, opts.timeoutMs);
+    // A synchronous throw from the thunk is treated like a rejected step.
+    void Promise.resolve()
+      .then(opts.thunk)
+      .then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve(opts.fallback);
+        },
+      );
+  });
 }
 
 export async function markBackgroundContinuationChunkTerminal(opts: {
@@ -9430,7 +9472,7 @@ export function createProductionAgentHandler(
         orgId: getRequestOrgId() ?? null,
       }).catch(() => readAgentLoopSettings({}));
 
-    let systemPromptError: any = null;
+    let systemPromptError: Error | null = null;
     const systemPromptThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         const sysPromptStart = Date.now();
@@ -9441,7 +9483,14 @@ export function createProductionAgentHandler(
               : options.systemPrompt;
           return built;
         } catch (error) {
-          systemPromptError = error;
+          systemPromptError =
+            error instanceof Error
+              ? error
+              : new Error(
+                  typeof error === "string" && error.trim()
+                    ? error
+                    : "system prompt preparation failed",
+                );
           return "";
         } finally {
           setupMarks.sysPromptMs = Date.now() - sysPromptStart;
@@ -9709,27 +9758,17 @@ export function createProductionAgentHandler(
       thunk: () => Promise<T>,
       fallback: T,
       ms: number,
+      onTimeout?: () => void,
     ): Promise<T> => {
-      if (!isBackgroundWorker) return thunk();
-      return new Promise<T>((resolve) => {
-        const timer = setTimeout(() => {
+      return resolvePresendWithCap({
+        enabled: isBackgroundWorker,
+        thunk,
+        fallback,
+        timeoutMs: ms,
+        onTimeout: () => {
+          onTimeout?.();
           workerStep(`presend_timeout:${label}`);
-          resolve(fallback);
-        }, ms);
-        // Defer invocation one microtask so every sibling cap arms its timer
-        // before any thunk's synchronous prefix runs.
-        void Promise.resolve()
-          .then(thunk)
-          .then(
-            (v) => {
-              clearTimeout(timer);
-              resolve(v);
-            },
-            () => {
-              clearTimeout(timer);
-              resolve(fallback);
-            },
-          );
+        },
       });
     };
     const fallbackLoopSettings: AgentLoopSettings = {
@@ -9742,6 +9781,9 @@ export function createProductionAgentHandler(
       scope: "default",
       source: "default",
     };
+    const systemPromptTimeoutError = new Error(
+      "system prompt preparation timed out before the agent could start",
+    );
     const [
       systemPrompt,
       timeBlock,
@@ -9752,7 +9794,13 @@ export function createProductionAgentHandler(
       loopSettings,
       enrichedMessage,
     ] = await Promise.all([
-      presendCap("systemPrompt", systemPromptThunk, "", 13000),
+      presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
+        // An empty configured prompt is valid, but an empty timeout fallback
+        // is not: required app instructions must either finish or fail before
+        // the model is called. Set the error synchronously with the cap so a
+        // late rejection/success cannot race the check below.
+        systemPromptError ??= systemPromptTimeoutError;
+      }),
       presendCap("time", timeContextThunk, "", 9000),
       presendCap("screen", screenContextThunk, "", 9000),
       presendCap("url", urlContextThunk, "", 9000),
@@ -9767,15 +9815,19 @@ export function createProductionAgentHandler(
     workerStep("context_all");
 
     if (systemPromptError) {
+      // A durable worker was claimed before pre-send setup. Returning an SSE
+      // error here leaves that claim running because `_process-run` never sees
+      // the failure; unwind through its existing finalizer instead.
+      if (isBackgroundWorker) throw systemPromptError;
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       const encoder = new TextEncoder();
-      const err = systemPromptError;
+      const err = systemPromptError as Error;
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err?.message ?? String(err)}` })}\n\n`,
+              `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err.message}` })}\n\n`,
             ),
           );
           controller.close();

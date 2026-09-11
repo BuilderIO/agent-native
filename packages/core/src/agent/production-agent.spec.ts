@@ -60,6 +60,7 @@ import {
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
+  resolvePresendWithCap,
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   permanentPreconditionRemedy,
@@ -1655,7 +1656,86 @@ describe("resolveAgentOwnerEmail", () => {
   });
 });
 
+describe("resolvePresendWithCap", () => {
+  it("runs the timeout callback before a late required setup result", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: (value: string) => void;
+      let timedOut = false;
+      const result = resolvePresendWithCap({
+        enabled: true,
+        thunk: () =>
+          new Promise<string>((resolve) => {
+            release = resolve;
+          }),
+        fallback: "",
+        timeoutMs: 13_000,
+        onTimeout: () => {
+          timedOut = true;
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(13_000);
+      await expect(result).resolves.toBe("");
+      expect(timedOut).toBe(true);
+
+      // A late successful settlement cannot undo the required setup failure.
+      release("late prompt");
+      await Promise.resolve();
+      expect(timedOut).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("createProductionAgentHandler", () => {
+  it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {
+    const stream = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream,
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: async () => {
+        throw undefined;
+      },
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Run" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    expect(response).toBeInstanceOf(ReadableStream);
+    if (response instanceof ReadableStream) {
+      const { value } = await response.getReader().read();
+      const text = new TextDecoder().decode(value);
+      expect(text).toContain(
+        "Failed to load system prompt: system prompt preparation failed",
+      );
+    }
+    expect(stream).not.toHaveBeenCalled();
+  });
+
   it("limits each request to the action names returned by resolveActionSurface", async () => {
     const seenTools: string[][] = [];
     const lifecycle: string[] = [];
@@ -9686,11 +9766,18 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(3);
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "text",
-        text: expect.stringMatching(/empty response/i),
+        type: "error",
+        errorCode: "empty_final_response",
+        error: expect.stringMatching(/empty response/i),
+        recoverable: false,
       }),
     );
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "empty_final_response",
+      }),
+    );
   });
 
   it("continues when a model stream disappears without a terminal stop", async () => {
@@ -9832,10 +9919,10 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    const textEvents = events.filter((e) => e.type === "text");
-    expect(textEvents).toHaveLength(1);
-    expect(textEvents[0].text).toMatch(/empty response/i);
-    expect(textEvents[0].text).toMatch(/different model/i);
+    const errorEvents = events.filter((e) => e.type === "error");
+    expect(errorEvents).toHaveLength(1);
+    expect(errorEvents[0].error).toMatch(/empty response/i);
+    expect(errorEvents[0].error).toMatch(/different model/i);
     expect(visibleEvents(events).map((event) => event.type)).toEqual([
       "thinking",
       "clear",
@@ -9843,8 +9930,7 @@ describe("runAgentLoop", () => {
       "clear",
       "thinking",
       "clear",
-      "text",
-      "done",
+      "error",
     ]);
   });
 
@@ -9907,9 +9993,9 @@ describe("runAgentLoop", () => {
     expect(seenOpts[2].reasoningEffort).toBe("low");
     expect(seenOpts[2].maxOutputTokens).toBe(seenOpts[1].maxOutputTokens);
 
-    const textEvents = events.filter((e) => e.type === "text");
-    expect(textEvents).toHaveLength(1);
-    expect(textEvents[0].text).toMatch(/empty response/i);
+    const errorEvents = events.filter((e) => e.type === "error");
+    expect(errorEvents).toHaveLength(1);
+    expect(errorEvents[0].error).toMatch(/empty response/i);
   });
 
   it("does not surface the empty-response fallback when text was streamed", async () => {
