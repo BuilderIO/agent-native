@@ -69,6 +69,7 @@ import {
   getOAuth2Credentials,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
+import { syncInboxLabelDelta } from "../lib/inbox-store-sync.js";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
 import { listInboxEmails } from "../lib/list-inbox-emails.js";
 import {
@@ -759,6 +760,10 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
       // Report spam on entire thread
       await gmailModifyThread(accessToken, threadId!, ["SPAM"], ["INBOX"]);
       invalidateThreadCache(email, threadId!);
+      await syncInboxLabelDelta(email, acct, [threadId!], {
+        add: ["SPAM"],
+        remove: ["INBOX"],
+      });
       return { id, threadId, spam: true };
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
@@ -842,6 +847,10 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
       const msg = await gmailGetMessage(accessToken, id, "minimal");
       await gmailModifyThread(accessToken, msg.threadId, ["SPAM"], ["INBOX"]);
       invalidateThreadCache(email, msg.threadId);
+      await syncInboxLabelDelta(email, acct, [msg.threadId], {
+        add: ["SPAM"],
+        remove: ["INBOX"],
+      });
 
       // Create a filter to auto-delete future emails from this sender
       try {
@@ -947,6 +956,9 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
       // Gmail "mute" = remove from inbox; future replies also skip inbox
       await gmailModifyThread(accessToken, threadId, undefined, ["INBOX"]);
       invalidateThreadCache(email, threadId);
+      await syncInboxLabelDelta(email, acct, [threadId], {
+        remove: ["INBOX"],
+      });
       return { threadId, muted: true };
     } catch (error: any) {
       console.error("[muteThread] Gmail error:", error.message);

@@ -21,6 +21,11 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
+import {
+  babysitMechanicalVerdict,
+  readBabysitEvidence,
+  readBabysitStoredState,
+} from "../server/triage/babysit-evidence.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import {
   metadataString,
@@ -29,29 +34,106 @@ import {
   triageItemAuthor,
 } from "../server/triage/metadata.js";
 import {
+  babysitAlreadyAskedClause,
   babysitFingerprint,
+  babysitHeldPingClause,
   babysitOutOfScopeClause,
+  babysitStuckClause,
+  countBabysitComments,
   countHumanReviewBodies,
   countHumanReviewComments,
   DEFAULT_BABYSIT_BOT_AUTHORS,
   DEFAULT_BABYSIT_PR_COMMENT,
   formatBabysitAuditSummary,
   hasHumanChangesRequested,
-  hasMergeConflict,
   reconcileBabysitState,
-  shouldPostBabysitComment,
   shouldRecordBabysitAudit,
-  shouldRequestBabysitWork,
+  shouldVetoDuplicateBabysitComment,
+  type BabysitPingReason,
 } from "../server/triage/pr-babysit.js";
-import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
 
-const QUIET_PERIOD_MS = 20 * 60_000;
-const MIN_COMMENT_INTERVAL_MS = 90_000;
+const babysitDecisionSchema = z.enum(["ping", "already_asked", "stuck"]);
+const BABYSIT_POST_CLAIM_TTL_MS = 120_000;
 
-function parseTimestamp(value: string | undefined): number | null {
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+async function tryAcquireBabysitPostClaim(
+  itemId: string,
+  orgId: string,
+  factoryId: string,
+): Promise<boolean> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    await tx
+      .select({ id: triageItems.id })
+      .from(triageItems)
+      .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+      .for("update");
+    const row = (
+      await tx
+        .select({ metadataJson: triageItems.metadataJson })
+        .from(triageItems)
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .limit(1)
+    )[0];
+    if (!row) return false;
+    const metadata = parseTriageMetadata(row.metadataJson);
+    const claimedAt = metadataString(metadata, "prBabysitPostClaimedAt");
+    const claimedMs = claimedAt ? Date.parse(claimedAt) : NaN;
+    if (
+      Number.isFinite(claimedMs) &&
+      Date.now() - claimedMs < BABYSIT_POST_CLAIM_TTL_MS
+    ) {
+      return false;
+    }
+    metadata.prBabysitPostClaimedAt = new Date().toISOString();
+    await tx
+      .update(triageItems)
+      .set({ metadataJson: serializeTriageMetadata(metadata) })
+      .where(
+        and(
+          eq(triageItems.id, itemId),
+          eq(triageItems.orgId, orgId),
+          factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+        ),
+      );
+    await requireExistingFactory(tx as unknown as typeof db, orgId, factoryId);
+    return true;
+  });
+}
+
+async function releaseBabysitPostClaim(
+  itemId: string,
+  orgId: string,
+  factoryId: string,
+): Promise<void> {
+  const db = getDb();
+  await db.transaction(async (tx) => {
+    await tx
+      .select({ id: triageItems.id })
+      .from(triageItems)
+      .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+      .for("update");
+    const row = (
+      await tx
+        .select({ metadataJson: triageItems.metadataJson })
+        .from(triageItems)
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .limit(1)
+    )[0];
+    if (!row) return;
+    const metadata = parseTriageMetadata(row.metadataJson);
+    delete metadata.prBabysitPostClaimedAt;
+    await tx
+      .update(triageItems)
+      .set({ metadataJson: serializeTriageMetadata(metadata) })
+      .where(
+        and(
+          eq(triageItems.id, itemId),
+          eq(triageItems.orgId, orgId),
+          factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+        ),
+      );
+    await requireExistingFactory(tx as unknown as typeof db, orgId, factoryId);
+  });
 }
 
 async function updateBabysitItem(
@@ -61,22 +143,29 @@ async function updateBabysitItem(
   options?: { status?: string; touchUpdatedAt?: boolean },
 ): Promise<void> {
   const db = getDb();
-  const item = (
-    await db
-      .select({
-        metadataJson: triageItems.metadataJson,
-        factoryId: triageItems.factoryId,
-      })
+  await db.transaction(async (tx) => {
+    await tx
+      .select({ id: triageItems.id })
       .from(triageItems)
       .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
-      .limit(1)
-  )[0];
-  if (!item) throw new Error("Factory item disappeared during PR babysitting.");
-  const factoryId = item.factoryId ?? DEFAULT_FACTORY_ID;
-  const metadata = parseTriageMetadata(item.metadataJson);
-  Object.assign(metadata, patch);
-  const touchUpdatedAt = options?.touchUpdatedAt !== false;
-  await db.transaction(async (tx) => {
+      .for("update");
+    const item = (
+      await tx
+        .select({
+          metadataJson: triageItems.metadataJson,
+          factoryId: triageItems.factoryId,
+        })
+        .from(triageItems)
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .limit(1)
+    )[0];
+    if (!item) {
+      throw new Error("Factory item disappeared during PR babysitting.");
+    }
+    const factoryId = item.factoryId ?? DEFAULT_FACTORY_ID;
+    const metadata = parseTriageMetadata(item.metadataJson);
+    Object.assign(metadata, patch);
+    const touchUpdatedAt = options?.touchUpdatedAt !== false;
     await tx
       .update(triageItems)
       .set({
@@ -97,7 +186,7 @@ async function updateBabysitItem(
 
 export default defineAction({
   description:
-    "Watch one pull request using GitHub review and CI evidence and post the hardcoded feedback-fix comment when that evidence needs work. A new commit, pending CI, empty commented reviews, or GitHub finishing mergeability does not post again; new human review comments or review bodies, changes_requested, or a real merge conflict can. Waiting and quiet items leave needsReview until that new work appears. Pass inScope true only when this factory's prompt says the pull request should be babysat. inScope false records a skip and removes the item from the review window. Never merges or approves. Use propose-pr-babysit-status for a read-only proposal.",
+    "Act on one pull request after propose-pr-babysit-status. When inScope is true you must pass decision: ping asks Builder to fix feedback using the hardcoded comment, already_asked parks the item until new human review appears, stuck parks it for a human because another request cannot unblock it. A ping is refused when Factory already asked, when the comment list was capped, or when GitHub merely finished computing mergeability; a refused ping parks as waiting and returns a veto instead of posting. Every path leaves needsReview until new human review work appears. Pass inScope false to record a skip for a pull request this factory should not babysit. Never merges or approves.",
   schema: z.object({
     itemId: z.string().min(1),
     factoryId: factoryIdSchema.optional(),
@@ -106,9 +195,18 @@ export default defineAction({
       .describe(
         "True when this factory's prompt says to babysit this pull request. False records a skip and takes the item out of needsReview.",
       ),
+    decision: babysitDecisionSchema
+      .optional()
+      .describe(
+        "Required when inScope is true. ping, already_asked, or stuck.",
+      ),
+    failingJobLog: z.string().max(50_000).optional(),
   }),
   http: false,
-  run: async ({ itemId, factoryId: factoryIdInput, inScope }, context) => {
+  run: async (
+    { itemId, factoryId: factoryIdInput, inScope, decision, failingJobLog },
+    context,
+  ) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -125,6 +223,14 @@ export default defineAction({
     const factoryId = factoryIdInput ?? item.factoryId ?? DEFAULT_FACTORY_ID;
     if ((item.factoryId ?? DEFAULT_FACTORY_ID) !== factoryId) {
       throw new Error("Factory item does not belong to this factory.");
+    }
+    // Optional in the schema so an out-of-scope skip does not need a
+    // meaningless value, but a missing decision on in-scope work is an error,
+    // not a default. Defaulting it would let the agent silently ping.
+    if (inScope && !decision) {
+      throw new Error(
+        "PR babysitting requires decision (ping, already_asked, or stuck) when inScope is true. Call propose-pr-babysit-status first.",
+      );
     }
     await requireFactoryAutomation(
       context,
@@ -189,18 +295,25 @@ export default defineAction({
     }
 
     const repository = parseGitHubRepositoryRef(item.repository);
+    const pullRequestNumber = item.pullRequestNumber;
+    if (typeof pullRequestNumber !== "number") {
+      throw new Error("Factory item is not a GitHub pull request.");
+    }
     const github = createGitHubClient({ ownerEmail: userEmail, orgId });
-    const pullRequest = await github.getPullRequestSummary(
+    const read = await readBabysitEvidence(
+      github,
       repository,
-      item.pullRequestNumber,
+      pullRequestNumber,
     );
-    if (pullRequest.state !== "open" || pullRequest.draft) {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    if (!read.open) {
       await updateBabysitItem(
         itemId,
         orgId,
         {
           prBabysitState: "closed-or-draft",
-          prBabysitLastCheckedAt: new Date().toISOString(),
+          prBabysitLastCheckedAt: nowIso,
         },
         { status: "needs_manual" },
       );
@@ -220,9 +333,9 @@ export default defineAction({
           sourceUrl: item.sourceUrl,
           summary: reason,
           details: {
-            author: pullRequest.userLogin,
-            state: pullRequest.state,
-            draft: pullRequest.draft,
+            author: read.summary.userLogin,
+            state: read.summary.state,
+            draft: read.summary.draft,
           },
         },
         factoryId,
@@ -230,172 +343,73 @@ export default defineAction({
       return { ok: true, action: "skipped", reason };
     }
 
-    const ownerOwnedArea = detectOwnerOwnedArea([
-      item.repository,
-      pullRequest.title,
-      pullRequest.body,
-    ]);
-    if (ownerOwnedArea) {
-      await updateBabysitItem(
-        itemId,
-        orgId,
-        {
-          prBabysitState: "owner-managed",
-          prBabysitOwnerArea: ownerOwnedArea,
-          prBabysitLastCheckedAt: new Date().toISOString(),
-        },
-        { status: "needs_manual" },
-      );
-      const reason = formatBabysitAuditSummary(
-        item.pullRequestNumber,
-        `skipped; ${ownerOwnedArea} is owner-managed.`,
-      );
-      await recordFactoryAudit(
-        context,
-        { userEmail, orgId },
-        {
-          action: "babysit-factory-pull-request",
-          kind: "decision",
-          status: "skipped",
-          itemId,
-          source: "github",
-          sourceUrl: item.sourceUrl,
-          summary: reason,
-          details: { author: pullRequest.userLogin, ownerOwnedArea },
-        },
-        factoryId,
-      );
-      return {
-        ok: true,
-        action: "skipped",
-        reason,
-      };
-    }
-
-    const snapshot = await github.getPullRequestEvidence(
-      repository,
-      item.pullRequestNumber,
-      pullRequest.headSha,
-    );
+    const { summary: pullRequest, details } = read;
 
     const proposal = reconcileBabysitState({
-      comments: snapshot.comments,
-      checks: snapshot.checks,
-      checksCoverage: snapshot.checksCoverage,
-      commentsTruncated: snapshot.commentsTruncated,
-      reviews: snapshot.reviews,
-      reviewsTruncated: snapshot.reviewsTruncated,
+      comments: details.comments,
+      checks: details.checks,
+      checksCoverage: details.checksCoverage,
+      commentsTruncated: details.commentsTruncated,
+      reviews: details.reviews,
+      reviewsTruncated: details.reviewsTruncated,
+      failingJobLog,
       botAuthors: [...DEFAULT_BABYSIT_BOT_AUTHORS],
     });
-    const needsBabysit = shouldRequestBabysitWork({
-      mergeable: pullRequest.mergeable,
-      mergeableState: pullRequest.mergeableState,
-      snapshot: proposal,
-    });
-    const now = new Date();
-    const nowIso = now.toISOString();
     const metadata = parseTriageMetadata(item.metadataJson);
+    const stored = readBabysitStoredState(metadata);
+    const previousState = stored.babysitState;
+    const mechanical = babysitMechanicalVerdict({
+      stored,
+      summary: pullRequest,
+      details,
+      proposal,
+      nextHumanReviewCommentCount: countHumanReviewComments(details.comments),
+      nextHumanReviewBodyCount: countHumanReviewBodies(details.reviews),
+      nextChangesRequested: hasHumanChangesRequested(details.reviews),
+      nowMs: now.getTime(),
+    });
     const fingerprint = babysitFingerprint({
       headSha: pullRequest.headSha,
       mergeable: pullRequest.mergeable,
       mergeableState: pullRequest.mergeableState,
+      storedMergeConflict: stored.mergeConflict,
       snapshot: proposal,
-      reviewStates: snapshot.reviews.map((review) => review.state),
+      reviewStates: details.reviews.map((review) => review.state),
     });
-    const previousFingerprint = metadataString(
-      metadata,
-      "prBabysitFingerprint",
-    );
-    const previousState = metadataString(metadata, "prBabysitState");
-    const mergeConflict = hasMergeConflict({
-      mergeable: pullRequest.mergeable,
-      mergeableState: pullRequest.mergeableState,
-    });
+    const consumedPendingReopen = stored.pendingReopen;
     const parkedPatch = {
       prBabysitHumanReviewCommentCount: countHumanReviewComments(
-        snapshot.comments,
+        details.comments,
       ),
-      prBabysitHumanReviewBodyCount: countHumanReviewBodies(snapshot.reviews),
-      prBabysitCommentsTruncated: snapshot.commentsTruncated === true,
-      prBabysitReviewsTruncated: snapshot.reviewsTruncated === true,
-      prBabysitChangesRequested: hasHumanChangesRequested(snapshot.reviews),
-      prBabysitMergeConflict: mergeConflict,
+      prBabysitHumanReviewBodyCount: countHumanReviewBodies(details.reviews),
+      prBabysitCommentsTruncated: details.commentsTruncated === true,
+      prBabysitReviewsTruncated: details.reviewsTruncated === true,
+      prBabysitChangesRequested: hasHumanChangesRequested(details.reviews),
+      prBabysitMergeConflict: mechanical.mergeability.mergeConflict,
+      prBabysitMergeabilityComputed:
+        mechanical.mergeability.mergeabilityComputed,
+      ...(consumedPendingReopen ? { prBabysitPendingReopen: false } : {}),
     };
     const evidenceDetails = {
       author: pullRequest.userLogin,
       headSha: pullRequest.headSha,
-      checks: snapshot.checks.length,
-      comments: snapshot.comments.length,
+      checks: details.checks.length,
+      comments: details.comments.length,
       mergeable: pullRequest.mergeable,
       mergeableState: pullRequest.mergeableState,
+      mergeabilityComputed: mechanical.mergeability.mergeabilityComputed,
+      babysitCommentCount: details.babysitCommentCount,
       reviewFeedbackClean: proposal.isClean,
+      decision,
     };
-    if (!needsBabysit) {
-      if (
-        shouldRecordBabysitAudit({
-          previousState,
-          nextState: "clean",
-          posted: false,
-        })
-      ) {
-        await recordFactoryAudit(
-          context,
-          { userEmail, orgId },
-          {
-            action: "babysit-factory-pull-request",
-            kind: "decision",
-            status: "skipped",
-            itemId,
-            source: "github",
-            sourceUrl: item.sourceUrl,
-            summary: formatBabysitAuditSummary(
-              item.pullRequestNumber,
-              "is clean; no Builder feedback request.",
-            ),
-            details: evidenceDetails,
-          },
-          factoryId,
-        );
-      }
-      await updateBabysitItem(
-        itemId,
-        orgId,
-        {
-          prBabysitState: "clean",
-          prBabysitLastCheckedAt: nowIso,
-          prBabysitFingerprint: fingerprint,
-          ...parkedPatch,
-        },
-        { touchUpdatedAt: previousState !== "clean" },
-      );
-      return { ok: true, action: "clean" };
-    }
 
-    const quietSince =
-      previousFingerprint === fingerprint && previousState !== "clean"
-        ? (parseTimestamp(metadataString(metadata, "prBabysitQuietSinceAt")) ??
-          now.getTime())
-        : now.getTime();
-    const lastCommentAt = parseTimestamp(
-      metadataString(metadata, "prBabysitLastCommentAt"),
-    );
-    const quietForMs = now.getTime() - quietSince;
-    const shouldPost = shouldPostBabysitComment({
-      previousFingerprint,
-      fingerprint,
-      previousState,
-      lastCommentAtMs: lastCommentAt,
-      nowMs: now.getTime(),
-      minCommentIntervalMs: MIN_COMMENT_INTERVAL_MS,
-    });
-    if (!shouldPost || quietForMs >= QUIET_PERIOD_MS) {
-      const nextState = quietForMs >= QUIET_PERIOD_MS ? "quiet" : "waiting";
+    const park = async (
+      nextState: string,
+      clause: string,
+      options?: { status?: string },
+    ): Promise<void> => {
       if (
-        shouldRecordBabysitAudit({
-          previousState,
-          nextState,
-          posted: false,
-        })
+        shouldRecordBabysitAudit({ previousState, nextState, posted: false })
       ) {
         await recordFactoryAudit(
           context,
@@ -407,12 +421,7 @@ export default defineAction({
             itemId,
             source: "github",
             sourceUrl: item.sourceUrl,
-            summary: formatBabysitAuditSummary(
-              item.pullRequestNumber,
-              nextState === "quiet"
-                ? "quiet; same unfinished work for 20 minutes."
-                : "waiting; already asked.",
-            ),
+            summary: formatBabysitAuditSummary(item.pullRequestNumber, clause),
             details: evidenceDetails,
           },
           factoryId,
@@ -424,59 +433,169 @@ export default defineAction({
         {
           prBabysitState: nextState,
           prBabysitFingerprint: fingerprint,
-          prBabysitQuietSinceAt: new Date(quietSince).toISOString(),
           prBabysitLastCheckedAt: nowIso,
           ...parkedPatch,
         },
-        { touchUpdatedAt: previousState !== nextState },
+        {
+          ...options,
+          touchUpdatedAt: previousState !== nextState,
+        },
       );
-      return {
-        ok: true,
-        action: nextState,
-        quietForMinutes: Math.floor(Math.max(0, quietForMs) / 60_000),
-      };
+    };
+
+    const vetoHeldPing = async (reason: BabysitPingReason) => {
+      await park("waiting", babysitHeldPingClause(reason));
+      return { ok: true as const, action: "waiting" as const, veto: reason };
+    };
+
+    const shouldVetoDuplicate = (count: number) =>
+      shouldVetoDuplicateBabysitComment({
+        existingBabysitCommentCount: count,
+        newHumanWork: mechanical.newHumanWork,
+        newDefiniteMergeConflict: mechanical.newDefiniteMergeConflict,
+      });
+
+    const scanIssueComments = async () =>
+      github.listIssueComments(repository, pullRequestNumber);
+
+    const acquired = await tryAcquireBabysitPostClaim(itemId, orgId, factoryId);
+    if (!acquired) {
+      if (decision === "ping") {
+        const contendedScan = await scanIssueComments();
+        if (contendedScan.truncated) {
+          return {
+            ok: true,
+            action: "waiting",
+            veto: "comment-scan-truncated" as const,
+          };
+        }
+        if (shouldVetoDuplicate(countBabysitComments(contendedScan.comments))) {
+          return {
+            ok: true,
+            action: "waiting",
+            veto: "duplicate-comment" as const,
+          };
+        }
+      }
+      return { ok: true, action: "waiting", veto: "already-asked" as const };
     }
 
-    const comment = await github.createIssueComment(
-      repository,
-      item.pullRequestNumber,
-      DEFAULT_BABYSIT_PR_COMMENT,
-    );
-    await recordFactoryAudit(
-      context,
-      { userEmail, orgId },
-      {
-        action: "babysit-factory-pull-request",
-        kind: "external_action",
-        itemId,
-        source: "github",
-        sourceUrl: comment.htmlUrl,
-        summary: formatBabysitAuditSummary(
-          item.pullRequestNumber,
-          "posted the feedback-fix request.",
-        ),
-        details: {
-          author: pullRequest.userLogin,
-          commentUrl: comment.htmlUrl,
-          quietForMinutes: 0,
+    try {
+      if (!mechanical.needsWork) {
+        if (
+          shouldRecordBabysitAudit({
+            previousState,
+            nextState: "clean",
+            posted: false,
+          })
+        ) {
+          await recordFactoryAudit(
+            context,
+            { userEmail, orgId },
+            {
+              action: "babysit-factory-pull-request",
+              kind: "decision",
+              status: "skipped",
+              itemId,
+              source: "github",
+              sourceUrl: item.sourceUrl,
+              summary: formatBabysitAuditSummary(
+                item.pullRequestNumber,
+                "is clean; no Builder feedback request.",
+              ),
+              details: evidenceDetails,
+            },
+            factoryId,
+          );
+        }
+        await updateBabysitItem(
+          itemId,
+          orgId,
+          {
+            prBabysitState: "clean",
+            prBabysitLastCheckedAt: nowIso,
+            prBabysitFingerprint: fingerprint,
+            ...parkedPatch,
+          },
+          { touchUpdatedAt: previousState !== "clean" },
+        );
+        return { ok: true, action: "clean" };
+      }
+
+      if (decision === "stuck") {
+        await park("stuck", babysitStuckClause(), { status: "needs_manual" });
+        return { ok: true, action: "stuck" };
+      }
+      if (decision === "already_asked" && !mechanical.ping.allowed) {
+        await park("waiting", babysitAlreadyAskedClause());
+        return { ok: true, action: "waiting" };
+      }
+      if (!mechanical.ping.allowed) {
+        await park("waiting", babysitHeldPingClause(mechanical.ping.reason));
+        return { ok: true, action: "waiting", veto: mechanical.ping.reason };
+      }
+
+      const preClaimScan = await scanIssueComments();
+      if (preClaimScan.truncated) {
+        return vetoHeldPing("comment-scan-truncated");
+      }
+      if (shouldVetoDuplicate(countBabysitComments(preClaimScan.comments))) {
+        return vetoHeldPing("duplicate-comment");
+      }
+
+      const finalScan = await scanIssueComments();
+      if (finalScan.truncated) {
+        return vetoHeldPing("comment-scan-truncated");
+      }
+      if (shouldVetoDuplicate(countBabysitComments(finalScan.comments))) {
+        return vetoHeldPing("duplicate-comment");
+      }
+
+      const comment = await github.createIssueComment(
+        repository,
+        pullRequestNumber,
+        DEFAULT_BABYSIT_PR_COMMENT,
+      );
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "babysit-factory-pull-request",
+          kind: "external_action",
+          itemId,
+          source: "github",
+          sourceUrl: comment.htmlUrl,
+          summary: formatBabysitAuditSummary(
+            item.pullRequestNumber,
+            "posted the feedback-fix request.",
+          ),
+          details: {
+            author: pullRequest.userLogin,
+            commentUrl: comment.htmlUrl,
+            pingReason: mechanical.ping.reason,
+          },
         },
-      },
-      factoryId,
-    );
-    await updateBabysitItem(itemId, orgId, {
-      prBabysitState: "active",
-      prBabysitFingerprint: fingerprint,
-      prBabysitQuietSinceAt: new Date(quietSince).toISOString(),
-      prBabysitLastCheckedAt: nowIso,
-      prBabysitLastCommentAt: nowIso,
-      prBabysitLastCommentUrl: comment.htmlUrl,
-      ...parkedPatch,
-    });
-    return {
-      ok: true,
-      action: "commented",
-      commentUrl: comment.htmlUrl,
-      quietForMinutes: Math.floor(Math.max(0, quietForMs) / 60_000),
-    };
+        factoryId,
+      );
+      // Posting parks straight to `waiting`: the ask is out, so the item leaves
+      // needsReview until poll finds new human review work. An `active` state here
+      // is what let mergeability flicker re-list and re-ping the same PR.
+      await updateBabysitItem(itemId, orgId, {
+        prBabysitState: "waiting",
+        prBabysitFingerprint: fingerprint,
+        prBabysitLastCheckedAt: nowIso,
+        prBabysitLastCommentAt: nowIso,
+        prBabysitLastCommentUrl: comment.htmlUrl,
+        ...parkedPatch,
+      });
+      return {
+        ok: true,
+        action: "commented",
+        commentUrl: comment.htmlUrl,
+        pingReason: mechanical.ping.reason,
+      };
+    } finally {
+      await releaseBabysitPostClaim(itemId, orgId, factoryId);
+    }
   },
 });

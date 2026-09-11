@@ -114,6 +114,8 @@ import {
   isContextOverflowCode,
   isContextOverflowMessage,
   isProviderConnectionErrorMessage,
+  PROVIDER_RATE_LIMITED_ERROR_CODE,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
 import {
   resolveEngine,
@@ -159,6 +161,10 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import {
+  getContextWindowForModel,
+  resolveFallbackModel,
+} from "./model-config.js";
 import {
   maybeCompactThread,
   buildObservationalContext,
@@ -808,6 +814,8 @@ export interface ActionEntry {
    *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Capability scopes allowed on the page-local WebMCP route. */
+  capabilityScopes?: readonly string[];
   /** Optional deep-link builder. When set, MCP/A2A surfaces append an
    *  "Open in <app> →" link built from the call's args + result. Pure, sync,
    *  best-effort. See `defineAction` and the `external-agents` skill. */
@@ -2649,11 +2657,12 @@ export type AgentLoopContinuationReason =
   | "stream_ended"
   | "gateway_timeout"
   | "network_interrupted"
-  | "no_progress";
+  | "no_progress"
+  | "rate_limited";
 
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason | "rate_limited",
+  reason: AgentLoopContinuationReason,
   options: { actionPreparationTool?: string } = {},
 ) {
   const note =
@@ -2696,7 +2705,8 @@ function isAgentLoopContinuationReason(
     reason === "stream_ended" ||
     reason === "gateway_timeout" ||
     reason === "network_interrupted" ||
-    reason === "no_progress"
+    reason === "no_progress" ||
+    reason === "rate_limited"
   );
 }
 
@@ -2784,6 +2794,15 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
     return true;
   }
   if (code === "http_429" || code === "http_529") return true;
+  // A bare upstream 403 the gateway now tags distinctly from a real credential
+  // rejection (see the constant's own doc comment) — load-shedding, not a
+  // revoked key, so it belongs on the same retry-with-backoff lane as 429/529.
+  if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) return true;
+  // The Builder engine's in-stream throttle stop (see builder-engine.ts's
+  // `reason === "rate_limited"` handling) carries this code with no
+  // statusCode at all — providerRetryable is the only other signal it sets,
+  // so treat any rate-limit-class code paired with it the same way.
+  if (code === "rate_limited" && err.providerRetryable === true) return true;
   return false;
 }
 
@@ -2794,7 +2813,7 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
  */
 export function continuationReasonForResumableError(
   err: unknown,
-): "gateway_timeout" | "network_interrupted" {
+): "gateway_timeout" | "network_interrupted" | "rate_limited" {
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (code === "builder_gateway_timeout") return "gateway_timeout";
@@ -2806,6 +2825,25 @@ export function continuationReasonForResumableError(
     (err.statusCode === 408 || err.statusCode === 504)
   ) {
     return "gateway_timeout";
+  }
+  // Provider throttling, named so the chain-cap below (`shouldChainBackgroundContinuation`)
+  // can see it — this used to fall through to `network_interrupted`, which
+  // carries no budget of its own and let a sustained 429 chain for as long as
+  // the turn's run ledger allowed. A bare 403 counts only when the gateway
+  // marked it retryable (`PROVIDER_TRANSIENT_REJECTION_ERROR_CODE` or a raw
+  // `providerRetryable` 403) — a real credential rejection must stay terminal.
+  if (
+    code === "http_429" ||
+    code === "http_529" ||
+    // The gateway's own in-stream throttle stop (`rate_limited`, retryable).
+    code === "rate_limited" ||
+    code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
+    (err instanceof EngineError &&
+      (err.statusCode === 429 ||
+        err.statusCode === 529 ||
+        (err.statusCode === 403 && err.providerRetryable === true)))
+  ) {
+    return "rate_limited";
   }
   const text = err instanceof Error ? err.message.toLowerCase() : "";
   if (
@@ -4856,7 +4894,6 @@ export async function runAgentLoop(opts: {
 }): Promise<AgentLoopUsage> {
   const {
     engine,
-    model,
     systemPrompt,
     tools,
     availableTools,
@@ -4865,6 +4902,10 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  // Reassigned at most once, in the per-attempt retry catch below: when a
+  // rate-limited retry exhausts its budget and `resolveFallbackModel` names a
+  // sibling, later engine calls in this same run use it instead.
+  let model = opts.model;
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
     if (outcomeReported) return;
@@ -5042,9 +5083,47 @@ export async function runAgentLoop(opts: {
   /** Keyed WITHOUT the arguments — see MAX_SAME_ERROR_ACROSS_ARGUMENTS. */
   const repeatedToolErrorsAnyArgs = new Map<string, number>();
   const repeatedToolCalls = new Map<string, number>();
+  // Keyed by (tool, input) identity, NOT FIFO-per-tool-name: two concurrent
+  // same-tool calls with different arguments can complete and get journaled
+  // out of order, so pairing the Nth call to the Nth result for that name
+  // could match the wrong call to a resurfaced result.
+  // `PriorTurnToolResultSummary.input` carries the identity to key on
+  // directly — the tool_done event's own input, or the FIFO-matched
+  // tool_start input `loadPriorTurnToolCallJournal` already resolved for
+  // legacy events with none.
+  const journaledCallCountByKey = new Map<string, number>();
   for (const prior of journaledPriorToolCalls) {
     const key = toolCallCacheKey(prior.name, prior.input);
-    repeatedToolCalls.set(key, (repeatedToolCalls.get(key) ?? 0) + 1);
+    journaledCallCountByKey.set(
+      key,
+      (journaledCallCountByKey.get(key) ?? 0) + 1,
+    );
+  }
+  const resurfacedResultCountByKey = new Map<string, number>();
+  for (const result of journaledPriorToolResults) {
+    if (
+      !result.content.startsWith(
+        resurfacedDuplicateReadOnlyToolResultPrefix(result.name),
+      )
+    )
+      continue;
+    const key = toolCallCacheKey(result.name, result.input);
+    resurfacedResultCountByKey.set(
+      key,
+      (resurfacedResultCountByKey.get(key) ?? 0) + 1,
+    );
+  }
+  for (const [key, callCount] of journaledCallCountByKey) {
+    // A resurfaced re-fetch from an earlier chunk is the same call answered
+    // again because its result fell out of view, not a genuine repeat —
+    // counting it would trip `repeated_tool_call` on a turn that never made a
+    // truly duplicate call (see the matching in-run skip in `runToolCall`'s
+    // resurfaced branch).
+    const genuine = Math.max(
+      callCount - (resurfacedResultCountByKey.get(key) ?? 0),
+      0,
+    );
+    if (genuine > 0) repeatedToolCalls.set(key, genuine);
   }
   for (const prior of journaledPriorToolResults) {
     if (!prior.isError) continue;
@@ -5102,10 +5181,14 @@ export async function runAgentLoop(opts: {
   // tool-loop turns revert to the caller's original request after a success.
   let effectiveMaxOutputTokens = opts.maxOutputTokens;
   let effectiveReasoningEffort = opts.reasoningEffort;
+  // At most one fallback swap per run — see the per-attempt retry catch below.
+  // A model that ALSO turns out to be rate limited just falls through to the
+  // normal terminal error rather than bouncing between the two forever.
+  let fallbackModelAttempted = false;
 
   // Set when an in-loop processor aborts via `abort()` / throws a `TripWire`.
-  // The loop emits the `tripwire` event, surfaces the reason as a final
-  // assistant message, and stops cleanly.
+  // The loop emits the `tripwire` event, preserves the reason for the result
+  // hook, and installs a terminal error so run-manager cannot synthesize done.
   let tripwire: TripWire | null = null;
   const emitTripwire = (err: TripWire) => {
     tripwire = err;
@@ -5114,7 +5197,17 @@ export async function runAgentLoop(opts: {
       reason: err.message,
       ...(err.processor ? { processor: err.processor } : {}),
     });
-    send({ type: "text", text: err.message });
+    const errorCode =
+      err.processor === "run-input-token-budget"
+        ? "budget_exhausted"
+        : err.processor
+          ? `guardrail:${err.processor}`
+          : "guardrail";
+    terminalActionStop = {
+      message: err.message,
+      errorCode,
+    };
+    sendTerminalActionStop(terminalActionStop);
     messages.push({
       role: "assistant",
       content: [{ type: "text", text: err.message }],
@@ -5662,6 +5755,62 @@ export async function runAgentLoop(opts: {
           await retryDelay(retry, signal, retryAfterMs);
           continue;
         }
+        // The normal retry budget above is exhausted (or never had room for
+        // another attempt) and this is specifically a rate-limit-class error
+        // — try the one sibling model this provider isn't currently
+        // throttling, instead of ending the turn on the first rate limit. At
+        // most once: a fallback that is ALSO rate limited falls straight
+        // through to the terminal error below rather than bouncing between
+        // the two forever. Never persisted to settings or the dispatch
+        // payload — this is a same-process, one-run swap only.
+        if (
+          !fallbackModelAttempted &&
+          isTransientProviderRateLimitError(err) &&
+          // The swap is only worth it with room for a whole fresh attempt;
+          // otherwise the fallback call is cut by the soft timeout and the next
+          // chunk starts the same dance on the primary model again.
+          hasBudgetForEngineRetry(budgetStartedAt, 0)
+        ) {
+          // `resolveFallbackModel` already resolves against the engine's own
+          // `supportedModels` (Builder-catalog ids vs. the direct Anthropic
+          // engine's dated ids), so its result is guaranteed supported here.
+          const fallbackModel = resolveFallbackModel(
+            model,
+            engine.supportedModels,
+          );
+          // A sibling with a smaller window (sonnet → haiku) must not inherit
+          // a context that only fit the primary: that fails deterministically
+          // as a context-length error instead of recovering from throttling.
+          // ponytail: chars/4 is a coarse token estimate; swap in the engine's
+          // count when one is exposed.
+          const fallbackFits =
+            fallbackModel !== undefined &&
+            JSON.stringify(contextMessages).length / 4 <=
+              getContextWindowForModel(fallbackModel) * 0.8;
+          if (fallbackModel && fallbackFits) {
+            fallbackModelAttempted = true;
+            send({
+              type: "activity",
+              label: `${model} is rate limited — switching to ${fallbackModel}`,
+            });
+            send({ type: "clear" });
+            model = fallbackModel;
+            // `usage` is one aggregate attributed to one model. Everything the
+            // throttled primary attempts streamed is discarded here (the
+            // `clear` above drops their text too), so the totals restart and
+            // are attributed to the model that will actually answer. A
+            // rate-limited request bills nothing; a mid-stream 429/529 loses a
+            // partial prefix, which is the honest side of the trade-off versus
+            // pricing a whole answer under the wrong model.
+            usage.inputTokens = 0;
+            usage.outputTokens = 0;
+            usage.cacheReadTokens = 0;
+            usage.cacheWriteTokens = 0;
+            usage.model = fallbackModel;
+            retry = -1;
+            continue;
+          }
+        }
         throw err;
       }
     }
@@ -5816,10 +5965,12 @@ export async function runAgentLoop(opts: {
           continue;
         }
         send({ type: "clear" });
-        send({
-          type: "text",
-          text: "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
-        });
+        terminalActionStop = {
+          message:
+            "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+          errorCode: "empty_final_response",
+        };
+        sendTerminalActionStop(terminalActionStop);
         break;
       }
 
@@ -5957,18 +6108,28 @@ export async function runAgentLoop(opts: {
       };
     };
 
-    const noteRepeatedToolCall = (toolName: string, input: unknown) => {
+    // Returns the stop THIS call actually installed (or null) so a caller that
+    // later learns the call was a resurfaced dedupe re-fetch — not a genuine
+    // repeat — can undo it by identity, safely under the parallel read batch
+    // where several calls run through this concurrently (see the resurfaced
+    // branch in `runToolCall`, below).
+    const noteRepeatedToolCall = (
+      toolName: string,
+      input: unknown,
+    ): TerminalActionStop | null => {
       const key = toolCallCacheKey(toolName, input);
       const count = (repeatedToolCalls.get(key) ?? 0) + 1;
       repeatedToolCalls.set(key, count);
-      if (count < MAX_IDENTICAL_TOOL_CALLS) return;
-      requestedActionStop ??= {
+      if (count < MAX_IDENTICAL_TOOL_CALLS) return null;
+      const stop: TerminalActionStop = {
         message:
           `Stopped because ${toolName} was called ${count} times with identical arguments in one turn, ` +
           `which means the same step is repeating rather than making progress. ` +
           `Everything completed before this point is preserved above.`,
         errorCode: "repeated_tool_call",
       };
+      requestedActionStop ??= stop;
+      return requestedActionStop === stop ? stop : null;
     };
 
     // Human-in-the-loop approvals granted by the user for this turn (opt-in;
@@ -6002,8 +6163,14 @@ export async function runAgentLoop(opts: {
       // Count after the same normalization that is persisted in the journal:
       // a model can send a JSON-encoded object/array, while the action and
       // ledger both see the coerced value. Serving a repeat from cache still
-      // counts as asking the same question again.
-      noteRepeatedToolCall(toolCall.name, toolCall.input);
+      // counts as asking the same question again. The dedupe/resurfaced
+      // decision below isn't known yet at this point in the call — dedupe
+      // needs this same normalized input — so a resurfaced re-fetch undoes
+      // this strike after the fact instead of skipping it up front.
+      const repeatGuardStopFromThisCall = noteRepeatedToolCall(
+        toolCall.name,
+        toolCall.input,
+      );
       const toolInputNormalized =
         placeholderNormalization.changed || jsonStringCoercion.changed;
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
@@ -6661,6 +6828,30 @@ export async function runAgentLoop(opts: {
             // can't see the answer anymore. Re-serve it in full and don't
             // count a strike.
             duplicateReadOnlyToolCalls.set(cacheKey, 0);
+            // `noteRepeatedToolCall` already counted this call before we knew
+            // it would land here — undo that strike (and the stop it may have
+            // installed) now that we know it's a resurfaced re-fetch, not a
+            // stuck loop. Undoing by identity, not just by errorCode, keeps
+            // this safe under the parallel read batch: another concurrent
+            // call's genuine trip is a different object and is left alone.
+            const repeatKey = toolCallCacheKey(toolCall.name, toolCall.input);
+            const repeatCount = repeatedToolCalls.get(repeatKey);
+            const repeatCountAfterRollback =
+              typeof repeatCount === "number" && repeatCount > 0
+                ? repeatCount - 1
+                : 0;
+            repeatedToolCalls.set(repeatKey, repeatCountAfterRollback);
+            if (
+              repeatGuardStopFromThisCall &&
+              requestedActionStop === repeatGuardStopFromThisCall &&
+              // A concurrent genuine repeat for this same key can have pushed
+              // the count back up to/past the threshold before this resurfaced
+              // call's rollback runs — that stop is still earned and must
+              // survive this call's own rollback.
+              repeatCountAfterRollback < MAX_IDENTICAL_TOOL_CALLS
+            ) {
+              requestedActionStop = null;
+            }
             result = resurfacedDuplicateReadOnlyToolResult(
               toolCall.name,
               previousResult,
@@ -7179,12 +7370,7 @@ export async function runAgentLoop(opts: {
     }
     reportOutcome({
       state: "failed",
-      code:
-        terminalTripwire.processor === "run-input-token-budget"
-          ? "budget_exhausted"
-          : terminalTripwire.processor
-            ? `guardrail:${terminalTripwire.processor}`
-            : "guardrail",
+      code: terminalActionStop?.errorCode ?? "guardrail",
       // Re-running the same request with the same deterministic guardrail
       // would reproduce the stop. A caller can issue a smaller follow-up, but
       // must not automatically replay this turn.
@@ -7328,6 +7514,13 @@ export function isRecoverableContinuationError(event: {
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
+    // The gateway's in-stream throttle stop; same cap as `http_429` below.
+    code === "rate_limited" ||
+    // Bare upstream 403 the gateway tags distinctly from a real credential
+    // rejection — see the constant's own doc comment. Recoverable here does
+    // NOT mean unbounded: `shouldChainBackgroundContinuation` below caps how
+    // many rate-limit-class chunks in a row this can chain into.
+    code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
     // The 5xx family the message clauses below used to reach by prose alone
     // ("temporarily unavailable", "gateway timeout"). The client's own
     // continuation list (sse-event-processor) has always carried these codes;
@@ -7499,7 +7692,13 @@ export function backgroundContinuationReasonForRun(
   }
   if (last?.type === "error" && isRecoverableContinuationError(last)) {
     return continuationReasonForResumableError(
-      new EngineError(last.error, { errorCode: last.errorCode }),
+      new EngineError(last.error, {
+        errorCode: last.errorCode,
+        // Carries the engine's own retryable verdict through so the bare-403
+        // branch of `continuationReasonForResumableError` can see it here too
+        // — this event field exists for exactly that (see its doc comment).
+        providerRetryable: last.providerRetryable,
+      }),
     );
   }
   if (
@@ -7765,6 +7964,75 @@ export function installBackgroundNoProgressTerminalEvent(
 }
 
 /**
+ * True when this run's own terminal error is rate-limit class AND the chunk
+ * immediately before it in this same turn ALSO ended rate-limited. Caps
+ * rate-limit-driven chaining at exactly one hop: a provider throttle either
+ * clears within that one retry or it doesn't, and chaining a second one back
+ * to back only extends the multi-minute 429 storm this exists to bound (the
+ * chain observed in production was `http_429 > stale_run > http_429 > ...`
+ * for 8-38 minutes, stopped only by the 25-row turn ledger).
+ *
+ * `priorContinuationReason` is the successor marker's own record of what the
+ * PRECEDING chunk ended with (`__backgroundRun.continuationReason`, set from
+ * this same function's result when that chunk chained) — already threaded
+ * through the dispatch for the no-progress streak above, so this needs no new
+ * DB read.
+ */
+export function rateLimitChainCapTripped(opts: {
+  run: ActiveRun;
+  priorContinuationReason?: string;
+}): boolean {
+  return (
+    opts.priorContinuationReason === "rate_limited" &&
+    backgroundContinuationReasonForRun(opts.run) === "rate_limited"
+  );
+}
+
+/** User-facing terminal message for the `provider_rate_limited` shape: shared
+ *  by the rate-limit chain cap below AND `run-loop-with-resume.ts`'s
+ *  cooled-down-continuation exhaustion, so both lanes end a sustained
+ *  provider throttle the same way. Mirrors the client's own
+ *  `provider_rate_limited` handling: never auto-continued, so this is the
+ *  manual-retry lane. */
+export const PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE =
+  "The AI provider is rate limiting requests right now. Wait a minute and try again.";
+
+/**
+ * The honest failure the rate-limit chain cap leaves behind. `recoverable` is
+ * explicitly false: true would mark this an internal continuation boundary,
+ * which thread-data-builder drops from the persisted turn and
+ * `isRecoverableContinuationError` would chain again — the exact spiral the
+ * cap stops. The dedicated `provider_rate_limited` code also keeps the
+ * client's own continuation list (which now treats a bare `http_429`/
+ * `http_529` the same way, non-auto-recoverable) from re-entering it; the
+ * user sees the message and retries by hand.
+ */
+export function rateLimitChainCapTerminalEvent(
+  run: ActiveRun,
+): Extract<AgentChatEvent, { type: "error" }> | null {
+  const last = run.events.at(-1)?.event;
+  if (last?.type !== "error") return null;
+  return {
+    ...last,
+    error: PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
+    errorCode: PROVIDER_RATE_LIMITED_ERROR_CODE,
+    recoverable: false,
+  };
+}
+
+export function installRateLimitChainCapTerminalEvent(run: ActiveRun): boolean {
+  const terminalEvent = rateLimitChainCapTerminalEvent(run);
+  const lastRunEvent = run.events.at(-1);
+  if (!terminalEvent || lastRunEvent?.event.type !== "error") return false;
+  run.events = [
+    ...run.events.slice(0, -1),
+    { ...lastRunEvent, event: terminalEvent },
+  ];
+  run.continuationTerminalEvent = terminalEvent;
+  return true;
+}
+
+/**
  * Whether this run should self-fire the next server-driven continuation chunk
  * instead of depending on the client to re-POST `auto_continue`. True for
  * either of two independently-gated cases, both requiring a recoverable
@@ -7780,7 +8048,8 @@ export function installBackgroundNoProgressTerminalEvent(
  *     `isBackgroundWorker` branch above, never both.
  * Aborted / user-stopped runs do NOT chain either way, and neither does a run
  * whose no-progress streak has tripped
- * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`).
+ * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`), nor a SECOND consecutive
+ * rate-limit-class chunk (`rateLimitChainCapTripped`).
  */
 export function shouldChainBackgroundContinuation(opts: {
   isBackgroundWorker: boolean;
@@ -7805,6 +8074,10 @@ export function shouldChainBackgroundContinuation(opts: {
    *  `resolveBackgroundNoProgressRepeat`. Absent on the first chunk. */
   priorNoProgressErrorCode?: string;
   priorNoProgressCount?: number;
+  /** What the marker says the PRECEDING chunk of this turn ended with — see
+   *  `rateLimitChainCapTripped`, which this delegates to. Absent on the first
+   *  chunk (nothing to cap yet). */
+  priorContinuationReason?: string;
 }): boolean {
   const eligible =
     opts.isBackgroundWorker ||
@@ -7819,7 +8092,11 @@ export function shouldChainBackgroundContinuation(opts: {
       run: opts.run,
       priorErrorCode: opts.priorNoProgressErrorCode,
       priorCount: opts.priorNoProgressCount,
-    }).tripped
+    }).tripped &&
+    !rateLimitChainCapTripped({
+      run: opts.run,
+      priorContinuationReason: opts.priorContinuationReason,
+    })
   );
 }
 
@@ -7886,6 +8163,41 @@ export function resolveSelfChainContinuationBudget(
     return { skipToBoundary: true, softTimeoutMs: 0 };
   }
   return { skipToBoundary: false, softTimeoutMs: remaining };
+}
+
+/**
+ * Resolve a pre-send step with the bounded fallback used by durable workers.
+ * The timeout callback runs before the fallback resolves so required setup can
+ * record failure synchronously; a late promise settlement cannot turn it back
+ * into a successful empty value.
+ */
+export function resolvePresendWithCap<T>(opts: {
+  enabled: boolean;
+  thunk: () => Promise<T>;
+  fallback: T;
+  timeoutMs: number;
+  onTimeout?: () => void;
+}): Promise<T> {
+  if (!opts.enabled) return opts.thunk();
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => {
+      opts.onTimeout?.();
+      resolve(opts.fallback);
+    }, opts.timeoutMs);
+    // A synchronous throw from the thunk is treated like a rejected step.
+    void Promise.resolve()
+      .then(opts.thunk)
+      .then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve(opts.fallback);
+        },
+      );
+  });
 }
 
 export async function markBackgroundContinuationChunkTerminal(opts: {
@@ -8064,6 +8376,85 @@ export async function claimBackgroundWorkerRunEarly(opts: {
  */
 export const AGENT_CHAT_TURN_INPUT_TOKENS_FIELD =
   "__agentNativeTurnInputTokens";
+
+/**
+ * Same rationale as `AGENT_CHAT_TURN_INPUT_TOKENS_FIELD` above, for the
+ * preceding chunk's `continuationReason`: it rides the BODY, not the marker,
+ * because `chainServerDrivenContinuation` strips the marker from
+ * `continuationBody` before persisting it as `dispatch_payload` (the next
+ * chunk gets a fresh marker). A stale-run recovery or unclaimed-run
+ * redispatch delivers only a skeleton `{ runId, payloadRef: true }` marker
+ * and rehydrates the rest of the body from that same `dispatch_payload`, so
+ * without this field `rateLimitChainCapTripped` sees no prior reason on
+ * every recovery hop and never trips. See `resolvePriorContinuationReason`.
+ */
+export const AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD =
+  "__agentNativePriorContinuationReason";
+
+/**
+ * Same rationale as `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD` above, for
+ * the no-progress streak (`BackgroundNoProgressRepeat`): a recovery
+ * redispatch's skeleton marker carries neither, so the breaker
+ * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`) would otherwise reset on
+ * every such hop. See `resolvePriorContinuationState`.
+ */
+export const AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD =
+  "__agentNativePriorNoProgressErrorCode";
+export const AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD =
+  "__agentNativePriorNoProgressCount";
+
+/**
+ * Marker-first-then-body resolution for the three pieces of continuation
+ * state a stale-run / unclaimed-run redispatch's skeleton
+ * `{ runId, payloadRef: true }` marker cannot carry: the preceding chunk's
+ * `continuationReason` (for `rateLimitChainCapTripped`) and no-progress
+ * streak (for `resolveBackgroundNoProgressRepeat`). The delivered
+ * `__backgroundRun` marker carries all three on every normal chain hop
+ * (`continuationMarker` in `chainServerDrivenContinuation`); a recovery
+ * redispatch never does, so each falls back to its body-level companion
+ * field, which survives the same rehydration the marker does not.
+ */
+export function resolvePriorContinuationState(
+  backgroundRunMarker: Record<string, unknown> | null | undefined,
+  body: Record<string, unknown>,
+): {
+  continuationReason: string | undefined;
+  noProgressErrorCode: string | undefined;
+  noProgressCount: number;
+} {
+  const continuationReason =
+    typeof backgroundRunMarker?.continuationReason === "string"
+      ? backgroundRunMarker.continuationReason
+      : typeof body[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD] === "string"
+        ? (body[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD] as string)
+        : undefined;
+  const noProgressErrorCode =
+    typeof backgroundRunMarker?.noProgressErrorCode === "string"
+      ? backgroundRunMarker.noProgressErrorCode
+      : typeof body[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD] === "string"
+        ? (body[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD] as string)
+        : undefined;
+  const noProgressCountSource =
+    typeof backgroundRunMarker?.noProgressCount === "number" &&
+    Number.isFinite(backgroundRunMarker.noProgressCount)
+      ? backgroundRunMarker.noProgressCount
+      : body[AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD];
+  const noProgressCount =
+    typeof noProgressCountSource === "number" &&
+    Number.isFinite(noProgressCountSource)
+      ? Math.max(0, Math.floor(noProgressCountSource))
+      : 0;
+  return { continuationReason, noProgressErrorCode, noProgressCount };
+}
+
+/** Thin wrapper kept for callers/tests that only need the reason. */
+export function resolvePriorContinuationReason(
+  backgroundRunMarker: Record<string, unknown> | null | undefined,
+  body: Record<string, unknown>,
+): string | undefined {
+  return resolvePriorContinuationState(backgroundRunMarker, body)
+    .continuationReason;
+}
 
 /**
  * First `started_at` for a logical turn — the turn's true wall-clock origin
@@ -8511,6 +8902,15 @@ export async function chainServerDrivenContinuation(opts: {
     internalContinuation: true,
     ...(typeof opts.turnInputTokens === "number"
       ? { [AGENT_CHAT_TURN_INPUT_TOKENS_FIELD]: opts.turnInputTokens }
+      : {}),
+    [AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]: continuationReason,
+    ...(opts.noProgressRepeat?.errorCode
+      ? {
+          [AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]:
+            opts.noProgressRepeat.errorCode,
+          [AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]:
+            opts.noProgressRepeat.count,
+        }
       : {}),
   };
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
@@ -8992,17 +9392,20 @@ export function createProductionAgentHandler(
       Number.isFinite(backgroundRunMarker.continuationCount)
         ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
         : 0;
-    // No-progress streak so far, carried on the marker: this invocation has no
-    // other memory of what the previous chunk failed with.
-    const priorNoProgressErrorCode =
-      typeof backgroundRunMarker?.noProgressErrorCode === "string"
-        ? backgroundRunMarker.noProgressErrorCode
-        : undefined;
-    const priorNoProgressCount =
-      typeof backgroundRunMarker?.noProgressCount === "number" &&
-      Number.isFinite(backgroundRunMarker.noProgressCount)
-        ? Math.max(0, Math.floor(backgroundRunMarker.noProgressCount))
-        : 0;
+    // No-progress streak and the PRECEDING chunk's continuation reason,
+    // carried on the marker: this invocation has no other memory of what the
+    // previous chunk failed with. Falls back to the body companion fields
+    // when a recovery redispatch delivered only a skeleton marker (see
+    // `resolvePriorContinuationState`). The reason feeds
+    // `rateLimitChainCapTripped`, which caps a rate-limit-class repeat at one
+    // hop using this same marker, no new DB read.
+    const priorContinuationState = resolvePriorContinuationState(
+      backgroundRunMarker,
+      body as unknown as Record<string, unknown>,
+    );
+    const priorNoProgressErrorCode = priorContinuationState.noProgressErrorCode;
+    const priorNoProgressCount = priorContinuationState.noProgressCount;
+    const priorContinuationReason = priorContinuationState.continuationReason;
     let backgroundRunClaimedEarly = false;
     if (isBackgroundWorker && bgRunId) {
       const earlyClaim = await claimBackgroundWorkerRunEarly({
@@ -9430,7 +9833,7 @@ export function createProductionAgentHandler(
         orgId: getRequestOrgId() ?? null,
       }).catch(() => readAgentLoopSettings({}));
 
-    let systemPromptError: any = null;
+    let systemPromptError: Error | null = null;
     const systemPromptThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         const sysPromptStart = Date.now();
@@ -9441,7 +9844,14 @@ export function createProductionAgentHandler(
               : options.systemPrompt;
           return built;
         } catch (error) {
-          systemPromptError = error;
+          systemPromptError =
+            error instanceof Error
+              ? error
+              : new Error(
+                  typeof error === "string" && error.trim()
+                    ? error
+                    : "system prompt preparation failed",
+                );
           return "";
         } finally {
           setupMarks.sysPromptMs = Date.now() - sysPromptStart;
@@ -9709,27 +10119,17 @@ export function createProductionAgentHandler(
       thunk: () => Promise<T>,
       fallback: T,
       ms: number,
+      onTimeout?: () => void,
     ): Promise<T> => {
-      if (!isBackgroundWorker) return thunk();
-      return new Promise<T>((resolve) => {
-        const timer = setTimeout(() => {
+      return resolvePresendWithCap({
+        enabled: isBackgroundWorker,
+        thunk,
+        fallback,
+        timeoutMs: ms,
+        onTimeout: () => {
+          onTimeout?.();
           workerStep(`presend_timeout:${label}`);
-          resolve(fallback);
-        }, ms);
-        // Defer invocation one microtask so every sibling cap arms its timer
-        // before any thunk's synchronous prefix runs.
-        void Promise.resolve()
-          .then(thunk)
-          .then(
-            (v) => {
-              clearTimeout(timer);
-              resolve(v);
-            },
-            () => {
-              clearTimeout(timer);
-              resolve(fallback);
-            },
-          );
+        },
       });
     };
     const fallbackLoopSettings: AgentLoopSettings = {
@@ -9742,6 +10142,9 @@ export function createProductionAgentHandler(
       scope: "default",
       source: "default",
     };
+    const systemPromptTimeoutError = new Error(
+      "system prompt preparation timed out before the agent could start",
+    );
     const [
       systemPrompt,
       timeBlock,
@@ -9752,7 +10155,13 @@ export function createProductionAgentHandler(
       loopSettings,
       enrichedMessage,
     ] = await Promise.all([
-      presendCap("systemPrompt", systemPromptThunk, "", 13000),
+      presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
+        // An empty configured prompt is valid, but an empty timeout fallback
+        // is not: required app instructions must either finish or fail before
+        // the model is called. Set the error synchronously with the cap so a
+        // late rejection/success cannot race the check below.
+        systemPromptError ??= systemPromptTimeoutError;
+      }),
       presendCap("time", timeContextThunk, "", 9000),
       presendCap("screen", screenContextThunk, "", 9000),
       presendCap("url", urlContextThunk, "", 9000),
@@ -9767,15 +10176,19 @@ export function createProductionAgentHandler(
     workerStep("context_all");
 
     if (systemPromptError) {
+      // A durable worker was claimed before pre-send setup. Returning an SSE
+      // error here leaves that claim running because `_process-run` never sees
+      // the failure; unwind through its existing finalizer instead.
+      if (isBackgroundWorker) throw systemPromptError;
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       const encoder = new TextEncoder();
-      const err = systemPromptError;
+      const err = systemPromptError as Error;
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err?.message ?? String(err)}` })}\n\n`,
+              `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err.message}` })}\n\n`,
             ),
           );
           controller.close();
@@ -10350,6 +10763,7 @@ export function createProductionAgentHandler(
         dispatchedToBackground: dispatchToBackground,
         priorNoProgressErrorCode,
         priorNoProgressCount,
+        priorContinuationReason,
       });
 
     const completeTrackedProgressRun = async (
@@ -10459,7 +10873,20 @@ export function createProductionAgentHandler(
               ).catch(() => {});
             }
             const noProgressRepeat = noProgressRepeatForRun(run);
-            if (noProgressRepeat.tripped) {
+            // Checked before the generic no-progress streak: the rate-limit
+            // cap trips on just ONE repeat (vs. `MAX_CONSECUTIVE_NO_PROGRESS_
+            // CONTINUATIONS` reps of the identical code below), so on the rare
+            // turn where both would apply, the client gets the more specific
+            // `provider_rate_limited` terminal instead of the generic one.
+            if (rateLimitChainCapTripped({ run, priorContinuationReason })) {
+              // Install the replacement before the thread writer runs. The
+              // writer builds durable thread_data from events, so changing
+              // only continuationTerminalEvent afterwards leaves the original
+              // recoverable http_429/529/transient-403 persisted, which the
+              // CLIENT's own continuation list would still auto-recover even
+              // though the server just refused to chain it further.
+              installRateLimitChainCapTerminalEvent(run);
+            } else if (noProgressRepeat.tripped) {
               // Install the replacement before the thread writer runs. The
               // writer builds durable thread_data from events, so changing
               // only continuationTerminalEvent afterwards leaves the original
@@ -10509,6 +10936,21 @@ export function createProductionAgentHandler(
                   run.runId,
                   RUN_DIAG_STAGE.workerThrew,
                   `chain_stopped_no_progress code=${noProgressRepeat.errorCode} count=${noProgressRepeat.count}`,
+                ).catch(() => {});
+              }
+            } else if (
+              rateLimitChainCapTripped({ run, priorContinuationReason })
+            ) {
+              if (run.continuationTerminalEvent?.type === "error") {
+                console.error(
+                  `[agent-chat] stopping background chain: rate-limit cap reached ` +
+                    `(second consecutive rate-limited chunk)`,
+                  run.runId,
+                );
+                await recordRunDiagnostic(
+                  run.runId,
+                  RUN_DIAG_STAGE.workerThrew,
+                  `chain_stopped_rate_limited`,
                 ).catch(() => {});
               }
             } else if (willChainBackgroundContinuation(run)) {

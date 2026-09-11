@@ -670,9 +670,11 @@ const messages = {
     downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
     alsoFor: "{{platform}}でもご利用いただけます",
     backToLibrary: "ライブラリに戻る",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips をダウンロード",
     stable: "安定版",
     nightly: "Nightly",
+    allPlatforms: "すべてのプラットフォーム",
+    releaseChannel: "リリースチャンネル",
     switchToNightly: "Nightly ビルドに切り替え",
     switchToStable: "安定版ビルドに切り替え",
     retry: "再試行",
@@ -723,16 +725,16 @@ const messages = {
     agentTitle: "エージェントを管理",
     title: "設定",
     pageTitle: "設定 · Clips",
-    experiments: "実験機能",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
-    experimentVideoEditing: "動画編集",
-    experimentVideoEditingDescription: "新しい動画エディターをお試しください。",
-    experimentMeetings: "会議と文字起こし",
-    experimentMeetingsDescription:
+    labVideoEditing: "動画編集",
+    labVideoEditingDescription: "新しい動画エディターをお試しください。",
+    labMeetings: "会議と文字起こし",
+    labMeetingsDescription:
       "会議の自動キャプチャと文字起こしをお試しください。",
-    experimentWisprFlow: "音声入力",
-    experimentWisprFlowDescription: "新しい音声入力機能をお試しください。",
+    labWisprFlow: "音声入力",
+    labWisprFlowDescription: "新しい音声入力機能をお試しください。",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
     preferencesTitle: "環境設定",
     languageTitle: "言語",
@@ -1354,13 +1356,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (ローカライズ済み)",
     chromeTitle: "Chrome extension (ローカライズ済み)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (ローカライズ済み)",
+    chromeDescription: "Chrome 拡張機能でブラウザのタブをキャプチャします。",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (ローカライズ済み)",
     desktopTitle: "Desktop app (ローカライズ済み)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (ローカライズ済み)",
+    desktopDescription: "グローバルショートカットとシステム音声で録画します。",
     openDesktopApp: "Open desktop app (ローカライズ済み)",
   },
   editableTitle: {
@@ -1860,6 +1860,7 @@ const messages = {
       "コンソールの問題 {{consoleCount}} 件 · 失敗したリクエスト {{networkCount}} 件",
     noFailures: "失敗は検出されませんでした",
     failuresPresent: "ブラウザの問題が検出されました",
+    unviewedCount: "未確認 {{count}} 件",
     captureSuccessful: "診断情報を取得しました",
     capturedFrom: "{{source}} から取得",
     browserCapture: "ブラウザキャプチャ",

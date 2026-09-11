@@ -31,6 +31,7 @@ export default defineAction({
       .string()
       .describe("Id of the BreakpointDefinition to remove."),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async ({ designId, breakpointId }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);

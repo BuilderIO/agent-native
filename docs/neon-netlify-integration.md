@@ -16,8 +16,8 @@ static artifact. PR-controlled Functions are never deployed.
 Preview deploys do not create an isolated database. Before each GitHub Actions
 upload, the workflow copies the production PostgreSQL URL from the matching
 `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` GitHub secret into the
-`deploy-preview` context, and the deployed preview smoke check requires the
-database and schema to be healthy. Those secrets mirror the matching local
+`branch-deploy` context used by the aliased prebuilt upload, and the deployed
+preview smoke check requires the database and schema to be healthy. Those secrets mirror the matching local
 `templates/<template>/.env` `DATABASE_URL`; `chat` uses the production Netlify
 database because its local template has no database URL. Treat every preview as
 non-isolated and unsafe to write. Only database variables are copied; other

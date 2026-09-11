@@ -117,6 +117,9 @@ describe("agent chat startup", () => {
     );
 
     expect(sweepRoute).toContain("reapAllStaleRuns()");
+    expect(sweepRoute).toContain("sweepUnclaimedBackgroundRuns");
+    expect(sweepRoute).toContain("reapExpired: true");
+    expect(sweepRoute).toContain("jobsSkippedReason");
     // Ahead of the open-ended job sweep, which can spend the platform wall.
     expect(sweepRoute.indexOf("reapAllStaleRuns()")).toBeLessThan(
       sweepRoute.indexOf("processRecurringJobs(schedulerDeps)"),

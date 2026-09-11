@@ -6,6 +6,7 @@ import {
 import { seedFromText } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -1242,6 +1243,18 @@ export default defineAction({
       ],
     });
     await deleteAppState("design-variants").catch(() => false);
+
+    track(
+      "variants_generated",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        variant_count: screens.length,
+      },
+      context,
+    );
 
     return {
       designId,

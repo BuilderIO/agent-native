@@ -736,6 +736,30 @@
         "3190"
       ],
       "port": 3190
+    },
+    {
+      "name": "mail-gmail",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "mail",
+        "--dir",
+        "templates/mail",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "DATABASE_URL=pglite:.tmp/mail-gmail-pglite",
+        "--env",
+        "APP_URL=http://localhost:8085",
+        "--",
+        "dev",
+        "--port",
+        "8085"
+      ],
+      "port": 8085
     }
   ]
 }

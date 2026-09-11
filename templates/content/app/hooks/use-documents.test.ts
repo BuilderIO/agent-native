@@ -776,6 +776,23 @@ describe("mergeDocumentIntoDocumentCache", () => {
     });
   });
 
+  it("updates suggestion eligibility only when the response carries it", () => {
+    const current = { ...doc("page", null), canSuggest: true };
+
+    expect(
+      mergeDocumentIntoDocumentCache(current, {
+        ...doc("page", null),
+        title: "Updated without capability projection",
+      }),
+    ).toMatchObject({ canSuggest: true });
+    expect(
+      mergeDocumentIntoDocumentCache(current, {
+        ...doc("page", null),
+        canSuggest: false,
+      }),
+    ).toMatchObject({ canSuggest: false });
+  });
+
   it("never copies membership or hydration context between query variants", () => {
     const localMembership = {
       databaseId: "local-database",

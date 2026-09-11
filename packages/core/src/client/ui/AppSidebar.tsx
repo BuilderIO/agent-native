@@ -59,10 +59,13 @@ export const AppSidebarHeader = forwardRef<
       showBadge = true,
       brandLink,
       brandHref = "/",
+      collapsed: propCollapsed,
       ...props
     },
     ref,
   ) => {
+    const context = useAppSidebar();
+    const collapsed = propCollapsed ?? context.collapsed;
     const resolvedBrandIcon = brandIcon ?? (
       <AgentNativeIcon
         aria-hidden="true"
@@ -73,7 +76,11 @@ export const AppSidebarHeader = forwardRef<
     const resolvedBadge =
       badge ??
       (showBadge ? (
-        <EnvironmentBadge placement="inline" badgeText={badgeText} />
+        <EnvironmentBadge
+          placement="inline"
+          badgeText={badgeText}
+          collapsed={collapsed}
+        />
       ) : undefined);
 
     return (
@@ -81,6 +88,7 @@ export const AppSidebarHeader = forwardRef<
         ref={ref}
         brandIcon={resolvedBrandIcon}
         badge={resolvedBadge}
+        collapsed={collapsed}
         brandHref={brandHref}
         {...props}
       />
