@@ -1621,7 +1621,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         var group = target;
         while (group && !isDocumentRootElement(group)) {
           var groupName = group.getAttribute && group.getAttribute("data-agent-native-layer-name") || group.getAttribute && group.getAttribute("data-layer-name") || "";
-          if (/^group(?: \\d+)?$/i.test(groupName.trim())) return group;
+          var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true";
+          var legacyGeneratedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-preserve-styles") === "true";
+          if (/^group(?: \\d+)?$/i.test(groupName.trim()) && (generatedGroupMarker || legacyGeneratedGroupMarker)) {
+            return group;
+          }
           group = group.parentElement;
         }
       }

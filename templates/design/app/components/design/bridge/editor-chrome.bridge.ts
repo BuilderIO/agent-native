@@ -1899,7 +1899,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             group.getAttribute("data-agent-native-layer-name")) ||
           (group.getAttribute && group.getAttribute("data-layer-name")) ||
           "";
-        if (/^group(?: \d+)?$/i.test(groupName.trim())) return group;
+        var generatedGroupMarker =
+          group.getAttribute &&
+          group.getAttribute("data-agent-native-group-wrapper") === "true";
+        var legacyGeneratedGroupMarker =
+          group.getAttribute &&
+          group.getAttribute("data-agent-native-preserve-styles") === "true";
+        // New wrappers carry a dedicated marker. The preserve-styles fallback
+        // keeps wrappers created before that marker selectable without making
+        // an authored layer named "Group" capture its descendants.
+        if (
+          /^group(?: \d+)?$/i.test(groupName.trim()) &&
+          (generatedGroupMarker || legacyGeneratedGroupMarker)
+        ) {
+          return group;
+        }
         group = group.parentElement;
       }
     }

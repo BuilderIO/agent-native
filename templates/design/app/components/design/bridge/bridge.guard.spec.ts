@@ -2207,6 +2207,70 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge only promotes marked generated groups over child hits",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      .group { position: absolute; width: 180px; height: 120px; background: #f5f5f5; }
+      .child { position: absolute; left: 20px; top: 20px; width: 60px; height: 60px; background: #6366f1; }
+      #authored-group { left: 100px; top: 100px; }
+      #generated-group { left: 400px; top: 100px; }
+    </style>
+  </head>
+  <body>
+    <div id="authored-group" class="group" data-agent-native-node-id="authored-group" data-agent-native-layer-name="Group">
+      <div id="authored-child" class="child" data-agent-native-node-id="authored-child"></div>
+    </div>
+    <div id="generated-group" class="group" data-agent-native-node-id="generated-group" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true">
+      <div id="generated-child" class="child" data-agent-native-node-id="generated-child"></div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__selectedIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectedIds.push(event.data.payload?.sourceId);
+          }
+        });
+      });
+
+      await page.mouse.click(140, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 1,
+      );
+      const authoredSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(authoredSelection).toBe("authored-child");
+
+      await page.mouse.click(440, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 2,
+      );
+      const generatedSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(generatedSelection).toBe("generated-group");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── K-scale tool parity + gradient edit overlay ────────────────────────────
 
 it(
