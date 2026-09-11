@@ -18,6 +18,7 @@
 
 import { createNodeFromContent } from "@tiptap/core";
 import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Transform, type Step } from "@tiptap/pm/transform";
 import type { Editor } from "@tiptap/react";
 
 /**
@@ -53,6 +54,10 @@ export type BaseAwareReconcileResult =
   | { status: "applied"; mergedDoc: ProseMirrorNode }
   | { status: "conflict"; localDraft: ProseMirrorNode }
   | { status: "failed"; reason: "schema" | "ambiguous" | "transaction" };
+
+export type BaseAwareReconcilePlan =
+  | Exclude<BaseAwareReconcileResult, { status: "applied" }>
+  | { status: "applied"; mergedDoc: ProseMirrorNode; steps: readonly Step[] };
 
 function nodesEqual(left: ProseMirrorNode, right: ProseMirrorNode): boolean {
   return left.eq(right);
@@ -180,25 +185,90 @@ function mappedLocalIndex(
   return mapped;
 }
 
-/** Apply authoritative server changes onto a locally edited document. */
-export function reconcileDocAgainstBase(
-  editor: Editor,
+function hasUnambiguousReplacementPositions(
+  baseDoc: ProseMirrorNode,
+  changedDoc: ProseMirrorNode,
+): boolean {
+  if (baseDoc.childCount !== changedDoc.childCount) return false;
+  for (let i = 0; i < baseDoc.childCount; i++) {
+    for (let j = 0; j < baseDoc.childCount; j++) {
+      if (i === j) continue;
+      if (
+        baseDoc.child(i).eq(baseDoc.child(j)) ||
+        changedDoc.child(i).eq(changedDoc.child(j)) ||
+        baseDoc.child(i).eq(changedDoc.child(j))
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function splitReplacementHunks(hunks: TopLevelHunk[]): TopLevelHunk[] {
+  return hunks.flatMap((hunk) => {
+    const count = hunk.baseToIndex - hunk.baseFromIndex;
+    if (count === 0 || count !== hunk.changedToIndex - hunk.changedFromIndex) {
+      return [hunk];
+    }
+    return Array.from({ length: count }, (_, offset) => ({
+      baseFromIndex: hunk.baseFromIndex + offset,
+      baseToIndex: hunk.baseFromIndex + offset + 1,
+      changedFromIndex: hunk.changedFromIndex + offset,
+      changedToIndex: hunk.changedFromIndex + offset + 1,
+    }));
+  });
+}
+
+/** Plan authoritative server changes without mutating a live editor or Y.Doc. */
+export function planDocReconcile(
+  liveDoc: ProseMirrorNode,
   baseDoc: ProseMirrorNode,
   serverDoc: ProseMirrorNode,
-): BaseAwareReconcileResult {
-  const liveDoc = editor.state.doc;
+): BaseAwareReconcilePlan {
   if (
-    baseDoc.type.schema !== editor.schema ||
-    serverDoc.type.schema !== editor.schema ||
+    baseDoc.type.schema !== liveDoc.type.schema ||
+    serverDoc.type.schema !== liveDoc.type.schema ||
     baseDoc.type !== liveDoc.type ||
     serverDoc.type !== liveDoc.type
   ) {
     return { status: "failed", reason: "schema" };
   }
-  const localHunks = diffTopLevelHunks(baseDoc, liveDoc);
-  const serverHunks = diffTopLevelHunks(baseDoc, serverDoc);
-  if (!localHunks || !serverHunks) {
+  const localDiff = diffTopLevelHunks(baseDoc, liveDoc);
+  const serverDiff = diffTopLevelHunks(baseDoc, serverDoc);
+  if (!localDiff || !serverDiff) {
     return { status: "failed", reason: "ambiguous" };
+  }
+  let localHunks = localDiff;
+  let serverHunks = serverDiff;
+  if (serverHunks.length === 0) return { status: "noop" };
+  // A peer can deliver an accepted replacement before its SQL revision arrives.
+  // Split adjacent substitutions only when exact identities rule out moves and
+  // repeated-block alignment; equal block counts alone do not prove positions.
+  if (
+    hasUnambiguousReplacementPositions(baseDoc, liveDoc) &&
+    hasUnambiguousReplacementPositions(baseDoc, serverDoc)
+  ) {
+    localHunks = splitReplacementHunks(localHunks);
+    serverHunks = splitReplacementHunks(serverHunks).filter(
+      (server) =>
+        !localHunks.some(
+          (local) =>
+            local.baseFromIndex === server.baseFromIndex &&
+            local.baseToIndex === server.baseToIndex &&
+            liveDoc.content
+              .cut(
+                positionOfChild(liveDoc, local.changedFromIndex),
+                positionOfChild(liveDoc, local.changedToIndex),
+              )
+              .eq(
+                serverDoc.content.cut(
+                  positionOfChild(serverDoc, server.changedFromIndex),
+                  positionOfChild(serverDoc, server.changedToIndex),
+                ),
+              ),
+        ),
+    );
   }
   if (serverHunks.length === 0) return { status: "noop" };
   if (
@@ -210,7 +280,7 @@ export function reconcileDocAgainstBase(
   }
 
   try {
-    const tr = editor.state.tr;
+    const tr = new Transform(liveDoc);
     for (const hunk of [...serverHunks].reverse()) {
       const fromIndex = mappedLocalIndex(hunk.baseFromIndex, localHunks);
       const toIndex = mappedLocalIndex(hunk.baseToIndex, localHunks);
@@ -223,6 +293,23 @@ export function reconcileDocAgainstBase(
         ),
       );
     }
+    return { status: "applied", mergedDoc: tr.doc, steps: tr.steps };
+  } catch {
+    return { status: "failed", reason: "transaction" };
+  }
+}
+
+/** Apply authoritative server changes onto a locally edited document. */
+export function reconcileDocAgainstBase(
+  editor: Editor,
+  baseDoc: ProseMirrorNode,
+  serverDoc: ProseMirrorNode,
+): BaseAwareReconcileResult {
+  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc);
+  if (plan.status !== "applied") return plan;
+  try {
+    const tr = editor.state.tr;
+    for (const step of plan.steps) tr.step(step);
     tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
     editor.view.dispatch(tr);

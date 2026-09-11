@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import takeDesignScreenshot from "./take-design-screenshot.js";
@@ -101,6 +102,19 @@ export default defineAction({
     }
 
     const screenFilename = result.filename ?? filename ?? "screen.html";
+
+    track(
+      "design_exported",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: result.designId,
+        output_type: "design",
+        export_format: "png",
+        file_id: result.fileId,
+      },
+      ctx,
+    );
 
     return {
       ok: true,

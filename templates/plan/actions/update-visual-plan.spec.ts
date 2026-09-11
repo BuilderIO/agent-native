@@ -39,6 +39,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserName: () => undefined,
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/sharing", () => {
   class ForbiddenError extends Error {
     statusCode = 403;

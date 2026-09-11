@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { summarizeArchiveFailures } from "@shared/archive-errors.js";
 import { z } from "zod";
 
@@ -49,7 +50,7 @@ export default defineAction({
         "Per-id thread ID hints, comma-separated and positionally matched to --id (bulk UI calls only)",
       ),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const ids = args.id
       .split(",")
       .map((s) => s.trim())
@@ -131,6 +132,17 @@ export default defineAction({
       });
       throw userFacingActionError(summary.message, summary.statusCode);
     }
+    track(
+      "inbox_triaged",
+      {
+        app_name: "mail",
+        template_name: "mail",
+        action: "archive",
+        items_triaged: succeeded,
+        succeeded: true,
+      },
+      ctx,
+    );
     return `Archived ${succeeded} email(s) successfully`;
   },
 });

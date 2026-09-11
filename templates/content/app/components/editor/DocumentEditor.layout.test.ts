@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   databaseConversionRequest,
   databaseMembershipDatabaseTitle,
+  documentCanonicalMutationsEnabled,
   documentEditorBreadcrumbItems,
   documentEditorBreadcrumbNavigationItems,
   documentEditorDefaultIconKind,
@@ -17,12 +18,15 @@ import {
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
   isDocumentLoadUnavailableError,
+  isSuggestionConflictActionError,
   metadataUpdatesWithPendingTitle,
   pendingCommentTargetMatches,
   pageEditorSessionKey,
   positionAnchoredCommentCard,
   positionUnanchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
+  suggestionPresentation,
+  suggestionAmendmentTargetIsResolved,
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
   shouldShowNewDocumentTypeChooser,
@@ -37,8 +41,236 @@ import {
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
+import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("keeps inline comments outside the independent reading column", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toContain('"mx-auto max-w-5xl"');
+    expect(source).toContain('showDesktopInfoPanel ? "flex-1" : "w-full"');
+    expect(source).toContain('className="absolute right-0 top-0 w-80"');
+    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
+    expect(source).toContain("useElementMinWidth(documentLayoutRef, 1088)");
+    expect(source).toContain(
+      'showInlineComments && !isDatabasePage && "pr-80"',
+    );
+    expect(source).toContain(
+      "observeCommentLane(container, lane, setCommentLaneOffset)",
+    );
+  });
+  it("blocks a changed pending selection without dropping its recovery position", () => {
+    expect(
+      pendingCommentTargetMatches(
+        [{ textContent: "Exact " }, { textContent: "selection" }],
+        "Exact selection",
+      ),
+    ).toBe(true);
+    expect(pendingCommentTargetMatches([], "Exact selection")).toBe(false);
+    expect(
+      pendingCommentTargetMatches(
+        [{ textContent: "Different selection" }],
+        "Exact selection",
+      ),
+    ).toBe(false);
+    expect(
+      positionUnanchoredCommentCard({
+        containerRect: { top: -100, width: 280 },
+        boundaryRect: { top: 0 },
+      }),
+    ).toEqual({ left: 16, top: 116, width: 248, placement: "below" });
+  });
+  it("hides suggestion decorations with comments without losing resolved anchor metadata", () => {
+    const source = readFileSync(
+      new URL("./VisualEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf("const specs = suggestions");
+    const effect = source.slice(
+      start,
+      source.indexOf("const position = resolveAnchorPoint", start),
+    );
+    expect(effect).toContain("new Set(specs.map((spec) => spec.suggestionId))");
+    expect(effect).toContain(
+      "const visibleSpecs = showCommentIndicators ? specs : []",
+    );
+    expect(effect).toContain("specs: visibleSpecs");
+    expect(effect).toContain(
+      "suggestionsSignature,\n    showCommentIndicators,",
+    );
+  });
+  it("blocks every document metadata mutation while suggesting", () => {
+    expect(documentCanonicalMutationsEnabled(true, false)).toBe(true);
+    expect(documentCanonicalMutationsEnabled(false, false)).toBe(false);
+    expect(documentCanonicalMutationsEnabled(true, true)).toBe(false);
+
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const titlePasteHandler = source.slice(
+      source.indexOf("const handleTitlePaste"),
+      source.indexOf("// Auto-focus title"),
+    );
+    expect(titlePasteHandler).toContain(
+      "documentCanonicalMutationsEnabled(editorCanEdit, isSuggesting)",
+    );
+    const iconPickerStart = source.indexOf("<EmojiPicker");
+    expect(source.slice(iconPickerStart - 250, iconPickerStart)).toContain(
+      "documentCanonicalMutationsEnabled(",
+    );
+    const iconPicker = source.slice(
+      iconPickerStart,
+      source.indexOf(") : document.icon"),
+    );
+    expect(
+      iconPicker.match(
+        /documentCanonicalMutationsEnabled\(\s*editorCanEdit,\s*isSuggesting,\s*\)/g,
+      ),
+    ).toHaveLength(1);
+    expect(source).toContain(
+      "canEdit: documentCanonicalMutationsEnabled(canEdit, isSuggesting)",
+    );
+  });
+
+  it("recognizes resolved amendment targets and action conflicts", () => {
+    expect(
+      suggestionAmendmentTargetIsResolved("suggestion-1", [
+        { id: "suggestion-1", status: "pending" },
+      ]),
+    ).toBe(false);
+    expect(
+      suggestionAmendmentTargetIsResolved("suggestion-1", [
+        { id: "suggestion-1", status: "accepted" },
+      ]),
+    ).toBe(true);
+    expect(
+      isSuggestionConflictActionError(
+        Object.assign(new Error("changed"), {
+          errorCode: "suggestion_conflict",
+        }),
+      ),
+    ).toBe(true);
+    expect(isSuggestionConflictActionError(new Error("network"))).toBe(false);
+
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const flush = source.slice(
+      source.indexOf("const flushSuggestionDraft"),
+      source.indexOf("const startSuggestionDraft"),
+    );
+    expect(
+      flush.indexOf("suggestionDraft === base.initialContent"),
+    ).toBeLessThan(
+      flush.indexOf("suggestionAmendmentConflict || amendmentTargetIsResolved"),
+    );
+    expect(source).toContain(
+      "isSuggesting &&\n          amendmentDraftIsDirty &&\n          suggestionAmendmentConflict",
+    );
+  });
+
+  it("refreshes a remaining insertion anchor after accepting an earlier nearby replacement", () => {
+    const before =
+      "Alpha Beta Gamma. Added words.\nThe team will publish on Friday.";
+    const operations = markdownSuggestionOperations(
+      before,
+      before.replace("Alpha", "First").replace("words.", "words. Next."),
+    );
+    const current = before.replace("Alpha", "First");
+    const insertion = operations.find(
+      (operation) => operation.kind === "insert_text",
+    )!;
+    const presentation = suggestionPresentation(
+      { id: "later", status: "pending", operations: [insertion] },
+      current,
+    );
+    expect(presentation?.anchor).toEqual({
+      from: current.indexOf("\n"),
+      prefix: current.slice(0, current.indexOf("\n")),
+      suffix: current.slice(current.indexOf("\n"), current.indexOf("\n") + 32),
+    });
+    expect(presentation?.afterText).toBe(" Next.");
+    expect(presentation?.afterPresentation).toEqual({
+      source: insertion.after.markdown,
+      from: insertion.anchor.from,
+      to: insertion.anchor.from + insertion.after.changedText.length,
+    });
+  });
+  it("shifts a saved suggestion anchor past a new earlier draft insertion", () => {
+    const before = "Alpha publish Friday";
+    const [deletion] = markdownSuggestionOperations(before, "Alpha  Friday");
+    const current = `New ${before}`;
+
+    const presentation = suggestionPresentation(
+      { id: "saved", status: "pending", operations: [deletion!] },
+      current,
+    );
+
+    expect(presentation?.anchor.from).toBe(current.indexOf("publish"));
+    expect(presentation?.beforeText).toBe("publish");
+    expect(presentation?.beforePresentation).toEqual({
+      source: deletion!.before.markdown,
+      from: deletion!.anchor.from,
+      to: deletion!.anchor.to,
+    });
+  });
+  it("lets nested menus consume Escape before dismissing comment focus", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain(
+      'if (event.key !== "Escape" || event.defaultPrevented) return;',
+    );
+  });
+  it("resizes titles when their available width changes without observing height feedback", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain(
+      "if (!documentTitleWidthChanged(previousWidth, nextWidth)) return;",
+    );
+    expect(source).toContain("observer?.observe(textarea)");
+  });
+  it("measures an untransformed comment lane without an offset feedback loop", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toContain("[commentLaneOffset, showInlineComments]");
+    expect(source).toContain(
+      "observeCommentLane(container, lane, setCommentLaneOffset)",
+    );
+    expect(source).toContain("[documentId, showInlineComments]");
+    const lane = source.slice(source.indexOf("ref={commentLaneRef}"));
+    expect(lane.slice(0, lane.indexOf(">"))).not.toContain("transform");
+    expect(lane.slice(lane.indexOf(">"))).toContain(
+      "translateX(${commentLaneOffset}px)",
+    );
+  });
+  it("keeps selected and hovered comment highlights distinct", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("activeThreadId={selectedThreadId}");
+    expect(source).toContain("hoveredThreadId={hoveredThreadId}");
+  });
+  it("surfaces unsuccessful suggestion decisions instead of treating HTTP success as acceptance", () => {
+    const source = readFileSync(
+      "app/components/editor/DocumentEditor.tsx",
+      "utf8",
+    );
+    expect(source).toContain('result.suggestion.status !== "stale"');
+    expect(source).toMatch(
+      /result\.suggestion\.status !== "stale"[\s\S]*?toast\.error[\s\S]*?setCommentsBrowseOpen\(true\)/,
+    );
+  });
   it("dismisses mobile comment focus without closing Info", () => {
     expect(utilityPanelAfterCommentFocusDismissal("comments")).toBeNull();
     expect(utilityPanelAfterCommentFocusDismissal("info")).toBe("info");
@@ -252,17 +484,13 @@ describe("document editor layout", () => {
       handler.indexOf("debouncedSave("),
     );
     expect(source).toContain('{t("editor.keepLocalDraft")}');
-    expect(source).toContain(
-      "void handleContentSaveNow(localDraft, true).then(",
-    );
+    expect(source).toContain("void handleContentSaveNow(localDraft, true);");
     expect(source).toContain("handleContentSaveNow(result.content, true)");
     expect(source).toContain("if (options.adoptCurrentServerBase)");
     expect(source).toContain(
-      "if (persisted) setDocumentReconcileConflict(null)",
+      "else if (contentEditVersionRef.current === contentEditVersion)",
     );
-    expect(source).toContain(
-      "else setDocumentReconcileConflict({ localDraft })",
-    );
+    expect(source).toContain("if (!result.contentPersisted)");
   });
 
   it("keeps a seeded document behind the skeleton while its fetch is pending", () => {
@@ -1261,7 +1489,7 @@ describe("document editor layout", () => {
       'collabInitialization.status === "ready"',
     );
     expect(documentEditorSource).toContain(
-      "ydoc={collabEditorEnabled ? ydoc : null}",
+      "suggestionEditorIsolation.bindCanonicalYDoc",
     );
     expect(documentEditorSource).toContain(
       "awareness={collabEditorEnabled ? awareness : null}",
@@ -1455,7 +1683,92 @@ describe("document editor layout", () => {
     expect(source).toContain("!collabInitializationFailed");
     expect(source).toContain("data-collab-initialization-error");
     expect(source).toContain("onRetry={() => globalThis.location.reload()}");
-    expect(source).toContain("ydoc={collabEditorEnabled ? ydoc : null}");
+    expect(source).toContain("suggestionEditorIsolation.bindCanonicalYDoc");
+  });
+
+  it("binds suggestion operations to the body and revision captured at mode entry", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("createSuggestionDraftSession({");
+    expect(source).toContain("baseContent: document.content");
+    expect(source).toContain(
+      "suggestionDraftOperations(base, suggestionDraft)",
+    );
+    expect(source).toContain("persistSuggestionDraftOperations(");
+    expect(source).toContain("operations: [operation]");
+    expect(source).toContain("baseRevision: base.baseRevision");
+  });
+
+  it("does not steal reply focus when activating a suggestion", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const activation = source.slice(
+      source.indexOf("const activateSuggestion ="),
+      source.indexOf("const handleUtilityPanelChange ="),
+    );
+    expect(activation).not.toContain(".focus(");
+    expect(activation).toContain('block: "nearest"');
+    expect(activation).toContain("rect.top < viewport.top");
+  });
+
+  it("freezes the suggestion editor while mode exit persists proposals", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("if (isSubmittingSuggestions) return");
+    expect(source).toContain("setIsSubmittingSuggestions(true)");
+    expect(source).toContain(
+      "suggestionEditorIsolation.editable &&\n                              !isSubmittingSuggestions",
+    );
+    expect(source).toContain("setIsSubmittingSuggestions(false)");
+  });
+
+  it("composes saved and draft suggestion anchors in the active editor", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("suggestionSessionVisuals(");
+    expect(source).toContain("byId.set(suggestion.id");
+    expect(source).toContain("suggestions={visualSuggestions}");
+  });
+
+  it("does not open the narrow suggestion Sheet merely because a draft changed", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const narrowPanelState = source.slice(
+      source.indexOf("const showUtilityPanelSheet"),
+      source.indexOf("if (utilityPanel) setLastUtilityPanel"),
+    );
+
+    expect(narrowPanelState).toContain("!!selectedSuggestionId");
+    expect(narrowPanelState).not.toContain("draftSuggestions.length");
+  });
+
+  it("opens comments for deep links and conflicts without coupling mode exit to navigation", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(
+      source.match(
+        /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
+      ),
+    ).toHaveLength(2);
+    expect(source).not.toMatch(
+      /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
+    );
   });
 
   it("wakes live-editor flush reads from shared sync events instead of polling", () => {

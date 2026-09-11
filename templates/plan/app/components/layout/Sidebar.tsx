@@ -578,7 +578,10 @@ export function Sidebar({
         <div className="group/brand flex min-w-0 items-center gap-1">
           <Link
             to="/plans"
-            className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              collapsed && "size-8 justify-center",
+            )}
           >
             <AgentNativeIcon
               aria-hidden="true"

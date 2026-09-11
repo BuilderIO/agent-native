@@ -9,6 +9,7 @@ import {
 } from "@agent-native/core/application-state";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
@@ -115,7 +116,7 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const action = args.action;
 
     if (action === "delete-all") {
@@ -210,6 +211,19 @@ export default defineAction({
       const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
       if (accountEmail) draft.accountEmail = accountEmail;
       await writeAppState(`compose-${id}`, draft);
+      track(
+        "draft_created",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          output_id: id,
+          output_type: "draft",
+          draft_mode: args.mode || "compose",
+          has_recipients: Boolean(args.to?.trim()),
+          agent_assisted: ctx?.caller !== "frontend",
+        },
+        ctx,
+      );
       return {
         id,
         draft,

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   markRead: vi.fn(),
   markAllUnreadReadForAccount: vi.fn(),
   markAllLocalUnreadRead: vi.fn(),
+  track: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -16,6 +17,10 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: mocks.track,
 }));
 
 vi.mock("../server/lib/google-auth.js", () => ({
@@ -63,6 +68,30 @@ describe("mark-read action", () => {
     expect(mocks.markAllUnreadReadForAccount).not.toHaveBeenCalled();
     expect(mocks.markAllLocalUnreadRead).not.toHaveBeenCalled();
     expect(result).toBe("Marked 1/1 email(s) as read");
+  });
+
+  it("records partial explicit triage failures", async () => {
+    mocks.markRead.mockImplementation(async ({ id }) => {
+      if (id === "email-2") throw new Error("provider unavailable");
+      return { id, isRead: true };
+    });
+
+    const result = await action.run({
+      id: "email-1,email-2",
+      accountEmail: ACCOUNT,
+    });
+
+    expect(result).toBe("Marked 1/2 email(s) as read");
+    expect(mocks.track).toHaveBeenCalledWith(
+      "inbox_triaged",
+      expect.objectContaining({
+        items_triaged: 1,
+        succeeded: false,
+        partial: true,
+        failed_count: 1,
+      }),
+      undefined,
+    );
   });
 
   it.each([[{ id: "email-1", scope: "all-unread" }], [{}]])(

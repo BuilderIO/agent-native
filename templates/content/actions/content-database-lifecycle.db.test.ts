@@ -1825,7 +1825,7 @@ describe("content database soft-delete actions and reads", () => {
     ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
   });
 
-  it("reads one shared private database row's properties without exposing its Files container", async () => {
+  it("reads one shared private database row's properties without exposing its container", async () => {
     const db = getDb();
     const now = new Date().toISOString();
     const { databaseId, databaseDocumentId } = await createDatabase({});
@@ -1970,6 +1970,7 @@ describe("content database soft-delete actions and reads", () => {
       title: "Shared Personal row",
       content: "Keep this nonempty Personal body.",
       accessRole: "editor",
+      canSuggest: false,
       databaseMembership: {
         databaseId: null,
         databaseDocumentId: null,
@@ -1987,6 +1988,7 @@ describe("content database soft-delete actions and reads", () => {
       parentId: null,
       content: "Keep this nonempty Personal body.",
       accessRole: "editor",
+      canSuggest: false,
       databaseMembership: {
         databaseId: null,
         databaseDocumentId: null,
@@ -2004,6 +2006,7 @@ describe("content database soft-delete actions and reads", () => {
       listed.documents.find((document) => document.id === sharedDocumentId),
     ).toMatchObject({
       parentId: null,
+      canSuggest: false,
       databaseMembership: {
         databaseId: null,
         databaseDocumentId: null,
@@ -2099,6 +2102,213 @@ describe("content database soft-delete actions and reads", () => {
         }),
       ),
     ).rejects.toThrow(`No access to document ${databaseDocumentId}`);
+  });
+
+  it("lets a commenter suggest on a shared Page without exposing its private Files container", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const { databaseId } = await createDatabase({ systemRole: "files" });
+    const sharedDocumentId = await createDocument({
+      title: "Shared Personal Page",
+      content: "A Page body open to suggestions.",
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("item"),
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: sharedDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: sharedDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "commenter",
+      createdBy: OWNER,
+      createdAt: now,
+    });
+
+    const memberships = await db
+      .select({
+        documentId: schema.contentDatabaseItems.documentId,
+        systemRole: schema.contentDatabases.systemRole,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.contentDatabases,
+        eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+      )
+      .where(eq(schema.contentDatabaseItems.documentId, sharedDocumentId));
+    expect(memberships).toEqual([
+      { documentId: sharedDocumentId, systemRole: "files" },
+    ]);
+
+    const shared = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => getDocumentAction.run({ id: sharedDocumentId }),
+    );
+    expect(shared).toMatchObject({
+      id: sharedDocumentId,
+      accessRole: "commenter",
+      canComment: true,
+      canSuggest: true,
+      canEdit: false,
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
+    });
+    expect(shared.databaseMembership).not.toHaveProperty("systemRole");
+
+    const listed = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listDocumentsAction.run({}),
+    );
+    const listedShared = listed.documents.find(
+      (document) => document.id === sharedDocumentId,
+    );
+    expect(listedShared).toMatchObject({
+      accessRole: "commenter",
+      canComment: true,
+      canSuggest: true,
+      canEdit: false,
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
+    });
+    expect(listedShared?.databaseMembership).not.toHaveProperty("systemRole");
+  });
+
+  it("projects suggestion eligibility for text, inline-database, database, and source Pages", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const ordinaryDocumentId = await createDocument({
+      title: "Ordinary suggestion Page",
+      content: "A commenter can suggest a text change here.",
+    });
+    const inlineDocumentId = await createDocument({
+      title: "Inline database suggestion exclusion",
+    });
+    const inlineDatabase = await createDatabase({
+      hostDocumentId: inlineDocumentId,
+      ownerBlockId: "inline-eligibility-block",
+    });
+    await db
+      .update(schema.documents)
+      .set({
+        content: `${"Paragraph before the block. ".repeat(20)}\n\n${inlineDatabaseBlock(
+          {
+            blockId: "inline-eligibility-block",
+            databaseId: inlineDatabase.databaseId,
+            databaseDocumentId: inlineDatabase.databaseDocumentId,
+          },
+        )}`,
+      })
+      .where(eq(schema.documents.id, inlineDocumentId));
+    const fullPageDatabase = await createDatabase({});
+    const sourceDocumentId = await createDocument({
+      title: "Source-owned suggestion exclusion",
+      content: "Source-owned content.",
+    });
+    await db
+      .update(schema.documents)
+      .set({
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "source-owned.md",
+      })
+      .where(eq(schema.documents.id, sourceDocumentId));
+
+    const unrecognizedSourceDocumentIds: string[] = [];
+    for (const sourceFields of [
+      { sourceMode: "legacy-source" },
+      { sourceKind: "file" },
+      { sourcePath: "source-owned.md" },
+    ]) {
+      const id = await createDocument({
+        title: "Unrecognized source exclusion",
+      });
+      await db
+        .update(schema.documents)
+        .set(sourceFields)
+        .where(eq(schema.documents.id, id));
+      unrecognizedSourceDocumentIds.push(id);
+    }
+
+    const documentIds = [
+      ordinaryDocumentId,
+      inlineDocumentId,
+      fullPageDatabase.databaseDocumentId,
+      sourceDocumentId,
+      ...unrecognizedSourceDocumentIds,
+    ];
+    await db.insert(schema.documentShares).values(
+      documentIds.map((documentId) => ({
+        id: nextId("share"),
+        resourceId: documentId,
+        principalType: "user" as const,
+        principalId: COLLABORATOR,
+        role: "commenter" as const,
+        createdBy: OWNER,
+        createdAt: now,
+      })),
+    );
+
+    const direct = await Promise.all(
+      documentIds.map((id) =>
+        runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+          getDocumentAction.run({ id }),
+        ),
+      ),
+    );
+    expect(
+      direct.map((document) => ({
+        id: document.id,
+        canComment: document.canComment,
+        canSuggest: document.canSuggest,
+      })),
+    ).toEqual([
+      { id: ordinaryDocumentId, canComment: true, canSuggest: true },
+      { id: inlineDocumentId, canComment: true, canSuggest: false },
+      {
+        id: fullPageDatabase.databaseDocumentId,
+        canComment: true,
+        canSuggest: false,
+      },
+      { id: sourceDocumentId, canComment: true, canSuggest: false },
+      ...unrecognizedSourceDocumentIds.map((id) => ({
+        id,
+        canComment: true,
+        canSuggest: false,
+      })),
+    ]);
+
+    const listed = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listDocumentsAction.run({}),
+    );
+    const listedEligibility = new Map(
+      listed.documents
+        .filter((document) => documentIds.includes(document.id))
+        .map((document) => [document.id, document.canSuggest]),
+    );
+    expect(listedEligibility).toEqual(
+      new Map([
+        [ordinaryDocumentId, true],
+        [inlineDocumentId, false],
+        [fullPageDatabase.databaseDocumentId, false],
+        [sourceDocumentId, false],
+        ...unrecognizedSourceDocumentIds.map((id) => [id, false] as const),
+      ]),
+    );
   });
 
   it("rejects restoring a database whose page belongs to another Trash root", async () => {

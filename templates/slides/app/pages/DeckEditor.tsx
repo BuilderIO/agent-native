@@ -1,4 +1,5 @@
 import { useGuidedQuestionFlow } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
@@ -436,26 +437,54 @@ export default function DeckEditor() {
 
   const openAnimationsForTarget = useCallback(
     (target: SelectedAnimationTarget) => {
+      if (!animationsOpen) {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "animations",
+        });
+      }
       setLayersOpen(false);
       setAnimationTarget(target);
       setAnimationsOpen(true);
     },
-    [],
+    [animationsOpen],
   );
   const toggleAnimations = useCallback(() => {
+    if (!animationsOpen) {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "animations",
+      });
+    }
     setLayersOpen(false);
     setAnimationTarget(null);
     setAnimationsOpen((open) => !open);
-  }, []);
+  }, [animationsOpen]);
 
   const toggleLayers = useCallback(() => {
+    if (!layersOpen) {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "layers",
+      });
+    }
     setAnimationsOpen(false);
     setAnimationTarget(null);
     setLayersOpen((open) => !open);
-  }, []);
+  }, [layersOpen]);
 
   const toggleDrawMode = useCallback(() => {
     const next = !drawMode;
+    if (next) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "draw",
+      });
+    }
     if (next) {
       setPinMode(false);
       setTextBoxMode(false);
@@ -466,6 +495,13 @@ export default function DeckEditor() {
   const togglePinMode = useCallback(() => {
     const next = !pinMode;
     if (next) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "comment_pin",
+      });
+    }
+    if (next) {
       setDrawMode(false);
       setTextBoxMode(false);
       setShapeType(null);
@@ -475,6 +511,13 @@ export default function DeckEditor() {
   const toggleTextBoxMode = useCallback(() => {
     const next = !textBoxMode;
     if (next) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "text_box",
+      });
+    }
+    if (next) {
       setDrawMode(false);
       setPinMode(false);
       setShapeType(null);
@@ -483,11 +526,28 @@ export default function DeckEditor() {
   }, [textBoxMode]);
 
   const selectShape = useCallback((type: SlideShapeType) => {
+    trackEvent("slide_tool_selected", {
+      app_name: "slides",
+      template_name: "slides",
+      tool: "shape",
+      shape_type: type,
+    });
     setDrawMode(false);
     setPinMode(false);
     setTextBoxMode(false);
     setShapeType(type);
   }, []);
+  const toggleComments = useCallback(() => {
+    const opening = sidePanel !== "comments";
+    if (opening) {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "comments",
+      });
+    }
+    setSidePanel(opening ? "comments" : null);
+  }, [sidePanel]);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -970,6 +1030,16 @@ export default function DeckEditor() {
         targetSlideId: slideId,
         ...options,
       });
+      trackEvent("slide_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        selection_mode: options.shiftKey
+          ? "range"
+          : options.metaKey || options.ctrlKey
+            ? "multi"
+            : "single",
+        selection_count: Math.min(result.selectedSlideIds.length, 50),
+      });
       selectionAnchorSlideIdRef.current = result.anchorSlideId;
       setSelectedSlideIds(result.selectedSlideIds);
       setGeneratingSlideSelected(false);
@@ -1101,6 +1171,12 @@ export default function DeckEditor() {
         if (updatedContent !== targetContent) {
           updateSlideContent(targetSlide.id, updatedContent);
         }
+        trackEvent("media_added", {
+          output_id: id,
+          output_type: "deck",
+          media_source: "upload",
+          slide_id: targetSlideId,
+        });
         clearPreview();
       } catch (error) {
         clearPreview();
@@ -1145,6 +1221,12 @@ export default function DeckEditor() {
         );
         if (updatedContent !== currentContent) {
           updateSlideContent(targetSlide.id, updatedContent);
+          trackEvent("media_added", {
+            output_id: id,
+            output_type: "deck",
+            media_source: "generated_asset",
+            slide_id: targetSlide.id,
+          });
         }
         return;
       }
@@ -2165,6 +2247,12 @@ export default function DeckEditor() {
       return request?.preserveNativeNavigation ? true : undefined;
     }
 
+    trackEvent("slide_presentation_opened", {
+      app_name: "slides",
+      template_name: "slides",
+      navigation: request?.preserveNativeNavigation ? "new_tab" : "current_tab",
+    });
+
     const hasInlineDraft = inlineEditFlushRef.current?.() ?? false;
     const hasPendingEdits =
       hasPendingDeckEdits || hasInlineDraft || hasUnsavedDeckChanges(id);
@@ -2256,10 +2344,26 @@ export default function DeckEditor() {
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         onGenerateImage={() => setImageGenOpen(!imageGenOpen)}
         onOpenAssetLibrary={() => {
+          if (!assetLibraryOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "asset_library",
+            });
+          }
           setReplaceImageSrc(null);
           setAssetLibraryOpen(true);
         }}
-        onShowHistory={() => setHistoryOpen((open) => !open)}
+        onShowHistory={() => {
+          if (!historyOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "history",
+            });
+          }
+          setHistoryOpen((open) => !open);
+        }}
         historyButtonRef={historyButtonRef}
         onPresent={handlePresent}
         currentSlide={currentSlide}
@@ -2276,15 +2380,22 @@ export default function DeckEditor() {
         agentPresent={agentPresent}
         agentActive={agentActive}
         commentsOpen={commentsOpen}
-        onToggleComments={() =>
-          setSidePanel((panel) => (panel === "comments" ? null : "comments"))
-        }
+        onToggleComments={toggleComments}
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
         animationsOpen={animationsOpen}
         onToggleAnimations={toggleAnimations}
         tweaksOpen={tweaksOpen}
-        onToggleTweaks={() => setTweaksOpen((o) => !o)}
+        onToggleTweaks={() => {
+          if (!tweaksOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "tweaks",
+            });
+          }
+          setTweaksOpen((open) => !open);
+        }}
         drawMode={drawMode}
         onToggleDrawMode={toggleDrawMode}
         pinMode={pinMode}
@@ -2313,6 +2424,11 @@ export default function DeckEditor() {
           if (optimistic) void navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "pdf",
+          });
           // Whole slides, not just ids: the exporter embeds this source in
           // the PDF so re-importing it restores editable slides rather than
           // a picture of them.
@@ -2323,6 +2439,11 @@ export default function DeckEditor() {
           await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio);
         }}
         onExportPptx={async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "pptx",
+          });
           const slides = deck.slides.map((s) => ({
             id: s.id,
             notes: s.notes,
@@ -2333,6 +2454,11 @@ export default function DeckEditor() {
           await exportDeckAsPptx(deck.title, slides, deck.aspectRatio);
         }}
         onExportGoogleSlides={async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "google_slides",
+          });
           const slides = deck.slides.map((s) => ({
             id: s.id,
             notes: s.notes,
@@ -2598,6 +2724,13 @@ export default function DeckEditor() {
             }}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
+              if (!assetLibraryOpen) {
+                trackEvent("slide_panel_opened", {
+                  app_name: "slides",
+                  template_name: "slides",
+                  panel: "asset_library",
+                });
+              }
               setReplaceImageSrc(src);
               setAssetLibraryOpen(true);
             }}
@@ -2626,6 +2759,13 @@ export default function DeckEditor() {
             recentEdits={deckRecentEdits}
             onComment={(quotedText) => {
               if (!canComment) return;
+              if (sidePanel !== "comments") {
+                trackEvent("slide_panel_opened", {
+                  app_name: "slides",
+                  template_name: "slides",
+                  panel: "comments",
+                });
+              }
               setPendingComment({ quotedText });
               setSidePanel("comments");
             }}
@@ -2728,6 +2868,12 @@ export default function DeckEditor() {
           replaceImageSrc
             ? (newUrl) => {
                 replaceImageInSlide(replaceImageSrc, newUrl);
+                trackEvent("media_added", {
+                  output_id: id,
+                  output_type: "deck",
+                  media_source: "asset_library",
+                  slide_id: currentSlideRef.current?.id,
+                });
                 setReplaceImageSrc(null);
               }
             : undefined

@@ -4,6 +4,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import { customAlphabet } from "nanoid";
 import { z } from "zod";
 
@@ -81,7 +82,7 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const id = nanoid(10);
     const now = new Date().toISOString();
     const title = args.title || "Untitled Form";
@@ -169,6 +170,31 @@ export default defineAction({
       status === "published"
         ? `${getAppProductionUrl()}/f/${encodeURIComponent(slug)}`
         : undefined;
+
+    track(
+      "form_created",
+      {
+        app_name: "forms",
+        template_name: "forms",
+        output_id: id,
+        output_type: "form",
+        field_count: fields.length,
+      },
+      ctx,
+    );
+    if (status === "published") {
+      track(
+        "form_published",
+        {
+          app_name: "forms",
+          template_name: "forms",
+          output_id: id,
+          output_type: "form",
+          public_url: publicUrl,
+        },
+        ctx,
+      );
+    }
 
     return {
       id,

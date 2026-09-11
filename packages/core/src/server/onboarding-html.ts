@@ -1954,7 +1954,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-signin {
     margin: 1.25rem 0 0.25rem;
     padding-top: 1rem;
-    border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
   }
   .btn-local-dev {
     margin-top: 0.25rem;
@@ -2001,7 +2000,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .local-dev-full-options {
     display: block;
-    margin: 0.75rem auto 0;
+    margin: 1rem 0 0;
     padding: 0;
     background: transparent;
     border: 0;

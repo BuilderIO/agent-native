@@ -2,6 +2,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
@@ -537,9 +538,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     (labelsLoading && labels.length === 0) || (settingsLoading && !settings);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPinned, setSidebarPinned] = useState(() => {
-    if (typeof window === "undefined") return true;
-    const stored = localStorage.getItem("mail-sidebar-pinned");
-    return stored === null ? true : stored === "true";
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("mail-sidebar-pinned") === "true";
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -914,6 +914,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [labels]);
 
   const handleCompose = useCallback(() => {
+    trackEvent("compose_opened", {
+      app_name: "mail",
+      template_name: "mail",
+      compose_mode: "new",
+    });
     compose.open({
       to: "",
       cc: "",

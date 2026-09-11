@@ -5,6 +5,9 @@ import type { MouseEvent } from "react";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
+import { ClipsActOnFeedbackMock } from "../components/template-landing/ClipsActOnFeedbackMock";
+import { ClipsBriefOutputsMock } from "../components/template-landing/ClipsBriefOutputsMock";
+import { ClipsInvestigateBugMock } from "../components/template-landing/ClipsInvestigateBugMock";
 import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
@@ -47,27 +50,26 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "clips")!;
 
-// Each id/label pair below is a literal instruction from the copy doc for
-// what the placeholder art should eventually show — kept here so whoever
-// drops in the real asset knows which one without re-reading the doc.
+// Which side carries the text is data rather than row parity, since it no
+// longer alternates strictly by index.
 const USE_CASES = [
   {
     id: "act-on-feedback",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
-    imageLabel: "ASSET U1",
+    textLeft: true,
   },
   {
     id: "investigate-bug",
     titleKey: "useCase2Title",
     bodyKey: "useCase2Body",
-    imageLabel: "ASSET U2",
+    textLeft: false,
   },
   {
     id: "create-from-brief",
     titleKey: "useCase3Title",
     bodyKey: "useCase3Body",
-    imageLabel: "ASSET U3",
+    textLeft: true,
   },
 ] as const;
 
@@ -206,19 +208,81 @@ export default function ClipsTemplate() {
         </GridInner>
 
         <GridInner>
-          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
-            {USE_CASES.map((useCase) => (
-              <ContentCard
-                key={useCase.id}
-                title={t(`templateLanding.clips.${useCase.titleKey}`)}
-                body={t(`templateLanding.clips.${useCase.bodyKey}`)}
-              />
-            ))}
+          <div className="flex flex-col border-t border-x border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase) => {
+              const textLeft = useCase.textLeft;
+
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.clips.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.clips.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
+
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className={`order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)] ${
+                    // The recording-page art is a crop that runs off its left
+                    // edge under a fade, so it takes the full cell width.
+                    useCase.id === "act-on-feedback" ? "ps-0 lg:ps-0" : ""
+                  }`}
+                >
+                  {useCase.id === "investigate-bug" ? (
+                    <ClipsInvestigateBugMock
+                      className="w-full max-w-[480px] lg:max-w-none"
+                      label={t(`templateLanding.clips.${useCase.titleKey}`)}
+                    />
+                  ) : useCase.id === "act-on-feedback" ? (
+                    <ClipsActOnFeedbackMock
+                      className="w-full"
+                      label={t(`templateLanding.clips.${useCase.titleKey}`)}
+                    />
+                  ) : (
+                    <ClipsBriefOutputsMock
+                      className="w-full max-w-[480px] lg:max-w-none"
+                      label={t(`templateLanding.clips.${useCase.titleKey}`)}
+                    />
+                  )}
+                </div>
+              );
+
+              return (
+                <div
+                  key={useCase.id}
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.id === "investigate-bug"
+                      ? "lg:grid-cols-[1.25fr_1fr]"
+                      : "lg:grid-cols-[1fr_1.25fr]"
+                  }`}
+                >
+                  {textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </GridInner>
       </PageSection>
 
-      {/* Key features — six cards, same layout as builder.io/platform/code */}
+      {/* Key features eyebrow/title — its own section so the decorative
+          three-col page gridlines show behind it. */}
       <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
           <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
@@ -228,7 +292,14 @@ export default function ClipsTemplate() {
             {t("templateLanding.clips.keyFeaturesHeading")}
           </h2>
         </GridInner>
+      </PageSection>
 
+      {/* Key features — six cards, same layout as builder.io/platform/code.
+          showGrid is off here because this grid already draws its own
+          dividers, including on mobile/narrow breakpoints where the
+          decorative three-col overlay wouldn't match; keeping the decor on
+          the section above and off here avoids doubling the center lines. */}
+      <PageSection showGrid={false}>
         <GridInner>
           <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
             {KEY_FEATURES.map((feature) => (
@@ -242,9 +313,11 @@ export default function ClipsTemplate() {
         </GridInner>
       </PageSection>
 
-      {/* See Clips in action — three video cards, same card component */}
+      {/* See Clips in action — three video cards, same card component.
+          No border-t here: the key-features grid above already ends in its
+          own bottom border, so another one right below it just doubles up. */}
       <PageSection>
-        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
             {t("templateLanding.clips.seeInActionHeading")}
           </h2>

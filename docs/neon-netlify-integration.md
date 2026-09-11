@@ -13,11 +13,16 @@ PR revision without deployment credentials. The upload job checks out only the
 trusted base revision, builds its trusted Functions, and receives the PR's
 static artifact. PR-controlled Functions are never deployed.
 
-Preview deploys do not create an isolated database. A preview may have the
-canonical site's runtime configuration, or may only be able to pass its static
-and route checks when those variables are unavailable. Treat every preview as
-non-isolated and unsafe to write. The workflow below also cleans up branch
-resources left by the former isolation flow.
+Preview deploys do not create an isolated database. Before each GitHub Actions
+upload, the workflow copies the production PostgreSQL URL from the matching
+`NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` GitHub secret into the
+`branch-deploy` context used by the aliased prebuilt upload, and the deployed
+preview smoke check requires the database and schema to be healthy. Those secrets mirror the matching local
+`templates/<template>/.env` `DATABASE_URL`; `chat` uses the production Netlify
+database because its local template has no database URL. Treat every preview as
+non-isolated and unsafe to write. Only database variables are copied; other
+provider credentials remain managed by the Netlify site. The workflow below also
+cleans up branch resources left by the former isolation flow.
 
 ## How it works
 
@@ -46,11 +51,12 @@ external side effects.
 
 ## Required GitHub secrets
 
-| Secret               | Where to get it                               |
-| -------------------- | --------------------------------------------- |
-| `NEON_API_KEY`       | Neon dashboard → Account → API Keys           |
-| `NETLIFY_AUTH_TOKEN` | Netlify User Settings → Personal Access Token |
-| `NETLIFY_ACCOUNT_ID` | Netlify team settings → Team ID               |
+| Secret                                    | Where to get it                                                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `NEON_API_KEY`                            | Neon dashboard → Account → API Keys                                                              |
+| `NETLIFY_AUTH_TOKEN`                      | Netlify User Settings → Personal Access Token                                                    |
+| `NETLIFY_ACCOUNT_ID`                      | Netlify team settings → Team ID                                                                  |
+| `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` | Matching production `templates/<template>/.env` URL; `CHAT` uses the production Netlify database |
 
 ## Restoring production env vars
 

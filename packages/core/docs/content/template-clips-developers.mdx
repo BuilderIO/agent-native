@@ -1,385 +1,179 @@
 ---
-title: "Extending Clips"
-description: "Data model, action reference, and setup steps for customizing, self-hosting, or extending the Clips template. Covers recordings, transcripts, meetings, organizations, the Chrome extension, and embedded bug reports."
-search: "Clips developers data model actions schema self-host Chrome extension bug report embed"
+title: "Embed Clips"
+description: "Embed hosted Clips in your product with an org service token, preconfigured video storage, short-lived intake URLs, and completion messages."
+search: "Clips embed iframe organization service token anonymous recording intake Builder S3 storage self-host"
 ---
 
-# Extending Clips
+# Embed Clips
 
-The rest of this doc is for anyone customizing the Clips template, self-hosting it, or extending it with new capabilities.
+Use hosted Clips as the recording backend for your product. A person can record from an iframe without signing in to Clips. Your backend uses an org service token to create a short-lived intake URL, and Clips stores the resulting recording in that organization's configured storage.
 
-## Quick start
+This guide covers the hosted embedding flow. It does not require the person recording to have a Clips account.
+
+## How the integration works
+
+The integration has four parts:
+
+1. An organization admin configures video storage in Clips.
+2. Your backend stores the org service token and requests an intake URL.
+3. Your product passes only the short-lived intake URL to an iframe.
+4. Clips uploads the recording to the organization's storage and posts a completion message to your product.
+
+The org service token never belongs in the iframe. It is bound to the organization that minted it, so the token itself supplies the organization context. An organization ID is useful for your own tenant mapping, but it is not a credential by itself.
+
+## Configure the Clips organization
+
+Create or select the Clips organization that should own the recordings. An organization admin then configures video storage through Clips onboarding or Clips Settings:
+
+- **Builder.io Connect** provides managed video storage and AI credits.
+- **S3-compatible storage** uses the organization's configured endpoint, bucket, access key, secret key, and optional region or public base URL. Cloudflare R2 and DigitalOcean Spaces use the same storage settings with their provider-specific names.
+
+Storage configuration is organization-scoped. Every recording created through that organization's service token uses the storage already connected to that organization. The embedding product does not need the Builder.io or S3 credentials.
+
+The video is stored in the configured object storage. Clips stores the recording metadata, ownership, processing state, and storage reference in its database.
+
+## Create an organization service token
+
+Run the existing `connect` command as an organization owner or admin. The command opens a browser sign-in, creates a named service token for the active organization, and prints the token once:
 
 ```bash
-npx @agent-native/core@latest create my-clips --standalone --template clips
+npx @agent-native/core@latest connect https://clips.agent-native.com \
+  --service-token support-desk --ttl-days 365
 ```
 
-See [Getting started](/docs/getting-started) for installing dependencies, running the dev server, and general workspace basics.
+Copy the printed token directly into your product's server-side secret manager. The token is organization-owned, so it continues working if the person who minted it leaves the organization or revokes their personal tokens. It is never written to a local client configuration. Use a different service name for each integration so one caller can be revoked without breaking another.
 
-Clips is a larger template with a native recorder (it ships a desktop companion for local capture). Four setup steps get recordings uploading end to end:
+`--ttl-days` accepts 1 to 365 days and defaults to 365. The token acts as an organization member. It cannot create or revoke other service tokens or change organization settings.
 
-1. **Video storage (required).** Connect a storage backend through the onboarding wizard or Clips Settings. The easiest path is Builder.io (free tier includes video storage and AI credits, one-click). For self-hosted storage, save `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL` in the app; the values are stored as scoped DB secrets. Cloudflare R2 and DigitalOcean Spaces use the same key names with the `R2_*` prefix.
-2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
-3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
-4. **Slack previews (optional).** Create a Slack app with `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; set the Request URL to `https://your-clips.example.com/api/slack/unfurl`; and add the OAuth redirect URL `https://your-clips.example.com/api/slack/oauth/callback`. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`, then connect workspaces from Clips Settings.
+## Request an intake URL
 
-## Host your own Clips server
+Your trusted backend calls the Clips intake action. Use the hosted Clips origin for hosted accounts, or your own Clips origin when self-hosting.
 
-The hosted Clips app at [clips.agent-native.com](https://clips.agent-native.com) is just a deployed copy of the Clips template. To run your own server, scaffold the template, deploy it like any other agent-native app, then point the desktop tray app at your deployment.
+```ts
+const clipsBaseUrl = "https://clips.agent-native.com";
+const clipsServiceToken = process.env.CLIPS_SERVICE_TOKEN;
 
-1. **Create the app** with the quick-start command above.
+const response = await fetch(
+  `${clipsBaseUrl}/_agent-native/actions/create-recording-intake-link`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${clipsServiceToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ttlSeconds: 3600,
+    }),
+  },
+);
 
-2. **Configure production state.** Set a persistent `DATABASE_URL`, the normal production auth/secrets variables from [Deployment](/docs/deployment), and a video storage provider. Builder.io Connect is the easiest storage path, and its free tier includes video storage and AI credits; for self-hosted storage, save `S3_*` or `R2_*` keys from Clips Settings for an S3-compatible bucket.
+if (!response.ok) {
+  throw new Error("Could not create a Clips intake URL");
+}
 
-3. **Deploy the web app.** For a plain Node deploy:
+const intake = await response.json();
+// intake.url is safe to pass to the recording iframe.
+```
 
-   ```bash
-   pnpm build
-   node .output/server/index.mjs
-   ```
+The service token's signed organization context determines which organization owns the intake. The action response is the intake object at the top level. The default intake lifetime is one hour. The maximum is four hours. Each intake URL can create one recording.
 
-   You can also use any Nitro target from [Deployment](/docs/deployment), such as Netlify, Vercel, Cloudflare Pages, AWS Lambda, or Deno Deploy. Make sure `BETTER_AUTH_URL` is the public Clips origin, for example `https://clips.example.com`.
+Do not make this request from an anonymous browser. Do not return the service token, storage credentials, or a long-lived Clips session to the browser.
 
-4. **Connect the desktop tray app.** Open Clips Desktop settings and set **Clips server URL** to the public base URL of your deployment, for example `https://clips.example.com`. If the app is mounted under a workspace path, include that path, such as `https://example.com/clips`. Click **Connect**, then sign in with an account on that Clips server.
+## Embed the recorder
 
-5. **Enable the Chrome extension after publishing.** See [Chrome extension and embedded bug reports](#chrome-extension-and-embedded-bug-reports) below.
+Pass the returned URL directly to an iframe. The URL contains the narrow, signed capability that lets the visitor create and upload one private recording.
 
-6. **Connect optional integrations.** Google Calendar powers the Meetings tab, `GEMINI_API_KEY` or Builder.io Connect (free tier includes AI credits) powers transcript cleanup and titles, `GROQ_API_KEY` can provide speech-to-text fallback, and the Slack OAuth connection in Settings enables playable Slack unfurls.
-
-For local development, run the web app with `pnpm dev` and point the desktop tray app at `http://localhost:8094`.
-
-## Key features {#key-features}
-
-**One library, three capture types.** Screen recordings, calendar meetings, and push-to-talk dictations share one searchable library.
-
-**Transcript and AI pipeline.** Recordings get timestamped transcript segments, generated titles, summaries, and chapter markers. See [AI Pipeline, Editing, and Insights](/docs/template-clips-ai-and-editing) for the provider order and delegation pattern.
-
-**Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching stay in `edits_json` so original media remains intact.
-
-**Agent-readable share links.** Public share links and temporary private agent links expose transcript and frame APIs so agents can understand recordings without ingesting raw video. See [Sharing, Teams, and Agent-Readable Clips](/docs/template-clips-sharing-and-teams).
-
-**Slack playable unfurls.** Public share links can render a Slack `video` block that points at the existing `/embed/:id` player. This is a workspace Slack app install, not a global crawler behavior: normal Open Graph/Twitter metadata is the fallback when the app is not installed.
-
-<a id="chrome-extension-and-embedded-bug-reports"></a>
-
-## Chrome extension
-
-The Agent-Native Clips Chrome extension listing is `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`. If you host your own Clips server, keep the Chrome extension option hidden until your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` after approval to show the extension beside desktop-app download prompts. Set `VITE_CLIPS_CHROME_EXTENSION_URL` only if you need to override the default listing URL. See [Capturing Everywhere](/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension) for what the extension captures.
-
-## Embedded bug reports {#embedded-bug-reports}
-
-Clips can be embedded into an existing product as a lightweight bug-report launcher. The embedded page collects issue metadata, opens the real recorder in a top-level browser window (browser media capture requires a top-level user gesture), and relays a completion message back to the host product when the recording is saved.
-
-Use `/bug-report` as the iframe URL. The page accepts either plain query parameters or the `bugReport*`-prefixed parameters that the recorder stores:
-
-```html
+```tsx
 <iframe
-  src="https://clips.example.com/bug-report?projectId=web-app&sourceUrl=https%3A%2F%2Fapp.example.com%2Fsettings&pageTitle=Settings&appVersion=2026.06.26&environment=production&returnUrl=https%3A%2F%2Fapp.example.com%2Fsettings"
+  data-clips-recorder
+  src={intake.url}
   allow="display-capture; camera; microphone"
-  style="width: 420px; height: 560px; border: 0"
-></iframe>
+  title="Report a problem"
+  style={{ width: 420, height: 560, border: 0 }}
+/>
 ```
 
-If the host product already has its own launcher UI, it can open `/record` directly with `bugReport=1`, `intent=bug-report`, `mode=screen`, `surface=browser`, and the same fields prefixed with `bugReport`, such as `bugReportProjectId` and `bugReportReturnUrl`.
+You can add small, non-sensitive context values to the intake URL before rendering it, such as a project ID, page title, application version, or environment. Do not put passwords, API keys, customer records, or other sensitive values in the URL. URLs can appear in browser history, logs, analytics, and referrers.
 
-Supported metadata fields are `projectId`, `title`, `description`, `severity` (`low`, `normal`, `high`, `urgent`), `sourceUrl`, `pageTitle`, `appVersion`, `environment`, `reporterEmail`, `reporterName`, `reporterId`, `metadata` (JSON object), and `returnUrl`. Keep query metadata small and avoid secrets, customer data, and other sensitive values. The recorder redirects to `/bug-report/done` after upload and sends this browser message to `window.opener`; the `/bug-report` iframe relays the same message to its parent:
+The recorder opens a top-level popup when the visitor starts capture. Browser media permissions and screen capture require a user gesture in a top-level browsing context. Allow popups for the host product during testing.
 
-```js
+## Receive the completion message
+
+When the recording is saved, the done page posts `agent-native.clips.bug-report.submitted` to the embedding parent. Validate the Clips origin and the message source before using the payload.
+
+```ts
+const clipsOrigin = new URL(clipsBaseUrl).origin;
+const recorderFrame = document.querySelector<HTMLIFrameElement>(
+  "iframe[data-clips-recorder]",
+);
+
 window.addEventListener("message", (event) => {
-  if (event.origin !== "https://clips.example.com") return;
+  if (event.origin !== clipsOrigin) return;
+  if (recorderFrame && event.source !== recorderFrame.contentWindow) return;
   if (event.data?.type !== "agent-native.clips.bug-report.submitted") return;
-  if (event.data.agentAccessStatus === "ready") {
-    console.log(event.data.agentContextUrl, event.data.agentAccessExpiresAt);
-  }
+
+  const { recordingId, recordingUrl, embedUrl, agentAccessStatus } = event.data;
+  if (!recordingId) return;
+
+  // Send recordingId to your trusted backend and attach it to the support case.
+  console.log({ recordingId, recordingUrl, embedUrl, agentAccessStatus });
 });
 ```
 
-Always validate both `event.origin` and `event.source` in the host. The completion payload includes `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt`, and an explicit `agentAccessStatus` of `ready` or `unavailable`. When access is ready, `agentContextUrl` is a temporary, scoped URL that lets an agent read recording metadata, timestamped transcript segments, recommended frames and frame URLs, and browser diagnostics without receiving the user's workspace session. Normal agent links expire after two hours; authenticated embedded bug-report completions use a seven-day scoped link so asynchronous support tickets can be triaged. Anonymous intake completions intentionally report `agentAccessStatus: "unavailable"` until the trusted host exchanges the retained intake id and completed recording id through the authenticated `create-intake-agent-link` action. Treat an unavailable or expired link as an access failure, not an empty recording. `embedUrl` remains subject to the recording's normal viewer access.
+The completion payload can include `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt`, and `agentAccessStatus`. Treat `recordingId` as the durable identifier for the support case. A write-only intake may report `agentAccessStatus: "unavailable"` until your authenticated backend creates a separate scoped agent link. That status does not mean the recording is empty.
 
-Bug-report recordings default to workspace visibility instead of public visibility. The saved `recording_bug_reports` sidecar includes the redacted host metadata, while the recording itself remains the canonical media/transcript resource. URLs have credentials, fragments, and query values removed before storage, and the browser-diagnostics pipeline still omits request/response bodies, headers, and cookies. A popup recording only sees diagnostics emitted inside the Clips window. Use the Chrome extension or attach diagnostics from the host product separately when the agent needs console and network context from the source tab.
+The browser message is a notification, not an authorization grant. Your backend should use its own authenticated connection to Clips when it needs to read or share the completed recording.
 
-This embedded flow requires the reporter to already have an active session in the Clips workspace that owns the recording. The current cross-origin popup cannot preserve its completion channel through a first-time sign-in redirect, so users should sign in to Clips in a separate tab before launching it. For a no-login customer-support flow, use [Anonymous Clips intake](/docs/template-clips-anonymous-intake). It creates a one-recording, write-only capability and keeps the normal owner-scoped upload endpoints protected.
+## Where recordings are stored
 
-## Data model
+Recordings created through the service token are owned by the organization associated with that token. Clips sends the media through its normal upload and finalize pipeline. The pipeline uses the Builder.io or S3-compatible storage configured for that organization.
 
-All data lives in SQL via Drizzle ORM. Schema: `templates/clips/server/db/schema.ts`. Recordings, meetings, dictations, calendar accounts, and vocabulary all carry the standard `ownableColumns` and have a matching framework shares table, so they slot into the per-user / per-org sharing model.
+The iframe does not upload directly to your bucket, and it does not need bucket credentials. Your product receives recording identifiers and scoped URLs from Clips. Store only the identifiers or URLs you need in your own support system.
 
-Two things live outside this schema on purpose: organization/member/invitation rows are framework-owned tables (`organizations`, `org_members`, `org_invitations`), with `organization_settings` as the Clips-specific sidecar keyed by organization id; and the "Add what happened before" (Rewind pre-roll) request lifecycle and mobile-capture-state live in `application_state`, not a SQL table, since they're short-lived, per-session status rather than durable app data.
+## Self-hosting Clips
 
-<DataModel
-  id="doc-block-oitg2"
-  title="Clips core data model"
-  summary={
-    "recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
-  }
-  entities={[
-    {
-      id: "recordings",
-      name: "recordings",
-      note: "Core resource; source of truth for media. ownableColumns",
-      fields: [
-        {
-          name: "id",
-          type: "text",
-          pk: true,
-        },
-        {
-          name: "title",
-          type: "text",
-        },
-        {
-          name: "video_url",
-          type: "text",
-          note: "plus format / size / duration / thumbnails",
-        },
-        {
-          name: "status",
-          type: "text",
-        },
-        {
-          name: "edits_json",
-          type: "text",
-          note: "Non-destructive edits",
-        },
-        {
-          name: "chapters_json",
-          type: "text",
-          nullable: true,
-        },
-        {
-          name: "password",
-          type: "text",
-          nullable: true,
-          note: "Privacy: password / expiry",
-        },
-      ],
-    },
-    {
-      id: "recording_transcripts",
-      name: "recording_transcripts",
-      note: "Split out so the library and transcript views render fast",
-      fields: [
-        {
-          name: "recording_id",
-          type: "text",
-          fk: "recordings.id",
-        },
-        {
-          name: "segments_json",
-          type: "text",
-          note: "{ startMs, endMs, text }",
-        },
-        {
-          name: "full_text",
-          type: "text",
-        },
-        {
-          name: "language",
-          type: "text",
-        },
-        {
-          name: "status",
-          type: "text",
-        },
-      ],
-    },
-    {
-      id: "clips_meetings",
-      name: "clips_meetings",
-      note: "Calendar-sourced or ad-hoc; owns a recording",
-      fields: [
-        {
-          name: "id",
-          type: "text",
-          pk: true,
-        },
-        {
-          name: "recording_id",
-          type: "text",
-          fk: "recordings.id",
-          nullable: true,
-        },
-        {
-          name: "summary_md",
-          type: "text",
-          nullable: true,
-        },
-        {
-          name: "bullets_json",
-          type: "text",
-          nullable: true,
-        },
-        {
-          name: "action_items_json",
-          type: "text",
-          nullable: true,
-        },
-      ],
-    },
-    {
-      id: "clips_dictations",
-      name: "clips_dictations",
-      note: "Push-to-talk dictation history; ownableColumns",
-      fields: [
-        {
-          name: "id",
-          type: "text",
-          pk: true,
-        },
-        {
-          name: "full_text",
-          type: "text",
-          note: "Raw",
-        },
-        {
-          name: "cleaned_text",
-          type: "text",
-          nullable: true,
-        },
-        {
-          name: "source",
-          type: "text",
-          note: "fn-hold, etc.",
-        },
-        {
-          name: "target_app",
-          type: "text",
-          nullable: true,
-        },
-      ],
-    },
-  ]}
-  relations={[
-    {
-      from: "recordings",
-      to: "recording_transcripts",
-      kind: "1-1",
-      label: "transcript",
-    },
-    {
-      from: "recordings",
-      to: "clips_meetings",
-      kind: "1-1",
-      label: "captured by",
-    },
-  ]}
-/>
+Self-hosting uses the same organization contract:
 
-| Table                                           | What it holds                                                                                                                                                                 |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `recordings`                                    | The core resource — title, video URL/format/size, duration, thumbnails, status, non-destructive `edits_json`, `chapters_json`, privacy (password, expiry), and player toggles |
-| `recording_transcripts`                         | Per-recording transcript: `segments_json` (`{startMs,endMs,text}`), `full_text`, language, and status                                                                         |
-| `recording_tags`                                | Free-form tags on a recording                                                                                                                                                 |
-| `recording_ctas`                                | Call-to-action buttons (label, url, color, placement) overlaid on a recording                                                                                                 |
-| `recording_comments`                            | Threaded, timestamped comments with emoji-reaction map and resolved flag                                                                                                      |
-| `recording_bug_reports`                         | Redacted host-product bug report metadata keyed by `recording_id`                                                                                                             |
-| `clips_intake_sessions`                         | One-use anonymous intake capabilities bound to an owner, organization, and recording                                                                                          |
-| `recording_reactions`                           | Emoji reactions pinned to a video timestamp (anonymous viewers allowed)                                                                                                       |
-| `recording_viewers` / `recording_events`        | View analytics: per-viewer watch time and completion, plus granular events (view-start, watch-progress, seek, pause, cta-click, reaction)                                     |
-| `recording_views`                               | Append-only per-view log (who viewed, when) — backs the owner-facing "Viewed by" popover, kept separate from the aggregate counters above                                     |
-| `recording_agent_views`                         | Outside agents reading a clip through its public agent APIs, counted separately from human views so no human-view query can pick agents up by mistake                         |
-| `clips_meetings`                                | Calendar-sourced or ad-hoc meetings — schedule/actual spans, platform, user notes, AI `summary_md`, `bullets_json`, `action_items_json`, and the link to its `recording_id`   |
-| `meeting_participants` / `meeting_action_items` | Attendees and extracted action items for a meeting                                                                                                                            |
-| `calendar_accounts` / `calendar_events`         | Connected calendar accounts (OAuth tokens live in `app_secrets`, only referenced here) and synced event snapshots                                                             |
-| `clips_dictations`                              | Push-to-talk dictation history — raw `full_text`, optional `cleaned_text`, source (`fn-hold`, etc.), and target app                                                           |
-| `clips_vocabulary`                              | Personal vocabulary corrections (term → preferred replacement) that bias future dictations                                                                                    |
-| `spaces` / `space_members` / `folders`          | Library organization — spaces (topic-scoped containers), their members, and nestable folders                                                                                  |
-| `organization_settings`                         | Per-org Clips sidecar: brand color, logo, default visibility                                                                                                                  |
-| `slack_installations`                           | Team-level Slack OAuth grants used for link unfurls (bot tokens live encrypted in `app_secrets`)                                                                              |
+1. Deploy Clips with a persistent database and a public `BETTER_AUTH_URL`.
+2. Create the organization that will own embedded recordings.
+3. Configure Builder.io Connect or S3-compatible storage once in that organization.
+4. Run `connect` against the self-hosted Clips origin to create the organization's service token.
+5. Provide that token once to your embedding backend as a deployment or secret-manager value.
+6. Use the self-hosted Clips origin when your backend requests intake URLs.
 
-Recordings and transcripts are intentionally separate tables so the library and transcript views can each render fast. Meetings compose with recordings rather than duplicating media: a meeting owns the recording it captures, but the `recordings` row remains the source of truth for the video and per-segment transcript.
+```bash
+npx @agent-native/core@latest connect https://clips.example.com \
+  --service-token support-desk --ttl-days 365
+```
 
-<FileTree
-  id="doc-block-clips5"
-  title="Clips project layout"
-  entries={[
-    { path: "actions/", note: "~110 agent-callable action files" },
-    { path: "actions/create-recording.ts", note: "Recording lifecycle" },
-    {
-      path: "actions/request-transcript.ts",
-      note: "Native-first transcription, cloud fallback",
-    },
-    {
-      path: "actions/trim-recording.ts",
-      note: "Non-destructive edit, appends to edits_json",
-    },
-    { path: "actions/create-organization.ts", note: "Teams" },
-    {
-      path: "actions/prepare-crm-call-evidence.ts",
-      note: "Opaque clip id + durable link for CRM automations",
-    },
-    {
-      path: "actions/export-to-brain.ts",
-      note: "Single export or bounded historical backfill",
-    },
-    {
-      path: "actions/get-screen-memory-status.ts",
-      note: "Local-only Screen Memory reads",
-    },
-    {
-      path: "actions/request-rewind-extension.ts",
-      note: "Add-what-happened-before (Rewind pre-roll) request lifecycle",
-    },
-    {
-      path: "app/routes/",
-      note: "React Router file routes (library, meetings, dictate, settings, share, embed)",
-    },
-    {
-      path: "server/db/schema.ts",
-      note: "Drizzle schema for every table above",
-    },
-    {
-      path: "chrome-extension/",
-      note: "Active-tab recorder + browser diagnostics capture",
-    },
-    { path: "desktop/", note: "Tauri desktop tray app (src-tauri/)" },
-    {
-      path: ".agents/skills/",
-      note: "recording, ai-video-tools, video-editing, video-sharing, meetings, dictate, brain-export, crm-call-evidence, screen-memory, bug-reports, external-integrations, and more",
-    },
-  ]}
-/>
+For example, the embedding backend can keep these values in its server-side configuration:
 
-## Key actions
+```text
+CLIPS_BASE_URL=https://clips.example.com
+CLIPS_SERVICE_TOKEN=<secret>
+```
 
-Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are roughly 110 actions, grouped here by purpose:
+The token is provided once to the backend. Each visitor still receives a new short-lived intake URL. No token or storage credential is added to the iframe, and no iframe code change is needed when the token is rotated.
 
-- **Recording lifecycle** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`, `reprocess-recording`, `import-loom-recording`.
-- **Bug reports** — `save-bug-report-context` stores redacted host-product context for recordings launched from `/bug-report`; `create-recording-intake-link` mints a one-use anonymous intake URL; `create-intake-recording` is the anonymous write step and `create-intake-agent-link` is the authenticated host-side exchange; `get-recording-player-data` returns the sidecar to editors. See [Anonymous Clips intake](/docs/template-clips-anonymous-intake) for the complete flow.
-- **Transcript & AI** — `request-transcript`, `cleanup-transcript`, `save-browser-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`, `get-clips-ai-prefs` / `update-clips-ai-prefs`, `get-builder-credit-status`. (`cleanup-transcript` and `finalize-meeting` are server-side media-pipeline calls; most other AI features delegate to the agent chat.)
-- **Editing** — non-destructive `trim-recording`, `split-recording`, `remove-filler-words`, `remove-silences`, plus `stitch-recordings`, `undo-edit`, `clear-edits`. Edits accumulate in `edits_json`; the client concatenates/exports via ffmpeg.wasm.
-- **Meetings** — `create-meeting`, `start-meeting-recording` / `stop-meeting-recording`, `finalize-meeting`, `update-meeting`, `get-meeting`, `list-meetings`, `delete-meeting`, plus calendar wiring `connect-calendar` / `disconnect-calendar` / `sync-calendars` / `list-calendar-accounts`.
-- **Dictation** — `create-dictation`, `cleanup-dictation`, `update-dictation`, `list-dictations`, and `add-vocabulary-term` / `list-vocabulary` / `remove-vocabulary-term` for personal vocabulary biasing.
-- **Library organization** — `create-space` / `rename-space` / `delete-space`, `add-space-member` / `remove-space-member`, `create-folder` / `rename-folder` / `delete-folder`, `add-recording-to-space`.
-- **Sharing, comments & engagement** — framework sharing actions (`share-resource`, `set-resource-visibility`, `list-resource-shares`) plus `build-embed-url`, `create-recording-agent-link`, `create-cta` / `update-cta` / `delete-cta`, `add-comment` / `reply-to-comment` / `resolve-comment` / `react-to-comment` / `delete-comment`, `react-to-recording`, `list-viewers`, `list-clip-views`.
-- **Organizations & members** — `create-organization`, `set-organization-branding`, `invite-member` / `accept-invite` / `decline-invite` / `get-invite`, `remove-member`, `update-member-role`, `list-organization-state`, `list-notifications`.
-- **Screen Memory** — `get-screen-memory-status`, `query-screen-memory-context`. Both read bounded local files on the current machine only; neither ever returns media bytes or images.
-- **Add what happened before (Rewind pre-roll)** — `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request`, `make-recording-private-for-rewind`, `apply-rewind-extension`.
-- **Mobile companion** — `set-mobile-capture-state` records the privacy-safe view/phase of the mobile capture UI; it's not agent-callable (`agentTool: false`).
-- **CRM & Brain export** — `prepare-crm-call-evidence`, `export-to-brain`.
-- **Search & insights** — `search-recordings` (matches titles, descriptions, transcript text, and comments, with timestamps), `get-recording-insights`, `get-organization-insights`, `export-insights-csv`, `list-ai-requests` / `update-ai-request-status`.
-- **Slack integration** — `connect-slack` / `disconnect-slack`, `list-slack-installations`.
-- **Context & navigation** — `view-screen` (current clip, playhead, selected transcript range) and `navigate`; `refresh-list` after mutations.
+See [Deployment](/docs/deployment) for general self-hosting requirements.
 
-## Customizing it
+## Security checklist
 
-Clips is a complete, cloneable template — start from it and ask the agent to extend it. Some examples:
+- Keep the organization service token in a server-side secret manager.
+- Use HTTPS for both the host product and Clips.
+- Treat each intake URL as a bearer credential. Keep it out of logs and referrer data.
+- Use the shortest useful intake lifetime.
+- Validate both `event.origin` and `event.source` in the completion listener.
+- Never expose Clips' owner-scoped upload endpoints directly to anonymous users.
+- Rotate the service token by creating a replacement with `connect`, deploying it, verifying the flow, then revoking the old token with `revoke-org-service-token`.
+- Keep the organization ID and intake ID with the trusted backend rather than trusting values supplied by the visitor.
 
-- "Add a filler-word removal button that strips ums and uhs from the transcript and re-stitches the video."
-- "Auto-post my standup notes to Slack #eng whenever a meeting ends." (Connect Slack first via [Messaging](/docs/messaging).)
-- "Add a hotkey that drops the last dictation into Linear as a new ticket."
-- "Group the library by project — detect the project from the first words of each transcript."
-- "Add a 'Generate blog post from this clip' button that drafts a post from the transcript and saves it as a draft."
-- "Let viewers leave timestamped reactions on a shared clip."
+## Troubleshooting
 
-The agent edits routes, components, the transcript pipeline, and the schema as needed. See [Templates](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
+**The intake request is unauthorized.** Confirm that the backend is using a non-expired, non-revoked service token minted for the intended Clips origin. The token's organization binding determines where the intake is created.
 
-## What's next
+**The iframe opens a sign-in page.** Make sure the iframe uses the short-lived URL returned by `create-recording-intake-link`. Do not embed `/record` or a normal Clips library URL for an anonymous visitor.
 
-- [**Clips**](/docs/template-clips) — the overview
-- [**Capturing Everywhere**](/docs/template-clips-capture-everywhere) — desktop, mobile, Rewind, and the Chrome extension from a user's perspective
-- [**Sharing, Teams, and Agent-Readable Clips**](/docs/template-clips-sharing-and-teams) — the sharing model this data model backs
-- [**AI Pipeline, Editing, and Insights**](/docs/template-clips-ai-and-editing) — the transcription and editing pipeline these actions power
-- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model
-- [**Context Awareness**](/docs/context-awareness) — how the agent knows the current clip and playhead
-- [**Agent Teams**](/docs/agent-teams) — delegate transcript cleanup to a specialist sub-agent
+**The recording does not finish.** Check that the organization has Builder.io or S3-compatible storage configured. An anonymous visitor cannot configure storage from the iframe.
+
+**The completion has no agent link.** That is expected for a write-only intake. Have your authenticated backend create a separate scoped agent link if the support workflow needs agent-readable transcript and frame data.

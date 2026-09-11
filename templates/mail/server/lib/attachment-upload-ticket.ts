@@ -16,6 +16,7 @@ export interface AttachmentUploadTicket extends Record<string, unknown> {
   filename: string;
   originalName: string;
   mimeType: string;
+  orgId?: string;
   tokenHash: string;
   expiresAt: number;
 }
@@ -136,6 +137,7 @@ async function compareAndSwapTickets(
 export async function createAttachmentUploadTicket(
   ownerEmail: string,
   originalName: string,
+  orgId?: string,
 ): Promise<AttachmentUploadTicket & { token: string }> {
   const uploadId = nanoid(12);
   const filename = `${uploadId}${extensionForUpload(originalName)}`;
@@ -145,6 +147,7 @@ export async function createAttachmentUploadTicket(
     filename,
     originalName,
     mimeType: mimeTypeForUpload(originalName),
+    orgId,
     tokenHash: tokenHash(token),
     expiresAt: Date.now() + TICKET_TTL_MS,
   };

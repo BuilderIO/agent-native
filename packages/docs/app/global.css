@@ -86,6 +86,16 @@
   --font-poppins: var(--font-sans);
 }
 
+/* The Clips landing artwork recreates the real player chrome, themed by the
+   player-control tokens declared in templates/clips/app/global.css. The
+   "inline" keyword matters: it leaves the var() unsubstituted so the artwork
+   can pin the triplets in its own scope rather than inheriting the docs
+   theme. */
+@theme inline {
+  --color-player-control: hsl(var(--player-control));
+  --color-player-control-foreground: hsl(var(--player-control-foreground));
+}
+
 /* `max-w-site` for the one content measure. This can be a `@theme` alias
    because --site-max-width is defined at :root below. The redesign's `--b-*`
    and `--spacing-*` tokens cannot: they live under `.builder-brand-tokens`,

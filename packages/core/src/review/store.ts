@@ -6,6 +6,8 @@ import type {
   ReviewComment,
   ReviewCommentKind,
   ReviewCommentStatus,
+  ReviewCommentReaction,
+  ReviewThreadPreference,
   ReviewMention,
   ReviewResolutionTarget,
   ReviewScope,
@@ -118,6 +120,21 @@ export async function ensureReviewTables(): Promise<void> {
       visibility TEXT NOT NULL DEFAULT 'private',
       metadata_json TEXT
     )`;
+      const createReactionsSql = `CREATE TABLE IF NOT EXISTS agent_review_comment_reactions (
+      comment_id TEXT NOT NULL,
+      actor_email TEXT NOT NULL,
+      reaction TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (comment_id, actor_email, reaction)
+    )`;
+      const createPreferencesSql = `CREATE TABLE IF NOT EXISTS agent_review_thread_preferences (
+      thread_id TEXT NOT NULL,
+      user_email TEXT NOT NULL,
+      muted INTEGER NOT NULL DEFAULT 0,
+      unread INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (thread_id, user_email)
+    )`;
       const indexes = [
         `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_resource
            ON agent_review_comments (resource_type, resource_id, created_at)`,
@@ -143,6 +160,14 @@ export async function ensureReviewTables(): Promise<void> {
       {
         await ensureTableExists("agent_review_comments", createCommentsSql);
         await ensureTableExists("agent_review_statuses", createStatusesSql);
+        await ensureTableExists(
+          "agent_review_comment_reactions",
+          createReactionsSql,
+        );
+        await ensureTableExists(
+          "agent_review_thread_preferences",
+          createPreferencesSql,
+        );
         await ensureIndexExists(
           "idx_agent_review_comments_resource",
           indexes[0],
@@ -160,6 +185,129 @@ export async function ensureReviewTables(): Promise<void> {
   }
 
   await reviewTablesInitPromise;
+}
+
+export async function setReviewCommentReaction(input: {
+  commentId: string;
+  actorEmail: string;
+  reaction: string;
+  active: boolean;
+}) {
+  await ensureReviewTables();
+  const client = getDbExec();
+  if (input.active) {
+    await client.execute({
+      sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) VALUES (?,?,?,?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
+      args: [
+        input.commentId,
+        input.actorEmail,
+        input.reaction,
+        new Date().toISOString(),
+      ],
+    });
+  } else {
+    await client.execute({
+      sql: "DELETE FROM agent_review_comment_reactions WHERE comment_id = ? AND actor_email = ? AND reaction = ?",
+      args: [input.commentId, input.actorEmail, input.reaction],
+    });
+  }
+  return { ...input };
+}
+
+export async function setReviewThreadPreference(input: {
+  threadId: string;
+  userEmail: string;
+  muted?: boolean;
+  unread?: boolean;
+}) {
+  await ensureReviewTables();
+  const client = getDbExec();
+  const fields = (["muted", "unread"] as const).filter(
+    (field) => input[field] !== undefined,
+  );
+  if (!fields.length) throw new Error("A review thread preference is required");
+  await client.execute({
+    sql: `INSERT INTO agent_review_thread_preferences (thread_id,user_email,muted,unread,updated_at) VALUES (?,?,?,?,?) ON CONFLICT (thread_id,user_email) DO UPDATE SET ${fields.map((field) => `${field} = excluded.${field}`).join(", ")}, updated_at = excluded.updated_at`,
+    args: [
+      input.threadId,
+      input.userEmail,
+      input.muted ? 1 : 0,
+      input.unread ? 1 : 0,
+      new Date().toISOString(),
+    ],
+  });
+  const row = (
+    await client.execute({
+      sql: "SELECT muted,unread FROM agent_review_thread_preferences WHERE thread_id = ? AND user_email = ?",
+      args: [input.threadId, input.userEmail],
+    })
+  ).rows[0];
+  if (!row)
+    throw new Error("Persisted review thread preference is unavailable");
+  return {
+    threadId: input.threadId,
+    muted: Boolean(row.muted),
+    unread: Boolean(row.unread),
+  };
+}
+
+// The caller supplies comments already authorized by the resource access check.
+export async function getReviewDiscussionStateForComments(
+  comments: Pick<ReviewComment, "id" | "threadId">[],
+  userEmail: string | null,
+) {
+  const reactions: Record<string, ReviewCommentReaction[]> = {};
+  const threadPreferences: Record<string, ReviewThreadPreference> = {};
+  if (!comments.length) return { reactions, threadPreferences };
+  await ensureReviewTables();
+  const commentIds = [...new Set(comments.map((comment) => comment.id))];
+  const threadIds = [...new Set(comments.map((comment) => comment.threadId))];
+  for (const id of commentIds) reactions[id] = [];
+  for (const id of threadIds)
+    threadPreferences[id] = { muted: false, unread: false };
+  const client = getDbExec();
+  const [reactionRows, preferenceRows] = await Promise.all([
+    client.execute({
+      sql: `SELECT comment_id,reaction,COUNT(*) AS count,MAX(CASE WHEN actor_email = ? THEN 1 ELSE 0 END) AS reacted_by_me FROM agent_review_comment_reactions WHERE comment_id IN (${commentIds.map(() => "?").join(",")}) GROUP BY comment_id,reaction ORDER BY comment_id,reaction`,
+      args: [userEmail, ...commentIds],
+    }),
+    userEmail
+      ? client.execute({
+          sql: `SELECT thread_id,muted,unread FROM agent_review_thread_preferences WHERE user_email = ? AND thread_id IN (${threadIds.map(() => "?").join(",")})`,
+          args: [userEmail, ...threadIds],
+        })
+      : Promise.resolve({ rows: [] }),
+  ]);
+  for (const row of reactionRows.rows) {
+    reactions[String(row.comment_id)].push({
+      reaction: String(row.reaction),
+      count: Number(row.count),
+      reactedByMe: Boolean(row.reacted_by_me),
+    });
+  }
+  for (const row of preferenceRows.rows) {
+    threadPreferences[String(row.thread_id)] = {
+      muted: Boolean(row.muted),
+      unread: Boolean(row.unread),
+    };
+  }
+  return { reactions, threadPreferences };
+}
+
+export async function filterUnmutedReviewThreadRecipients(
+  threadId: string,
+  recipients: string[],
+) {
+  if (!recipients.length) return [];
+  await ensureReviewTables();
+  const rows = (
+    await getDbExec().execute({
+      sql: `SELECT user_email FROM agent_review_thread_preferences WHERE thread_id = ? AND muted = 1 AND user_email IN (${recipients.map(() => "?").join(",")})`,
+      args: [threadId, ...recipients],
+    })
+  ).rows;
+  const muted = new Set(rows.map((row) => String(row.user_email)));
+  return recipients.filter((email) => !muted.has(email));
 }
 
 export async function insertReviewComment(
@@ -216,7 +364,7 @@ export async function insertReviewReply(
   }
 }
 
-async function insertReviewCommentWithClient(
+export async function insertReviewCommentWithClient(
   input: InsertReviewCommentInput,
   client: DbExec,
 ): Promise<ReviewComment> {
@@ -516,7 +664,7 @@ export async function resolveReviewThread(
   return client.transaction ? client.transaction(resolve) : resolve(client);
 }
 
-async function resolveReviewThreadWithClient(
+export async function resolveReviewThreadWithClient(
   client: DbExec,
   threadId: string,
   resolvedBy?: string | null,
