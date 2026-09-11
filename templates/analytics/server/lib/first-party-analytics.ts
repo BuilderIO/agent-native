@@ -589,8 +589,7 @@ export async function recordAnalyticsEvents(
     orgId: key.orgId ?? null,
   });
 
-  let bigQueryInsertError: unknown = null;
-  if (rows.length && (backend.sink === "dual" || backend.sink === "bigquery")) {
+  if (rows.length && backend.sink === "dual") {
     try {
       await runWithRequestContext(
         {
@@ -600,28 +599,36 @@ export async function recordAnalyticsEvents(
         () => insertFirstPartyAnalyticsRows(rows, backend.table),
       );
     } catch (error) {
-      if (backend.sink === "bigquery") {
-        // Keep SQL-only exception issues, public-key metadata, and session
-        // replay links durable even when the warehouse is temporarily down.
-        // The request still fails below so callers do not mistake a warehouse
-        // outage for a successful BigQuery write.
-        bigQueryInsertError = error;
-      }
       // Dual-write mode keeps Postgres as the recoverable source until the
       // backfill has completed. A BigQuery outage must not lose live events.
-      if (backend.sink === "dual") {
-        console.error(
-          "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
-          error,
-        );
-      }
+      console.error(
+        "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
+        error,
+      );
     }
   }
 
-  let postgresInsertError: unknown = null;
-  if (rows.length && backend.sink !== "bigquery") {
+  let persistenceError: unknown = null;
+  if (rows.length) {
     try {
       await db.transaction(async (tx: any) => {
+        if (backend.sink === "bigquery") {
+          // BigQuery-mode events stay in SQL until the scheduled worker confirms
+          // delivery. This is the recoverable boundary after warehouse cutover.
+          await tx.insert(schema.analyticsEvents).values(rows);
+          await tx.insert(schema.analyticsBigQueryDeliveryQueue).values(
+            rows.map((row: (typeof rows)[number]) => ({
+              eventId: row.id,
+              ownerEmail: row.ownerEmail,
+              orgId: row.orgId,
+              tableRef: backend.table,
+              nextAttemptAt: receivedAt,
+              createdAt: receivedAt,
+              updatedAt: receivedAt,
+            })),
+          );
+          return;
+        }
         if (backend.sink === "postgres" || backend.sink === "dual") {
           await reserveFirstPartyPostgresEventVolume(
             tx,
@@ -639,7 +646,7 @@ export async function recordAnalyticsEvents(
     } catch (error) {
       // Preserve SQL-only exception issues and public-key metadata below even
       // when a Postgres volume reservation or insert rejects the batch.
-      postgresInsertError = error;
+      persistenceError = error;
     }
   }
   if (rows.length) {
@@ -665,8 +672,7 @@ export async function recordAnalyticsEvents(
     }
   }
 
-  if (bigQueryInsertError) throw bigQueryInsertError;
-  if (postgresInsertError) throw postgresInsertError;
+  if (persistenceError) throw persistenceError;
 
   return { accepted: rows.length, keyId: key.id };
 }

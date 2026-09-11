@@ -1460,6 +1460,30 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
         ALTER TABLE IF EXISTS session_recording_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
+    {
+      version: 151,
+      name: "analytics-bigquery-delivery-queue",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_bigquery_delivery_queue (
+      event_id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      table_ref TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT NOT NULL DEFAULT (now()::text),
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      delivered_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (now()::text),
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_delivery_queue_due_idx
+      ON analytics_bigquery_delivery_queue (delivered_at, next_attempt_at, lease_expires_at, created_at);
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_delivery_queue_scope_idx
+      ON analytics_bigquery_delivery_queue (org_id, owner_email, created_at)`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

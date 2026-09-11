@@ -367,7 +367,7 @@ describe("recordAnalyticsEvents", () => {
     ]);
   });
 
-  it("stops Postgres event and rollup writes after the org cuts over", async () => {
+  it("stages cutover events durably until the warehouse confirms delivery", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
       table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
@@ -377,11 +377,18 @@ describe("recordAnalyticsEvents", () => {
 
     await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
 
-    expect(backendMocks.insert).toHaveBeenCalledWith(
-      [expect.objectContaining({ eventName: "pageview" })],
-      "builder-3b0a2.analytics.first_party_analytics_events_raw",
-    );
-    expect(analyticsDbMocks.insertValues).not.toHaveBeenCalled();
+    expect(backendMocks.insert).not.toHaveBeenCalled();
+    expect(analyticsDbMocks.insertValues).toHaveBeenNthCalledWith(1, [
+      expect.objectContaining({ eventName: "pageview" }),
+    ]);
+    expect(analyticsDbMocks.insertValues).toHaveBeenNthCalledWith(2, [
+      expect.objectContaining({
+        eventId: expect.any(String),
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        tableRef: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      }),
+    ]);
     expect(rollupMocks.upsert).not.toHaveBeenCalled();
   });
 
@@ -405,7 +412,10 @@ describe("recordAnalyticsEvents", () => {
       recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
     ).rejects.toThrow("volume limit reached");
 
-    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(backendMocks.insert).toHaveBeenCalledWith(
+      [expect.objectContaining({ eventName: "pageview" })],
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
     expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
     expect(rollupMocks.upsert).not.toHaveBeenCalled();
   });
@@ -425,7 +435,7 @@ describe("recordAnalyticsEvents", () => {
       },
     ]);
 
-    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(backendMocks.insert).not.toHaveBeenCalled();
     expect(exceptionMocks.ingest).toHaveBeenCalledWith(
       {
         ownerEmail: "owner@example.com",
@@ -436,16 +446,13 @@ describe("recordAnalyticsEvents", () => {
     );
   });
 
-  it("preserves SQL exception issues when BigQuery fails after cutover", async () => {
-    const warehouseError = new Error("warehouse unavailable");
+  it("preserves SQL exception issues while warehouse delivery is pending", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
       table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
       backfillCursor: "evt_last",
       backfillCompleted: true,
     });
-    backendMocks.insert.mockRejectedValueOnce(warehouseError);
-
     await expect(
       recordAnalyticsEvents("anpk_test", [
         {
@@ -453,8 +460,9 @@ describe("recordAnalyticsEvents", () => {
           properties: { error: "boom", app: "analytics" },
         },
       ]),
-    ).rejects.toBe(warehouseError);
+    ).resolves.toMatchObject({ accepted: 1 });
 
+    expect(backendMocks.insert).not.toHaveBeenCalled();
     expect(exceptionMocks.ingest).toHaveBeenCalledWith(
       {
         ownerEmail: "owner@example.com",

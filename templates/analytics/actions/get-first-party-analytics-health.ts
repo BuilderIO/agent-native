@@ -30,7 +30,14 @@ const healthSchema = z.object({
       setupLink: z.string(),
     }),
   ),
-  reasons: z.array(z.enum(["event_volume", "slow_queries", "query_timeout"])),
+  reasons: z.array(
+    z.enum([
+      "event_volume",
+      "slow_queries",
+      "query_timeout",
+      "delivery_backlog",
+    ]),
+  ),
   observedAt: z.string(),
   metrics: z.object({
     eventCount: z.number(),
@@ -49,6 +56,12 @@ const healthSchema = z.object({
     recommendSlowQueries24h: z.number(),
     recommendMaxQueryMs: z.number(),
   }),
+  delivery: z.object({
+    pendingCount: z.number(),
+    oldestPendingAt: z.string().nullable(),
+    lastDeliveredAt: z.string().nullable(),
+    lastError: z.string().nullable(),
+  }),
   bigQuery: z.object({
     id: z.literal("bigquery"),
     label: z.string(),
@@ -61,7 +74,7 @@ const healthSchema = z.object({
 
 export default defineAction({
   description:
-    "Check whether the built-in first-party Analytics source is still a good fit for Neon/Postgres. Use this before a large or historical query. It reads compact daily rollups and the small slow-query pressure ledger, never the raw event table. `healthy` means Neon is fine, `monitor` means keep Neon but watch growth, and `recommend_bigquery` means use a configured external analytics backend for high-volume or historical queries. The result reports the two supported external options with safe setup links: BigQuery for warehouse SQL and history, and Amplitude for product analytics, funnels, and retention. A recommendation is based on 1M+ observed events, three or more slow queries in 24 hours, or any query timeout/30-second query. Connecting a backend does not silently reroute `/track` events or backfill existing Neon events.",
+    "Check whether the built-in first-party Analytics source is still a good fit for Neon/Postgres. Use this before a large or historical query. It reads compact daily rollups and the small slow-query pressure ledger, never the raw event table. For BigQuery cutovers, it also reports pending delivery count, age, and the last delivery error so a warehouse outage is visible before dashboards go quiet. `healthy` means Neon is fine, `monitor` means keep Neon but watch growth or delivery lag, and `recommend_bigquery` means use a configured external analytics backend for high-volume or historical queries. The result reports the two supported external options with safe setup links: BigQuery for warehouse SQL and history, and Amplitude for product analytics, funnels, and retention. A recommendation is based on 1M+ observed events, three or more slow queries in 24 hours, or any query timeout/30-second query. Connecting a backend does not silently reroute `/track` events or backfill existing Neon events.",
   schema: z.object({}),
   outputSchema: healthSchema,
   http: { method: "GET" },

@@ -4,6 +4,7 @@ import { createError, defineEventHandler, getHeader } from "h3";
 
 // guard:allow-action-twin — the generated scheduled worker authenticates before invoking this job route.
 import { runFirstPartyAnalyticsBigQueryBackfillOnce } from "../../../jobs/analytics-bigquery-backfill.js";
+import { runFirstPartyAnalyticsBigQueryDeliveryOnce } from "../../../lib/first-party-analytics-delivery.js";
 
 declare global {
   var __AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_SCHEDULED_RUNTIME__:
@@ -48,8 +49,13 @@ export default defineEventHandler(async (event) => {
     });
   }
 
+  const delivery = await runFirstPartyAnalyticsBigQueryDeliveryOnce();
+  const backfill = await runFirstPartyAnalyticsBigQueryBackfillOnce();
+
   return {
     ok: true,
-    ...(await runFirstPartyAnalyticsBigQueryBackfillOnce()),
+    ...backfill,
+    delivery,
+    backfill,
   };
 });
