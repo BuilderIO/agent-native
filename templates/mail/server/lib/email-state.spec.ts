@@ -32,6 +32,7 @@ import {
   markAllLocalUnreadRead,
   markRead,
   markThreadRead,
+  resolveMutationAccounts,
 } from "./email-state.js";
 
 // ---------------------------------------------------------------------------
@@ -586,6 +587,23 @@ describe("toggleStar", () => {
 
       expect(invalidateThreadCache).toHaveBeenCalledWith(OWNER, "hint-thread");
     });
+
+    it("mirrors the store with message scope, not thread scope (only this message starred)", async () => {
+      mockConnected(true);
+      mockAccounts();
+      vi.mocked(gmailModifyMessage).mockResolvedValue({
+        threadId: THREAD_ID,
+      } as any);
+
+      await toggleStar({ id: MSG_ID, ownerEmail: OWNER, isStarred: true });
+
+      expect(inboxStoreSyncMocks.syncInboxLabelDelta).toHaveBeenCalledWith(
+        OWNER,
+        ACCT,
+        [THREAD_ID],
+        expect.objectContaining({ scope: "message", messageIds: [MSG_ID] }),
+      );
+    });
   });
 });
 
@@ -783,6 +801,24 @@ describe("markRead", () => {
         MSG_ID,
         undefined,
         ["UNREAD"],
+      );
+    });
+
+    it("mirrors the store with message scope, not thread scope (only this message read)", async () => {
+      mockConnected(true);
+      mockAccounts();
+      vi.mocked(gmailModifyMessage).mockResolvedValue({} as any);
+      inboxStoreMocks.findThreadIdsByMessageIds.mockResolvedValue(
+        new Map([[MSG_ID, THREAD_ID]]),
+      );
+
+      await markRead({ id: MSG_ID, ownerEmail: OWNER, isRead: true });
+
+      expect(inboxStoreSyncMocks.syncInboxLabelDelta).toHaveBeenCalledWith(
+        OWNER,
+        ACCT,
+        [THREAD_ID],
+        expect.objectContaining({ scope: "message", messageIds: [MSG_ID] }),
       );
     });
   });
@@ -1105,5 +1141,90 @@ describe("markThreadRead", () => {
       );
       expect(gmailModifyThread).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveMutationAccounts — the bulk resolver every gmailBatchModifyByAccount
+// caller runs up front so the Gmail mutation and the store mirror
+// (syncInboxLabelDeltaForTargets) always group targets by the same account.
+// ---------------------------------------------------------------------------
+
+describe("resolveMutationAccounts", () => {
+  it("passes an explicit accountEmail through without a store lookup", async () => {
+    const { resolved, unresolved } = await resolveMutationAccounts(OWNER, [
+      { id: "m1", accountEmail: ACCT },
+    ]);
+
+    expect(resolved).toEqual([{ id: "m1", accountEmail: ACCT }]);
+    expect(unresolved).toEqual([]);
+    expect(inboxStoreMocks.findAccountForThread).not.toHaveBeenCalled();
+    expect(inboxStoreMocks.findAccountForMessage).not.toHaveBeenCalled();
+  });
+
+  it("resolves a missing accountEmail from the store via threadId", async () => {
+    inboxStoreMocks.findAccountForThread.mockResolvedValue(ACCT2);
+
+    const { resolved } = await resolveMutationAccounts(OWNER, [
+      { id: "m1", threadId: THREAD_ID },
+    ]);
+
+    expect(resolved).toEqual([
+      { id: "m1", threadId: THREAD_ID, accountEmail: ACCT2 },
+    ]);
+  });
+
+  it("resolves a missing accountEmail from the store via message id", async () => {
+    inboxStoreMocks.findAccountForMessage.mockResolvedValue(ACCT2);
+
+    const { resolved } = await resolveMutationAccounts(OWNER, [{ id: "m1" }]);
+
+    expect(resolved).toEqual([{ id: "m1", accountEmail: ACCT2 }]);
+  });
+
+  it("falls back to the owner's sole connected account when the store has no hit", async () => {
+    mockAccounts(); // single account: ACCT
+
+    const { resolved } = await resolveMutationAccounts(OWNER, [{ id: "m1" }]);
+
+    expect(resolved).toEqual([{ id: "m1", accountEmail: ACCT }]);
+  });
+
+  it("reports (never guesses) a target that can't be resolved with multiple connected accounts", async () => {
+    mockTwoAccounts();
+
+    const { resolved, unresolved } = await resolveMutationAccounts(OWNER, [
+      { id: "m1" },
+    ]);
+
+    expect(resolved).toEqual([]);
+    expect(unresolved).toEqual([
+      {
+        id: "m1",
+        error: expect.stringContaining(
+          "Cannot determine which connected account",
+        ),
+      },
+    ]);
+  });
+
+  it("resolves each target independently, mixing hits and misses", async () => {
+    mockTwoAccounts();
+    inboxStoreMocks.findAccountForThread.mockImplementation(
+      async (_owner: string, threadId: string) =>
+        threadId === "known-thread" ? ACCT2 : null,
+    );
+
+    const { resolved, unresolved } = await resolveMutationAccounts(OWNER, [
+      { id: "m1", threadId: "known-thread" },
+      { id: "m2", threadId: "unknown-thread" },
+      { id: "m3", accountEmail: ACCT },
+    ]);
+
+    expect(resolved).toEqual([
+      { id: "m1", threadId: "known-thread", accountEmail: ACCT2 },
+      { id: "m3", accountEmail: ACCT },
+    ]);
+    expect(unresolved).toEqual([{ id: "m2", error: expect.any(String) }]);
   });
 });

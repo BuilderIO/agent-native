@@ -11,7 +11,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const dbState = vi.hoisted(() => ({
   syncAccounts: [] as any[],
   threadRows: [] as any[],
-  updates: [] as Array<{ table: string; set: any }>,
+  updates: [] as Array<{ table: string; set: any; cond: any }>,
+  // When true, the next update().set().where().returning() call reports 0
+  // matched rows — simulates a fenced write whose claimId no longer matches
+  // the row (another worker already claimed it).
+  forceNoRowsMatched: false,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -58,8 +62,13 @@ vi.mock("../db/index.js", () => {
     }),
     update: (table: any) => ({
       set: (values: any) => ({
-        where: async () => {
-          dbState.updates.push({ table: table.__name, set: values });
+        where: (cond: any) => {
+          dbState.updates.push({ table: table.__name, set: values, cond });
+          const rows = dbState.forceNoRowsMatched ? [] : [{ id: "row" }];
+          return {
+            returning: async () => rows,
+            then: (resolve: any) => resolve(undefined),
+          };
         },
       }),
     }),
@@ -75,7 +84,11 @@ vi.mock("../db/index.js", () => {
   return { schema, getDb: () => db };
 });
 
-import { applyLocalLabelDelta, readCachedLabels } from "./inbox-store.js";
+import {
+  applyLocalLabelDelta,
+  patchSyncAccount,
+  readCachedLabels,
+} from "./inbox-store.js";
 
 function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -103,6 +116,7 @@ beforeEach(() => {
   dbState.syncAccounts = [];
   dbState.threadRows = [];
   dbState.updates = [];
+  dbState.forceNoRowsMatched = false;
 });
 
 describe("readCachedLabels", () => {
@@ -215,5 +229,153 @@ describe("applyLocalLabelDelta", () => {
       },
     );
     expect(dbState.updates).toHaveLength(0);
+  });
+
+  describe("scope: message", () => {
+    it("removing UNREAD decrements unread_count by only the targeted message ids", async () => {
+      dbState.threadRows = [
+        {
+          id: "owner@example.com:acct1@example.com:t1",
+          labelIdsJson: JSON.stringify(["INBOX", "UNREAD"]),
+          messageIdsJson: JSON.stringify(["m1", "m2", "m3"]),
+          unreadCount: 3,
+        },
+      ];
+
+      await applyLocalLabelDelta(
+        "owner@example.com",
+        "acct1@example.com",
+        ["t1"],
+        { remove: ["UNREAD"], scope: "message", messageIds: ["m1"] },
+      );
+
+      const { set } = dbState.updates[0];
+      expect(set.unreadCount).toBe(2);
+      expect(set.isUnread).toBe(1);
+    });
+
+    it("marks the thread read once the last targeted unread message is cleared", async () => {
+      dbState.threadRows = [
+        {
+          id: "owner@example.com:acct1@example.com:t1",
+          labelIdsJson: JSON.stringify(["INBOX", "UNREAD"]),
+          messageIdsJson: JSON.stringify(["m1"]),
+          unreadCount: 1,
+        },
+      ];
+
+      await applyLocalLabelDelta(
+        "owner@example.com",
+        "acct1@example.com",
+        ["t1"],
+        { remove: ["UNREAD"], scope: "message", messageIds: ["m1"] },
+      );
+
+      const { set } = dbState.updates[0];
+      expect(set.unreadCount).toBe(0);
+      expect(set.isUnread).toBe(0);
+    });
+
+    it("adding UNREAD increments unread_count and marks the thread unread", async () => {
+      dbState.threadRows = [
+        {
+          id: "owner@example.com:acct1@example.com:t1",
+          labelIdsJson: JSON.stringify(["INBOX"]),
+          messageIdsJson: JSON.stringify(["m1", "m2"]),
+          unreadCount: 0,
+        },
+      ];
+
+      await applyLocalLabelDelta(
+        "owner@example.com",
+        "acct1@example.com",
+        ["t1"],
+        { add: ["UNREAD"], scope: "message", messageIds: ["m1"] },
+      );
+
+      const { set } = dbState.updates[0];
+      expect(set.unreadCount).toBe(1);
+      expect(set.isUnread).toBe(1);
+    });
+
+    it("adding STARRED sets the thread flag immediately", async () => {
+      dbState.threadRows = [
+        {
+          id: "owner@example.com:acct1@example.com:t1",
+          labelIdsJson: JSON.stringify(["INBOX"]),
+          messageIdsJson: JSON.stringify(["m1"]),
+          unreadCount: 0,
+        },
+      ];
+
+      await applyLocalLabelDelta(
+        "owner@example.com",
+        "acct1@example.com",
+        ["t1"],
+        { add: ["STARRED"], scope: "message", messageIds: ["m1"] },
+      );
+
+      expect(dbState.updates[0].set.isStarred).toBe(1);
+    });
+
+    it("removing STARRED leaves the thread flag unchanged (no per-message star tracking)", async () => {
+      dbState.threadRows = [
+        {
+          id: "owner@example.com:acct1@example.com:t1",
+          labelIdsJson: JSON.stringify(["INBOX", "STARRED"]),
+          messageIdsJson: JSON.stringify(["m1", "m2"]),
+          unreadCount: 0,
+        },
+      ];
+
+      await applyLocalLabelDelta(
+        "owner@example.com",
+        "acct1@example.com",
+        ["t1"],
+        { remove: ["STARRED"], scope: "message", messageIds: ["m1"] },
+      );
+
+      expect(dbState.updates[0].set.isStarred).toBeUndefined();
+    });
+  });
+});
+
+describe("patchSyncAccount", () => {
+  it("updates unconditionally when no claimId is given (label-cache writes)", async () => {
+    const updated = await patchSyncAccount(
+      "owner@example.com",
+      "acct1@example.com",
+      {
+        lastError: null,
+      },
+    );
+
+    expect(updated).toBe(true);
+    expect(dbState.updates[0].cond.args).toHaveLength(1);
+  });
+
+  it("fences the write to the claim id when opts.claimId is given", async () => {
+    const updated = await patchSyncAccount(
+      "owner@example.com",
+      "acct1@example.com",
+      { lastError: null },
+      { claimId: "claim-1" },
+    );
+
+    expect(updated).toBe(true);
+    expect(dbState.updates[0].cond.args).toHaveLength(2);
+  });
+
+  it("reports false without throwing when the fenced claim no longer matches", async () => {
+    dbState.forceNoRowsMatched = true;
+
+    const updated = await patchSyncAccount(
+      "owner@example.com",
+      "acct1@example.com",
+      { lastError: null },
+      { claimId: "stale-claim" },
+    );
+
+    expect(updated).toBe(false);
   });
 });

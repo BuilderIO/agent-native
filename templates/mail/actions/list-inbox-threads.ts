@@ -1,9 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
 import { isConnected } from "../server/lib/google-auth.js";
+import { classifyAutomated } from "../server/lib/inbox-classify.js";
 import {
   inboxRowToItem,
   readCachedLabels,
@@ -15,15 +18,106 @@ import {
   resolveActiveTabId,
   resolveInboxTabs,
 } from "../server/lib/inbox-tabs-server.js";
+import { readLocalEmails } from "../server/lib/local-email-store.js";
 import { readSettings } from "../server/lib/mail-settings.js";
 import type {
+  InboxSyncAccountStatus,
   InboxTab,
   InboxTabConfig,
+  InboxThreadItem,
   ListInboxThreadsResult,
 } from "../shared/inbox-threads.js";
+import type { EmailMessage, Label } from "../shared/types.js";
 
 const FRESHNESS_MAX_AGE_MS = 15_000;
 const SYNC_BUDGET_MS = 6_000;
+
+// classifyAutomated expects real Gmail CATEGORY_* label ids; local mail uses
+// the app-level lowercase ids from list-labels.ts's SYSTEM_LABELS mapping.
+const LOCAL_CATEGORY_TO_GMAIL_LABEL: Record<string, string> = {
+  promotions: "CATEGORY_PROMOTIONS",
+  social: "CATEGORY_SOCIAL",
+  updates: "CATEGORY_UPDATES",
+  forums: "CATEGORY_FORUMS",
+};
+
+/** Groups local mailbox messages into one `InboxThreadItem` per thread, latest-first. */
+function buildLocalInboxItems(emails: EmailMessage[]): InboxThreadItem[] {
+  const byThread = new Map<string, EmailMessage[]>();
+  for (const email of emails) {
+    if (email.isArchived || email.isTrashed || email.isDraft) continue;
+    const key = email.threadId || email.id;
+    const list = byThread.get(key);
+    if (list) list.push(email);
+    else byThread.set(key, [email]);
+  }
+
+  const items = [...byThread.values()].map((messages): InboxThreadItem => {
+    const latest = messages.reduce((a, b) =>
+      new Date(b.date).getTime() > new Date(a.date).getTime() ? b : a,
+    );
+    const labelIds = [...new Set(messages.flatMap((m) => m.labelIds))];
+    const isAutomated = classifyAutomated({
+      headers: [],
+      labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
+      fromEmail: latest.from?.email ?? "",
+    });
+    return {
+      ...latest,
+      labelIds,
+      messageCount: messages.length,
+      unreadCount: messages.filter((m) => !m.isRead).length,
+      messageIds: messages.map((m) => m.id),
+      isAutomated,
+    };
+  });
+
+  return items.sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+}
+
+/** Shared tail: partition into tabs and page the active tab — identical for both backends. */
+function paginateIntoResult(
+  items: InboxThreadItem[],
+  config: InboxTabConfig,
+  labelNameById: Map<string, string>,
+  labels: Label[],
+  page: { tab?: string; limit: number; offset: number; unreadOnly?: boolean },
+  syncing: boolean,
+  accounts: InboxSyncAccountStatus[],
+): ListInboxThreadsResult {
+  const tabs = resolveInboxTabs(config, labelNameById);
+  const byTab = partitionInboxItems(items, tabs);
+  const activeTabId = resolveActiveTabId(page.tab, tabs);
+
+  const resultTabs: InboxTab[] = tabs.map((tab) => {
+    const members = byTab.get(tab.id) ?? [];
+    return {
+      id: tab.id,
+      kind: tab.kind,
+      name: tab.name,
+      query: tab.query,
+      total: members.length,
+      unread: members.filter((item) => item.unreadCount > 0).length,
+    };
+  });
+
+  const activeMembers = byTab.get(activeTabId) ?? [];
+  const pageSource = page.unreadOnly
+    ? activeMembers.filter((item) => item.unreadCount > 0)
+    : activeMembers;
+
+  return {
+    tabs: resultTabs,
+    activeTabId,
+    items: pageSource.slice(page.offset, page.offset + page.limit),
+    total: activeMembers.length,
+    syncing,
+    accounts,
+    labels,
+  };
+}
 
 export default defineAction({
   description:
@@ -74,6 +168,48 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
+    const page = {
+      tab: args.tab,
+      limit: args.limit,
+      offset: args.offset,
+      unreadOnly: args.unreadOnly,
+    };
+
+    // No connected Google account: mirror the synthetic local mailbox
+    // instead of the synced store (see the mail-backends skill). Same check
+    // list-emails.ts and list-labels.ts use to pick this fallback.
+    const connectedAccounts = await listOAuthAccountsByOwner(
+      "google",
+      ownerEmail,
+    );
+    if (connectedAccounts.length === 0) {
+      const [emails, settings, localSetting] = await Promise.all([
+        readLocalEmails(ownerEmail),
+        readSettings(ownerEmail),
+        getUserSetting(ownerEmail, "labels"),
+      ]);
+      const labels = Array.isArray((localSetting as any)?.labels)
+        ? ((localSetting as any).labels as Label[])
+        : [];
+      const items = buildLocalInboxItems(emails);
+      const config: InboxTabConfig = {
+        pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, false),
+        savedFilters: settings.savedFilters ?? [],
+        labelAliases: settings.labelAliases ?? {},
+        combineInbox: settings.combineInbox,
+      };
+      const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
+      return paginateIntoResult(
+        items,
+        config,
+        labelNameById,
+        labels,
+        page,
+        false,
+        [],
+      );
+    }
+
     // Keeps the store within the freshness window without ever blocking on a
     // full Gmail listing — a per-account failure surfaces in `accounts`
     // instead of failing this read.
@@ -100,35 +236,14 @@ export default defineAction({
       combineInbox: settings.combineInbox,
     };
     const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
-    const tabs = resolveInboxTabs(config, labelNameById);
-    const byTab = partitionInboxItems(items, tabs);
-    const activeTabId = resolveActiveTabId(args.tab, tabs);
-
-    const resultTabs: InboxTab[] = tabs.map((tab) => {
-      const members = byTab.get(tab.id) ?? [];
-      return {
-        id: tab.id,
-        kind: tab.kind,
-        name: tab.name,
-        query: tab.query,
-        total: members.length,
-        unread: members.filter((item) => item.unreadCount > 0).length,
-      };
-    });
-
-    const activeMembers = byTab.get(activeTabId) ?? [];
-    const pageSource = args.unreadOnly
-      ? activeMembers.filter((item) => item.unreadCount > 0)
-      : activeMembers;
-
-    return {
-      tabs: resultTabs,
-      activeTabId,
-      items: pageSource.slice(args.offset, args.offset + args.limit),
-      total: activeMembers.length,
-      syncing: statuses.some((status) => status.state === "initial"),
-      accounts: statuses,
+    return paginateIntoResult(
+      items,
+      config,
+      labelNameById,
       labels,
-    };
+      page,
+      statuses.some((status) => status.state === "initial"),
+      statuses,
+    );
   },
 });

@@ -84,6 +84,7 @@ import {
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
 import {
+  INBOX_PAGE_SIZE,
   invalidateInboxThreads,
   resolveInboxTabId,
   useInboxThreads,
@@ -458,7 +459,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const inboxThreads = useInboxThreads({
     tab: resolvedInboxTab,
     accountEmails: inboxAccountEmails,
-    limit: 200,
+    limit: INBOX_PAGE_SIZE,
+    offset: 0,
   });
   const inboxIsFetching = inboxThreads.isFetching;
   const inboxSyncing = inboxThreads.data?.syncing === true;

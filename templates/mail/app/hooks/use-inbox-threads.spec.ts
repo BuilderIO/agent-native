@@ -2,7 +2,9 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
+  inboxThreadsHasNextPage,
   markInboxThreadReadOptimistic,
+  mergeInboxThreadPages,
   removeInboxThreadsOptimistic,
   resolveInboxTabId,
   toggleInboxThreadsStarOptimistic,
@@ -206,5 +208,51 @@ describe("toggleInboxThreadsStarOptimistic", () => {
     ])!;
     expect(result.items.find((i) => i.id === "m1")?.isStarred).toBe(true);
     expect(result.tabs).toEqual(seedResult().tabs);
+  });
+});
+
+describe("inboxThreadsHasNextPage", () => {
+  it("is true while fewer rows are loaded than the tab's total", () => {
+    expect(inboxThreadsHasNextPage(100, 250)).toBe(true);
+  });
+
+  it("is false once every row is loaded", () => {
+    expect(inboxThreadsHasNextPage(250, 250)).toBe(false);
+  });
+
+  it("is false when loaded somehow exceeds total (stale total mid-mutation)", () => {
+    expect(inboxThreadsHasNextPage(251, 250)).toBe(false);
+  });
+
+  it("is false for an empty tab", () => {
+    expect(inboxThreadsHasNextPage(0, 0)).toBe(false);
+  });
+});
+
+describe("mergeInboxThreadPages", () => {
+  const item = (id: string) => ({ id, threadId: id }) as any;
+
+  it("concatenates pages in offset order", () => {
+    const page0 = { items: [item("a"), item("b")] };
+    const page1 = { items: [item("c"), item("d")] };
+
+    expect(mergeInboxThreadPages([page0, page1]).map((i) => i.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+  });
+
+  it("treats a not-yet-fetched page (undefined) as contributing nothing", () => {
+    const page0 = { items: [item("a")] };
+
+    expect(mergeInboxThreadPages([page0, undefined]).map((i) => i.id)).toEqual([
+      "a",
+    ]);
+  });
+
+  it("returns an empty array for no pages", () => {
+    expect(mergeInboxThreadPages([])).toEqual([]);
   });
 });

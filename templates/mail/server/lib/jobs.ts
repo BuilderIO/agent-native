@@ -28,6 +28,7 @@ import {
   setAccountDisplayName,
 } from "./google-auth.js";
 import { syncInboxLabelDelta } from "./inbox-store-sync.js";
+import { findThreadIdsByMessageIds } from "./inbox-store.js";
 import {
   readLocalEmails as readEmails,
   withLocalEmailMutationLock,
@@ -417,9 +418,20 @@ export async function resurfaceEmail(
         await gmailModifyMessage(account.accessToken, emailId, ["INBOX"], []);
       }
       await gmailModifyMessage(account.accessToken, emailId, ["UNREAD"], []);
-      if (threadId) {
-        await syncInboxLabelDelta(ownerEmail, account.email, [threadId], {
+      // No threadId hint: resolve it from the store (no extra Gmail
+      // round-trip) so this message-scoped mutation still reaches the
+      // mirror instead of silently skipping it.
+      const mirrorThreadId =
+        threadId ??
+        (
+          await findThreadIdsByMessageIds(ownerEmail, account.email, [emailId])
+        ).get(emailId);
+      if (mirrorThreadId) {
+        await syncInboxLabelDelta(ownerEmail, account.email, [mirrorThreadId], {
           add: ["INBOX", "UNREAD"],
+          ...(threadId
+            ? {}
+            : { scope: "message" as const, messageIds: [emailId] }),
         });
       }
       return;

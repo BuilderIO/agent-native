@@ -125,12 +125,15 @@ beforeEach(() => {
     row: currentRow,
   }));
   mocks.ensureSyncAccountRow.mockResolvedValue(baseRow());
-  mocks.patchSyncAccount.mockResolvedValue(undefined);
+  // Fenced writes report whether a row matched — default to "matched" so
+  // existing tests exercise the happy path; claim-loss tests below override
+  // this to false for the specific call under test.
+  mocks.patchSyncAccount.mockResolvedValue(true);
   mocks.releaseSyncAccount.mockResolvedValue(undefined);
   mocks.upsertInboxThreadRows.mockResolvedValue(undefined);
   mocks.deleteInboxThreadRow.mockResolvedValue(undefined);
   mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
-  mocks.resetSyncAccountProgress.mockResolvedValue(undefined);
+  mocks.resetSyncAccountProgress.mockResolvedValue(true);
 });
 
 // The row `claimSyncAccount` hands back for the call under test — tests set
@@ -164,10 +167,12 @@ describe("syncInboxAccount — full sync", () => {
     expect(mocks.upsertInboxThreadRows).toHaveBeenCalledTimes(1);
     expect(mocks.upsertInboxThreadRows.mock.calls[0][0]).toHaveLength(2);
     // Page token persisted so the next call resumes instead of restarting.
+    // Fenced to the claim held for this sync step (see SyncClaimLostError).
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       expect.objectContaining({ fullSyncPageToken: "page2" }),
+      { claimId: "claim-1" },
     );
     expect(mocks.gmailListThreads).toHaveBeenCalledTimes(1);
     expect(mocks.markThreadsOutOfInboxBeforeSync).not.toHaveBeenCalled();
@@ -207,6 +212,7 @@ describe("syncInboxAccount — full sync", () => {
       OWNER,
       ACCOUNT,
       expect.objectContaining({ historyId: "9000", fullSyncPageToken: null }),
+      { claimId: "claim-1" },
     );
   });
 });
@@ -242,6 +248,7 @@ describe("syncInboxAccount — incremental sync", () => {
       OWNER,
       ACCOUNT,
       expect.objectContaining({ historyId: "1005" }),
+      { claimId: "claim-1" },
     );
   });
 
@@ -309,13 +316,57 @@ describe("syncInboxAccount — incremental sync", () => {
 
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-    expect(mocks.resetSyncAccountProgress).toHaveBeenCalledWith(OWNER, ACCOUNT);
+    expect(mocks.resetSyncAccountProgress).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      {
+        claimId: "claim-1",
+      },
+    );
     expect(result.state).toBe("ready");
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       expect.objectContaining({ historyId: "2000" }),
+      { claimId: "claim-1" },
     );
+  });
+
+  it("stops the sync step and reports a non-fatal status when the claim is lost mid-sync", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [
+        {
+          id: "1001",
+          messagesAdded: [{ message: { id: "t1-m1", threadId: "t1" } }],
+        },
+      ],
+      historyId: "1010",
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t1",
+        data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
+      },
+    ]);
+    // The fenced watermark write reports 0 rows matched — another worker's
+    // claim has already taken over this account.
+    mocks.patchSyncAccount.mockResolvedValue(false);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    // Non-fatal: never "error"/"needs_reauth", and no status/lastError write
+    // (that would stomp the newer worker's row — see failAccount).
+    expect(result.state).toBe("initial");
+    expect(mocks.patchSyncAccount).not.toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      expect.objectContaining({ status: "error" }),
+      expect.anything(),
+    );
+    // The stale claim no longer matches, so releasing it is a no-op by
+    // construction — never called with a status write for this worker's run.
+    expect(mocks.releaseSyncAccount).not.toHaveBeenCalled();
   });
 });
 

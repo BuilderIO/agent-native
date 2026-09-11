@@ -247,17 +247,23 @@ describe("Inbox pagination", () => {
     expect(inboxSource()).toContain("hasNextPage: Boolean(hasNextPage)");
   });
 
-  it("never shows a spurious load-more row on the inbox view, which has no real next page", () => {
+  it("pages the inbox view for real instead of a flat capped fetch", () => {
     const source = inboxSource();
 
     expect(source).toContain(
-      "const hasNextPage = isInboxView ? false : emailsHasNextPage;",
+      "const inboxHasNextPage =\n    isInboxView && inboxThreads.data !== undefined\n      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total)\n      : false;",
     );
     expect(source).toContain(
-      "const isFetchingNextPage = isInboxView ? false : emailsIsFetchingNextPage;",
+      "const hasNextPage = isInboxView ? inboxHasNextPage : emailsHasNextPage;",
     );
     expect(source).toContain(
-      "const isFetchNextPageError = isInboxView ? false : emailsIsFetchNextPageError;",
+      "const fetchNextPage = isInboxView ? fetchInboxNextPage : emailsFetchNextPage;",
+    );
+    expect(source).toContain("setInboxExtraPageCount((count) => count + 1);");
+    // Resets pagination on tab/account switch so "load more" always starts
+    // from the newly-active tab's page 0.
+    expect(source).toContain(
+      "  }, [isInboxView, resolvedInboxTab, activeAccounts]);",
     );
   });
 

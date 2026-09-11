@@ -36,6 +36,7 @@ import {
   resetSyncAccountProgress,
   upsertInboxThreadRows,
   type CachedGmailLabel,
+  type SyncAccountPatch,
   type SyncAccountRow,
   type ThreadUpsertInput,
 } from "./inbox-store.js";
@@ -68,6 +69,32 @@ function boundedErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   // Never let a token leak into last_error via an echoed Authorization header.
   return msg.replace(/Bearer [^\s"]+/gi, "Bearer [redacted]").slice(0, 240);
+}
+
+/**
+ * Thrown when a claimed sync step's fenced progress write matches 0 rows —
+ * this worker's 90s claim TTL lapsed and a newer worker has already taken
+ * over the account. The sync step stops immediately rather than continuing
+ * to make Gmail calls whose results it can no longer safely persist.
+ */
+export class SyncClaimLostError extends Error {
+  constructor(accountEmail: string) {
+    super(`Sync claim for ${accountEmail} was lost to another worker`);
+    this.name = "SyncClaimLostError";
+  }
+}
+
+/** Fenced progress write: throws {@link SyncClaimLostError} instead of silently no-oping. */
+async function patchProgress(
+  ownerEmail: string,
+  accountEmail: string,
+  claimId: string,
+  patch: SyncAccountPatch,
+): Promise<void> {
+  const updated = await patchSyncAccount(ownerEmail, accountEmail, patch, {
+    claimId,
+  });
+  if (!updated) throw new SyncClaimLostError(accountEmail);
 }
 
 function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
@@ -267,6 +294,7 @@ async function runFullSyncStep(
   accessToken: string,
   row: SyncAccountRow,
   deadline: number,
+  claimId: string,
 ): Promise<InboxSyncAccountStatus> {
   let fullSyncHistoryId = row.fullSyncHistoryId;
   let fullSyncStartedAt = row.fullSyncStartedAt;
@@ -274,7 +302,7 @@ async function runFullSyncStep(
     const profile = await gmailGetProfile(accessToken);
     fullSyncHistoryId = String(profile.historyId);
     fullSyncStartedAt = Date.now();
-    await patchSyncAccount(ownerEmail, accountEmail, {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
       fullSyncHistoryId,
       fullSyncStartedAt,
     });
@@ -301,7 +329,7 @@ async function runFullSyncStep(
       await upsertInboxThreadRows(rows);
     }
     pageToken = page.nextPageToken;
-    await patchSyncAccount(ownerEmail, accountEmail, {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
       fullSyncPageToken: pageToken ?? null,
     });
 
@@ -311,7 +339,7 @@ async function runFullSyncStep(
         accountEmail,
         fullSyncStartedAt!,
       );
-      await patchSyncAccount(ownerEmail, accountEmail, {
+      await patchProgress(ownerEmail, accountEmail, claimId, {
         historyId: fullSyncHistoryId,
         fullSyncPageToken: null,
         fullSyncHistoryId: null,
@@ -325,7 +353,7 @@ async function runFullSyncStep(
 
   // Budget exhausted mid-walk. The page token is already persisted above,
   // so the next call resumes from here.
-  await patchSyncAccount(ownerEmail, accountEmail, {
+  await patchProgress(ownerEmail, accountEmail, claimId, {
     lastError: null,
     lastSyncedAt: Date.now(),
   });
@@ -338,6 +366,7 @@ async function runIncrementalSyncStep(
   accessToken: string,
   row: SyncAccountRow,
   deadline: number,
+  claimId: string,
 ): Promise<InboxSyncAccountStatus> {
   // Gmail's response `historyId` is the mailbox's *current* id, identical on
   // every page, so it is only a safe watermark once every page has been
@@ -360,8 +389,12 @@ async function runIncrementalSyncStep(
       const message = err instanceof Error ? err.message : String(err);
       if (/\(404\)/.test(message)) {
         // Gmail expired our watermark (commonly after >7 days without a
-        // sync) — the only recovery is a fresh full sync.
-        await resetSyncAccountProgress(ownerEmail, accountEmail);
+        // sync) — the only recovery is a fresh full sync. Fenced like every
+        // other progress write in this claimed step.
+        const reset = await resetSyncAccountProgress(ownerEmail, accountEmail, {
+          claimId,
+        });
+        if (!reset) throw new SyncClaimLostError(accountEmail);
         const freshRow: SyncAccountRow = {
           ...row,
           historyId: null,
@@ -375,6 +408,7 @@ async function runIncrementalSyncStep(
           accessToken,
           freshRow,
           deadline,
+          claimId,
         );
       }
       throw err;
@@ -411,21 +445,21 @@ async function runIncrementalSyncStep(
     pageToken = history.nextPageToken || undefined;
     caughtUp = !pageToken;
     if (lastRecordId) {
-      await patchSyncAccount(ownerEmail, accountEmail, {
+      await patchProgress(ownerEmail, accountEmail, claimId, {
         historyId: lastRecordId,
       });
     }
   } while (pageToken && Date.now() < deadline);
 
   if (!caughtUp) {
-    await patchSyncAccount(ownerEmail, accountEmail, {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
       lastError: null,
       lastSyncedAt: Date.now(),
     });
     return { accountEmail, state: "initial", lastSyncedAt: Date.now() };
   }
 
-  await patchSyncAccount(ownerEmail, accountEmail, {
+  await patchProgress(ownerEmail, accountEmail, claimId, {
     historyId: currentHistoryId ?? lastRecordId ?? row.historyId!,
     lastError: null,
     lastSyncedAt: Date.now(),
@@ -443,10 +477,15 @@ async function failAccount(
   const status: SyncAccountRow["status"] = isPermanentRefreshError(raw)
     ? "needs_reauth"
     : "error";
-  await patchSyncAccount(row.ownerEmail, row.accountEmail, {
-    status,
-    lastError: message,
-  });
+  // Fenced: a claim already lost to a newer worker must not stomp its
+  // progress with this stale failure. If the fence no-ops, releaseSyncAccount
+  // below (also fenced) no-ops too — nothing left to reconcile.
+  await patchSyncAccount(
+    row.ownerEmail,
+    row.accountEmail,
+    { status, lastError: message },
+    { claimId },
+  );
   await releaseSyncAccount(row.ownerEmail, row.accountEmail, claimId, status);
   return {
     accountEmail: row.accountEmail,
@@ -529,6 +568,7 @@ export async function syncInboxAccount(
             accessToken,
             row,
             deadline,
+            claim.claimId,
           )
         : await runIncrementalSyncStep(
             ownerEmail,
@@ -536,6 +576,7 @@ export async function syncInboxAccount(
             accessToken,
             row,
             deadline,
+            claim.claimId,
           );
 
     const dbStatus: SyncAccountRow["status"] =
@@ -546,6 +587,14 @@ export async function syncInboxAccount(
     invalidateListCacheForOwner(ownerEmail);
     return accountStatus;
   } catch (err) {
+    if (err instanceof SyncClaimLostError) {
+      // A newer worker already owns this account's row — this worker's
+      // progress is stale by definition, so report "still syncing" and stop
+      // quietly rather than calling failAccount (which would stomp the new
+      // worker's row with an unfenced status write) or releaseSyncAccount
+      // (a no-op anyway: our claimId no longer matches).
+      return { accountEmail, state: "initial", lastSyncedAt: row.lastSyncedAt };
+    }
     return await failAccount(row, claim.claimId, err);
   }
 }

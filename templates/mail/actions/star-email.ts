@@ -3,7 +3,10 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { toggleStar } from "../server/lib/email-state.js";
+import {
+  resolveMutationAccounts,
+  toggleStar,
+} from "../server/lib/email-state.js";
 import {
   gmailBatchModifyByAccount,
   isConnected,
@@ -60,13 +63,20 @@ export default defineAction({
         threadId: threadIdList?.[i],
         accountEmail: accountEmailList?.[i] || args.accountEmail,
       }));
-      const { succeeded, failed } = await gmailBatchModifyByAccount(
+      // Resolve every target's account once, up front, with the same rule
+      // used by the single-item path — so the Gmail mutation below and the
+      // store mirror after it never group by different accounts.
+      const { resolved, unresolved } = await resolveMutationAccounts(
         ownerEmail,
         targets,
+      );
+      const { succeeded, failed } = await gmailBatchModifyByAccount(
+        ownerEmail,
+        resolved,
         isStarred ? ["STARRED"] : undefined,
         isStarred ? undefined : ["STARRED"],
       );
-      const threadIdById = new Map(targets.map((t) => [t.id, t.threadId]));
+      const threadIdById = new Map(resolved.map((t) => [t.id, t.threadId]));
       for (const id of succeeded) {
         const tid = threadIdById.get(id);
         if (tid) invalidateThreadCache(ownerEmail, tid);
@@ -74,12 +84,17 @@ export default defineAction({
       }
       for (const f of failed)
         results.push({ id: f.id, success: false, error: f.error });
+      for (const u of unresolved)
+        results.push({ id: u.id, success: false, error: u.error });
       await syncInboxLabelDeltaForTargets(
         ownerEmail,
-        targets.filter((t) => succeeded.includes(t.id)),
+        resolved.filter((t) => succeeded.includes(t.id)),
         {
           add: isStarred ? ["STARRED"] : undefined,
           remove: isStarred ? undefined : ["STARRED"],
+          // Message-scoped: star targets are message ids, not whole threads
+          // (see applyLocalLabelDelta's scope handling).
+          scope: "message",
         },
       );
     } else {

@@ -7,11 +7,26 @@ const mocks = vi.hoisted(() => ({
   readSettings: vi.fn(),
   readInboxThreads: vi.fn(),
   readCachedLabels: vi.fn(),
+  listOAuthAccountsByOwner: vi.fn(),
+  getUserSetting: vi.fn(),
+  readLocalEmails: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
   buildDeepLink: (input: any) => `/_agent-native/open?${JSON.stringify(input)}`,
+}));
+
+vi.mock("@agent-native/core/oauth-tokens", () => ({
+  listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
+}));
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: mocks.getUserSetting,
+}));
+
+vi.mock("../server/lib/local-email-store.js", () => ({
+  readLocalEmails: mocks.readLocalEmails,
 }));
 
 vi.mock("../server/lib/google-auth.js", () => ({
@@ -84,6 +99,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.isConnected.mockResolvedValue(true);
+  // Gmail-connected by default; local-mode tests override this to [].
+  mocks.listOAuthAccountsByOwner.mockResolvedValue([
+    { accountId: OWNER, owner: OWNER, tokens: {} },
+  ]);
   mocks.ensureInboxFresh.mockResolvedValue([
     { accountEmail: OWNER, state: "ready", lastSyncedAt: Date.now() },
   ]);
@@ -97,6 +116,8 @@ beforeEach(() => {
     labels: [],
     labelMapByAccount: new Map(),
   });
+  mocks.readLocalEmails.mockResolvedValue([]);
+  mocks.getUserSetting.mockResolvedValue(undefined);
 });
 
 describe("list-inbox-threads action", () => {
@@ -199,5 +220,110 @@ describe("list-inbox-threads action", () => {
     );
 
     expect(result.syncing).toBe(true);
+  });
+});
+
+describe("list-inbox-threads action — local mode (no connected Google account)", () => {
+  function localEmail(overrides: Partial<any> = {}): any {
+    return {
+      id: "m1",
+      threadId: "t1",
+      from: { name: "Ada", email: "ada@example.com" },
+      to: [],
+      subject: "Hi",
+      snippet: "",
+      body: "",
+      date: new Date().toISOString(),
+      isRead: false,
+      isStarred: false,
+      isArchived: false,
+      isTrashed: false,
+      isDraft: false,
+      labelIds: ["inbox"],
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+  });
+
+  it("never calls the synced-store path when no Google account is connected", async () => {
+    mocks.readLocalEmails.mockResolvedValue([localEmail()]);
+
+    await action.run({ limit: 50, offset: 0 } as any, undefined as any);
+
+    expect(mocks.ensureInboxFresh).not.toHaveBeenCalled();
+    expect(mocks.readInboxThreads).not.toHaveBeenCalled();
+  });
+
+  it("groups local messages into one thread item with unified counts and reports no accounts/syncing", async () => {
+    mocks.readLocalEmails.mockResolvedValue([
+      localEmail({
+        id: "m1",
+        threadId: "t1",
+        isRead: false,
+        date: "2024-01-01T00:00:00Z",
+      }),
+      localEmail({
+        id: "m2",
+        threadId: "t1",
+        isRead: true,
+        date: "2024-01-02T00:00:00Z",
+      }),
+      // Not in the inbox — excluded from the thread.
+      localEmail({ id: "m3", threadId: "t2", isArchived: true }),
+      localEmail({ id: "m4", threadId: "t3", isTrashed: true }),
+      localEmail({ id: "m5", threadId: "t4", isDraft: true }),
+    ]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.accounts).toEqual([]);
+    expect(result.syncing).toBe(false);
+    expect(result.items).toHaveLength(1);
+    const item = result.items[0];
+    expect(item.threadId).toBe("t1");
+    expect(item.id).toBe("m2"); // latest by date
+    expect(item.messageCount).toBe(2);
+    expect(item.unreadCount).toBe(1);
+    expect(item.messageIds.sort()).toEqual(["m1", "m2"]);
+  });
+
+  it("runs the same tab partition: a promotions-labeled message lands in Other", async () => {
+    mocks.readLocalEmails.mockResolvedValue([
+      localEmail({
+        id: "m1",
+        threadId: "t1",
+        labelIds: ["inbox", "promotions"],
+      }),
+    ]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.tabs.map((t) => t.id)).toEqual(["important", "other"]);
+    expect(result.activeTabId).toBe("important");
+    expect(result.tabs.find((t) => t.id === "other")?.total).toBe(1);
+    expect(result.tabs.find((t) => t.id === "important")?.total).toBe(0);
+  });
+
+  it("a plain sender lands in Important", async () => {
+    mocks.readLocalEmails.mockResolvedValue([
+      localEmail({ id: "m1", threadId: "t1", labelIds: ["inbox"] }),
+    ]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.tabs.find((t) => t.id === "important")?.total).toBe(1);
+    expect(result.tabs.find((t) => t.id === "other")?.total).toBe(0);
   });
 });

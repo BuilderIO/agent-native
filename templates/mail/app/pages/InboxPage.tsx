@@ -26,7 +26,14 @@ import {
   useSettings,
 } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { resolveInboxTabId, useInboxThreads } from "@/hooks/use-inbox-threads";
+import {
+  INBOX_PAGE_SIZE,
+  inboxThreadsHasNextPage,
+  mergeInboxThreadPages,
+  resolveInboxTabId,
+  useInboxThreads,
+  useInboxThreadsPages,
+} from "@/hooks/use-inbox-threads";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -419,17 +426,63 @@ export function InboxPage() {
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
+  // Page 0 drives tabs/counts/syncing/accounts/labels and is the only page
+  // that polls. "Load more" grows `inboxExtraPageCount`, fetching one more
+  // unpolled page per step (see useInboxThreadsPages's doc for why this
+  // isn't one useInfiniteQuery).
   const inboxThreads = useInboxThreads(
     {
       tab: resolvedInboxTab,
       accountEmails: inboxAccountEmails,
-      // ponytail: flat limit instead of real offset pagination — simplest
-      // thing that keeps scrolling snappy (virtualized list). Add
-      // offset-based "load more" if a tab regularly exceeds this.
-      limit: 200,
+      limit: INBOX_PAGE_SIZE,
+      offset: 0,
     },
     { enabled: isInboxView },
   );
+  const [inboxExtraPageCount, setInboxExtraPageCount] = useState(0);
+  useEffect(() => {
+    setInboxExtraPageCount(0);
+  }, [isInboxView, resolvedInboxTab, activeAccounts]);
+  const inboxExtraOffsets = useMemo(
+    () =>
+      Array.from(
+        { length: inboxExtraPageCount },
+        (_, i) => (i + 1) * INBOX_PAGE_SIZE,
+      ),
+    [inboxExtraPageCount],
+  );
+  const inboxExtraPages = useInboxThreadsPages(
+    {
+      tab: resolvedInboxTab,
+      accountEmails: inboxAccountEmails,
+      limit: INBOX_PAGE_SIZE,
+    },
+    inboxExtraOffsets,
+    { enabled: isInboxView && inboxExtraOffsets.length > 0 },
+  );
+  const inboxItems = useMemo(
+    () => [
+      ...(inboxThreads.data?.items ?? []),
+      ...mergeInboxThreadPages(inboxExtraPages.map((page) => page.data)),
+    ],
+    [inboxThreads.data?.items, inboxExtraPages],
+  );
+  const inboxHasNextPage =
+    isInboxView && inboxThreads.data !== undefined
+      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total)
+      : false;
+  const inboxIsFetchingNextPage = inboxExtraPages.some(
+    (page) => page.isFetching,
+  );
+  const inboxIsFetchNextPageError = inboxExtraPages.some(
+    (page) => page.isError,
+  );
+  const fetchInboxNextPage = useCallback(() => {
+    if (inboxHasNextPage && !inboxIsFetchingNextPage) {
+      setInboxExtraPageCount((count) => count + 1);
+    }
+    return Promise.resolve();
+  }, [inboxHasNextPage, inboxIsFetchingNextPage]);
   const inboxAccountErrors = useMemo(() => {
     const errored = inboxThreads.data?.accounts.filter(
       (account) => account.state === "error",
@@ -534,7 +587,7 @@ export function InboxPage() {
     enabled: !isInboxView,
   });
 
-  const rawEmails = isInboxView ? inboxThreads.data?.items : fetchedEmails;
+  const rawEmails = isInboxView ? inboxItems : fetchedEmails;
   const hasEmailData = isInboxView
     ? inboxThreads.data !== undefined
     : fetchedEmails !== undefined;
@@ -545,7 +598,7 @@ export function InboxPage() {
   const inboxStillSyncingEmpty =
     isInboxView &&
     inboxThreads.data?.syncing === true &&
-    (inboxThreads.data?.items.length ?? 0) === 0;
+    inboxItems.length === 0;
   const isLoading = isInboxView
     ? inboxThreads.isLoading || inboxStillSyncingEmpty
     : emailsIsLoading;
@@ -557,15 +610,17 @@ export function InboxPage() {
   const refetchEmails = isInboxView
     ? inboxThreads.refetch
     : refetchFetchedEmails;
-  // The inbox view has no real pagination yet (see the `limit: 200` note
-  // above) — there is never a next page, so these must be `false`, not
-  // `undefined`: EmailList falls back to its own (disabled) internal query
-  // on `undefined` via `??`, which can resolve a stale/default `true` and
-  // show a spurious "Loading more…" row under a fully-loaded list.
-  const hasNextPage = isInboxView ? false : emailsHasNextPage;
-  const fetchNextPage = isInboxView ? undefined : emailsFetchNextPage;
-  const isFetchingNextPage = isInboxView ? false : emailsIsFetchingNextPage;
-  const isFetchNextPageError = isInboxView ? false : emailsIsFetchNextPageError;
+  // `undefined` would fall through EmailList's own `??` to its (disabled)
+  // internal query, which can resolve a stale/default `true` — these must be
+  // real booleans/false for the inbox view, not `undefined`.
+  const hasNextPage = isInboxView ? inboxHasNextPage : emailsHasNextPage;
+  const fetchNextPage = isInboxView ? fetchInboxNextPage : emailsFetchNextPage;
+  const isFetchingNextPage = isInboxView
+    ? inboxIsFetchingNextPage
+    : emailsIsFetchingNextPage;
+  const isFetchNextPageError = isInboxView
+    ? inboxIsFetchNextPageError
+    : emailsIsFetchNextPageError;
   const accountErrors = isInboxView ? inboxAccountErrors : emailsAccountErrors;
   const emailListLoading =
     isLoading ||

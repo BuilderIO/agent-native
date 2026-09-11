@@ -14,13 +14,14 @@ import { invalidateListCacheForOwner } from "./google-auth.js";
 import {
   applyLocalLabelDelta,
   findThreadIdsByMessageIds,
+  type LocalLabelDelta,
 } from "./inbox-store.js";
 
 export async function syncInboxLabelDelta(
   ownerEmail: string,
   accountEmail: string,
   threadIds: readonly string[],
-  delta: { add?: string[]; remove?: string[] },
+  delta: LocalLabelDelta,
 ): Promise<void> {
   const ids = threadIds.filter(Boolean);
   if (ids.length === 0) return;
@@ -34,6 +35,14 @@ export async function syncInboxLabelDelta(
  * known threadId. Resolves the missing ones from the store's
  * `message_ids_json` (one lookup per account) instead of an extra Gmail
  * round-trip per message.
+ *
+ * Every target must already carry the resolved `accountEmail` that the Gmail
+ * mutation actually used — see `resolveMutationAccounts` in email-state.ts,
+ * which every caller runs before both the Gmail call and this mirror so the
+ * two never group by different rules. A target with no resolved account is
+ * dropped rather than guessed at (no owner-email fallback): this is a
+ * best-effort optimistic mirror, not the source of truth, and a silent guess
+ * here is exactly the staleness bug this function exists to avoid.
  */
 export async function syncInboxLabelDeltaForTargets(
   ownerEmail: string,
@@ -42,11 +51,12 @@ export async function syncInboxLabelDeltaForTargets(
     threadId?: string;
     accountEmail?: string;
   }>,
-  delta: { add?: string[]; remove?: string[] },
+  delta: LocalLabelDelta,
 ): Promise<void> {
   const byAccount = new Map<string, Array<{ id: string; threadId?: string }>>();
   for (const t of targets) {
-    const account = (t.accountEmail || ownerEmail).toLowerCase();
+    if (!t.accountEmail) continue;
+    const account = t.accountEmail.toLowerCase();
     const list = byAccount.get(account);
     if (list) list.push(t);
     else byAccount.set(account, [t]);
@@ -63,12 +73,12 @@ export async function syncInboxLabelDeltaForTargets(
         const threadId = item.threadId ?? resolved.get(item.id);
         if (threadId) threadIds.add(threadId);
       }
-      await syncInboxLabelDelta(
-        ownerEmail,
-        accountEmail,
-        [...threadIds],
-        delta,
-      );
+      await syncInboxLabelDelta(ownerEmail, accountEmail, [...threadIds], {
+        ...delta,
+        ...(delta.scope === "message"
+          ? { messageIds: items.map((i) => i.id) }
+          : {}),
+      });
     }),
   );
 }

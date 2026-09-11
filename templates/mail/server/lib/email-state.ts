@@ -149,6 +149,45 @@ export async function resolveMutationAccount(
   );
 }
 
+/**
+ * Bulk form of {@link resolveMutationAccount} for the `gmailBatchModifyByAccount`
+ * fan-out (archive/mark-read/star bulk branches): resolves every target's
+ * account with the exact same rule up front, so the value passed to
+ * `gmailBatchModifyByAccount` (the Gmail mutation) and to
+ * `syncInboxLabelDeltaForTargets` (the store mirror) can never diverge — the
+ * bug this exists to prevent was those two grouping targets by different
+ * rules when a target omitted `accountEmail`. A target that can't be
+ * resolved is reported in `unresolved`, never silently mapped to a guess.
+ */
+export async function resolveMutationAccounts<
+  T extends { id: string; threadId?: string; accountEmail?: string },
+>(
+  ownerEmail: string,
+  targets: readonly T[],
+): Promise<{
+  resolved: Array<T & { accountEmail: string }>;
+  unresolved: Array<{ id: string; error: string }>;
+}> {
+  const resolved: Array<T & { accountEmail: string }> = [];
+  const unresolved: Array<{ id: string; error: string }> = [];
+  for (const target of targets) {
+    try {
+      const accountEmail = await resolveMutationAccount(
+        ownerEmail,
+        target.accountEmail,
+        { threadId: target.threadId, messageId: target.id },
+      );
+      resolved.push({ ...target, accountEmail });
+    } catch (err: any) {
+      unresolved.push({
+        id: target.id,
+        error: err?.message ?? "Could not resolve connected account",
+      });
+    }
+  }
+  return { resolved, unresolved };
+}
+
 // ---------------------------------------------------------------------------
 // Local-mode helpers
 // ---------------------------------------------------------------------------
@@ -461,6 +500,8 @@ export async function toggleStar(
       const resolvedThreadId = hintThreadId || updated.threadId;
       if (resolvedThreadId) {
         invalidateThreadCache(ownerEmail, resolvedThreadId);
+        // Message-scoped: this only starred/unstarred one message, not the
+        // whole thread (see applyLocalLabelDelta's scope handling).
         await syncInboxLabelDelta(
           ownerEmail,
           account.accountId,
@@ -468,6 +509,8 @@ export async function toggleStar(
           {
             add: isStarred ? ["STARRED"] : undefined,
             remove: isStarred ? undefined : ["STARRED"],
+            scope: "message",
+            messageIds: [id],
           },
         );
       }
@@ -699,9 +742,14 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
         await findThreadIdsByMessageIds(ownerEmail, account.accountId, [id])
       ).get(id);
       if (threadId) {
+        // Message-scoped: this only marked one message read/unread, not
+        // every message in the thread (see applyLocalLabelDelta's scope
+        // handling).
         await syncInboxLabelDelta(ownerEmail, account.accountId, [threadId], {
           add: isRead ? undefined : ["UNREAD"],
           remove: isRead ? ["UNREAD"] : undefined,
+          scope: "message",
+          messageIds: [id],
         });
       }
       return { id, isRead };

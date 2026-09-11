@@ -291,11 +291,27 @@ export async function readCachedLabels(
 // Optimistic local mutation
 // ---------------------------------------------------------------------------
 
+export type LocalLabelDelta = {
+  add?: string[];
+  remove?: string[];
+  /**
+   * "thread" (default): the mutation applies to every message in the thread
+   * (archive, trash, mark-thread-read), so UNREAD/STARRED are derived from
+   * whether the unioned label set contains them, as before.
+   * "message": the mutation only touched `messageIds` (mark-read/star by
+   * message id) — UNREAD/STARRED must be derived from that subset instead,
+   * see below.
+   */
+  scope?: "thread" | "message";
+  /** Message ids the delta actually targets; only meaningful for scope "message". */
+  messageIds?: string[];
+};
+
 export async function applyLocalLabelDelta(
   ownerEmail: string,
   accountEmail: string,
   threadIds: string[],
-  delta: { add?: string[]; remove?: string[] },
+  delta: LocalLabelDelta,
 ): Promise<void> {
   if (threadIds.length === 0) return;
   const ids = threadIds.map((t) => threadRowId(ownerEmail, accountEmail, t));
@@ -303,6 +319,8 @@ export async function applyLocalLabelDelta(
     .select({
       id: schema.mailInboxThreads.id,
       labelIdsJson: schema.mailInboxThreads.labelIdsJson,
+      messageIdsJson: schema.mailInboxThreads.messageIdsJson,
+      unreadCount: schema.mailInboxThreads.unreadCount,
     })
     .from(schema.mailInboxThreads)
     .where(inArray(schema.mailInboxThreads.id, ids));
@@ -311,22 +329,55 @@ export async function applyLocalLabelDelta(
   const add = delta.add ?? [];
   const remove = new Set(delta.remove ?? []);
   const now = Date.now();
+  const messageScoped = delta.scope === "message";
+  const targetMessageIds = new Set(delta.messageIds ?? []);
 
   await Promise.all(
     rows.map((row) => {
       const labels = new Set(parseJsonArray<string>(row.labelIdsJson, []));
       for (const l of remove) labels.delete(l);
       for (const l of add) labels.add(l);
+
+      const set: Record<string, unknown> = {
+        labelIdsJson: JSON.stringify([...labels]),
+        inInbox: labels.has("INBOX") && !labels.has("TRASH") ? 1 : 0,
+        isImportant: labels.has("IMPORTANT") ? 1 : 0,
+        updatedAt: now,
+      };
+
+      if (!messageScoped) {
+        set.isUnread = labels.has("UNREAD") ? 1 : 0;
+        set.isStarred = labels.has("STARRED") ? 1 : 0;
+      } else {
+        // Only the targeted messages changed, so isUnread/unreadCount must
+        // come from that subset — not from whether UNREAD is anywhere in the
+        // thread's unioned label set, which reflects just the last-touched
+        // message.
+        const matched = parseJsonArray<string>(row.messageIdsJson, []).filter(
+          (id) => targetMessageIds.has(id),
+        ).length;
+        const currentUnread = row.unreadCount ?? 0;
+        if (delta.remove?.includes("UNREAD")) {
+          const nextUnread = Math.max(0, currentUnread - matched);
+          set.unreadCount = nextUnread;
+          set.isUnread = nextUnread > 0 ? 1 : 0;
+        } else if (delta.add?.includes("UNREAD")) {
+          set.unreadCount = currentUnread + matched;
+          set.isUnread = 1;
+        }
+        if (delta.add?.includes("STARRED")) {
+          set.isStarred = 1;
+        }
+        // Removing STARRED at message scope is intentionally a no-op for
+        // isStarred: we don't track which individual message(s) hold the
+        // star, so we can't tell whether another message in the thread is
+        // still starred. The next history sync (within the 15s freshness
+        // window) refetches the thread from Gmail and corrects it.
+      }
+
       return getDb()
         .update(schema.mailInboxThreads)
-        .set({
-          labelIdsJson: JSON.stringify([...labels]),
-          inInbox: labels.has("INBOX") && !labels.has("TRASH") ? 1 : 0,
-          isUnread: labels.has("UNREAD") ? 1 : 0,
-          isStarred: labels.has("STARRED") ? 1 : 0,
-          isImportant: labels.has("IMPORTANT") ? 1 : 0,
-          updatedAt: now,
-        })
+        .set(set)
         .where(eq(schema.mailInboxThreads.id, row.id));
     }),
   );
@@ -693,31 +744,54 @@ export type SyncAccountPatch = Partial<{
   labelsUpdatedAt: number;
 }>;
 
+/**
+ * Updates one sync-account row. When `opts.claimId` is given, the write is
+ * fenced with `AND sync_claim_id = ?` and the return value says whether a row
+ * actually matched — a worker whose 90s claim TTL lapsed mid-sync (another
+ * worker has since claimed the row) gets `false` back instead of silently
+ * overwriting the newer worker's progress. Omit `opts` for label-cache and
+ * other non-claimed writes, which stay unconditioned as before.
+ */
 export async function patchSyncAccount(
   ownerEmail: string,
   accountEmail: string,
   patch: SyncAccountPatch,
-): Promise<void> {
+  opts?: { claimId?: string },
+): Promise<boolean> {
   const { labels, ...rest } = patch;
   const set: Record<string, unknown> = { ...rest, updatedAt: Date.now() };
   if (labels !== undefined) set.labelsJson = JSON.stringify(labels);
-  await getDb()
+  const conditions = [
+    eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
+  ];
+  if (opts?.claimId) {
+    conditions.push(eq(schema.mailSyncAccounts.syncClaimId, opts.claimId));
+  }
+  const rows = await getDb()
     .update(schema.mailSyncAccounts)
     .set(set)
-    .where(eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)));
+    .where(and(...conditions))
+    .returning({ id: schema.mailSyncAccounts.id });
+  return rows.length > 0;
 }
 
 /** Clears the history watermark so the next sync step starts a fresh full sync. */
 export async function resetSyncAccountProgress(
   ownerEmail: string,
   accountEmail: string,
-): Promise<void> {
-  await patchSyncAccount(ownerEmail, accountEmail, {
-    historyId: null,
-    fullSyncPageToken: null,
-    fullSyncHistoryId: null,
-    fullSyncStartedAt: null,
-    status: "idle",
-    lastError: null,
-  });
+  opts?: { claimId?: string },
+): Promise<boolean> {
+  return patchSyncAccount(
+    ownerEmail,
+    accountEmail,
+    {
+      historyId: null,
+      fullSyncPageToken: null,
+      fullSyncHistoryId: null,
+      fullSyncStartedAt: null,
+      status: "idle",
+      lastError: null,
+    },
+    opts,
+  );
 }

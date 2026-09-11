@@ -97,18 +97,13 @@ describe("syncInboxLabelDeltaForTargets", () => {
     );
   });
 
-  it("defaults a target with no accountEmail to the owner's account", async () => {
-    mocks.findThreadIdsByMessageIds.mockResolvedValue(new Map([["m1", "t1"]]));
-
+  it("drops a target with no accountEmail rather than guessing the owner's account", async () => {
     await syncInboxLabelDeltaForTargets("owner@example.com", [{ id: "m1" }], {
       add: ["STARRED"],
     });
 
-    expect(mocks.findThreadIdsByMessageIds).toHaveBeenCalledWith(
-      "owner@example.com",
-      "owner@example.com",
-      ["m1"],
-    );
+    expect(mocks.findThreadIdsByMessageIds).not.toHaveBeenCalled();
+    expect(mocks.applyLocalLabelDelta).not.toHaveBeenCalled();
   });
 
   it("skips a target whose message id never resolves to a threadId", async () => {
@@ -121,5 +116,41 @@ describe("syncInboxLabelDeltaForTargets", () => {
     );
 
     expect(mocks.applyLocalLabelDelta).not.toHaveBeenCalled();
+  });
+
+  it("resolves the other targets in the same call even when one has no accountEmail", async () => {
+    mocks.findThreadIdsByMessageIds.mockResolvedValue(new Map([["m1", "t1"]]));
+
+    await syncInboxLabelDeltaForTargets(
+      "owner@example.com",
+      [
+        { id: "m1", accountEmail: "a@example.com" },
+        { id: "m2" }, // no accountEmail — dropped, not defaulted
+      ],
+      { remove: ["UNREAD"] },
+    );
+
+    expect(mocks.applyLocalLabelDelta).toHaveBeenCalledTimes(1);
+    expect(mocks.applyLocalLabelDelta).toHaveBeenCalledWith(
+      "owner@example.com",
+      "a@example.com",
+      ["t1"],
+      { remove: ["UNREAD"] },
+    );
+  });
+
+  it("passes scope 'message' with the account's own message ids to applyLocalLabelDelta", async () => {
+    await syncInboxLabelDeltaForTargets(
+      "owner@example.com",
+      [{ id: "m1", threadId: "t1", accountEmail: "a@example.com" }],
+      { remove: ["UNREAD"], scope: "message" },
+    );
+
+    expect(mocks.applyLocalLabelDelta).toHaveBeenCalledWith(
+      "owner@example.com",
+      "a@example.com",
+      ["t1"],
+      { remove: ["UNREAD"], scope: "message", messageIds: ["m1"] },
+    );
   });
 });
