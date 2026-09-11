@@ -15,6 +15,9 @@ type TextRun = {
   to: number;
   sourceFrom: number;
   sourceTo: number;
+  // A code fence emits its body verbatim, so this run's source form is only
+  // known once the indentation of the line its placeholder landed on is.
+  verbatim?: boolean;
 };
 type TextRange = { from: number; to: number };
 
@@ -50,13 +53,46 @@ function withoutMarks(node: PMNode): PMNode {
   };
 }
 
+function longestBacktickRun(text: string): number {
+  return Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+}
+
 function formattingRuns(source: string): { runs: TextRun[] } | null {
   const doc = nfmToDoc(source);
   let markerPrefix = "suggestiontextboundary";
   while (source.includes(markerPrefix)) markerPrefix += "z";
   const runs: TextRun[] = [];
   let offset = 0;
+  let unmappable = false;
   const withMarkers = (node: PMNode): PMNode => {
+    // A code fence emits its body unescaped, so the inline serialization the
+    // other runs restore from would introduce escapes the source never had,
+    // and the fence length itself follows the body's longest backtick run.
+    if (node.type === "codeBlock") {
+      const text = (node.content ?? [])
+        .map((child) => child.text ?? "")
+        .join("");
+      if (!text) return node;
+      const index = runs.length;
+      runs.push({
+        text,
+        marks: "[]",
+        markValues: [],
+        serialized: "",
+        textOffsets: [],
+        from: offset,
+        to: offset + text.length,
+        sourceFrom: -1,
+        sourceTo: -1,
+        verbatim: true,
+      });
+      offset += text.length;
+      const fence = "`".repeat(longestBacktickRun(text));
+      return {
+        ...node,
+        content: [{ type: "text", text: `${markerPrefix}${index}${fence}x` }],
+      };
+    }
     if (node.type === "text" && node.text) {
       const index = runs.length;
       const marker = `${markerPrefix}${index}x`;
@@ -87,19 +123,47 @@ function formattingRuns(source: string): { runs: TextRun[] } | null {
   });
   let delta = 0;
   const restored = withPlaceholders.replace(
-    new RegExp(`${markerPrefix}(\\d+)x`, "g"),
+    new RegExp(`${markerPrefix}(\\d+)\`*x`, "g"),
     (token, rawIndex: string, position: number) => {
       const index = Number(rawIndex);
       const run = runs[index]!;
+      if (run.verbatim && !resolveVerbatimRun(run, withPlaceholders, position))
+        unmappable = true;
       run.sourceFrom = position + delta;
       run.sourceTo = run.sourceFrom + run.serialized.length;
       delta += run.serialized.length - token.length;
       return run.serialized;
     },
   );
-  if (restored !== source || runs.some((run) => run.sourceFrom < 0))
+  if (
+    unmappable ||
+    restored !== source ||
+    runs.some((run) => run.sourceFrom < 0)
+  )
     return null;
   return { runs };
+}
+
+// Every body line of an indented code fence repeats the block's indentation,
+// which a one-line placeholder only reveals through the line it landed on.
+function resolveVerbatimRun(
+  run: TextRun,
+  withPlaceholders: string,
+  position: number,
+): boolean {
+  const lineStart = withPlaceholders.lastIndexOf("\n", position - 1) + 1;
+  const indent = withPlaceholders.slice(lineStart, position);
+  if (!/^\t*$/.test(indent)) return false;
+  const textOffsets: number[] = [];
+  let cursor = 0;
+  for (let index = 0; index < run.text.length; index += 1) {
+    textOffsets.push(cursor);
+    cursor += run.text[index] === "\n" ? 1 + indent.length : 1;
+  }
+  textOffsets.push(cursor);
+  run.serialized = run.text.split("\n").join(`\n${indent}`);
+  run.textOffsets = textOffsets;
+  return true;
 }
 
 export type SuggestionFormattingSlicePart =
