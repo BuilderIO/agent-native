@@ -1,0 +1,21 @@
+{
+  "name": "@agent-native/agent-chrome-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "First-party Chrome control bridge for the Agent-Native desktop agent.",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-native/browser-control-extension-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.2.2",
+    "typescript-7": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

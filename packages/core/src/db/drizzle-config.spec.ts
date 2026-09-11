@@ -1,0 +1,85 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+describe("createDrizzleConfig", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("configures drizzle-kit to use the PGlite Postgres driver for pglite URLs", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(createDrizzleConfig()).toMatchObject({
+      dialect: "postgresql",
+      driver: "pglite",
+      dbCredentials: { url: "./data/pglite" },
+    });
+  });
+
+  it("passes memory PGlite URLs through as memory data dirs", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(createDrizzleConfig()).toMatchObject({
+      dialect: "postgresql",
+      driver: "pglite",
+      dbCredentials: { url: "memory://" },
+    });
+  });
+
+  // Hosts that pool their DATABASE_URL cannot run DDL through it: a Neon
+  // pooler is PgBouncer in transaction mode, so migrations need the direct
+  // endpoint while the app keeps querying through the pooler.
+  it("prefers an explicit url over DATABASE_URL", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://pooler.neon.tech/app");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(
+      createDrizzleConfig({ url: "postgres://direct.neon.tech/app" }),
+    ).toMatchObject({
+      dialect: "postgresql",
+      dbCredentials: { url: "postgres://direct.neon.tech/app" },
+    });
+  });
+
+  it("prefers an explicit url over the app-scoped DATABASE_URL", async () => {
+    vi.stubEnv("APP_NAME", "my-app");
+    vi.stubEnv("MY_APP_DATABASE_URL", "postgres://pooler.neon.tech/app");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(
+      createDrizzleConfig({ url: "postgres://direct.neon.tech/app" }),
+    ).toMatchObject({
+      dbCredentials: { url: "postgres://direct.neon.tech/app" },
+    });
+  });
+
+  // `url: process.env.DATABASE_URL_UNPOOLED` has to stay correct on hosts that
+  // set only DATABASE_URL, so a blank url is not an override.
+  it("falls back to DATABASE_URL when the url option is unset or blank", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://pooler.neon.tech/app");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    for (const url of [undefined, "", "  "]) {
+      expect(createDrizzleConfig({ url })).toMatchObject({
+        dbCredentials: { url: "postgres://pooler.neon.tech/app" },
+      });
+    }
+  });
+
+  it("refuses drizzle-kit push against a Neon url passed as an option", async () => {
+    vi.stubEnv("npm_lifecycle_script", "drizzle-kit push");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(() =>
+      createDrizzleConfig({ url: "postgres://direct.neon.tech/app" }),
+    ).toThrow(/Refusing to run `drizzle-kit push`/);
+  });
+});

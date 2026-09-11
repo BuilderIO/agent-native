@@ -1,0 +1,13 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
+import { redirect, type LoaderFunctionArgs } from "react-router";
+
+export function loader({ request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  return withSsrHtmlContentType(redirect(`/library${url.search}`), {
+    varyByQuery: true,
+  });
+}
+
+export default function BrandKitsIndexRedirect() {
+  return null;
+}

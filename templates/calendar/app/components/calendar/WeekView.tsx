@@ -1,0 +1,1625 @@
+import { useT } from "@agent-native/core/client/i18n";
+import type { CalendarEvent } from "@shared/api";
+import { isCalendarEventOrganizer } from "@shared/event-permissions";
+import {
+  IconAlertTriangleFilled,
+  IconBuilding,
+  IconHome,
+  IconMapPin,
+  IconPlus,
+} from "@tabler/icons-react";
+import {
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  eachHourOfInterval,
+  format,
+  set,
+  addMinutes,
+} from "date-fns";
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
+
+import { useCalendarSetters } from "@/components/layout/AppLayout";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useEventDrag } from "@/hooks/use-event-drag";
+import { useGridCreateDrag } from "@/hooks/use-grid-create-drag";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  useViewPreferences,
+  type ViewPreferences,
+} from "@/hooks/use-view-preferences";
+import {
+  groupAdjacentAllDayPlacements,
+  layoutAllDayEvents,
+  partitionAllDayEvents,
+} from "@/lib/all-day-layout";
+import {
+  dateToCalendarDateKey,
+  getBrowserTimezone,
+  getDateKeyInTimezone,
+  getEventDateKey,
+  getEventSegmentForCalendarDay,
+  isAllDayCalendarEvent,
+} from "@/lib/calendar-timezone";
+import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
+import {
+  computeTimedEventLayout,
+  type TimedEventLayout,
+} from "@/lib/event-layout";
+import {
+  getFirstVisibleOutOfOfficeDayIndex,
+  getOutOfOfficeSegment,
+  isFullDayOutOfOfficeEvent,
+  isOutOfOfficeEvent,
+} from "@/lib/out-of-office";
+import {
+  shouldSuppressAfterPopoverClose,
+  shouldSuppressCreatePointerDown,
+} from "@/lib/popover-click-guard";
+import { EventStatusIcon } from "@/lib/rsvp-status";
+import { cn } from "@/lib/utils";
+import {
+  createWorkingLocationDisplayLabels,
+  getWorkingLocationChipLabel,
+  getWorkingLocationTitle,
+} from "@/lib/working-location";
+
+import { EventDetailPopover } from "./EventDetailPopover";
+import { OutOfOfficeEvent } from "./OutOfOfficeEvent";
+import { shouldRenderWeekDragSegment } from "./week-drag-segment";
+
+interface WeekViewProps {
+  events: CalendarEvent[];
+  selectedDate: Date;
+  timezone?: string;
+  onDateSelect: (date: Date) => void;
+  onDeleteEvent: (eventId: string) => void;
+  onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
+  onClickTimeSlot?: (
+    date: Date,
+    startTime: string,
+    endTime: string,
+    options?: { allDay?: boolean; explicitDuration?: boolean },
+  ) => void;
+  onCreateWorkingLocation?: (date: Date) => void;
+  quickEditEventId?: string | null;
+  onQuickEditSave?: (
+    eventId: string,
+    title: string,
+    accountEmail?: string,
+  ) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
+  draftEventIds?: string[];
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
+  isLoading?: boolean;
+  weekStartsOn?: 0 | 1;
+}
+
+// [startHour, startMin, durationMin, widthPct] per day column (Sun–Sat)
+const WEEK_SKELETONS: [number, number, number, number][][] = [
+  [
+    [9, 0, 60, 78],
+    [14, 0, 30, 62],
+  ],
+  [[10, 0, 90, 82]],
+  [
+    [8, 30, 45, 74],
+    [15, 0, 60, 68],
+  ],
+  [[10, 0, 60, 80]],
+  [
+    [9, 0, 45, 70],
+    [13, 0, 90, 78],
+  ],
+  [[11, 0, 30, 65]],
+  [[9, 30, 60, 72]],
+];
+
+const START_HOUR = 0;
+const END_HOUR = 24;
+const HOUR_HEIGHT = 60;
+const DESKTOP_GUTTER_WIDTH = 60;
+const MOBILE_GUTTER_WIDTH = 40;
+
+/** Convert minutes-from-START_HOUR on a given day into a zero-padded "HH:mm" string, clamped to 23:59 */
+function minutesToTimeString(totalMinutes: number): string {
+  const clamped = Math.min(totalMinutes, 24 * 60 - 1);
+  const h = Math.min(23, Math.floor(clamped / 60));
+  const m = clamped % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(h)}:${pad(m)}`;
+}
+
+/** Convert minutes-from-START_HOUR on a given day into a Date, for ghost label formatting */
+function minutesToDate(day: Date, totalMinutes: number): Date {
+  return addMinutes(
+    set(day, { hours: START_HOUR, minutes: 0, seconds: 0 }),
+    totalMinutes,
+  );
+}
+
+/** Format an event's time range in compact Notion style: "8–10:30 AM" or "9 AM" */
+function formatEventTime(start: Date, end: Date): string {
+  const startMin = start.getMinutes();
+  const endMin = end.getMinutes();
+  const sameAmPm =
+    (start.getHours() < 12 && end.getHours() < 12) ||
+    (start.getHours() >= 12 && end.getHours() >= 12);
+
+  const startStr = startMin === 0 ? format(start, "h") : format(start, "h:mm");
+
+  const endStr = endMin === 0 ? format(end, "h a") : format(end, "h:mm a");
+
+  if (sameAmPm) {
+    return `${startStr}\u2013${endStr}`;
+  }
+  const startWithAmPm =
+    startMin === 0 ? format(start, "h a") : format(start, "h:mm a");
+  return `${startWithAmPm}\u2013${endStr}`;
+}
+
+function getSegmentStyle(event: CalendarEvent, day: Date, timezone: string) {
+  const segment = getEventSegmentForCalendarDay(event, day, timezone);
+  const topMinutes = segment?.topMinutes ?? 0;
+  const durationMinutes = Math.max(15, segment?.durationMinutes ?? 15);
+  return {
+    top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
+    height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
+  };
+}
+
+interface WeekEventCardProps {
+  event: CalendarEvent;
+  day: Date;
+  dayIndex: number;
+  timezone: string;
+  layout: Map<string, TimedEventLayout>;
+  now: Date;
+  prefs: ViewPreferences;
+  focusedEventId: string | null;
+  isBeingDragged: boolean;
+  isDragging: boolean;
+  isDraggedIntoThisColumn: boolean;
+  /** Drag overrides flattened to primitives — only the dragged event gets non-null values, so untouched events keep an all-null (referentially trivial) prop shape every frame. */
+  overrideTop: number | null;
+  overrideHeight: number | null;
+  overrideDayIndex: number | null;
+  canDrag: boolean;
+  onPointerDownEvent: (
+    e: React.PointerEvent,
+    event: CalendarEvent,
+    isStart: boolean,
+    dayIndex: number,
+  ) => void;
+  onResizeTopPointerDown: (
+    e: React.PointerEvent,
+    eventId: string,
+    dayIndex: number,
+  ) => void;
+  onResizeBottomPointerDown: (
+    e: React.PointerEvent,
+    eventId: string,
+    dayIndex: number,
+  ) => void;
+  shouldSuppressClick: () => boolean;
+  onDeleteEvent: (eventId: string) => void;
+  isDraft: boolean;
+  defaultOpen: boolean;
+  onQuickEditSave?: (
+    eventId: string,
+    title: string,
+    accountEmail?: string,
+  ) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
+  onDraftUpdate?: WeekViewProps["onDraftUpdate"];
+  onDraftCreate?: WeekViewProps["onDraftCreate"];
+  onDraftDiscard?: WeekViewProps["onDraftDiscard"];
+  onPopoverOpenChange: (event: CalendarEvent, open: boolean) => void;
+}
+
+/**
+ * A single event's rendered segment within a day column. Memoized so that
+ * during a drag/resize (which updates overrideTop/overrideHeight every
+ * frame only for the dragged event's own card), every other event's card
+ * bails out of re-rendering via the default shallow prop comparison.
+ */
+const WeekEventCard = memo(function WeekEventCard({
+  event,
+  day,
+  dayIndex,
+  timezone,
+  layout,
+  now,
+  prefs,
+  focusedEventId,
+  isBeingDragged,
+  isDragging,
+  isDraggedIntoThisColumn,
+  overrideTop,
+  overrideHeight,
+  overrideDayIndex,
+  canDrag,
+  onPointerDownEvent,
+  onResizeTopPointerDown,
+  onResizeBottomPointerDown,
+  shouldSuppressClick,
+  onDeleteEvent,
+  isDraft,
+  defaultOpen,
+  onQuickEditSave,
+  onQuickEditCancel,
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
+  onPopoverOpenChange,
+}: WeekEventCardProps) {
+  const t = useT();
+  const canManipulate = canDrag && isCalendarEventOrganizer(event);
+  const workingLocationLabels = createWorkingLocationDisplayLabels(t);
+  const title = getWorkingLocationChipLabel(event, workingLocationLabels);
+  const ariaTitle = getWorkingLocationTitle(event, workingLocationLabels);
+  const li = layout.get(event.id) ?? {
+    left: 0,
+    width: 100,
+    indent: 0,
+    col: 0,
+    totalCols: 1,
+    stackOrder: 0,
+  };
+  const overrides =
+    overrideTop !== null && overrideHeight !== null && overrideDayIndex !== null
+      ? { top: overrideTop, height: overrideHeight, dayIndex: overrideDayIndex }
+      : null;
+  const segment = getEventSegmentForCalendarDay(event, day, timezone);
+  const isStart =
+    getEventDateKey(event, timezone) === dateToCalendarDateKey(day);
+  const isEnd = segment?.endsOnDay ?? true;
+  const isDragPreviewSegment =
+    isBeingDragged && overrides?.dayIndex === dayIndex;
+  const segmentStartsHere = isStart || isDragPreviewSegment;
+
+  // Hide from original column if dragged to a different day
+  if (
+    isBeingDragged &&
+    overrides &&
+    overrides.dayIndex !== dayIndex &&
+    !isDraggedIntoThisColumn
+  ) {
+    return null;
+  }
+  // Hide continuation segments during active drag to avoid ghost overlap
+  if (
+    !shouldRenderWeekDragSegment({
+      isBeingDragged,
+      isDragging,
+      isStart,
+      overrideDayIndex: overrides?.dayIndex,
+      dayIndex,
+    })
+  ) {
+    return null;
+  }
+
+  const style = overrides
+    ? {
+        top: `${overrides.top}px`,
+        height: `${overrides.height}px`,
+      }
+    : getSegmentStyle(event, day, timezone);
+  const color = getEventDisplayColor(event, prefs);
+  const durationMin = overrides
+    ? (overrides.height / HOUR_HEIGHT) * 60
+    : (segment?.durationMinutes ?? 15);
+  // Compute display times (use drag overrides if active)
+  const displayStart = overrides
+    ? minutesToDate(day, START_HOUR * 60 + (overrides.top / HOUR_HEIGHT) * 60)
+    : minutesToDate(day, segment?.startMinutes ?? 0);
+  const displayEnd = overrides
+    ? addMinutes(displayStart, durationMin)
+    : minutesToDate(day, segment?.endMinutes ?? durationMin);
+  const isPast = new Date(event.end) < now;
+  const isDeclined = event.responseStatus === "declined";
+  const allOthersOut = allOtherDeclined(event);
+
+  const eventButton = (
+    <button
+      onPointerDown={(e) => onPointerDownEvent(e, event, isStart, dayIndex)}
+      onClick={(e) => {
+        if (shouldSuppressClick()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      className={cn(
+        "absolute overflow-hidden px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md group",
+        segmentStartsHere ? "rounded-t-md" : "rounded-t-none",
+        isEnd ? "rounded-b-md" : "rounded-b-none",
+        durationMin <= 30 ? "justify-center" : "justify-start",
+        isDeclined && "saturate-[0.3]",
+        isBeingDragged && isDragging && "shadow-lg z-[100]",
+        isBeingDragged && isDragging && "ring-2 ring-primary/40",
+        canManipulate && segmentStartsHere && "cursor-grab",
+        isBeingDragged && isDragging && "cursor-grabbing",
+        event.ownerColor && "pr-4",
+      )}
+      aria-label={
+        event.ownerName || event.overlayEmail
+          ? `${ariaTitle}, ${event.ownerName || event.overlayEmail}'s calendar`
+          : ariaTitle
+      }
+      style={{
+        ...style,
+        left: `calc(${li.left}% + ${li.indent}px)`,
+        width: `calc(${li.width}% - ${li.indent + 2}px)`,
+        zIndex:
+          isBeingDragged && isDragging
+            ? 100
+            : focusedEventId === event.id
+              ? 50
+              : li.stackOrder + 1,
+        backgroundColor: color
+          ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
+          : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
+        borderLeft: `3px solid ${
+          isPast || isDeclined
+            ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
+            : (color ?? "hsl(var(--primary))")
+        }`,
+        borderTop: !segmentStartsHere
+          ? `2px dashed ${
+              isPast || isDeclined
+                ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
+                : `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 60%, transparent)`
+            }`
+          : undefined,
+        opacity: isBeingDragged && isDragging ? 0.9 : undefined,
+      }}
+    >
+      {event.ownerColor && (
+        <span
+          aria-hidden="true"
+          className="absolute right-1.5 top-1.5 size-1.5 rounded-full ring-1 ring-background/70"
+          style={{ backgroundColor: event.ownerColor }}
+        />
+      )}
+      {durationMin <= 30 ? (
+        <div className="flex items-baseline gap-1 truncate">
+          {allOthersOut && (
+            <IconAlertTriangleFilled
+              size={10}
+              className="shrink-0 text-current opacity-70 relative top-[1px]"
+            />
+          )}
+          <EventStatusIcon
+            event={event}
+            className="relative top-[1px] shrink-0"
+          />
+          <span
+            className={cn(
+              "truncate leading-tight",
+              isPast || isDeclined
+                ? "text-muted-foreground"
+                : "text-foreground",
+              isDeclined && "line-through",
+              !isPast && !isDeclined && "font-semibold",
+            )}
+          >
+            {title}
+          </span>
+        </div>
+      ) : (
+        <>
+          <div
+            className={cn(
+              "mt-0.5 flex items-center gap-1 truncate leading-tight",
+              isPast || isDeclined
+                ? "text-muted-foreground"
+                : "text-foreground",
+              isDeclined && "line-through",
+              !isPast && !isDeclined && "font-semibold",
+            )}
+          >
+            {allOthersOut && (
+              <IconAlertTriangleFilled
+                size={10}
+                className="shrink-0 text-current opacity-70"
+              />
+            )}
+            <EventStatusIcon event={event} className="shrink-0" />
+            <span className="truncate">{title}</span>
+          </div>
+          {segmentStartsHere && (
+            <div
+              className={cn(
+                "mt-0.5 truncate text-[9px] leading-tight",
+                isPast || isDeclined
+                  ? "text-muted-foreground/50"
+                  : "text-foreground/60",
+              )}
+            >
+              {formatEventTime(displayStart, displayEnd)}
+            </div>
+          )}
+        </>
+      )}
+      {/* Top resize handle */}
+      {canManipulate && isStart && (
+        <div
+          data-resize-handle="true"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onResizeTopPointerDown(e, event.id, dayIndex);
+          }}
+          className="absolute left-0 right-0 top-0 h-2 cursor-n-resize"
+          style={{ touchAction: "none" }}
+        />
+      )}
+      {/* Bottom resize handle — only on single-day segments; multi-day end segments need segment-aware drag math */}
+      {canManipulate && isEnd && isStart && (
+        <div
+          data-resize-handle="true"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onResizeBottomPointerDown(e, event.id, dayIndex);
+          }}
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-s-resize"
+          style={{ touchAction: "none" }}
+        />
+      )}
+    </button>
+  );
+
+  // Don't wrap in popover while dragging
+  if (isBeingDragged && isDragging) {
+    return <div className="contents">{eventButton}</div>;
+  }
+
+  return (
+    <EventDetailPopover
+      event={event}
+      timezone={timezone}
+      onDelete={onDeleteEvent}
+      isDraft={isDraft}
+      defaultOpen={defaultOpen}
+      onTitleSave={onQuickEditSave}
+      onDismissNew={onQuickEditCancel}
+      onDraftUpdate={onDraftUpdate}
+      onDraftCreate={onDraftCreate}
+      onDraftDiscard={onDraftDiscard}
+      onOpenChange={(open) => onPopoverOpenChange(event, open)}
+    >
+      {eventButton}
+    </EventDetailPopover>
+  );
+});
+
+interface WeekCreateGhostProps {
+  top: number;
+  height: number;
+  label: string;
+}
+
+/**
+ * Isolated ghost layer for an in-progress drag-to-create. Rendered as its own
+ * memoized component so the rAF-driven position updates never touch the
+ * surrounding day column's render output.
+ */
+const WeekCreateGhost = memo(function WeekCreateGhost({
+  top,
+  height,
+  label,
+}: WeekCreateGhostProps) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0.5 z-[90] rounded-md border-2 border-primary bg-primary/15 px-1.5 py-0.5"
+      style={{ top: `${top}px`, height: `${height}px` }}
+    >
+      <span className="truncate text-[11px] font-semibold text-primary">
+        {label}
+      </span>
+    </div>
+  );
+});
+
+export const WeekView = memo(function WeekView({
+  events,
+  selectedDate,
+  timezone = getBrowserTimezone(),
+  onDateSelect,
+  onDeleteEvent,
+  onEventTimeChange,
+  onClickTimeSlot,
+  onCreateWorkingLocation,
+  quickEditEventId,
+  onQuickEditSave,
+  onQuickEditCancel,
+  draftEventIds = [],
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
+  isLoading = false,
+  weekStartsOn = 0,
+}: WeekViewProps) {
+  const t = useT();
+  const workingLocationLabels = useMemo(
+    () => createWorkingLocationDisplayLabels(t),
+    [t],
+  );
+  const { setFocusedEvent } = useCalendarSetters();
+  const isMobile = useIsMobile();
+  const GUTTER_WIDTH = isMobile ? MOBILE_GUTTER_WIDTH : DESKTOP_GUTTER_WIDTH;
+  const [now, setNow] = useState(new Date());
+  const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
+  const focusedEventIdRef = useRef<string | null>(null);
+  const currentTimeRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const allDayContainerRef = useRef<HTMLDivElement>(null);
+  const [timeGridScrollbarWidth, setTimeGridScrollbarWidth] = useState(0);
+  const [allDayScrollbarWidth, setAllDayScrollbarWidth] = useState(0);
+
+  // Escape clears the highlighted/elevated event so it drops behind others
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        focusedEventIdRef.current = null;
+        setFocusedEventId(null);
+        setFocusedEvent(null);
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [setFocusedEvent]);
+
+  // Update current time every minute
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Scroll to ~7am on mount
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      const scrollTo7am = 7 * HOUR_HEIGHT;
+      container.scrollTop = scrollTo7am - 40;
+    }
+  }, []);
+
+  const { prefs } = useViewPreferences();
+  const weekStart = useMemo(
+    () => startOfWeek(selectedDate, { weekStartsOn }),
+    [selectedDate, weekStartsOn],
+  );
+  const weekEnd = useMemo(
+    () => endOfWeek(selectedDate, { weekStartsOn }),
+    [selectedDate, weekStartsOn],
+  );
+  // Stable day/hour arrays — recomputed only when the week or weekend
+  // visibility actually changes, so memoized children (event buttons) don't
+  // see a new array identity on every drag/focus re-render.
+  const days = useMemo(() => {
+    const fullWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
+    return prefs.hideWeekends
+      ? fullWeek.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)
+      : fullWeek;
+  }, [weekStart, weekEnd, prefs.hideWeekends]);
+  const hours = useMemo(
+    () =>
+      eachHourOfInterval({
+        start: set(weekStart, { hours: START_HOUR, minutes: 0 }),
+        end: set(weekStart, { hours: END_HOUR - 1, minutes: 0 }),
+      }),
+    [weekStart],
+  );
+
+  // Separate all-day and timed events
+  const allDayEvents = useMemo(
+    () =>
+      events.filter(
+        (event) =>
+          isAllDayCalendarEvent(event) || isFullDayOutOfOfficeEvent(event),
+      ),
+    [events],
+  );
+
+  const outOfOfficeEvents = useMemo(
+    () =>
+      events.filter(
+        (event) =>
+          !isAllDayCalendarEvent(event) &&
+          isOutOfOfficeEvent(event) &&
+          !isFullDayOutOfOfficeEvent(event),
+      ),
+    [events],
+  );
+
+  const timedEvents = useMemo(
+    () =>
+      events.filter(
+        (event) => !isAllDayCalendarEvent(event) && !isOutOfOfficeEvent(event),
+      ),
+    [events],
+  );
+
+  const { workingLocations, regularEvents } = useMemo(
+    () => partitionAllDayEvents(allDayEvents),
+    [allDayEvents],
+  );
+  const workingLocationLayout = useMemo(
+    () => layoutAllDayEvents(workingLocations, days, timezone),
+    [days, timezone, workingLocations],
+  );
+  const workingLocationGroups = useMemo(
+    () =>
+      groupAdjacentAllDayPlacements(
+        workingLocationLayout.placements,
+        ({ event }) =>
+          [
+            event.accountEmail,
+            event.overlayEmail,
+            event.ownerColor,
+            getEventDisplayColor(event, prefs),
+            getWorkingLocationChipLabel(event, workingLocationLabels),
+            JSON.stringify(event.workingLocationProperties ?? {}),
+          ].join(":"),
+      ),
+    [prefs, workingLocationLabels, workingLocationLayout.placements],
+  );
+  const regularAllDayLayout = useMemo(() => {
+    return layoutAllDayEvents(regularEvents, days, timezone);
+  }, [days, regularEvents, timezone]);
+
+  // Pre-compute timed events per day with layout — include events spanning into this day
+  const dayData = useMemo(() => {
+    return days.map((day) => {
+      const dayEvents = timedEvents.filter((event) =>
+        getEventSegmentForCalendarDay(event, day, timezone),
+      );
+      const layout = computeTimedEventLayout(dayEvents, day, timezone);
+      return { day, events: dayEvents, layout };
+    });
+  }, [days, timedEvents, timezone]);
+
+  // Current time indicator
+  const nowParts = getDateKeyInTimezone(now, timezone)
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        hourCycle: "h23",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+        .formatToParts(now)
+        .reduce(
+          (parts, part) => {
+            if (part.type === "hour") parts.hour = Number(part.value);
+            if (part.type === "minute") parts.minute = Number(part.value);
+            return parts;
+          },
+          { hour: 0, minute: 0 },
+        )
+    : null;
+  const nowMinutes = nowParts
+    ? (nowParts.hour - START_HOUR) * 60 + nowParts.minute
+    : -1;
+  const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
+  const showNowIndicator =
+    nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
+  const currentDateKey = getDateKeyInTimezone(now, timezone);
+
+  const hasWorkingLocations = workingLocationLayout.rowCount > 0;
+  const hasRegularAllDayEvents = regularAllDayLayout.rowCount > 0;
+  const hasAllDayCreateSurface = Boolean(onClickTimeSlot);
+  const hasAnyAllDay =
+    hasWorkingLocations || hasRegularAllDayEvents || hasAllDayCreateSurface;
+  const workingLocationRowHeight = 16;
+  const allDayRowHeight = 20;
+  const allDayCreateRowHeight = 28;
+  const workingLocationLaneHeight = hasWorkingLocations
+    ? workingLocationLayout.rowCount * workingLocationRowHeight + 2
+    : 0;
+  const laneSeparatorHeight =
+    hasWorkingLocations && (hasRegularAllDayEvents || hasAllDayCreateSurface)
+      ? 1
+      : 0;
+  const regularAllDayLaneOffset =
+    workingLocationLaneHeight + laneSeparatorHeight;
+  const regularAllDayEventLaneHeight = hasRegularAllDayEvents
+    ? regularAllDayLayout.rowCount * allDayRowHeight + 6
+    : 0;
+  const regularAllDayLaneHeight =
+    regularAllDayEventLaneHeight +
+    (hasAllDayCreateSurface ? allDayCreateRowHeight : 0);
+  const allDayContentHeight =
+    workingLocationLaneHeight +
+    laneSeparatorHeight +
+    regularAllDayEventLaneHeight;
+  const allDaySectionHeight =
+    workingLocationLaneHeight + laneSeparatorHeight + regularAllDayLaneHeight;
+  const calendarScrollbarWidth = Math.max(
+    timeGridScrollbarWidth,
+    allDayScrollbarWidth,
+  );
+  const allDayHeaderSpacerWidth = calendarScrollbarWidth - allDayScrollbarWidth;
+  const timeGridContentSpacerWidth =
+    calendarScrollbarWidth - timeGridScrollbarWidth;
+
+  useEffect(() => {
+    const measureScrollbars = () => {
+      const timeGrid = scrollContainerRef.current;
+      const allDayGrid = allDayContainerRef.current;
+
+      setTimeGridScrollbarWidth(
+        timeGrid ? Math.max(0, timeGrid.offsetWidth - timeGrid.clientWidth) : 0,
+      );
+      setAllDayScrollbarWidth(
+        allDayGrid
+          ? Math.max(0, allDayGrid.offsetWidth - allDayGrid.clientWidth)
+          : 0,
+      );
+    };
+
+    measureScrollbars();
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(measureScrollbars)
+        : null;
+
+    if (scrollContainerRef.current) {
+      resizeObserver?.observe(scrollContainerRef.current);
+    }
+    if (allDayContainerRef.current) {
+      resizeObserver?.observe(allDayContainerRef.current);
+    }
+
+    window.addEventListener("resize", measureScrollbars);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", measureScrollbars);
+    };
+  }, [allDaySectionHeight, hasAnyAllDay]);
+
+  // Timezone label: prefer the short generic name (e.g. "PT", "ET")
+  // over the offset form ("GMT-7"), and fall back to the IANA id when
+  // the locale data has no friendlier rendering.
+  const { tzShort, tzLong, tzIana } = useMemo(() => {
+    function nameForToken(token: "shortGeneric" | "longGeneric" | "short") {
+      try {
+        return (
+          new Intl.DateTimeFormat("en-US", {
+            timeZone: timezone,
+            timeZoneName: token,
+          })
+            .formatToParts(now)
+            .find((p) => p.type === "timeZoneName")?.value ?? ""
+        );
+      } catch {
+        return "";
+      }
+    }
+
+    const iana = timezone;
+
+    const longGeneric = nameForToken("longGeneric");
+    let shortGeneric = nameForToken("shortGeneric");
+
+    // shortGeneric falls back to the offset form for zones with no short name
+    // (e.g. "Etc/GMT-7" → "GMT-7"). When that happens, the IANA city is more
+    // useful than the offset.
+    if (!shortGeneric || /^GMT[+-]/.test(shortGeneric)) {
+      const city = iana.split("/").pop()?.replace(/_/g, " ") ?? "";
+      shortGeneric = city || nameForToken("short") || shortGeneric;
+    }
+
+    return {
+      tzShort: shortGeneric,
+      tzLong: longGeneric || iana,
+      tzIana: iana,
+    };
+  }, [now, timezone]);
+
+  // Drag-to-move and drag-to-resize
+  const handleEventTimeChange = useCallback(
+    (eventId: string, newStart: Date, newEnd: Date) => {
+      onEventTimeChange?.(eventId, newStart, newEnd);
+    },
+    [onEventTimeChange],
+  );
+
+  const {
+    startDrag,
+    getDragOverrides,
+    isDragging,
+    dragEventId,
+    shouldSuppressClick,
+  } = useEventDrag({
+    hourHeight: HOUR_HEIGHT,
+    startHour: START_HOUR,
+    scrollContainerRef,
+    days,
+    onEventTimeChange: handleEventTimeChange,
+    events,
+    timezone,
+  });
+
+  const canDrag = !!onEventTimeChange;
+
+  const handleEventPopoverOpenChange = useCallback(
+    (event: CalendarEvent, open: boolean) => {
+      if (open) {
+        focusedEventIdRef.current = event.id;
+        setFocusedEventId(event.id);
+        setFocusedEvent(event);
+        return;
+      }
+      if (focusedEventIdRef.current !== event.id) return;
+      focusedEventIdRef.current = null;
+      setFocusedEventId(null);
+      setFocusedEvent(null);
+    },
+    [setFocusedEvent],
+  );
+
+  const handleEventPointerDown = useCallback(
+    (
+      e: React.PointerEvent,
+      event: CalendarEvent,
+      isStart: boolean,
+      dayIndex: number,
+    ) => {
+      if (!isCalendarEventOrganizer(event)) return;
+      focusedEventIdRef.current = event.id;
+      setFocusedEventId(event.id);
+      setFocusedEvent(event);
+      if (
+        isStart &&
+        canDrag &&
+        !(e.target as HTMLElement).dataset.resizeHandle
+      ) {
+        startDrag(e, event.id, "move", dayIndex);
+      }
+    },
+    [canDrag, setFocusedEvent, startDrag],
+  );
+
+  const handleResizeTopPointerDown = useCallback(
+    (e: React.PointerEvent, eventId: string, dayIndex: number) => {
+      const event = events.find((candidate) => candidate.id === eventId);
+      if (!event || !isCalendarEventOrganizer(event)) return;
+      startDrag(e, eventId, "resize-top", dayIndex);
+    },
+    [events, startDrag],
+  );
+
+  const handleResizeBottomPointerDown = useCallback(
+    (e: React.PointerEvent, eventId: string, dayIndex: number) => {
+      const event = events.find((candidate) => candidate.id === eventId);
+      if (!event || !isCalendarEventOrganizer(event)) return;
+      startDrag(e, eventId, "resize", dayIndex);
+    },
+    [events, startDrag],
+  );
+
+  // Drag-to-create: pointer-down-drag-up on empty grid background
+  const handleCreateDrag = useCallback(
+    (dayIndex: number, startMinutes: number, endMinutes: number) => {
+      const day = days[dayIndex];
+      if (!day || !onClickTimeSlot) return;
+      onClickTimeSlot(
+        day,
+        minutesToTimeString(startMinutes),
+        minutesToTimeString(endMinutes),
+        { explicitDuration: true },
+      );
+    },
+    [days, onClickTimeSlot],
+  );
+
+  const {
+    startCreateDrag,
+    ghost: createGhost,
+    shouldSuppressClick: shouldSuppressCreateClick,
+  } = useGridCreateDrag({
+    hourHeight: HOUR_HEIGHT,
+    startHour: START_HOUR,
+    scrollContainerRef,
+    onCreate: handleCreateDrag,
+  });
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Sticky day headers */}
+      <div className="sticky top-0 z-10 border-b border-border bg-card">
+        <div className="flex">
+          {/* Gutter: timezone label */}
+          <div
+            className="flex shrink-0 items-center justify-center border-r border-border"
+            style={{ width: `${GUTTER_WIDTH}px` }}
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-default truncate px-1 text-[11px] font-medium text-muted-foreground">
+                  {tzShort}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p className="text-xs">{tzLong}</p>
+                {tzIana && tzIana !== tzLong ? (
+                  <p className="text-[10px] text-muted-foreground">{tzIana}</p>
+                ) : null}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Day columns */}
+          {days.map((day) => {
+            const isCurrentDay = dateToCalendarDateKey(day) === currentDateKey;
+            return (
+              <div
+                key={day.toISOString()}
+                onClick={() => onDateSelect(day)}
+                className={cn(
+                  "group/day relative flex flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 border-r border-border py-1.5 sm:flex-row sm:gap-1.5 sm:py-2.5 last:border-r-0",
+                  isCurrentDay ? "bg-primary/5" : "hover:bg-accent/40",
+                )}
+              >
+                <span className="text-[10px] font-medium text-muted-foreground sm:text-xs">
+                  {isMobile ? format(day, "EEEEE") : format(day, "EEE")}
+                </span>
+                <span
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold sm:h-7 sm:w-7 sm:text-sm",
+                    isCurrentDay
+                      ? "bg-foreground text-background"
+                      : "text-foreground",
+                  )}
+                >
+                  {format(day, "d")}
+                </span>
+                {onCreateWorkingLocation && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("calendarView.addWorkingLocation")}
+                        className="absolute right-1 top-1 flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/day:opacity-100"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onCreateWorkingLocation(day);
+                        }}
+                      >
+                        <IconPlus aria-hidden="true" className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {t("calendarView.addWorkingLocation")}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+            );
+          })}
+          {calendarScrollbarWidth > 0 && (
+            <div
+              aria-hidden="true"
+              className="shrink-0"
+              style={{ width: `${calendarScrollbarWidth}px` }}
+            />
+          )}
+        </div>
+
+        {/* All-day events row */}
+        {hasAnyAllDay && (
+          <div
+            className="relative flex min-h-0 flex-col overflow-hidden border-t border-border"
+            style={{ height: `${Math.min(allDaySectionHeight, 88)}px` }}
+          >
+            {hasAllDayCreateSurface && (
+              <div className="flex shrink-0 border-b border-border/60">
+                <div
+                  className="flex shrink-0 items-center justify-end border-r border-border"
+                  style={{
+                    width: `${GUTTER_WIDTH}px`,
+                    height: `${allDayCreateRowHeight}px`,
+                  }}
+                >
+                  <span className="mr-2 text-[10px] text-muted-foreground">
+                    {t("eventForm.allDay")}
+                  </span>
+                </div>
+                <div className="relative flex min-w-0 flex-1">
+                  {days.map((day, i) => (
+                    <button
+                      key={`all-day-create-${day.toISOString()}`}
+                      type="button"
+                      data-calendar-create-surface="all-day"
+                      aria-label={`${t("eventForm.createEvent")}: ${t("eventForm.allDay")}, ${format(day, "EEE, MMM d")}`}
+                      className={cn(
+                        "min-w-0 flex-1 rounded-sm text-left hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                        i < days.length - 1 && "border-r border-border",
+                      )}
+                      onClick={() =>
+                        onClickTimeSlot?.(day, "00:00", "00:00", {
+                          allDay: true,
+                        })
+                      }
+                    >
+                      <span className="sr-only">{t("eventForm.allDay")}</span>
+                    </button>
+                  ))}
+                </div>
+                {calendarScrollbarWidth > 0 && (
+                  <div
+                    aria-hidden="true"
+                    className="shrink-0"
+                    style={{
+                      width: `${calendarScrollbarWidth}px`,
+                      height: `${allDayCreateRowHeight}px`,
+                    }}
+                  />
+                )}
+              </div>
+            )}
+
+            <div
+              ref={allDayContainerRef}
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
+              {/* All-day columns container (relative, for absolute-positioned spans) */}
+              <div
+                className="relative flex"
+                style={{ minHeight: `${allDayContentHeight}px` }}
+              >
+                {/* Gutter label */}
+                <div
+                  className="relative shrink-0 border-r border-border"
+                  style={{ width: `${GUTTER_WIDTH}px` }}
+                />
+
+                {/* All-day columns container (relative, for absolute-positioned spans) */}
+                <div className="relative flex flex-1">
+                  {/* Column dividers */}
+                  {days.map((day, i) => (
+                    <div
+                      key={day.toISOString()}
+                      className={cn(
+                        "flex-1",
+                        i < days.length - 1 && "border-r border-border",
+                      )}
+                    />
+                  ))}
+
+                  {laneSeparatorHeight > 0 && (
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-x-0 border-t border-border/60"
+                      style={{ top: `${workingLocationLaneHeight}px` }}
+                    />
+                  )}
+
+                  <div data-working-location-lane className="contents">
+                    {workingLocationGroups.map((group) => {
+                      const firstPlacement = group[0];
+                      const lastPlacement = group[group.length - 1];
+                      const groupKey = group
+                        .map(({ event }) => event.id)
+                        .join(":");
+                      const colCount = days.length;
+                      const groupLeftPct =
+                        (firstPlacement.startCol / colCount) * 100;
+                      const groupWidthPct =
+                        ((lastPlacement.endCol - firstPlacement.startCol + 1) /
+                          colCount) *
+                        100;
+                      const groupColor = getEventDisplayColor(
+                        firstPlacement.event,
+                        prefs,
+                      );
+
+                      return (
+                        <div key={groupKey} className="contents">
+                          <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute rounded-full opacity-35"
+                            style={{
+                              top: `${firstPlacement.row * workingLocationRowHeight + 7}px`,
+                              left: `calc(${groupLeftPct}% + 4px)`,
+                              width: `calc(${groupWidthPct}% - 8px)`,
+                              height: "3px",
+                              backgroundColor: groupColor,
+                            }}
+                          />
+                          {group.map(
+                            ({ event, startCol, endCol, row }, index) => {
+                              const colCount = days.length;
+                              const leftPct = (startCol / colCount) * 100;
+                              const widthPct =
+                                ((endCol - startCol + 1) / colCount) * 100;
+                              const title = getWorkingLocationChipLabel(
+                                event,
+                                workingLocationLabels,
+                              );
+                              const ariaTitle = getWorkingLocationTitle(
+                                event,
+                                workingLocationLabels,
+                              );
+                              const WorkingLocationIcon =
+                                event.workingLocationProperties?.type ===
+                                "homeOffice"
+                                  ? IconHome
+                                  : event.workingLocationProperties?.type ===
+                                      "officeLocation"
+                                    ? IconBuilding
+                                    : IconMapPin;
+
+                              return (
+                                <EventDetailPopover
+                                  key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                                  event={event}
+                                  timezone={timezone}
+                                  onDelete={onDeleteEvent}
+                                  isDraft={draftEventIds.includes(event.id)}
+                                  defaultOpen={quickEditEventId === event.id}
+                                  onTitleSave={onQuickEditSave}
+                                  onDismissNew={onQuickEditCancel}
+                                  onDraftUpdate={onDraftUpdate}
+                                  onDraftCreate={onDraftCreate}
+                                  onDraftDiscard={onDraftDiscard}
+                                >
+                                  <button
+                                    className={cn(
+                                      "group/working-location-day absolute z-10 flex items-center px-1 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1",
+                                    )}
+                                    aria-label={
+                                      event.ownerName || event.overlayEmail
+                                        ? `${ariaTitle}, ${
+                                            event.ownerName ||
+                                            event.overlayEmail
+                                          }'s calendar`
+                                        : ariaTitle
+                                    }
+                                    style={{
+                                      top: `${row * workingLocationRowHeight + 1}px`,
+                                      left: `${leftPct}%`,
+                                      width: `${widthPct}%`,
+                                      height: `${workingLocationRowHeight - 2}px`,
+                                    }}
+                                  >
+                                    <span
+                                      aria-hidden="true"
+                                      className="pointer-events-none absolute inset-x-0.5 inset-y-0 rounded-sm opacity-0 transition-opacity group-hover/working-location-day:opacity-100"
+                                      style={{
+                                        backgroundColor: `color-mix(in srgb, ${groupColor} 14%, transparent)`,
+                                        boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${groupColor} 22%, transparent)`,
+                                      }}
+                                    />
+                                    {index === 0 && (
+                                      <span
+                                        className="relative inline-flex h-3.5 max-w-full items-center gap-0.5 rounded-sm px-1 text-[10px] font-medium leading-none text-foreground"
+                                        style={{
+                                          backgroundColor: `color-mix(in srgb, ${groupColor} 18%, hsl(var(--background)))`,
+                                          boxShadow: `0 0 0 1px color-mix(in srgb, ${groupColor} 28%, transparent)`,
+                                        }}
+                                      >
+                                        <WorkingLocationIcon
+                                          aria-hidden="true"
+                                          className="size-2.5 shrink-0"
+                                          style={{ color: groupColor }}
+                                        />
+                                        <span className="truncate">
+                                          {title}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </button>
+                                </EventDetailPopover>
+                              );
+                            },
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div data-all-day-event-lane className="contents">
+                    {regularAllDayLayout.placements.map(
+                      ({ event, startCol, endCol, row }) => {
+                        const color = getEventDisplayColor(event, prefs);
+                        const colCount = days.length;
+                        const leftPct = (startCol / colCount) * 100;
+                        const widthPct =
+                          ((endCol - startCol + 1) / colCount) * 100;
+                        const title = getWorkingLocationChipLabel(
+                          event,
+                          workingLocationLabels,
+                        );
+                        const ariaTitle = getWorkingLocationTitle(
+                          event,
+                          workingLocationLabels,
+                        );
+
+                        return (
+                          <EventDetailPopover
+                            key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                            event={event}
+                            timezone={timezone}
+                            onDelete={onDeleteEvent}
+                            isDraft={draftEventIds.includes(event.id)}
+                            defaultOpen={quickEditEventId === event.id}
+                            onTitleSave={onQuickEditSave}
+                            onDismissNew={onQuickEditCancel}
+                            onDraftUpdate={onDraftUpdate}
+                            onDraftCreate={onDraftCreate}
+                            onDraftDiscard={onDraftDiscard}
+                          >
+                            <button
+                              className={cn(
+                                "absolute z-10 flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80",
+                                event.ownerColor && "pr-3.5",
+                              )}
+                              aria-label={
+                                event.ownerName || event.overlayEmail
+                                  ? `${ariaTitle}, ${
+                                      event.ownerName || event.overlayEmail
+                                    }'s calendar`
+                                  : ariaTitle
+                              }
+                              style={{
+                                top: `${
+                                  regularAllDayLaneOffset +
+                                  row * allDayRowHeight +
+                                  4
+                                }px`,
+                                left: `${leftPct}%`,
+                                width: `calc(${widthPct}% - 4px)`,
+                                height: `${allDayRowHeight - 4}px`,
+                                backgroundColor: color
+                                  ? `${color}30`
+                                  : "hsl(var(--primary) / 0.15)",
+                                borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
+                                marginLeft: "2px",
+                              }}
+                            >
+                              {allOtherDeclined(event) && (
+                                <IconAlertTriangleFilled
+                                  size={10}
+                                  className="shrink-0 text-current opacity-70"
+                                />
+                              )}
+                              <EventStatusIcon
+                                event={event}
+                                className="shrink-0"
+                              />
+                              <span className="truncate">{title}</span>
+                              {event.ownerColor && (
+                                <span
+                                  aria-hidden="true"
+                                  className="absolute right-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                                  style={{ backgroundColor: event.ownerColor }}
+                                />
+                              )}
+                            </button>
+                          </EventDetailPopover>
+                        );
+                      },
+                    )}
+                  </div>
+                </div>
+                {allDayHeaderSpacerWidth > 0 && (
+                  <div
+                    aria-hidden="true"
+                    className="shrink-0"
+                    style={{ width: `${allDayHeaderSpacerWidth}px` }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Scrollable time grid */}
+      <div
+        ref={scrollContainerRef}
+        className={cn("flex-1 overflow-y-auto", isDragging && "select-none")}
+      >
+        <div className="relative flex">
+          {/* Hour gutter */}
+          <div
+            className="shrink-0 border-r border-border"
+            style={{ width: `${GUTTER_WIDTH}px` }}
+          >
+            {hours.map((hour, i) => (
+              <div
+                key={hour.toISOString()}
+                className="relative border-b border-border/50"
+                style={{ height: `${HOUR_HEIGHT}px` }}
+              >
+                {i > 0 && (
+                  <span className="absolute -top-[9px] right-1 text-[10px] font-medium text-muted-foreground sm:right-2 sm:text-[11px]">
+                    {isMobile
+                      ? format(hour, "ha").toLowerCase()
+                      : format(hour, "h a")}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Day columns */}
+          {dayData.map(({ day, events: dayEvents, layout }, dayIndex) => {
+            const isCurrentDay = dateToCalendarDateKey(day) === currentDateKey;
+
+            // Collect events that were dragged into this column from another day
+            const draggedInEvents: CalendarEvent[] = [];
+            if (isDragging && dragEventId) {
+              const overrides = getDragOverrides(dragEventId);
+              if (
+                overrides &&
+                overrides.dayIndex === dayIndex &&
+                !dayEvents.find((e) => e.id === dragEventId)
+              ) {
+                const draggedEvent = events.find((e) => e.id === dragEventId);
+                if (draggedEvent) draggedInEvents.push(draggedEvent);
+              }
+            }
+
+            const visibleOutOfOfficeEvents = outOfOfficeEvents.filter(
+              (event) => {
+                const overrides = getDragOverrides(event.id);
+                return (
+                  getOutOfOfficeSegment(event, day, timezone) !== null ||
+                  (dragEventId === event.id && overrides?.dayIndex === dayIndex)
+                );
+              },
+            );
+
+            return (
+              <div
+                key={day.toISOString()}
+                data-calendar-create-surface="true"
+                className={cn(
+                  "relative flex-1 border-r border-border last:border-r-0",
+                  isCurrentDay && "bg-primary/[0.02]",
+                )}
+                onPointerDown={(e) => {
+                  // Only start a create-drag from empty space, not on an event or its resize handles
+                  if ((e.target as HTMLElement).closest("button")) return;
+                  if (
+                    !onClickTimeSlot ||
+                    e.button !== 0 ||
+                    shouldSuppressCreatePointerDown()
+                  )
+                    return;
+                  startCreateDrag(e, dayIndex);
+                }}
+                onClick={(e) => {
+                  // Only fire on empty space (not on event buttons or after drags)
+                  if ((e.target as HTMLElement).closest("button")) return;
+                  if (
+                    !onClickTimeSlot ||
+                    isDragging ||
+                    shouldSuppressClick() ||
+                    shouldSuppressCreateClick() ||
+                    shouldSuppressAfterPopoverClose()
+                  )
+                    return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const y = e.clientY - rect.top;
+                  const totalMinutes =
+                    Math.floor(((y / HOUR_HEIGHT) * 60) / 15) * 15 +
+                    START_HOUR * 60;
+                  const endMinutes = totalMinutes + 60;
+                  onClickTimeSlot(
+                    day,
+                    minutesToTimeString(totalMinutes),
+                    minutesToTimeString(endMinutes),
+                  );
+                }}
+              >
+                {/* Hour grid lines */}
+                {hours.map((hour) => (
+                  <div
+                    key={hour.toISOString()}
+                    className="border-b border-border/50"
+                    style={{ height: `${HOUR_HEIGHT}px` }}
+                  />
+                ))}
+
+                {/* Live drag-to-create ghost */}
+                {createGhost && createGhost.dayIndex === dayIndex && (
+                  <WeekCreateGhost
+                    top={createGhost.top}
+                    height={createGhost.height}
+                    label={formatEventTime(
+                      minutesToDate(day, createGhost.startMinutes),
+                      minutesToDate(day, createGhost.endMinutes),
+                    )}
+                  />
+                )}
+
+                {/* Current time indicator */}
+                {isCurrentDay && showNowIndicator && (
+                  <div
+                    ref={currentTimeRef}
+                    className="pointer-events-none absolute left-0 right-0 z-20 flex items-center"
+                    style={{ top: `${nowTop}px` }}
+                  >
+                    <div className="-ml-[5px] h-2.5 w-2.5 shrink-0 rounded-full bg-foreground" />
+                    <div className="h-[2px] flex-1 bg-foreground" />
+                  </div>
+                )}
+
+                {/* Native Google out-of-office context sits behind meetings. */}
+                {!isLoading &&
+                  visibleOutOfOfficeEvents.map((event, markerIndex) => {
+                    const isBeingDragged = dragEventId === event.id;
+                    const overrides = getDragOverrides(event.id);
+                    const canonicalDayIndex =
+                      getFirstVisibleOutOfOfficeDayIndex(event, days, timezone);
+                    return (
+                      <OutOfOfficeEvent
+                        key={`${event._tempId ?? event.id}:${day.toISOString()}`}
+                        event={event}
+                        day={day}
+                        timezone={timezone}
+                        hourHeight={HOUR_HEIGHT}
+                        color={
+                          getEventDisplayColor(event, prefs) ??
+                          "hsl(var(--primary))"
+                        }
+                        label={t("eventForm.outOfOffice")}
+                        markerIndex={markerIndex}
+                        compactMarker
+                        canDrag={canDrag && isCalendarEventOrganizer(event)}
+                        isBeingDragged={isBeingDragged}
+                        isDragging={isDragging}
+                        isDragTargetDay={overrides?.dayIndex === dayIndex}
+                        overrideTop={overrides?.top ?? null}
+                        overrideHeight={overrides?.height ?? null}
+                        onMovePointerDown={(pointerEvent, startsOnDay) =>
+                          handleEventPointerDown(
+                            pointerEvent,
+                            event,
+                            startsOnDay,
+                            dayIndex,
+                          )
+                        }
+                        onResizeTopPointerDown={(pointerEvent) =>
+                          handleResizeTopPointerDown(
+                            pointerEvent,
+                            event.id,
+                            dayIndex,
+                          )
+                        }
+                        onResizeBottomPointerDown={(pointerEvent) =>
+                          handleResizeBottomPointerDown(
+                            pointerEvent,
+                            event.id,
+                            dayIndex,
+                          )
+                        }
+                        shouldSuppressClick={shouldSuppressClick}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={
+                          quickEditEventId === event.id &&
+                          dayIndex === canonicalDayIndex
+                        }
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                        onOpenChange={(open) =>
+                          handleEventPopoverOpenChange(event, open)
+                        }
+                      />
+                    );
+                  })}
+
+                {/* Skeleton events when loading */}
+                {isLoading &&
+                  WEEK_SKELETONS[day.getDay()]?.map(
+                    ([startHour, startMin, duration, widthPct], i) => {
+                      const topPx =
+                        ((startHour - START_HOUR) * 60 + startMin) *
+                        (HOUR_HEIGHT / 60);
+                      const heightPx = Math.max(
+                        (duration / 60) * HOUR_HEIGHT,
+                        20,
+                      );
+                      return (
+                        <div
+                          key={i}
+                          className="absolute animate-pulse rounded-md bg-muted"
+                          style={{
+                            top: `${topPx}px`,
+                            height: `${heightPx}px`,
+                            left: "2px",
+                            width: `calc(${widthPct}% - 4px)`,
+                          }}
+                        />
+                      );
+                    },
+                  )}
+
+                {/* Timed events */}
+                {!isLoading &&
+                  [...dayEvents, ...draggedInEvents].map((event) => {
+                    const isBeingDragged = dragEventId === event.id;
+                    const overrides = getDragOverrides(event.id);
+                    return (
+                      <WeekEventCard
+                        key={event._tempId ?? event.id}
+                        event={event}
+                        day={day}
+                        dayIndex={dayIndex}
+                        timezone={timezone}
+                        layout={layout}
+                        now={now}
+                        prefs={prefs}
+                        focusedEventId={focusedEventId}
+                        isBeingDragged={isBeingDragged}
+                        isDragging={isDragging}
+                        isDraggedIntoThisColumn={draggedInEvents.includes(
+                          event,
+                        )}
+                        overrideTop={overrides?.top ?? null}
+                        overrideHeight={overrides?.height ?? null}
+                        overrideDayIndex={overrides?.dayIndex ?? null}
+                        canDrag={canDrag}
+                        onPointerDownEvent={handleEventPointerDown}
+                        onResizeTopPointerDown={handleResizeTopPointerDown}
+                        onResizeBottomPointerDown={
+                          handleResizeBottomPointerDown
+                        }
+                        shouldSuppressClick={shouldSuppressClick}
+                        onDeleteEvent={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={quickEditEventId === event.id}
+                        onQuickEditSave={onQuickEditSave}
+                        onQuickEditCancel={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                        onPopoverOpenChange={handleEventPopoverOpenChange}
+                      />
+                    );
+                  })}
+              </div>
+            );
+          })}
+          {timeGridContentSpacerWidth > 0 && (
+            <div
+              aria-hidden="true"
+              className="shrink-0"
+              style={{ width: `${timeGridContentSpacerWidth}px` }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});

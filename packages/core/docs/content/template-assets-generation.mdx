@@ -1,0 +1,147 @@
+---
+title: "Generating, refining, and reviewing assets"
+description: "How to generate image and video candidates from chat or a library, iterate on a candidate with feedback, hand work off to a designer, and review every run in the admin audit log."
+---
+
+# Generating, refining, and reviewing assets
+
+This page is for anyone using [Assets](/docs/template-assets) day to day: asking for media, picking and refining a candidate, and — for admins — reviewing what was generated and by whom.
+
+## Generate through chat or a library
+
+Ask for what you want in plain language, from the home composer or from inside
+a library's Generate controls: "three homepage hero options," "a square social
+image in the launch-campaign style," "a video storyboard for the onboarding
+flow." The message goes to the agent, which chooses references, a model, and
+(when one matches) a preset, then returns candidates you can inspect, give
+feedback on, and iterate on before anything is kept.
+
+If you want the same brief across several destinations at once — three social
+sizes, four slide backgrounds — ask for that directly ("give me a version for
+each of these four slides") and Assets generates one candidate per destination
+in a single pass instead of one request at a time.
+
+## Iterate on a candidate
+
+Once you have a candidate, keep going in the same conversation:
+
+- **Give feedback** on a saved image and ask for a revision — "make it darker,"
+  "move the subject to the right." Assets keeps the prior image as a reference
+  and links the new candidate back to the source, so lineage is never lost.
+- **Ask for a small, targeted edit** rather than a full regeneration — "remove
+  the text in the corner," "fix the hand." This preserves everything else in
+  the image.
+- **Restyle while keeping the exact subject** — "put this product photo in our
+  brand style" — when you want the library's look applied without changing
+  what's actually in the shot.
+
+## Logo accuracy in plain language
+
+Image models are good at scenes and bad at logos — they smear gradients, drop
+letters, and rearrange elements. Assets sidesteps this: when logo compositing
+is on, the agent leaves a clean, empty area in the image instead of asking the
+model to draw the logo, and the server stamps your library's actual uploaded
+logo into that space afterward, pixel-perfect. The model never touches the
+logo itself. This is a setting on the preset (or a one-off override for a
+single generation) — see [Presets: design once, run everywhere](/docs/template-assets-presets#designers-build-one-preset-per-use-case) for how it's configured.
+
+The same idea extends to a locked layout: a preset can carry a fixed brand
+plate — a background image with an open region — so a webinar template's
+header, framing, and logo survive every run untouched while only the open
+region changes.
+
+## Hand off to a designer
+
+When someone else should keep working on a piece, ask the agent to hand it
+off: "have a designer continue this." Assets creates a handoff session that
+carries the brief, the chosen preset, the active candidate, your feedback so
+far, and every run that led up to it. The designer can pick the work back up
+in a fresh chat preloaded with that context, instead of replaying the whole
+conversation or guessing at what was tried already.
+
+<Diagram id="doc-block-assets5" title="Candidate generation loop" summary={"A brief produces several candidates; feedback and iteration narrow to a chosen asset that lands in the library. Every run — kept or not — is written to the audit log."}>
+
+```html
+<div class="diagram-genloop">
+  <div class="diagram-node">
+    Brief<br /><small class="diagram-muted">chat or Generate controls</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">N candidates</span
+    ><small class="diagram-muted">refine · edit · restyle</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Feedback<br /><small class="diagram-muted"
+        >"make it darker", "try square"</small
+      >
+    </div>
+    <div class="diagram-node">
+      Chosen asset<br /><small class="diagram-muted">saved to library</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill">Audit Log</span
+    ><small class="diagram-muted">every run, always recorded</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-genloop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-genloop .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-genloop .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-genloop .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## The generation audit log
+
+Every generation — kept, discarded, or failed — is recorded automatically:
+the prompt, the compiled prompt actually sent to the model, the model and
+aspect ratio used, the references it drew on, who ran it and from where (chat,
+the UI, or another app over A2A), and every asset it produced.
+
+Org admins (or, in single-user local mode, anyone reviewing their own runs) see
+an **Audit Log** link in the sidebar. It opens a filterable list — by date
+range, owner, library, model, status, source, or a prompt search — with a
+detail view per run showing its full references, generated children, and
+(for a refinement) the parent run it came from. An **Export CSV** button
+bulk-exports the filtered runs to a downloadable file, useful for a design
+team reviewing quality by model, app, or prompt pattern across everything
+generated.
+
+<WireframeBlock id="doc-block-assets6">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Audit Log</h1><span class='wf-pill accent'>Org admin</span><div style='flex:1'></div><button>Export CSV</button></div><div class='wf-card' style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill'>Date range</span><span class='wf-pill'>Owner</span><span class='wf-pill'>Model</span><span class='wf-pill'>Status</span><span class='wf-pill'>Source</span><span class='wf-pill'>Prompt search</span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px;flex:1'><div style='display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:8px;border-bottom:1px solid var(--wf-line);padding-bottom:6px'><span class='wf-muted'>Prompt</span><span class='wf-muted'>Library</span><span class='wf-muted'>Model</span><span class='wf-muted'>Source</span><span class='wf-muted'>Status</span></div><div style='display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:8px'><span>Three blog hero options</span><span>Acme Brand</span><span>gpt-image-2</span><span class='wf-pill'>chat</span><span class='wf-pill accent'>completed</span></div><div style='display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:8px'><span>Webinar LinkedIn ad</span><span>Acme Brand</span><span>gpt-image-2</span><span class='wf-pill'>a2a · slides</span><span class='wf-pill accent'>completed</span></div><div style='display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:8px'><span>Product cutout render</span><span>Launch Campaign</span><span>gpt-image-1</span><span class='wf-pill'>ui</span><span class='wf-pill warn'>failed</span></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## What's next
+
+- [**Presets: design once, run everywhere**](/docs/template-assets-presets) — build the recipe once so this workflow needs no settings
+- [**Using Assets from other apps and agents**](/docs/template-assets-integrations) — the embedded picker, A2A, and Creative Context reuse
+- [**Assets**](/docs/template-assets) — back to the overview

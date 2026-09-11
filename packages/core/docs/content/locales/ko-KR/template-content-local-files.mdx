@@ -1,0 +1,68 @@
+---
+title: "로컬 폴더 소스"
+description: "Markdown 및 MDX 폴더를 데이터베이스 기반 Content 공간에 연결합니다."
+---
+
+# 로컬 폴더 소스
+
+Content에는 하나의 데이터 모델만 있습니다. 모든 페이지는 SQL에 저장되고
+**공간**에 속하며 해당 공간의 시스템 **Files** 데이터베이스 항목이 됩니다.
+로컬 폴더는 Files에 연결되는 소스이지 별도의 앱 모드가 아닙니다.
+`AGENT_NATIVE_MODE` 전환은 더 이상 사용하지 않습니다.
+
+사용자마다 개인 공간이 있고 접근 가능한 조직마다 조직 공간이 있습니다. 개인
+**Workspaces** 카탈로그가 앱에 표시할 공간을 정합니다. Files는 일반 Content
+데이터베이스이므로 속성, 필터, 정렬, 그룹 및 저장된 보기를 사이드바에도 사용할 수
+있습니다.
+
+## 폴더 연결
+
+브라우저 또는 Agent-Native Desktop에서 폴더를 선택해 기존 공간에 연결하거나
+전용 비공개 공간을 만듭니다. SQL에는 불투명한 연결 ID, 상대 경로, 해시와 소스
+메타데이터만 저장합니다. 절대 경로, 브라우저 핸들, 원본 파일 본문은 저장하지
+않습니다.
+
+정책은 `database_primary`, `source_primary`, `reviewed_bidirectional`입니다.
+동기화는 파일을 일반 SQL 페이지로 구체화합니다. 양쪽이 동시에 바뀌면 덮어쓰는
+대신 검토할 변경을 만듭니다. 연결을 끊어도 페이지와 로컬 파일은 유지됩니다.
+
+## 저장소에서 시작
+
+```bash
+npx @agent-native/core@latest content .
+```
+
+이 명령은 일반 데이터베이스 기반 Content를 시작하고 폴더를 소스로 등록한 뒤 연결
+화면을 엽니다. 모드 환경 변수는 설정하지 않습니다.
+
+## 설정
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"],
+          "source": {
+            "type": "local-folder",
+            "connectionId": "local-folder:<opaque-id>",
+            "truthPolicy": "source_primary"
+          }
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+마이그레이션할 때 `mode: "local-files"`와
+`AGENT_NATIVE_MODE=local-files`를 제거하고 roots는 유지한 채 `source`를
+추가합니다. frontmatter ID는 이름 변경과 이동 시 페이지 정체성을 유지합니다.
+로컬 컴포넌트와 확장은 계속 신뢰할 수 있는 로컬 브리지를 사용합니다.

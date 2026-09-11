@@ -1,0 +1,138 @@
+import DOMPurify from "dompurify";
+import { useEffect, useRef, useState } from "react";
+
+// `mermaid` pulls in d3 and its layout engine, which is a heavy chunk that
+// every deck view would otherwise ship even when no slide has a diagram.
+// Load it lazily and only once, the first time a mermaid slide actually
+// renders — mirrors the shiki lazy-load pattern in
+// packages/core/src/client/blocks/library/HighlightedCode.tsx.
+type MermaidModule = typeof import("mermaid");
+
+let mermaidLoader: Promise<MermaidModule["default"]> | null = null;
+function loadMermaid(): Promise<MermaidModule["default"]> {
+  if (!mermaidLoader) {
+    mermaidLoader = import("mermaid")
+      .then((mod) => {
+        const mermaid = mod.default;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "dark",
+          themeVariables: {
+            darkMode: true,
+            background: "transparent",
+            primaryColor: "#1a1a2e",
+            primaryTextColor: "#e0e0e0",
+            primaryBorderColor: "#00E5FF",
+            lineColor: "#00E5FF",
+            secondaryColor: "#16213e",
+            tertiaryColor: "#0f3460",
+            fontFamily: "Poppins, sans-serif",
+          },
+          flowchart: { curve: "basis" },
+        });
+        return mermaid;
+      })
+      .catch((error) => {
+        mermaidLoader = null;
+        throw error;
+      });
+  }
+  return mermaidLoader;
+}
+
+let idCounter = 0;
+
+interface MermaidRendererProps {
+  definition: string;
+  className?: string;
+  index?: number;
+}
+
+export function MermaidRenderer({
+  definition,
+  className,
+  index,
+}: MermaidRendererProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = useState<string>("");
+  const [error, setError] = useState<string>("");
+
+  useEffect(() => {
+    setSvg("");
+    setError("");
+    if (!definition.trim()) return;
+
+    let cancelled = false;
+    const id = `mermaid-${++idCounter}`;
+
+    loadMermaid()
+      .then((mermaid) => mermaid.render(id, definition.trim()))
+      .then(({ svg: renderedSvg }) => {
+        if (cancelled) return;
+        // Mermaid 11.x runs DOMPurify internally with `securityLevel:"strict"`,
+        // but we re-sanitize the SVG before injecting via dangerouslySetInnerHTML
+        // so a future config drift or library regression cannot reintroduce
+        // SVG-borne XSS (foreignObject scripts, javascript: hrefs, etc.).
+        const sanitized = DOMPurify.sanitize(renderedSvg, {
+          USE_PROFILES: { svg: true, svgFilters: true },
+          ADD_TAGS: ["foreignObject", "text", "tspan", "textPath"],
+          ADD_ATTR: [
+            "dominant-baseline",
+            "text-anchor",
+            "dy",
+            "font-family",
+            "font-size",
+          ],
+        });
+        setSvg(sanitized);
+        setError("");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err?.message || "Invalid mermaid syntax");
+        setSvg("");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [definition]);
+
+  if (error) {
+    return (
+      <div
+        data-mermaid-index={index}
+        data-mermaid-state="error"
+        className={`flex items-center justify-center p-4 text-xs text-red-400/70 ${className || ""}`}
+      >
+        <pre className="whitespace-pre-wrap">{error}</pre>
+      </div>
+    );
+  }
+
+  if (!svg) {
+    // Mermaid's import + render is async, so this placeholder is the only
+    // thing in the DOM until it resolves. Without it, an edit to another
+    // element on the same slide made while the diagram is still loading
+    // would see zero `[data-mermaid-index]` nodes when serializing the
+    // slide, and silently drop the diagram from the saved content.
+    return (
+      <div
+        data-mermaid-index={index}
+        data-mermaid-state={definition.trim() ? "pending" : "empty"}
+        className={className}
+      />
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      data-mermaid-index={index}
+      data-mermaid-state="ready"
+      className={`flex items-center justify-center [&_svg]:max-w-full [&_svg]:max-h-full ${className || ""}`}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}

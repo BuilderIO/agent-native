@@ -1,0 +1,114 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
+import {
+  redirect,
+  useLoaderData,
+  useParams,
+  type ClientLoaderFunctionArgs,
+  type LoaderFunctionArgs,
+} from "react-router";
+
+import DocContent from "../components/DocContent";
+import DocDraftBanner from "../components/DocDraftBanner";
+import {
+  loadDocRespectingDraftVisibility,
+  preloadDocBlocksForDoc,
+  type DocEntry,
+} from "../components/docs-content";
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsPathForSlug,
+  docsLocaleFromSegment,
+  type DocsLocale,
+} from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
+import { DOCS_SLUG_REDIRECTS } from "../components/docs-slug-redirects";
+import DocsLayout from "../components/DocsLayout";
+import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
+
+function requireLocale(value: unknown): DocsLocale {
+  const locale = docsLocaleFromSegment(value);
+  if (locale) return locale;
+  throw new Response("Not Found", { status: 404 });
+}
+
+export async function loader({ params, request, url }: LoaderFunctionArgs) {
+  const locale = requireLocale(params.locale);
+  const slug = params.slug!;
+  const requestUrl = url ?? new URL(request.url);
+
+  if (locale === DEFAULT_DOCS_LOCALE) {
+    throw withSsrHtmlContentType(
+      redirect(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE), 301),
+    );
+  }
+
+  const target = DOCS_SLUG_REDIRECTS[slug];
+  if (target) {
+    throw withSsrHtmlContentType(
+      redirect(docsPathForSlug(target, locale), 301),
+    );
+  }
+
+  if (requestUrl.pathname.startsWith("/docs/")) {
+    throw withSsrHtmlContentType(redirect(docsPathForSlug(slug, locale), 301));
+  }
+
+  const doc = await loadDocRespectingDraftVisibility(slug, locale);
+  if (!doc) {
+    throw new Response("Not Found", { status: 404 });
+  }
+  return doc;
+}
+
+export async function clientLoader({ serverLoader }: ClientLoaderFunctionArgs) {
+  const doc = (await serverLoader()) as DocEntry;
+  return preloadDocBlocksForDoc(doc);
+}
+
+export const meta = ({
+  data,
+  loaderData,
+}: {
+  data?: DocEntry;
+  loaderData?: DocEntry;
+}) => {
+  const doc = data ?? loaderData;
+  if (!doc)
+    return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
+  return withDocsSocialImage(
+    [
+      { title: `${doc.title} — Agent-Native` },
+      { name: "description", content: doc.description },
+      { property: "og:title", content: `${doc.title} — Agent-Native` },
+      { property: "og:description", content: doc.description },
+      { property: "og:type", content: "article" },
+    ],
+    doc.title,
+  );
+};
+
+export default function LocalizedDocPage() {
+  const doc = useLoaderData<typeof loader>();
+  const { locale: localeParam } = useParams<{
+    locale: string;
+  }>();
+  const locale = requireLocale(localeParam);
+
+  if (!doc) return null;
+
+  const toc = doc.headings.map((h) => ({
+    id: h.id,
+    label: h.label,
+    level: h.level,
+  }));
+
+  return (
+    <DocsLayout
+      toc={toc}
+      markdownUrl={docsMarkdownPathForDoc(doc.slug, locale) ?? undefined}
+    >
+      {doc.draft && <DocDraftBanner />}
+      <DocContent markdown={doc.body} locale={locale} />
+    </DocsLayout>
+  );
+}

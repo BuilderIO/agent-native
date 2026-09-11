@@ -1,0 +1,318 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+/**
+ * `useOnboarding` — client hook for the framework onboarding system.
+ *
+ * Fetches `/_agent-native/onboarding/steps` on mount, after any user-initiated
+ * mutation (complete / dismiss / reopen), and when the tab regains focus.
+ * No polling — onboarding state changes are user-driven, so a poll loop just
+ * burns the DB and amplifies transient network errors.
+ */
+
+import type {
+  OnboardingAppProfile,
+  OnboardingMethod,
+  OnboardingStepStatus,
+} from "../../onboarding/types.js";
+import { getAnalyticsIdentityKey, trackEvent } from "../analytics.js";
+import { agentNativePath } from "../api-path.js";
+import {
+  dispatchFirstRunOnboardingStatus,
+  fetchFirstRunOnboardingStatus,
+} from "./first-run-status.js";
+
+const seenOnboardingEvents = new Set<string>();
+
+export function trackOnboardingEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  if (typeof window === "undefined") return;
+  const identityKey = getAnalyticsIdentityKey() ?? "anonymous";
+  const key = [
+    identityKey,
+    name,
+    properties.flow,
+    properties.step_id,
+    properties.extension_id,
+  ]
+    .map((value) => String(value ?? ""))
+    .join(":");
+  if (seenOnboardingEvents.has(key)) return;
+  seenOnboardingEvents.add(key);
+  trackEvent(name, properties);
+}
+
+export interface UseOnboardingResult {
+  steps: OnboardingStepStatus[];
+  profile: OnboardingAppProfile | null;
+  loading: boolean;
+  error: string | null;
+  /** Active step = first required+incomplete, else first incomplete. */
+  currentStepId: string | null;
+  completeCount: number;
+  totalCount: number;
+  /** True when every required step is complete. */
+  allComplete: boolean;
+  /** User dismissed the banner via the X button. */
+  dismissed: boolean;
+  /** Refetch steps immediately. */
+  refresh: () => Promise<void>;
+  /** Mark a step complete via the server-side override. */
+  complete: (id: string) => Promise<void>;
+  /** Dismiss the banner permanently (until server-side reset). */
+  dismiss: () => Promise<void>;
+  /** Re-open the panel after dismissal. */
+  reopen: () => Promise<void>;
+  /** True until the post-signup full-screen flow is completed. */
+  firstRun: boolean;
+  /** Clear the post-signup full-screen flow marker. Rejects instead of
+   *  resolving silently when the server call fails — see
+   *  `completeFirstRunError` for the message to show the user. */
+  completeFirstRun: () => Promise<void>;
+  /** Set when the last `completeFirstRun()` call failed. Cleared on the next
+   *  attempt (success or failure). Distinct from `error` (the initial steps
+   *  load failure) so a failed Skip/Continue doesn't swap the whole screen
+   *  for an unrelated "could not load" message. */
+  completeFirstRunError: string | null;
+}
+
+export function useOnboarding(
+  options: { preview?: boolean; initialFirstRun?: boolean } = {},
+): UseOnboardingResult {
+  const preview = options.preview === true;
+  const initialFirstRun = options.initialFirstRun === true;
+  const [steps, setSteps] = useState<OnboardingStepStatus[]>([]);
+  const [profile, setProfile] = useState<OnboardingAppProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+  const [firstRun, setFirstRun] = useState(preview || initialFirstRun);
+  const [completeFirstRunError, setCompleteFirstRunError] = useState<
+    string | null
+  >(null);
+  const stepsRef = useRef<OnboardingStepStatus[]>([]);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    setFirstRun(preview || initialFirstRun);
+  }, [initialFirstRun, preview]);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const stepsUrl = agentNativePath(
+        preview
+          ? "/_agent-native/onboarding/steps?preview=1"
+          : "/_agent-native/onboarding/steps",
+      );
+      const firstRunPromise = preview
+        ? Promise.resolve(true).then((value) => {
+            dispatchFirstRunOnboardingStatus(value);
+            return value;
+          })
+        : initialFirstRun
+          ? Promise.resolve(true)
+          : fetchFirstRunOnboardingStatus();
+      const [stepsRes, dismissRes, profileRes, firstRunRes] = await Promise.all(
+        [
+          fetch(stepsUrl),
+          fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
+          fetch(agentNativePath("/_agent-native/onboarding/profile")),
+          firstRunPromise,
+        ],
+      );
+      if (!mountedRef.current) return;
+      if (!stepsRes.ok) {
+        throw new Error(`steps: ${stepsRes.status}`);
+      }
+      const stepsData: OnboardingStepStatus[] = await stepsRes.json();
+      const previousSteps = stepsRef.current;
+      if (previousSteps.length > 0) {
+        for (const [stepIndex, step] of stepsData.entries()) {
+          const previousStep = previousSteps.find(
+            (previous) => previous.id === step.id,
+          );
+          if (step.complete && !previousStep?.complete) {
+            trackOnboardingEvent("onboarding_step_completed", {
+              flow: "checklist",
+              step_id: step.id,
+              step_index: stepIndex,
+            });
+          }
+        }
+      }
+      stepsRef.current = stepsData;
+      setSteps(stepsData);
+
+      if (!profileRes.ok) {
+        throw new Error(`profile: ${profileRes.status}`);
+      }
+      setProfile((await profileRes.json()) as OnboardingAppProfile);
+
+      if (preview) {
+        setFirstRun(true);
+      } else if (!initialFirstRun) {
+        setFirstRun(firstRunRes === true);
+      }
+
+      if (dismissRes.ok) {
+        const d = (await dismissRes.json()) as {
+          dismissed?: boolean;
+          allComplete?: boolean;
+        };
+        setDismissed(!!d.dismissed);
+      }
+      setError(null);
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setError(e instanceof Error ? e.message : "Failed to load onboarding");
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, [preview]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void fetchAll();
+    // Refetch when the tab regains focus — picks up any changes the agent
+    // made while the user was away (or that another tab made).
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void fetchAll();
+    };
+    const onFocus = () => fetchAll();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      mountedRef.current = false;
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [fetchAll]);
+
+  const complete = useCallback(
+    async (id: string) => {
+      const response = await fetch(
+        agentNativePath(
+          `/_agent-native/onboarding/steps/${encodeURIComponent(id)}/complete`,
+        ),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
+      if (!response.ok)
+        throw new Error(`onboarding step failed: ${response.status}`);
+      trackOnboardingEvent("onboarding_step_completed", {
+        flow: "checklist",
+        step_id: id,
+      });
+      await fetchAll();
+    },
+    [fetchAll],
+  );
+
+  const dismiss = useCallback(async () => {
+    setDismissed(true); // optimistic
+    await fetch(agentNativePath("/_agent-native/onboarding/dismiss"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    await fetchAll();
+  }, [fetchAll]);
+
+  const reopen = useCallback(async () => {
+    setDismissed(false); // optimistic
+    await fetch(agentNativePath("/_agent-native/onboarding/reopen"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    await fetchAll();
+  }, [fetchAll]);
+
+  const completeFirstRun = useCallback(async () => {
+    if (preview) {
+      setFirstRun(false);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:first-run-completed"),
+        );
+      }
+      return;
+    }
+    setCompleteFirstRunError(null);
+    // Both a rejected fetch (offline, dropped connection) and a non-ok
+    // response are real failures — neither may look like success to the
+    // caller, so both throw instead of returning as if the step advanced.
+    let response: Response;
+    try {
+      response = await fetch(
+        agentNativePath("/_agent-native/onboarding/first-run/complete"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "first-run completion request failed";
+      trackEvent("onboarding_failed", {
+        flow: "first_run",
+        stage: "complete",
+        reason: "network_error",
+      });
+      setCompleteFirstRunError(message);
+      throw e instanceof Error ? e : new Error(message);
+    }
+    if (!response.ok) {
+      const message = `first-run completion failed: ${response.status}`;
+      trackEvent("onboarding_failed", {
+        flow: "first_run",
+        stage: "complete",
+        reason: "http_error",
+        status_code: response.status,
+      });
+      setCompleteFirstRunError(message);
+      throw new Error(message);
+    }
+    trackOnboardingEvent("onboarding_completed", { flow: "first_run" });
+    setFirstRun(false);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));
+    }
+    await fetchAll();
+  }, [fetchAll, preview]);
+
+  const totalCount = steps.length;
+  const completeCount = steps.filter((s) => s.complete).length;
+  const allComplete = steps.filter((s) => s.required).every((s) => s.complete);
+
+  const currentStepId =
+    steps.find((s) => s.required && !s.complete)?.id ??
+    steps.find((s) => !s.complete)?.id ??
+    null;
+
+  return {
+    steps,
+    profile,
+    loading,
+    error,
+    currentStepId,
+    completeCount,
+    totalCount,
+    allComplete,
+    dismissed,
+    refresh: fetchAll,
+    complete,
+    dismiss,
+    reopen,
+    firstRun,
+    completeFirstRun,
+    completeFirstRunError,
+  };
+}
+
+/** Re-export type for convenience. */
+export type { OnboardingMethod, OnboardingStepStatus };

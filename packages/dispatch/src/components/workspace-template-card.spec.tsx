@@ -1,0 +1,228 @@
+// @vitest-environment happy-dom
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { TooltipProvider } from "./ui/tooltip";
+import {
+  WorkspaceTemplateCard,
+  WorkspaceTemplatesSection,
+  type CuratedWorkspaceTemplate,
+} from "./workspace-template-card";
+
+const clientState = vi.hoisted(() => ({
+  mutation: vi.fn(),
+  options: null as Record<string, unknown> | null,
+  isPending: false,
+}));
+
+const toast = vi.hoisted(() => ({
+  error: vi.fn(),
+  success: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionMutation: (_name: string, options: Record<string, unknown>) => {
+    clientState.options = options;
+    return {
+      mutate: clientState.mutation,
+      isPending: clientState.isPending,
+    };
+  },
+}));
+
+vi.mock("sonner", () => ({ toast }));
+
+const template: CuratedWorkspaceTemplate = {
+  id: "weekly-report",
+  name: "Weekly report",
+  description: "Turn workspace activity into a concise weekly report.",
+  source: "RevOps",
+  integrationSetup: "Connect your CRM after installing the app.",
+  liveUrl: "https://reports.example.test",
+};
+
+describe("WorkspaceTemplateCard", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    clientState.mutation.mockReset();
+    clientState.options = null;
+    clientState.isPending = false;
+    toast.error.mockReset();
+    toast.success.mockReset();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    document.body
+      .querySelectorAll("[data-radix-portal]")
+      .forEach((portal) => portal.remove());
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps template cards concise and moves setup context into the add flow", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <WorkspaceTemplateCard template={template} />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Weekly report");
+    expect(container.textContent).not.toContain("RevOps");
+    expect(container.textContent).not.toContain(
+      "Connect your CRM after installing the app.",
+    );
+
+    const trigger = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
+    );
+    expect(trigger).not.toBeUndefined();
+    await act(async () => trigger?.click());
+    expect(document.body.textContent).toContain(
+      "Connect your CRM after installing the app.",
+    );
+
+    const liveLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://reports.example.test"]',
+    );
+    expect(liveLink?.textContent).toContain("View the live app");
+    expect(liveLink?.target).toBe("_blank");
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <WorkspaceTemplateCard
+            template={{ ...template, liveUrl: null, productUrl: null }}
+          />
+        </TooltipProvider>,
+      );
+    });
+    expect(
+      container.querySelector('a[href="https://reports.example.test"]'),
+    ).toBe(null);
+  });
+
+  it("creates an app with the default app id and allows an override", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <WorkspaceTemplateCard template={template} defaultAppId="pipeline" />
+        </TooltipProvider>,
+      );
+    });
+
+    const trigger = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
+    );
+    expect(trigger).not.toBeUndefined();
+
+    await act(async () => {
+      trigger?.click();
+    });
+
+    const input = document.body.querySelector<HTMLInputElement>(
+      "#workspace-template-app-id-weekly-report",
+    );
+    expect(input?.value).toBe("pipeline");
+
+    await act(async () => {
+      if (!input) throw new Error("Expected app id input");
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "Sales Ops");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await act(async () => {
+      document.body.querySelector<HTMLFormElement>("form")?.requestSubmit();
+    });
+
+    expect(clientState.mutation).toHaveBeenCalledWith({
+      templateId: "weekly-report",
+      appId: "sales-ops",
+    });
+
+    await act(async () => {
+      await (clientState.options?.onSuccess as (result: unknown) => unknown)({
+        appId: "sales-ops",
+      });
+    });
+    expect(toast.success).toHaveBeenCalledWith(
+      "Template app creation started.",
+    );
+  });
+
+  it("keeps add app available in catalog cards", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <WorkspaceTemplateCard template={template} catalog />
+        </TooltipProvider>,
+      );
+    });
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Weekly report"]',
+    );
+    expect(settingsButton).not.toBeNull();
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const addItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Add app"));
+    expect(addItem).not.toBeUndefined();
+    const settingsMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(settingsMenu?.className).toContain("w-48");
+    expect(settingsMenu?.className).toContain("bg-popover");
+    expect(settingsMenu?.className).toContain("shadow-md");
+    expect(addItem?.querySelector("svg")).not.toBeNull();
+    await act(async () => addItem?.click());
+    expect(document.body.textContent).toContain("Choose the URL-safe id");
+    expect(
+      container.querySelector('a[href="https://reports.example.test"]'),
+    ).not.toBeNull();
+  });
+
+  it("accepts the list action envelope and renders installed state", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <WorkspaceTemplatesSection
+            templates={{
+              templates: [
+                {
+                  ...template,
+                  installed: true,
+                  liveUrl: null,
+                  productUrl: null,
+                },
+              ],
+            }}
+            title="Curated templates"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Curated templates");
+    expect(container.textContent).toContain("Installed");
+    expect(container.querySelector('a[href^="https://"]')).toBeNull();
+    const addButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
+    );
+    expect(addButton).not.toHaveProperty("disabled", true);
+  });
+});

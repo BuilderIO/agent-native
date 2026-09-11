@@ -1,0 +1,3571 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  GoogleProductLogo,
+  IntegrationConnectionChoice,
+  IntegrationGrid,
+  startWorkspaceProviderOAuth as startManagedWorkspaceProviderOAuth,
+} from "@agent-native/core/client/integrations";
+import { useAppRoles, useOrgRole } from "@agent-native/core/client/org";
+import {
+  McpIntegrationDialog,
+  McpIntegrationLogo,
+  getDefaultMcpIntegrations,
+  isCustomMcpIntegrationEnabled,
+  useCreateMcpServer,
+  type DefaultMcpIntegration,
+} from "@agent-native/core/client/resources";
+import {
+  useShareOrgMemberSearch,
+  type ShareOrgMember,
+} from "@agent-native/core/client/sharing";
+import { credentialKeyMatches } from "@agent-native/core/workspace-connections/credential-key-aliases";
+import {
+  ActionQueryError,
+  DispatchShell,
+} from "@agent-native/dispatch/components";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/dispatch/components/ui/alert-dialog";
+import { Badge } from "@agent-native/dispatch/components/ui/badge";
+import { Button } from "@agent-native/dispatch/components/ui/button";
+import { Checkbox } from "@agent-native/dispatch/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@agent-native/dispatch/components/ui/dialog";
+import { Input } from "@agent-native/dispatch/components/ui/input";
+import { Label } from "@agent-native/dispatch/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/dispatch/components/ui/select";
+import { Switch } from "@agent-native/dispatch/components/ui/switch";
+import {
+  IconAlertTriangle,
+  IconArrowLeft,
+  IconArrowRight,
+  IconBrain,
+  IconBrandGithub,
+  IconBrandSlack,
+  IconBroadcast,
+  IconBuilding,
+  IconChartBar,
+  IconCheck,
+  IconChevronDown,
+  IconClock,
+  IconDatabase,
+  IconEdit,
+  IconKey,
+  IconMail,
+  IconPlugConnected,
+  IconPlus,
+  IconRefresh,
+  IconSearch,
+  IconShieldCheck,
+  IconTrash,
+  IconUsersGroup,
+  IconWorld,
+} from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
+
+import { messagesByLocale } from "@/i18n-data";
+
+export function meta() {
+  return [{ title: messagesByLocale["en-US"].routeTitles.integrations }];
+}
+
+const CONNECTION_QUERY_PARAMS = { includeDisabled: true } as const;
+const CONNECTION_QUERY_KEY = [
+  "action",
+  "list-workspace-connections",
+  CONNECTION_QUERY_PARAMS,
+] as const;
+const GROUP_QUERY_KEY = ["action", "list-workspace-user-groups", {}] as const;
+
+type IconComponent = ComponentType<{
+  size?: number | string;
+  className?: string;
+}>;
+
+interface WorkspaceConnectionCredentialKey {
+  key: string;
+  label: string;
+  description?: string;
+  required?: boolean;
+}
+
+type WorkspaceConnectionProviderReadinessStatus =
+  | "ready"
+  | "checking"
+  | "needs_credentials"
+  | "needs_attention"
+  | "disabled"
+  | "not_configured";
+
+interface WorkspaceConnectionProviderReadiness {
+  status: WorkspaceConnectionProviderReadinessStatus;
+  connectionCount: number;
+  activeConnectionCount: number;
+  readyConnectionCount: number;
+  requiredCredentialKeys: string[];
+  missingRequiredCredentialKeys: string[];
+}
+
+interface WorkspaceConnectionProvider {
+  id: string;
+  label: string;
+  description: string;
+  credentialKeys: WorkspaceConnectionCredentialKey[];
+  capabilities: string[];
+  recommendedTemplateUses: string[];
+  oauth?: {
+    provider: string;
+    authorizationUrl: string;
+    tokenUrl: string;
+    refreshUrl?: string;
+    scopes: string[];
+  };
+  readiness?: WorkspaceConnectionProviderReadiness;
+}
+
+interface WorkspaceConnectionCredentialRef {
+  key: string;
+  scope?: "user" | "org" | "workspace";
+  provider?: string;
+  label?: string;
+}
+
+type WorkspaceConnectionStatus =
+  | "connected"
+  | "checking"
+  | "needs_reauth"
+  | "error"
+  | "disabled";
+
+interface WorkspaceConnection {
+  id: string;
+  provider: string;
+  label: string;
+  accountId: string | null;
+  accountLabel: string | null;
+  status: WorkspaceConnectionStatus;
+  scopes: string[];
+  config: Record<string, unknown>;
+  allowedApps: string[];
+  allowedUsers?: string[];
+  allowedUserGroups?: string[];
+  credentialRefs: WorkspaceConnectionCredentialRef[];
+  createdAt: string;
+  updatedAt: string;
+  lastCheckedAt: string | null;
+  lastUsedAt?: string | null;
+  lastError: string | null;
+}
+
+interface SuggestedGrantApp {
+  id: string;
+  label: string;
+}
+
+interface WorkspaceConnectionGrant {
+  id: string;
+  connectionId: string;
+  provider: string;
+  appId: string;
+  access: "all-apps" | "selected-app" | "explicit-grant";
+  lastUsedAt?: string | null;
+}
+
+interface WorkspaceConnectionGrantSummary {
+  connectionId: string;
+  provider: string;
+  accessMode: "all-apps" | "selected-apps";
+  allApps: boolean;
+  selectedAppIds: string[];
+  explicitGrantAppIds: string[];
+  effectiveAppIds: string[];
+  trackedApps?: Array<{
+    appId: string;
+    label: string;
+    granted: boolean;
+    mode: "all-apps" | "allowed-app" | "explicit-grant" | "unavailable";
+    grantId: string | null;
+  }>;
+}
+
+interface WorkspaceConnectionsResponse {
+  availability?: {
+    googleOAuth: {
+      status: "configured" | "unconfigured" | "unavailable";
+      retryable: boolean;
+    };
+  };
+  providers: WorkspaceConnectionProvider[];
+  connections: WorkspaceConnection[];
+  grants: WorkspaceConnectionGrant[];
+  grantSummaries?: WorkspaceConnectionGrantSummary[];
+  suggestedApps: SuggestedGrantApp[];
+  counts: {
+    providers: number;
+    connections: number;
+    grants: number;
+    allAppConnections?: number;
+    selectedAppConnections?: number;
+    readyProviders?: number;
+  };
+}
+
+interface WorkspaceConnectionImpactPreview {
+  likelyAffectedApps: Array<{
+    appId: string;
+    label: string;
+    accessMode: string;
+    lastUsedAt?: string | null;
+  }>;
+  impactSummary: {
+    likelyAffectedCount: number;
+    hasAllAppsAccess: boolean;
+    usageTracked: boolean;
+    lastUsedAt?: string | null;
+  };
+  recommendedConfirmation: {
+    body: string;
+  };
+}
+
+interface WorkspaceAppSummary {
+  id: string;
+  name: string;
+  status?: "ready" | "pending";
+  archived?: boolean;
+}
+
+interface GrantApp {
+  id: string;
+  label: string;
+  icon: IconComponent;
+}
+
+interface ConnectionFormState {
+  id?: string;
+  provider: string;
+  label: string;
+  accountId: string;
+  accountLabel: string;
+  status: WorkspaceConnectionStatus;
+  scopes: string;
+  credentialRefs: WorkspaceConnectionCredentialRef[];
+  allApps: boolean;
+  selectedApps: string[];
+  allUsers: boolean;
+  selectedUsers: string[];
+  selectedUserGroups: string[];
+}
+
+interface WorkspaceUserGroup {
+  id: string;
+  orgId: string;
+  name: string;
+  memberEmails: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface WorkspaceConnectionSetupPlanCredential {
+  key: string;
+  label: string;
+  description?: string;
+  required?: boolean;
+}
+
+interface WorkspaceConnectionSetupPlanApp {
+  id: string;
+  label: string;
+  recommended: boolean;
+}
+
+interface WorkspaceConnectionSetupPlan {
+  provider: WorkspaceConnectionProvider;
+  requiredCredentialRefs: WorkspaceConnectionSetupPlanCredential[];
+  suggestedCredentialRefs: Array<
+    WorkspaceConnectionCredentialRef & {
+      description?: string;
+      required?: boolean;
+    }
+  >;
+  suggestedApps: WorkspaceConnectionSetupPlanApp[];
+  grantRecommendation: {
+    accessMode: "all-apps" | "selected-apps";
+    selectedAppIds: string[];
+    reason: string;
+  };
+  warnings: string[];
+  connection: Pick<
+    WorkspaceConnection,
+    | "id"
+    | "provider"
+    | "label"
+    | "accountId"
+    | "accountLabel"
+    | "status"
+    | "scopes"
+    | "allowedApps"
+    | "allowedUsers"
+    | "allowedUserGroups"
+    | "credentialRefs"
+    | "lastError"
+  > | null;
+  explicitGrantAppIds: string[];
+}
+
+interface SetupWizardState {
+  mode: "setup" | "repair";
+  providerId: string;
+  connectionId?: string;
+}
+
+interface SetupWizardFormState {
+  connectionId?: string;
+  provider: string;
+  label: string;
+  accountId: string;
+  accountLabel: string;
+  status: WorkspaceConnectionStatus;
+  scopes: string;
+  credentialRefs: WorkspaceConnectionCredentialRef[];
+  grantMode: "all-apps" | "selected-apps";
+  selectedApps: string[];
+  userGrantMode: "all-users" | "selected-users";
+  selectedUsers: string[];
+  selectedUserGroups: string[];
+}
+
+interface ProviderChoice {
+  provider: WorkspaceConnectionProvider;
+  personalIntegration?: DefaultMcpIntegration;
+  personalOAuth?: boolean;
+}
+
+const EMPTY_RESPONSE: WorkspaceConnectionsResponse = {
+  providers: [],
+  connections: [],
+  grants: [],
+  suggestedApps: [
+    { id: "dispatch", label: "Dispatch" },
+    { id: "brain", label: "Brain" },
+    { id: "assets", label: "Assets" },
+    { id: "analytics", label: "Analytics" },
+    { id: "mail", label: "Mail" },
+  ],
+  counts: { providers: 0, connections: 0, grants: 0 },
+};
+
+type Translate = ReturnType<typeof useT>;
+
+const STATUS_CLASSES: Record<WorkspaceConnectionStatus, string> = {
+  connected:
+    "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-400",
+  checking:
+    "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+  needs_reauth:
+    "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  error: "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400",
+  disabled: "border-border bg-muted text-muted-foreground",
+};
+
+const READINESS_CLASSES: Record<
+  WorkspaceConnectionProviderReadinessStatus,
+  string
+> = {
+  ready:
+    "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-400",
+  checking:
+    "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+  needs_credentials:
+    "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  needs_attention:
+    "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400",
+  disabled: "border-border bg-muted text-muted-foreground",
+  not_configured: "border-border bg-muted text-muted-foreground",
+};
+
+const APP_ICONS: Record<string, IconComponent> = {
+  dispatch: IconBroadcast,
+  brain: IconBrain,
+  analytics: IconChartBar,
+  mail: IconMail,
+};
+
+const PROVIDER_ICONS: Record<string, IconComponent> = {
+  slack: IconBrandSlack,
+  github: IconBrandGithub,
+  gmail: IconMail,
+  google_drive: IconDatabase,
+  hubspot: IconBuilding,
+  granola: IconDatabase,
+  clips: IconDatabase,
+  notion: IconDatabase,
+  generic: IconWorld,
+};
+
+const MCP_INTEGRATIONS_BY_ID = new Map(
+  getDefaultMcpIntegrations().map((integration) => [
+    integration.id,
+    integration,
+  ]),
+);
+
+const GOOGLE_PRODUCT_BY_PROVIDER = {
+  gmail: "gmail",
+  google_calendar: "calendar",
+  google_docs: "docs",
+  google_drive: "drive",
+  google_sheets: "sheets",
+  google_slides: "slides",
+} as const;
+
+function isGoogleWorkspaceProvider(providerId: string): boolean {
+  return providerId in GOOGLE_PRODUCT_BY_PROVIDER;
+}
+
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function iconForProvider(providerId: string): IconComponent {
+  return PROVIDER_ICONS[providerId] ?? IconPlugConnected;
+}
+
+function logoForProvider(providerId: string, providerName: string): ReactNode {
+  const googleProduct =
+    GOOGLE_PRODUCT_BY_PROVIDER[
+      providerId as keyof typeof GOOGLE_PRODUCT_BY_PROVIDER
+    ];
+  if (googleProduct) {
+    return <GoogleProductLogo product={googleProduct} className="size-7" />;
+  }
+  const integration = MCP_INTEGRATIONS_BY_ID.get(providerId);
+  if (!integration?.logoUrl) {
+    const Icon = iconForProvider(providerId);
+    return <Icon size={18} />;
+  }
+  return (
+    <McpIntegrationLogo
+      name={providerName}
+      logoUrl={integration.logoUrl}
+      integrationId={integration.id}
+      className="size-7 rounded-md border-0 bg-transparent"
+      imageClassName="size-full p-0.5"
+    />
+  );
+}
+
+function iconForApp(appId: string): IconComponent {
+  return APP_ICONS[appId] ?? IconUsersGroup;
+}
+
+function statusLabel(t: Translate, status: WorkspaceConnectionStatus): string {
+  return t(`integrations.status.${status}`);
+}
+
+function scopeLabel(
+  t: Translate,
+  scope: WorkspaceConnectionCredentialRef["scope"],
+): string {
+  switch (scope) {
+    case "org":
+      return t("integrations.scopeOrg");
+    case "workspace":
+      return t("integrations.scopeWorkspace");
+    case "user":
+      return t("integrations.scopeUser");
+    default:
+      return "";
+  }
+}
+
+function humanizeAppId(appId: string): string {
+  return appId
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function normalizeList(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,]/)
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function hasUsageTimestamp(connection: WorkspaceConnection): boolean {
+  return Object.prototype.hasOwnProperty.call(connection, "lastUsedAt");
+}
+
+function hasGrantUsageTimestamp(grant: WorkspaceConnectionGrant): boolean {
+  return Object.prototype.hasOwnProperty.call(grant, "lastUsedAt");
+}
+
+function formatTimestamp(
+  t: Translate,
+  value: string | null | undefined,
+): string {
+  if (value == null) return t("integrations.time.neverUsed");
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const deltaMs = date.getTime() - Date.now();
+  const absMs = Math.abs(deltaMs);
+  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ["year", 1000 * 60 * 60 * 24 * 365],
+    ["month", 1000 * 60 * 60 * 24 * 30],
+    ["day", 1000 * 60 * 60 * 24],
+    ["hour", 1000 * 60 * 60],
+    ["minute", 1000 * 60],
+  ];
+  const formatter = new Intl.RelativeTimeFormat(undefined, {
+    numeric: "auto",
+  });
+  for (const [unit, ms] of units) {
+    if (absMs >= ms) {
+      return formatter.format(Math.round(deltaMs / ms), unit);
+    }
+  }
+  return t("integrations.time.justNow");
+}
+
+function usageSortValue(connection: WorkspaceConnection): number {
+  if (!hasUsageTimestamp(connection)) return Number.NaN;
+  if (connection.lastUsedAt == null) return 0;
+  const time = new Date(connection.lastUsedAt).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function credentialRefsForProvider(
+  provider: WorkspaceConnectionProvider,
+): WorkspaceConnectionCredentialRef[] {
+  return provider.credentialKeys.map((credential) => ({
+    key: credential.key,
+    label: credential.label,
+    provider: provider.id,
+    scope: "org",
+  }));
+}
+
+function normalizeCredentialRefs(
+  refs: WorkspaceConnectionCredentialRef[],
+  provider?: WorkspaceConnectionProvider,
+): WorkspaceConnectionCredentialRef[] {
+  const labels = new Map(
+    provider?.credentialKeys.map((credential) => [
+      credential.key,
+      credential.label,
+    ]) ?? [],
+  );
+  const seen = new Set<string>();
+  return refs
+    .map((ref) => {
+      const key = ref.key.trim();
+      return {
+        key,
+        label: ref.label?.trim() || labels.get(key) || key,
+        provider: ref.provider?.trim() || provider?.id,
+        scope: ref.scope ?? "org",
+      };
+    })
+    .filter((ref) => {
+      if (!ref.key || seen.has(ref.key)) return false;
+      seen.add(ref.key);
+      return true;
+    });
+}
+
+function upsertCredentialRefAt(
+  refs: WorkspaceConnectionCredentialRef[],
+  index: number,
+  patch: Partial<WorkspaceConnectionCredentialRef>,
+): WorkspaceConnectionCredentialRef[] {
+  return refs.map((ref, currentIndex) =>
+    currentIndex === index ? { ...ref, ...patch } : ref,
+  );
+}
+
+function appendCredentialRef(
+  refs: WorkspaceConnectionCredentialRef[],
+  provider?: WorkspaceConnectionProvider,
+): WorkspaceConnectionCredentialRef[] {
+  return [
+    ...refs,
+    {
+      key: "",
+      label: "",
+      provider: provider?.id,
+      scope: "org",
+    },
+  ];
+}
+
+function missingRequiredCredentialKeys(
+  provider: WorkspaceConnectionProvider | undefined,
+  refs: WorkspaceConnectionCredentialRef[],
+): string[] {
+  if (!provider) return [];
+  return provider.credentialKeys
+    .filter((credential) => credential.required)
+    .map((credential) => credential.key)
+    .filter(
+      (key) =>
+        !refs.some((ref) => credentialKeyMatches(provider.id, key, ref.key)),
+    );
+}
+
+function formFromConnection(
+  connection: WorkspaceConnection,
+  provider?: WorkspaceConnectionProvider,
+): ConnectionFormState {
+  return {
+    id: connection.id,
+    provider: connection.provider,
+    label: connection.label,
+    accountId: connection.accountId ?? "",
+    accountLabel: connection.accountLabel ?? "",
+    status: connection.status,
+    scopes: connection.scopes.join(", "),
+    credentialRefs:
+      connection.credentialRefs.length > 0
+        ? normalizeCredentialRefs(connection.credentialRefs, provider)
+        : provider
+          ? credentialRefsForProvider(provider)
+          : [],
+    allApps: connection.allowedApps.length === 0,
+    selectedApps: connection.allowedApps,
+    allUsers: (connection.allowedUsers?.length ?? 0) === 0,
+    selectedUsers: connection.allowedUsers ?? [],
+    selectedUserGroups: connection.allowedUserGroups ?? [],
+  };
+}
+
+function setupFormFromPlan(
+  plan: WorkspaceConnectionSetupPlan,
+  mode: SetupWizardState["mode"],
+): SetupWizardFormState {
+  const connection = plan.connection;
+  const selectedApps =
+    plan.grantRecommendation.accessMode === "all-apps"
+      ? []
+      : plan.grantRecommendation.selectedAppIds;
+
+  return {
+    connectionId: connection?.id,
+    provider: plan.provider.id,
+    label: connection?.label || plan.provider.label,
+    accountId: connection?.accountId ?? "",
+    accountLabel: connection?.accountLabel ?? "",
+    status:
+      mode === "repair" ? "checking" : (connection?.status ?? "connected"),
+    scopes: connection?.scopes.join(", ") ?? "",
+    credentialRefs: connection?.credentialRefs.length
+      ? normalizeCredentialRefs(connection.credentialRefs, plan.provider)
+      : normalizeCredentialRefs(plan.suggestedCredentialRefs, plan.provider),
+    grantMode: plan.grantRecommendation.accessMode,
+    selectedApps,
+    userGrantMode:
+      connection &&
+      ((connection.allowedUsers?.length ?? 0) > 0 ||
+        (connection.allowedUserGroups?.length ?? 0) > 0)
+        ? "selected-users"
+        : "all-users",
+    selectedUsers: connection?.allowedUsers ?? [],
+    selectedUserGroups: connection?.allowedUserGroups ?? [],
+  };
+}
+
+function appIsGranted(
+  connection: WorkspaceConnection,
+  appId: string,
+  grants: WorkspaceConnectionsResponse["grants"],
+): boolean {
+  return (
+    connection.allowedApps.length === 0 ||
+    connection.allowedApps.includes(appId) ||
+    grants.some(
+      (grant) =>
+        grant.connectionId === connection.id &&
+        (grant.appId === appId || grant.appId === "*"),
+    )
+  );
+}
+
+function usageForAppGrant(
+  connection: WorkspaceConnection,
+  appId: string,
+  grants: WorkspaceConnectionsResponse["grants"],
+): string | null | undefined {
+  const explicitGrant = grants.find(
+    (grant) => grant.connectionId === connection.id && grant.appId === appId,
+  );
+  if (explicitGrant && hasGrantUsageTimestamp(explicitGrant)) {
+    return explicitGrant.lastUsedAt;
+  }
+  return hasUsageTimestamp(connection) ? connection.lastUsedAt : undefined;
+}
+
+function nextAllowedApps(
+  connection: WorkspaceConnection,
+  appId: string,
+  granted: boolean,
+  knownAppIds: string[],
+): string[] {
+  const current =
+    connection.allowedApps.length === 0
+      ? Array.from(new Set([...knownAppIds, appId]))
+      : connection.allowedApps;
+  if (granted) {
+    return Array.from(new Set([...current, appId]));
+  }
+  return current.filter((id) => id !== appId);
+}
+
+function summarizeUserAccess(
+  connection: WorkspaceConnection,
+  t: Translate,
+  groups: WorkspaceUserGroup[] = [],
+): string {
+  const allowedUsers = connection.allowedUsers ?? [];
+  const allowedGroupIds = connection.allowedUserGroups ?? [];
+  if (allowedUsers.length === 0 && allowedGroupIds.length === 0) {
+    return t(
+      /* i18n-key-ignore */
+      "integrations.allWorkspaceMembers",
+      { defaultValue: "All workspace members" },
+    );
+  }
+  const groupLabels = allowedGroupIds
+    .map((id) => groups.find((group) => group.id === id)?.name ?? id)
+    .slice(0, 2);
+  const labels = [
+    ...groupLabels,
+    ...(allowedUsers.length > 0 ? [`${allowedUsers.length} people`] : []),
+  ];
+  const suffix =
+    allowedGroupIds.length + (allowedUsers.length > 0 ? 1 : 0) > labels.length
+      ? ` +${
+          allowedGroupIds.length +
+          (allowedUsers.length > 0 ? 1 : 0) -
+          labels.length
+        }`
+      : "";
+  return `${labels.join(", ")}${suffix}`;
+}
+
+function startWorkspaceProviderOAuth(
+  provider: WorkspaceConnectionProvider,
+  scope: "user" | "organization" = "organization",
+) {
+  const returnPath = `${window.location.pathname}${window.location.search}`;
+  if (provider.id === "slack") {
+    const params = new URLSearchParams({ return: returnPath });
+    window.location.assign(
+      agentNativePath(
+        `/_agent-native/integrations/slack/oauth/install?${params.toString()}`,
+      ),
+    );
+    return;
+  }
+  startManagedWorkspaceProviderOAuth(provider.id, {
+    appId: "dispatch",
+    returnPath,
+    scope,
+  });
+}
+
+function providerHasOAuth(provider: WorkspaceConnectionProvider): boolean {
+  return Boolean(provider.oauth) || provider.id === "slack";
+}
+
+function ConnectionRow({
+  connection,
+  provider,
+  grantApps,
+  grants,
+  groups,
+  onEdit,
+  onRepair,
+  onDelete,
+  onToggleGrant,
+  grantPending,
+  canManage,
+  canManageGrant,
+}: {
+  connection: WorkspaceConnection;
+  provider?: WorkspaceConnectionProvider;
+  grantApps: GrantApp[];
+  grants: WorkspaceConnectionsResponse["grants"];
+  groups: WorkspaceUserGroup[];
+  onEdit: () => void;
+  onRepair: () => void;
+  onDelete: () => void;
+  onToggleGrant: (appId: string, granted: boolean) => void;
+  grantPending: boolean;
+  canManage: boolean;
+  canManageGrant: (appId: string) => boolean;
+}) {
+  const t = useT();
+  const providerLogo = logoForProvider(
+    connection.provider,
+    provider?.label ?? connection.provider,
+  );
+  const missingKeys = missingRequiredCredentialKeys(
+    provider,
+    connection.credentialRefs,
+  );
+  const needsRepair =
+    missingKeys.length > 0 ||
+    connection.status === "error" ||
+    connection.status === "needs_reauth" ||
+    connection.status === "disabled";
+  return (
+    <article className="rounded-lg bg-muted/35">
+      <div className="dispatch-connection-card-grid grid gap-4 p-4">
+        <div className="min-w-0 space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-background/80">
+                {providerLogo}
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-sm font-semibold text-foreground">
+                    {connection.label}
+                  </h2>
+                  <Pill className={STATUS_CLASSES[connection.status]}>
+                    {statusLabel(t, connection.status)}
+                  </Pill>
+                  {missingKeys.length > 0 ? (
+                    <Pill className={READINESS_CLASSES.needs_credentials}>
+                      {t("integrations.missingRefs")}
+                    </Pill>
+                  ) : null}
+                </div>
+                <p className="mt-1 truncate text-sm text-muted-foreground">
+                  {provider?.label ?? connection.provider}
+                  {connection.accountLabel
+                    ? ` · ${connection.accountLabel}`
+                    : ""}
+                  {connection.accountId ? ` · ${connection.accountId}` : ""}
+                </p>
+              </div>
+            </div>
+            {canManage ? (
+              <div className="flex items-center gap-1.5">
+                {needsRepair ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onRepair}
+                  >
+                    <IconRefresh size={14} />
+                    {t("integrations.repair")}
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={onEdit}
+                >
+                  <IconEdit size={14} />
+                  {t("integrations.edit")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={onDelete}
+                  aria-label={`${t("integrations.delete")} ${connection.label}`}
+                  title={`${t("integrations.delete")} ${connection.label}`}
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <IconTrash size={14} />
+                </Button>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="dispatch-connection-meta-grid grid gap-x-6 gap-y-3">
+            {connection.scopes.length > 0 ? (
+              <ConnectionMeta
+                icon={IconShieldCheck}
+                label={t("integrations.scopes")}
+                value={connection.scopes.join(", ")}
+              />
+            ) : null}
+            <ConnectionMeta
+              icon={IconUsersGroup}
+              label={t(
+                /* i18n-key-ignore */
+                "integrations.peopleWithAccess",
+                { defaultValue: "People with access" },
+              )}
+              value={summarizeUserAccess(connection, t, groups)}
+            />
+            {connection.lastUsedAt ? (
+              <ConnectionMeta
+                icon={IconClock}
+                label={t("integrations.usage")}
+                value={formatTimestamp(t, connection.lastUsedAt)}
+              />
+            ) : null}
+          </div>
+
+          {connection.credentialRefs.length > 0 ? (
+            <CredentialRefsPreview refs={connection.credentialRefs} />
+          ) : null}
+
+          {missingKeys.length > 0 ? (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <IconAlertTriangle size={15} className="mt-0.5 shrink-0" />
+              <span className="min-w-0 break-words">
+                {t("integrations.requiredRefsMissing", {
+                  keys: missingKeys.join(", "),
+                })}
+              </span>
+            </div>
+          ) : null}
+
+          {connection.lastError ? (
+            <div className="flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+              <IconAlertTriangle size={15} className="mt-0.5 shrink-0" />
+              <span className="min-w-0 break-words">
+                {connection.lastError}
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-md bg-muted/20 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-foreground">
+              {t("integrations.appGrants")}
+            </h3>
+            <Pill className="border-border bg-muted text-muted-foreground">
+              {connection.allowedApps.length === 0
+                ? t("integrations.allApps")
+                : t("integrations.selected")}
+            </Pill>
+          </div>
+          <div className="grid gap-1.5">
+            {grantApps.map((app) => {
+              const AppIcon = app.icon;
+              const granted = appIsGranted(connection, app.id, grants);
+              const usage = usageForAppGrant(connection, app.id, grants);
+              return (
+                <div
+                  key={app.id}
+                  className="flex min-h-9 items-center justify-between gap-3 rounded-md bg-muted/40 px-2.5 py-2"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <AppIcon size={14} className="text-muted-foreground" />
+                    <span className="grid min-w-0">
+                      <span className="truncate text-sm font-medium">
+                        {app.label}
+                      </span>
+                      {usage != null ? (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {formatTimestamp(t, usage)}
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                  <Switch
+                    checked={granted}
+                    disabled={grantPending || !canManageGrant(app.id)}
+                    onCheckedChange={(checked) =>
+                      onToggleGrant(app.id, checked)
+                    }
+                    aria-label={t("integrations.toggleGrantAria", {
+                      action: granted
+                        ? t("integrations.revoke")
+                        : t("integrations.grant"),
+                      app: app.label,
+                      connection: connection.label,
+                    })}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ConnectionMeta({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: IconComponent;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon size={13} />
+        {label}
+      </div>
+      <div className="mt-0.5 truncate text-sm font-medium text-foreground">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function CredentialRefsPreview({
+  refs,
+}: {
+  refs: WorkspaceConnectionCredentialRef[];
+}) {
+  const t = useT();
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {refs.map((ref) => (
+        <Pill
+          key={`${ref.scope ?? "org"}:${ref.key}`}
+          className="border-border bg-background font-mono"
+        >
+          <IconKey size={12} />
+          {ref.key}
+          {ref.scope ? (
+            <span className="font-sans text-muted-foreground">
+              {scopeLabel(t, ref.scope)}
+            </span>
+          ) : null}
+        </Pill>
+      ))}
+    </div>
+  );
+}
+
+function Pill({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Badge
+      variant="outline"
+      className={cx(
+        "inline-flex h-6 items-center gap-1 rounded-md border px-2 text-xs font-medium",
+        className,
+      )}
+    >
+      {children}
+    </Badge>
+  );
+}
+
+function Modal({
+  title,
+  description,
+  open,
+  onClose,
+  children,
+  fullscreen = false,
+}: {
+  title: string;
+  description?: string;
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+  fullscreen?: boolean;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        aria-describedby={undefined}
+        className={cx(
+          "p-0",
+          fullscreen
+            ? "inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none"
+            : "max-h-[92vh] max-w-2xl overflow-y-auto",
+        )}
+      >
+        <DialogHeader className="shrink-0 border-b p-4 pe-10 sm:px-8">
+          <DialogTitle className="text-base">{title}</DialogTitle>
+          {description ? (
+            <DialogDescription>{description}</DialogDescription>
+          ) : null}
+        </DialogHeader>
+        {children}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function UserAccessControl({
+  allUsers,
+  selectedUsers,
+  selectedUserGroups,
+  groups,
+  canManageGroups,
+  onChange,
+  onManageGroups,
+  onEditGroup,
+}: {
+  allUsers: boolean;
+  selectedUsers: string[];
+  selectedUserGroups: string[];
+  groups: WorkspaceUserGroup[];
+  canManageGroups: boolean;
+  onChange: (next: {
+    allUsers: boolean;
+    selectedUsers: string[];
+    selectedUserGroups: string[];
+  }) => void;
+  onManageGroups: () => void;
+  onEditGroup: (group: WorkspaceUserGroup) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const memberSearch = useShareOrgMemberSearch(query, open && !allUsers, {
+    limit: 100,
+  });
+  const selectedSet = useMemo(
+    () => new Set(selectedUsers.map((email) => email.toLowerCase())),
+    [selectedUsers],
+  );
+  const selectedGroupSet = useMemo(
+    () => new Set(selectedUserGroups),
+    [selectedUserGroups],
+  );
+
+  function toggleMember(member: ShareOrgMember, checked: boolean) {
+    const email = member.email.toLowerCase();
+    const next = checked
+      ? Array.from(new Set([...selectedUsers, email]))
+      : selectedUsers.filter((value) => value.toLowerCase() !== email);
+    onChange({
+      allUsers: false,
+      selectedUsers: next,
+      selectedUserGroups,
+    });
+  }
+
+  function toggleGroup(groupId: string, checked: boolean) {
+    const next = checked
+      ? Array.from(new Set([...selectedUserGroups, groupId]))
+      : selectedUserGroups.filter((value) => value !== groupId);
+    onChange({ allUsers: false, selectedUsers, selectedUserGroups: next });
+  }
+
+  const selectedGroupNames = groups
+    .filter((group) => selectedGroupSet.has(group.id))
+    .map((group) => group.name);
+
+  const summary = allUsers
+    ? t(
+        /* i18n-key-ignore */
+        "integrations.allWorkspaceMembers",
+        { defaultValue: "All workspace members" },
+      )
+    : [
+        ...selectedGroupNames,
+        ...(selectedUsers.length > 0
+          ? [
+              t("integrations.selectedPeople", {
+                count: selectedUsers.length,
+              }),
+            ]
+          : []),
+      ].join(", ") || t("integrations.choosePeopleOrGroups");
+
+  return (
+    <details
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="group rounded-lg bg-muted/30"
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground marker:hidden">
+        <span className="flex min-w-0 items-center gap-2">
+          <IconUsersGroup className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">
+            {t(
+              /* i18n-key-ignore */
+              "integrations.peopleWithAccess",
+              { defaultValue: "People with access" },
+            )}
+          </span>
+          <span className="truncate text-xs font-normal text-muted-foreground">
+            {summary}
+          </span>
+        </span>
+        <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="grid gap-3 px-4 pb-4">
+        <div className="flex items-center justify-between gap-4 rounded-md bg-muted/40 px-3 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">
+              {t(
+                /* i18n-key-ignore */
+                "integrations.allWorkspaceMembers",
+                { defaultValue: "All workspace members" },
+              )}
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+              {t(
+                /* i18n-key-ignore */
+                "integrations.allWorkspaceMembersDescription",
+                {
+                  defaultValue: "Give access to everyone in this workspace.",
+                },
+              )}
+            </p>
+          </div>
+          <Switch
+            checked={allUsers}
+            onCheckedChange={(checked) =>
+              onChange({
+                allUsers: checked,
+                selectedUsers: checked ? [] : selectedUsers,
+                selectedUserGroups: checked ? [] : selectedUserGroups,
+              })
+            }
+            aria-label={t(
+              /* i18n-key-ignore */
+              "integrations.allWorkspaceMembersAria",
+              { defaultValue: "Allow all workspace members" },
+            )}
+          />
+        </div>
+
+        {!allUsers ? (
+          <div className="grid gap-4">
+            {canManageGroups ? (
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("integrations.groups")}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {t("integrations.groupsDescription")}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={onManageGroups}
+                    className="h-7 px-2 text-xs"
+                  >
+                    <IconPlus size={13} />
+                    {t("integrations.newGroup")}
+                  </Button>
+                </div>
+                {groups.length > 0 ? (
+                  <div className="grid gap-1">
+                    {groups.map((group) => {
+                      const checked = selectedGroupSet.has(group.id);
+                      return (
+                        <div
+                          key={group.id}
+                          className="flex items-center gap-1 rounded-md bg-background/60 px-1 py-1 transition-colors hover:bg-accent/30"
+                        >
+                          <Label
+                            htmlFor={`connection-group-${group.id}`}
+                            className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 px-2 py-1"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <IconUsersGroup
+                                size={14}
+                                className="shrink-0 text-muted-foreground"
+                              />
+                              <span className="truncate text-sm font-medium">
+                                {group.name}
+                              </span>
+                              <Pill className="border-0 bg-muted px-1.5 text-[11px] text-muted-foreground">
+                                {group.memberEmails.length}
+                              </Pill>
+                            </span>
+                            <Checkbox
+                              id={`connection-group-${group.id}`}
+                              checked={checked}
+                              onCheckedChange={(value) =>
+                                toggleGroup(group.id, value === true)
+                              }
+                              aria-label={group.name}
+                            />
+                          </Label>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 shrink-0"
+                            onClick={() => onEditGroup(group)}
+                            aria-label={t("integrations.editGroupAria", {
+                              name: group.name,
+                            })}
+                          >
+                            <IconEdit size={13} />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={onManageGroups}
+                    className="h-auto justify-start rounded-md bg-background/60 px-3 py-2 text-xs text-muted-foreground"
+                  >
+                    <IconPlus size={13} />
+                    {t("integrations.createGroupCta")}
+                  </Button>
+                )}
+              </div>
+            ) : null}
+
+            <div className="grid gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t("integrations.people")}
+              </p>
+              <div className="relative">
+                <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t(
+                    /* i18n-key-ignore */
+                    "integrations.searchPeoplePlaceholder",
+                    { defaultValue: "Search people" },
+                  )}
+                  aria-label={t(
+                    /* i18n-key-ignore */
+                    "integrations.searchPeopleLabel",
+                    { defaultValue: "Search workspace members" },
+                  )}
+                  className="h-9 ps-9"
+                />
+              </div>
+              {memberSearch.isLoading ? (
+                <p className="px-1 text-xs text-muted-foreground">
+                  {t(
+                    /* i18n-key-ignore */
+                    "integrations.loadingPeople",
+                    { defaultValue: "Loading people..." },
+                  )}
+                </p>
+              ) : memberSearch.error ? (
+                <p className="px-1 text-xs text-destructive">
+                  {t(
+                    /* i18n-key-ignore */
+                    "integrations.peopleLoadError",
+                    { defaultValue: "Could not load workspace members." },
+                  )}
+                </p>
+              ) : memberSearch.members.length > 0 ? (
+                <div className="grid gap-1">
+                  {memberSearch.members.map((member) => {
+                    const checked = selectedSet.has(member.email.toLowerCase());
+                    return (
+                      <Label
+                        key={member.email}
+                        htmlFor={`connection-user-${member.email}`}
+                        className="flex cursor-pointer items-center justify-between gap-3 rounded-md bg-background/60 px-3 py-2 transition-colors hover:bg-accent/30"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">
+                            {member.name || member.email}
+                          </span>
+                          {member.name ? (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {member.email}
+                            </span>
+                          ) : null}
+                        </span>
+                        <Checkbox
+                          id={`connection-user-${member.email}`}
+                          checked={checked}
+                          onCheckedChange={(value) =>
+                            toggleMember(member, value === true)
+                          }
+                          aria-label={member.email}
+                        />
+                      </Label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="px-1 text-xs text-muted-foreground">
+                  {t(
+                    /* i18n-key-ignore */
+                    "integrations.noPeopleFound",
+                    { defaultValue: "No workspace members found." },
+                  )}
+                </p>
+              )}
+              {memberSearch.hasMore ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={memberSearch.loadMore}
+                  disabled={memberSearch.isLoadingMore}
+                  className="w-fit text-xs"
+                >
+                  {t(
+                    /* i18n-key-ignore */
+                    "integrations.loadMorePeople",
+                    { defaultValue: "Load more" },
+                  )}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function GroupEditor({
+  open,
+  group,
+  saving,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  group: WorkspaceUserGroup | null;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (name: string, memberEmails: string[]) => void;
+}) {
+  const t = useT();
+  const [name, setName] = useState("");
+  const [members, setMembers] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const memberSearch = useShareOrgMemberSearch(query, open, { limit: 100 });
+  const selectedSet = useMemo(
+    () => new Set(members.map((email) => email.toLowerCase())),
+    [members],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setName(group?.name ?? "");
+    setMembers(group?.memberEmails ?? []);
+    setQuery("");
+  }, [group, open]);
+
+  function toggleMember(email: string, checked: boolean) {
+    const normalized = email.toLowerCase();
+    setMembers((current) =>
+      checked
+        ? Array.from(new Set([...current, normalized]))
+        : current.filter((value) => value !== normalized),
+    );
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t(group ? "integrations.editGroup" : "integrations.createGroup")}
+      description={t("integrations.groupDescription")}
+    >
+      <form
+        className="flex min-h-0 flex-1 flex-col"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave(name.trim(), members);
+        }}
+      >
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+          <TextField
+            label={t("integrations.groupName")}
+            value={name}
+            onChange={setName}
+            placeholder={t("integrations.groupNamePlaceholder")}
+            required
+          />
+
+          <div className="grid gap-2">
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <Label>{t("integrations.members")}</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("integrations.groupMembersDescription")}
+                </p>
+              </div>
+              <Pill className="border-0 bg-muted text-muted-foreground">
+                {t("integrations.selectedMembers", { count: members.length })}
+              </Pill>
+            </div>
+            <div className="relative">
+              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("integrations.searchPeoplePlaceholder")}
+                aria-label={t("integrations.searchPeopleLabel")}
+                className="h-9 ps-9"
+              />
+            </div>
+            {memberSearch.isLoading ? (
+              <p className="px-1 text-xs text-muted-foreground">
+                {t("integrations.loadingPeople")}
+              </p>
+            ) : memberSearch.error ? (
+              <p className="px-1 text-xs text-destructive">
+                {t("integrations.peopleLoadError")}
+              </p>
+            ) : (
+              <div className="grid gap-1">
+                {memberSearch.members.map((member) => {
+                  const checked = selectedSet.has(member.email.toLowerCase());
+                  return (
+                    <Label
+                      key={member.email}
+                      htmlFor={`group-member-${member.email}`}
+                      className="flex cursor-pointer items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 transition-colors hover:bg-muted/55"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">
+                          {member.name || member.email}
+                        </span>
+                        {member.name ? (
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {member.email}
+                          </span>
+                        ) : null}
+                      </span>
+                      <Checkbox
+                        id={`group-member-${member.email}`}
+                        checked={checked}
+                        onCheckedChange={(value) =>
+                          toggleMember(member.email, value === true)
+                        }
+                        aria-label={member.email}
+                      />
+                    </Label>
+                  );
+                })}
+              </div>
+            )}
+            {memberSearch.hasMore ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={memberSearch.loadMore}
+                disabled={memberSearch.isLoadingMore}
+                className="w-fit text-xs"
+              >
+                {t("integrations.loadMorePeople")}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        <DialogFooter className="shrink-0 border-t p-4">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            {t("integrations.cancel")}
+          </Button>
+          <Button type="submit" disabled={saving || !name.trim()}>
+            {saving ? <IconRefresh size={14} className="animate-spin" /> : null}
+            {t(group ? "integrations.saveGroup" : "integrations.createGroup")}
+          </Button>
+        </DialogFooter>
+      </form>
+    </Modal>
+  );
+}
+
+function ConnectionForm({
+  open,
+  form,
+  providers,
+  grantApps,
+  groups,
+  canManageGroups,
+  canManageAllApps,
+  saving,
+  onChange,
+  onClose,
+  onSubmit,
+  onManageGroups,
+  onEditGroup,
+}: {
+  open: boolean;
+  form: ConnectionFormState | null;
+  providers: WorkspaceConnectionProvider[];
+  grantApps: GrantApp[];
+  groups: WorkspaceUserGroup[];
+  canManageGroups: boolean;
+  canManageAllApps: boolean;
+  saving: boolean;
+  onChange: (form: ConnectionFormState) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onManageGroups: () => void;
+  onEditGroup: (group: WorkspaceUserGroup) => void;
+}) {
+  const t = useT();
+  if (!form) return null;
+  const provider = providers.find((item) => item.id === form.provider);
+  const credentialRefs = normalizeCredentialRefs(form.credentialRefs, provider);
+  const missingCredentialRefs = missingRequiredCredentialKeys(
+    provider,
+    credentialRefs,
+  );
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      fullscreen
+      title={
+        form.id
+          ? t("integrations.editConnection")
+          : t("integrations.newConnection")
+      }
+      description={provider?.description}
+    >
+      <form onSubmit={onSubmit}>
+        <div className="grid gap-4 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-1.5 text-sm">
+              <Label>{t("integrations.provider")}</Label>
+              <Select
+                value={form.provider}
+                onValueChange={(value) => {
+                  const nextProvider = providers.find(
+                    (item) => item.id === value,
+                  );
+                  onChange({
+                    ...form,
+                    provider: value,
+                    label: form.label || nextProvider?.label || value,
+                    credentialRefs: nextProvider
+                      ? credentialRefsForProvider(nextProvider)
+                      : form.credentialRefs,
+                  });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("integrations.chooseProvider")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {providers.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5 text-sm">
+              <Label>{t("integrations.statusLabel")}</Label>
+              <Select
+                value={form.status}
+                onValueChange={(value) =>
+                  onChange({
+                    ...form,
+                    status: value as WorkspaceConnectionStatus,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.keys(STATUS_CLASSES).map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {statusLabel(t, value as WorkspaceConnectionStatus)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField
+              label={t("integrations.label")}
+              value={form.label}
+              onChange={(value) => onChange({ ...form, label: value })}
+              required
+            />
+            <TextField
+              label={t("integrations.accountLabel")}
+              value={form.accountLabel}
+              onChange={(value) => onChange({ ...form, accountLabel: value })}
+              placeholder={t("integrations.accountLabelPlaceholder")}
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField
+              label={t("integrations.accountId")}
+              value={form.accountId}
+              onChange={(value) => onChange({ ...form, accountId: value })}
+              placeholder={t("integrations.accountIdPlaceholder")}
+            />
+            <TextField
+              label={t("integrations.scopes")}
+              value={form.scopes}
+              onChange={(value) => onChange({ ...form, scopes: value })}
+              placeholder={t("integrations.scopesPlaceholder")}
+            />
+          </div>
+
+          <div className="rounded-md bg-muted/30 p-3">
+            {canManageAllApps ? (
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">
+                    {t("integrations.accessMode")}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {form.allApps
+                      ? t("integrations.allAppsCanReuseConnection")
+                      : t("integrations.onlySelectedAppsCanReuseConnection")}
+                  </div>
+                </div>
+                <Switch
+                  checked={form.allApps}
+                  onCheckedChange={(checked) =>
+                    onChange({ ...form, allApps: checked })
+                  }
+                  aria-label={t("integrations.grantAllWorkspaceAppsAria")}
+                />
+              </div>
+            ) : (
+              <div>
+                <div className="text-sm font-medium">
+                  {t("integrations.dispatchOnlyAccess", {
+                    defaultValue: "Dispatch only",
+                  })}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("integrations.dispatchOnlyAccessDescription", {
+                    defaultValue:
+                      "You can manage connections for Dispatch. Organization admins can share them with other apps.",
+                  })}
+                </div>
+              </div>
+            )}
+            {!form.allApps && canManageAllApps ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {grantApps.map((app) => {
+                  const AppIcon = app.icon;
+                  const selected = form.selectedApps.includes(app.id);
+                  return (
+                    <Button
+                      key={app.id}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() =>
+                        onChange({
+                          ...form,
+                          selectedApps: selected
+                            ? form.selectedApps.filter((id) => id !== app.id)
+                            : [...form.selectedApps, app.id],
+                        })
+                      }
+                      variant={selected ? "default" : "outline"}
+                      size="sm"
+                      className={cx(
+                        "h-8 px-2.5 text-xs",
+                        !selected && "text-muted-foreground",
+                      )}
+                    >
+                      <AppIcon size={13} />
+                      {app.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+
+          <UserAccessControl
+            allUsers={form.allUsers}
+            selectedUsers={form.selectedUsers}
+            selectedUserGroups={form.selectedUserGroups}
+            groups={groups}
+            canManageGroups={canManageGroups}
+            onManageGroups={onManageGroups}
+            onEditGroup={onEditGroup}
+            onChange={({ allUsers, selectedUsers, selectedUserGroups }) =>
+              onChange({
+                ...form,
+                allUsers,
+                selectedUsers,
+                selectedUserGroups,
+              })
+            }
+          />
+
+          <CredentialRefsEditor
+            provider={provider}
+            refs={form.credentialRefs}
+            missingRefs={missingCredentialRefs}
+            onChange={(credentialRefs) => onChange({ ...form, credentialRefs })}
+          />
+        </div>
+        <DialogFooter className="border-t p-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={saving}
+          >
+            {t("integrations.cancel")}
+          </Button>
+          <Button type="submit" disabled={saving || !form.label.trim()}>
+            {saving ? <IconRefresh size={14} className="animate-spin" /> : null}
+            {t("integrations.saveConnection")}
+          </Button>
+        </DialogFooter>
+      </form>
+    </Modal>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  required?: boolean;
+}) {
+  return (
+    <div className="grid gap-1.5 text-sm">
+      <Label>{label}</Label>
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        required={required}
+      />
+    </div>
+  );
+}
+
+function CredentialRefsEditor({
+  provider,
+  refs,
+  missingRefs,
+  progressive = false,
+  onChange,
+}: {
+  provider?: WorkspaceConnectionProvider;
+  refs: WorkspaceConnectionCredentialRef[];
+  missingRefs: string[];
+  progressive?: boolean;
+  onChange: (refs: WorkspaceConnectionCredentialRef[]) => void;
+}) {
+  const t = useT();
+  if (
+    progressive &&
+    refs.length === 0 &&
+    provider?.credentialKeys.length === 0
+  ) {
+    return (
+      <div className="grid gap-5">
+        <div>
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+            {t("integrations.credentialRefs")}
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            {t(
+              /* i18n-key-ignore */
+              "integrations.noCredentialRefs",
+              { defaultValue: "No keys are needed for this connection." },
+            )}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-fit"
+          onClick={() => onChange(appendCredentialRef([], provider))}
+        >
+          <IconPlus size={14} />
+          {t("integrations.addRef")}
+        </Button>
+      </div>
+    );
+  }
+  const providerKeys = new Map(
+    provider?.credentialKeys.map((credential) => [
+      credential.key,
+      credential,
+    ]) ?? [],
+  );
+  const rows = refs.length > 0 ? refs : appendCredentialRef([], provider);
+
+  return (
+    <div className="rounded-md bg-muted/30 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">
+            {t("integrations.credentialRefs")}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {t("integrations.credentialRefsDescription")}
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onChange(appendCredentialRef(refs, provider))}
+        >
+          <IconPlus size={14} />
+          {t("integrations.addRef")}
+        </Button>
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        {rows.map((ref, index) => {
+          const credential = providerKeys.get(ref.key);
+          return (
+            <div
+              key={`${index}:${ref.provider ?? provider?.id ?? "provider"}`}
+              className="grid gap-2 rounded-md bg-muted/40 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto]"
+            >
+              <div className="grid min-w-0 gap-1.5 text-sm">
+                <Label className="flex items-center gap-1.5">
+                  {t("integrations.refName")}
+                  {credential?.required ? (
+                    <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
+                      {t("integrations.required")}
+                    </Pill>
+                  ) : null}
+                </Label>
+                <Input
+                  value={ref.key}
+                  onChange={(event) =>
+                    onChange(
+                      upsertCredentialRefAt(rows, index, {
+                        key: event.target.value,
+                        label:
+                          providerKeys.get(event.target.value)?.label ??
+                          ref.label,
+                        provider: provider?.id ?? ref.provider,
+                      }),
+                    )
+                  }
+                  placeholder={
+                    provider?.credentialKeys[index]?.key ?? "VAULT_KEY_NAME"
+                  }
+                  spellCheck={false}
+                  className="font-mono"
+                />
+                {credential?.description ? (
+                  <span className="text-xs leading-5 text-muted-foreground">
+                    {credential.description}
+                  </span>
+                ) : null}
+              </div>
+              <div className="grid gap-1.5 text-sm">
+                <Label>{t("integrations.scope")}</Label>
+                <Select
+                  value={ref.scope ?? "org"}
+                  onValueChange={(value) =>
+                    onChange(
+                      upsertCredentialRefAt(rows, index, {
+                        scope:
+                          value as WorkspaceConnectionCredentialRef["scope"],
+                      }),
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="org">
+                      {t("integrations.scopeOrg")}
+                    </SelectItem>
+                    <SelectItem value="workspace">
+                      {t("integrations.scopeWorkspace")}
+                    </SelectItem>
+                    <SelectItem value="user">
+                      {t("integrations.scopeUser")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() =>
+                    onChange(rows.filter((_, itemIndex) => itemIndex !== index))
+                  }
+                  aria-label={t("integrations.removeRefAria", {
+                    ref: ref.key || t("integrations.credentialRef"),
+                  })}
+                >
+                  <IconTrash size={14} />
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {missingRefs.length > 0 ? (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <IconAlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>
+            {t("integrations.missingRequiredRefs", {
+              refs: missingRefs.join(", "),
+            })}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SetupWizard({
+  open,
+  state,
+  step,
+  plan,
+  form,
+  providers,
+  grantApps,
+  groups,
+  canManageGroups,
+  canManageAllApps,
+  loading,
+  saving,
+  onStepChange,
+  onChange,
+  onClose,
+  onSubmit,
+  onManageGroups,
+  onEditGroup,
+}: {
+  open: boolean;
+  state: SetupWizardState | null;
+  step: number;
+  plan?: WorkspaceConnectionSetupPlan;
+  form: SetupWizardFormState | null;
+  providers: WorkspaceConnectionProvider[];
+  grantApps: GrantApp[];
+  groups: WorkspaceUserGroup[];
+  canManageGroups: boolean;
+  canManageAllApps: boolean;
+  loading: boolean;
+  saving: boolean;
+  onStepChange: (step: number) => void;
+  onChange: (form: SetupWizardFormState) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+  onManageGroups: () => void;
+  onEditGroup: (group: WorkspaceUserGroup) => void;
+}) {
+  const t = useT();
+  const provider =
+    plan?.provider ?? providers.find((item) => item.id === state?.providerId);
+  const credentialRefs = form
+    ? normalizeCredentialRefs(form.credentialRefs, provider)
+    : [];
+  const missingCredentialRefs = missingRequiredCredentialKeys(
+    provider,
+    credentialRefs,
+  );
+  const visiblePlanWarnings = (plan?.warnings ?? []).filter(
+    (warning) =>
+      !warning.startsWith("Missing required credential refs:") ||
+      missingCredentialRefs.length > 0,
+  );
+  const hasCredentialStep = Boolean(
+    provider &&
+    (provider.credentialKeys.length > 0 || credentialRefs.length > 0),
+  );
+  const selectedApps = form?.selectedApps ?? [];
+  const selectedUsers = form?.selectedUsers ?? [];
+  const selectedUserGroups = form?.selectedUserGroups ?? [];
+  const stepItems = [
+    t("integrations.provider"),
+    ...(hasCredentialStep ? [t("integrations.refs")] : []),
+    t("integrations.access"),
+  ];
+  const isProviderStep = step === 0;
+  const isCredentialStep = hasCredentialStep && step === 1;
+  const isAccessStep = step === stepItems.length - 1;
+  const canAdvance = isProviderStep
+    ? Boolean(form?.label.trim())
+    : isCredentialStep
+      ? missingCredentialRefs.length === 0
+      : (form?.grantMode === "all-apps" || selectedApps.length > 0) &&
+        (form?.userGrantMode === "all-users" ||
+          selectedUsers.length > 0 ||
+          selectedUserGroups.length > 0);
+  const suggestedGrantApps = useMemo(() => {
+    const map = new Map<
+      string,
+      GrantApp & {
+        recommended: boolean;
+      }
+    >();
+    for (const app of plan?.suggestedApps ?? []) {
+      map.set(app.id, {
+        id: app.id,
+        label: app.label,
+        icon: iconForApp(app.id),
+        recommended: app.recommended,
+      });
+    }
+    for (const app of grantApps) {
+      const current = map.get(app.id);
+      map.set(app.id, {
+        ...app,
+        recommended: current?.recommended ?? false,
+      });
+    }
+    return Array.from(map.values());
+  }, [grantApps, plan?.suggestedApps]);
+  const availableGrantApps = canManageAllApps
+    ? suggestedGrantApps
+    : suggestedGrantApps.filter((app) => app.id.toLowerCase() === "dispatch");
+  const selectedAppLabels = availableGrantApps
+    .filter((app) => selectedApps.includes(app.id))
+    .map((app) => app.label);
+  const accessSummary =
+    form?.grantMode === "all-apps"
+      ? t("integrations.allApps")
+      : t("integrations.selectedApps");
+  const accessSummaryDescription =
+    form?.grantMode === "all-apps"
+      ? t("integrations.everyWorkspaceAppCanReuse")
+      : selectedAppLabels.length > 0
+        ? t("integrations.selectedAppsCanReuse", {
+            apps: selectedAppLabels.join(", "),
+          })
+        : t("integrations.chooseOneApp");
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      fullscreen
+      title={
+        state?.mode === "repair"
+          ? t("integrations.repairConnectionTitle", {
+              connection:
+                form?.label ||
+                provider?.label ||
+                t("integrations.connectionFallback"),
+            })
+          : t("integrations.connectProviderTitle", {
+              provider: provider?.label || t("integrations.providerFallback"),
+            })
+      }
+      description={undefined}
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto grid w-full max-w-2xl gap-8 px-6 py-8 sm:px-10 sm:py-12">
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
+              <span>
+                Step {step + 1} of {stepItems.length}
+              </span>
+              <span className="font-medium text-foreground">
+                {stepItems[step]}
+              </span>
+            </div>
+            <div className="h-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-200 ease-[var(--ease-out-strong)]"
+                style={{ width: `${((step + 1) / stepItems.length) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="rounded-lg bg-muted/30 px-6 py-10 text-center text-sm text-muted-foreground">
+              {t("integrations.loadingSetupPlan")}
+            </div>
+          ) : null}
+
+          {!loading && form && provider ? (
+            <>
+              {visiblePlanWarnings.length ? (
+                <div className="grid gap-2">
+                  {visiblePlanWarnings.map((warning) => (
+                    <div
+                      key={warning}
+                      className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+                    >
+                      <IconAlertTriangle
+                        size={15}
+                        className="mt-0.5 shrink-0"
+                      />
+                      <span className="min-w-0 break-words">{warning}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {isProviderStep ? (
+                <div className="grid gap-6">
+                  <div className="flex items-center gap-3">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted/40">
+                      {logoForProvider(provider.id, provider.label)}
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                        {provider.label}
+                      </h2>
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        {t("integrations.scopeWorkspace")}
+                      </p>
+                    </div>
+                  </div>
+
+                  <TextField
+                    label={t("integrations.connectionLabel")}
+                    value={form.label}
+                    onChange={(value) => onChange({ ...form, label: value })}
+                    required
+                  />
+
+                  <details className="group rounded-lg bg-muted/30">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 text-sm font-medium text-foreground marker:hidden">
+                      <span>
+                        {t(
+                          /* i18n-key-ignore */
+                          "integrations.advancedDetails",
+                          { defaultValue: "Advanced details" },
+                        )}
+                      </span>
+                      <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="grid gap-3 px-3.5 pb-3.5 sm:grid-cols-2">
+                      <TextField
+                        label={t("integrations.accountLabel")}
+                        value={form.accountLabel}
+                        onChange={(value) =>
+                          onChange({ ...form, accountLabel: value })
+                        }
+                        placeholder={t("integrations.accountLabelPlaceholder")}
+                      />
+                      <TextField
+                        label={t("integrations.accountId")}
+                        value={form.accountId}
+                        onChange={(value) =>
+                          onChange({ ...form, accountId: value })
+                        }
+                        placeholder={t("integrations.accountIdPlaceholder")}
+                      />
+                      <div className="sm:col-span-2">
+                        <p className="text-xs font-medium text-foreground">
+                          {t("integrations.providerPlan")}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {provider.capabilities.map((capability) => (
+                            <Pill
+                              key={capability}
+                              className="border-border bg-muted"
+                            >
+                              {capability}
+                            </Pill>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              ) : null}
+
+              {isCredentialStep ? (
+                <CredentialRefsEditor
+                  provider={provider}
+                  refs={form.credentialRefs}
+                  missingRefs={missingCredentialRefs}
+                  progressive
+                  onChange={(credentialRefs) =>
+                    onChange({ ...form, credentialRefs })
+                  }
+                />
+              ) : null}
+
+              {isAccessStep ? (
+                <div className="grid gap-5">
+                  <div>
+                    <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                      {t("integrations.access")}
+                    </h2>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <div className="flex items-center gap-3 rounded-lg bg-muted/30 px-4 py-3.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-foreground">
+                          {accessSummary}
+                        </p>
+                        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                          {accessSummaryDescription}
+                        </p>
+                      </div>
+                    </div>
+
+                    {canManageAllApps ? (
+                      <details className="group rounded-lg bg-muted/30">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground marker:hidden">
+                          <span>{t("integrations.appGrants")}</span>
+                          <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                        </summary>
+                        <div className="grid gap-3 px-4 pb-4">
+                          <div className="flex items-center justify-between gap-4 rounded-md bg-muted/40 px-3 py-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground">
+                                {t("integrations.allApps")}
+                              </p>
+                              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                                {t("integrations.allAppsDescription")}
+                              </p>
+                            </div>
+                            <Switch
+                              checked={form.grantMode === "all-apps"}
+                              onCheckedChange={(checked) =>
+                                onChange({
+                                  ...form,
+                                  grantMode: checked
+                                    ? "all-apps"
+                                    : "selected-apps",
+                                  selectedApps: checked
+                                    ? []
+                                    : selectedApps.length > 0
+                                      ? selectedApps
+                                      : suggestedGrantApps
+                                          .filter((app) => app.recommended)
+                                          .slice(0, 1)
+                                          .map((app) => app.id),
+                                })
+                              }
+                              aria-label={t(
+                                "integrations.grantAllWorkspaceAppsAria",
+                              )}
+                            />
+                          </div>
+
+                          {form.grantMode === "selected-apps" ? (
+                            <div className="grid gap-3">
+                              <p className="text-xs text-muted-foreground">
+                                {t("integrations.chooseOneApp")}
+                              </p>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {availableGrantApps.map((app) => {
+                                  const AppIcon = app.icon;
+                                  const selected = selectedApps.includes(
+                                    app.id,
+                                  );
+                                  return (
+                                    <Label
+                                      key={app.id}
+                                      htmlFor={`setup-app-${app.id}`}
+                                      className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2 transition-colors hover:bg-muted/60"
+                                    >
+                                      <span className="flex min-w-0 items-center gap-2">
+                                        <AppIcon
+                                          size={14}
+                                          className="text-muted-foreground"
+                                        />
+                                        <span className="truncate text-sm font-medium">
+                                          {app.label}
+                                        </span>
+                                        {app.recommended ? (
+                                          <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
+                                            {t("integrations.suggested")}
+                                          </Pill>
+                                        ) : null}
+                                      </span>
+                                      <Checkbox
+                                        id={`setup-app-${app.id}`}
+                                        checked={selected}
+                                        onCheckedChange={(checked) =>
+                                          onChange({
+                                            ...form,
+                                            selectedApps: checked
+                                              ? Array.from(
+                                                  new Set([
+                                                    ...selectedApps,
+                                                    app.id,
+                                                  ]),
+                                                )
+                                              : selectedApps.filter(
+                                                  (appId) => appId !== app.id,
+                                                ),
+                                          })
+                                        }
+                                        aria-label={t(
+                                          "integrations.appGrantAria",
+                                          {
+                                            action: selected
+                                              ? t("integrations.remove")
+                                              : t("integrations.grant"),
+                                            app: app.label,
+                                          },
+                                        )}
+                                      />
+                                    </Label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </details>
+                    ) : null}
+                  </div>
+                  <UserAccessControl
+                    allUsers={form.userGrantMode === "all-users"}
+                    selectedUsers={selectedUsers}
+                    selectedUserGroups={selectedUserGroups}
+                    groups={groups}
+                    canManageGroups={canManageGroups}
+                    onManageGroups={onManageGroups}
+                    onEditGroup={onEditGroup}
+                    onChange={({
+                      allUsers,
+                      selectedUsers: nextUsers,
+                      selectedUserGroups: nextGroups,
+                    }) =>
+                      onChange({
+                        ...form,
+                        userGrantMode: allUsers
+                          ? "all-users"
+                          : "selected-users",
+                        selectedUsers: nextUsers,
+                        selectedUserGroups: nextGroups,
+                      })
+                    }
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      <DialogFooter className="shrink-0 border-t px-6 py-4 sm:px-10">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onClose}
+            disabled={saving}
+          >
+            {t("integrations.cancel")}
+          </Button>
+          <div className="flex items-center gap-2">
+            {step > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onStepChange(step - 1)}
+                disabled={saving}
+              >
+                <IconArrowLeft size={14} className="rtl:-scale-x-100" />
+                {t("integrations.back")}
+              </Button>
+            ) : null}
+            {!isAccessStep ? (
+              <Button
+                type="button"
+                onClick={() => onStepChange(step + 1)}
+                disabled={!canAdvance || loading || saving}
+              >
+                {t("integrations.next")}
+                <IconArrowRight size={14} className="rtl:-scale-x-100" />
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                onClick={onSubmit}
+                disabled={!canAdvance || loading || saving}
+              >
+                {saving ? (
+                  <IconRefresh size={14} className="animate-spin" />
+                ) : null}
+                {state?.mode === "repair"
+                  ? t("integrations.applyRepair")
+                  : t("integrations.createConnection")}
+              </Button>
+            )}
+          </div>
+        </div>
+      </DialogFooter>
+    </Modal>
+  );
+}
+
+function DeleteConfirm({
+  connection,
+  deleting,
+  onClose,
+  onConfirm,
+}: {
+  connection: WorkspaceConnection | null;
+  deleting: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const t = useT();
+  const { data: impact, isLoading: impactLoading } =
+    useActionQuery<WorkspaceConnectionImpactPreview>(
+      "preview-workspace-connection-impact",
+      {
+        connectionId: connection?.id ?? "",
+        operation: "delete-connection",
+      },
+      { enabled: Boolean(connection?.id) },
+    );
+
+  return (
+    <AlertDialog
+      open={!!connection}
+      onOpenChange={(open) => !open && onClose()}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t("integrations.deleteConnection")}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {connection?.label
+              ? t("integrations.deleteConnectionDescription", {
+                  connection: connection.label,
+                })
+              : t("integrations.deleteSharedConnectionDescription")}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <ConnectionDeleteImpact impact={impact} loading={impactLoading} />
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>
+            {t("integrations.cancel")}
+          </AlertDialogCancel>
+          <AlertDialogAction
+            disabled={deleting}
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {deleting ? (
+              <IconRefresh size={14} className="animate-spin" />
+            ) : null}
+            {t("integrations.delete")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function ConnectionDeleteImpact({
+  impact,
+  loading,
+}: {
+  impact?: WorkspaceConnectionImpactPreview;
+  loading: boolean;
+}) {
+  const t = useT();
+  if (loading) {
+    return (
+      <div className="rounded-md bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+        {t("integrations.checkingAffectedApps")}
+      </div>
+    );
+  }
+  if (!impact) return null;
+
+  const appLabels = impact.likelyAffectedApps
+    .map((app) => app.label)
+    .slice(0, 4);
+  const extraCount = Math.max(
+    0,
+    impact.likelyAffectedApps.length - appLabels.length,
+  );
+
+  return (
+    <div className="rounded-md bg-muted/30 px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <Pill className="border-border bg-background text-muted-foreground">
+          {impact.impactSummary.hasAllAppsAccess
+            ? t("integrations.allAppConnection")
+            : t("integrations.selectedGrants")}
+        </Pill>
+        {impact.impactSummary.usageTracked ? (
+          <Pill className="border-border bg-background text-muted-foreground">
+            <IconClock size={12} />
+            {formatTimestamp(t, impact.impactSummary.lastUsedAt)}
+          </Pill>
+        ) : null}
+      </div>
+      <p className="mt-2 leading-5 text-muted-foreground">
+        {impact.likelyAffectedApps.length > 0
+          ? t("integrations.likelyAffected", {
+              apps: appLabels.join(", "),
+              suffix: extraCount ? ` +${extraCount}` : "",
+            })
+          : t("integrations.noCurrentAppGrants")}
+      </p>
+      <p className="mt-1 leading-5 text-muted-foreground">
+        {impact.recommendedConfirmation.body}
+      </p>
+    </div>
+  );
+}
+
+export default function WorkspaceIntegrationsRoute() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const { canManageOrg } = useOrgRole();
+  const { data: dispatchAppRole } = useAppRoles("dispatch");
+  const isDispatchAppAdmin = dispatchAppRole?.myRole === "admin";
+  const canManageConnections = canManageOrg || isDispatchAppAdmin;
+  const [form, setForm] = useState<ConnectionFormState | null>(null);
+  const [setupWizard, setSetupWizard] = useState<SetupWizardState | null>(null);
+  const [setupStep, setSetupStep] = useState(0);
+  const [setupForm, setSetupForm] = useState<SetupWizardFormState | null>(null);
+  const [setupFormKey, setSetupFormKey] = useState("");
+  const [providerQuery, setProviderQuery] = useState("");
+  const [providerChoice, setProviderChoice] = useState<ProviderChoice | null>(
+    null,
+  );
+  const [personalIntegrationId, setPersonalIntegrationId] = useState<
+    string | null
+  >(null);
+  const [customMcpOpen, setCustomMcpOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<WorkspaceConnection | null>(
+    null,
+  );
+  const [groupEditor, setGroupEditor] = useState<{
+    group: WorkspaceUserGroup | null;
+  } | null>(null);
+
+  const connectionsQuery = useActionQuery(
+    "list-workspace-connections",
+    CONNECTION_QUERY_PARAMS,
+  );
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+    audience: "all",
+  });
+  const groupsQuery = useActionQuery(
+    "list-workspace-user-groups",
+    {},
+    { enabled: canManageOrg },
+  );
+  const setupPlanQuery = useActionQuery<WorkspaceConnectionSetupPlan>(
+    "plan-workspace-connection-setup",
+    {
+      provider: setupWizard?.providerId,
+      connectionId: setupWizard?.connectionId,
+    },
+    { enabled: Boolean(setupWizard) },
+  );
+
+  const data = (connectionsQuery.data ??
+    EMPTY_RESPONSE) as WorkspaceConnectionsResponse;
+  const providers = data.providers;
+  const connections = data.connections;
+  const googleOAuthUnavailable =
+    data.availability?.googleOAuth.status === "unavailable" &&
+    data.availability.googleOAuth.retryable;
+  const apps = (appsQuery.data ?? []) as WorkspaceAppSummary[];
+  const groups = (groupsQuery.data ?? []) as WorkspaceUserGroup[];
+  const providersById = useMemo(
+    () => new Map(providers.map((provider) => [provider.id, provider])),
+    [providers],
+  );
+
+  const grantApps = useMemo<GrantApp[]>(() => {
+    const map = new Map<string, GrantApp>();
+    for (const app of apps) {
+      if (app.archived || app.status === "pending") continue;
+      map.set(app.id, {
+        id: app.id,
+        label: app.name || humanizeAppId(app.id),
+        icon: iconForApp(app.id),
+      });
+    }
+    return Array.from(map.values());
+  }, [apps]);
+
+  const providerConnections = useMemo(() => {
+    const map = new Map<string, WorkspaceConnection[]>();
+    for (const connection of connections) {
+      const items = map.get(connection.provider) ?? [];
+      items.push(connection);
+      map.set(connection.provider, items);
+    }
+    return map;
+  }, [connections]);
+  const personalIntegrations = useMemo(() => {
+    const map = new Map<string, DefaultMcpIntegration>();
+    for (const integration of getDefaultMcpIntegrations()) {
+      map.set(integration.provider, integration);
+      map.set(integration.id, integration);
+    }
+    return map;
+  }, []);
+  const filteredProviders = useMemo(() => {
+    const query = providerQuery.trim().toLowerCase();
+    if (!query) return providers;
+    return providers.filter((provider) =>
+      `${provider.label} ${provider.description} ${provider.capabilities.join(" ")}`
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [providerQuery, providers]);
+
+  const upsertConnection = useActionMutation("upsert-workspace-connection");
+  const applySetup = useActionMutation("apply-workspace-connection-setup");
+  const setGrant = useActionMutation("set-workspace-connection-grant");
+  const deleteConnection = useActionMutation("delete-workspace-connection");
+  const upsertGroup = useActionMutation("upsert-workspace-user-group");
+  const createPersonalMcpServer = useCreateMcpServer();
+
+  const currentSetupKey = setupWizard
+    ? `${setupWizard.mode}:${setupWizard.connectionId ?? ""}:${
+        setupWizard.providerId
+      }`
+    : "";
+
+  useEffect(() => {
+    if (!setupWizard || !setupPlanQuery.data) return;
+    if (setupFormKey === currentSetupKey) return;
+    const nextForm = setupFormFromPlan(setupPlanQuery.data, setupWizard.mode);
+    if (!canManageOrg) {
+      nextForm.grantMode = "selected-apps";
+      nextForm.selectedApps = ["dispatch"];
+    }
+    setSetupForm(nextForm);
+    setSetupFormKey(currentSetupKey);
+  }, [
+    canManageOrg,
+    currentSetupKey,
+    setupFormKey,
+    setupPlanQuery.data,
+    setupWizard,
+  ]);
+
+  function openSetup(provider: WorkspaceConnectionProvider) {
+    if (!canManageConnections) return;
+    setSetupWizard({ mode: "setup", providerId: provider.id });
+    setSetupStep(0);
+    setSetupForm(null);
+    setSetupFormKey("");
+  }
+
+  function openProviderConnection(provider: WorkspaceConnectionProvider) {
+    if (isGoogleWorkspaceProvider(provider.id)) {
+      setProviderChoice({ provider, personalOAuth: true });
+      return;
+    }
+    const personalIntegration = personalIntegrations.get(provider.id);
+    if (personalIntegration) {
+      setProviderChoice({ provider, personalIntegration });
+      return;
+    }
+    if (!canManageConnections) return;
+    if (providerHasOAuth(provider)) {
+      startWorkspaceProviderOAuth(provider);
+      return;
+    }
+    openSetup(provider);
+  }
+
+  function openRepair(connection: WorkspaceConnection) {
+    if (!canManageConnection(connection)) return;
+    setSetupWizard({
+      mode: "repair",
+      providerId: connection.provider,
+      connectionId: connection.id,
+    });
+    setSetupStep(0);
+    setSetupForm(null);
+    setSetupFormKey("");
+  }
+
+  function openEdit(connection: WorkspaceConnection) {
+    if (!canManageConnection(connection)) return;
+    setForm(
+      formFromConnection(connection, providersById.get(connection.provider)),
+    );
+  }
+
+  function openGroupEditor(group: WorkspaceUserGroup | null = null) {
+    if (!canManageOrg) return;
+    setGroupEditor({ group });
+  }
+
+  function canManageConnection(connection: WorkspaceConnection): boolean {
+    return (
+      canManageOrg ||
+      (isDispatchAppAdmin &&
+        connection.allowedApps.length === 1 &&
+        connection.allowedApps[0]?.toLowerCase() === "dispatch")
+    );
+  }
+
+  function canManageConnectionGrant(
+    connection: WorkspaceConnection,
+    appId: string,
+  ): boolean {
+    return (
+      canManageOrg ||
+      (isDispatchAppAdmin &&
+        appId.toLowerCase() === "dispatch" &&
+        connection.allowedApps.length > 1 &&
+        connection.allowedApps.some(
+          (allowedApp) => allowedApp.toLowerCase() === "dispatch",
+        ))
+    );
+  }
+
+  async function handleSaveGroup(name: string, memberEmails: string[]) {
+    if (!canManageOrg) return;
+    try {
+      await upsertGroup.mutateAsync({
+        id: groupEditor?.group?.id,
+        name,
+        memberEmails,
+      });
+      toast.success(
+        t(
+          groupEditor?.group
+            ? "integrations.groupUpdated"
+            : "integrations.groupCreated",
+        ),
+      );
+      setGroupEditor(null);
+      void queryClient.invalidateQueries({ queryKey: GROUP_QUERY_KEY });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("integrations.groupSaveError"),
+      );
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!form) return;
+    if (form.id) {
+      const existing = connections.find(
+        (connection) => connection.id === form.id,
+      );
+      if (existing && !canManageConnection(existing)) return;
+    } else if (!canManageConnections) {
+      return;
+    }
+    if (
+      !canManageOrg &&
+      (form.allApps ||
+        form.selectedApps.some((appId) => appId.toLowerCase() !== "dispatch"))
+    ) {
+      return;
+    }
+    try {
+      const provider = providersById.get(form.provider);
+      const credentialRefs = normalizeCredentialRefs(
+        form.credentialRefs,
+        provider,
+      );
+      await upsertConnection.mutateAsync({
+        id: form.id,
+        provider: form.provider,
+        label: form.label.trim(),
+        accountId: form.accountId.trim() || null,
+        accountLabel: form.accountLabel.trim() || null,
+        status: form.status,
+        scopes: normalizeList(form.scopes),
+        credentialRefs,
+        allowedApps: form.allApps ? [] : form.selectedApps,
+        allowedUsers: form.allUsers ? [] : form.selectedUsers,
+        allowedUserGroups: form.allUsers ? [] : form.selectedUserGroups,
+      });
+      toast.success(
+        form.id
+          ? t("integrations.connectionUpdated")
+          : t("integrations.connectionCreated"),
+      );
+      setForm(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t("integrations.failedToSave"),
+      );
+    }
+  }
+
+  async function applySetupWizard() {
+    if (!setupForm) return;
+    if (!canManageConnections) return;
+    if (
+      !canManageOrg &&
+      (setupForm.grantMode === "all-apps" ||
+        setupForm.selectedApps.some(
+          (appId) => appId.toLowerCase() !== "dispatch",
+        ))
+    ) {
+      return;
+    }
+    try {
+      await applySetup.mutateAsync({
+        connectionId: setupForm.connectionId,
+        provider: setupForm.provider,
+        label: setupForm.label.trim(),
+        accountId: setupForm.accountId.trim() || null,
+        accountLabel: setupForm.accountLabel.trim() || null,
+        status: setupForm.status,
+        scopes: normalizeList(setupForm.scopes),
+        credentialRefs: normalizeCredentialRefs(
+          setupForm.credentialRefs,
+          providersById.get(setupForm.provider),
+        ),
+        grantMode: setupForm.grantMode,
+        selectedApps: setupForm.selectedApps,
+        userGrantMode: setupForm.userGrantMode,
+        selectedUsers: setupForm.selectedUsers,
+        selectedUserGroups: setupForm.selectedUserGroups,
+      });
+      toast.success(
+        setupForm.connectionId
+          ? t("integrations.connectionRepaired")
+          : t("integrations.connectionCreated"),
+      );
+      setSetupWizard(null);
+      setSetupForm(null);
+      setSetupFormKey("");
+      void queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("integrations.failedToApplySetup"),
+      );
+    }
+  }
+
+  async function toggleGrant(
+    connection: WorkspaceConnection,
+    appId: string,
+    granted: boolean,
+  ) {
+    if (!canManageConnectionGrant(connection, appId)) return;
+    const previous =
+      queryClient.getQueryData<WorkspaceConnectionsResponse>(
+        CONNECTION_QUERY_KEY,
+      );
+    const knownAppIds = grantApps.map((app) => app.id);
+    queryClient.setQueryData<WorkspaceConnectionsResponse>(
+      CONNECTION_QUERY_KEY,
+      (current) => {
+        if (!current) return current;
+        const existingGrant = current.grants.find(
+          (grant) =>
+            grant.connectionId === connection.id && grant.appId === appId,
+        );
+        return {
+          ...current,
+          connections: current.connections.map((item) =>
+            item.id === connection.id
+              ? {
+                  ...item,
+                  allowedApps: nextAllowedApps(
+                    item,
+                    appId,
+                    granted,
+                    knownAppIds,
+                  ),
+                }
+              : item,
+          ),
+          grants: granted
+            ? existingGrant
+              ? current.grants
+              : [
+                  ...current.grants,
+                  {
+                    id: `${connection.id}:${appId}:optimistic`,
+                    connectionId: connection.id,
+                    provider: connection.provider,
+                    appId,
+                    access: "explicit-grant",
+                  },
+                ]
+            : current.grants.filter(
+                (grant) =>
+                  !(
+                    grant.connectionId === connection.id &&
+                    (grant.appId === appId ||
+                      (connection.allowedApps.length === 0 &&
+                        grant.appId === "*"))
+                  ),
+              ),
+        };
+      },
+    );
+    try {
+      await setGrant.mutateAsync({
+        connectionId: connection.id,
+        appId,
+        granted,
+        knownAppIds,
+      });
+      void queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
+      toast.success(
+        granted ? t("integrations.grantAdded") : t("integrations.grantRevoked"),
+      );
+    } catch (error) {
+      if (previous) {
+        queryClient.setQueryData(CONNECTION_QUERY_KEY, previous);
+      }
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("integrations.failedToUpdateGrant"),
+      );
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    if (!canManageConnection(deleteTarget)) return;
+    const previous =
+      queryClient.getQueryData<WorkspaceConnectionsResponse>(
+        CONNECTION_QUERY_KEY,
+      );
+    queryClient.setQueryData<WorkspaceConnectionsResponse>(
+      CONNECTION_QUERY_KEY,
+      (current) =>
+        current
+          ? {
+              ...current,
+              connections: current.connections.filter(
+                (item) => item.id !== deleteTarget.id,
+              ),
+            }
+          : current,
+    );
+    try {
+      await deleteConnection.mutateAsync({ id: deleteTarget.id });
+      toast.success(t("integrations.connectionDeleted"));
+      setDeleteTarget(null);
+    } catch (error) {
+      if (previous) {
+        queryClient.setQueryData(CONNECTION_QUERY_KEY, previous);
+      }
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("integrations.failedToDeleteConnection"),
+      );
+    }
+  }
+
+  const connectedCount = connections.filter(
+    (connection) => connection.status === "connected",
+  ).length;
+  const attentionCount = connections.filter((connection) =>
+    ["needs_reauth", "error", "disabled"].includes(connection.status),
+  ).length;
+  const connectionsMissingKeys = connections.filter(
+    (connection) =>
+      missingRequiredCredentialKeys(
+        providersById.get(connection.provider),
+        connection.credentialRefs,
+      ).length,
+  ).length;
+  const usageTracked = connections.some(hasUsageTimestamp);
+  const neverUsedCount = connections.filter(
+    (connection) =>
+      hasUsageTimestamp(connection) && connection.lastUsedAt == null,
+  ).length;
+  const mostRecentUsage = Math.max(
+    ...connections
+      .map(usageSortValue)
+      .filter((value) => Number.isFinite(value) && value > 0),
+  );
+
+  return (
+    <DispatchShell
+      title={t("integrations.title")}
+      description={t("integrations.description")}
+    >
+      <div className="space-y-6">
+        {connectionsQuery.isError || appsQuery.isError ? (
+          <ActionQueryError
+            error={connectionsQuery.error ?? appsQuery.error}
+            onRetry={() => {
+              void connectionsQuery.refetch();
+              void appsQuery.refetch();
+            }}
+          />
+        ) : null}
+        {googleOAuthUnavailable ? (
+          <ActionQueryError onRetry={() => void connectionsQuery.refetch()} />
+        ) : null}
+        {!connectionsQuery.isError && !appsQuery.isError ? (
+          <>
+            {connectionsQuery.isLoading ? (
+              <div className="rounded-lg bg-muted/30 px-6 py-12 text-center text-sm text-muted-foreground">
+                {t("integrations.loadingWorkspaceIntegrations")}
+              </div>
+            ) : null}
+
+            <section>
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">
+                    {t(
+                      /* i18n-key-ignore */
+                      "integrations.workspaceCatalogTitle",
+                      { defaultValue: "Workspace integrations" },
+                    )}
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      /* i18n-key-ignore */
+                      "integrations.workspaceCatalogDescription",
+                      {
+                        defaultValue:
+                          "Connect once, then choose which apps can use it.",
+                      },
+                    )}
+                  </p>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <div className="relative w-full sm:w-64">
+                    <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={providerQuery}
+                      onChange={(event) => setProviderQuery(event.target.value)}
+                      placeholder={t(
+                        /* i18n-key-ignore */
+                        "integrations.searchWorkspacePlaceholder",
+                        { defaultValue: "Search integrations" },
+                      )}
+                      aria-label={t(
+                        /* i18n-key-ignore */
+                        "integrations.searchWorkspaceLabel",
+                        { defaultValue: "Search workspace integrations" },
+                      )}
+                      className="h-9"
+                    />
+                  </div>
+                  {isCustomMcpIntegrationEnabled() ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setCustomMcpOpen(true)}
+                    >
+                      <IconPlus size={14} />
+                      {t(
+                        /* i18n-key-ignore: shared core localization key */
+                        "mcpIntegrations.addYourOwn",
+                      )}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+              <IntegrationGrid
+                items={filteredProviders.map((provider) => {
+                  const active = (
+                    providerConnections.get(provider.id) ?? []
+                  ).filter((connection) => connection.status !== "disabled");
+                  const connected = active.length > 0;
+                  return {
+                    id: provider.id,
+                    name: provider.label,
+                    description: provider.description,
+                    logo: logoForProvider(provider.id, provider.label),
+                    status: connected ? "Connected" : undefined,
+                    statusClassName: connected
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-muted-foreground",
+                    actionLabel: connected
+                      ? canManageConnection(active[0])
+                        ? "Manage"
+                        : personalIntegrations.has(provider.id) ||
+                            isGoogleWorkspaceProvider(provider.id)
+                          ? "Connect for me"
+                          : "Admin only"
+                      : "Connect",
+                    disabled:
+                      !connected &&
+                      !canManageConnections &&
+                      !personalIntegrations.has(provider.id) &&
+                      !isGoogleWorkspaceProvider(provider.id),
+                    onAction: () =>
+                      connected
+                        ? canManageConnection(active[0])
+                          ? openEdit(active[0])
+                          : openProviderConnection(provider)
+                        : openProviderConnection(provider),
+                  };
+                })}
+                emptyLabel="No integrations match."
+              />
+            </section>
+
+            <details className="rounded-xl bg-muted/30">
+              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:hidden">
+                {t(/* i18n-key-ignore */ "integrations.workspaceOverview", {
+                  defaultValue: "Workspace overview",
+                })}
+              </summary>
+              <div className="p-4">
+                <section
+                  data-usage-tracked={usageTracked ? "true" : undefined}
+                  className={cx(
+                    "dispatch-integrations-summary-grid grid gap-3",
+                    usageTracked &&
+                      "dispatch-integrations-summary-grid-tracked",
+                  )}
+                >
+                  <SummaryCard
+                    icon={IconCheck}
+                    label={t("integrations.readyProviders")}
+                    value={`${data.counts.readyProviders ?? 0}/${providers.length}`}
+                    detail={t("integrations.readyProvidersDetail")}
+                  />
+                  <SummaryCard
+                    icon={IconPlugConnected}
+                    label={t("integrations.connections")}
+                    value={String(connections.length)}
+                    detail={t("integrations.connectedCount", {
+                      count: connectedCount,
+                    })}
+                  />
+                  <SummaryCard
+                    icon={IconShieldCheck}
+                    label={t("integrations.appGrants")}
+                    value={String(data.grants.length)}
+                    detail={t("integrations.appGrantsDetail", {
+                      allAppCount: data.counts.allAppConnections ?? 0,
+                      selectedCount: data.counts.selectedAppConnections ?? 0,
+                    })}
+                  />
+                  <SummaryCard
+                    icon={IconKey}
+                    label={t("integrations.keyHealth")}
+                    value={
+                      connectionsMissingKeys === 0
+                        ? t("integrations.healthy")
+                        : t("integrations.missingCount", {
+                            count: connectionsMissingKeys,
+                          })
+                    }
+                    detail={
+                      attentionCount
+                        ? t("integrations.connectionNeedsAttention", {
+                            count: attentionCount,
+                          })
+                        : t("integrations.requiredRefsPresent")
+                    }
+                  />
+                  {usageTracked ? (
+                    <SummaryCard
+                      icon={IconClock}
+                      label={t("integrations.usage")}
+                      value={
+                        Number.isFinite(mostRecentUsage)
+                          ? formatTimestamp(
+                              t,
+                              new Date(mostRecentUsage).toISOString(),
+                            )
+                          : t("integrations.time.neverUsed")
+                      }
+                      detail={
+                        neverUsedCount
+                          ? t("integrations.neverUsedCount", {
+                              count: neverUsedCount,
+                            })
+                          : t("integrations.allTrackedAccountsHaveUsage")
+                      }
+                    />
+                  ) : null}
+                </section>
+              </div>
+            </details>
+
+            <section>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">
+                    {t("integrations.connectedAccounts")}
+                  </h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {t("integrations.sharedConnectionsDescription", {
+                      defaultValue:
+                        "Saved provider connections that your apps can use.",
+                    })}
+                  </p>
+                </div>
+              </div>
+              {connections.length === 0 && !connectionsQuery.isLoading ? (
+                <div className="rounded-lg bg-muted/30 px-6 py-12 text-center">
+                  <IconPlugConnected
+                    size={24}
+                    className="mx-auto text-muted-foreground"
+                  />
+                  <p className="mt-3 text-sm font-medium text-foreground">
+                    {t("integrations.noSharedConnectionsYet")}
+                  </p>
+                  <p className="mx-auto mt-1 max-w-md text-sm leading-5 text-muted-foreground">
+                    {t("integrations.emptyConnectedAccountsDescription")}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {connections.map((connection) => (
+                    <ConnectionRow
+                      key={connection.id}
+                      connection={connection}
+                      provider={providersById.get(connection.provider)}
+                      grantApps={grantApps}
+                      grants={data.grants}
+                      groups={groups}
+                      grantPending={setGrant.isPending}
+                      canManage={canManageConnection(connection)}
+                      canManageGrant={(appId) =>
+                        canManageConnectionGrant(connection, appId)
+                      }
+                      onEdit={() => openEdit(connection)}
+                      onRepair={() => openRepair(connection)}
+                      onDelete={() => setDeleteTarget(connection)}
+                      onToggleGrant={(appId, granted) =>
+                        toggleGrant(connection, appId, granted)
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        ) : null}
+      </div>
+
+      <SetupWizard
+        open={!!setupWizard}
+        state={setupWizard}
+        step={setupStep}
+        plan={setupPlanQuery.data}
+        form={setupForm}
+        providers={providers}
+        grantApps={grantApps}
+        groups={groups}
+        canManageGroups={canManageOrg}
+        canManageAllApps={canManageOrg}
+        loading={setupPlanQuery.isLoading}
+        saving={applySetup.isPending}
+        onStepChange={setSetupStep}
+        onChange={setSetupForm}
+        onClose={() => {
+          setSetupWizard(null);
+          setSetupForm(null);
+          setSetupFormKey("");
+        }}
+        onSubmit={applySetupWizard}
+        onManageGroups={() => openGroupEditor()}
+        onEditGroup={openGroupEditor}
+      />
+      <ConnectionForm
+        open={!!form}
+        form={form}
+        providers={providers}
+        grantApps={grantApps}
+        groups={groups}
+        canManageGroups={canManageOrg}
+        canManageAllApps={canManageOrg}
+        saving={upsertConnection.isPending}
+        onChange={setForm}
+        onClose={() => setForm(null)}
+        onSubmit={handleSubmit}
+        onManageGroups={() => openGroupEditor()}
+        onEditGroup={openGroupEditor}
+      />
+      <Dialog
+        open={!!providerChoice}
+        onOpenChange={(open) => !open && setProviderChoice(null)}
+      >
+        <DialogContent
+          aria-describedby={undefined}
+          className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0"
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>
+              {providerChoice
+                ? `Connect ${providerChoice.provider.label}`
+                : "Connect integration"}
+            </DialogTitle>
+          </DialogHeader>
+          {providerChoice ? (
+            <IntegrationConnectionChoice
+              name={providerChoice.provider.label}
+              logo={logoForProvider(
+                providerChoice.provider.id,
+                providerChoice.provider.label,
+              )}
+              showWorkspaceOption={canManageConnections}
+              onPersonal={() => {
+                const provider = providerChoice.provider;
+                setProviderChoice(null);
+                if (providerChoice.personalOAuth) {
+                  startWorkspaceProviderOAuth(provider, "user");
+                  return;
+                }
+                if (providerChoice.personalIntegration) {
+                  setPersonalIntegrationId(
+                    providerChoice.personalIntegration.id,
+                  );
+                }
+              }}
+              onWorkspace={() => {
+                const provider = providerChoice.provider;
+                setProviderChoice(null);
+                if (providerHasOAuth(provider)) {
+                  startWorkspaceProviderOAuth(provider, "organization");
+                } else {
+                  openSetup(provider);
+                }
+              }}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      {personalIntegrationId ? (
+        <McpIntegrationDialog
+          open
+          integrations={[
+            personalIntegrations.get(personalIntegrationId),
+          ].filter((integration): integration is DefaultMcpIntegration =>
+            Boolean(integration),
+          )}
+          connectIntegrationId={personalIntegrationId}
+          defaultScope="user"
+          canCreateOrgMcp={false}
+          hasOrg={false}
+          onOpenChange={(open) => {
+            if (!open) setPersonalIntegrationId(null);
+          }}
+          onCreateMcpServer={createPersonalMcpServer.mutateAsync}
+        />
+      ) : null}
+      {customMcpOpen ? (
+        <McpIntegrationDialog
+          open
+          integrations={[]}
+          defaultScope="user"
+          canCreateOrgMcp={canManageOrg}
+          hasOrg={canManageOrg}
+          onOpenChange={setCustomMcpOpen}
+          onCreateMcpServer={createPersonalMcpServer.mutateAsync}
+        />
+      ) : null}
+      <GroupEditor
+        open={groupEditor !== null}
+        group={groupEditor?.group ?? null}
+        saving={upsertGroup.isPending}
+        onClose={() => setGroupEditor(null)}
+        onSave={handleSaveGroup}
+      />
+      <DeleteConfirm
+        connection={deleteTarget}
+        deleting={deleteConnection.isPending}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+      />
+    </DispatchShell>
+  );
+}
+
+function SummaryCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: IconComponent;
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-lg bg-muted/30 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted/50">
+          <Icon size={16} className="text-muted-foreground" />
+        </div>
+      </div>
+      <div className="mt-3 text-2xl font-semibold tracking-tight text-foreground">
+        {value}
+      </div>
+      <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
+    </div>
+  );
+}

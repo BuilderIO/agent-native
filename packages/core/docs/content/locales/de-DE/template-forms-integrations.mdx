@@ -1,0 +1,40 @@
+---
+title: "Forms in einem Multi-App-Arbeitsbereich"
+description: "Wie Forms sich mit Dispatch und anderen Apps verbindet, und die zwei echten Mechanismen, mit denen andere Apps auf ein Formular einwirken oder Daten hineinsenden."
+---
+
+# Forms in einem Multi-App-Arbeitsbereich
+
+Forms ist eine App unter vielen in einem [Dispatch](/docs/template-dispatch)-Arbeitsbereich. Diese Seite behandelt, was das in der Praxis tatsächlich bedeutet: wie die Verbindung funktioniert und auf welche konkreten Arten andere Apps auf ein Formular einwirken oder Daten hineinsenden können. Einen Überblick finden Sie unter [Forms](/docs/template-forms).
+
+## Wie Forms sich mit Dispatch verbindet
+
+Ob dies automatisch geschieht, hängt davon ab, wie Forms und Dispatch gemeinsam eingerichtet wurden, nicht davon, ob eine der beiden Apps gehostet wird oder lokal läuft.
+
+### Gleicher Arbeitsbereich: automatisch
+
+Wenn Forms und Dispatch gemeinsam in einen Agent-Native-Arbeitsbereich generiert oder hinzugefügt (über `create` oder `add-app`) und als eine Einheit bereitgestellt wurden, teilen sie sich bereits eine `.env`, ein `A2A_SECRET` und eine Arbeitsbereichsregistrierung. Erkennung und authentifizierte A2A-Aufrufe funktionieren beide einfach, ohne dass etwas eingerichtet werden muss, egal ob dieser Arbeitsbereich auf Ihrem Rechner oder in Produktion läuft. Das ist die erwartete Einrichtung für ein echtes Multi-App-Produkt, das auf Forms aufbaut.
+
+### Getrennte Deployments: ein manueller Schritt
+
+Wenn Forms und Dispatch zwei unabhängig erstellte Agent-Native-Projekte sind, teilen sie sich kein Secret und können sich noch nicht gegenseitig aufrufen. Sie zu verbinden erfordert einen manuellen Schritt auf jeder Seite: Fügen Sie eine `remote-agents/<id>.json`-Ressource mit einem gemeinsamen Secret hinzu, über Settings → Connected Agents, den Tab Connections der Agent-Seite, oder Dispatch → Agents → Add external agent. Die vollständige Anleitung finden Sie unter [A2A-Protokoll](/docs/a2a-protocol).
+
+Um zu prüfen, in welcher Situation Sie sich befinden, fragen Sie den Agenten einer der beiden Apps: „Welche Apps kannst du sehen?“ Wenn Forms in der Antwort von Dispatch fehlt, befinden Sie sich im zweiten Fall.
+
+## Integrationsstrategien
+
+**Delegation in natürlicher Sprache über Dispatch.** Eine Schwester-App braucht keine spezielle Integration, um mit Forms zusammenzuarbeiten. Sie kann dem Agenten von Forms eine Anfrage in einfacher Sprache übergeben, wie „wie viele Antworten hat das Beta-Anmeldeformular“, genauso wie Sie es im Chat tun würden, und Forms beantwortet sie oder handelt direkt danach. Das ist der eigentliche Mechanismus hinter so etwas wie einer Frage, die in Slack oder Mail eingeht und zu einer echten Antwort von Forms wird: Dispatch (oder die App, die die Nachricht empfangen hat) delegiert die Anfrage an den Agenten von Forms, und Forms behandelt sie wie jede andere Eingabeaufforderung.
+
+**Andere Apps senden direkt in ein Formular ein.** Forms braucht dafür weder A2A noch Dispatch, damit eine andere App ihm Daten senden kann. Jede App kann eine einfache Web-Anfrage an die öffentliche Übermittlungsadresse eines Formulars senden, genau wie eine anonyme Person, die die öffentliche Seite ausfüllt. Der Feedback-Button des Frameworks selbst funktioniert genau so. Er sendet eine Einreichung an eine bereitgestellte Forms-App aus der Seitenleiste einer anderen App heraus, zusammen mit der Information, von welcher Seite und welcher App das Feedback stammt, und Forms zeichnet es als normale Antwort auf. Das bedeutet, dass jede App in Ihrem Arbeitsbereich strukturierte Daten in ein Formular senden kann, ganz ohne A2A-Verbindung, nur mit einer einfachen Web-Anfrage.
+
+**Entkoppelt bleiben.** Ob Forms eine delegierte Frage beantwortet oder eine direkte Einreichung entgegennimmt, es muss nie die Zugangsdaten der aufrufenden App kennen, und die aufrufende App muss nichts darüber wissen, wie Forms seine Daten speichert. Delegation läuft wie jede andere Eingabeaufforderung über den Agenten, und eine direkte Einreichung läuft über dieselbe öffentliche Adresse, die auch eine Person nutzen würde.
+
+## Wie geht es weiter?
+
+- [**Forms**](/docs/template-forms) — der Überblick und was es ersetzt
+- [**Funktionen**](/docs/template-forms-features) — jeder Funktionsbereich, mit Einrichtungsschritten für jeden
+- [**Mit dem Agent sprechen**](/docs/template-forms-agent) — jede Eingabeaufforderung nach Aufgabe und wie der Agent Ihren Bildschirm sieht
+- [**Entwicklerhandbuch**](/docs/template-forms-developers) — jede Aktion und das Datenmodell hinter diesen Funktionen
+- [**Dispatch**](/docs/template-dispatch) — die Arbeitsbereich-Steuerungsebene, unter der diese Muster laufen
+- [**A2A-Protokoll**](/docs/a2a-protocol) — wie Apps sich entdecken, authentifizieren und gegenseitig aufrufen
+- [**Multi-App-Arbeitsbereiche**](/docs/multi-app-workspace) — das allgemeine Muster, Erstanbieter-Apps zu kombinieren, statt sie zu verschachteln

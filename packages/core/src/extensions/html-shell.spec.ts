@@ -1,0 +1,255 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  buildExtensionHtml,
+  EXTENSION_FRAME_ANCESTORS,
+  EXTENSION_IFRAME_CSP,
+  EXTENSION_IFRAME_META_CSP,
+} from "./html-shell.js";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const CLIENT_DIR = join(HERE, "..", "client", "extensions");
+
+describe("buildExtensionHtml", () => {
+  it("uses a constrained iframe CSP", () => {
+    expect(EXTENSION_IFRAME_CSP).toContain("default-src 'none'");
+    expect(EXTENSION_IFRAME_CSP).toContain("frame-src 'none'");
+    expect(EXTENSION_IFRAME_CSP).toContain("object-src 'none'");
+    expect(EXTENSION_IFRAME_CSP).toContain("img-src 'self' data: blob:");
+    expect(EXTENSION_IFRAME_CSP).not.toContain("img-src 'self' data: https:");
+    expect(EXTENSION_IFRAME_CSP).toContain(
+      `frame-ancestors ${EXTENSION_FRAME_ANCESTORS}`,
+    );
+    expect(EXTENSION_IFRAME_CSP).not.toContain("frame-ancestors *");
+    expect(EXTENSION_FRAME_ANCESTORS).toContain("https://*.agent-native.com");
+    expect(EXTENSION_FRAME_ANCESTORS).toContain(
+      "https://agent-workspace.builder.io",
+    );
+    expect(EXTENSION_FRAME_ANCESTORS).toContain(
+      "https://*.claudemcpcontent.com",
+    );
+    expect(EXTENSION_FRAME_ANCESTORS).toContain(
+      "https://*.web-sandbox.oaiusercontent.com",
+    );
+  });
+
+  it("keeps frame-ancestors in the HTTP header CSP only", () => {
+    const html = buildExtensionHtml(
+      "<div>Hello</div>",
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(EXTENSION_IFRAME_CSP).toContain("frame-ancestors");
+    expect(EXTENSION_IFRAME_META_CSP).not.toContain("frame-ancestors");
+    expect(html).toContain(
+      `<meta http-equiv="Content-Security-Policy" content="${EXTENSION_IFRAME_META_CSP}" />`,
+    );
+    expect(html).not.toContain(
+      `http-equiv="Content-Security-Policy" content="${EXTENSION_IFRAME_CSP}"`,
+    );
+  });
+
+  it("only accepts runtime messages from the parent window", () => {
+    const html = buildExtensionHtml(
+      "<div>Hello</div>",
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(html).toContain("if (event.source !== window.parent) return;");
+  });
+
+  it("lets appAction retry read actions with the mounted GET method", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("function _methodHintFromActionResponse(res)");
+    expect(html).toContain("res.status !== 405");
+    expect(html).toContain("retryMethod === 'GET'");
+    expect(html).toContain("_appendActionQuery(path, params)");
+  });
+
+  it("hides x-cloak content until Alpine boots", () => {
+    // Extension content is a body snippet, so it cannot supply this rule
+    // itself. Without it an `x-cloak` overlay covers the whole extension
+    // until the deferred Alpine CDN script resolves — and forever if it
+    // never does.
+    const html = buildExtensionHtml(
+      '<div x-cloak class="fixed inset-0">Alerts</div>',
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(html).toContain("[x-cloak] { display: none !important; }");
+  });
+
+  it("routes extension navigate calls through the app-state command endpoint", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("if (name === 'navigate')");
+    expect(html).toContain("'/_agent-native/application-state/navigate'");
+    expect(html).toContain("method: 'PUT'");
+  });
+
+  it("exposes server-side connector helpers without copying credentials into the iframe", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("var mcp = {");
+    expect(html).toContain("appAction('list-mcp-tools', params)");
+    expect(html).toContain("appAction('call-mcp-tool'");
+    expect(html).toContain("var providerApi = {");
+    expect(html).toContain("appAction('provider-api-catalog'");
+    expect(html).not.toContain("appAction('provider-api-request'");
+    expect(html).not.toContain("request: function(params)");
+    expect(html).toContain("mcp: mcp");
+    expect(html).toContain("providerApi: providerApi");
+    expect(html).not.toContain("accessToken");
+    expect(html).not.toContain("clientSecret");
+  });
+
+  it("exposes a chat bridge helper to extension code", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("function sendToChat(message, options)");
+    expect(html).toContain("type: 'agent-native-send-to-chat'");
+    expect(html).toContain("submit: options.submit === true");
+    expect(html).not.toContain("submit: options.submit !== false");
+    expect(html).toContain("sendToChat: sendToChat");
+    expect(html).toContain("send: sendToChat");
+    expect(html).toContain("window.sendToAgentChat = sendToChat");
+  });
+
+  it("exposes a passive UI output helper keyed by extension id", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "inline-1");
+
+    expect(html).toContain("function inlineUiOutputKey()");
+    expect(html).toContain("'inline-ui:' + safeId + ':output'");
+    expect(html).toContain("function outputToUi(value, options)");
+    expect(html).toContain(
+      "appFetch('/_agent-native/application-state/' + key",
+    );
+    expect(html).toContain("'X-Request-Source': 'inline-ui'");
+    expect(html).toContain("type: 'agent-native-ui-output'");
+    expect(html).toContain("ui: Object.assign");
+    expect(html).toContain("output: outputToUi");
+  });
+
+  it("auto-resizes transient srcdoc inline iframes", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "inline-1");
+
+    expect(html).toContain(
+      "new URLSearchParams(location.search).get('slot') || window.parent !== window",
+    );
+    expect(html).toContain("agent-native-extension-resize");
+  });
+
+  it("serializes authenticated extension binding metadata", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1", {
+      authorEmail: "owner+qa@example.test",
+      viewerEmail: "viewer+qa@example.test",
+      isAuthor: false,
+      role: "admin",
+    });
+
+    expect(html).toContain('"authorEmail":"owner+qa@example.test"');
+    expect(html).toContain('"viewerEmail":"viewer+qa@example.test"');
+    expect(html).toContain('"role":"admin"');
+    expect(html).toContain('name="agent-native-extension-author"');
+  });
+
+  it("pins CDN scripts to exact versions with SRI integrity hashes", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "t");
+    // Tailwind: pinned to a patch version + SRI.
+    expect(html).toMatch(
+      /<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/npm\/@tailwindcss\/browser@\d+\.\d+\.\d+"[^>]*integrity="sha384-[A-Za-z0-9+/=]+"/,
+    );
+    // Alpine: pinned to a patch version + SRI.
+    expect(html).toMatch(
+      /<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/npm\/alpinejs@\d+\.\d+\.\d+\/dist\/cdn\.min\.js"[^>]*integrity="sha384-[A-Za-z0-9+/=]+"/,
+    );
+    // Refuse the old unpinned-major form.
+    expect(html).not.toContain('@tailwindcss/browser@4"');
+    expect(html).not.toContain("alpinejs@3/dist/cdn.min.js");
+    expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
+    expect(html).toContain("recordCrossOriginIframes: true");
+  });
+
+  it("adds default canvas padding with a full-bleed escape hatch", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("--agent-native-extension-padding");
+    expect(html).toContain("padding: var(--agent-native-extension-padding)");
+    expect(html).toContain('body:has(> [data-extension-layout="full-bleed"])');
+    expect(html).toContain('body:has(> [data-extension-padding="none"])');
+    expect(html).toContain("body:has(> .agent-native-extension-bleed)");
+  });
+
+  it("keeps runtime error toasts dismissible after a fix request", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain('id="__extension-error-dismiss"');
+    expect(html).toContain("agent-native-extension-error-fix");
+    expect(html).toContain("function _renderErrorToast()");
+    expect(html).toMatch(
+      /DOMContentLoaded', function\(\) \{\s+_renderErrorToast\(\);/,
+    );
+    expect(
+      html.match(/__extension-error-toast'\)\.style\.display = 'none'/g),
+    ).toHaveLength(2);
+  });
+});
+
+describe("extension iframe sandbox attribute (CI guard)", () => {
+  // SECURITY: the host-side iframe MUST be rendered with a sandbox attribute
+  // that does NOT include `allow-same-origin`. Adding it would let the
+  // attacker-authored content reach the parent's DOM. See audit C1/H3.
+  const HOST_FILES = [
+    "ExtensionViewer.tsx",
+    "EmbeddedExtension.tsx",
+    "InlineExtensionFrame.tsx",
+    "ExtensionEditor.tsx",
+  ];
+
+  for (const file of HOST_FILES) {
+    it(`${file} renders the iframe without allow-same-origin`, () => {
+      const text = readFileSync(join(CLIENT_DIR, file), "utf8");
+      const sandboxMatches = text.match(/sandbox="([^"]*)"/g) ?? [];
+      const usesNormalizedSandbox = text.includes(
+        "sandbox={EXTENSION_IFRAME_SANDBOX}",
+      );
+      if (usesNormalizedSandbox) {
+        expect(text).toContain(
+          "normalizeAgentNativeExtensionSandbox(undefined)",
+        );
+      } else {
+        expect(sandboxMatches.length).toBeGreaterThan(0);
+      }
+      for (const sandbox of sandboxMatches) {
+        expect(sandbox).not.toContain("allow-same-origin");
+      }
+    });
+  }
+});
+
+describe("extension chat submission policy (CI guard)", () => {
+  const HOST_SUBMISSION_GUARDS = [
+    ["ExtensionViewer.tsx", "submit: message.submit === true"],
+    ["EmbeddedExtension.tsx", "submit: (message as any).submit === true"],
+    ["InlineExtensionFrame.tsx", "submit: (message as any).submit === true"],
+  ] as const;
+
+  for (const [file, guard] of HOST_SUBMISSION_GUARDS) {
+    it(`${file} requires explicit submission opt-in`, () => {
+      const text = readFileSync(join(CLIENT_DIR, file), "utf8");
+      expect(text).toContain(guard);
+      expect(text).not.toContain(guard.replace("=== true", "!== false"));
+    });
+  }
+});

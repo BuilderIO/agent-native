@@ -1,0 +1,199 @@
+---
+title: "रूट्स"
+description: "फ़ाइल-आधारित Nitro सर्वर रूट्स, SSR कैच-ऑल, नामकरण परंपराएँ, और प्रमाणित उपयोगकर्ता तक कस्टम रूट्स का दायरा तय करना।"
+---
+
+# रूट्स
+
+एजेंट-नेटिव ऐप में सर्वर रूटिंग दो सतहों में विभाजित है।
+
+**फ्रेमवर्क रूट्स** `/_agent-native/*` पर फ्रेमवर्क द्वारा प्रबंधित होते हैं। ये एजेंट चैट लूप, सिंक पोलिंग, action एंडपॉइंट्स, और अन्य मुख्य क्षमताओं को उजागर करते हैं। आप इन रूट्स को न बनाते हैं, न संशोधित करते हैं।
+
+**कस्टम फ़ाइल रूट्स** `server/routes/` में हैं, जहाँ आप अपने खुद के एंडपॉइंट जोड़ते हैं। Nitro इन्हें स्वचालित रूप से उठा लेता है, इस आधार पर कि ये डायरेक्टरी ट्री में कहाँ स्थित हैं - किसी रजिस्ट्रेशन या कॉन्फ़िग की आवश्यकता नहीं। फ़ाइलनाम HTTP मेथड तय करता है, डायरेक्टरी पथ URL पथ बन जाता है, और हर फ़ाइल एक ही हैंडलर निर्यात करती है।
+
+## फ्रेमवर्क-माउंटेड रूट्स {#framework-routes}
+
+फ्रेमवर्क अपने खुद के एंडपॉइंट्स के लिए `/_agent-native/` नेमस्पेस आरक्षित रखता है। यहाँ कभी भी कस्टम रूट्स न रखें। यह तालिका प्रतिनिधि है, संपूर्ण नहीं।
+
+| रूट प्रीफ़िक्स                   | उद्देश्य                                                                        |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Action HTTP एंडपॉइंट्स                                                          |
+| `/_agent-native/agent-chat`      | एजेंट चैट लूप                                                                   |
+| `/_agent-native/poll`            | SQL-समर्थित UI सिंक                                                             |
+| `/_agent-native/runs`            | प्रगति प्रिमिटिव। `RunsTray` इसे पोल करता है; देखें [प्रगति](/docs/progress)    |
+| `/_agent-native/resources/*`     | वर्कस्पेस संसाधन                                                                |
+| `/_agent-native/extensions/*`    | रनटाइम एक्सटेंशन और एक्सटेंशन प्रॉक्सी (लेगेसी उपनाम: `/_agent-native/tools/*`) |
+| `/_agent-native/integrations/*`  | मैसेजिंग/वेबहुक इंटीग्रेशन                                                      |
+| `/_agent-native/a2a`             | एजेंट-टू-एजेंट JSON-RPC                                                         |
+| `/mcp`                           | MCP एंडपॉइंट                                                                    |
+| `/_agent-native/onboarding/*`    | सेटअप चेकलिस्ट                                                                  |
+| `/_agent-native/observability/*` | ट्रेस, फ़ीडबैक, evals, प्रयोग                                                   |
+| `/_agent-native/file-upload`     | फ़ाइल अपलोड प्रदाता एंडपॉइंट                                                    |
+
+कस्टम ऐप रूट्स `/api/*` में या किसी अन्य पथ में जाते हैं जो `/_agent-native/` से न टकराए।
+
+## कस्टम रूट का उपयोग कब करें {#when-custom-routes}
+
+Actions अधिकांश ऐप ऑपरेशनों को कवर करते हैं। `server/routes/` में फ़ाइल रूट का सहारा तभी लें जब आपको कुछ ऐसा चाहिए जिसे एक action व्यक्त नहीं कर सकती।
+
+<Comparison>
+
+### कस्टम रूट का उपयोग करें {#use-custom-route}
+
+- फ़ाइल अपलोड या मल्टीपार्ट फ़ॉर्म डेटा
+- स्ट्रीमिंग प्रतिक्रियाएँ या सर्वर-सेंट इवेंट्स (SSE)
+- इनबाउंड वेबहुक जिन्हें रॉ बॉडी वेरिफ़िकेशन चाहिए
+- OAuth कॉलबैक
+- सार्वजनिक अप्रमाणित पेज
+- बाहरी REST अनुबंध जिन्हें एक विशिष्ट URL पथ या प्रतिक्रिया आकार की आवश्यकता होती है
+
+### इसके बजाय एक Action का उपयोग करें {#use-action-instead}
+
+- वे ऑपरेशन जिनकी UI और एजेंट दोनों को आवश्यकता है
+- ऐप डेटा को पढ़ना या लिखना
+- HTTP-आकार के एंडपॉइंट्स ([Actions](/docs/actions-overview) में `http` विकल्प का उपयोग करें)
+- कोई भी चीज़ जिसे एजेंट टूल, MCP टूल, या CLI कमांड होना चाहिए
+- मानक JSON अनुरोध/प्रतिक्रिया API
+
+</Comparison>
+
+### उदाहरण: इनबाउंड वेबहुक {#example-webhook}
+
+वेबहुक कस्टम रूट के लिए एक स्पष्ट मामला हैं। बाहरी सेवाएँ एक रॉ HTTP बॉडी भेजती हैं जिसे पार्स करने से पहले बाइट्स के रूप में पढ़ा जाना चाहिए, ताकि आप अनुरोध हस्ताक्षर की पुष्टि कर सकें। Actions पूर्व-पार्स किए गए JSON प्राप्त करती हैं और रॉ बॉडी तक पहुँच नहीं सकतीं, जिससे किसी action के भीतर हस्ताक्षर सत्यापन असंभव हो जाता है।
+
+नीचे दिया गया रूट `POST /api/webhooks/events` पर एक इनबाउंड वेबहुक को संभालता है। यह रॉ बॉडी पढ़ता है, एक HMAC हस्ताक्षर की पुष्टि करता है, फिर पेलोड को प्रोसेस करता है।
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+Nitro इस फ़ाइल को स्वचालित रूप से `POST /api/webhooks/events` पर मैप करता है। `WEBHOOK_SECRET` पर्यावरण चर को बाहरी सेवा द्वारा प्रदान किए गए साइनिंग सीक्रेट पर सेट किया जाना चाहिए।
+
+## फ़ाइल-आधारित रूट्स {#file-based-routes}
+
+डायरेक्टरी पथ URL पथ बन जाता है, और फ़ाइलनाम प्रत्यय HTTP मेथड तय करता है। `server/routes/api/items/[id].get.ts` पर एक फ़ाइल `GET /api/items/:id` से मैप होती है - `items/` डायरेक्टरी से आता है, `[id]` `:id` पैरामीटर बन जाता है, और `.get` मेथड सेट करता है।
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> सार्वजनिक पेजों के लिए SSR कैच-ऑल
+```
+
+`defineEventHandler` एक रूट लिखने के लिए H3 प्रिमिटिव है। यह आपके हैंडलर फ़ंक्शन को लपेटता है और इसे `event` ऑब्जेक्ट तक पहुँच देता है, जो अनुरोध, प्रतिक्रिया, राउटर पैरामीटर, क्वेरी स्ट्रिंग, हेडर, और बॉडी वहन करता है। हैंडलर से एक मान लौटाना इसे प्रतिक्रिया के रूप में भेजता है - एक साधारण ऑब्जेक्ट स्वचालित रूप से JSON बन जाता है। एक `createError` थ्रो करना उपयुक्त HTTP एरर स्टेटस भेजता है।
+
+`[id]` जैसे राउटर पैरामीटर `getRouterParam` के साथ `event` से पढ़े जाते हैं:
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### नामकरण परंपराएँ {#naming-conventions}
+
+| फ़ाइल पथ (`server/routes/` के सापेक्ष) | HTTP मेथड | URL पथ           |
+| -------------------------------------- | --------- | ---------------- |
+| `api/items/index.get.ts`               | GET       | `/api/items`     |
+| `api/items/index.post.ts`              | POST      | `/api/items`     |
+| `api/items/[id].get.ts`                | GET       | `/api/items/:id` |
+| `api/items/[id].patch.ts`              | PATCH     | `/api/items/:id` |
+| `api/items/[id].delete.ts`             | DELETE    | `/api/items/:id` |
+| `api/items/[...slug].get.ts`           | GET       | `/api/items/*`   |
+
+## अनुरोध संदर्भ और एक्सेस {#request-context}
+
+फ्रेमवर्क द्वारा माउंट की गई actions स्वचालित रूप से अनुरोध संदर्भ के साथ चलती हैं। कस्टम रूट्स ऐसा नहीं करते। यदि कोई कस्टम रूट ownable संसाधनों को पढ़ता या लिखता है, तो सत्र लोड करें और काम को लपेटें:
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="अनुरोध उपयोगकर्ता तक एक कस्टम रूट का दायरा तय करना"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "कस्टम रूट्स में कोई ऑटो-संदर्भ नहीं",
+      note: "Actions के विपरीत, एक फ़ाइल रूट को खुद सत्र लोड करना होता है और जब कोई प्रमाणित उपयोगकर्ता न हो तो फेल-क्लोज़्ड होना होता है।",
+    },
+    {
+      lines: "13",
+      label: "अनुरोध संदर्भ स्थापित करें",
+      note: "`runWithRequestContext` काम की अवधि के लिए स्कोपिंग हेल्पर्स को उपयोगकर्ता/संगठन उपलब्ध कराता है।",
+    },
+    {
+      lines: "17-20",
+      label: "ownable पठन का दायरा तय करें",
+      note: "`accessFilter` क्वेरी को उन पंक्तियों तक सीमित करता है जिन्हें कॉलर देख सकता है। यहाँ कभी भी अस्कोप्ड `db.select().from(ownableTable)` न चलाएं।",
+    },
+  ]}
+/>
+
+`getDb` प्रत्येक ऐप में `server/db/index.ts` में `createGetDb(schema)` के माध्यम से बनाया जाता है, इसलिए कस्टम रूट्स इसे टेम्पलेट पथ (`../../db/index.js`) से इम्पोर्ट करते हैं, `@agent-native/core/db` से नहीं। [डेटाबेस](/docs/server-database#db-client) देखें।
+
+<Callout tone="warning">
+  कस्टम रूट्स में अस्कोप्ड `db.select().from(ownableTable)` न चलाएं। ownable
+  डेटा को क्वेरी करने से पहले हमेशा `runWithRequestContext` के साथ अनुरोध संदर्भ
+  स्थापित करें।
+</Callout>
+
+## SSR कैच-ऑल {#ssr-catch-all}
+
+`server/routes/` की जड़ में `[...page].get.ts` रूट सार्वजनिक-सामना वाले पेजों के लिए सर्वर-साइड रेंडरिंग संभालता है। यह React Router बिल्ड को सौंपने के लिए `createH3SSRHandler` का उपयोग करता है:
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+हर SSR प्रतिक्रिया एक अवैयक्तिक, सार्वजनिक शेल है जो CDN पर कैश की गई है। इस हैंडलर में कभी भी कुकीज़, सत्र स्थिति, या auth शाखाएँ न पढ़ें। पर्सनलाइज़ेशन हाइड्रेशन के बाद क्लाइंट-साइड पर होता है।
+
+## आगे क्या है {#whats-next}
+
+- [**Actions**](/docs/actions-overview): ऐप ऑपरेशनों के लिए पसंदीदा सतह; रूट का सहारा तभी लें जब यह फ़िट न बैठे
+- [**प्लगइन्स**](/docs/server-plugins): स्टार्टअप प्लगइन्स और उनका इनिशियलाइज़ेशन व्यवहार
+- [**मिडलवेयर**](/docs/server-middleware): Auth गार्ड जो `/api/*` सहित सभी रूट्स की सुरक्षा करते हैं
+- [**Security**](/docs/security#access-guards): `accessFilter`/`assertAccess` और पूरा डेटा-स्कोपिंग मॉडल

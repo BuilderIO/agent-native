@@ -1,0 +1,121 @@
+---
+title: "Routing"
+description: "Dateibasiertes Routing für agentennative Apps mit React Router v8: Seiten, dynamische Parameter und Navigation."
+---
+
+# Routing
+
+Agentennative Apps verwenden **React Router v8** mit dateibasiertem Routing über `flatRoutes()` aus `@react-router/fs-routes`. Jede Datei in `app/routes/` wird zu einer URL. Vorlagen verwenden die Punktnotationskonvention. Punkte trennen URL-Segmente innerhalb eines einzelnen Dateinamens.
+
+Diese Seite behandelt Client-Routen, die im Browser aus `app/routes/` gerenderten Seiten. Server-Routen sind ein separates System: Nitro-Dateirouten unter `server/routes/`, plus die eigenen `/_agent-native/*`-Endpunkte des Frameworks. Diese leben auf der Seite [Routen](/docs/server-routes). Die beiden teilen sich kein Verzeichnis, keine Namenskonvention und keinen Router, sodass eine Datei in `server/routes/` nie zu einer Seite hier wird und eine Datei in `app/routes/` nie zu einem Server-Endpunkt.
+
+<Diagram id="doc-block-client-routing-1" title="Dateiname → URL" summary="Jede Datei in app/routes/ wird zu einer URL. Punkte werden zu Schrägstrichen, und ein $-Segment wird zu einem dynamischen Parameter.">
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Dateibasiertes Routing {#file-based-routing}
+
+### Datei → URL-Zuordnung
+
+| Datei                      | URL                    | Hinweise                                                                                                               |
+| -------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | Index-Route                                                                                                            |
+| `dashboard.tsx`            | `/dashboard`           | Einfache Seite                                                                                                         |
+| `extensions.$id.tsx`       | `/extensions/:id`      | Nistet innerhalb des `<Outlet/>` von `extensions.tsx`. `$` ist ein dynamischer Parameter                               |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | Ein nachgestelltes `_` überspringt die Verschachtelung unter `dashboard.tsx`, sodass dies eine eigenständige Seite ist |
+| `_app.tsx`                 | (kein URL-Segment)     | Pathless-Layout. Mit `_` präfixieren                                                                                   |
+| `inbox/route.tsx`          | `/inbox`               | Ordnerform. `route.tsx` ist der Index                                                                                  |
+
+Präfixen Sie ein Segment mit `$` für einen dynamischen Parameter. Präfixen Sie mit `_`, um es zu einer Pathless-Layout-Route zu machen (kein URL-Segment), oder fügen Sie ein nachgestelltes `_` vor einem Punkt hinzu, um einen scheinbar verschachtelten Pfad von der Verschachtelung unter dem Layout seines Elternteils auszunehmen. Vorlagen verwenden `flatRoutes()`. Die Punktnotationsdatei oben ist die primäre Form. Die verschachtelte Ordnerform `inbox/route.tsx` funktioniert auch.
+
+## Eine neue Seite hinzufügen {#adding-a-page}
+
+Erstellen Sie die Datei und exportieren Sie eine Standardkomponente:
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+Das ist alles. Der Entwicklungsserver liest Routendateien beim Start. Wenn `pnpm dev` bereits läuft, starten Sie es nach dem Hinzufügen der Datei neu. Keine Registrierung erforderlich.
+
+## Dynamische Parameter {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+Das nachgestellte `_` vor dem Punkt verhindert, dass diese Seite innerhalb des `<Outlet/>` von `dashboard.tsx` verschachtelt wird, sodass sie als eigenständige vollständige Seite unter `/dashboard/:ticketId` rendert, statt innerhalb des Layouts der Ticket-Warteschlange zu erscheinen.
+
+## Navigation {#navigation}
+
+Verwenden Sie `<Link>` für clientseitige Navigation und `useNavigate()` für programmatische Navigation:
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatisch
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+Keiner von beiden teilt dem Agenten von sich aus mit, was der Benutzer gerade betrachtet. Das ist ein separates Anliegen, das von `useAgentRouteState()` behandelt wird, indem die aktuelle Route in den Anwendungsstatus geschrieben wird. Siehe [Context Awareness](/docs/context-awareness).
+
+## Was kommt als nächstes?
+
+- [**Überblick**](/docs/client-overview) — wo `app/routes/` unter dem Rest von `app/` und `public/` hineinpasst
+- [**Daten & Sync**](/docs/client-data) — Daten aus einer Route lesen und schreiben
+- [**Agent Chat**](/docs/client-agent-chat) — Prompts senden und Kontext aus einer Route bereitstellen
+- [**Routen**](/docs/server-routes) — das separate Server-Routing-System: Dateirouten unter `server/routes/` und der `/_agent-native/`-Namespace des Frameworks
+- [**Context Awareness**](/docs/context-awareness) — wie der Agent die aktuelle Route und Auswahl erfährt
