@@ -38,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "تثبيت الشريط الجانبي",
       unpinSidebar: "إلغاء تثبيت الشريط الجانبي",
+      closeSidebar: "إغلاق الشريط الجانبي",
       settings: "الإعدادات",
     },
     search: {

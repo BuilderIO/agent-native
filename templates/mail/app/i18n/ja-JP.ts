@@ -38,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "サイドバーを固定",
       unpinSidebar: "サイドバーの固定を解除",
+      closeSidebar: "サイドバーを閉じる",
       settings: "設定",
     },
     search: {

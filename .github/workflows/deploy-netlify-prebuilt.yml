@@ -298,6 +298,20 @@ jobs:
                 core.setFailed('Beta source_ref must be a full 40-character commit SHA.');
                 return;
               }
+              if (['automatic', 'automatic-build'].includes(process.env.CALLER.trim())) {
+                const comparison = await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: sourceSha,
+                  head: mainSha,
+                });
+                if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                  core.setFailed(`Beta build source ${sourceSha} is not an ancestor of main ${mainSha}.`);
+                  return;
+                }
+                core.setOutput('source_ref', sourceSha);
+                return;
+              }
               if (sourceSha.toLowerCase() !== mainSha.toLowerCase()) {
                 core.setFailed(`Beta source_ref must equal current main ${mainSha}.`);
                 return;
@@ -1085,16 +1099,26 @@ jobs:
               throw new Error(`Netlify published deploy lookup failed with HTTP ${response.status}.`);
             }
             const deployId = site?.published_deploy?.id;
+            // Deploy titles are set below as "GitHub Actions prebuilt deploy <sha>";
+            // parse it so beta freshness checks know what source is already live.
+            const publishedTitle = site?.published_deploy?.title || "";
+            const publishedSourceRef = (/\b([0-9a-f]{40})\b/i.exec(publishedTitle) || [])[1]?.toLowerCase() || "";
             if (!deployId) {
               if (process.env.TARGET === "beta") {
                 console.log("Netlify beta site has no published deploy; continuing without a rollback baseline.");
-                fs.appendFileSync(process.env.GITHUB_OUTPUT, "published_deploy_id=\n");
+                fs.appendFileSync(process.env.GITHUB_OUTPUT, "published_deploy_id=\npublished_deploy_source_ref=\n");
                 return;
               }
               throw new Error("Netlify site has no published deploy to protect.");
             }
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `published_deploy_id=${deployId}\n`);
+            fs.appendFileSync(
+              process.env.GITHUB_OUTPUT,
+              `published_deploy_id=${deployId}\npublished_deploy_source_ref=${publishedSourceRef}\n`,
+            );
             console.log(`Captured current published deploy ${deployId} for callback rollback.`);
+            if (!publishedSourceRef) {
+              console.log(`Published deploy ${deployId} title had no parseable source commit; nothing to regress against.`);
+            }
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;
@@ -1107,9 +1131,14 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+          PUBLISHED_SOURCE_REF: ${{ steps.previous.outputs.published_deploy_source_ref }}
         with:
+          # Monotonic, not exact-equality: main moves faster than this job
+          # runs, so requiring an exact match livelocks the whole beta fleet.
+          # Publish when (1) our source is on main and (2) it does not regress
+          # the already-published deploy.
           script: |
-            const sourceRef = process.env.SOURCE_REF.trim();
+            const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
             if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
               core.setOutput('current', 'true');
               return;
@@ -1119,13 +1148,40 @@ jobs:
               repo: context.repo.repo,
               ref: 'heads/main',
             })).data.object.sha;
-            const current = mainSha.toLowerCase() === sourceRef.toLowerCase();
-            core.setOutput('current', String(current));
-            if (!current) {
-              core.notice(
-                `Skipping stale beta source ${sourceRef}; main is now ${mainSha}.`,
-              );
+            const onMain = ['ahead', 'identical'].includes(
+              (await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: sourceRef,
+                head: mainSha,
+              })).data.status,
+            );
+            if (!onMain) {
+              core.setOutput('current', 'false');
+              core.notice(`Skipping beta source ${sourceRef}: not on main.`);
+              return;
             }
+            const publishedSha = (process.env.PUBLISHED_SOURCE_REF || '').trim().toLowerCase();
+            if (publishedSha && /^[0-9a-f]{40}$/i.test(publishedSha)) {
+              const notARegression = ['ahead', 'identical'].includes(
+                (await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: publishedSha,
+                  head: sourceRef,
+                })).data.status,
+              );
+              if (!notARegression) {
+                core.setOutput('current', 'false');
+                core.notice(
+                  `Skipping beta source ${sourceRef}: published deploy ${publishedSha} is already newer.`,
+                );
+                return;
+              }
+            } else {
+              core.info('No parseable published deploy source; nothing to regress against.');
+            }
+            core.setOutput('current', 'true');
 
       - name: Mirror production database variables into the PR preview context
         if: >-
@@ -1203,13 +1259,16 @@ jobs:
         id: beta_freshness
         if: >-
           success() && inputs.target == 'beta' && inputs.deploy &&
-          steps.beta_pre_migration_freshness.outputs.current == 'true'
+          steps.beta_pre_migration_freshness.outcome == 'success'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+          PUBLISHED_SOURCE_REF: ${{ steps.previous.outputs.published_deploy_source_ref }}
         with:
+          # Same monotonic check as beta_pre_migration_freshness, re-run
+          # immediately before upload since the migration step above takes time.
           script: |
-            const sourceRef = process.env.SOURCE_REF.trim();
+            const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
             if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
               core.setOutput('current', 'true');
               return;
@@ -1219,13 +1278,40 @@ jobs:
               repo: context.repo.repo,
               ref: 'heads/main',
             })).data.object.sha;
-            const current = mainSha.toLowerCase() === sourceRef.toLowerCase();
-            core.setOutput('current', String(current));
-            if (!current) {
-              core.notice(
-                `Skipping stale beta source ${sourceRef}; main is now ${mainSha}.`,
-              );
+            const onMain = ['ahead', 'identical'].includes(
+              (await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: sourceRef,
+                head: mainSha,
+              })).data.status,
+            );
+            if (!onMain) {
+              core.setOutput('current', 'false');
+              core.notice(`Skipping beta source ${sourceRef}: not on main.`);
+              return;
             }
+            const publishedSha = (process.env.PUBLISHED_SOURCE_REF || '').trim().toLowerCase();
+            if (publishedSha && /^[0-9a-f]{40}$/i.test(publishedSha)) {
+              const notARegression = ['ahead', 'identical'].includes(
+                (await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: publishedSha,
+                  head: sourceRef,
+                })).data.status,
+              );
+              if (!notARegression) {
+                core.setOutput('current', 'false');
+                core.notice(
+                  `Skipping beta source ${sourceRef}: published deploy ${publishedSha} is already newer.`,
+                );
+                return;
+              }
+            } else {
+              core.info('No parseable published deploy source; nothing to regress against.');
+            }
+            core.setOutput('current', 'true');
 
       - name: Upload the prebuilt deploy
         id: deploy

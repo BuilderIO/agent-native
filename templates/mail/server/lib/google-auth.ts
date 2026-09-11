@@ -20,6 +20,7 @@ import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
   createOAuth2Client,
+  GmailQuotaCooldownError,
   gmailGetProfile,
   gmailGetMessage,
   gmailGetThread,
@@ -695,7 +696,18 @@ export async function disconnect(email?: string): Promise<void> {
 // four identical requests within a second. This layer absorbs those.
 type ListResult = {
   messages: any[];
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{
+    email: string;
+    error: string;
+    /**
+     * Set only when `error` came from a GmailQuotaCooldownError. Callers
+     * must branch on this flag, not on the message text — the text is
+     * deliberately jargon-free for the agent and will never contain
+     * "quota"/"429"/etc. for a regex to match.
+     */
+    isQuotaError?: boolean;
+    retryAfterMs?: number;
+  }>;
   nextPageTokens?: Record<string, string>;
   resultSizeEstimate?: number;
 };
@@ -1783,7 +1795,13 @@ async function listGmailMessagesUncached(
           `[listGmailMessages] Error fetching from ${email}:`,
           error.message,
         );
-        errors.push({ email, error: error.message });
+        errors.push({
+          email,
+          error: error.message,
+          ...(error instanceof GmailQuotaCooldownError
+            ? { isQuotaError: true, retryAfterMs: error.retryAfterMs }
+            : {}),
+        });
         return [];
       }
     }),

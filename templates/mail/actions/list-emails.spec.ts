@@ -180,6 +180,8 @@ describe("list-emails action — Gmail-connected inbox", () => {
         {
           email: OWNER,
           error: "429: rateLimitExceeded — retry in 90s",
+          isQuotaError: true,
+          retryAfterMs: 90_000,
         },
       ],
     } as any);

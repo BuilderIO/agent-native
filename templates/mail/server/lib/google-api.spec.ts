@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { gmailBatchGetMessages, googleFetch } from "./google-api.js";
+import {
+  GmailQuotaCooldownError,
+  gmailBatchGetMessages,
+  googleFetch,
+} from "./google-api.js";
 
 function jsonResponse(status: number, body: unknown, headers?: HeadersInit) {
   return new Response(JSON.stringify(body), {
@@ -99,6 +103,16 @@ describe("googleFetch quota handling", () => {
     ).rejects.toThrow(/about 120s/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // Regression guard: callers (list-inbox-emails.ts) must classify this
+    // by type, not by grepping the message for "quota"/"429" — the message
+    // is deliberately jargon-free and contains neither.
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-a",
+      ),
+    ).rejects.toBeInstanceOf(GmailQuotaCooldownError);
+
     await expect(
       googleFetch(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
@@ -106,6 +120,33 @@ describe("googleFetch quota handling", () => {
       ),
     ).rejects.toThrow(/briefly busy/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies a whole-batch HTTP 429 as a typed cooldown error, not raw batch-failure text", async () => {
+    // Distinct from the "quota failures inside Gmail batch parts" case below:
+    // this is the *transport-level* response for the whole multipart batch
+    // call returning 429, not a 200 with one 429 part inside it. Before the
+    // fix this threw a plain `Error("... Gmail batch failed: ...")` that
+    // leaked Google's raw error text and could never be recognized as a
+    // cooldown by callers checking `instanceof GmailQuotaCooldownError`.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          429,
+          { error: { message: "User-rate limit exceeded" } },
+          { "retry-after": "30" },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const rejection = gmailBatchGetMessages(
+      "quota-token-whole-batch",
+      ["msg-1"],
+      "metadata",
+    );
+    await expect(rejection).rejects.toBeInstanceOf(GmailQuotaCooldownError);
+    await expect(rejection).rejects.toThrow(/about 30s/);
   });
 
   it("treats quota failures inside Gmail batch parts as a whole-call cooldown", async () => {

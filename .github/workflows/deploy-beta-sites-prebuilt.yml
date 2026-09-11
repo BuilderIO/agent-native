@@ -145,16 +145,57 @@ jobs:
       artifact_name: beta-${{ matrix.site }}-${{ github.run_id }}
     secrets: inherit
 
+  confirm-current-source:
+    name: Confirm beta source is current
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.resolve-source.result == 'success' &&
+      needs.discover-sites.result == 'success' &&
+      needs.build.result == 'success' }}
+    needs: [resolve-source, discover-sites, build]
+    runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.source.outputs.current }}
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        id: source
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
+        with:
+          script: |
+            const sourceSha = process.env.SOURCE_SHA.trim();
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            // Monotonic check: the source only needs to be an ancestor of (or
+            // equal to) current main, not an exact match — main moves faster
+            // than this job runs, so exact equality livelocks the whole fleet.
+            const onMain = ['ahead', 'identical'].includes(
+              (await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: sourceSha,
+                head: mainSha,
+              })).data.status,
+            );
+            core.setOutput('current', onMain ? 'true' : 'false');
+            if (!onMain) {
+              core.info(`Skipping beta source ${sourceSha}: not on main (main is ${mainSha}).`);
+            }
+
   deploy:
     name: ${{ matrix.site }} beta prebuilt deploy
     if: >-
       ${{ always() && !cancelled() &&
       needs.resolve-source.result == 'success' &&
       needs.discover-sites.result == 'success' &&
-      needs.build.result != 'cancelled' }}
+      needs.build.result == 'success' &&
+      needs.confirm-current-source.outputs.current == 'true' }}
     permissions:
       contents: read
-    needs: [resolve-source, discover-sites, build]
+    needs: [resolve-source, discover-sites, build, confirm-current-source]
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -163,7 +204,7 @@ jobs:
     with:
       target: beta
       site: ${{ matrix.site }}
-      caller: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}
+      caller: ${{ github.event_name == 'workflow_dispatch' && inputs.handoff && 'automatic' || github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}
       source_ref: ${{ needs.resolve-source.outputs.source_sha }}
       build_context: branch-deploy
       deploy: true

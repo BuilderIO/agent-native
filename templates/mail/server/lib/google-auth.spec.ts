@@ -90,6 +90,16 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: vi.fn(),
+  // Real class, not vi.fn(): production code does `instanceof
+  // GmailQuotaCooldownError` to classify cooldown errors, which only works
+  // against the actual constructor.
+  GmailQuotaCooldownError: class GmailQuotaCooldownError extends Error {
+    retryAfterMs: number;
+    constructor(message: string, retryAfterMs: number) {
+      super(message);
+      this.retryAfterMs = retryAfterMs;
+    }
+  },
   gmailBatchGetMessages: vi.fn(),
   gmailBatchGetThreads: vi.fn(),
   gmailGetMessage: vi.fn(),

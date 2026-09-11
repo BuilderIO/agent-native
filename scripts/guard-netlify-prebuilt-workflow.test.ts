@@ -481,6 +481,7 @@ describe("production Netlify site concurrency guard", () => {
       "resolve-source",
       "discover-sites",
       "build",
+      "confirm-current-source",
     ]);
     assert.equal((beta.jobs as Workflow).deploy.with.artifact_download, true);
     assert.match(
@@ -530,6 +531,10 @@ describe("production Netlify site concurrency guard", () => {
       (step) =>
         step.name === "Verify beta source is current immediately before upload",
     );
+    const betaFreshness = reusableSteps[betaFreshnessIndex];
+    const betaPreMigrationFreshness =
+      reusableSteps[betaPreMigrationFreshnessIndex];
+    const previousStep = reusableSteps.find((step) => step.id === "previous");
     const buildIndex = reusableSteps.findIndex(
       (step) => step.name === "Build with the Netlify project configuration",
     );
@@ -550,6 +555,33 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       String(betaMigration?.if),
       /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(betaFreshness?.if),
+      /steps\.beta_pre_migration_freshness\.outcome == 'success'/,
+    );
+    assert.doesNotMatch(
+      String(betaFreshness?.if),
+      /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
+    );
+    // Both freshness checks must be monotonic (ancestor-of-main and
+    // not-a-regression-of-the-published-deploy), not exact equality — an
+    // exact match livelocks the fleet against a merge every few minutes.
+    for (const freshnessStep of [betaPreMigrationFreshness, betaFreshness]) {
+      const script = String(freshnessStep?.with?.script ?? "");
+      assert.match(script, /compareCommits/);
+      assert.match(script, /\['ahead', 'identical'\]\.includes/);
+      assert.doesNotMatch(script, /mainSha\.toLowerCase\(\) === sourceRef/);
+      assert.match(script, /not on main/);
+      assert.match(script, /published deploy \$\{publishedSha\} is already newer/);
+      assert.equal(
+        freshnessStep?.env?.PUBLISHED_SOURCE_REF,
+        "${{ steps.previous.outputs.published_deploy_source_ref }}",
+      );
+    }
+    assert.match(
+      String(previousStep?.run),
+      /published_deploy_source_ref/,
     );
     assert.equal(betaMigration?.env?.BUILD_CONTEXT, "production");
     assert.equal(
@@ -722,7 +754,7 @@ describe("production Netlify site concurrency guard", () => {
     ).find((step) => step.id === "source");
     assert.equal(
       ((betaResolveSource.jobs as Workflow).deploy as Workflow).with?.caller,
-      "${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}",
+      "${{ github.event_name == 'workflow_dispatch' && inputs.handoff && 'automatic' || github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}",
     );
     assert.match(
       String(betaResolveStep?.with?.script),
@@ -731,6 +763,31 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       String(betaResolveStep?.with?.script),
       /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
+    );
+    assert.match(
+      reusableSource,
+      /\['automatic', 'automatic-build'\]\.includes\(process\.env\.CALLER\.trim\(\)\)/,
+    );
+    const confirmCurrentSourceStep = (
+      (
+        ((betaResolveSource.jobs as Workflow)[
+          "confirm-current-source"
+        ] as Workflow).steps as Array<Workflow>
+      ).find((step) => step.id === "source")
+    );
+    const confirmCurrentSourceScript = String(
+      confirmCurrentSourceStep?.with?.script,
+    );
+    // The top-level fleet gate only needs check 1 (ancestor-of-main); it runs
+    // before anything is built, so it no longer requires an exact match.
+    assert.match(confirmCurrentSourceScript, /compareCommits/);
+    assert.match(
+      confirmCurrentSourceScript,
+      /\['ahead', 'identical'\]\.includes/,
+    );
+    assert.doesNotMatch(
+      confirmCurrentSourceScript,
+      /process\.env\.SOURCE_SHA\.toLowerCase\(\) === mainSha\.toLowerCase\(\)/,
     );
     assert.match(
       String(betaResolveStep?.with?.script),

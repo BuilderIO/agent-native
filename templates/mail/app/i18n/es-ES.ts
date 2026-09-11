@@ -38,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Fijar barra lateral",
       unpinSidebar: "Desfijar barra lateral",
+      closeSidebar: "Cerrar barra lateral",
       settings: "Ajustes",
     },
     search: {

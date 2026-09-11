@@ -84,6 +84,66 @@ test("previews the docs site for app changes but skips prose and hidden template
   assert.deepEqual(previewSitesForChangedPaths(["docs/netlify.md"]), []);
 });
 
+test("ignores scripts and workflow files that aren't part of the preview build/deploy path", () => {
+  assert.deepEqual(
+    previewSitesForChangedPaths(["scripts/agent-friction-report.mjs"]),
+    [],
+  );
+  assert.deepEqual(
+    previewSitesForChangedPaths([".github/workflows/desktop-canary.yml"]),
+    [],
+  );
+  assert.deepEqual(previewSitesForChangedPaths(["e2e/mail.spec.ts"]), []);
+});
+
+test("expands a workflow file the preview pipeline actually runs to every site", () => {
+  assert.deepEqual(
+    previewSitesForChangedPaths([
+      ".github/workflows/deploy-netlify-pr-previews.yml",
+    ]),
+    [
+      "analytics",
+      "assets",
+      "calendar",
+      "clips",
+      "content",
+      "design",
+      "dispatch",
+      "forms",
+      "mail",
+      "plan",
+      "slides",
+      "starter",
+      "fw",
+    ],
+  );
+});
+
+test("expands a root lockfile change to every site", () => {
+  assert.deepEqual(previewSitesForChangedPaths(["pnpm-lock.yaml"]), [
+    "analytics",
+    "assets",
+    "calendar",
+    "clips",
+    "content",
+    "design",
+    "dispatch",
+    "forms",
+    "mail",
+    "plan",
+    "slides",
+    "starter",
+    "fw",
+  ]);
+});
+
+test("limits a dependency-scoped package change to sites that depend on it", () => {
+  assert.deepEqual(
+    previewSitesForChangedPaths(["packages/dispatch/src/x.ts"]),
+    ["dispatch"],
+  );
+});
+
 test("keeps hidden templates out of the shared preview fanout", () => {
   assert.deepEqual(
     previewSitesForChangedPaths([

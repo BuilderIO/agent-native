@@ -1168,7 +1168,7 @@ for (const [path, target, buildContext] of [
   }
   const expectedCaller =
     path === betaPath
-      ? "${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}"
+      ? "${{ github.event_name == 'workflow_dispatch' && inputs.handoff && 'automatic' || github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}"
       : "fleet";
   if (deployWith?.caller !== expectedCaller) {
     issues.push(
@@ -1442,9 +1442,15 @@ if (
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
   ) ||
+  // Monotonic, not exact-equality: the source must be an ancestor of (or
+  // equal to) main, and must not regress the already-published deploy.
+  !reusableBetaFreshness.includes("published_deploy_source_ref") ||
+  !reusableBetaFreshness.includes("not on main") ||
+  !reusableBetaFreshness.includes("is already newer") ||
   !reusableBetaFreshness.includes(
-    "core.setOutput('current', String(current))",
+    "['ahead', 'identical'].includes",
   ) ||
+  reusableBetaFreshness.includes("mainSha.toLowerCase() === sourceRef") ||
   !reusableBetaFreshness.includes(
     "Verify beta source is current after publish",
   ) ||
