@@ -698,6 +698,29 @@ export function buildExtensionHtml(
 	    // transient inline chat UI uses srcdoc, so detect that by parent frame.
 	    // The host listens for agent-native-extension-resize and adjusts height.
 	    if (new URLSearchParams(location.search).get('slot') || window.parent !== window) {
+	      var _ro = null;
+	      var _isExcludedFromHeight = function(element, body) {
+	        var current = element;
+	        while (current && current !== body) {
+	          var style = window.getComputedStyle(current);
+	          if (
+	            style.position === 'fixed' ||
+	            /^(?:auto|scroll|overlay|hidden|clip)$/.test(style.overflowY)
+	          ) return true;
+	          current = current.parentElement;
+	        }
+	        return false;
+	      };
+	      var _observePositioned = function() {
+	        if (!_ro || !document.body) return;
+	        _ro.observe(document.documentElement);
+	        _ro.observe(document.body);
+	        Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(element) {
+	          if (window.getComputedStyle(element).position === 'absolute') {
+	            _ro.observe(element);
+	          }
+	        });
+	      };
 	      var _lastH = 0;
 	      var _reportHeight = function() {
 	        var body = document.body;
@@ -709,12 +732,7 @@ export function buildExtensionHtml(
 	        var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
         var contentBottom = Math.max(paddingTop, bodyRect.height - paddingBottom);
 	        Array.prototype.forEach.call(body.querySelectorAll('*'), function(element) {
-	          var ancestor = element.parentElement;
-	          while (ancestor && ancestor !== body) {
-	            var ancestorStyle = window.getComputedStyle(ancestor);
-	            if (/^(?:auto|scroll|overlay|hidden|clip)$/.test(ancestorStyle.overflowY)) return;
-	            ancestor = ancestor.parentElement;
-	          }
+	          if (_isExcludedFromHeight(element, body)) return;
 	          var rect = element.getBoundingClientRect();
 	          contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
 	        });
@@ -725,12 +743,7 @@ export function buildExtensionHtml(
 	          var range = document.createRange();
 	          range.selectNodeContents(textNode);
 	          Array.prototype.forEach.call(range.getClientRects(), function(rect) {
-	            var ancestor = textNode.parentElement;
-	            while (ancestor && ancestor !== body) {
-	              var ancestorStyle = window.getComputedStyle(ancestor);
-	              if (/^(?:auto|scroll|overlay|hidden|clip)$/.test(ancestorStyle.overflowY)) return;
-	              ancestor = ancestor.parentElement;
-	            }
+	            if (_isExcludedFromHeight(textNode.parentElement, body)) return;
 	            contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
 	          });
 	        }
@@ -741,10 +754,23 @@ export function buildExtensionHtml(
 	        }
 	      };
 	      if (typeof ResizeObserver !== 'undefined') {
-	        var _ro = new ResizeObserver(_reportHeight);
+	        _ro = new ResizeObserver(function() {
+	          _reportHeight();
+	          _observePositioned();
+	        });
 	        document.addEventListener('DOMContentLoaded', function() {
-	          _ro.observe(document.documentElement);
-	          if (document.body) _ro.observe(document.body);
+	          _observePositioned();
+	          if (typeof MutationObserver !== 'undefined' && document.body) {
+	            new MutationObserver(function() {
+	              _observePositioned();
+	              _reportHeight();
+	            }).observe(document.body, {
+	              attributes: true,
+	              characterData: true,
+	              childList: true,
+	              subtree: true,
+	            });
+	          }
 	        });
 	      }
 	      // Initial reports — Alpine takes a tick to render after DOMContentLoaded.

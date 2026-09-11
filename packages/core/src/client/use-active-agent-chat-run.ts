@@ -14,20 +14,20 @@ function sameRun(a: ActiveRunState | null, b: ActiveRunState | null): boolean {
 export function useActiveAgentChatRunId(
   threadId: string | null | undefined,
 ): string | null {
-  const [activeRun, setActiveRun] = useState<ActiveRunState | null>(() =>
+  const [activeRun, setActiveRunState] = useState<ActiveRunState | null>(() =>
     getActiveRun(),
   );
 
   useEffect(() => {
     const syncFromStorage = () =>
-      setActiveRun((current) => {
+      setActiveRunState((current) => {
         const next = getActiveRun();
         return sameRun(current, next) ? current : next;
       });
     const handleActiveRunChange = (event: Event) => {
       const state = (event as CustomEvent<{ state?: ActiveRunState | null }>)
         .detail?.state;
-      setActiveRun((current) => {
+      setActiveRunState((current) => {
         const next = state ?? null;
         return sameRun(current, next) ? current : next;
       });

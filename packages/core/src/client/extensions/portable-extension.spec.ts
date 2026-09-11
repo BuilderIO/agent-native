@@ -37,8 +37,13 @@ describe("portable extension runtime", () => {
       "Math.max(paddingTop, bodyRect.height - paddingBottom)",
     );
     expect(html).toContain("body.querySelectorAll('*')");
-    expect(html).toContain("ancestorStyle.overflowY");
+    expect(html).toContain("style.overflowY");
     expect(html).toContain("auto|scroll|overlay|hidden|clip");
+    expect(html).toContain("style.position === 'fixed'");
+    expect(html).toContain(
+      "window.getComputedStyle(element).position === 'absolute'",
+    );
+    expect(html).toContain("new MutationObserver");
     expect(html).toContain("document.createTreeWalker(body, 4)");
     expect(html).toContain("range.getClientRects()");
     expect(html).not.toContain("body.scrollHeight");

@@ -675,6 +675,30 @@ export function buildAgentNativeExtensionHtml({
       window.toolId = extensionId;
       window.slotContext = slotContext;
 
+      var resizeObserver = null;
+      var isExcludedFromHeight = function(element, body) {
+        var current = element;
+        while (current && current !== body) {
+          var style = window.getComputedStyle(current);
+          if (
+            style.position === 'fixed' ||
+            /^(?:auto|scroll|overlay|hidden|clip)$/.test(style.overflowY)
+          ) return true;
+          current = current.parentElement;
+        }
+        return false;
+      };
+      var observePositioned = function() {
+        if (!resizeObserver || !document.body) return;
+        resizeObserver.observe(document.documentElement);
+        resizeObserver.observe(document.body);
+        Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(element) {
+          if (window.getComputedStyle(element).position === 'absolute') {
+            resizeObserver.observe(element);
+          }
+        });
+      };
+
       function reportHeight() {
         try {
           var body = document.body;
@@ -686,12 +710,7 @@ export function buildAgentNativeExtensionHtml({
           var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
           var contentBottom = Math.max(paddingTop, bodyRect.height - paddingBottom);
           Array.prototype.forEach.call(body.querySelectorAll('*'), function(element) {
-            var ancestor = element.parentElement;
-            while (ancestor && ancestor !== body) {
-              var ancestorStyle = window.getComputedStyle(ancestor);
-              if (/^(?:auto|scroll|overlay|hidden|clip)$/.test(ancestorStyle.overflowY)) return;
-              ancestor = ancestor.parentElement;
-            }
+            if (isExcludedFromHeight(element, body)) return;
             var rect = element.getBoundingClientRect();
             contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
           });
@@ -702,12 +721,7 @@ export function buildAgentNativeExtensionHtml({
             var range = document.createRange();
             range.selectNodeContents(textNode);
             Array.prototype.forEach.call(range.getClientRects(), function(rect) {
-              var ancestor = textNode.parentElement;
-              while (ancestor && ancestor !== body) {
-                var ancestorStyle = window.getComputedStyle(ancestor);
-                if (/^(?:auto|scroll|overlay|hidden|clip)$/.test(ancestorStyle.overflowY)) return;
-                ancestor = ancestor.parentElement;
-              }
+              if (isExcludedFromHeight(textNode.parentElement, body)) return;
               contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
             });
           }
@@ -723,7 +737,22 @@ export function buildAgentNativeExtensionHtml({
 
       window.addEventListener('load', reportHeight);
       if (typeof ResizeObserver !== 'undefined') {
-        new ResizeObserver(reportHeight).observe(document.documentElement);
+        resizeObserver = new ResizeObserver(function() {
+          reportHeight();
+          observePositioned();
+        });
+        observePositioned();
+        if (typeof MutationObserver !== 'undefined' && document.body) {
+          new MutationObserver(function() {
+            observePositioned();
+            reportHeight();
+          }).observe(document.body, {
+            attributes: true,
+            characterData: true,
+            childList: true,
+            subtree: true,
+          });
+        }
       } else {
         setInterval(reportHeight, 1000);
       }

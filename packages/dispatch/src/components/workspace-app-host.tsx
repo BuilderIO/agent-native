@@ -445,12 +445,14 @@ export function WorkspaceAppFrame({
           return;
         }
         setIsDirectFallback(true);
-        setEmbedUrl(
-          workspaceAppDirectHref(
-            { path: app.path ?? "", url: app.url },
-            initialPath ?? embedPath ?? "/",
-          ),
-        );
+        const fallbackHref =
+          initialPath !== undefined || embedPath !== undefined
+            ? workspaceAppDirectHref(
+                { path: app.path ?? "", url: app.url },
+                initialPath ?? embedPath ?? "/",
+              )
+            : appHref;
+        setEmbedUrl(fallbackHref);
         setEmbedError(error);
       });
     return () => {
@@ -460,6 +462,7 @@ export function WorkspaceAppFrame({
     app.id,
     app.path,
     app.url,
+    appHref,
     createEmbedSession.mutateAsync,
     createWorkspaceSsoEmbedSession.mutateAsync,
     embedInput,
