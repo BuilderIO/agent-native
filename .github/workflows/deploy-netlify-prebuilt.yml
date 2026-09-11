@@ -1096,8 +1096,8 @@ jobs:
           });
           NODE
 
-      - name: Verify beta source is current immediately before upload
-        id: beta_freshness
+      - name: Verify beta source is current before beta migration
+        id: beta_pre_migration_freshness
         if: inputs.target == 'beta' && inputs.deploy
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -1146,7 +1146,7 @@ jobs:
         if: >-
           inputs.target == 'beta' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
-          steps.beta_freshness.outputs.current == 'true' &&
+          steps.beta_pre_migration_freshness.outputs.current == 'true' &&
           steps.target.outputs.source_template != '@agent-native/docs'
         env:
           BETA_DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
@@ -1194,6 +1194,34 @@ jobs:
           done
           echo "::error::Beta release migration failed after 3 attempts."
           exit 1
+
+      - name: Verify beta source is current immediately before upload
+        id: beta_freshness
+        if: >-
+          success() && inputs.target == 'beta' && inputs.deploy &&
+          steps.beta_pre_migration_freshness.outputs.current == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceRef = process.env.SOURCE_REF.trim();
+            if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
+              core.setOutput('current', 'true');
+              return;
+            }
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            const current = mainSha.toLowerCase() === sourceRef.toLowerCase();
+            core.setOutput('current', String(current));
+            if (!current) {
+              core.notice(
+                `Skipping stale beta source ${sourceRef}; main is now ${mainSha}.`,
+              );
+            }
 
       - name: Upload the prebuilt deploy
         id: deploy

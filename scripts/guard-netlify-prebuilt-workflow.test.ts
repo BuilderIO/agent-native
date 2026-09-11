@@ -486,6 +486,14 @@ describe("production Netlify site concurrency guard", () => {
       (step) =>
         step.name === "Run the beta release migration against production",
     );
+    const betaPreMigrationFreshnessIndex = reusableSteps.findIndex(
+      (step) =>
+        step.name === "Verify beta source is current before beta migration",
+    );
+    const betaFreshnessIndex = reusableSteps.findIndex(
+      (step) =>
+        step.name === "Verify beta source is current immediately before upload",
+    );
     const buildIndex = reusableSteps.findIndex(
       (step) => step.name === "Build with the Netlify project configuration",
     );
@@ -493,6 +501,9 @@ describe("production Netlify site concurrency guard", () => {
       (step) => step.name === "Upload the prebuilt deploy",
     );
     assert.ok(betaMigration);
+    assert.ok(betaPreMigrationFreshnessIndex < betaMigrationIndex);
+    assert.ok(betaMigrationIndex < betaFreshnessIndex);
+    assert.ok(betaFreshnessIndex < uploadIndex);
     assert.ok(betaMigrationIndex > buildIndex);
     assert.ok(betaMigrationIndex < uploadIndex);
     assert.match(String(betaMigration?.if), /inputs\.target == 'beta'/);
@@ -502,7 +513,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String(betaMigration?.if),
-      /steps\.beta_freshness\.outputs\.current == 'true'/,
+      /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
     );
     assert.equal(betaMigration?.env?.BUILD_CONTEXT, "production");
     assert.equal(

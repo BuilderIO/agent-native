@@ -798,6 +798,12 @@ const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
 const parsedUploadIndex = parsedStepIndex("Upload the prebuilt deploy");
+const parsedBetaPreMigrationFreshnessIndex = parsedStepIndex(
+  "Verify beta source is current before beta migration",
+);
+const parsedBetaFreshnessIndex = parsedStepIndex(
+  "Verify beta source is current immediately before upload",
+);
 const parsedPublishWaitIndex = parsedStepIndex(
   "Wait for the Netlify deploy to publish",
 );
@@ -1156,12 +1162,19 @@ if (
   betaMigrationIndex < 0 ||
   buildIndex < 0 ||
   parsedUploadIndex < 0 ||
+  parsedBetaPreMigrationFreshnessIndex < 0 ||
+  parsedBetaFreshnessIndex < 0 ||
+  parsedBetaPreMigrationFreshnessIndex >= betaMigrationIndex ||
+  betaMigrationIndex >= parsedBetaFreshnessIndex ||
+  parsedBetaFreshnessIndex >= parsedUploadIndex ||
   betaMigrationIndex <= buildIndex ||
   betaMigrationIndex >= parsedUploadIndex ||
   !betaMigrationIf.includes("inputs.target == 'beta'") ||
   !betaMigrationIf.includes("inputs.deploy") ||
   !betaMigrationIf.includes("inputs.deploy_mode == 'production'") ||
-  !betaMigrationIf.includes("steps.beta_freshness.outputs.current == 'true'") ||
+  !betaMigrationIf.includes(
+    "steps.beta_pre_migration_freshness.outputs.current == 'true'",
+  ) ||
   !betaMigrationIf.includes("source_template != '@agent-native/docs'") ||
   betaMigrationEnv?.BUILD_CONTEXT !== "production" ||
   betaMigrationEnv?.NETLIFY_MIGRATION_SITE_ID !==
