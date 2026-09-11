@@ -415,6 +415,25 @@ async function restoreRuntimeState(): Promise<void> {
     overlayTabId = typeof rt.overlayTabId === "number" ? rt.overlayTabId : null;
   }
 
+  if (freshArmingSessionId) {
+    if (activeNativeRecording) {
+      // The recorder row is durable, so a worker restart after BEGIN can keep
+      // the recording alive without leaving the arming guard stuck on.
+      await setArmingGuard(null);
+    } else {
+      // The old worker may have died between the native picker and BEGIN. Do
+      // not leave the action disabled or let a stale offscreen acquire linger.
+      await sendOffscreenMessage({
+        type: "CLIPS_OFFSCREEN_CANCEL",
+        sessionId: freshArmingSessionId,
+      }).catch(() => undefined);
+      await setArmingGuard(null);
+      resetOverlay();
+      await broadcastUnmount();
+      broadcastOverlayState();
+    }
+  }
+
   if (overlayPhase !== "idle" && activeNativeRecording) {
     // Recording survived a worker restart. The offscreen document owns the
     // recorder + pre-roll timer, so it kept running; restore the active-recording
