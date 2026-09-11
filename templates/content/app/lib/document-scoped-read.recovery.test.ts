@@ -9,7 +9,11 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DOCUMENT_SCOPED_READ_RETRY_OPTIONS } from "./document-scoped-read-retry";
+import { documentScopedReadRetryOptions } from "./document-scoped-read-retry";
+
+// A row still settling after its own create, and one long past that window.
+const SETTLING = documentScopedReadRetryOptions(true);
+const SETTLED = documentScopedReadRetryOptions(false);
 
 const DRAFT_QUERY_KEY = [
   "action",
@@ -44,7 +48,7 @@ describe("draft read during the page-creation window", () => {
         if (attempts <= 2) throw statusError(403);
         return { draft: null };
       },
-      ...DOCUMENT_SCOPED_READ_RETRY_OPTIONS,
+      ...SETTLING,
     });
 
     expect(attempts).toBe(3);
@@ -60,7 +64,7 @@ describe("draft read during the page-creation window", () => {
           attempts += 1;
           throw statusError(403);
         },
-        ...DOCUMENT_SCOPED_READ_RETRY_OPTIONS,
+        ...SETTLING,
       }),
     ).rejects.toThrow(/403/);
 
@@ -78,10 +82,47 @@ describe("draft read during the page-creation window", () => {
             attempts += 1;
             throw statusError(status);
           },
-          ...DOCUMENT_SCOPED_READ_RETRY_OPTIONS,
+          ...SETTLING,
         }),
       ).rejects.toThrow(String(status));
       expect(attempts).toBe(1);
     }
+  });
+});
+
+describe("draft read for an established row", () => {
+  // assertAccess answers 403 for a revoked share exactly as it does for a row
+  // that is not there yet, and these reads are invalidated on sync events — so
+  // retrying a real denial would cost five unauthorized requests per poll.
+  it("surfaces a revoked share immediately instead of retrying it", async () => {
+    let attempts = 0;
+    await expect(
+      newClient().fetchQuery({
+        queryKey: DRAFT_QUERY_KEY,
+        queryFn: async () => {
+          attempts += 1;
+          throw statusError(403);
+        },
+        ...SETTLED,
+      }),
+    ).rejects.toThrow(/403/);
+
+    expect(attempts).toBe(1);
+  });
+
+  it("surfaces a deleted row immediately instead of retrying it", async () => {
+    let attempts = 0;
+    await expect(
+      newClient().fetchQuery({
+        queryKey: DRAFT_QUERY_KEY,
+        queryFn: async () => {
+          attempts += 1;
+          throw statusError(404);
+        },
+        ...SETTLED,
+      }),
+    ).rejects.toThrow(/404/);
+
+    expect(attempts).toBe(1);
   });
 });

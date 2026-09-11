@@ -26,7 +26,10 @@ import {
   documentQueryFilter,
   type DocumentQueryContext,
 } from "../lib/document-query";
-import { DOCUMENT_SCOPED_READ_RETRY_OPTIONS } from "../lib/document-scoped-read-retry";
+import {
+  documentScopedReadRetryOptions,
+  isWithinCreateSettlingWindow,
+} from "../lib/document-scoped-read-retry";
 import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseItemsContainingDocumentFilter,
@@ -561,7 +564,7 @@ export interface PreviewDocumentDraftRecord {
 
 export function usePreviewDocumentDraft(
   documentId: string | null,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; createdAt?: string | null } = {},
 ) {
   return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
     "get-preview-document-draft",
@@ -569,10 +572,12 @@ export function usePreviewDocumentDraft(
     {
       enabled: !!documentId && options.enabled !== false,
       // The caller gates this off while it knows creation is pending. A 403/404
-      // that still arrives is a row this connection cannot see yet, not a
-      // refusal — the surface only mounted because the document reported
-      // canEdit. Ride that window out; every other failure class stays terminal.
-      ...DOCUMENT_SCOPED_READ_RETRY_OPTIONS,
+      // that still arrives for a row that young is one this connection cannot
+      // see yet rather than a refusal, so ride it out. Once the row is past its
+      // settling window a 403 is a real authorization answer and stays terminal.
+      ...documentScopedReadRetryOptions(
+        isWithinCreateSettlingWindow(options.createdAt),
+      ),
     },
   );
 }
