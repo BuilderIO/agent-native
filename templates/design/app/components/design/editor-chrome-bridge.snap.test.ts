@@ -355,7 +355,7 @@ describe("editor-chrome bridge — nextStackCandidate", () => {
 function loadSelectionTargetForHit(documentRoot: {
   body: Element;
   documentElement: Element;
-}): (hit: Element | null) => Element | null {
+}): (hit: Element | null, descendIntoGroup?: boolean) => Element | null {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
   const rootCheck = extractFunction(
     editorChromeBridgeScript,
@@ -426,6 +426,25 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
     } as unknown as Element;
 
     expect(selectionTargetForHit(child)).toBe(child);
+  });
+
+  it("selects an explicit group on first click and descends on double-click", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const group = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name" ? "Group" : null,
+    } as unknown as Element;
+    const child = {
+      parentElement: group,
+      getAttribute: () => null,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(group);
+    expect(selectionTargetForHit(child, true)).toBe(child);
   });
 
   it("promotes a hit on svg geometry to the outermost svg, whose box is not 0-height", () => {

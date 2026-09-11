@@ -4,11 +4,30 @@ import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
 import {
+  extractLayerPosition,
   prepareClonedHtmlLayersForLiveInsert,
   preserveClipboardLayerName,
 } from "./clone-and-pen-edit";
 
 const LIVE_URL = "http://localhost:5173/products?preview=1";
+
+describe("extractLayerPosition", () => {
+  it("includes authored pixel translation in paste placement", () => {
+    expect(
+      extractLayerPosition(
+        '<div style="position:absolute;left:40px;top:120px;transform:translate(16px, 24px) rotate(2deg)"></div>',
+      ),
+    ).toEqual({ x: 56, y: 144 });
+  });
+
+  it("reads a pixel translation when left and top are absent", () => {
+    expect(
+      extractLayerPosition(
+        '<div style="position:absolute;transform:translate3d(12px, 18px, 0)"></div>',
+      ),
+    ).toEqual({ x: 12, y: 18 });
+  });
+});
 
 function parseFragment(html: string): Element {
   const doc = new DOMParser().parseFromString(

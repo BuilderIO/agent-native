@@ -6,6 +6,7 @@ import type { ElementInfo } from "@/components/design/types";
 import {
   canonicalElementInfoForCodeLayerNode,
   codeLayerNodeLooksLikeComponent,
+  codeLayerPatchMessage,
   layerTypeForCodeLayer,
   codeLayerNodeMatchesBridgeTarget,
   resolveCodeLayerTargetFromBridge,
@@ -19,6 +20,32 @@ import {
   resolveCodeLayerNodeFromBridge,
   runtimeLayerStateHandoffMode,
 } from "./code-layer-state";
+
+describe("codeLayerPatchMessage", () => {
+  it("hides internal target-resolution details behind the caller fallback", () => {
+    expect(
+      codeLayerPatchMessage(
+        'Node with data-agent-native-node-id="layer-1" not found in sourceHtml.',
+        "Could not move that layer",
+      ),
+    ).toBe("Could not move that layer");
+    expect(
+      codeLayerPatchMessage(
+        'Selector ".card" did not match a code layer node.',
+        "Could not move that layer",
+      ),
+    ).toBe("Could not move that layer");
+  });
+
+  it("preserves an actionable user-facing message", () => {
+    expect(
+      codeLayerPatchMessage(
+        "This screen is backed by a live route URL.",
+        "Could not move that layer",
+      ),
+    ).toBe("This screen is backed by a live route URL.");
+  });
+});
 
 function makeElementInfo(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {

@@ -1837,21 +1837,28 @@ function getBodyHtml(payload: any): string | undefined {
   return undefined;
 }
 
-/** Build a map of Content-ID -> attachmentId from inline parts */
+/** Build a map of Content-ID to attachment data or an attachment id. */
 function getInlineAttachments(
   payload: any,
-): Map<string, { attachmentId: string; mimeType: string }> {
-  const map = new Map<string, { attachmentId: string; mimeType: string }>();
+): Map<string, { attachmentId?: string; data?: string; mimeType: string }> {
+  const map = new Map<
+    string,
+    { attachmentId?: string; data?: string; mimeType: string }
+  >();
   function walk(part: any) {
     const headers = part.headers || [];
     const contentId = headers.find(
       (h: any) => h.name.toLowerCase() === "content-id",
     )?.value;
     const attachmentId = part.body?.attachmentId;
-    if (contentId && attachmentId) {
+    const data = part.body?.data;
+    if (contentId && (attachmentId || data)) {
       // Strip angle brackets: <image001> -> image001
-      const cid = contentId.replace(/^<|>$/g, "");
-      map.set(cid, { attachmentId, mimeType: part.mimeType || "image/png" });
+      const cid = contentId.trim().replace(/^<|>$/g, "");
+      map.set(cid, {
+        ...(attachmentId ? { attachmentId } : { data }),
+        mimeType: part.mimeType || "image/png",
+      });
     }
     if (part.parts) {
       for (const p of part.parts) walk(p);
@@ -1865,13 +1872,27 @@ function getInlineAttachments(
 function replaceCidUrls(
   html: string,
   messageId: string,
-  inlineAttachments: Map<string, { attachmentId: string; mimeType: string }>,
+  inlineAttachments: Map<
+    string,
+    { attachmentId?: string; data?: string; mimeType: string }
+  >,
 ): string {
   if (inlineAttachments.size === 0) return html;
   return html.replace(/\bcid:([^\s"'<>]+)/g, (_match, cid) => {
-    const att = inlineAttachments.get(cid);
+    let decodedCid = cid;
+    try {
+      decodedCid = decodeURIComponent(cid);
+    } catch {
+      // coercion-ok: malformed CID escaping stays unresolved and visible.
+    }
+    const att = inlineAttachments.get(decodedCid) || inlineAttachments.get(cid);
     if (att) {
-      return `/api/attachments?messageId=${encodeURIComponent(messageId)}&id=${encodeURIComponent(att.attachmentId)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+      if (att.attachmentId) {
+        return `/api/attachments?messageId=${encodeURIComponent(messageId)}&id=${encodeURIComponent(att.attachmentId)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+      }
+      if (att.data) {
+        return `data:${att.mimeType};base64,${Buffer.from(att.data, "base64url").toString("base64")}`;
+      }
     }
     return _match;
   });

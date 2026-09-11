@@ -241,11 +241,14 @@ submit does nothing, an action errors, data is lost or reverted, the result is
 wrong, or a working flow regressed. A credible "nothing happens" is valid
 evidence — inspect the owning path before doubting the reporter.
 
-Do not react, reply, question, or change code for a preference, product idea,
-copy or layout suggestion, praise, status update, merge or review request, bot
-forward, duplicate, or anything else. Design feedback, including Design clips
-and imported-design usability, goes to Sid. Content belongs to Alice. Never
-turn a subjective concern into a poll about which option people prefer.
+Do not react, reply, question, or change code for a subjective preference,
+unrequested product idea, praise, status update, merge or review request, bot
+forward, duplicate, or anything else that is not a defect. Design feedback is
+in scope when it reports observable broken behavior, including interaction,
+layout, rendering, selection, generation-state, or movement failures; fix it at
+the owning boundary. Content remains Alice's area unless the invocation claims
+it. Never turn a subjective concern into a poll about which option people
+prefer.
 
 ### `:upvote:` overrides the clear-bug gate
 

@@ -930,7 +930,7 @@ export function codeLayerPatchMessage(
   fallback: string,
 ): string {
   if (!message) return fallback;
-  return message.includes("did not match a code layer node")
+  return /code layer node|data-agent-native-node-id/i.test(message)
     ? fallback
     : message;
 }

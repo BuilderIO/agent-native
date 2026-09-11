@@ -574,8 +574,83 @@ export function extractLayerPosition(
     if (!source) return null;
     const left = parseFloat(source.style.left);
     const top = parseFloat(source.style.top);
-    if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
-    return { x: left, y: top };
+    const transform = source.style.transform;
+    const translation = transform.match(
+      /(?:translate3d|translate|translateX|translateY|matrix3d|matrix)\([^)]*\)/gi,
+    );
+    let translatedX = 0;
+    let translatedY = 0;
+    let hasTranslatedX = false;
+    let hasTranslatedY = false;
+    for (const operation of translation ?? []) {
+      const match = operation.match(/^([^(]+)\(([^)]*)\)$/);
+      if (!match) continue;
+      const kind = match[1]!.toLowerCase();
+      const values = match[2]!.trim().split(/[,\s]+/);
+      const number = (value: string | undefined, unit = "px") => {
+        if (!value || (unit === "px" && !/px$/i.test(value))) return null;
+        const parsed = Number.parseFloat(value);
+        return Number.isFinite(parsed) ? parsed : null;
+      };
+      if (kind === "translatex") {
+        const x = number(values[0]);
+        if (x !== null) {
+          translatedX += x;
+          hasTranslatedX = true;
+        }
+      } else if (kind === "translatey") {
+        const y = number(values[0]);
+        if (y !== null) {
+          translatedY += y;
+          hasTranslatedY = true;
+        }
+      } else if (kind === "translate" || kind === "translate3d") {
+        const x = number(values[0]);
+        const y = number(values[1]);
+        if (x !== null) {
+          translatedX += x;
+          hasTranslatedX = true;
+        }
+        if (y !== null) {
+          translatedY += y;
+          hasTranslatedY = true;
+        }
+      } else if (kind === "matrix" && values.length >= 6) {
+        const x = number(values[4], "");
+        const y = number(values[5], "");
+        if (x !== null) {
+          translatedX += x;
+          hasTranslatedX = true;
+        }
+        if (y !== null) {
+          translatedY += y;
+          hasTranslatedY = true;
+        }
+      } else if (kind === "matrix3d" && values.length >= 13) {
+        const x = number(values[12], "");
+        const y = number(values[13], "");
+        if (x !== null) {
+          translatedX += x;
+          hasTranslatedX = true;
+        }
+        if (y !== null) {
+          translatedY += y;
+          hasTranslatedY = true;
+        }
+      }
+    }
+    const x = Number.isFinite(left)
+      ? left + translatedX
+      : hasTranslatedX
+        ? translatedX
+        : Number.NaN;
+    const y = Number.isFinite(top)
+      ? top + translatedY
+      : hasTranslatedY
+        ? translatedY
+        : Number.NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
   } catch {
     return null;
   }

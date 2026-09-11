@@ -4446,12 +4446,13 @@ function DesignEditor() {
     if (!pending || pending.templateId) return;
     if (!hasPendingGenerationOutput(pending, files)) return;
     clearGenerationCompleteTimer();
+    resetAgentGenerating();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
     setGenerationIssue(null);
     setRetryablePrompt(null);
     staleToastShownRef.current = false;
-  }, [clearGenerationCompleteTimer, files, id]);
+  }, [clearGenerationCompleteTimer, files, id, resetAgentGenerating]);
 
   useEffect(
     () =>
@@ -19989,6 +19990,7 @@ function DesignEditor() {
     !hostOwnsChrome &&
     !uiHidden &&
     !initialGenerationChromeLimited &&
+    !responsiveInteractActive &&
     (!minimalUi || minimalInspectorHasSelection);
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;

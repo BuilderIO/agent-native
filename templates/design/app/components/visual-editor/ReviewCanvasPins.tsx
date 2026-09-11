@@ -281,7 +281,9 @@ function elementAnchorAtPoint(
       anchor.getAttribute("id") ??
       undefined;
     const layerName =
-      anchor.getAttribute("data-agent-native-layer-name") ?? undefined;
+      anchor.getAttribute("data-agent-native-layer-name") ||
+      anchor.getAttribute("data-layer-name") ||
+      undefined;
     const targetSelector = nodeId
       ? undefined
       : structuralSelector(anchor, document) || undefined;
