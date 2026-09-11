@@ -14,9 +14,15 @@ const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 
 // promote /restore locks the site, and prebuilt unlock/upload is not atomic;
-// all three production lanes must therefore share one per-site queue.
+// the reusable production, manager, and promote jobs must share one queue.
+// The fleet caller keeps a distinct wrapper queue so it cannot deadlock on its
+// reusable child while that child waits for the canonical production queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
+export const PRODUCTION_MAPPED_SITE_GROUP =
+  "${{ (matrix.site == 'design' || matrix.site == 'slides') && 'agent-native-production-site-design-slides' || format('agent-native-production-site-{0}', matrix.site) }}";
+export const PRODUCTION_FLEET_CHILD_GROUP =
+  "agent-native-production-fleet-child-${{ matrix.site }}";
 export const PUBLISHED_CACHE_PURGE_CONDITION =
   "(inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && inputs.deploy_mode == 'production' && (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') && success()";
 
@@ -74,12 +80,15 @@ export function validateReusableWorkflowConcurrency(
     !group.includes("inputs.caller") ||
     !group.includes("netlify-prebuilt-child") ||
     !group.includes("netlify-prebuilt-preview-{0}-{1}") ||
-    !group.includes("netlify-prebuilt-beta-{0}") ||
     !group.includes("netlify-prebuilt-beta-direct") ||
     !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
     !group.includes("agent-native-production-site") ||
+    !group.includes("agent-native-production-site-design-slides") ||
+    !group.includes("inputs.site == 'chat'") ||
+    !group.includes("!inputs.deploy") ||
+    !group.includes("inputs.deploy_mode != 'production'") ||
     !group.includes("github.event_name")
   ) {
     return [
@@ -176,16 +185,28 @@ export function validateProductionSiteConcurrency(workflows: {
   const jobConcurrency = (workflow: Record<string, unknown>, jobName: string) =>
     asRecord(asRecord(jobs(workflow)?.[jobName])?.concurrency);
 
-  for (const [path, workflow, jobName] of [
-    [productionPath, workflows.production, "deploy"],
-    [manageProductionPath, workflows.manage, "manage"],
-    [promotePath, workflows.promote, "promote"],
+  for (const [path, workflow, jobName, expectedGroup] of [
+    [
+      productionPath,
+      workflows.production,
+      "deploy",
+      PRODUCTION_FLEET_CHILD_GROUP,
+    ],
+    [
+      manageProductionPath,
+      workflows.manage,
+      "manage",
+      PRODUCTION_MAPPED_SITE_GROUP,
+    ],
+    [promotePath, workflows.promote, "promote", PRODUCTION_MAPPED_SITE_GROUP],
   ] as const) {
     const concurrency = jobConcurrency(workflow, jobName);
     const group = concurrency?.group;
-    if (group !== PRODUCTION_SITE_GROUP) {
+    const normalizedGroup =
+      typeof group === "string" ? group.trim().replace(/\s+/g, " ") : group;
+    if (normalizedGroup !== expectedGroup) {
       issues.push(
-        `${path} ${jobName} job concurrency.group must equal ${PRODUCTION_SITE_GROUP}`,
+        `${path} ${jobName} job concurrency.group must equal ${expectedGroup}`,
       );
     }
     if (concurrency?.["cancel-in-progress"] !== false) {
@@ -547,10 +568,16 @@ const betaWorkflowConcurrency = asRecord(
 const betaWorkflowConcurrencyGroup = String(
   betaWorkflowConcurrency?.group ?? "",
 );
+const betaWorkflowDispatchInputs = asRecord(
+  asRecord(asRecord(parsedWorkflows.get(betaPath)?.on)?.workflow_dispatch)
+    ?.inputs,
+);
 if (
   !betaWorkflowConcurrencyGroup.includes(
     "github.event_name == 'workflow_dispatch'",
   ) ||
+  !asRecord(betaWorkflowDispatchInputs?.handoff) ||
+  !betaWorkflowConcurrencyGroup.includes("!inputs.handoff") ||
   !betaWorkflowConcurrencyGroup.includes(
     "format('deploy-agent-native-beta-manual-{0}', github.run_id)",
   ) ||
@@ -560,7 +587,7 @@ if (
   betaWorkflowConcurrency?.["cancel-in-progress"] !== false
 ) {
   issues.push(
-    `${betaPath} must isolate manual validation from the automatic beta publisher queue`,
+    `${betaPath} must isolate manual validation and support production handoff requeues`,
   );
 }
 const reusableDeployJobConfig = asRecord(
@@ -580,7 +607,19 @@ const normalizedReusableConcurrencyGroup = reusableConcurrencyGroup.replace(
 );
 if (
   !normalizedReusableConcurrencyGroup.includes(
-    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}', inputs.site)",
+    "inputs.target == 'beta' && (inputs.site == 'design' || inputs.site == 'slides') && 'agent-native-production-site-design-slides'",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "inputs.target == 'beta' && format(",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "'agent-native-production-site-{0}', inputs.site == 'chat' && 'starter' || inputs.site",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "inputs.target == 'production' && (inputs.site == 'design' || inputs.site == 'slides') && 'agent-native-production-site-design-slides'",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "inputs.target == 'production' && format('agent-native-production-site-{0}', inputs.site)",
   ) ||
   !normalizedReusableConcurrencyGroup.includes(
     "github.event_name == 'workflow_dispatch'",
@@ -588,6 +627,9 @@ if (
   !normalizedReusableConcurrencyGroup.includes("!inputs.caller") ||
   !normalizedReusableConcurrencyGroup.includes(
     "format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "!inputs.deploy || inputs.deploy_mode != 'production'",
   )
 ) {
   issues.push(
@@ -780,6 +822,12 @@ const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
 const parsedUploadIndex = parsedStepIndex("Upload the prebuilt deploy");
+const parsedBetaPreMigrationFreshnessIndex = parsedStepIndex(
+  "Verify beta source is current before beta migration",
+);
+const parsedBetaFreshnessIndex = parsedStepIndex(
+  "Verify beta source is current immediately before upload",
+);
 const parsedPublishWaitIndex = parsedStepIndex(
   "Wait for the Netlify deploy to publish",
 );
@@ -1119,9 +1167,6 @@ for (const [path, target, buildContext] of [
   }
 }
 
-const betaMigrateJob = asRecord(
-  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.migrate,
-);
 const betaResolveSourceJob = asRecord(
   asRecord(parsedWorkflows.get(betaPath)?.jobs)?.["resolve-source"],
 );
@@ -1135,98 +1180,137 @@ const betaResolveSourceScript = String(
 const betaDeployJob = asRecord(
   asRecord(parsedWorkflows.get(betaPath)?.jobs)?.deploy,
 );
-const betaSchemaGateJob = asRecord(
-  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.["schema-gate"],
-);
-const betaSchemaGateStep = (
-  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
-).find(
-  (step) =>
-    step.name ===
-    "Detect schema-dependent beta code without production migration",
-);
-const betaSchemaGateBlockStep = (
-  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
-).find(
-  (step) =>
-    step.name === "Block schema-dependent beta code until production migration",
-);
-const betaMigrationMarkerStep = (
-  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
-).find((step) => step.name === "Record pending beta migration marker");
-const betaSchemaGateCheckoutStep = (
-  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
-).find(
-  (step) =>
-    typeof step.uses === "string" && step.uses.startsWith("actions/checkout@"),
-);
 const betaDeployNeeds = Array.isArray(betaDeployJob?.needs)
   ? betaDeployJob.needs
   : [];
-const productionMigrationMarkerJob = asRecord(
-  asRecord(parsedWorkflows.get(productionPath)?.jobs)?.[
-    "record-beta-migration"
-  ],
+const betaMigrationStep = reusableSteps.find(
+  (step) => step?.name === "Run the beta release migration against production",
+);
+const betaMigrationIndex = reusableSteps.indexOf(betaMigrationStep ?? null);
+const buildIndex = parsedStepIndex(
+  "Build with the Netlify project configuration",
 );
 const productionDiscoverJob = asRecord(
   asRecord(parsedWorkflows.get(productionPath)?.jobs)?.["discover-sites"],
 );
 const productionDiscoverOutputs = asRecord(productionDiscoverJob?.outputs);
-const productionMigrationMarkerSteps =
-  (productionMigrationMarkerJob?.steps as
-    | Array<Record<string, unknown>>
-    | undefined) ?? [];
-if (betaMigrateJob || betaDeployNeeds.includes("migrate")) {
+const productionJobs = asRecord(parsedWorkflows.get(productionPath)?.jobs);
+if (
+  asRecord(parsedWorkflows.get(betaPath)?.permissions)?.contents !== "read" ||
+  !betaDeployNeeds.includes("resolve-source") ||
+  !betaDeployNeeds.includes("discover-sites") ||
+  betaDeployNeeds.includes("schema-gate") ||
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.["schema-gate"] ||
+  beta.includes("migrated_source_sha") ||
+  beta.includes("agent-native-beta-pending") ||
+  beta.includes("agent-native-beta-migrated")
+) {
   issues.push(
-    `${betaPath} must not run release migrations against masked beta site secrets`,
+    `${betaPath} must publish through the reusable migration-aware lane with read-only contents access`,
   );
 }
+
+const betaMigrationIf = String(betaMigrationStep?.if ?? "");
+const betaMigrationEnv = asRecord(betaMigrationStep?.env);
+const betaMigrationRun = String(betaMigrationStep?.run ?? "");
 if (
-  asRecord(parsedWorkflows.get(betaPath)?.permissions)?.contents !== "write"
-) {
-  issues.push(`${betaPath} must write immutable migration markers`);
-}
-if (
-  betaSchemaGateJob?.needs !== "resolve-source" ||
-  typeof betaSchemaGateStep?.run !== "string" ||
-  !betaSchemaGateStep.run.includes("migrated_source_sha") ||
-  !betaSchemaGateStep.run.includes("base_sha_input") ||
-  asRecord(betaSchemaGateStep.env)?.base_sha_input !==
-    "${{ github.event.before }}" ||
-  !betaSchemaGateStep.run.includes("git hash-object -t tree /dev/null") ||
-  !betaSchemaGateStep.run.includes("git diff --name-only") ||
-  !betaSchemaGateStep.run.includes(
-    "git tag --list 'agent-native-beta-pending/*'",
+  betaMigrationIndex < 0 ||
+  buildIndex < 0 ||
+  parsedUploadIndex < 0 ||
+  parsedBetaPreMigrationFreshnessIndex < 0 ||
+  parsedBetaFreshnessIndex < 0 ||
+  parsedBetaPreMigrationFreshnessIndex >= betaMigrationIndex ||
+  betaMigrationIndex >= parsedBetaFreshnessIndex ||
+  parsedBetaFreshnessIndex >= parsedUploadIndex ||
+  betaMigrationIndex <= buildIndex ||
+  betaMigrationIndex >= parsedUploadIndex ||
+  !betaMigrationIf.includes("inputs.target == 'beta'") ||
+  !betaMigrationIf.includes("inputs.deploy") ||
+  !betaMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !betaMigrationIf.includes(
+    "steps.beta_pre_migration_freshness.outputs.current == 'true'",
   ) ||
-  !betaSchemaGateStep.run.includes("agent-native-beta-migrated/*") ||
-  !betaSchemaGateStep.run.includes("unresolved_pending_sha") ||
-  !betaSchemaGateStep.run.includes("required_source_sha") ||
-  !betaSchemaGateStep.run.includes("schema_files") ||
-  !betaSchemaGateStep.run.includes("schema_files_between") ||
-  !betaSchemaGateStep.run.includes("Ignoring obsolete beta migration marker") ||
-  !betaSchemaGateStep.run.includes("local changed_files") ||
-  !betaSchemaGateStep.run.includes('[[ "$status" -eq 0 ]]') ||
-  !betaSchemaGateStep.run.includes("pending_schema_files=") ||
-  !betaSchemaGateStep.run.includes('latest_migrated_sha" "$pending_sha') ||
-  betaSchemaGateStep.run.includes("packages/core/src/db/|") ||
-  asRecord(betaSchemaGateCheckoutStep?.with)?.["fetch-depth"] !== 0 ||
-  typeof betaSchemaGateBlockStep?.run !== "string" ||
-  !betaSchemaGateBlockStep.run.includes("required_source_sha") ||
-  typeof betaMigrationMarkerStep?.with !== "object" ||
-  !String(betaSchemaGateStep.run).includes(
-    "No production-owned migration marker exists",
-  ) ||
-  !String(betaMigrationMarkerStep.if).includes("record_pending") ||
-  !String(asRecord(betaMigrationMarkerStep.with)?.script).includes(
-    "Concurrent beta pending marker",
-  ) ||
-  !String(asRecord(betaMigrationMarkerStep.with)?.script).includes(
-    "createRef",
-  ) ||
-  !betaDeployNeeds.includes("schema-gate")
+  betaMigrationEnv?.BUILD_CONTEXT !== "production" ||
+  betaMigrationEnv?.NETLIFY_MIGRATION_SITE_ID !==
+    "${{ steps.target.outputs.migration_site_id }}" ||
+  betaMigrationEnv?.BETA_DATABASE_URL_SECRET !==
+    "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}" ||
+  !betaMigrationRun.includes("netlify api getSiteDatabase") ||
+  !betaMigrationRun.includes("netlify api getEnvVars") ||
+  !betaMigrationRun.includes("scripts/netlify-migration-url.ts") ||
+  !betaMigrationRun.includes("CONTEXT=production") ||
+  !betaMigrationRun.includes("pnpm --filter") ||
+  !betaMigrationRun.includes("migrate:production") ||
+  !betaMigrationRun.includes("No production PostgreSQL migration URL")
 ) {
   issues.push(
-    `${betaPath} must block schema-dependent beta code until production migration is confirmed`,
+    `${reusablePath} must migrate each beta site's production database after artifact validation and before publishing it`,
+  );
+}
+
+for (const [path, needs] of [
+  [productionPath, "deploy"],
+  [manageProductionPath, "manage"],
+  [promotePath, "promote"],
+  [docsProductionPath, "restore-netlify-builds"],
+] as const) {
+  const document = parsedWorkflows.get(path);
+  const handoff = asRecord(asRecord(document?.jobs)?.["handoff-beta"]);
+  const permissions = asRecord(handoff?.permissions);
+  const handoffScript = String(
+    (
+      (Array.isArray(handoff?.steps) ? handoff.steps : [])
+        .map(asRecord)
+        .find((step) => {
+          const script = asRecord(step?.with)?.script;
+          return (
+            typeof script === "string" &&
+            script.includes("github.rest.actions.createWorkflowDispatch")
+          );
+        })?.with as Record<string, unknown> | undefined
+    )?.script ?? "",
+  );
+  const handoffNeeds = handoff?.needs;
+  if (
+    !(
+      handoffNeeds === needs ||
+      (Array.isArray(handoffNeeds) && handoffNeeds.includes(needs))
+    ) ||
+    typeof handoff.if !== "string" ||
+    !handoff.if.includes("!cancelled()") ||
+    !handoff.if.includes(`needs.${needs}.result == 'success'`) ||
+    permissions?.actions !== "write" ||
+    permissions?.contents !== "read" ||
+    !handoffScript.includes("createWorkflowDispatch") ||
+    !handoffScript.includes("deploy-beta-sites-prebuilt.yml") ||
+    !handoffScript.includes("source_ref") ||
+    !handoffScript.includes("handoff")
+  ) {
+    issues.push(
+      `${path} must requeue the current main source after ${needs} so production cannot permanently evict a beta publish`,
+    );
+  }
+}
+
+const planMigrationStep = reusableSteps.find(
+  (step) => step?.name === "Run Plan release migrations",
+);
+if (
+  !String(planMigrationStep?.if ?? "").includes("inputs.target == 'production'")
+) {
+  issues.push(
+    `${reusablePath} must keep the post-build Plan migration production-only`,
+  );
+}
+
+if (
+  productionDiscoverOutputs?.matrix !== "${{ steps.matrix.outputs.matrix }}" ||
+  productionJobs?.["record-beta-migration"] ||
+  production.includes("complete_fleet") ||
+  production.includes("agent-native-beta-migrated")
+) {
+  issues.push(
+    `${productionPath} must not coordinate beta publishing through production migration markers`,
   );
 }
 
@@ -1403,52 +1487,6 @@ if (
   )
 ) {
   issues.push(`${betaPath} must reject stale manual source_ref values`);
-}
-
-if (
-  productionDiscoverOutputs?.complete_fleet !==
-    "${{ steps.matrix.outputs.complete_fleet }}" ||
-  !(
-    (productionDiscoverJob?.steps as
-      | Array<Record<string, unknown>>
-      | undefined) ?? []
-  ).some(
-    (step) =>
-      typeof step.run === "string" &&
-      step.run.includes("completeFleet") &&
-      step.run.includes("productionNames") &&
-      step.run.includes("productionNames.every") &&
-      step.run.includes("names.includes(name)") &&
-      step.run.includes("buildable.some") &&
-      !step.run.includes("unsupported.length === 0"),
-  ) ||
-  !productionMigrationMarkerJob ||
-  !String(productionMigrationMarkerJob.if).includes(
-    "needs.discover-sites.outputs.complete_fleet == 'true'",
-  ) ||
-  !String(productionMigrationMarkerJob.if).includes(
-    "needs.deploy.result == 'success'",
-  ) ||
-  !Array.isArray(productionMigrationMarkerJob.needs) ||
-  !productionMigrationMarkerJob.needs.includes("resolve-source") ||
-  !productionMigrationMarkerJob.needs.includes("discover-sites") ||
-  !productionMigrationMarkerJob.needs.includes("deploy") ||
-  asRecord(productionMigrationMarkerJob.permissions)?.contents !== "write" ||
-  !productionMigrationMarkerSteps.some(
-    (step) =>
-      typeof step.with === "object" &&
-      String(asRecord(step.with)?.script).includes(
-        "agent-native-beta-migrated",
-      ) &&
-      String(asRecord(step.with)?.script).includes(
-        "Concurrent production migration marker",
-      ) &&
-      String(asRecord(step.with)?.script).includes("createRef"),
-  )
-) {
-  issues.push(
-    `${productionPath} must create the beta migration marker only after a successful all-sites cutover`,
-  );
 }
 
 if (issues.length) {

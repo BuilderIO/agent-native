@@ -24,6 +24,9 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Install native canvas dependencies
+        run: brew install pkg-config cairo pango
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

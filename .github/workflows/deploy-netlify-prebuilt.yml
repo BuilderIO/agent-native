@@ -182,27 +182,43 @@ permissions:
   contents: read
 
 concurrency:
-  # Direct production dispatches share the per-site queue with the fleet,
-  # manager, and promotion jobs. Release migrations use a separate queue.
-  # Beta uploads share one per-site queue. Keep an accepted publisher alive and
-  # coalesce only pending beta children; manual validation must not evict a
-  # pending automatic publish, and production lanes are also non-canceling.
+  # Beta and production lanes share the canonical production site queue so a
+  # beta migration cannot race its production cutover. Design and Slides use
+  # one production database, so they intentionally share one queue as well.
+  # Keep an accepted publisher alive and coalesce only pending beta children;
+  # manual validation must not evict a pending automatic publish. Production
+  # callers hand the current main source back to the beta workflow after their
+  # operation, so this shared queue remains the migration exclusion boundary.
   group: >-
-    ${{ inputs.caller == 'release-migration'
+    ${{ inputs.target == 'beta'
+        && github.event_name == 'workflow_dispatch'
+        && !inputs.caller
+        && (!inputs.deploy || inputs.deploy_mode != 'production')
+        && format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)
+        || inputs.caller == 'release-migration'
+        && inputs.target == 'production'
+        && (inputs.site == 'design' || inputs.site == 'slides')
+        && 'agent-native-production-site-design-slides'
+        || inputs.caller == 'release-migration'
         && inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
         || inputs.caller == 'release-migration'
         && 'agent-native-release-migrations'
         || inputs.target == 'beta'
-        && github.event_name == 'workflow_dispatch'
-        && !inputs.caller
-        && format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)
+        && (inputs.site == 'design' || inputs.site == 'slides')
+        && 'agent-native-production-site-design-slides'
         || inputs.target == 'beta'
-        && format('netlify-prebuilt-beta-{0}', inputs.site)
-        || inputs.caller == 'fleet'
-        && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
+        && format(
+          'agent-native-production-site-{0}',
+          inputs.site == 'chat' && 'starter' || inputs.site
+        )
+        || inputs.target == 'production'
+        && (inputs.site == 'design' || inputs.site == 'slides')
+        && 'agent-native-production-site-design-slides'
         || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
+        || inputs.caller == 'fleet'
+        && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'preview'
         && format('netlify-prebuilt-preview-{0}-{1}', inputs.caller, inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
@@ -555,7 +571,8 @@ jobs:
 
       - name: Run Plan release migrations
         if: >-
-          inputs.deploy && inputs.deploy_mode == 'production' &&
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template == 'plan'
         env:
           DATABASE_URL: ${{ secrets.PLAN_DATABASE_URL }}
@@ -1081,8 +1098,8 @@ jobs:
           });
           NODE
 
-      - name: Verify beta source is current immediately before upload
-        id: beta_freshness
+      - name: Verify beta source is current before beta migration
+        id: beta_pre_migration_freshness
         if: inputs.target == 'beta' && inputs.deploy
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -1126,6 +1143,86 @@ jobs:
           # supplied by the per-app GitHub secret mirror of templates/<app>/.env;
           # other provider credentials remain managed by Netlify.
           node --experimental-strip-types scripts/sync-netlify-preview-database.ts
+
+      - name: Run the beta release migration against production
+        if: >-
+          inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.beta_pre_migration_freshness.outputs.current == 'true'
+        env:
+          BETA_DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
+          BUILD_CONTEXT: production
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_MIGRATION_SITE_ID: ${{ steps.target.outputs.migration_site_id }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url="$BETA_DATABASE_URL_SECRET"
+          if [[ -z "$migration_database_url" ]]; then
+            migration_database_url="$(
+              netlify api getSiteDatabase \
+                --data "{\"site_id\":\"$NETLIFY_MIGRATION_SITE_ID\",\"role\":\"netlifydb_owner\"}" 2>/dev/null |
+                BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts ||
+                true
+            )"
+          fi
+          if [[ -z "$migration_database_url" ]]; then
+            migration_database_url="$(
+              netlify api getEnvVars \
+                --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_MIGRATION_SITE_ID\"}" |
+                BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+            )"
+          fi
+          if [[ "$migration_database_url" != postgres://* && "$migration_database_url" != postgresql://* ]]; then
+            echo "::error::No production PostgreSQL migration URL is available for $SOURCE_TEMPLATE."
+            exit 1
+          fi
+          export CONTEXT=production
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter "$SOURCE_TEMPLATE" migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Beta migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Beta release migration failed after 3 attempts."
+          exit 1
+
+      - name: Verify beta source is current immediately before upload
+        id: beta_freshness
+        if: >-
+          success() && inputs.target == 'beta' && inputs.deploy &&
+          steps.beta_pre_migration_freshness.outputs.current == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceRef = process.env.SOURCE_REF.trim();
+            if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
+              core.setOutput('current', 'true');
+              return;
+            }
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            const current = mainSha.toLowerCase() === sourceRef.toLowerCase();
+            core.setOutput('current', String(current));
+            if (!current) {
+              core.notice(
+                `Skipping stale beta source ${sourceRef}; main is now ${mainSha}.`,
+              );
+            }
 
       - name: Upload the prebuilt deploy
         id: deploy
