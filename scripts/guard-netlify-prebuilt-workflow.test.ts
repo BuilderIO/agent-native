@@ -10,6 +10,7 @@ import { parse } from "yaml";
 
 import {
   PUBLISHED_CACHE_PURGE_CONDITION,
+  PRODUCTION_FLEET_CHILD_GROUP,
   PRODUCTION_SITE_GROUP,
   validateGoogleCallbackVerificationWorkflow,
   validateNetlifyApiRateLimitHandling,
@@ -498,6 +499,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       String(betaMigration?.if),
       /source_template != '@agent-native\/docs'/,
+    );
+    assert.match(
+      String(betaMigration?.if),
+      /steps\.beta_freshness\.outputs\.current == 'true'/,
     );
     assert.equal(betaMigration?.env?.BUILD_CONTEXT, "production");
     assert.equal(
@@ -1781,8 +1786,25 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(restoreStep.run), /stop_builds: false/);
   });
 
-  it("requires the exact shared queue on deploy, manage, and promote jobs", () => {
+  it("keeps the fleet caller queue distinct from the shared site queues", () => {
     assert.deepEqual(validateProductionSiteConcurrency(workflows()), []);
+  });
+
+  it("rejects the shared site queue on the fleet caller", () => {
+    const mutated = workflows();
+    const productionJobs = mutated.production.jobs as Record<string, Workflow>;
+    const deploy = productionJobs.deploy;
+    const concurrency = deploy.concurrency as Record<string, unknown>;
+    concurrency.group = PRODUCTION_SITE_GROUP;
+
+    const issues = validateProductionSiteConcurrency(mutated);
+    assert(
+      issues.some((issue) =>
+        issue.includes(
+          `deploy-production-sites-prebuilt.yml deploy job concurrency.group must equal ${PRODUCTION_FLEET_CHILD_GROUP}`,
+        ),
+      ),
+    );
   });
 
   it("rejects a renamed promote queue even when it still mentions matrix.site", () => {

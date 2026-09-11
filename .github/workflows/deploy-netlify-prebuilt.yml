@@ -1146,6 +1146,7 @@ jobs:
         if: >-
           inputs.target == 'beta' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
+          steps.beta_freshness.outputs.current == 'true' &&
           steps.target.outputs.source_template != '@agent-native/docs'
         env:
           BETA_DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}

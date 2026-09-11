@@ -168,7 +168,9 @@ jobs:
       && needs.discover-sites.result == 'success'
       && needs.beta-e2e.result != 'failure' }}
     concurrency:
-      group: agent-native-production-site-${{ matrix.site }}
+      # The reusable child owns the canonical site queue. Keep this caller
+      # queue distinct so the caller can wait for the child without deadlocking.
+      group: agent-native-production-fleet-child-${{ matrix.site }}
       cancel-in-progress: false
     strategy:
       fail-fast: false

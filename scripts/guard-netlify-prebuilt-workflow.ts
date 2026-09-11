@@ -14,9 +14,13 @@ const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 
 // promote /restore locks the site, and prebuilt unlock/upload is not atomic;
-// all three production lanes must therefore share one per-site queue.
+// the reusable production, manager, and promote jobs must share one queue.
+// The fleet caller keeps a distinct wrapper queue so it cannot deadlock on its
+// reusable child while that child waits for the canonical production queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
+export const PRODUCTION_FLEET_CHILD_GROUP =
+  "agent-native-production-fleet-child-${{ matrix.site }}";
 export const PUBLISHED_CACHE_PURGE_CONDITION =
   "(inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && inputs.deploy_mode == 'production' && (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') && success()";
 
@@ -179,16 +183,21 @@ export function validateProductionSiteConcurrency(workflows: {
   const jobConcurrency = (workflow: Record<string, unknown>, jobName: string) =>
     asRecord(asRecord(jobs(workflow)?.[jobName])?.concurrency);
 
-  for (const [path, workflow, jobName] of [
-    [productionPath, workflows.production, "deploy"],
-    [manageProductionPath, workflows.manage, "manage"],
-    [promotePath, workflows.promote, "promote"],
+  for (const [path, workflow, jobName, expectedGroup] of [
+    [
+      productionPath,
+      workflows.production,
+      "deploy",
+      PRODUCTION_FLEET_CHILD_GROUP,
+    ],
+    [manageProductionPath, workflows.manage, "manage", PRODUCTION_SITE_GROUP],
+    [promotePath, workflows.promote, "promote", PRODUCTION_SITE_GROUP],
   ] as const) {
     const concurrency = jobConcurrency(workflow, jobName);
     const group = concurrency?.group;
-    if (group !== PRODUCTION_SITE_GROUP) {
+    if (group !== expectedGroup) {
       issues.push(
-        `${path} ${jobName} job concurrency.group must equal ${PRODUCTION_SITE_GROUP}`,
+        `${path} ${jobName} job concurrency.group must equal ${expectedGroup}`,
       );
     }
     if (concurrency?.["cancel-in-progress"] !== false) {
@@ -1152,6 +1161,7 @@ if (
   !betaMigrationIf.includes("inputs.target == 'beta'") ||
   !betaMigrationIf.includes("inputs.deploy") ||
   !betaMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !betaMigrationIf.includes("steps.beta_freshness.outputs.current == 'true'") ||
   !betaMigrationIf.includes("source_template != '@agent-native/docs'") ||
   betaMigrationEnv?.BUILD_CONTEXT !== "production" ||
   betaMigrationEnv?.NETLIFY_MIGRATION_SITE_ID !==
