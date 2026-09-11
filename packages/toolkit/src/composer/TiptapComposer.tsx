@@ -3488,6 +3488,7 @@ export function TiptapComposer({
             try {
               return localStorage.getItem(submittingDraftKey);
             } catch {
+              // coercion-ok: browser storage is optional and can be unavailable or full; treat as "nothing to compare against" like the rest of this file's draft helpers.
               return null;
             }
           })()
