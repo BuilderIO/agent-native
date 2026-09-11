@@ -381,6 +381,10 @@ async function restoreRuntimeState(): Promise<void> {
     "overlayRuntime",
     "armingNativeRecordingSessionId",
   ]);
+  const rawArmingSessionId = persistedArmingSessionId(
+    stored.armingNativeRecordingSessionId,
+  );
+  const hadArmingGuardBeforeRestore = armingNativeRecordingSessionId !== null;
   const rec = stored.activeNativeRecording as NativeRecording | undefined;
   if (rec && typeof rec.sessionId === "string" && !activeNativeRecording) {
     activeNativeRecording = rec;
@@ -420,7 +424,8 @@ async function restoreRuntimeState(): Promise<void> {
   }
 
   let armingRecovered = !freshArmingSessionId;
-  if (freshArmingSessionId) {
+  const recoverySessionId = freshArmingSessionId ?? rawArmingSessionId;
+  if (recoverySessionId) {
     let offscreenState: OffscreenRecordingState | null = null;
     try {
       await ensureOffscreenDocument();
@@ -436,7 +441,7 @@ async function restoreRuntimeState(): Promise<void> {
       );
     }
 
-    if (offscreenState?.activeSessionId === freshArmingSessionId) {
+    if (offscreenState?.activeSessionId === recoverySessionId) {
       if (activeNativeRecording) {
         // The recorder row was persisted before BEGIN, so a worker restart here
         // can keep the live recorder without leaving the arming guard stuck on.
@@ -447,22 +452,41 @@ async function restoreRuntimeState(): Promise<void> {
         // cancelling it would lose media that has already crossed BEGIN.
         console.warn(
           "[clips-bg] live offscreen recorder has no persisted row:",
-          freshArmingSessionId,
+          recoverySessionId,
         );
       }
-    } else if (offscreenState?.preparedSessionId === freshArmingSessionId) {
-      // This is the normal acquire/create/attach gap before BEGIN. Keep the
-      // guard while the prepared streams are still owned by this arm.
+    } else if (offscreenState?.preparedSessionId === recoverySessionId) {
+      if (hadArmingGuardBeforeRestore) {
+        // This is the normal acquire/create/attach gap before BEGIN. Keep the
+        // guard while the prepared streams are still owned by this arm.
+      } else if (activeNativeRecording?.sessionId === recoverySessionId) {
+        // A worker restart ended the arm continuation, so release the row and
+        // prepared streams instead of leaving the popup locked forever.
+        await cancelRecording(true);
+        await setArmingGuard(null);
+        armingRecovered = true;
+      } else {
+        await sendOffscreenMessage({
+          type: "CLIPS_OFFSCREEN_CANCEL",
+          sessionId: recoverySessionId,
+        }).catch(() => undefined);
+        resetOverlay();
+        await broadcastUnmount();
+        broadcastOverlayState();
+        await clearNativeRecording();
+        await setArmingGuard(null);
+        armingRecovered = true;
+      }
     } else if (offscreenState) {
       // The old worker died before BEGIN. Cancel the guarded offscreen session
       // even when its recording row was never persisted, then clean the local
       // overlay without touching a different recording that may have resumed.
-      if (activeNativeRecording?.sessionId === freshArmingSessionId) {
+      if (activeNativeRecording?.sessionId === recoverySessionId) {
         await cancelRecording(true);
       } else {
         await sendOffscreenMessage({
           type: "CLIPS_OFFSCREEN_CANCEL",
-          sessionId: freshArmingSessionId,
+          sessionId: recoverySessionId,
         }).catch(() => undefined);
         if (!activeNativeRecording) {
           resetOverlay();
@@ -906,6 +930,13 @@ async function setArmingGuard(sessionId: string | null): Promise<void> {
       () => undefined,
     );
   }
+}
+
+function persistedArmingSessionId(rawValue: unknown): string | null {
+  if (typeof rawValue === "string" && rawValue) return rawValue;
+  if (!rawValue || typeof rawValue !== "object") return null;
+  const sessionId = (rawValue as { sessionId?: unknown }).sessionId;
+  return typeof sessionId === "string" && sessionId ? sessionId : null;
 }
 
 // Reads the persisted arming guard and returns its sessionId only if it is
