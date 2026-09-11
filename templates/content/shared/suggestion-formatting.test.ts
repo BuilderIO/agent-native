@@ -393,6 +393,44 @@ describe("code fences stay mappable", () => {
     });
   });
 
+  it("accounts for each fence independently when a page holds several", () => {
+    const source = L(
+      "```ts",
+      "a = {0};",
+      "b = <c>;",
+      "```",
+      "<details>",
+      "<summary>S</summary>",
+      "\t```py",
+      "\tp = [1]",
+      "\tq = {2}",
+      "\t```",
+      "\tInner **bold**",
+      "</details>",
+      "```sh",
+      "ls | wc",
+      "```",
+      "End [link](https://e.test)",
+    );
+    expect(
+      mappable(source)?.map((range) => source.slice(range.from, range.to)),
+    ).toEqual(["**bold**", "[link](https://e.test)"]);
+  });
+
+  it("keeps a body that reads like its own fence line verbatim", () => {
+    const source = L(
+      "````",
+      "```",
+      "not a fence",
+      "```",
+      "````",
+      "After **bold**",
+    );
+    expect(
+      mappable(source)?.map((range) => source.slice(range.from, range.to)),
+    ).toEqual(["**bold**"]);
+  });
+
   it("leaves an empty code fence mappable", () => {
     expect(mappable(L(bold, "```", "", "```"))).toEqual([{ from: 6, to: 14 }]);
   });
