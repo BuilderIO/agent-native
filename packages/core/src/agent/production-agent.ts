@@ -814,6 +814,8 @@ export interface ActionEntry {
    *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Capability scopes allowed on the page-local WebMCP route. */
+  capabilityScopes?: readonly string[];
   /** Optional deep-link builder. When set, MCP/A2A surfaces append an
    *  "Open in <app> →" link built from the call's args + result. Pure, sync,
    *  best-effort. See `defineAction` and the `external-agents` skill. */

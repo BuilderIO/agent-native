@@ -397,6 +397,8 @@ interface DesignCanvasProps {
   sourceType?: "inline" | "localhost" | "fusion";
   /** Local design-connect bridge URL used to fetch editable snapshots for URL-backed localhost screens. */
   bridgeUrl?: string;
+  /** Authoritative URL for a live screen when its persisted source is changing. */
+  previewUrlOverride?: string;
   /** Stable local/Fusion connection scope for desktop session isolation. */
   connectionId?: string;
   /** Only the active focused/overview screen may own the desktop native backend. */
@@ -1117,6 +1119,7 @@ export function DesignCanvas({
   contentKey,
   sourceType,
   bridgeUrl,
+  previewUrlOverride,
   connectionId,
   nativePreviewActive = true,
   externalSnapshotHtml,
@@ -1468,7 +1471,11 @@ export function DesignCanvas({
   // container through a same-origin proxy. `fusionUrl` only covers fusion
   // screens whose content is still the original inline HTML.
   const rawExternalPreviewUrl = useMemo(() => {
-    const contentUrl = getExternalPreviewUrl(renderedContent);
+    const overrideUrl = getExternalPreviewUrl(previewUrlOverride ?? "");
+    if (overrideUrl) return overrideUrl;
+    const contentUrl = getExternalPreviewUrl(
+      sourceType === "localhost" ? renderedContent : content,
+    );
     if (contentUrl) return contentUrl;
     if (sourceType === "fusion" && fusionUrl) {
       try {
@@ -1482,7 +1489,7 @@ export function DesignCanvas({
       }
     }
     return null;
-  }, [fusionUrl, renderedContent, sourceType]);
+  }, [content, fusionUrl, previewUrlOverride, renderedContent, sourceType]);
   const runtimeLayerSnapshotEnabled =
     (sourceType === "localhost" || sourceType === "fusion") &&
     Boolean(rawExternalPreviewUrl) &&
@@ -1628,7 +1635,19 @@ export function DesignCanvas({
   // already moved past — a failure indistinguishable from success. A viewer with
   // no bridge entitlement gets the real dev-server URL instead (see
   // externalPreviewUrl below), which is live even without editor chrome.
-  const iframeRenderContent = interactMode ? content : renderedContent;
+  // A source-mode transition is also an authoritative content boundary. A
+  // URL cached by the edit-mode bridge must not keep a URL-backed iframe alive
+  // after URL -> static, or the canvas shows the old live app behind a
+  // permanent bridge-loading surface. Same-mode localhost edits still keep
+  // their cached URL so the live document is not needlessly reloaded. Keep the
+  // legacy inline baseline stable for same-screen runtime replacements; only a
+  // stale URL marker needs the new source bytes immediately.
+  const iframeRenderContent =
+    interactMode ||
+    (sourceType !== "localhost" &&
+      Boolean(getExternalPreviewUrl(renderedContent)))
+      ? content
+      : renderedContent;
 
   const desktopNativeSnapshot = useDesktopDesignNativePreview({
     iframeRef,
