@@ -229,7 +229,10 @@ type DatabaseMembershipRow = {
   bodyHydrationQueueId?: string | null;
 };
 
-type DocumentListRow = Omit<typeof schema.documents.$inferSelect, "content">;
+type DocumentListRow = Omit<
+  typeof schema.documents.$inferSelect,
+  "content" | "collabBodyRevision"
+>;
 
 // Database grids render row metadata and properties. Fetching the document body
 // here would transfer it only for serializeDocument to replace it with an empty
@@ -308,6 +311,7 @@ export function serializeDatabaseMembership(
     databaseId: row.database.id,
     databaseDocumentId: row.database.documentId,
     databaseTitle: row.database.title || "Untitled database",
+    systemRole: row.database.systemRole,
     position: row.item.position,
     sourceId: row.sourceId ?? null,
     bodyHydration: serializeBodyHydration(row.item, {

@@ -412,7 +412,7 @@ Use `get-vault-access-settings` before deciding whether to create grants, and
 use `set-vault-access-settings` only when the user asks to change the policy.
 
 Vault keys land in the shared `app_secrets` store at `org` scope, so an app's
-Settings → Integrations → Keys section reports them as `Set · Vault` through
+Settings → API keys tab reports them as `Set · Vault` through
 `resolveSecretDetailed` (`source`/`scopeId`) instead of the registered-scope
 row alone. Runtime precedence is personal (`user`) row → shared `org` row →
 legacy `workspace` row → designated vault org → deploy env. Never add a second

@@ -247,6 +247,9 @@ export interface MultiScreenCanvasProps {
    *  the same widths, and a per-screen parameter here only ever promised
    *  scoping the action cannot deliver. */
   onAddBreakpoint?: (widthPx: number) => void;
+  /** True while an add/remove breakpoint mutation is in flight — disables the
+   *  "+" affordance and shows a brief spinner so the click is acknowledged. */
+  breakpointMutationPending?: boolean;
   /**
    * Called when the user clicks a breakpoint frame header to make it the
    * active edit scope.

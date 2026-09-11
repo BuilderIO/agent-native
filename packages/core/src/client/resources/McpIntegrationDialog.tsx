@@ -317,7 +317,13 @@ export function McpIntegrationDialog({
       }),
     );
     if (!onOAuthStart) {
-      navigateToMcpOAuthStart(oauthUrl);
+      const opened = navigateToMcpOAuthStart(oauthUrl);
+      setBusy(false);
+      if (opened) {
+        onOpenChange(false);
+      } else {
+        setError(t("mcpIntegrations.connectionError"));
+      }
       return;
     }
     void Promise.resolve()
@@ -499,6 +505,13 @@ export function McpIntegrationDialog({
     if (!integration) return;
     if (integration.authMode === "oauth" && !oauthReady) return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
+    if (
+      integration.authMode === "oauth" &&
+      !(hasOrg && supportsMcpIntegrationOrganizationScope(integration))
+    ) {
+      openForm(integration, { scope: "user" });
+      return;
+    }
     quickConnectRef.current?.(integration);
   }, [
     defaultIntegrations,
@@ -530,6 +543,10 @@ export function McpIntegrationDialog({
     }
     if (requiresMcpIntegrationSetup(integration)) {
       openForm(integration);
+      return;
+    }
+    if (integration.authMode === "oauth") {
+      openForm(integration, { scope: "user" });
       return;
     }
     quickConnectRef.current?.(integration);

@@ -5,36 +5,23 @@
  */
 
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
-import {
-  Button as ToolkitButton,
-  ButtonBase as ToolkitButtonBase,
-} from "@agent-native/toolkit/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@agent-native/toolkit/ui/command";
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
   IconCheck,
   IconChevronRight,
   IconExternalLink,
   IconLoader2,
   IconPlugConnected,
-  IconPlus,
   IconTrash,
   IconRefresh,
 } from "@tabler/icons-react";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 
-import { agentNativePath } from "../api-path.js";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
+import { agentNativePath, appMountedPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
@@ -43,6 +30,9 @@ import {
 import { useT } from "../i18n.js";
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import { cn } from "../utils.js";
+import { KeyProviderTile } from "./KeyProviderTile.js";
+import { NewKeyMenu, normalizeKeyName } from "./NewKeyMenu.js";
+import { SettingsCrossLinkHint } from "./SettingsCrossLinkHint.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
 
 const Button = React.forwardRef<
@@ -63,15 +53,6 @@ Button.displayName = "SecretsPrimitiveButton";
 
 /** Where a stored value's effective source is, as reported by the server. */
 type SecretSource = "personal" | "workspace" | "vault" | "env";
-
-/** `stripe secret` → `STRIPE_SECRET`, the shape ad-hoc key names must take. */
-function normalizeKeyName(input: string): string {
-  return input
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, "_")
-    .replace(/[^A-Z0-9_-]/g, "");
-}
 
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
   vault: "secrets.sourceVault",
@@ -207,6 +188,12 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   const availableSecrets = secrets.filter(
     (secret) => secret.status === "unset" && secret.key !== openSecretKey,
   );
+  // Keys the Vault or the environment provide still count as "set", but until
+  // someone adds a key of their own the quick-add tiles are the useful view.
+  const hasOwnKey = visibleSecrets.some(
+    (secret) => secret.status === "set" && secret.managedHere !== false,
+  );
+  const showProviderEmptyState = !hasOwnKey && !customKeyOpen.open;
 
   return (
     <div className="space-y-3">
@@ -239,13 +226,91 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
           ))}
         </div>
       )}
+      {showProviderEmptyState && (
+        <KeysEmptyState
+          availableSecrets={availableSecrets}
+          showTitle={visibleSecrets.length === 0}
+          onPick={(key) => {
+            setCustomKeyOpen({ open: false });
+            setOpenSecretKey(key);
+          }}
+        />
+      )}
       <AdHocKeysSection
         showForm={customKeyOpen.open}
         initialName={customKeyOpen.initialName}
         onShowFormChange={(open) => setCustomKeyOpen({ open })}
-        showEmptyState={visibleSecrets.length === 0}
+        showEmptyState={visibleSecrets.length === 0 && !showProviderEmptyState}
         vaultHref={vaultHref}
       />
+    </div>
+  );
+}
+
+const TILE_PRIORITY = [
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "OPENROUTER_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GITHUB_TOKEN",
+  "FIGMA_ACCESS_TOKEN",
+];
+
+function tilePriority(key: string): number {
+  const idx = TILE_PRIORITY.indexOf(key);
+  if (idx !== -1) return idx;
+  if (key.startsWith("NOTION_")) return TILE_PRIORITY.length;
+  if (key.startsWith("SLACK_")) return TILE_PRIORITY.length + 1;
+  return Infinity;
+}
+
+const MAX_EMPTY_STATE_TILES = 8;
+
+function KeysEmptyState({
+  availableSecrets,
+  showTitle,
+  onPick,
+}: {
+  availableSecrets: SecretStatus[];
+  showTitle: boolean;
+  onPick: (key: string) => void;
+}) {
+  const t = useT();
+  // OAuth client pairs are app setup, not "your own account"; keep them
+  // behind New so the tiles stay the keys people actually paste.
+  const tiles = availableSecrets
+    .filter(
+      (secret) =>
+        secret.kind !== "oauth" && !/_CLIENT_(ID|SECRET)$/.test(secret.key),
+    )
+    .sort((a, b) => {
+      const rank = tilePriority(a.key) - tilePriority(b.key);
+      return rank !== 0 ? rank : a.label.localeCompare(b.label);
+    });
+  const shown = tiles.slice(0, MAX_EMPTY_STATE_TILES);
+  const remaining = tiles.length - shown.length;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-muted-foreground">
+        {showTitle && `${t("secrets.emptyTitle")} `}
+        {t("secrets.emptyHint")}
+      </p>
+      <div className="grid grid-cols-4 gap-2 max-[360px]:grid-cols-3">
+        {shown.map((secret) => (
+          <KeyProviderTile
+            key={secret.key}
+            label={secret.label}
+            secretKey={secret.key}
+            onClick={() => onPick(secret.key)}
+          />
+        ))}
+      </div>
+      {remaining > 0 && (
+        <p className="text-[10px] text-muted-foreground">
+          {t("secrets.emptyMore", { count: remaining })}
+        </p>
+      )}
     </div>
   );
 }
@@ -260,106 +325,21 @@ function KeysHeader({
   onCustomKey: (initialName?: string) => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const normalized = normalizeKeyName(query);
-
   return (
     <div className="flex items-center justify-between gap-3">
-      <p className="text-[11px] font-medium text-foreground">Keys</p>
-      <Popover
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) setQuery("");
-        }}
-      >
-        <PopoverTrigger asChild>
-          <ToolkitButtonBase
-            type="button"
-            variant="outline"
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
-          >
-            <IconPlus size={11} />
-            New
-          </ToolkitButtonBase>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-72 p-0">
-          <Command
-            // cmdk's default scorer matches loose subsequences, so "logo"
-            // also surfaces every "G-o-o-g-l-e ... " key.
-            filter={(value, search) =>
-              value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
-            }
-          >
-            <CommandInput
-              placeholder="Search keys..."
-              onValueChange={setQuery}
-            />
-            {availableSecrets.length > 0 && (
-              <CommandList>
-                <CommandEmpty>No keys found.</CommandEmpty>
-                <CommandGroup heading="Choose a key">
-                  {availableSecrets.map((secret) => (
-                    <CommandItem
-                      key={secret.key}
-                      value={`${secret.label} ${secret.key}`}
-                      onSelect={() => {
-                        setOpen(false);
-                        onSecret?.(secret.key);
-                      }}
-                      className="flex items-center justify-between gap-3"
-                    >
-                      <span className="truncate">{secret.label}</span>
-                      {secret.required && (
-                        <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                          Required
-                        </span>
-                      )}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </CommandList>
-            )}
-            {/* Outside the scrolling list and force-mounted: cmdk hides a
-                group whose items missed the previous search, so a filtered
-                item can't advertise itself. A footer stays visible and
-                keyboard-reachable no matter what was typed. */}
-            <CommandGroup
-              forceMount
-              className={cn(
-                availableSecrets.length > 0 && "border-t border-border",
-              )}
-            >
-              <CommandItem
-                forceMount
-                value="custom key"
-                onSelect={() => {
-                  setOpen(false);
-                  onCustomKey(normalized || undefined);
-                }}
-                className="flex items-center justify-between gap-3"
-              >
-                {normalized ? (
-                  <span className="break-all">
-                    {t("secrets.addCustomKeyNamed", { name: normalized })}
-                  </span>
-                ) : (
-                  <>
-                    <span className="flex items-center gap-1.5">
-                      <IconPlus size={14} />
-                      {t("secrets.customKey")}
-                    </span>
-                    <span className="shrink-0 text-[9px] text-muted-foreground">
-                      {t("secrets.customKeyHint")}
-                    </span>
-                  </>
-                )}
-              </CommandItem>
-            </CommandGroup>
-          </Command>
-        </PopoverContent>
-      </Popover>
+      <SettingsCrossLinkHint
+        text={t("integrations.lookingForProviders")}
+        linkText={t("integrations.goToIntegrations")}
+        href={appMountedPath(
+          buildSettingsRoute("integrations"),
+          STANDARD_APP_ROUTES.settings,
+        )}
+      />
+      <NewKeyMenu
+        options={availableSecrets}
+        onPick={(option) => onSecret?.(option.key)}
+        onCustom={onCustomKey}
+      />
     </div>
   );
 }

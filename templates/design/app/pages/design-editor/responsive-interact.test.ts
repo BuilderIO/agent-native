@@ -128,11 +128,14 @@ describe("responsive Interact wiring", () => {
 
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
     expect(source).toContain(
-      "const minimalUiByDefault = embedded && !hostOwnsChrome;",
+      "embedded && !hostOwnsChrome && !embedChromeRequested",
     );
-    expect(source).toContain(
+    // Minimal mode auto-opens the floating inspector from selection — no
+    // manual right-rail toggle (the flipped LayoutSidebar icon was that control).
+    expect(source).not.toContain(
       '<IconLayoutSidebar className="size-4 -scale-x-100" />',
     );
+    expect(source).not.toContain('data-design-minimal-toggle="right"');
     expect(source).toContain('data-design-minimal-bar="interact"');
     expect(source).toContain(
       "grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)]",
@@ -140,7 +143,16 @@ describe("responsive Interact wiring", () => {
     expect(source).toContain(
       'className="pointer-events-none flex min-w-0 justify-center"',
     );
-    expect(source).toContain("isMobileViewport && minimalRightSidebarOpen");
+    expect(source).toContain(
+      "isMobileViewport && minimalInspectorHasSelection",
+    );
+  });
+
+  it("resets chrome mode when same-design navigation changes embed mode", () => {
+    expect(source).toContain("setMinimalUi(minimalUiByDefault);");
+    expect(source).toContain(
+      "}, [minimalUiByDefault, embedChromeRequested, hostOwnsChrome]);",
+    );
   });
 
   it("pushes editing safety live in addition to baking it", () => {

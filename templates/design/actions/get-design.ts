@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -19,7 +20,7 @@ export default defineAction({
   requiresAuth: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
-  run: async ({ id }) => {
+  run: async ({ id }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) {
       const error = new Error("Design not found") as Error & {
@@ -48,6 +49,18 @@ export default defineAction({
     const designSystem = await loadAgentDesignSystemContext(
       typeof row.designSystemId === "string" ? row.designSystemId : null,
       getDesignSystem,
+    );
+
+    track(
+      "design_viewed",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design",
+        is_owner: access.role === "owner",
+      },
+      ctx,
     );
 
     return {

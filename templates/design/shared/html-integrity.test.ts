@@ -9,7 +9,7 @@ import {
 } from "./html-integrity";
 
 const DOCUMENT = `<!doctype html>
-<html><head><style data-agent-native-breakpoints>
+<html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><style data-agent-native-breakpoints>
 @media (max-width: 1279px) { [data-agent-native-node-id="an-1"] { font-family: Poppins, sans-serif; } }
 </style></head><body x-data="{ open: true }"><template x-if="open"><p>Hi</p></template></body></html>`;
 
@@ -62,6 +62,56 @@ describe("Design HTML integrity", () => {
         expect.objectContaining({ issue: "runtime-alpine-missing" }),
       ]),
     );
+  });
+
+  it("rejects a repeat that never loads Alpine, with no x-cloak in the document", () => {
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/[email protected]/dist/cdn.min.js"></script></head><body><ul x-data="{ todos: ['a'] }"><template x-for="t in todos"><li x-text="t"></li></template></ul></body></html>`;
+    const result = inspectDesignHtmlDocumentIntegrity(document);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("runtime-alpine-missing");
+    expect(result.detail).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issue: "runtime-alpine-missing",
+          attribute: "x-data",
+        }),
+      ]),
+    );
+  });
+
+  it("accepts the same repeat once the package name is back in the src", () => {
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script></head><body><ul x-data="{ todos: ['a'] }"><template x-for="t in todos"><li x-text="t"></li></template></ul></body></html>`;
+    expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("accepts an empty scope that binds nothing, since a dead runtime changes nothing", () => {
+    const document = `<!doctype html><html><head><title>Plain</title></head><body x-data="{}"><ul><li>a</li></ul></body></html>`;
+    expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("still rejects an empty scope once anything in the document binds to it", () => {
+    const document = `<!doctype html><html><head><title>Plain</title></head><body x-data="{}"><button @click="$el.remove()">Go</button></body></html>`;
+    const result = inspectDesignHtmlDocumentIntegrity(document);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("runtime-alpine-missing");
+  });
+
+  it("still rejects a populated scope even with no directive spelled x-*", () => {
+    const document = `<!doctype html><html><head><title>Plain</title></head><body x-data="{ open: false }"><div>Panel</div></body></html>`;
+    const result = inspectDesignHtmlDocumentIntegrity(document);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("runtime-alpine-missing");
+  });
+
+  it("says nothing about Alpine for a document that uses none", () => {
+    const document = `<!doctype html><html><head><title>Static</title></head><body><ul><li>a</li></ul></body></html>`;
+    expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({
+      valid: true,
+    });
   });
 
   it.each([

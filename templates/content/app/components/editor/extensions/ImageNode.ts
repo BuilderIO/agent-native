@@ -6,6 +6,7 @@ import { ImageBlock } from "./ImageBlock";
 
 export interface ContentImageOptions extends ImageOptions {
   documentId?: string;
+  canMutateMedia?: () => boolean;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onImageFilePickerRequest?: (request: {
     pickerId: string;
@@ -69,6 +70,7 @@ export const ImageNode = Image.extend<ContentImageOptions>({
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       ...this.parent!(),
       documentId: undefined,
+      canMutateMedia: undefined,
       onImageComment: undefined,
       onImageFilePickerRequest: undefined,
     };

@@ -5,6 +5,7 @@ import {
   clampZoomFactor,
   MAX_ZOOM_FACTOR_PER_FRAME,
   MOUSE_WHEEL_NOTCH_PX,
+  panAfterSurfaceLeftShift,
   resolveExternalZoomAnchor,
   resolveZoomGestureDevice,
   ZOOM_STEP_PER_NOTCH,
@@ -209,5 +210,24 @@ describe("resolveExternalZoomAnchor", () => {
         surfaceSize: { width: 0, height: 0 },
       }),
     ).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe("panAfterSurfaceLeftShift", () => {
+  it("shifts pan.x opposite the surface left-edge delta", () => {
+    expect(panAfterSurfaceLeftShift({ x: 100, y: 40 }, 280)).toEqual({
+      x: -180,
+      y: 40,
+    });
+    expect(panAfterSurfaceLeftShift({ x: 100, y: 40 }, -280)).toEqual({
+      x: 380,
+      y: 40,
+    });
+  });
+
+  it("is a no-op for a zero or non-finite delta", () => {
+    const pan = { x: 12, y: 34 };
+    expect(panAfterSurfaceLeftShift(pan, 0)).toBe(pan);
+    expect(panAfterSurfaceLeftShift(pan, Number.NaN)).toBe(pan);
   });
 });

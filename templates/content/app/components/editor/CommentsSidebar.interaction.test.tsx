@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,7 +13,15 @@ import {
   useCommentDraft,
   useCommentPanelSession,
 } from "./comment-drafts";
-import { CommentsSidebar } from "./CommentsSidebar";
+import {
+  CommentsSidebar,
+  useCommentReplyDrafts,
+  usePendingCommentDraft,
+} from "./CommentsSidebar";
+
+(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 const actions = vi.hoisted(() => ({
   create: vi.fn(),
@@ -51,6 +59,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useFormatters: () => ({
+    formatDate: (date: Date | string) => new Date(date).toISOString(),
+  }),
   useT: () => (key: string) => key,
 }));
 vi.mock("@agent-native/core/client/markdown", () => ({
@@ -92,9 +103,54 @@ function thread(id: string, resolved = false): CommentThread {
 let panel: ReturnType<typeof useCommentPanelSession>;
 let replyDraft: ReturnType<typeof useCommentDraft>;
 function PanelProbe() {
-  replyDraft = useCommentDraft("reply:one");
+  replyDraft = useCommentDraft("reply:fixture:one");
   panel = useCommentPanelSession();
   return null;
+}
+
+function SidebarOwner({
+  selected,
+  threads,
+  presentation,
+  options,
+}: {
+  selected: string | null;
+  threads: CommentThread[];
+  presentation: "inline" | "history";
+  options: {
+    key?: string;
+    pending?: boolean;
+    onPendingDone?: (threadId?: string) => void;
+  };
+}) {
+  const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
+  const pending = usePendingCommentDraft("fixture");
+  useEffect(() => {
+    pending.setPendingComment(
+      options.pending ? { quotedText: "selected anchor", offsetTop: 0 } : null,
+    );
+  }, [options.pending, options.key, pending.setPendingComment]);
+  return (
+    <CommentsSidebar
+      key={options.key ?? "sidebar"}
+      replyDrafts={replies}
+      pendingComment={pending.pendingComment}
+      onPendingChange={pending.changePendingComment}
+      onPendingDone={(id, threadId) => {
+        if (pending.completePendingComment(id))
+          options.onPendingDone?.(threadId);
+      }}
+      documentId="fixture"
+      threads={threads}
+      selectedThreadId={selected}
+      currentUserEmail="reviewer@example.test"
+      canComment
+      canResolve
+      alignToAnchors={false}
+      forceVisible
+      presentation={presentation}
+    />
+  );
 }
 
 describe("comment review interactions", () => {
@@ -149,23 +205,11 @@ describe("comment review interactions", () => {
               currentUserEmail="reviewer@example.test"
             >
               <PanelProbe />
-              <CommentsSidebar
-                key={options.key ?? "sidebar"}
-                pendingComment={
-                  options.pending
-                    ? { quotedText: "selected anchor", offsetTop: 0 }
-                    : null
-                }
-                onPendingDone={options.onPendingDone}
-                documentId="fixture"
+              <SidebarOwner
                 threads={threads}
-                selectedThreadId={selected}
-                currentUserEmail="reviewer@example.test"
-                canComment
-                canResolve
-                alignToAnchors={false}
-                forceVisible
+                selected={selected}
                 presentation={presentation}
+                options={options}
               />
             </CommentDraftProvider>
           </TooltipProvider>
@@ -417,8 +461,9 @@ describe("comment review interactions", () => {
     expect(
       [...container.querySelectorAll("button")].some(
         (button) =>
-          button.textContent === "comments.discardDraft" ||
-          button.textContent === "comments.reply",
+          !button.classList.contains("sr-only") &&
+          (button.textContent === "comments.discardDraft" ||
+            button.textContent === "comments.reply"),
       ),
     ).toBe(false);
     type("");
@@ -437,8 +482,8 @@ describe("comment review interactions", () => {
     render(null, [resolved], "history");
     act(() => panel.setHistoryStatus("all"));
     expect(container.textContent).toContain("Resolved reply history");
-    const reopen = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("comments.reopen"),
+    const reopen = [...container.querySelectorAll("button")].find(
+      (button) => button.getAttribute("aria-label") === "comments.reopen",
     )!;
     act(() => reopen.click());
     expect(actions.resolve).toHaveBeenCalledWith({
@@ -451,5 +496,19 @@ describe("comment review interactions", () => {
     render(null, [], "history");
     expect(container.textContent).toContain("comments.selectTextToComment");
     expect(container.textContent).not.toContain("comments.noFilteredComments");
+  });
+
+  it("keeps the selected resolved conversation inline until selection changes", () => {
+    render("one", [thread("one", true), thread("two", true)]);
+    expect(container.querySelector('[data-thread-card="one"]')).not.toBeNull();
+    expect(container.querySelector('[data-thread-card="two"]')).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(
+      container.querySelector('[aria-label="comments.reopen"]'),
+    ).not.toBeNull();
+    expect(panel.historyStatus).toBe("open");
+    render(null, [thread("one", true), thread("two", true)]);
+    expect(container.querySelector('[data-thread-card="one"]')).toBeNull();
+    expect(panel.historyStatus).toBe("open");
   });
 });

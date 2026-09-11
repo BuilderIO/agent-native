@@ -247,6 +247,21 @@ describe("plan event-bus helpers", () => {
     expect(payload.path).toBe("/plans/plan-abc");
   });
 
+  it("does not emit a status event when the status did not change", () => {
+    const handler = capture("plan.status.changed");
+
+    emitPlanStatusChanged({
+      planId: "plan-abc",
+      title: "My Plan",
+      kind: "plan",
+      oldStatus: "approved",
+      newStatus: "approved",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("emit helpers are fire-and-forget — exceptions inside emit do not propagate", () => {
     // emit() itself swallows internal errors in the try/catch wrappers;
     // verify the helper does not throw even on a totally invalid payload.
