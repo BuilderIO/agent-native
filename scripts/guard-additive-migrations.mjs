@@ -359,9 +359,7 @@ function blockingAddColumnMatches(statementText) {
   );
   const hits = [];
   for (const clause of splitTopLevelClauses(afterTable)) {
-    if (
-      !/^\s*ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\S/i.test(clause)
-    ) {
+    if (!/^\s*ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\S/i.test(clause)) {
       continue;
     }
     const requiresValue =
