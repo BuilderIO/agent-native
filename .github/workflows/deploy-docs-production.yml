@@ -316,7 +316,7 @@ jobs:
   handoff-beta:
     name: Hand off latest main to beta publisher
     needs: restore-netlify-builds
-    if: ${{ always() }}
+    if: ${{ !cancelled() && needs.restore-netlify-builds.result == 'success' }}
     permissions:
       actions: write
       contents: read

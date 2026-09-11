@@ -190,7 +190,7 @@ jobs:
   handoff-beta:
     name: Hand off latest main to beta publisher
     needs: deploy
-    if: ${{ always() }}
+    if: ${{ !cancelled() && needs.deploy.result == 'success' }}
     permissions:
       actions: write
       contents: read

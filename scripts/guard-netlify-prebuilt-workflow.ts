@@ -1237,7 +1237,8 @@ for (const [path, needs] of [
       (Array.isArray(handoffNeeds) && handoffNeeds.includes(needs))
     ) ||
     typeof handoff.if !== "string" ||
-    !handoff.if.includes("always()") ||
+    !handoff.if.includes("!cancelled()") ||
+    !handoff.if.includes(`needs.${needs}.result == 'success'`) ||
     permissions?.actions !== "write" ||
     permissions?.contents !== "read" ||
     !handoffScript.includes("createWorkflowDispatch") ||

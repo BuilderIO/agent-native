@@ -826,7 +826,11 @@ describe("production Netlify site concurrency guard", () => {
     for (const [workflow, needs] of cases) {
       const handoff = (workflow.jobs as Workflow)["handoff-beta"] as Workflow;
       assert.equal(handoff.needs, needs);
-      assert.match(String(handoff.if), /always\(\)/);
+      assert.match(String(handoff.if), /!cancelled\(\)/);
+      assert.match(
+        String(handoff.if),
+        new RegExp(`needs\\.${needs}\\.result == 'success'`),
+      );
       assert.deepEqual(handoff.permissions, {
         actions: "write",
         contents: "read",

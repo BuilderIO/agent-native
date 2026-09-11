@@ -270,7 +270,7 @@ jobs:
   handoff-beta:
     name: Hand off latest main to beta publisher
     needs: promote
-    if: ${{ always() }}
+    if: ${{ !cancelled() && needs.promote.result == 'success' }}
     permissions:
       actions: write
       contents: read

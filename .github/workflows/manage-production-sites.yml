@@ -686,7 +686,7 @@ jobs:
   handoff-beta:
     name: Hand off latest main to beta publisher
     needs: manage
-    if: ${{ always() }}
+    if: ${{ !cancelled() && needs.manage.result == 'success' }}
     permissions:
       actions: write
       contents: read
