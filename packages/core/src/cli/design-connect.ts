@@ -1202,13 +1202,6 @@ function appendQueryPair(search: string, name: string, value: string): string {
   return `${search}&${pair}`;
 }
 
-function stripQueryParam(absoluteUrl: string, name: string): string {
-  if (!absoluteUrl.includes(name)) return absoluteUrl;
-  const url = new URL(absoluteUrl);
-  const search = stripQueryPair(url.search, name);
-  return `${url.origin}${url.pathname}${search}${url.hash}`;
-}
-
 function resolvePreviewProxyUrl(
   devServerUrl: string,
   requestUrl: string | undefined,
@@ -2823,9 +2816,13 @@ export async function startDesignConnectBridge(
         void (async () => {
           try {
             const proxyRequestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
+            // Both bridge-only query params stay off the dev server's URL.
             const targetUrl = resolvePreviewProxyUrl(
               manifest.devServerUrl,
-              `${proxyRequestUrl.pathname}${stripPreviewTokenQueryParam(proxyRequestUrl.search)}`,
+              `${proxyRequestUrl.pathname}${stripQueryPair(
+                stripPreviewTokenQueryParam(proxyRequestUrl.search),
+                FRAME_BRIDGE_KEY_PARAM,
+              )}`,
             );
             const method = req.method ?? "GET";
             // A keyed frame that navigates (router redirect, home link) lands
@@ -2843,10 +2840,7 @@ export async function startDesignConnectBridge(
             if (method === "GET" && keyed) {
               {
                 const next = new URL("/live-edit", manifest.bridgeUrl);
-                next.searchParams.set(
-                  "url",
-                  stripQueryParam(targetUrl, FRAME_BRIDGE_KEY_PARAM),
-                );
+                next.searchParams.set("url", targetUrl);
                 next.searchParams.set("bridgeKey", keyed.bridgeKey);
                 if (keyed.previewToken) {
                   next.searchParams.set("previewToken", keyed.previewToken);
@@ -2855,6 +2849,23 @@ export async function startDesignConnectBridge(
                 res.end();
                 return;
               }
+            }
+            // A keyed navigation whose key this bridge no longer knows must
+            // not boot with whichever screen registered last; report it the
+            // same way GET /live-edit does so the client can re-register.
+            const keyedScript = keyed
+              ? liveEditBridgeScripts.get(keyed.bridgeKey)
+              : undefined;
+            if (keyed && !keyedScript) {
+              sendJson(res, 409, {
+                ok: false,
+                code: "unknown-bridge-key",
+                bridgeKey: keyed.bridgeKey,
+                bridgeInstanceId,
+                error:
+                  "The requested live-edit bridge script is not registered. Reload the Design frame to register it again.",
+              });
+              return;
             }
             const requestBody =
               method === "GET" || method === "HEAD"
@@ -2883,9 +2894,6 @@ export async function startDesignConnectBridge(
             // A keyed navigation that could not be redirected (a form POST
             // has a body the redirect would drop) still boots with its own
             // screen's script and keeps the key on the shim path.
-            const keyedScript = keyed
-              ? liveEditBridgeScripts.get(keyed.bridgeKey)
-              : undefined;
             const responseBody =
               documentNavigation && contentType.includes("html")
                 ? Buffer.from(

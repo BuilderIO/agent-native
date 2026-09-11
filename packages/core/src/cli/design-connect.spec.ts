@@ -1065,7 +1065,9 @@ describe("design connect bridge endpoints", () => {
   it("sends a keyed frame's navigation back through /live-edit with its own bridgeKey", async () => {
     const root = tmpDir();
     const devPort = await freePort();
+    const seenByDevServer: string[] = [];
     const devServer = http.createServer((req, res) => {
+      seenByDevServer.push(`${req.method} ${req.url}`);
       res.writeHead(200, { "content-type": "text/html" });
       res.end(
         `<!doctype html><title>${req.url}</title><h1>page ${req.url}</h1>`,
@@ -1182,6 +1184,46 @@ describe("design connect bridge endpoints", () => {
       expect(postedHtml).toContain(
         JSON.stringify("/submit?agentNativeBridgeKey=screen-a"),
       );
+
+      // The bridge-only identity param never reaches the dev server, even on
+      // a POST whose form action kept the rewritten route's query.
+      const postedWithKey = await fetch(
+        `${base}/submit?agentNativeBridgeKey=screen-a`,
+        {
+          method: "POST",
+          redirect: "manual",
+          headers: {
+            ...auth,
+            "sec-fetch-dest": "iframe",
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: "q=1",
+        },
+      );
+      expect(postedWithKey.status).toBe(200);
+      expect(seenByDevServer).toContain("POST /submit");
+      expect(
+        seenByDevServer.some((entry) => entry.includes("agentNativeBridgeKey")),
+      ).toBe(false);
+
+      // A keyed POST whose key this bridge no longer knows is refused rather
+      // than booted with the last registered screen's script.
+      const stale = await fetch(`${base}/submit`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          "content-type": "application/x-www-form-urlencoded",
+          referer: `${base}/home?agentNativeBridgeKey=screen-gone`,
+        },
+        body: "q=1",
+      });
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({
+        code: "unknown-bridge-key",
+        bridgeKey: "screen-gone",
+      });
 
       // A reload of the rewritten URL itself carries the key in the request.
       const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
