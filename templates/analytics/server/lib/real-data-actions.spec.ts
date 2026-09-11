@@ -1054,6 +1054,16 @@ describe("incomplete evidence detection", () => {
     expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
   });
 
+  it("does not treat dashboard-triggered automations as dashboard construction", () => {
+    for (const request of [
+      "Create a workflow triggered by dashboard changes",
+      "Create an automation when the dashboard changes",
+    ]) {
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(false);
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    }
+  });
+
   it("keeps automation terms in dashboard metrics from suppressing construction", () => {
     expect(
       looksLikeDashboardConstructionRequest(
@@ -1124,6 +1134,9 @@ describe("incomplete evidence detection", () => {
       "Create an automation to refresh the Revenue dashboard and build a Sales dashboard",
       "Create an automation to refresh Revenue dashboard plus build Sales dashboard",
       "Create an automation to refresh the Revenue dashboard but build a Sales dashboard",
+      "Create an automation for dashboard refresh and build a Sales dashboard",
+      "Create an automation for dashboard refresh, then build a Sales dashboard",
+      "Create an automation for dashboard refresh, but build a Sales dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
     }
@@ -1319,6 +1332,8 @@ describe("incomplete evidence detection", () => {
       "Show the refresh rate of the dashboard",
       "What is the dashboard refresh frequency?",
       "What is the widget refresh frequency?",
+      "What is the dashboard update rate?",
+      "What is the update rate of the dashboard?",
       "How frequently does the dashboard refresh?",
       "What is the dashboard refresh interval?",
       "How often does the dashboard update?",
@@ -1366,10 +1381,13 @@ describe("incomplete evidence detection", () => {
       "How many dashboard automations are scheduled?",
       "How many scheduled dashboard automations are there?",
       "Are scheduled dashboard automations active?",
+      "Show active dashboard automations",
+      "List paused dashboard automations",
       "How many dashboard automations are there?",
       "How many automation dashboards exist?",
       "What is the status of dashboard automations?",
       "Show dashboard automation status",
+      "Tell me the dashboard automation status",
       "Are dashboard automations active?",
       "Create a report showing dashboard automation status",
       "Create a report showing the number of dashboard automations",
