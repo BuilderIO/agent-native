@@ -286,6 +286,32 @@ describe("extractDocumentColorPalette", () => {
     );
   });
 
+  it("masks the remainder after an unclosed style block", () => {
+    const content =
+      '<style>.real { color:#0066ff }<div style="color:#00ff00"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual(
+      [],
+    );
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#00ff00",
+        "#ff0000",
+      ),
+    ).toBe(content);
+  });
+
+  it("does not accept whitespace in raw-text closing tags", () => {
+    const content =
+      '<style>.real { color:#0066ff }</ style><div style="color:#00ff00"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual(
+      [],
+    );
+  });
+
   it("does not treat quoted URL fragments as colors", () => {
     const content = `<div style='background-image: url("sprite)#0066ff.svg"); color:#0066ff'></div>`;
 

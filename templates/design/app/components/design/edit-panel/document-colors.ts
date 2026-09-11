@@ -193,11 +193,11 @@ function maskNonRenderedHtml(content: string): string {
       continue;
     }
 
-    const closingTag = new RegExp(`</\\s*${tagName}\\s*>`, "gi");
+    const closingTag = new RegExp(`</${tagName}\\s*>`, "gi");
     closingTag.lastIndex = end;
     const closing = closingTag.exec(content);
     if (!closing) {
-      if (tagName !== "style") maskRange(start, content.length);
+      maskRange(start, content.length);
       break;
     }
     const closingEnd = closing.index + closing[0].length;
