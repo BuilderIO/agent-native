@@ -517,6 +517,7 @@ export function McpIntegrationDialog({
     if (!integration) return;
     if (integration.authMode === "oauth" && !oauthReady) return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (
       integration.authMode === "oauth" &&
       !(hasOrg && supportsMcpIntegrationOrganizationScope(integration))
@@ -658,12 +659,24 @@ export function McpIntegrationDialog({
     }
   };
 
+  // The org-only rule covers the shared OAuth grant, so it applies to the OAuth
+  // connection modes only. A header connection carries the user's own token and
+  // stays legitimately personal, exactly as the server treats it.
+  const formRequiresOrganizationScope = selected
+    ? selected.authMode === "oauth" &&
+      requiresMcpIntegrationOrganizationScope(selected)
+    : customAuthMode === "oauth" && mcpUrlRequiresOrganizationScope(url);
+
   const renderScopeSelector = () => {
     if (selected?.managedOAuth) return null;
-    // Org-only integrations have exactly one valid scope, so there is nothing
-    // to choose and no personal option that would survive the server check.
-    if (selected && requiresMcpIntegrationOrganizationScope(selected)) {
-      return null;
+    // Offering a personal choice here would be a lie: the connection can only
+    // be created for the workspace, so say that instead of showing a toggle.
+    if (formRequiresOrganizationScope) {
+      return (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {t("mcpIntegrations.workspaceOnlyDescription")}
+        </p>
+      );
     }
     const canSelectScope = selected
       ? shouldOfferMcpIntegrationOrganizationScope(

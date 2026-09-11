@@ -661,6 +661,38 @@ describe("McpIntegrationDialog", () => {
     expect(document.body.textContent).toContain("Join a workspace first.");
   });
 
+  it("routes the suggestion quick-connect away from the personal form", () => {
+    const builder = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "builder-cms",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="builder-cms"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[builder]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    expect(personal).toBeUndefined();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+    expectOrgOnlyChoiceScreen();
+  });
+
   it("refuses a hand-entered org-only URL without an eligible workspace", () => {
     mocks.customIntegrationEnabled.mockReturnValue(true);
     const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
@@ -721,6 +753,95 @@ describe("McpIntegrationDialog", () => {
     );
   });
 
+  const expectOrgOnlyChoiceScreen = () => {
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).toContain(
+      "cannot be connected to just your account",
+    );
+    const workspace = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Set up for workspace") ?? false,
+    );
+    expect(workspace).toBeTruthy();
+    // The form would expose a URL field and a personal scope toggle instead.
+    expect(
+      document.body.querySelector(
+        'input[placeholder="https://example.com/agent-integration"]',
+      ),
+    ).toBeNull();
+  };
+
+  const openCustomFormWithBuilderUrl = () => {
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Add your own")
+        ?.click();
+    });
+    const input = document.body.querySelector(
+      'input[placeholder="https://example.com/agent-integration"]',
+    ) as HTMLInputElement | null;
+    expect(input).toBeTruthy();
+    act(() => {
+      if (!input) return;
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "https://mcp.builder.io/mcp/publish");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  const renderCustomForm = () => {
+    mocks.customIntegrationEnabled.mockReturnValue(true);
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="org"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn().mockResolvedValue(undefined)}
+            integrations={[]}
+          />
+        </TooltipProvider>,
+      );
+    });
+  };
+
+  it("offers an admin no personal OAuth choice it would silently promote", () => {
+    renderCustomForm();
+    openCustomFormWithBuilderUrl();
+
+    // buildMcpOAuthStartUrl forces org for this URL, so presenting "Personal"
+    // would create a workspace credential the admin did not consent to.
+    const personalToggle = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Personal",
+    );
+    expect(personalToggle).toBeUndefined();
+    expect(document.body.textContent).toContain(
+      "cannot be connected to just your account",
+    );
+  });
+
+  it("keeps the personal choice for a header connection to the same URL", () => {
+    renderCustomForm();
+    openCustomFormWithBuilderUrl();
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent?.includes("API key"))
+        ?.click();
+    });
+
+    // The org-only rule covers the shared OAuth grant, not a token the user
+    // supplies themselves, and the server allows this too.
+    const personalToggle = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Personal",
+    );
+    expect(personalToggle).toBeTruthy();
+  });
+
   it("keeps the initial form out of user scope for an org-only integration", () => {
     const builder = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "builder-cms",
@@ -752,9 +873,7 @@ describe("McpIntegrationDialog", () => {
     expect(personal).toBeUndefined();
     expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
     expect(onCreateMcpServer).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain(
-      "cannot be connected to just your account",
-    );
+    expectOrgOnlyChoiceScreen();
   });
 
   it("starts the workspace connection directly for an org-only integration", () => {
