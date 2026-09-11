@@ -10,8 +10,11 @@ const LEGACY_LABS_SETTING_KEY = "experiments";
 async function getStoredLabs(
   email: string,
 ): Promise<Record<string, unknown> | null> {
-  const labs = await getUserSetting(email, LABS_SETTING_KEY);
-  return labs ?? (await getUserSetting(email, LEGACY_LABS_SETTING_KEY));
+  const [labs, legacy] = await Promise.all([
+    getUserSetting(email, LABS_SETTING_KEY),
+    getUserSetting(email, LEGACY_LABS_SETTING_KEY),
+  ]);
+  return labs || legacy ? { ...(legacy ?? {}), ...(labs ?? {}) } : null;
 }
 
 export function normalizeLabValues(

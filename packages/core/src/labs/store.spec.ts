@@ -89,4 +89,16 @@ describe("user labs", () => {
       "clips.meetings": true,
     });
   });
+
+  it("merges legacy opt-ins when both setting keys exist", async () => {
+    mocks.getUserSetting.mockImplementation(
+      async (_email: string, key: string) =>
+        key === "labs" ? { "clips.editor": false } : { "clips.meetings": true },
+    );
+
+    expect(await getUserLabs("alice@example.com")).toEqual({
+      "clips.editor": false,
+      "clips.meetings": true,
+    });
+  });
 });
