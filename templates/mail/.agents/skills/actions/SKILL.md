@@ -26,6 +26,8 @@ When a workflow is research, analysis, generation, recommendation, or synthesis 
 
 ## How to Create an Action
 
+**One action per file, default-exported. The filename is the action name** (kebab-case): `actions/list-meals.ts` is the `list-meals` action. Don't put several `defineAction`s as named exports in one file — the registry keys actions by filename and only the default export is registered, so extra named exports never become callable and won't match `.generated/action-types.d.ts`.
+
 ```ts
 // actions/list-meals.ts
 import { z } from "zod";
@@ -144,7 +146,7 @@ Everything else — CRUD, settings, search, list/detail reads, auth state, anyth
 
 ## Troubleshooting
 
-- **Action not found** — filename must match the command (`pnpm action foo-bar` → `actions/foo-bar.ts`).
+- **Action not found / type mismatch** — filename must match the command (`pnpm action foo-bar` → `actions/foo-bar.ts`), and the action must be the file's **default** export. Multiple `defineAction` named exports in one file register only the default; split them into one file each.
 - **Args not parsing** — use `--key value` / `--key=value`; boolean flags are `--flag` (sets `"true"`).
 - **Frontend 405** — `http.method` doesn't match the hook (`useActionQuery` for GET, `useActionMutation` for POST/PUT/DELETE).
 - **Frontend gets undefined** — action must return structured data, not `JSON.stringify()`.
