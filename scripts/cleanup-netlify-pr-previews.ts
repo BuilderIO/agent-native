@@ -397,24 +397,41 @@ async function main(): Promise<void> {
       `(github=${githubTargets.size}, branch=${branchTargets.size}, legacy=${legacyTargets.size}).`,
   );
 
-  for (const target of targets) {
-    console.log(
-      `Deleting ${target.siteName} PR preview deploy ${target.deployId} (${target.source}).`,
-    );
-    await deleteNetlifyDeploy({
-      authToken,
-      deployId: target.deployId,
-      siteId: target.siteId,
+  const deleteErrors: unknown[] = [];
+  try {
+    for (const target of targets) {
+      console.log(
+        `Deleting ${target.siteName} PR preview deploy ${target.deployId} (${target.source}).`,
+      );
+      try {
+        await deleteNetlifyDeploy({
+          authToken,
+          deployId: target.deployId,
+          siteId: target.siteId,
+        });
+      } catch (error) {
+        deleteErrors.push(error);
+      }
+    }
+  } finally {
+    await deactivateGithubPreviewDeployments({
+      owner,
+      prNumber,
+      repo,
+      siteNames,
+      token: githubToken,
     });
   }
 
-  await deactivateGithubPreviewDeployments({
-    owner,
-    prNumber,
-    repo,
-    siteNames,
-    token: githubToken,
-  });
+  if (deleteErrors.length === 1) {
+    throw deleteErrors[0];
+  }
+  if (deleteErrors.length > 1) {
+    throw new AggregateError(
+      deleteErrors,
+      "Netlify PR preview deploy deletion failed.",
+    );
+  }
 }
 
 const isMainModule =
