@@ -46,6 +46,9 @@ describe("portable extension runtime", () => {
     expect(html).toContain("new MutationObserver");
     expect(html).toContain("document.createTreeWalker(body, 4)");
     expect(html).toContain("range.getClientRects()");
+    expect(html).toContain(
+      "document.addEventListener('DOMContentLoaded', setupResizeObservation)",
+    );
     expect(html).not.toContain("body.scrollHeight");
     expect(html).toContain('<div x-data="{ ready: true }">Hello</div>');
     expect(html).toContain("cus_123");

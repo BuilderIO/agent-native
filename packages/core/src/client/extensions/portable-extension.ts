@@ -741,17 +741,24 @@ export function buildAgentNativeExtensionHtml({
           reportHeight();
           observePositioned();
         });
-        observePositioned();
-        if (typeof MutationObserver !== 'undefined' && document.body) {
-          new MutationObserver(function() {
-            observePositioned();
-            reportHeight();
-          }).observe(document.body, {
-            attributes: true,
-            characterData: true,
-            childList: true,
-            subtree: true,
-          });
+        var setupResizeObservation = function() {
+          observePositioned();
+          if (typeof MutationObserver !== 'undefined' && document.body) {
+            new MutationObserver(function() {
+              observePositioned();
+              reportHeight();
+            }).observe(document.body, {
+              attributes: true,
+              characterData: true,
+              childList: true,
+              subtree: true,
+            });
+          }
+        };
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', setupResizeObservation);
+        } else {
+          setupResizeObservation();
         }
       } else {
         setInterval(reportHeight, 1000);
