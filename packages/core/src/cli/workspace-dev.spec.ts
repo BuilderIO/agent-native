@@ -709,7 +709,11 @@ describe("workspace dev startup", () => {
     expect(html).toContain("App failed to start: Dispatch");
     expect(html).toContain("Timed out waiting 50ms");
     expect(html).toContain("127.0.0.1:");
-    expect(killProcessGroup).toHaveBeenCalledWith(-489, "SIGTERM");
+    if (process.platform === "win32") {
+      expect(appCall?.child.kill).toHaveBeenCalledWith("SIGTERM");
+    } else {
+      expect(killProcessGroup).toHaveBeenCalledWith(-489, "SIGTERM");
+    }
   });
 });
 
