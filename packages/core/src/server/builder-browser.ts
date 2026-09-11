@@ -625,7 +625,7 @@ export const BUILDER_CONNECT_ATTEMPT_PARAM = "_an_connect_attempt";
 
 const BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES = 4;
 
-function parseBuilderConnectStateCookie(
+export function parseBuilderConnectStateCookie(
   value: string | null | undefined,
 ): string[] | null {
   if (!value) return [];
