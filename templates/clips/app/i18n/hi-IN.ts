@@ -652,9 +652,11 @@ const messages = {
     downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",
     alsoFor: "{{platform}} के लिए भी उपलब्ध है",
     backToLibrary: "लाइब्रेरी पर वापस जाएँ",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips डाउनलोड करें",
     stable: "स्थिर",
     nightly: "Nightly",
+    allPlatforms: "सभी प्लेटफ़ॉर्म",
+    releaseChannel: "रिलीज़ चैनल",
     switchToNightly: "Nightly बिल्ड पर जाएँ",
     switchToStable: "स्थिर बिल्ड पर जाएँ",
     retry: "फिर कोशिश करें",
@@ -1321,13 +1323,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (स्थानीयकृत)",
     chromeTitle: "Chrome extension (स्थानीयकृत)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (स्थानीयकृत)",
+    chromeDescription: "Chrome एक्सटेंशन से ब्राउज़र टैब कैप्चर करें।",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (स्थानीयकृत)",
     desktopTitle: "Desktop app (स्थानीयकृत)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (स्थानीयकृत)",
+    desktopDescription: "ग्लोबल शॉर्टकट और सिस्टम ऑडियो के साथ रिकॉर्ड करें।",
     openDesktopApp: "Open desktop app (स्थानीयकृत)",
   },
   editableTitle: {
