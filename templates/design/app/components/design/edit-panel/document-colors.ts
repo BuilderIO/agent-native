@@ -81,6 +81,18 @@ interface StyleBlockSpan {
   value: string;
 }
 
+function htmlStartTagName(tag: string): string | null {
+  const match = tag.match(/^<\s*([A-Za-z][\w:-]*)/i);
+  if (!match) return null;
+  const delimiter = tag[match[0].length];
+  if (delimiter && !/[\s/>]/.test(delimiter)) return null;
+  return match[1].toLowerCase();
+}
+
+function rawTextClosingTag(tagName: string): RegExp {
+  return new RegExp(`</${tagName}(?=[\\s/>])[^>]*>`, "gi");
+}
+
 function htmlTagSpans(content: string): HtmlTagSpan[] {
   const tags: HtmlTagSpan[] = [];
   let start = -1;
@@ -112,14 +124,14 @@ function htmlTagSpans(content: string): HtmlTagSpan[] {
 function styleBlockSpans(content: string): StyleBlockSpan[] {
   const blocks: StyleBlockSpan[] = [];
   const tags = htmlTagSpans(content);
-  const closingTag = /<\/style\s*>/gi;
+  const closingTag = rawTextClosingTag("style");
   let tagIndex = 0;
   let searchStart = 0;
   while (tagIndex < tags.length) {
     const openingTag = tags[tagIndex];
     tagIndex += 1;
     if (openingTag.start < searchStart) continue;
-    if (!/^<style\b/i.test(openingTag.value)) continue;
+    if (htmlStartTagName(openingTag.value) !== "style") continue;
 
     const openingEnd = openingTag.start + openingTag.value.length;
     closingTag.lastIndex = openingEnd;
@@ -169,8 +181,10 @@ function maskNonRenderedHtml(content: string): string {
     const start = content.indexOf("<", cursor);
     if (start < 0) break;
     if (content.startsWith("<!--", start)) {
-      const commentEnd = content.indexOf("-->", start + 4);
-      const end = commentEnd < 0 ? content.length : commentEnd + 3;
+      const commentEnd = /--!?>/g;
+      commentEnd.lastIndex = start + 4;
+      const closing = commentEnd.exec(content);
+      const end = closing ? closing.index + closing[0].length : content.length;
       maskRange(start, end);
       cursor = end;
       continue;
@@ -182,18 +196,17 @@ function maskNonRenderedHtml(content: string): string {
     const end = htmlTagEnd(content, start);
     if (end < 0) break;
     const tag = content.slice(start, end);
-    const opening = tag.match(/^<\s*([A-Za-z][\w:-]*)\b/i);
-    if (!opening) {
+    const tagName = htmlStartTagName(tag);
+    if (!tagName) {
       cursor = end;
       continue;
     }
-    const tagName = opening[1].toLowerCase();
     if (tagName !== "script" && tagName !== "noscript" && tagName !== "style") {
       cursor = end;
       continue;
     }
 
-    const closingTag = new RegExp(`</${tagName}\\s*>`, "gi");
+    const closingTag = rawTextClosingTag(tagName);
     closingTag.lastIndex = end;
     const closing = closingTag.exec(content);
     if (!closing) {

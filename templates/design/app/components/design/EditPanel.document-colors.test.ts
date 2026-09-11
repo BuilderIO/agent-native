@@ -312,6 +312,51 @@ describe("extractDocumentColorPalette", () => {
     );
   });
 
+  it("requires actual raw-text tag-name boundaries", () => {
+    const content =
+      "<style-foo>.fake { color:#111111 }</style>" +
+      "<style!>.malformed { color:#222222 }</style>" +
+      '<div style="color:#0066ff"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+  });
+
+  it("accepts browser-recovered raw-text closing tags", () => {
+    const content =
+      '<style>.real { color:#0066ff }</style foo><div style="color:#00ff00"></div>' +
+      '<style>.other { color:#ff00aa }</style/><div style="color:#ffffff"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+      "#00FF00",
+      "#FF00AA",
+      "#FFFFFF",
+    ]);
+  });
+
+  it("recovers malformed HTML comment termination", () => {
+    const content =
+      "<!-- hidden <style>.fake { color:#111111 }</style> --!>" +
+      '<div style="color:#0066ff"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      "<!-- hidden <style>.fake { color:#111111 }</style> --!>" +
+        '<div style="color:#ff0000"></div>',
+    );
+  });
+
   it("does not treat quoted URL fragments as colors", () => {
     const content = `<div style='background-image: url("sprite)#0066ff.svg"); color:#0066ff'></div>`;
 
