@@ -35,6 +35,8 @@ const messages = {
   },
   landing: {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+    requestedPageUnavailable:
+      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
   },
   team: {
@@ -86,7 +88,6 @@ const messages = {
     documentUnavailableDescription:
       "此頁面可能已被刪除，或尚未共用給你的帳戶。",
     documentNotFound: "找不到文件",
-    goToDocuments: "前往檔案",
     newPage: "新頁面",
     createFailed: "建立頁面失敗",
     genericError: "出了點問題",
