@@ -229,6 +229,32 @@ describe("content db.ts schedules post-boot maintenance after runMigrations", ()
     expect(maintenanceSource).toMatch(/\bscheduleRetry\b/);
   });
 
+  it("treats additive-column summary errors as a retryable failed step", () => {
+    // ensureAdditiveColumns never throws; non-empty summary errors are its
+    // failure contract. The wrapper must throw them into the retry path, not
+    // log-and-resolve while the net is incomplete.
+    expect(maintenanceSource).toMatch(
+      /summary\.errors\.length > 0[\s\S]{0,400}throw new Error\(/,
+    );
+  });
+
+  it("awaits each retry chain before the next step and keeps the trigger ref'd", () => {
+    // A fire-and-forget retry would let the next step race the safety net
+    // the retry is still finishing, so the chain must be awaited.
+    expect(maintenanceSource).toMatch(/await\s+scheduleRetry\(/);
+    // The initial trigger is a single tick and must not be unref'd — a
+    // serverless isolate may quiesce before an unref'd trigger fires and the
+    // whole run would be skipped until a later boot. Retries stay unref'd
+    // (bounded backoff; next boot is the backstop), so exactly one unref
+    // site may exist in the module, inside scheduleRetry.
+    const triggerIdx = maintenanceSource.indexOf(
+      "export function scheduleStartupMaintenance",
+    );
+    expect(triggerIdx).toBeGreaterThan(-1);
+    expect(maintenanceSource.slice(triggerIdx)).not.toMatch(/\.unref\(/);
+    expect(maintenanceSource.match(/\.unref\(/g)?.length).toBe(1);
+  });
+
   it("does not remove the body-hydration queue index migration (v60)", () => {
     expect(dbTsSource).toMatch(
       /CREATE INDEX IF NOT EXISTS content_database_items_body_hydration_idx ON content_database_items \(database_id, body_hydration_status\)/,

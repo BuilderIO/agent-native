@@ -174,10 +174,10 @@ describe("scheduleStartupMaintenance — lazy post-boot maintenance", () => {
     expect(filesRepair).toHaveBeenCalledTimes(1);
   });
 
-  it("logs a failed repair loudly and retries it", async () => {
+  it("logs a failed repair loudly and resolves only after the retry completes", async () => {
     resetMaintenanceMemo();
     blocksRepair.mockClear();
-    blocksRepair.mockRejectedValue(new Error("repair exploded"));
+    blocksRepair.mockRejectedValueOnce(new Error("repair exploded"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
@@ -190,13 +190,10 @@ describe("scheduleStartupMaintenance — lazy post-boot maintenance", () => {
           'startup maintenance "blocks-repair" failed (attempt 1/5)',
         ),
       );
-
-      // First retry lands ~2s later; the mock recovers so the run completes.
-      blocksRepair.mockImplementation(async () => 0);
-      await vi.waitFor(() => expect(blocksRepair).toHaveBeenCalledTimes(2), {
-        timeout: 10_000,
-        interval: 200,
-      });
+      // The memoized run must not resolve while the ~2s retry is pending:
+      // by the time the promise settles, the retry has already run and the
+      // dependent steps have seen its completion.
+      expect(blocksRepair).toHaveBeenCalledTimes(2);
       expect(errorSpy).toHaveBeenCalledTimes(1);
     } finally {
       errorSpy.mockRestore();

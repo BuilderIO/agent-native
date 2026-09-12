@@ -50,9 +50,12 @@ async function runAdditiveColumnsCheck(): Promise<void> {
     tables: schemaTables,
   });
   if (summary.errors.length > 0) {
-    console.warn(
-      "[db] ensureAdditiveColumns completed with errors:",
-      summary.errors,
+    // ensureAdditiveColumns never throws — a non-empty errors summary IS its
+    // failure contract. Throwing routes those failures through the same
+    // bounded, loud retry path as a thrown step instead of resolving while
+    // the net is incomplete.
+    throw new Error(
+      `ensureAdditiveColumns reported ${summary.errors.length} error(s): ${summary.errors.map((e) => `${e.column}: ${e.error}`).join("; ")}`,
     );
   }
 }
@@ -71,18 +74,26 @@ function retryDelayMs(attempt: number): number {
   return Math.min(2_000 * attempt, 30_000);
 }
 
-function scheduleRetry(
+async function scheduleRetry(
   label: string,
   attempt: number,
   run: () => Promise<void>,
-): void {
+): Promise<void> {
   const delayMs = retryDelayMs(attempt);
-  const timeout = setTimeout(() => {
-    void runMaintenanceStep(label, attempt + 1, run);
-  }, delayMs);
-  if (typeof timeout === "object" && "unref" in timeout) {
-    timeout.unref();
-  }
+  // The failing step awaits this chain, so the next step cannot start — and
+  // the memoized run cannot resolve — while a retry is still pending.
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      void runMaintenanceStep(label, attempt + 1, run).finally(resolve);
+    }, delayMs);
+    // Retries stay unref'd on purpose: a serverless isolate may quiesce
+    // before a multi-second backoff fires, and holding paid compute open for
+    // the wait buys nothing — the next boot reschedules the whole run. The
+    // initial trigger below is the one timer that must not be unref'd.
+    if (typeof timeout === "object" && "unref" in timeout) {
+      timeout.unref();
+    }
+  });
 }
 
 async function runMaintenanceStep(
@@ -98,7 +109,7 @@ async function runMaintenanceStep(
       `[db] startup maintenance "${label}" failed (attempt ${attempt}/${MAX_ATTEMPTS}): ${message}`,
     );
     if (attempt < MAX_ATTEMPTS) {
-      scheduleRetry(label, attempt, run);
+      await scheduleRetry(label, attempt, run);
     } else {
       console.error(
         `[db] startup maintenance "${label}" did not complete after ${MAX_ATTEMPTS} attempts; it will run again on the next boot.`,
@@ -135,12 +146,13 @@ export function scheduleStartupMaintenance(): Promise<void> {
   if (!maintenanceGlobal.__contentStartupMaintenance) {
     maintenanceGlobal.__contentStartupMaintenance = new Promise<void>(
       (resolve) => {
-        const timeout = setTimeout(() => {
+        // No unref on this trigger: a serverless isolate may quiesce before
+        // the next tick fires, which would skip the whole run until some
+        // later boot. The trigger itself is one tick; retries are the ones
+        // that stay unref'd.
+        setTimeout(() => {
           void runStartupMaintenance().finally(resolve);
         }, 0);
-        if (typeof timeout === "object" && "unref" in timeout) {
-          timeout.unref();
-        }
       },
     );
   }
