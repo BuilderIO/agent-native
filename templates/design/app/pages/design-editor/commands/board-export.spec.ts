@@ -18,12 +18,16 @@ vi.mock("@/pages/design-editor/export-capture", async (importOriginal) => {
     createSinglePageRasterPdf: mocks.createSinglePageRasterPdf,
   };
 });
-vi.mock("../export-font-mirror", () => ({
-  mirrorPreviewWebFonts: vi.fn().mockResolvedValue({
-    dispose: vi.fn(),
-    unreadableStylesheets: [],
-  }),
-}));
+vi.mock("../export-font-mirror", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../export-font-mirror")>();
+  return {
+    ...actual,
+    mirrorPreviewWebFonts: vi.fn().mockResolvedValue({
+      dispose: vi.fn(),
+      unreadableStylesheets: [],
+    }),
+  };
+});
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
 import { runDownloadPdf } from "./download-pdf";
@@ -184,5 +188,59 @@ describe("board document exports", () => {
       fixture.doc.documentElement,
       expect.not.objectContaining({ x: 4080, y: 4030 }),
     );
+  });
+
+  it("copies placeholder text styles into the rasterized preview clone", async () => {
+    const fixture = createReportedBoardFixture();
+    const input = fixture.doc.createElement("input");
+    input.placeholder = "Search movies";
+    input.style.fontFamily = "TinyFont";
+    input.style.fontSize = "1px";
+    fixture.doc.body.append(input);
+
+    const placeholderProperties: Record<string, string> = {
+      color: "rgb(148, 163, 184)",
+      "font-family": '"PlaceholderFont"',
+      "font-size": "14px",
+      "font-style": "italic",
+      "font-weight": "600",
+      "line-height": "20px",
+    };
+    const placeholderStyle = {
+      getPropertyValue: (property: string) =>
+        placeholderProperties[property] ?? "",
+    } as CSSStyleDeclaration;
+    const view = fixture.doc.defaultView!;
+    const getComputedStyle = view.getComputedStyle.bind(view);
+    const getComputedStyleSpy = vi
+      .spyOn(view, "getComputedStyle")
+      .mockImplementation(((element, pseudoElement) => {
+        if (element === input && pseudoElement === "::placeholder") {
+          return placeholderStyle;
+        }
+        return getComputedStyle(element, pseudoElement);
+      }) as typeof view.getComputedStyle);
+
+    try {
+      await runRenderPngBlob(renderArgs(fixture), { scope: "document" });
+      const lastCall =
+        mocks.html2canvas.mock.calls[mocks.html2canvas.mock.calls.length - 1];
+      const options = lastCall?.[1] as unknown as {
+        onclone: (clonedDocument: Document) => void;
+      };
+      const clonedDocument = document.implementation.createHTMLDocument();
+      clonedDocument.documentElement.innerHTML =
+        fixture.doc.documentElement.innerHTML;
+
+      options.onclone(clonedDocument);
+
+      const clonedInput = clonedDocument.querySelector("input")!;
+      expect(clonedInput.style.fontFamily).toBe("PlaceholderFont");
+      expect(clonedInput.style.fontSize).toBe("14px");
+      expect(clonedInput.style.color).toBe("rgb(148, 163, 184)");
+      expect(clonedInput.style.lineHeight).toBe("20px");
+    } finally {
+      getComputedStyleSpy.mockRestore();
+    }
   });
 });

@@ -740,7 +740,7 @@ const enUS = {
     templateSnapshotSummary:
       "{{screens}} screen(s) · {{locks}} locked layer(s) will be preserved",
     saveTemplate: "Save template",
-    templateSaved: "Template saved",
+    templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
     clickToRename: "Click to rename",
     collaborators: "Collaborators",

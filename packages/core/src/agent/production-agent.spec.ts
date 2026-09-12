@@ -3226,6 +3226,64 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual({ type: "done" });
   });
 
+  it("auto-continues when assistant text follows partial action input", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "should not execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit",
+          name: "edit-design",
+        };
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit",
+          text: '{"designId":"design-1",',
+        };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "I will update the template now." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "edit-design": {
+          ...actionEntry({ readOnly: false }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events).not.toContainEqual({ type: "done" });
+  });
+
   it("does NOT checkpoint a zero-byte tool input that stays quiet", async () => {
     // The zero-byte restart tripwire is gone with the rest of the
     // action-preparation machinery. A tool input announced with no bytes yet is
@@ -4191,7 +4249,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps a fresh read-only input id streaming after an abandoned zero-byte id", async () => {
@@ -4268,7 +4329,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps a different tool streaming after an abandoned zero-byte tool", async () => {
@@ -4344,7 +4408,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps assembling a large action input while bytes keep streaming", async () => {
@@ -4412,7 +4479,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("serializes tool calls when a turn includes mutating actions", async () => {

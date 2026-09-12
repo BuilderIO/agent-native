@@ -209,9 +209,7 @@ test("built-in template preserves its dimensions and locks and can be saved agai
     savedTemplateId = savedPayload.id ?? savedPayload.data?.id;
     expect(savedTemplateId).toBeTruthy();
     await expect(
-      page
-        .getByText("Template saved with 2 locked layer(s)", { exact: true })
-        .first(),
+      page.getByText("Template saved to library", { exact: true }).first(),
     ).toBeVisible();
 
     await page.goto(appPath(`/templates?templateId=${savedTemplateId}`), {

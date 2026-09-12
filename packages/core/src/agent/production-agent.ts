@@ -5785,14 +5785,13 @@ export async function runAgentLoop(opts: {
         }
 
         // A provider can close cleanly after streaming only a partial tool
-        // input. Do not treat that as a completed turn or execute guessed args.
-        const hasEmptyAssistantContent =
-          assistantContent === undefined || assistantContent.length === 0;
+        // input. Prose in the terminal frame does not complete that call.
+        const hasCompleteToolCall =
+          streamedAssistantToolCalls.length > 0 ||
+          toolCallErrors.size > 0 ||
+          assistantContent?.some((part) => part.type === "tool-call") === true;
         const hasUnfinishedToolInput =
-          activeToolInputs.size > 0 &&
-          hasEmptyAssistantContent &&
-          streamedAssistantToolCalls.length === 0 &&
-          toolCallErrors.size === 0;
+          activeToolInputs.size > 0 && !hasCompleteToolCall;
         if (hasUnfinishedToolInput) {
           send({ type: "auto_continue", reason: "stream_ended" });
           return usage;

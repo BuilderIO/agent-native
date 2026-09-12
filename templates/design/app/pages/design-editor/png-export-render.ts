@@ -9,7 +9,10 @@ import {
   waitForExportReady,
 } from "./export-capture";
 import type { ExportCropRect } from "./export-capture";
-import { mirrorPreviewWebFonts } from "./export-font-mirror";
+import {
+  getHtml2CanvasPlaceholderStyle,
+  mirrorPreviewWebFonts,
+} from "./export-font-mirror";
 import { isScreenRootElementInfo } from "./selection-state";
 
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
@@ -31,6 +34,20 @@ const HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES = [
   "background-image",
   "border-image-source",
   "list-style-image",
+] as const;
+const HTML2CANVAS_PLACEHOLDER_TEXT_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-variant",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-align",
+  "text-indent",
+  "text-transform",
+  "word-spacing",
 ] as const;
 
 export function blurActiveDesignEditableTarget() {
@@ -148,6 +165,24 @@ function sanitizeHtml2CanvasClone(
       const value = computed.getPropertyValue(property);
       if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
       clonedStyle.setProperty(property, "none", "important");
+    }
+
+    // html2canvas paints a placeholder as the input value, using the input's
+    // styles instead of the styles attached to ::placeholder.
+    const placeholderStyle = getHtml2CanvasPlaceholderStyle(
+      sourceElement,
+      sourceView,
+    );
+    if (placeholderStyle) {
+      for (const property of HTML2CANVAS_PLACEHOLDER_TEXT_PROPERTIES) {
+        const value = placeholderStyle.getPropertyValue(property);
+        if (!value) continue;
+        clonedStyle.setProperty(
+          property,
+          property === "color" ? normalizeHtml2CanvasColor(value) : value,
+          "important",
+        );
+      }
     }
   });
 }
