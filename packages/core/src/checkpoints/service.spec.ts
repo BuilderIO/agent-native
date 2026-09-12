@@ -252,6 +252,68 @@ describe("checkpoint service", () => {
     ).not.toBe(head);
   });
 
+  it("restores the original index when the HEAD compare-and-swap fails", () => {
+    const cwd = createTempRepo();
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "before\n");
+    createCheckpoint(cwd, "Initial checkpoint");
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "after\n");
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "an-git-wrapper-"));
+    tmpDirs.push(bin);
+    const realGit = execFileSync("which", ["git"], {
+      encoding: "utf-8",
+    }).trim();
+    const wrapper = path.join(bin, "git");
+    fs.writeFileSync(
+      wrapper,
+      `#!/bin/sh
+if [ "$1" = "update-ref" ] && [ "$2" = "HEAD" ]; then
+  old="$4"
+  tree=$("$AGENT_NATIVE_REAL_GIT" rev-parse "$old^{tree}") || exit $?
+  other=$(printf other | "$AGENT_NATIVE_REAL_GIT" commit-tree "$tree" -p "$old") || exit $?
+  "$AGENT_NATIVE_REAL_GIT" update-ref HEAD "$other" "$old" || exit $?
+  printf %s "$other" > "$AGENT_NATIVE_OTHER_HEAD"
+fi
+exec "$AGENT_NATIVE_REAL_GIT" "$@"
+`,
+      { mode: 0o755 },
+    );
+    const previous = {
+      path: process.env.PATH,
+      git: process.env.AGENT_NATIVE_REAL_GIT,
+      otherHead: process.env.AGENT_NATIVE_OTHER_HEAD,
+    };
+    const otherHeadPath = path.join(cwd, "other-head.txt");
+    process.env.PATH = `${bin}${path.delimiter}${previous.path ?? ""}`;
+    process.env.AGENT_NATIVE_REAL_GIT = realGit;
+    process.env.AGENT_NATIVE_OTHER_HEAD = otherHeadPath;
+    try {
+      expect(
+        createCheckpoint(cwd, "Agent checkpoint", ["agent.txt"]),
+      ).toBeNull();
+    } finally {
+      process.env.PATH = previous.path;
+      if (previous.git === undefined) delete process.env.AGENT_NATIVE_REAL_GIT;
+      else process.env.AGENT_NATIVE_REAL_GIT = previous.git;
+      if (previous.otherHead === undefined)
+        delete process.env.AGENT_NATIVE_OTHER_HEAD;
+      else process.env.AGENT_NATIVE_OTHER_HEAD = previous.otherHead;
+    }
+
+    expect(
+      execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd,
+        encoding: "utf-8",
+      }).trim(),
+    ).toBe(fs.readFileSync(otherHeadPath, "utf-8"));
+    expect(
+      execFileSync("git", ["diff", "--cached", "--name-only"], {
+        cwd,
+        encoding: "utf-8",
+      }).trim(),
+    ).toBe("");
+    expect(fs.existsSync(path.join(cwd, ".git", "index.lock"))).toBe(false);
+  });
+
   it("rejects an owned path whose content no longer matches the tool result", () => {
     const cwd = createTempRepo();
     fs.writeFileSync(path.join(cwd, "agent.txt"), "before\n");

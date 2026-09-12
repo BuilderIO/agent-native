@@ -143,6 +143,7 @@ export function createCheckpoint(
           path.join(path.dirname(indexPath), "agent-native-checkpoint-index-"),
         );
         const isolatedIndexPath = path.join(indexDir, "index");
+        const originalIndexPath = path.join(indexDir, "original-index");
         const indexLockPath = `${indexPath}.lock`;
         let indexLocked = false;
         try {
@@ -156,12 +157,14 @@ export function createCheckpoint(
             timeout: TIMEOUT,
             env: isolatedEnv,
           });
+          const hadIndex = fs.existsSync(indexPath);
           fs.copyFileSync(
-            fs.existsSync(indexPath) ? indexPath : isolatedIndexPath,
+            hadIndex ? indexPath : isolatedIndexPath,
             indexLockPath,
             fs.constants.COPYFILE_EXCL,
           );
           indexLocked = true;
+          fs.copyFileSync(indexLockPath, originalIndexPath);
           const lockedIndexEnv = { ...env, GIT_INDEX_FILE: indexLockPath };
           let head: string | null = null;
           try {
@@ -255,18 +258,43 @@ export function createCheckpoint(
           });
           // Publish the index first so an interruption leaves recoverable staged
           // changes against the old HEAD, never a new HEAD with the old index.
+          const preparedIndexHash = createHash("sha256")
+            .update(fs.readFileSync(indexLockPath))
+            .digest("hex");
           fs.renameSync(indexLockPath, indexPath);
           indexLocked = false;
-          execFileSync(
-            "git",
-            ["update-ref", "HEAD", sha, head ?? "0".repeat(40)],
-            {
-              cwd,
-              stdio: "pipe",
-              timeout: TIMEOUT,
-              env,
-            },
-          );
+          try {
+            execFileSync(
+              "git",
+              ["update-ref", "HEAD", sha, head ?? "0".repeat(40)],
+              {
+                cwd,
+                stdio: "pipe",
+                timeout: TIMEOUT,
+                env,
+              },
+            );
+          } catch (error) {
+            fs.copyFileSync(
+              originalIndexPath,
+              indexLockPath,
+              fs.constants.COPYFILE_EXCL,
+            );
+            indexLocked = true;
+            const publishedIndexHash = createHash("sha256")
+              .update(fs.readFileSync(indexPath))
+              .digest("hex");
+            if (publishedIndexHash === preparedIndexHash) {
+              if (hadIndex) {
+                fs.renameSync(indexLockPath, indexPath);
+              } else {
+                fs.rmSync(indexPath);
+                fs.rmSync(indexLockPath);
+              }
+              indexLocked = false;
+            }
+            throw error;
+          }
           return sha || null;
         } finally {
           if (indexLocked) fs.rmSync(indexLockPath, { force: true });
