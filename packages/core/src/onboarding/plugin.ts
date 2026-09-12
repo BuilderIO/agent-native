@@ -159,6 +159,20 @@ function allRequiredComplete(statuses: OnboardingStepStatus[]): boolean {
   return statuses.filter((s) => s.required).every((s) => s.complete);
 }
 
+async function readDismissedFlag(sessionId: string): Promise<boolean> {
+  // The dismissed flag is optional UX state; a transient DB failure reading it
+  // must not take down a read whose steps and profile are still usable (the
+  // pre-summary client already assumed "not dismissed" when this read
+  // failed). A credential-store outage is not transient, so it still throws.
+  try {
+    const value = await appStateGet(sessionId, DISMISSED_KEY);
+    return !!(value && (value as { dismissed?: boolean }).dismissed);
+  } catch (error) {
+    if (error instanceof CredentialStoreUnavailableError) throw error;
+    return false;
+  }
+}
+
 export function createOnboardingPlugin(
   options: OnboardingPluginOptions = {},
 ): NitroPluginDef {
@@ -323,13 +337,10 @@ export function createOnboardingPlugin(
         const query = getQuery(event) as Record<string, unknown>;
         const preview = query.preview === "1" || query.preview === 1;
         return withOnboardingRequestContext(context, async () => {
-          const [steps, value] = await Promise.all([
+          const [steps, dismissed] = await Promise.all([
             serializeSteps(context, { preview }),
-            appStateGet(context.sessionId, DISMISSED_KEY),
+            readDismissedFlag(context.sessionId),
           ]);
-          const dismissed = !!(
-            value && (value as { dismissed?: boolean }).dismissed
-          );
           return {
             steps,
             dismissed,
