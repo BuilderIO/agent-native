@@ -53,6 +53,44 @@ describe("agent checkpoint path provenance", () => {
       ),
     ).toEqual([]);
   });
+
+  it("normalizes Windows-style tool paths", () => {
+    expect(
+      resolveAgentCheckpointPaths(
+        "/workspace",
+        ["src/agent.ts"],
+        [
+          {
+            event: {
+              type: "tool_done",
+              tool: "write",
+              input: { path: "src\\agent.ts" },
+              result: "ok",
+            },
+          },
+        ],
+      ),
+    ).toEqual(["src/agent.ts"]);
+  });
+
+  it("ignores paths reported by read-only tools", () => {
+    expect(
+      resolveAgentCheckpointPaths(
+        "/workspace",
+        ["src/agent.ts"],
+        [
+          {
+            event: {
+              type: "tool_done",
+              tool: "read-file",
+              input: { path: "src/agent.ts" },
+              result: "contents",
+            },
+          },
+        ],
+      ),
+    ).toEqual([]);
+  });
 });
 
 function createSharedThreadEvent(

@@ -1207,7 +1207,7 @@ export async function tryClaimRunSlot(
 
     if (replayCompletedTurn) {
       const latest = await tx.execute({
-        sql: `SELECT id, status,
+        sql: `SELECT id,
                      EXISTS (
                        SELECT 1 FROM agent_run_events terminal_events
                        WHERE terminal_events.run_id = agent_runs.id
@@ -1231,13 +1231,9 @@ export async function tryClaimRunSlot(
         ],
       });
       const latestRun = latest.rows[0] as
-        | { id?: string; status?: string; has_terminal_event?: boolean }
+        | { id?: string; has_terminal_event?: boolean }
         | undefined;
-      if (
-        latestRun?.id &&
-        (latestRun.status === "completed" ||
-          latestRun.has_terminal_event === true)
-      ) {
+      if (latestRun?.id && latestRun.has_terminal_event === true) {
         return {
           claimed: false,
           activeRunId: null,

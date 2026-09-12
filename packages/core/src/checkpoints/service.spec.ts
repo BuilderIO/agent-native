@@ -163,6 +163,18 @@ describe("checkpoint service", () => {
     expect(getUncommittedStatus(cwd)).toContain("agent.txt");
   });
 
+  it("skips a checkpoint immediately when the checkout lock is held", () => {
+    const cwd = createTempRepo();
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "before\n");
+    createCheckpoint(cwd, "Initial checkpoint");
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "after\n");
+    fs.mkdirSync(path.join(cwd, ".git", "agent-native-checkpoint.lock"));
+
+    const startedAt = Date.now();
+    expect(createCheckpoint(cwd, "Contended checkpoint")).toBeNull();
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
   it("returns false/null outside a git repo instead of throwing", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-not-git-"));
     tmpDirs.push(cwd);

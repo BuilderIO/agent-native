@@ -4,8 +4,6 @@ import path from "node:path";
 
 const TIMEOUT = 10_000;
 const LOCK_STALE_MS = 60_000;
-const LOCK_RETRY_MS = 25;
-const lockWaiter = new Int32Array(new SharedArrayBuffer(4));
 
 const checkpointEnv = () => ({
   ...process.env,
@@ -27,7 +25,6 @@ function withCheckpointLock<T>(cwd: string, work: () => T): T | null {
     path.dirname(path.resolve(cwd, indexPath)),
     "agent-native-checkpoint.lock",
   );
-  const deadline = Date.now() + TIMEOUT;
   while (true) {
     try {
       fs.mkdirSync(lockPath);
@@ -43,8 +40,7 @@ function withCheckpointLock<T>(cwd: string, work: () => T): T | null {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw error;
       }
-      if (Date.now() >= deadline) return null;
-      Atomics.wait(lockWaiter, 0, 0, LOCK_RETRY_MS);
+      return null;
     }
   }
   try {

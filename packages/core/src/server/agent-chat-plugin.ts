@@ -786,22 +786,22 @@ export function resolveAgentCheckpointPaths(
       if (
         event.type !== "tool_done" ||
         event.isError === true ||
+        (event.tool !== "edit" && event.tool !== "write") ||
         typeof event.input?.path !== "string"
       ) {
         return [];
       }
-      const relative = nodePath.relative(
-        cwd,
-        nodePath.resolve(cwd, event.input.path),
-      );
-      return relative &&
-        relative !== ".." &&
-        !relative.startsWith(`..${nodePath.sep}`)
+      const relative = nodePath
+        .relative(cwd, nodePath.resolve(cwd, event.input.path))
+        .replaceAll("\\", "/");
+      return relative && relative !== ".." && !relative.startsWith("../")
         ? [relative]
         : [];
     }),
   );
-  return changedPaths.every((file) => reportedPaths.has(file))
+  return changedPaths.every((file) =>
+    reportedPaths.has(file.replaceAll("\\", "/")),
+  )
     ? [...changedPaths]
     : [];
 }

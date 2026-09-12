@@ -15,7 +15,6 @@ let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let completedTurnRows: Array<{
   id: string;
-  status?: string;
   has_terminal_event?: boolean;
 }> = [];
 let runStatusRows: Array<{ status: string }> = [];
@@ -70,13 +69,12 @@ const mockDb: any = {
     // "SELECT id FROM agent_runs ... status = 'running'". Matches both the
     // livenessBasisSql CASE expression and any legacy heartbeat-only form.
     if (
-      /SELECT id, status,\s*EXISTS \(/i.test(rawSql) &&
+      /SELECT id,\s*EXISTS \(/i.test(rawSql) &&
       /WHERE thread_id = \? AND turn_id = \?/i.test(rawSql)
     ) {
       return {
         rows: completedTurnRows.map((row) => ({
-          status: "completed",
-          has_terminal_event: false,
+          has_terminal_event: true,
           ...row,
         })),
         rowsAffected: 0,
@@ -1042,10 +1040,22 @@ describe("run store", () => {
     });
   });
 
+  it("tryClaimRunSlot does not replay a completed continuation chunk", async () => {
+    completedTurnRows = [{ id: "run-continuation", has_terminal_event: false }];
+
+    await expect(
+      tryClaimRunSlot("thread-continuation", "run-retry", undefined, {
+        turnId: "turn-continuation",
+        replayCompletedTurn: true,
+      }),
+    ).resolves.toEqual({
+      claimed: true,
+      activeRunId: null,
+    });
+  });
+
   it("tryClaimRunSlot replays a terminal run before its completion status lands", async () => {
-    completedTurnRows = [
-      { id: "run-terminal", status: "running", has_terminal_event: true },
-    ];
+    completedTurnRows = [{ id: "run-terminal", has_terminal_event: true }];
 
     await expect(
       tryClaimRunSlot("thread-terminal", "run-retry", undefined, {
