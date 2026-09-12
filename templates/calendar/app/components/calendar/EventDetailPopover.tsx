@@ -101,6 +101,11 @@ import {
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
 import {
+  applyEndTimeChange,
+  eventDurationMinutes,
+  shiftEndForStartChange,
+} from "@/lib/event-time-range";
+import {
   eventPopoverDivider,
   eventPopoverHeader,
   eventPopoverHeaderButton,
@@ -322,23 +327,6 @@ interface TimeEditValues {
   startTime: string;
   endTime: string;
   timezone: string;
-}
-
-function addMinutesToTimeValue(
-  date: string,
-  time: string,
-  minutes: number,
-): { date: string; time: string } {
-  const [hour, minute] = time.split(":").map(Number);
-  const total = (hour || 0) * 60 + (minute || 0) + minutes;
-  const dayOffset = Math.floor(total / (24 * 60));
-  const minuteOfDay = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
-  const nextDate = new Date(`${date}T00:00:00`);
-  nextDate.setDate(nextDate.getDate() + dayOffset);
-  return {
-    date: format(nextDate, "yyyy-MM-dd"),
-    time: `${String(Math.floor(minuteOfDay / 60)).padStart(2, "0")}:${String(minuteOfDay % 60).padStart(2, "0")}`,
-  };
 }
 
 function mergeAttendeesForPrompt(
@@ -1318,43 +1306,26 @@ export function EventDetailPopover({
 
   const handleInlineTimeChange = useCallback(
     (field: "startTime" | "endTime", nextValue: string) => {
-      let nextDate = editDate;
-      let nextEndDate = editEndDate;
-      let nextStartTime = editStartTime;
-      let nextEndTime = editEndTime;
+      const current = {
+        date: editDate,
+        endDate: editEndDate,
+        startTime: editStartTime,
+        endTime: editEndTime,
+      };
+      const next =
+        field === "startTime"
+          ? shiftEndForStartChange(current, nextValue)
+          : applyEndTimeChange(current, nextValue);
 
-      if (field === "startTime") {
-        nextStartTime = nextValue;
-        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
-          const duration = Math.max(
-            15,
-            differenceInMinutes(parseISO(event.end), parseISO(event.start)),
-          );
-          const nextEnd = addMinutesToTimeValue(
-            nextDate,
-            nextStartTime,
-            duration,
-          );
-          nextEndDate = nextEnd.date;
-          nextEndTime = nextEnd.time;
-        }
-      } else {
-        nextEndTime = nextValue;
-        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
-          const nextEnd = addMinutesToTimeValue(nextDate, nextEndTime, 24 * 60);
-          nextEndDate = nextEnd.date;
-        }
-      }
-
-      setEditDate(nextDate);
-      setEditEndDate(nextEndDate);
-      setEditStartTime(nextStartTime);
-      setEditEndTime(nextEndTime);
+      setEditDate(next.date);
+      setEditEndDate(next.endDate);
+      setEditStartTime(next.startTime);
+      setEditEndTime(next.endTime);
       saveTimeValues({
-        date: nextDate,
-        endDate: nextEndDate,
-        startTime: nextStartTime,
-        endTime: nextEndTime,
+        date: next.date,
+        endDate: next.endDate,
+        startTime: next.startTime,
+        endTime: next.endTime,
         timezone: editTimezone,
       });
     },
@@ -1364,8 +1335,6 @@ export function EventDetailPopover({
       editStartTime,
       editEndTime,
       editTimezone,
-      event.end,
-      event.start,
       saveTimeValues,
     ],
   );
@@ -1951,17 +1920,23 @@ export function EventDetailPopover({
                         <TimePickerPopover
                           value={editEndTime}
                           label={t("eventForm.end")}
+                          after={
+                            editEndDate === editDate ? editStartTime : undefined
+                          }
                           getOptionMeta={(value) => {
-                            const [hour, minute] = value.split(":").map(Number);
-                            const [startHour, startMinute] = editStartTime
-                              .split(":")
-                              .map(Number);
-                            const duration =
-                              hour * 60 +
-                              minute -
-                              (startHour * 60 + startMinute) +
-                              (editEndDate !== editDate ? 24 * 60 : 0);
-                            if (duration <= 0) return undefined;
+                            const duration = eventDurationMinutes(
+                              applyEndTimeChange(
+                                {
+                                  date: editDate,
+                                  endDate: editEndDate,
+                                  startTime: editStartTime,
+                                  endTime: editEndTime,
+                                },
+                                value,
+                              ),
+                            );
+                            if (duration === null || duration <= 0)
+                              return undefined;
                             if (duration < 60) return `${duration}min`;
                             const hours = Math.floor(duration / 60);
                             const minutes = duration % 60;
