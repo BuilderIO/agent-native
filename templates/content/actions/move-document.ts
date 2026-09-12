@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess, type Visibility } from "@agent-native/core/sharing";
+import type { Visibility } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -9,6 +9,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -82,7 +83,11 @@ async function preflightBlockDatabaseOwnershipClearance({
     return null;
   }
 
-  await assertAccess("document", database.ownerDocumentId, "editor");
+  await assertDocumentMutationAccess(
+    database.ownerDocumentId,
+    "editor",
+    "ownerDocumentId",
+  );
   return database.id;
 }
 
@@ -196,7 +201,9 @@ export default defineAction({
       .string()
       .nullable()
       .optional()
-      .describe("New parent document ID, or null to move to the root"),
+      .describe(
+        "New parent document ID, or null to move to the root. Use an id from a prior action result or <current-screen>; to file a page under a page that does not exist yet, create that parent first and use the returned id.",
+      ),
     position: z.coerce
       .number()
       .int()
@@ -213,7 +220,7 @@ export default defineAction({
       throw new Error("A document cannot be moved under itself");
     }
 
-    const access = await assertAccess("document", id, "editor");
+    const access = await assertDocumentMutationAccess(id, "editor", "id");
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
     const db = getDb();
@@ -225,10 +232,10 @@ export default defineAction({
 
     if (args.parentId !== undefined) {
       if (args.parentId) {
-        const parentAccess = await assertAccess(
-          "document",
+        const parentAccess = await assertDocumentMutationAccess(
           args.parentId,
           "editor",
+          "parentId",
         );
         if (parentAccess.resource.ownerEmail !== ownerEmail) {
           throw new Error("Parent document must belong to the same owner");
