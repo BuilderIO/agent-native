@@ -180,7 +180,18 @@ function rfc3986(str: string): string {
 }
 
 function objectUri(cfg: S3Config, key: string): string {
-  return `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
+  // SigV4 signs the request's absolute path, so an endpoint that lives under a
+  // path prefix has to contribute that prefix to the canonical URI. Supabase
+  // Storage exposes its S3 API at `<project>.storage.supabase.co/storage/v1/s3`,
+  // and signing only `/bucket/key` there produces a signature over a different
+  // path than the one requested, which the server rejects with a 403 on every
+  // upload. Plain S3 and R2 endpoints have a "/" pathname, so the prefix is
+  // empty and their canonical URI is unchanged.
+  //
+  // Callers build the request URL from the endpoint's ORIGIN plus this value,
+  // not the full endpoint, or the prefix would appear twice.
+  const prefix = new URL(cfg.endpoint).pathname.replace(/\/+$/, "");
+  return `${prefix}/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
 }
 
 function canonicalQueryString(query: Record<string, string>): string {
@@ -259,7 +270,9 @@ async function signedS3Request(
     `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-  const url = `${cfg.endpoint}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`;
+  // origin, not endpoint: objectUri() already carries the endpoint path prefix.
+  const origin = new URL(cfg.endpoint).origin;
+  const url = `${origin}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`;
   return fetchWithTimeout(
     url,
     {
