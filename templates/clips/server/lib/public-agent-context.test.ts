@@ -6,6 +6,10 @@ const mockGetSession = vi.hoisted(() => vi.fn());
 const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRecordings = vi.hoisted(() => ({ rows: [] as any[] }));
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
+const mockRunWithRequestContext = vi.hoisted(() =>
+  vi.fn(async (_ctx: unknown, fn: () => unknown) => fn()),
+);
 
 vi.mock("@agent-native/core/application-state", () => ({
   appStateGet: (...args: unknown[]) => mockAppStateGet(...args),
@@ -17,6 +21,8 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  runWithRequestContext: (...args: unknown[]) =>
+    mockRunWithRequestContext(...(args as [unknown, () => unknown])),
   signScopedAgentAccessToken: (...args: unknown[]) =>
     mockSignScopedAgentAccessToken(...args),
   verifyScopedAgentAccessToken: (...args: unknown[]) =>
@@ -52,6 +58,10 @@ vi.mock("../db/index.js", () => ({
       createdAt: "cta.createdAt",
     },
   },
+}));
+
+vi.mock("./s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
 }));
 
 vi.mock("./share-password.js", () => ({
@@ -226,6 +236,79 @@ describe("loadRecordingMediaBytes", () => {
     await expect(
       loadRecordingMediaBytes(makeRecording({ videoFormat: "mp4" }) as any),
     ).rejects.toThrow(/too large/i);
+  });
+
+  it("reads provider-owned media through a signed S3 request", async () => {
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "64";
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response(Buffer.from("signed-bytes"), {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const recording = makeRecording({
+      id: "rec-42",
+      ownerEmail: "owner@example.com",
+      organizationId: "org-7",
+      videoFormat: "mp4",
+      videoUrl:
+        "https://acct.r2.cloudflarestorage.com/clips-media/clips/rec-42/video.mp4",
+      editsJson: "{}",
+    });
+    const result = await loadRecordingMediaBytes(recording as any);
+
+    expect(Buffer.from(result.bytes).toString("utf8")).toBe("signed-bytes");
+    expect(result.mimeType).toBe("video/mp4");
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      recording.videoUrl,
+      expect.objectContaining({
+        recordingId: "rec-42",
+        allowLegacyObjectKey: true,
+      }),
+    );
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-7" },
+      expect.any(Function),
+    );
+  });
+
+  it("falls back to an unsigned fetch when the media is not provider-owned", async () => {
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "64";
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response(Buffer.from("cdn-bytes"), {
+        status: 200,
+        headers: { "content-type": "video/webm" },
+      }),
+    );
+
+    const result = await loadRecordingMediaBytes(makeRecording() as any);
+
+    expect(Buffer.from(result.bytes).toString("utf8")).toBe("cdn-bytes");
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to an unsigned fetch when the signed S3 read is not successful", async () => {
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "64";
+    const cancel = vi.fn(async () => undefined);
+    mockFetchS3ObjectByUrl.mockResolvedValue({
+      status: 404,
+      body: { cancel },
+    });
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response(Buffer.from("cdn-bytes"), {
+        status: 200,
+        headers: { "content-type": "video/webm" },
+      }),
+    );
+
+    const result = await loadRecordingMediaBytes(makeRecording() as any);
+
+    expect(Buffer.from(result.bytes).toString("utf8")).toBe("cdn-bytes");
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(1);
   });
 
   it("wraps remote media fetch exceptions as fetch failures", async () => {
