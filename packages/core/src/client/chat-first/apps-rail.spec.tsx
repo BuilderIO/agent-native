@@ -109,7 +109,7 @@ describe("ChatFirstAppsRail", () => {
     ).toBe("true");
   });
 
-  it("keeps app icons in color when no app is selected", () => {
+  it("keeps app icons in color before any surface resolves", () => {
     act(() => {
       root.render(
         <ChatFirstAppsRail
@@ -132,6 +132,100 @@ describe("ChatFirstAppsRail", () => {
         ?.querySelector("[data-icon-inactive]")
         ?.getAttribute("data-icon-inactive"),
     ).toBe("false");
+  });
+
+  it("grays every app icon while a nav surface owns the rail", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[
+            { id: "content", name: "Content" },
+            { id: "analytics", name: "Analytics" },
+          ]}
+          activeTab="search"
+          collapsed
+          onOpenApp={vi.fn()}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options.isInactive}>{app.name}</span>
+          )}
+        />,
+      );
+    });
+
+    const icons = [
+      ...container.querySelectorAll<HTMLElement>("[data-chat-first-app-icon]"),
+    ];
+    expect(icons).toHaveLength(2);
+    for (const icon of icons) {
+      expect(icon.className).toContain("grayscale");
+      expect(
+        icon
+          .querySelector("[data-icon-inactive]")
+          ?.getAttribute("data-icon-inactive"),
+      ).toBe("true");
+      expect(
+        icon.closest("[data-chat-first-app]")?.className.split(" "),
+      ).not.toContain("bg-sidebar-accent");
+    }
+  });
+
+  it("grays every expanded app row while a nav surface owns the rail", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[
+            { id: "content", name: "Content" },
+            { id: "analytics", name: "Analytics" },
+          ]}
+          activeTab="new-chat"
+          onOpenApp={vi.fn()}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options.isInactive}>{app.name}</span>
+          )}
+        />,
+      );
+    });
+
+    const rows = [
+      ...container.querySelectorAll<HTMLElement>("[data-chat-first-app]"),
+    ];
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.className.split(" ")).not.toContain("bg-sidebar-accent");
+      expect(
+        row.querySelector("[data-chat-first-app-icon]")?.className,
+      ).toContain("grayscale");
+    }
+  });
+
+  it("keeps the selected app active when a nav tab is not resolved", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[
+            { id: "content", name: "Content" },
+            { id: "analytics", name: "Analytics" },
+          ]}
+          activeAppId="analytics"
+          collapsed
+          onOpenApp={vi.fn()}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options.isInactive}>{app.name}</span>
+          )}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-app-id="analytics"] [data-chat-first-app-icon]',
+      )?.className,
+    ).not.toContain("grayscale");
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-app-id="content"] [data-chat-first-app-icon]',
+      )?.className,
+    ).toContain("grayscale");
   });
 
   it("shows a collapsed app name immediately on hover", async () => {

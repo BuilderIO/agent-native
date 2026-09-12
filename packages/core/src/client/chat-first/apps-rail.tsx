@@ -29,6 +29,11 @@ import {
   type ChatFirstAppLayoutPreference,
 } from "../chat-first.js";
 import { cn } from "../utils.js";
+import {
+  chatFirstActiveSurface,
+  chatFirstAppIconState,
+  type ChatFirstActiveSurface,
+} from "./active-surface.js";
 import { defaultChatFirstCopy } from "./copy.js";
 import type {
   ChatFirstAppItem,
@@ -67,25 +72,24 @@ function writeChatFirstAppRailShowAll(showAllApps: boolean) {
 
 function ChatFirstRailAppIcon({
   app,
-  activeAppId,
+  surface,
   renderIcon,
 }: {
   app: ChatFirstAppItem;
-  activeAppId?: string;
+  surface: ChatFirstActiveSurface | undefined;
   renderIcon: (
     app: ChatFirstAppItem,
     options?: ChatFirstAppIconRenderOptions,
   ) => ReactNode;
 }) {
-  const isActive = activeAppId !== undefined && activeAppId === app.id;
-  const isInactive = activeAppId !== undefined && !isActive;
+  const state = chatFirstAppIconState(surface, app.id);
 
   return (
     <span
       data-chat-first-app-icon
-      className={cn("transition-[filter]", isInactive && "grayscale")}
+      className={cn("transition-[filter]", state.isInactive && "grayscale")}
     >
-      {renderIcon(app, { isActive, isInactive })}
+      {renderIcon(app, state)}
     </span>
   );
 }
@@ -157,7 +161,7 @@ function AppContextMenuContent({
 function AppRows({
   apps,
   defaultAppIds,
-  activeAppId,
+  surface,
   layout,
   onDragStart,
   onDrop,
@@ -172,7 +176,7 @@ function AppRows({
 }: {
   apps: ChatFirstAppItem[];
   defaultAppIds?: readonly string[];
-  activeAppId?: string;
+  surface: ChatFirstActiveSurface | undefined;
   layout: ChatFirstAppLayoutPreference;
   onDragStart: (id: string) => void;
   onDrop: (id: string) => void;
@@ -201,7 +205,7 @@ function AppRows({
   return (
     <ul className="space-y-1">
       {orderedApps.map((app) => {
-        const active = activeAppId === app.id;
+        const active = chatFirstAppIconState(surface, app.id).isActive;
         const pinned = layout.pinnedIds.includes(app.id);
         const index = orderedApps.indexOf(app);
         return (
@@ -244,7 +248,7 @@ function AppRows({
                 >
                   <ChatFirstRailAppIcon
                     app={app}
-                    activeAppId={activeAppId}
+                    surface={surface}
                     renderIcon={renderIcon}
                   />
                   <span className="truncate">{app.name}</span>
@@ -294,6 +298,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   apps,
   defaultAppIds,
   activeAppId,
+  activeTab,
   loading = false,
   error,
   collapsed = false,
@@ -318,6 +323,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   const [showAllApps, setShowAllApps] = useState(() =>
     readChatFirstAppRailShowAll(),
   );
+  const surface = chatFirstActiveSurface({ activeAppId, activeTab });
 
   useEffect(() => {
     writeChatFirstAppRailShowAll(showAllApps);
@@ -434,7 +440,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
                           data-app-id={app.id}
                           className={cn(
                             "flex size-9 items-center justify-center rounded-md",
-                            activeAppId === app.id
+                            chatFirstAppIconState(surface, app.id).isActive
                               ? "bg-sidebar-accent text-sidebar-accent-foreground"
                               : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                           )}
@@ -443,7 +449,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
                         >
                           <ChatFirstRailAppIcon
                             app={app}
-                            activeAppId={activeAppId}
+                            surface={surface}
                             renderIcon={renderIcon}
                           />
                         </button>
@@ -532,7 +538,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
         <AppRows
           apps={visibleApps}
           defaultAppIds={defaultAppIds}
-          activeAppId={activeAppId}
+          surface={surface}
           layout={layout}
           onDragStart={setDraggedAppId}
           onDrop={reorderApps}
